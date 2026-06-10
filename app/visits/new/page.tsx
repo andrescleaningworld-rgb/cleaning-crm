@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Account = {
@@ -19,7 +19,7 @@ function todayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function NewVisitPage() {
+function NewVisitPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -385,4 +385,18 @@ function NewVisitPage() {
   );
 }
 
-export default NewVisitPage;
+export default function NewVisitPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gray-50 p-6 text-gray-900">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            Loading visit form...
+          </div>
+        </main>
+      }
+    >
+      <NewVisitPageContent />
+    </Suspense>
+  );
+}
