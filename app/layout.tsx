@@ -129,6 +129,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <NavButton href="/subcontractors" label="Subs" />
                   <NavButton href="/sales" label="Sales" />
                   <NavButton href="/reports" label="Reports" />
+                  <NavButton href="/settings" label="Settings" />
                   <NavButton href="/map" label="Map" />
                 </nav>
               </div>

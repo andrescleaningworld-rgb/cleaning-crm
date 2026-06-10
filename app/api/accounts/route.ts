@@ -14,7 +14,7 @@ export async function GET() {
       );
     }
 
-    const response = await fetch(`${SCRIPT_URL}?action=getAccounts`, {
+    const response = await fetch(`${SCRIPT_URL}?action=getAllAccounts`, {
       method: "GET",
       cache: "no-store",
     });
