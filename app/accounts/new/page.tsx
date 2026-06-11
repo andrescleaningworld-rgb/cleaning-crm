@@ -14,6 +14,7 @@ type AccountForm = {
   subcontractor: string;
   status: string;
   accountHealth: string;
+  accountStartDate: string;
   monthlyRevenue: string;
   monthlySubcontractorPay: string;
   contactName: string;
@@ -44,6 +45,7 @@ const emptyForm: AccountForm = {
   subcontractor: "",
   status: "Active",
   accountHealth: "Stable",
+  accountStartDate: "",
   monthlyRevenue: "",
   monthlySubcontractorPay: "",
   contactName: "",
@@ -250,6 +252,37 @@ export default function NewAccountPage() {
                 </select>
               </label>
 
+              <label className="block">
+                <span className="text-sm font-black text-slate-700">
+                  Account Start Date
+                </span>
+                <input
+                  type="date"
+                  value={form.accountStartDate}
+                  onChange={(event) =>
+                    updateField("accountStartDate", event.target.value)
+                  }
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-black text-slate-700">
+                  Account Health
+                </span>
+                <select
+                  value={form.accountHealth}
+                  onChange={(event) =>
+                    updateField("accountHealth", event.target.value)
+                  }
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                >
+                  <option>Stable</option>
+                  <option>Needs Attention</option>
+                  <option>High Risk</option>
+                </select>
+              </label>
+
               <label className="block md:col-span-2">
                 <span className="text-sm font-black text-slate-700">
                   Address
@@ -288,23 +321,6 @@ export default function NewAccountPage() {
                   onChange={(event) => updateField("zip", event.target.value)}
                   className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
                 />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Account Health
-                </span>
-                <select
-                  value={form.accountHealth}
-                  onChange={(event) =>
-                    updateField("accountHealth", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
-                >
-                  <option>Stable</option>
-                  <option>Needs Attention</option>
-                  <option>High Risk</option>
-                </select>
               </label>
             </div>
           </div>

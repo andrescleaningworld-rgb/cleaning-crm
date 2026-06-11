@@ -16,6 +16,7 @@ type Account = {
   subcontractor?: string;
   status?: string;
   accountHealth?: string;
+  accountStartDate?: string;
   monthlyRevenue?: string | number;
   monthlySubcontractorPay?: string | number;
   subcontractorPay?: string | number;
@@ -42,6 +43,11 @@ type StatusFilter =
   | "Over 90 Days"
   | "Other"
   | "All";
+
+type SortOption =
+  | "Account Name"
+  | "Start Date - Newest First"
+  | "Start Date - Oldest First";
 
 function normalizeText(value: unknown) {
   return String(value || "").trim();
@@ -83,6 +89,18 @@ function formatMoney(value: string | number | undefined) {
     currency: "USD",
     maximumFractionDigits: 0,
   });
+}
+
+function getDateTime(value: string | undefined) {
+  if (!value) return 0;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 0;
+  }
+
+  return date.getTime();
 }
 
 function formatDate(value: string | undefined) {
@@ -199,6 +217,7 @@ export default function AccountsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [managerFilter, setManagerFilter] = useState("All");
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
+  const [sortOption, setSortOption] = useState<SortOption>("Account Name");
 
   useEffect(() => {
     async function loadAccounts() {
@@ -266,10 +285,16 @@ export default function AccountsPage() {
     "All",
   ];
 
+  const sortOptions: SortOption[] = [
+    "Account Name",
+    "Start Date - Newest First",
+    "Start Date - Oldest First",
+  ];
+
   const filteredAccounts = useMemo(() => {
     const cleanSearch = searchText.toLowerCase().trim();
 
-    return accounts.filter((account) => {
+    const filtered = accounts.filter((account) => {
       const statusCategory = getStatusCategory(account.status);
 
       const searchableText = [
@@ -282,6 +307,7 @@ export default function AccountsPage() {
         account.subcontractor,
         account.status,
         account.accountHealth,
+        account.accountStartDate,
         account.contactName,
         account.phone,
         account.email,
@@ -311,7 +337,34 @@ export default function AccountsPage() {
         matchesSubcontractor
       );
     });
-  }, [accounts, searchText, statusFilter, managerFilter, subcontractorFilter]);
+
+    const sorted = [...filtered];
+
+    if (sortOption === "Start Date - Newest First") {
+      sorted.sort((a, b) => {
+        return getDateTime(b.accountStartDate) - getDateTime(a.accountStartDate);
+      });
+    } else if (sortOption === "Start Date - Oldest First") {
+      sorted.sort((a, b) => {
+        return getDateTime(a.accountStartDate) - getDateTime(b.accountStartDate);
+      });
+    } else {
+      sorted.sort((a, b) => {
+        return normalizeText(a.accountName).localeCompare(
+          normalizeText(b.accountName)
+        );
+      });
+    }
+
+    return sorted;
+  }, [
+    accounts,
+    searchText,
+    statusFilter,
+    managerFilter,
+    subcontractorFilter,
+    sortOption,
+  ]);
 
   const activeAccounts = accounts.filter(
     (account) => getStatusCategory(account.status) === "Active"
@@ -363,8 +416,8 @@ export default function AccountsPage() {
             </h1>
 
             <p className="mt-2 max-w-3xl text-sm text-slate-500">
-              View accounts by status, manager, subcontractor, revenue, and
-              account details. The default view shows active accounts.
+              View accounts by status, manager, subcontractor, revenue, start
+              date, and account details. The default view shows active accounts.
             </p>
           </div>
 
@@ -441,12 +494,12 @@ export default function AccountsPage() {
           </p>
         </div>
 
-        <div className="mt-6 grid gap-3 lg:grid-cols-4">
+        <div className="mt-6 grid gap-3 lg:grid-cols-5">
           <input
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             placeholder="Search accounts..."
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500 lg:col-span-1"
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
           />
 
           <select
@@ -486,6 +539,20 @@ export default function AccountsPage() {
               </option>
             ))}
           </select>
+
+          <select
+            value={sortOption}
+            onChange={(event) =>
+              setSortOption(event.target.value as SortOption)
+            }
+            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+          >
+            {sortOptions.map((sort) => (
+              <option key={sort} value={sort}>
+                Sort: {sort}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
@@ -495,7 +562,7 @@ export default function AccountsPage() {
             <div className="col-span-2">Subcontractor</div>
             <div className="col-span-1">Status</div>
             <div className="col-span-1">Health</div>
-            <div className="col-span-1">Cancelled</div>
+            <div className="col-span-1">Start Date</div>
             <div className="col-span-2 text-right">Revenue</div>
           </div>
 
@@ -562,7 +629,7 @@ export default function AccountsPage() {
                     </div>
 
                     <div className="col-span-1 text-xs font-bold text-slate-600">
-                      {formatDate(account.cancelledDate) || "-"}
+                      {formatDate(account.accountStartDate) || "-"}
                     </div>
 
                     <div className="col-span-2 text-right font-black text-slate-950">
