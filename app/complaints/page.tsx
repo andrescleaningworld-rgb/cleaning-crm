@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Complaint = {
+  rowNumber?: number | string;
   id?: string;
   date?: string;
   accountName?: string;
@@ -47,6 +48,15 @@ function formatDate(value: any): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isClosedComplaint(status: any): boolean {
+  const value = clean(status).toLowerCase();
+  return value.includes("closed") || value.includes("resolved");
 }
 
 function getStatusClass(status: any): string {
@@ -110,8 +120,14 @@ function getValidityClass(validity: any): string {
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingClose, setSavingClose] = useState(false);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [search, setSearch] = useState("");
+
+  const [selectedComplaint, setSelectedComplaint] =
+    useState<Complaint | null>(null);
+  const [resolutionNote, setResolutionNote] = useState("");
 
   async function loadComplaints() {
     try {
@@ -170,6 +186,82 @@ export default function ComplaintsPage() {
     loadComplaints();
   }, []);
 
+  function openCloseModal(complaint: Complaint) {
+    setSelectedComplaint(complaint);
+    setResolutionNote(clean(complaint.resolution));
+    setError("");
+    setSuccessMessage("");
+  }
+
+  function closeCloseModal() {
+    setSelectedComplaint(null);
+    setResolutionNote("");
+    setSavingClose(false);
+  }
+
+  async function handleCloseComplaint() {
+    if (!selectedComplaint) return;
+
+    if (!clean(resolutionNote)) {
+      setError("Please enter a resolution note before closing the complaint.");
+      return;
+    }
+
+    try {
+      setSavingClose(true);
+      setError("");
+      setSuccessMessage("");
+
+      const response = await fetch("/api/complaints", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "closeComplaint",
+          complaint: {
+            rowNumber: selectedComplaint.rowNumber || "",
+            id: selectedComplaint.id || "",
+            accountName: selectedComplaint.accountName || "",
+            date: selectedComplaint.date || "",
+            description: selectedComplaint.description || "",
+            issue: selectedComplaint.description || "",
+            status: "Closed",
+            resolution: resolutionNote,
+            resolutionNotes: resolutionNote,
+            followUpDate: todayIsoDate(),
+            closedDate: todayIsoDate(),
+            notes: selectedComplaint.notes || "",
+          },
+        }),
+      });
+
+      const text = await response.text();
+
+      let data: any;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Complaints API did not return valid JSON while closing.");
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Failed to close complaint.");
+      }
+
+      setSuccessMessage("Complaint closed successfully.");
+      closeCloseModal();
+      await loadComplaints();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unknown error closing complaint."
+      );
+    } finally {
+      setSavingClose(false);
+    }
+  }
+
   const filteredComplaints = useMemo(() => {
     const term = search.toLowerCase().trim();
 
@@ -205,8 +297,7 @@ export default function ComplaintsPage() {
 
   const resolvedComplaints = useMemo(() => {
     return complaints.filter((complaint) => {
-      const value = clean(complaint.status).toLowerCase();
-      return value.includes("resolved") || value.includes("closed");
+      return isClosedComplaint(complaint.status);
     }).length;
   }, [complaints]);
 
@@ -223,7 +314,7 @@ export default function ComplaintsPage() {
   }, [complaints]);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6 text-gray-900">
+    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 md:p-6">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-red-600">
@@ -236,17 +327,17 @@ export default function ComplaintsPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           <Link
             href="/complaints/new"
-            className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white shadow-sm hover:bg-red-700"
+            className="rounded-xl bg-red-600 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-red-700"
           >
             + Add Complaint
           </Link>
 
           <button
             onClick={() => window.print()}
-            className="rounded-xl bg-gray-900 px-4 py-2 font-bold text-white shadow-sm"
+            className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white shadow-sm"
           >
             Print
           </button>
@@ -259,36 +350,42 @@ export default function ComplaintsPage() {
         </div>
       ) : null}
 
-      <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-5">
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      {successMessage ? (
+        <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 p-5 font-bold text-green-700">
+          {successMessage}
+        </div>
+      ) : null}
+
+      <section className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Total Complaints
+            Total
           </p>
           <h2 className="mt-2 text-3xl font-bold">{complaints.length}</h2>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
             Open
           </p>
           <h2 className="mt-2 text-3xl font-bold">{openComplaints}</h2>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Resolved
+            Closed
           </p>
           <h2 className="mt-2 text-3xl font-bold">{resolvedComplaints}</h2>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Needs Review
+            Review
           </p>
           <h2 className="mt-2 text-3xl font-bold">{needsReviewComplaints}</h2>
         </div>
 
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:col-span-1 md:p-5">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
             Not Valid
           </p>
@@ -304,19 +401,18 @@ export default function ComplaintsPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by account, issue, status, validity, priority, assigned person..."
+            placeholder="Search by account, issue, status, validity, priority..."
             className="w-full rounded-xl border border-gray-300 px-4 py-3"
           />
         </label>
       </section>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-start justify-between gap-4">
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <h2 className="text-xl font-bold">Complaint List</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Use + Add Complaint to enter new complaints through the correct
-              complaint form.
+              Open complaints can now be closed with a resolution note.
             </p>
           </div>
 
@@ -338,100 +434,260 @@ export default function ComplaintsPage() {
             </Link>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                  <th className="p-3">Date</th>
-                  <th className="p-3">Account</th>
-                  <th className="p-3">Issue</th>
-                  <th className="p-3">Priority</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Validity</th>
-                  <th className="p-3">Assigned To</th>
-                  <th className="p-3">Follow-Up</th>
-                  <th className="p-3">Notes</th>
-                </tr>
-              </thead>
+          <>
+            <div className="space-y-4 md:hidden">
+              {filteredComplaints.map((complaint, index) => (
+                <div
+                  key={`${complaint.id || "mobile-complaint"}-${index}`}
+                  className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                        {formatDate(complaint.date)}
+                      </p>
+                      <h3 className="mt-1 font-bold">
+                        {clean(complaint.accountName) ? (
+                          <Link
+                            href={`/accounts/${slugify(complaint.accountName)}`}
+                            className="text-blue-700 hover:underline"
+                          >
+                            {clean(complaint.accountName)}
+                          </Link>
+                        ) : (
+                          "No account"
+                        )}
+                      </h3>
+                    </div>
 
-              <tbody>
-                {filteredComplaints.map((complaint, index) => (
-                  <tr
-                    key={`${complaint.id || "complaint"}-${index}`}
-                    className="border-b last:border-b-0"
-                  >
-                    <td className="whitespace-nowrap p-3">
-                      {formatDate(complaint.date)}
-                    </td>
+                    <span className={getStatusClass(complaint.status)}>
+                      {clean(complaint.status) || "Open"}
+                    </span>
+                  </div>
 
-                    <td className="p-3 font-bold">
-                      {clean(complaint.accountName) ? (
-                        <Link
-                          href={`/accounts/${slugify(complaint.accountName)}`}
-                          className="text-blue-700 hover:underline"
-                        >
-                          {clean(complaint.accountName)}
-                        </Link>
-                      ) : (
-                        "-"
+                  <div className="mb-3">
+                    <p className="font-semibold">
+                      {clean(complaint.complaintType) || "Complaint"}
+                    </p>
+                    <p className="mt-1 text-sm text-gray-600">
+                      {clean(complaint.description) || "-"}
+                    </p>
+                  </div>
+
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <span
+                      className={getSeverityClass(
+                        complaint.severity || complaint.priority
                       )}
-                    </td>
+                    >
+                      {clean(complaint.severity || complaint.priority) ||
+                        "Priority"}
+                    </span>
 
-                    <td className="min-w-[280px] p-3">
-                      <div className="font-semibold">
-                        {clean(complaint.complaintType) || "Complaint"}
-                      </div>
-                      <div className="mt-1 text-gray-600">
-                        {clean(complaint.description) || "-"}
-                      </div>
-                    </td>
+                    <span
+                      className={getValidityClass(complaint.complaintValidity)}
+                    >
+                      {clean(complaint.complaintValidity) || "Needs Review"}
+                    </span>
+                  </div>
 
-                    <td className="p-3">
-                      <span
-                        className={getSeverityClass(
-                          complaint.severity || complaint.priority
-                        )}
-                      >
-                        {clean(complaint.severity || complaint.priority) || "-"}
-                      </span>
-                    </td>
-
-                    <td className="p-3">
-                      <span className={getStatusClass(complaint.status)}>
-                        {clean(complaint.status) || "-"}
-                      </span>
-                    </td>
-
-                    <td className="p-3">
-                      <span
-                        className={getValidityClass(
-                          complaint.complaintValidity
-                        )}
-                      >
-                        {clean(complaint.complaintValidity) || "Needs Review"}
-                      </span>
-                    </td>
-
-                    <td className="p-3">
-                      {clean(complaint.manager) || clean(complaint.subcontractor) || "-"}
-                    </td>
-
-                    <td className="whitespace-nowrap p-3">
-                      {formatDate(complaint.followUpDate)}
-                    </td>
-
-                    <td className="min-w-[260px] p-3">
-                      {clean(complaint.notes) ||
-                        clean(complaint.resolution) ||
+                  <div className="mb-3 text-sm text-gray-600">
+                    <p>
+                      <strong>Assigned:</strong>{" "}
+                      {clean(complaint.manager) ||
+                        clean(complaint.subcontractor) ||
                         "-"}
-                    </td>
+                    </p>
+                    <p>
+                      <strong>Follow-Up:</strong>{" "}
+                      {formatDate(complaint.followUpDate)}
+                    </p>
+                    <p>
+                      <strong>Resolution:</strong>{" "}
+                      {clean(complaint.resolution) || "-"}
+                    </p>
+                  </div>
+
+                  {!isClosedComplaint(complaint.status) ? (
+                    <button
+                      onClick={() => openCloseModal(complaint)}
+                      className="w-full rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-700"
+                    >
+                      Close Complaint
+                    </button>
+                  ) : (
+                    <div className="rounded-xl bg-green-50 px-4 py-3 text-center text-sm font-bold text-green-700">
+                      Complaint Closed
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Account</th>
+                    <th className="p-3">Issue</th>
+                    <th className="p-3">Priority</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Validity</th>
+                    <th className="p-3">Assigned To</th>
+                    <th className="p-3">Follow-Up</th>
+                    <th className="p-3">Notes</th>
+                    <th className="p-3">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+
+                <tbody>
+                  {filteredComplaints.map((complaint, index) => (
+                    <tr
+                      key={`${complaint.id || "complaint"}-${index}`}
+                      className="border-b last:border-b-0"
+                    >
+                      <td className="whitespace-nowrap p-3">
+                        {formatDate(complaint.date)}
+                      </td>
+
+                      <td className="p-3 font-bold">
+                        {clean(complaint.accountName) ? (
+                          <Link
+                            href={`/accounts/${slugify(complaint.accountName)}`}
+                            className="text-blue-700 hover:underline"
+                          >
+                            {clean(complaint.accountName)}
+                          </Link>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+
+                      <td className="min-w-[280px] p-3">
+                        <div className="font-semibold">
+                          {clean(complaint.complaintType) || "Complaint"}
+                        </div>
+                        <div className="mt-1 text-gray-600">
+                          {clean(complaint.description) || "-"}
+                        </div>
+                      </td>
+
+                      <td className="p-3">
+                        <span
+                          className={getSeverityClass(
+                            complaint.severity || complaint.priority
+                          )}
+                        >
+                          {clean(complaint.severity || complaint.priority) ||
+                            "-"}
+                        </span>
+                      </td>
+
+                      <td className="p-3">
+                        <span className={getStatusClass(complaint.status)}>
+                          {clean(complaint.status) || "-"}
+                        </span>
+                      </td>
+
+                      <td className="p-3">
+                        <span
+                          className={getValidityClass(
+                            complaint.complaintValidity
+                          )}
+                        >
+                          {clean(complaint.complaintValidity) ||
+                            "Needs Review"}
+                        </span>
+                      </td>
+
+                      <td className="p-3">
+                        {clean(complaint.manager) ||
+                          clean(complaint.subcontractor) ||
+                          "-"}
+                      </td>
+
+                      <td className="whitespace-nowrap p-3">
+                        {formatDate(complaint.followUpDate)}
+                      </td>
+
+                      <td className="min-w-[260px] p-3">
+                        {clean(complaint.notes) ||
+                          clean(complaint.resolution) ||
+                          "-"}
+                      </td>
+
+                      <td className="whitespace-nowrap p-3">
+                        {!isClosedComplaint(complaint.status) ? (
+                          <button
+                            onClick={() => openCloseModal(complaint)}
+                            className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700"
+                          >
+                            Close
+                          </button>
+                        ) : (
+                          <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-bold text-green-700">
+                            Closed
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
+
+      {selectedComplaint ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4">
+              <p className="text-xs font-bold uppercase tracking-widest text-green-600">
+                Close Complaint
+              </p>
+              <h2 className="mt-2 text-2xl font-bold">
+                {clean(selectedComplaint.accountName) || "Complaint"}
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                {clean(selectedComplaint.description) || "No issue description"}
+              </p>
+            </div>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-gray-700">
+                Resolution Note
+              </span>
+              <textarea
+                value={resolutionNote}
+                onChange={(event) => setResolutionNote(event.target.value)}
+                rows={5}
+                placeholder="Example: Spoke with subcontractor, issue corrected, customer satisfied."
+                className="w-full rounded-xl border border-gray-300 px-4 py-3"
+              />
+            </label>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                onClick={closeCloseModal}
+                disabled={savingClose}
+                className="rounded-xl border border-gray-300 px-4 py-3 font-bold text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleCloseComplaint}
+                disabled={savingClose}
+                className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
+              >
+                {savingClose ? "Closing..." : "Close Complaint"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

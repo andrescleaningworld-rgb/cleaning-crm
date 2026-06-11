@@ -80,7 +80,107 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
+    const requestedAction = body.action || "addComplaint";
     const complaint = body.complaint || body;
+
+    const isClosingComplaint =
+      requestedAction === "closeComplaint" ||
+      requestedAction === "updateComplaint" ||
+      requestedAction === "resolveComplaint";
+
+    if (isClosingComplaint) {
+      const payload = {
+        action: "closeComplaint",
+        complaint: {
+          rowNumber: complaint.rowNumber || body.rowNumber || "",
+          id: complaint.id || complaint.complaintId || body.id || "",
+          accountName: complaint.accountName || complaint["Account Name"] || "",
+          date:
+            complaint.date ||
+            complaint.complaintDate ||
+            complaint["Complaint Date"] ||
+            "",
+          description:
+            complaint.description ||
+            complaint.issue ||
+            complaint.Issue ||
+            "",
+          issue:
+            complaint.issue ||
+            complaint.description ||
+            complaint.Issue ||
+            "",
+          status: complaint.status || "Closed",
+          resolution:
+            complaint.resolution ||
+            complaint.resolutionNotes ||
+            complaint.notes ||
+            "",
+          resolutionNotes:
+            complaint.resolutionNotes ||
+            complaint.resolution ||
+            complaint.notes ||
+            "",
+          followUpDate:
+            complaint.followUpDate ||
+            complaint.closedDate ||
+            new Date().toISOString().slice(0, 10),
+          closedDate:
+            complaint.closedDate ||
+            complaint.followUpDate ||
+            new Date().toISOString().slice(0, 10),
+          notes: complaint.notes || "",
+        },
+      };
+
+      const response = await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      });
+
+      const text = await response.text();
+
+      let data: any;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Google Script did not return valid JSON while closing complaint.",
+            sentPayload: payload,
+            rawResponse: text,
+          },
+          { status: 500 }
+        );
+      }
+
+      if (!response.ok || data.success === false) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: data.error || "Failed to close complaint in Google Script.",
+            sentPayload: payload,
+            rawResponse: data,
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        rowNumber: data.rowNumber || payload.complaint.rowNumber || "",
+        status: data.status || "Closed",
+        message: data.message || "Complaint closed successfully.",
+        scriptResponse: data,
+      });
+    }
 
     const payload = {
       action: "addComplaint",
@@ -109,10 +209,20 @@ export async function POST(request: Request) {
           "",
 
         issue: complaint.issue || complaint.Issue || complaint.description || "",
-        description: complaint.description || complaint.issue || complaint.Issue || "",
+        description:
+          complaint.description || complaint.issue || complaint.Issue || "",
 
-        priority: complaint.priority || complaint.Priority || complaint.severity || "Medium",
-        severity: complaint.severity || complaint.priority || complaint.Priority || "Medium",
+        priority:
+          complaint.priority ||
+          complaint.Priority ||
+          complaint.severity ||
+          "Medium",
+
+        severity:
+          complaint.severity ||
+          complaint.priority ||
+          complaint.Priority ||
+          "Medium",
 
         status: complaint.status || complaint.Status || "Open",
 
@@ -168,7 +278,11 @@ export async function POST(request: Request) {
           complaint["Complaint Date"] ||
           "",
         Issue: complaint.issue || complaint.Issue || complaint.description || "",
-        Priority: complaint.priority || complaint.Priority || complaint.severity || "Medium",
+        Priority:
+          complaint.priority ||
+          complaint.Priority ||
+          complaint.severity ||
+          "Medium",
         Status: complaint.status || complaint.Status || "Open",
         "Complaint Validity":
           complaint.complaintValidity ||
@@ -189,8 +303,6 @@ export async function POST(request: Request) {
         Notes: complaint.notes || complaint.Notes || "",
       },
     };
-
-    console.log("Saving complaint payload:", payload);
 
     const response = await fetch(SCRIPT_URL, {
       method: "POST",
@@ -237,7 +349,6 @@ export async function POST(request: Request) {
       id: data.id || "",
       rowNumber: data.rowNumber || "",
       message: data.message || "Complaint saved successfully.",
-      sentPayload: payload,
       scriptResponse: data,
     });
   } catch (error) {

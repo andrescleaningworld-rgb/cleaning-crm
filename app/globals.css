@@ -2,25 +2,280 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+  --cw-blue-dark: #003b7a;
+  --cw-blue: #005bbb;
+  --cw-blue-light: #00a8e8;
+  --cw-border: #dbeafe;
+  --cw-card: rgba(255, 255, 255, 0.78);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
-  background: var(--background);
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  overflow-x: hidden;
+  background: linear-gradient(180deg, #eef7ff 0%, #f8fbff 45%, #ffffff 100%);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+img {
+  max-width: 100%;
+}
+
+.cw-app-shell {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.cw-app-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.cw-header {
+  width: 100%;
+  border-radius: 26px;
+  padding: 22px;
+  margin-bottom: 24px;
+  background: linear-gradient(
+    135deg,
+    var(--cw-blue-dark) 0%,
+    var(--cw-blue) 48%,
+    var(--cw-blue-light) 100%
+  );
+  color: white;
+  box-shadow: 0 14px 34px rgba(0, 59, 122, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.cw-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+
+.cw-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  text-decoration: none;
+  color: white;
+  min-width: 260px;
+}
+
+.cw-logo-box {
+  width: 150px;
+  height: 82px;
+  flex: 0 0 auto;
+  border-radius: 20px;
+  background: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.cw-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cw-brand-text h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.cw-brand-text p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.cw-nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.cw-nav-button {
+  color: white;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 10px 15px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.17);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: transform 0.15s ease, background 0.15s ease;
+  white-space: nowrap;
+}
+
+.cw-nav-button:hover {
+  background: rgba(255, 255, 255, 0.26);
+  transform: translateY(-1px);
+}
+
+.cw-page-card {
+  background: var(--cw-card);
+  border-radius: 24px;
+  padding: 22px;
+  border: 1px solid var(--cw-border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Mobile foundation */
+@media (max-width: 768px) {
+  .cw-app-shell {
+    padding: 10px;
+  }
+
+  .cw-header {
+    border-radius: 20px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .cw-header-inner {
+    gap: 14px;
+  }
+
+  .cw-brand {
+    width: 100%;
+    min-width: 0;
+    gap: 12px;
+  }
+
+  .cw-logo-box {
+    width: 92px;
+    height: 54px;
+    border-radius: 14px;
+    padding: 7px;
+  }
+
+  .cw-brand-text h1 {
+    font-size: 24px;
+  }
+
+  .cw-brand-text p {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .cw-nav {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .cw-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .cw-nav-button {
+    font-size: 13px;
+    padding: 10px 13px;
+    flex: 0 0 auto;
+  }
+
+  .cw-page-card {
+    border-radius: 18px;
+    padding: 10px;
+  }
+
+  main {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  table {
+    min-width: 760px;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font-size: 16px;
+  }
+}
+
+/* Small phone cleanup */
+@media (max-width: 430px) {
+  .cw-brand-text h1 {
+    font-size: 21px;
+  }
+
+  .cw-brand-text p {
+    font-size: 11px;
+  }
+
+  .cw-logo-box {
+    width: 82px;
+    height: 50px;
+  }
+
+  .cw-nav-button {
+    font-size: 12px;
+    padding: 9px 11px;
+  }
+}
+
+/* Print cleanup */
+@media print {
+  .cw-header {
+    display: none;
+  }
+
+  .cw-app-shell {
+    padding: 0;
+  }
+
+  .cw-page-card {
+    box-shadow: none;
+    border: none;
+    padding: 0;
+  }
 }
