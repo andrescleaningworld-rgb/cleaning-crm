@@ -52,7 +52,9 @@ function normalizeLower(value: unknown) {
 }
 
 function getAccountId(account: Account) {
-  return normalizeText(account.accountId || account.id || account.rowNumber || account.accountName);
+  return normalizeText(
+    account.accountId || account.id || account.rowNumber || account.accountName
+  );
 }
 
 function moneyToNumber(value: string | number | undefined) {
@@ -366,11 +368,18 @@ export default function AccountsPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Link
+              href="/accounts/new"
+              className="rounded-2xl bg-blue-700 px-5 py-3 text-center text-sm font-black text-white shadow-sm no-underline hover:bg-blue-800"
+            >
+              + Add Account
+            </Link>
+
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-blue-950"
+              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950"
             >
               Print
             </button>
@@ -427,7 +436,8 @@ export default function AccountsPage() {
             })}
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-500">
-            This number changes when you filter by status, manager, sub, or search.
+            This number changes when you filter by status, manager, sub, or
+            search.
           </p>
         </div>
 
@@ -477,7 +487,6 @@ export default function AccountsPage() {
             ))}
           </select>
         </div>
-
 
         <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
           <div className="grid grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500">

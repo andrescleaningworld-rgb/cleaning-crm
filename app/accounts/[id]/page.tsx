@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 
 type Account = {
   id?: string;
+  accountId?: string;
   rowNumber?: number;
   accountName?: string;
   address?: string;
@@ -18,6 +19,7 @@ type Account = {
   accountHealth?: string;
   monthlyRevenue?: string;
   subcontractorPay?: string;
+  monthlySubcontractorPay?: string;
   grossMargin?: string;
   grossMarginPercent?: string;
   hasKey?: string;
@@ -141,7 +143,7 @@ export default function AccountDetailPage() {
         const accounts: Account[] = data.accounts || data.data || [];
 
         const foundAccount = accounts.find((item) => {
-          const itemId = normalizeValue(item.id);
+          const itemId = normalizeValue(item.accountId || item.id);
           const itemRowNumber = normalizeValue(item.rowNumber);
           const itemName = normalizeValue(item.accountName);
 
@@ -149,7 +151,7 @@ export default function AccountDetailPage() {
             itemId === normalizedUrlValue ||
             itemRowNumber === normalizedUrlValue ||
             itemName === normalizedUrlValue ||
-            String(item.id || "") === decodedAccountIdFromUrl ||
+            String(item.accountId || item.id || "") === decodedAccountIdFromUrl ||
             String(item.rowNumber || "") === decodedAccountIdFromUrl ||
             String(item.accountName || "") === decodedAccountIdFromUrl
           );
@@ -185,12 +187,20 @@ export default function AccountDetailPage() {
   }, [account]);
 
   const monthlyRevenueNumber = moneyToNumber(account?.monthlyRevenue);
-  const subcontractorPayNumber = moneyToNumber(account?.subcontractorPay);
+  const subcontractorPayNumber = moneyToNumber(
+    account?.subcontractorPay || account?.monthlySubcontractorPay
+  );
   const estimatedGrossMargin = monthlyRevenueNumber - subcontractorPayNumber;
 
   const accountNameForUrl = encodeURIComponent(account?.accountName || "");
   const accountIdForUrl = encodeURIComponent(
-    String(account?.id || account?.rowNumber || account?.accountName || rawAccountIdFromUrl)
+    String(
+      account?.accountId ||
+        account?.id ||
+        account?.rowNumber ||
+        account?.accountName ||
+        rawAccountIdFromUrl
+    )
   );
 
   if (loading) {
@@ -269,6 +279,13 @@ export default function AccountDetailPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[380px]">
+              <Link
+                href={`/accounts/${accountIdForUrl}/edit`}
+                className="rounded-2xl bg-yellow-300 px-4 py-3 text-center text-sm font-black text-slate-950 shadow-sm hover:bg-yellow-200"
+              >
+                Edit Account
+              </Link>
+
               <Link
                 href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
                 className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-blue-50"
@@ -363,7 +380,7 @@ export default function AccountDetailPage() {
                   Account ID
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {account.id || account.rowNumber || "N/A"}
+                  {account.accountId || account.id || account.rowNumber || "N/A"}
                 </p>
               </div>
 
@@ -372,7 +389,9 @@ export default function AccountDetailPage() {
                   Subcontractor Pay
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {formatMoney(account.subcontractorPay)}
+                  {formatMoney(
+                    account.subcontractorPay || account.monthlySubcontractorPay
+                  )}
                 </p>
               </div>
 
@@ -430,6 +449,13 @@ export default function AccountDetailPage() {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href={`/accounts/${accountIdForUrl}/edit`}
+              className="rounded-2xl border border-yellow-300 bg-yellow-100 px-4 py-2 text-sm font-black text-slate-900 shadow-sm hover:bg-yellow-200"
+            >
+              Edit Account
+            </Link>
+
             <Link
               href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
               className="rounded-2xl border border-blue-200 bg-white px-4 py-2 text-sm font-black text-blue-900 shadow-sm hover:bg-blue-50"
