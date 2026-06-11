@@ -12,6 +12,7 @@ type ComplaintForm = {
   issue: string;
   priority: string;
   status: string;
+  complaintValidity: string;
   reportedBy: string;
   assignedTo: string;
   lastFollowUp: string;
@@ -105,6 +106,7 @@ const emptyForm: ComplaintForm = {
   issue: "",
   priority: "Medium",
   status: "Open",
+  complaintValidity: "Needs Review",
   reportedBy: "",
   assignedTo: "",
   lastFollowUp: "",
@@ -223,12 +225,32 @@ export default function NewComplaintPage() {
         body: JSON.stringify({
           action: "addComplaint",
           complaint: {
+            accountId: form.accountId,
+            accountName: form.accountName,
+            date: form.complaintDate,
+            complaintDate: form.complaintDate,
+            issue: form.issue,
+            description: form.issue,
+            complaintType: form.issue,
+            priority: form.priority,
+            severity: form.priority,
+            status: form.status,
+            complaintValidity: form.complaintValidity,
+            validity: form.complaintValidity,
+            reportedBy: form.reportedBy,
+            manager: form.assignedTo,
+            assignedTo: form.assignedTo,
+            lastFollowUp: form.lastFollowUp,
+            followUpDate: form.lastFollowUp,
+            notes: form.notes,
+
             "Account ID": form.accountId,
             "Account Name": form.accountName,
             "Complaint Date": form.complaintDate,
             Issue: form.issue,
             Priority: form.priority,
             Status: form.status,
+            "Complaint Validity": form.complaintValidity,
             "Reported By": form.reportedBy,
             "Assigned To": form.assignedTo,
             "Last Follow-Up": form.lastFollowUp,
@@ -398,7 +420,7 @@ export default function NewComplaintPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">
                   Complaint Date
@@ -448,6 +470,25 @@ export default function NewComplaintPage() {
                   <option>Pending</option>
                   <option>Needs Attention</option>
                   <option>Closed</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">
+                  Complaint Validity
+                </label>
+
+                <select
+                  value={form.complaintValidity}
+                  onChange={(event) =>
+                    updateForm("complaintValidity", event.target.value)
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                >
+                  <option>Valid</option>
+                  <option>Not Valid</option>
+                  <option>Subjective</option>
+                  <option>Needs Review</option>
                 </select>
               </div>
             </div>

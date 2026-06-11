@@ -8,8 +8,10 @@ type Complaint = {
   date?: string;
   accountName?: string;
   complaintType?: string;
+  priority?: string;
   severity?: string;
   status?: string;
+  complaintValidity?: string;
   manager?: string;
   subcontractor?: string;
   description?: string;
@@ -17,13 +19,6 @@ type Complaint = {
   followUpDate?: string;
   notes?: string;
   reportedBy?: string;
-};
-
-type Account = {
-  id?: string;
-  accountName?: string;
-  manager?: string;
-  subcontractor?: string;
 };
 
 function clean(value: any): string {
@@ -36,10 +31,6 @@ function slugify(value: any): string {
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-}
-
-function todayDate() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function formatDate(value: any): string {
@@ -69,7 +60,7 @@ function getStatusClass(status: any): string {
     return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
   }
 
-  if (value.includes("progress")) {
+  if (value.includes("progress") || value.includes("pending")) {
     return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
   }
 
@@ -94,28 +85,33 @@ function getSeverityClass(severity: any): string {
   return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
 }
 
+function getValidityClass(validity: any): string {
+  const value = clean(validity).toLowerCase();
+
+  if (value === "valid") {
+    return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
+  }
+
+  if (value === "not valid") {
+    return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
+  }
+
+  if (value === "subjective") {
+    return "rounded-full bg-purple-100 px-3 py-1 text-xs font-bold text-purple-700";
+  }
+
+  if (value === "needs review") {
+    return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
+  }
+
+  return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
+}
+
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-
   const [search, setSearch] = useState("");
-
-  const [date, setDate] = useState(todayDate());
-  const [accountName, setAccountName] = useState("");
-  const [complaintType, setComplaintType] = useState("");
-  const [severity, setSeverity] = useState("Medium");
-  const [status, setStatus] = useState("Open");
-  const [manager, setManager] = useState("");
-  const [subcontractor, setSubcontractor] = useState("");
-  const [reportedBy, setReportedBy] = useState("");
-  const [followUpDate, setFollowUpDate] = useState("");
-  const [description, setDescription] = useState("");
-  const [notes, setNotes] = useState("");
 
   async function loadComplaints() {
     try {
@@ -153,6 +149,7 @@ export default function ComplaintsPage() {
         return (
           clean(complaint.accountName) ||
           clean(complaint.description) ||
+          clean(complaint.complaintType) ||
           clean(complaint.date) ||
           clean(complaint.manager)
         );
@@ -160,52 +157,18 @@ export default function ComplaintsPage() {
 
       setComplaints(realComplaints);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error loading complaints.");
+      setError(
+        err instanceof Error ? err.message : "Unknown error loading complaints."
+      );
       setComplaints([]);
     } finally {
       setLoading(false);
     }
   }
 
-  async function loadAccounts() {
-    try {
-      const response = await fetch("/api/accounts", {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      const text = await response.text();
-      const data = JSON.parse(text);
-
-      const loadedAccounts = Array.isArray(data.accounts)
-        ? data.accounts
-        : Array.isArray(data.data)
-        ? data.data
-        : Array.isArray(data)
-        ? data
-        : [];
-
-      setAccounts(loadedAccounts);
-    } catch {
-      setAccounts([]);
-    }
-  }
-
   useEffect(() => {
     loadComplaints();
-    loadAccounts();
   }, []);
-
-  const selectedAccount = useMemo(() => {
-    return accounts.find((account) => clean(account.accountName) === accountName);
-  }, [accounts, accountName]);
-
-  useEffect(() => {
-    if (!selectedAccount) return;
-
-    setManager(clean(selectedAccount.manager));
-    setSubcontractor(clean(selectedAccount.subcontractor));
-  }, [selectedAccount]);
 
   const filteredComplaints = useMemo(() => {
     const term = search.toLowerCase().trim();
@@ -216,8 +179,10 @@ export default function ComplaintsPage() {
       return (
         clean(complaint.accountName).toLowerCase().includes(term) ||
         clean(complaint.complaintType).toLowerCase().includes(term) ||
+        clean(complaint.priority).toLowerCase().includes(term) ||
         clean(complaint.severity).toLowerCase().includes(term) ||
         clean(complaint.status).toLowerCase().includes(term) ||
+        clean(complaint.complaintValidity).toLowerCase().includes(term) ||
         clean(complaint.manager).toLowerCase().includes(term) ||
         clean(complaint.subcontractor).toLowerCase().includes(term) ||
         clean(complaint.description).toLowerCase().includes(term) ||
@@ -229,7 +194,12 @@ export default function ComplaintsPage() {
   const openComplaints = useMemo(() => {
     return complaints.filter((complaint) => {
       const value = clean(complaint.status).toLowerCase();
-      return value === "open" || value.includes("progress");
+      return (
+        value === "open" ||
+        value.includes("progress") ||
+        value.includes("pending") ||
+        value.includes("needs attention")
+      );
     }).length;
   }, [complaints]);
 
@@ -240,78 +210,17 @@ export default function ComplaintsPage() {
     }).length;
   }, [complaints]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const needsReviewComplaints = useMemo(() => {
+    return complaints.filter((complaint) => {
+      return clean(complaint.complaintValidity).toLowerCase() === "needs review";
+    }).length;
+  }, [complaints]);
 
-    try {
-      setSaving(true);
-      setError("");
-      setMessage("");
-
-      if (!date) {
-        throw new Error("Please enter a complaint date.");
-      }
-
-      if (!accountName) {
-        throw new Error("Please select or enter an account.");
-      }
-
-      if (!description) {
-        throw new Error("Please enter the complaint issue.");
-      }
-
-      const response = await fetch("/api/complaints", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        cache: "no-store",
-        body: JSON.stringify({
-          date,
-          accountName,
-          complaintType,
-          severity,
-          status,
-          manager,
-          subcontractor,
-          description,
-          notes,
-          reportedBy,
-          followUpDate,
-        }),
-      });
-
-      const text = await response.text();
-
-      let data: any;
-
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error("Complaints API did not return valid JSON while saving.");
-      }
-
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || "Failed to save complaint.");
-      }
-
-      setMessage(data.message || "Complaint saved successfully.");
-
-      setComplaintType("");
-      setSeverity("Medium");
-      setStatus("Open");
-      setReportedBy("");
-      setFollowUpDate("");
-      setDescription("");
-      setNotes("");
-
-      await loadComplaints();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error saving complaint.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const notValidComplaints = useMemo(() => {
+    return complaints.filter((complaint) => {
+      return clean(complaint.complaintValidity).toLowerCase() === "not valid";
+    }).length;
+  }, [complaints]);
 
   return (
     <main className="min-h-screen bg-gray-50 p-6 text-gray-900">
@@ -322,16 +231,26 @@ export default function ComplaintsPage() {
           </p>
           <h1 className="mt-2 text-3xl font-bold">Complaints</h1>
           <p className="mt-2 text-gray-500">
-            Track account complaints, status, follow-ups, and resolution notes.
+            Track account complaints, status, validity, follow-ups, and
+            resolution notes.
           </p>
         </div>
 
-        <button
-          onClick={() => window.print()}
-          className="rounded-xl bg-gray-900 px-4 py-2 font-bold text-white shadow-sm"
-        >
-          Print
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/complaints/new"
+            className="rounded-xl bg-red-600 px-4 py-2 font-bold text-white shadow-sm hover:bg-red-700"
+          >
+            + Add Complaint
+          </Link>
+
+          <button
+            onClick={() => window.print()}
+            className="rounded-xl bg-gray-900 px-4 py-2 font-bold text-white shadow-sm"
+          >
+            Print
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -340,13 +259,7 @@ export default function ComplaintsPage() {
         </div>
       ) : null}
 
-      {message ? (
-        <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 p-5 font-bold text-green-700">
-          {message}
-        </div>
-      ) : null}
-
-      <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+      <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-5">
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
             Total Complaints
@@ -370,194 +283,18 @@ export default function ComplaintsPage() {
 
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Showing
+            Needs Review
           </p>
-          <h2 className="mt-2 text-3xl font-bold">{filteredComplaints.length}</h2>
+          <h2 className="mt-2 text-3xl font-bold">{needsReviewComplaints}</h2>
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+            Not Valid
+          </p>
+          <h2 className="mt-2 text-3xl font-bold">{notValidComplaints}</h2>
         </div>
       </section>
-
-      <form
-        onSubmit={handleSubmit}
-        className="mb-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
-      >
-        <h2 className="mb-4 text-xl font-bold">Add Complaint</h2>
-
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Account
-            </span>
-            <input
-              list="account-list"
-              value={accountName}
-              onChange={(event) => setAccountName(event.target.value)}
-              placeholder="Search or type account name"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3"
-              required
-            />
-
-            <datalist id="account-list">
-              {accounts.map((account, index) => (
-                <option
-                  key={`${account.id || account.accountName || "account"}-${index}`}
-                  value={clean(account.accountName)}
-                />
-              ))}
-            </datalist>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Date
-            </span>
-            <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              className="w-full rounded-xl border border-gray-300 px-4 py-3"
-              required
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Complaint Type
-            </span>
-            <select
-              value={complaintType}
-              onChange={(event) => setComplaintType(event.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3"
-            >
-              <option value="">Select type</option>
-              <option>Restroom Issue</option>
-              <option>Missed Cleaning</option>
-              <option>Trash Issue</option>
-              <option>Floor Issue</option>
-              <option>Dusting Issue</option>
-              <option>Supplies Issue</option>
-              <option>Customer Complaint</option>
-              <option>Other</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Severity
-            </span>
-            <select
-              value={severity}
-              onChange={(event) => setSeverity(event.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3"
-            >
-              <option>Low</option>
-              <option>Medium</option>
-              <option>High</option>
-              <option>Urgent</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Status
-            </span>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3"
-            >
-              <option>Open</option>
-              <option>In Progress</option>
-              <option>Resolved</option>
-              <option>Closed</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Assigned / Manager
-            </span>
-            <input
-              value={manager}
-              onChange={(event) => setManager(event.target.value)}
-              placeholder="Manager or assigned person"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Subcontractor
-            </span>
-            <input
-              value={subcontractor}
-              onChange={(event) => setSubcontractor(event.target.value)}
-              placeholder="Subcontractor"
-              className="w-full rounded-xl border border-gray-300 px-4 py-3"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Follow-Up Date
-            </span>
-            <input
-              type="date"
-              value={followUpDate}
-              onChange={(event) => setFollowUpDate(event.target.value)}
-              className="w-full rounded-xl border border-gray-300 px-4 py-3"
-            />
-          </label>
-        </div>
-
-        <label className="mt-5 block">
-          <span className="mb-2 block text-sm font-bold text-gray-700">
-            Reported By
-          </span>
-          <input
-            value={reportedBy}
-            onChange={(event) => setReportedBy(event.target.value)}
-            placeholder="Customer, office, manager..."
-            className="w-full rounded-xl border border-gray-300 px-4 py-3"
-          />
-        </label>
-
-        <label className="mt-5 block">
-          <span className="mb-2 block text-sm font-bold text-gray-700">
-            Complaint / Issue
-          </span>
-          <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Example: Customer reported missed trash, restroom issue, floors not completed, supplies missing..."
-            rows={4}
-            className="w-full rounded-xl border border-gray-300 px-4 py-3"
-            required
-          />
-        </label>
-
-        <label className="mt-5 block">
-          <span className="mb-2 block text-sm font-bold text-gray-700">
-            Internal Notes
-          </span>
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Add follow-up notes, subcontractor instructions, customer communication, or next steps..."
-            rows={4}
-            className="w-full rounded-xl border border-gray-300 px-4 py-3"
-          />
-        </label>
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-red-600 px-5 py-3 font-bold text-white disabled:opacity-60"
-          >
-            {saving ? "Saving..." : "Save Complaint"}
-          </button>
-        </div>
-      </form>
 
       <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
         <label className="block">
@@ -567,7 +304,7 @@ export default function ComplaintsPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by account, issue, status, priority, assigned person..."
+            placeholder="Search by account, issue, status, validity, priority, assigned person..."
             className="w-full rounded-xl border border-gray-300 px-4 py-3"
           />
         </label>
@@ -578,7 +315,8 @@ export default function ComplaintsPage() {
           <div>
             <h2 className="text-xl font-bold">Complaint List</h2>
             <p className="mt-1 text-sm text-gray-500">
-              Click the account name to return to that account detail page.
+              Use + Add Complaint to enter new complaints through the correct
+              complaint form.
             </p>
           </div>
 
@@ -590,7 +328,15 @@ export default function ComplaintsPage() {
         {loading ? (
           <p className="text-gray-500">Loading complaints...</p>
         ) : filteredComplaints.length === 0 ? (
-          <p className="text-gray-500">No complaints found.</p>
+          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
+            <p className="font-semibold text-gray-700">No complaints found.</p>
+            <Link
+              href="/complaints/new"
+              className="mt-4 inline-block rounded-xl bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-700"
+            >
+              + Add Complaint
+            </Link>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm">
@@ -601,9 +347,9 @@ export default function ComplaintsPage() {
                   <th className="p-3">Issue</th>
                   <th className="p-3">Priority</th>
                   <th className="p-3">Status</th>
-                  <th className="p-3">Reported By</th>
+                  <th className="p-3">Validity</th>
                   <th className="p-3">Assigned To</th>
-                  <th className="p-3">Last Follow-Up</th>
+                  <th className="p-3">Follow-Up</th>
                   <th className="p-3">Notes</th>
                 </tr>
               </thead>
@@ -641,8 +387,12 @@ export default function ComplaintsPage() {
                     </td>
 
                     <td className="p-3">
-                      <span className={getSeverityClass(complaint.severity)}>
-                        {clean(complaint.severity) || "-"}
+                      <span
+                        className={getSeverityClass(
+                          complaint.severity || complaint.priority
+                        )}
+                      >
+                        {clean(complaint.severity || complaint.priority) || "-"}
                       </span>
                     </td>
 
@@ -652,8 +402,19 @@ export default function ComplaintsPage() {
                       </span>
                     </td>
 
-                    <td className="p-3">{clean(complaint.reportedBy) || "-"}</td>
-                    <td className="p-3">{clean(complaint.manager) || "-"}</td>
+                    <td className="p-3">
+                      <span
+                        className={getValidityClass(
+                          complaint.complaintValidity
+                        )}
+                      >
+                        {clean(complaint.complaintValidity) || "Needs Review"}
+                      </span>
+                    </td>
+
+                    <td className="p-3">
+                      {clean(complaint.manager) || clean(complaint.subcontractor) || "-"}
+                    </td>
 
                     <td className="whitespace-nowrap p-3">
                       {formatDate(complaint.followUpDate)}

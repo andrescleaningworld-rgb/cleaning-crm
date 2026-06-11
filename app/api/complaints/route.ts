@@ -29,7 +29,8 @@ export async function GET() {
       return NextResponse.json(
         {
           success: false,
-          error: "Google Script did not return valid JSON while loading complaints.",
+          error:
+            "Google Script did not return valid JSON while loading complaints.",
           rawResponse: text,
         },
         { status: 500 }
@@ -49,7 +50,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      complaints: data.complaints || [],
+      complaints: data.complaints || data.data || [],
     });
   } catch (error) {
     return NextResponse.json(
@@ -79,25 +80,114 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
+    const complaint = body.complaint || body;
+
     const payload = {
       action: "addComplaint",
+      complaint: {
+        accountId: complaint.accountId || complaint["Account ID"] || "",
+        accountName: complaint.accountName || complaint["Account Name"] || "",
 
-      date: body.date || "",
-      accountName: body.accountName || "",
-      accountId: body.accountId || "",
+        date:
+          complaint.date ||
+          complaint.complaintDate ||
+          complaint["Complaint Date"] ||
+          "",
 
-      complaintType: body.complaintType || body.issueType || body.type || "",
-      severity: body.severity || body.priority || "Medium",
-      status: body.status || "Open",
+        complaintDate:
+          complaint.complaintDate ||
+          complaint.date ||
+          complaint["Complaint Date"] ||
+          "",
 
-      manager: body.manager || body.assignedTo || "",
-      subcontractor: body.subcontractor || "",
+        complaintType:
+          complaint.complaintType ||
+          complaint.issueType ||
+          complaint.type ||
+          complaint.issue ||
+          complaint.Issue ||
+          "",
 
-      description: body.description || body.issue || body.complaint || "",
-      resolution: body.resolution || "",
-      followUpDate: body.followUpDate || body.lastFollowUp || "",
-      notes: body.notes || "",
-      reportedBy: body.reportedBy || "",
+        issue: complaint.issue || complaint.Issue || complaint.description || "",
+        description: complaint.description || complaint.issue || complaint.Issue || "",
+
+        priority: complaint.priority || complaint.Priority || complaint.severity || "Medium",
+        severity: complaint.severity || complaint.priority || complaint.Priority || "Medium",
+
+        status: complaint.status || complaint.Status || "Open",
+
+        complaintValidity:
+          complaint.complaintValidity ||
+          complaint.validity ||
+          complaint["Complaint Validity"] ||
+          "Needs Review",
+
+        validity:
+          complaint.complaintValidity ||
+          complaint.validity ||
+          complaint["Complaint Validity"] ||
+          "Needs Review",
+
+        manager:
+          complaint.manager ||
+          complaint.assignedTo ||
+          complaint["Assigned To"] ||
+          "",
+
+        assignedTo:
+          complaint.assignedTo ||
+          complaint.manager ||
+          complaint["Assigned To"] ||
+          "",
+
+        subcontractor: complaint.subcontractor || complaint.Subcontractor || "",
+
+        resolution: complaint.resolution || complaint.Resolution || "",
+
+        followUpDate:
+          complaint.followUpDate ||
+          complaint.lastFollowUp ||
+          complaint["Last Follow-Up"] ||
+          complaint["Follow Up Date"] ||
+          "",
+
+        lastFollowUp:
+          complaint.lastFollowUp ||
+          complaint.followUpDate ||
+          complaint["Last Follow-Up"] ||
+          "",
+
+        notes: complaint.notes || complaint.Notes || "",
+        reportedBy: complaint.reportedBy || complaint["Reported By"] || "",
+
+        "Account ID": complaint.accountId || complaint["Account ID"] || "",
+        "Account Name": complaint.accountName || complaint["Account Name"] || "",
+        "Complaint Date":
+          complaint.complaintDate ||
+          complaint.date ||
+          complaint["Complaint Date"] ||
+          "",
+        Issue: complaint.issue || complaint.Issue || complaint.description || "",
+        Priority: complaint.priority || complaint.Priority || complaint.severity || "Medium",
+        Status: complaint.status || complaint.Status || "Open",
+        "Complaint Validity":
+          complaint.complaintValidity ||
+          complaint.validity ||
+          complaint["Complaint Validity"] ||
+          "Needs Review",
+        "Reported By": complaint.reportedBy || complaint["Reported By"] || "",
+        "Assigned To":
+          complaint.assignedTo ||
+          complaint.manager ||
+          complaint["Assigned To"] ||
+          "",
+        "Last Follow-Up":
+          complaint.lastFollowUp ||
+          complaint.followUpDate ||
+          complaint["Last Follow-Up"] ||
+          "",
+        Notes: complaint.notes || complaint.Notes || "",
+      },
     };
 
     console.log("Saving complaint payload:", payload);
@@ -121,7 +211,8 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Google Script did not return valid JSON while saving complaint.",
+          error:
+            "Google Script did not return valid JSON while saving complaint.",
           sentPayload: payload,
           rawResponse: text,
         },
@@ -144,6 +235,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       id: data.id || "",
+      rowNumber: data.rowNumber || "",
       message: data.message || "Complaint saved successfully.",
       sentPayload: payload,
       scriptResponse: data,
