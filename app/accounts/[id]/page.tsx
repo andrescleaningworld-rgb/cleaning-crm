@@ -15,6 +15,7 @@ type Account = {
   zip?: string;
   manager?: string;
   subcontractor?: string;
+  subcontractorEmail?: string;
   status?: string;
   accountHealth?: string;
   monthlyRevenue?: string;
@@ -24,6 +25,14 @@ type Account = {
   grossMarginPercent?: string;
   hasKey?: string;
   alarmCode?: string;
+  alarmInfo?: string;
+  startDate?: string;
+  serviceStartDate?: string;
+  cleaningSchedule?: string;
+  schedule?: string;
+  frequency?: string;
+  cleaningDays?: string;
+  scope?: string;
   notes?: string;
 };
 
@@ -73,16 +82,16 @@ function formatCalculatedMoney(value: number) {
 function getStatusClass(status: string | undefined) {
   const clean = String(status || "").toLowerCase();
 
-  if (clean.includes("active")) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  }
-
   if (
     clean.includes("cancel") ||
     clean.includes("inactive") ||
     clean.includes("lost")
   ) {
     return "border-red-200 bg-red-50 text-red-800";
+  }
+
+  if (clean.includes("active")) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
   }
 
   if (clean.includes("pause")) {
@@ -122,13 +131,18 @@ export default function AccountDetailPage() {
 
   const [account, setAccount] = useState<Account | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sendingPacket, setSendingPacket] = useState(false);
   const [error, setError] = useState("");
+  const [packetMessage, setPacketMessage] = useState("");
+  const [packetError, setPacketError] = useState("");
 
   useEffect(() => {
     async function loadAccount() {
       try {
         setLoading(true);
         setError("");
+        setPacketMessage("");
+        setPacketError("");
 
         const response = await fetch("/api/accounts", {
           cache: "no-store",
@@ -202,6 +216,79 @@ export default function AccountDetailPage() {
         rawAccountIdFromUrl
     )
   );
+
+  const startDate =
+    account?.startDate || account?.serviceStartDate || "Not provided";
+
+  const cleaningSchedule =
+    account?.cleaningSchedule ||
+    account?.schedule ||
+    account?.frequency ||
+    account?.cleaningDays ||
+    "Not provided";
+
+  const subcontractorPay =
+    account?.subcontractorPay || account?.monthlySubcontractorPay || "";
+
+  const alarmInfo = account?.alarmInfo || account?.alarmCode || "";
+
+  async function handleSendNewAccountPacket() {
+    if (!account) return;
+
+    try {
+      setSendingPacket(true);
+      setPacketMessage("");
+      setPacketError("");
+
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "sendNewAccountPacket",
+          accountId:
+            account.accountId ||
+            account.id ||
+            account.rowNumber ||
+            account.accountName ||
+            rawAccountIdFromUrl,
+          accountName: account.accountName || "",
+          address: accountAddress,
+          startDate,
+          cleaningSchedule,
+          subcontractor: account.subcontractor || "",
+          subcontractorEmail: account.subcontractorEmail || "",
+          monthlySubcontractorPay: subcontractorPay,
+          hasKey: account.hasKey || "",
+          alarmInfo,
+          scope: account.scope || account.notes || "",
+          notes: account.notes || "",
+          manager: account.manager || "",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error || "Could not send new account packet."
+        );
+      }
+
+      setPacketMessage(
+        data.message || "New account packet sent successfully."
+      );
+    } catch (err) {
+      setPacketError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong sending the new account packet."
+      );
+    } finally {
+      setSendingPacket(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -279,6 +366,14 @@ export default function AccountDetailPage() {
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[380px]">
+              <button
+                onClick={handleSendNewAccountPacket}
+                disabled={sendingPacket}
+                className="rounded-2xl bg-emerald-300 px-4 py-3 text-center text-sm font-black text-slate-950 shadow-sm hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {sendingPacket ? "Sending Packet..." : "Send New Account Packet"}
+              </button>
+
               <Link
                 href={`/accounts/${accountIdForUrl}/edit`}
                 className="rounded-2xl bg-yellow-300 px-4 py-3 text-center text-sm font-black text-slate-950 shadow-sm hover:bg-yellow-200"
@@ -315,6 +410,18 @@ export default function AccountDetailPage() {
               </Link>
             </div>
           </div>
+
+          {packetMessage ? (
+            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
+              {packetMessage}
+            </div>
+          ) : null}
+
+          {packetError ? (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
+              {packetError}
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-4 border-b border-blue-100 bg-blue-50/70 p-5 md:grid-cols-4">
@@ -386,12 +493,28 @@ export default function AccountDetailPage() {
 
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Start Date
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {startDate}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Cleaning Schedule
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {cleaningSchedule}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Subcontractor Pay
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {formatMoney(
-                    account.subcontractorPay || account.monthlySubcontractorPay
-                  )}
+                  {formatMoney(subcontractorPay)}
                 </p>
               </div>
 
@@ -406,10 +529,10 @@ export default function AccountDetailPage() {
 
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Alarm Code
+                  Alarm Info
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {account.alarmCode || "N/A"}
+                  {alarmInfo || "N/A"}
                 </p>
               </div>
 
@@ -449,6 +572,14 @@ export default function AccountDetailPage() {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              onClick={handleSendNewAccountPacket}
+              disabled={sendingPacket}
+              className="rounded-2xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-900 shadow-sm hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {sendingPacket ? "Sending Packet..." : "Send New Account Packet"}
+            </button>
+
             <Link
               href={`/accounts/${accountIdForUrl}/edit`}
               className="rounded-2xl border border-yellow-300 bg-yellow-100 px-4 py-2 text-sm font-black text-slate-900 shadow-sm hover:bg-yellow-200"
