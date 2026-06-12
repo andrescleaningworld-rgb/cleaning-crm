@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 
 type SettingItem = {
   id: string;
@@ -12,13 +12,8 @@ const startingManagers: SettingItem[] = [
   { id: "manager-andres", name: "Andrés", status: "Active" },
   { id: "manager-greg", name: "Greg", status: "Active" },
   { id: "manager-drew", name: "Drew", status: "Active" },
-];
-
-const startingSubcontractors: SettingItem[] = [
-  { id: "sub-edgar", name: "Edgar", status: "Active" },
-  { id: "sub-fernando", name: "Fernando", status: "Active" },
-  { id: "sub-juana", name: "Juana", status: "Active" },
-  { id: "sub-vicky", name: "Vicky", status: "Active" },
+  { id: "manager-ryan", name: "Ryan", status: "Active" },
+  { id: "manager-cw", name: "CW", status: "Active" },
 ];
 
 const startingVisitTypes: SettingItem[] = [
@@ -46,6 +41,13 @@ const startingHealthStatuses: SettingItem[] = [
   { id: "health-stable", name: "Stable", status: "Active" },
   { id: "health-needs-attention", name: "Needs Attention", status: "Active" },
   { id: "health-high-risk", name: "High Risk", status: "Active" },
+];
+
+const startingComplaintValidityOptions: SettingItem[] = [
+  { id: "validity-valid", name: "Valid", status: "Active" },
+  { id: "validity-not-valid", name: "Not Valid", status: "Active" },
+  { id: "validity-subjective", name: "Subjective", status: "Active" },
+  { id: "validity-needs-review", name: "Needs Review", status: "Active" },
 ];
 
 function getStatusClass(status: SettingItem["status"]) {
@@ -151,8 +153,6 @@ function SettingsSection({
 
 export default function SettingsPage() {
   const [managers, setManagers] = useState<SettingItem[]>(startingManagers);
-  const [subcontractors, setSubcontractors] =
-    useState<SettingItem[]>(startingSubcontractors);
   const [visitTypes, setVisitTypes] =
     useState<SettingItem[]>(startingVisitTypes);
   const [accountUpdateTypes, setAccountUpdateTypes] = useState<SettingItem[]>(
@@ -164,13 +164,16 @@ export default function SettingsPage() {
   const [healthStatuses, setHealthStatuses] = useState<SettingItem[]>(
     startingHealthStatuses
   );
+  const [complaintValidityOptions, setComplaintValidityOptions] =
+    useState<SettingItem[]>(startingComplaintValidityOptions);
 
   const [newManager, setNewManager] = useState("");
-  const [newSubcontractor, setNewSubcontractor] = useState("");
   const [newVisitType, setNewVisitType] = useState("");
   const [newAccountUpdateType, setNewAccountUpdateType] = useState("");
   const [newAccountStatus, setNewAccountStatus] = useState("");
   const [newHealthStatus, setNewHealthStatus] = useState("");
+  const [newComplaintValidityOption, setNewComplaintValidityOption] =
+    useState("");
 
   function createItem(name: string): SettingItem {
     return {
@@ -183,7 +186,7 @@ export default function SettingsPage() {
   function addItem(
     value: string,
     setValue: (value: string) => void,
-    setItems: React.Dispatch<React.SetStateAction<SettingItem[]>>
+    setItems: Dispatch<SetStateAction<SettingItem[]>>
   ) {
     const cleanValue = value.trim();
 
@@ -198,7 +201,7 @@ export default function SettingsPage() {
 
   function toggleStatus(
     id: string,
-    setItems: React.Dispatch<React.SetStateAction<SettingItem[]>>
+    setItems: Dispatch<SetStateAction<SettingItem[]>>
   ) {
     setItems((currentItems) =>
       currentItems.map((item) => {
@@ -218,15 +221,15 @@ export default function SettingsPage() {
     (item) => item.status === "Active"
   ).length;
 
-  const activeSubcontractors = subcontractors.filter(
-    (item) => item.status === "Active"
-  ).length;
-
   const activeVisitTypes = visitTypes.filter(
     (item) => item.status === "Active"
   ).length;
 
   const activeUpdateTypes = accountUpdateTypes.filter(
+    (item) => item.status === "Active"
+  ).length;
+
+  const activeComplaintValidityOptions = complaintValidityOptions.filter(
     (item) => item.status === "Active"
   ).length;
 
@@ -237,9 +240,8 @@ export default function SettingsPage() {
           <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
 
           <p className="mt-1 text-gray-600">
-            Manage the dropdown options used throughout the app. Later, these
-            settings will connect to Google Sheets so managers, subcontractors,
-            statuses, and report options can be updated without editing code.
+            Manage the dropdown options used throughout the app. Subcontractors
+            are managed on their own dedicated Subcontractors page.
           </p>
         </div>
 
@@ -248,13 +250,6 @@ export default function SettingsPage() {
             <p className="text-sm text-gray-500">Active Managers</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">
               {activeManagers}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Active Subcontractors</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {activeSubcontractors}
             </p>
           </div>
 
@@ -269,6 +264,15 @@ export default function SettingsPage() {
             <p className="text-sm text-gray-500">Active Update Types</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">
               {activeUpdateTypes}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-gray-500">
+              Complaint Validity Options
+            </p>
+            <p className="mt-2 text-2xl font-bold text-gray-900">
+              {activeComplaintValidityOptions}
             </p>
           </div>
         </div>
@@ -286,16 +290,22 @@ export default function SettingsPage() {
           />
 
           <SettingsSection
-            title="Subcontractors"
-            description="Cleaning subcontractors assigned to accounts and service issues."
-            items={subcontractors}
-            inputValue={newSubcontractor}
-            onInputChange={setNewSubcontractor}
+            title="Complaint Validity Options"
+            description="Used to decide whether a complaint should affect scoring. Options include Valid, Not Valid, Subjective, and Needs Review."
+            items={complaintValidityOptions}
+            inputValue={newComplaintValidityOption}
+            onInputChange={setNewComplaintValidityOption}
             onAdd={() =>
-              addItem(newSubcontractor, setNewSubcontractor, setSubcontractors)
+              addItem(
+                newComplaintValidityOption,
+                setNewComplaintValidityOption,
+                setComplaintValidityOptions
+              )
             }
-            onToggleStatus={(id) => toggleStatus(id, setSubcontractors)}
-            placeholder="Add subcontractor name..."
+            onToggleStatus={(id) =>
+              toggleStatus(id, setComplaintValidityOptions)
+            }
+            placeholder="Add complaint validity option..."
           />
 
           <SettingsSection
