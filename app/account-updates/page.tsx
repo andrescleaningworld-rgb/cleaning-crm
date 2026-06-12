@@ -250,7 +250,8 @@ function AccountUpdatesPageContent() {
           throw new Error(result.error || "Could not load account updates.");
         }
 
-        const rawUpdates = result.accountUpdates || result.updates || result.data || [];
+        const rawUpdates =
+          result.accountUpdates || result.updates || result.data || [];
 
         const mappedUpdates: AccountUpdate[] = rawUpdates
           .map(mapRawAccountUpdate)
@@ -503,6 +504,13 @@ function AccountUpdatesPageContent() {
           </div>
 
           <div className="flex flex-col gap-3 md:flex-row">
+            <a
+              href="#add-update"
+              className="rounded-lg bg-purple-700 px-5 py-3 text-center font-semibold text-white shadow-sm hover:bg-purple-800"
+            >
+              Add Update
+            </a>
+
             {openedFromAccountDetail ? (
               <Link
                 href={`/accounts/${
@@ -667,7 +675,10 @@ function AccountUpdatesPageContent() {
           ) : null}
         </section>
 
-        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <section
+          id="add-update"
+          className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+        >
           <h2 className="text-xl font-bold text-gray-900">Add New Update</h2>
 
           {openedFromAccountDetail ? (
