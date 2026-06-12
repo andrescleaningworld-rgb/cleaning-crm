@@ -627,12 +627,13 @@ function AccountUpdatesPageContent() {
                   <th className="px-4 py-3 font-semibold">Manager</th>
                   <th className="px-4 py-3 font-semibold">Notes</th>
                   <th className="px-4 py-3 font-semibold">Notify Email</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
                 </tr>
               </thead>
 
               <tbody>
                 {filteredUpdates.map((update) => (
-                  <tr key={update.id} className="border-b hover:bg-gray-50">
+                  <tr key={update.id} className="border-b hover:bg-purple-50">
                     <td className="px-4 py-3 text-gray-700">{update.date}</td>
 
                     <td className="px-4 py-3">
@@ -648,7 +649,12 @@ function AccountUpdatesPageContent() {
                     </td>
 
                     <td className="px-4 py-3 text-gray-700">
-                      {update.updateType}
+                      <Link
+                        href={`/account-updates/${encodeURIComponent(update.id)}`}
+                        className="font-semibold text-gray-900 hover:text-purple-700 hover:underline"
+                      >
+                        {update.updateType}
+                      </Link>
                     </td>
 
                     <td className="px-4 py-3 text-gray-700">
@@ -656,11 +662,25 @@ function AccountUpdatesPageContent() {
                     </td>
 
                     <td className="max-w-lg px-4 py-3 text-gray-700">
-                      <span className="line-clamp-2">{update.notes}</span>
+                      <Link
+                        href={`/account-updates/${encodeURIComponent(update.id)}`}
+                        className="block hover:text-purple-700 hover:underline"
+                      >
+                        <span className="line-clamp-2">{update.notes}</span>
+                      </Link>
                     </td>
 
                     <td className="px-4 py-3 text-gray-700">
                       {update.notifyEmail || "N/A"}
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/account-updates/${encodeURIComponent(update.id)}`}
+                        className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-purple-800"
+                      >
+                        View Details
+                      </Link>
                     </td>
                   </tr>
                 ))}
