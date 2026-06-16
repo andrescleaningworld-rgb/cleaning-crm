@@ -217,6 +217,8 @@ export default function AccountDetailPage() {
     )
   );
 
+  const accountComplaintLink = `/complaints/new?accountId=${accountIdForUrl}&accountName=${accountNameForUrl}&account=${accountNameForUrl}`;
+
   const startDate =
     account?.startDate || account?.serviceStartDate || "Not provided";
 
@@ -271,14 +273,10 @@ export default function AccountDetailPage() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(
-          data.error || "Could not send new account packet."
-        );
+        throw new Error(data.error || "Could not send new account packet.");
       }
 
-      setPacketMessage(
-        data.message || "New account packet sent successfully."
-      );
+      setPacketMessage(data.message || "New account packet sent successfully.");
     } catch (err) {
       setPacketError(
         err instanceof Error
@@ -396,7 +394,7 @@ export default function AccountDetailPage() {
               </Link>
 
               <Link
-                href={`/complaints?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
+                href={accountComplaintLink}
                 className="rounded-2xl bg-red-100 px-4 py-3 text-center text-sm font-black text-red-900 shadow-sm hover:bg-white"
               >
                 Add Complaint
@@ -602,7 +600,7 @@ export default function AccountDetailPage() {
             </Link>
 
             <Link
-              href={`/complaints?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
+              href={accountComplaintLink}
               className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-black text-red-800 shadow-sm hover:bg-red-50"
             >
               Add Complaint

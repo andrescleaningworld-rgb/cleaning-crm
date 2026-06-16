@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type AnyRow = Record<string, unknown>;
 
@@ -50,6 +51,10 @@ function getValue(row: AnyRow, keys: string[]): unknown {
   }
 
   return "";
+}
+
+function normalize(value: unknown): string {
+  return cleanText(value).toLowerCase();
 }
 
 function todayDate() {
@@ -136,7 +141,14 @@ const emptyForm: ComplaintForm = {
   notes: "",
 };
 
-export default function NewComplaintPage() {
+function NewComplaintPageContent() {
+  const searchParams = useSearchParams();
+
+  const urlAccountId = cleanText(searchParams.get("accountId"));
+  const urlAccountName =
+    cleanText(searchParams.get("accountName")) ||
+    cleanText(searchParams.get("account"));
+
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
   const [form, setForm] = useState<ComplaintForm>(emptyForm);
   const [accountSearch, setAccountSearch] = useState("");
@@ -167,6 +179,53 @@ export default function NewComplaintPage() {
   useEffect(() => {
     loadAccounts();
   }, []);
+
+  useEffect(() => {
+    if (!urlAccountId && !urlAccountName) return;
+
+    setForm((current) => ({
+      ...current,
+      accountId: urlAccountId || current.accountId,
+      accountName: urlAccountName || current.accountName,
+    }));
+
+    if (urlAccountName) {
+      setAccountSearch(urlAccountName);
+      setShowAccountResults(false);
+    }
+  }, [urlAccountId, urlAccountName]);
+
+  useEffect(() => {
+    if ((!urlAccountId && !urlAccountName) || accounts.length === 0) return;
+
+    const matchingAccount = accounts.find((account) => {
+      const accountId = normalize(getAccountId(account));
+      const accountName = normalize(getAccountName(account));
+
+      return (
+        (urlAccountId && accountId === normalize(urlAccountId)) ||
+        (urlAccountName && accountName === normalize(urlAccountName))
+      );
+    });
+
+    if (!matchingAccount) return;
+
+    const matchedAccountId = getAccountId(matchingAccount);
+    const matchedAccountName = getAccountName(matchingAccount);
+    const matchedManager = getAccountManager(matchingAccount);
+
+    setForm((current) => ({
+      ...current,
+      accountId: matchedAccountId || current.accountId,
+      accountName: matchedAccountName || current.accountName,
+      assignedTo: current.assignedTo || matchedManager,
+    }));
+
+    if (matchedAccountName) {
+      setAccountSearch(matchedAccountName);
+      setShowAccountResults(false);
+    }
+  }, [accounts, urlAccountId, urlAccountName]);
 
   const sortedAccounts = useMemo(() => {
     return [...accounts].sort((a, b) =>
@@ -386,7 +445,7 @@ export default function NewComplaintPage() {
                   }));
                 }}
                 onFocus={() => setShowAccountResults(true)}
-                disabled={loadingAccounts}
+                disabled={loadingAccounts && !form.accountName}
                 required
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 placeholder={
@@ -612,5 +671,23 @@ export default function NewComplaintPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function NewComplaintPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-gray-100 p-4 sm:p-6">
+          <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
+            <p className="font-semibold text-gray-700">
+              Loading complaint form...
+            </p>
+          </div>
+        </main>
+      }
+    >
+      <NewComplaintPageContent />
+    </Suspense>
   );
 }
