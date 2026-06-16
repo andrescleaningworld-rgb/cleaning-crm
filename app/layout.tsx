@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 
@@ -31,10 +32,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="cw-header-inner">
                 <Link href="/" className="cw-brand">
                   <div className="cw-logo-box">
-                    <img
+                    <Image
                       src="/cw-logo.jpg"
                       alt="Cleaning World Logo"
+                      width={120}
+                      height={60}
                       className="cw-logo"
+                      priority
                     />
                   </div>
 

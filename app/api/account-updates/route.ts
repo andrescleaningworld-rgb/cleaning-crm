@@ -2,6 +2,28 @@ import { NextResponse } from "next/server";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
+type ScriptResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  id?: string;
+  accountUpdates?: unknown[];
+};
+
+type AccountUpdateRequestBody = {
+  date?: string;
+  accountName?: string;
+  accountId?: string;
+  updateType?: string;
+  manager?: string;
+  notes?: string;
+  notifyEmail?: string;
+};
+
+function clean(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 export async function GET() {
   try {
     if (!SCRIPT_URL) {
@@ -21,15 +43,16 @@ export async function GET() {
 
     const text = await response.text();
 
-    let data: any;
+    let data: ScriptResponse;
 
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as ScriptResponse;
     } catch {
       return NextResponse.json(
         {
           success: false,
-          error: "Google Script did not return valid JSON while loading account updates.",
+          error:
+            "Google Script did not return valid JSON while loading account updates.",
           rawResponse: text,
         },
         { status: 500 }
@@ -49,7 +72,9 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      accountUpdates: data.accountUpdates || [],
+      accountUpdates: Array.isArray(data.accountUpdates)
+        ? data.accountUpdates
+        : [],
     });
   } catch (error) {
     return NextResponse.json(
@@ -77,17 +102,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    const body = (await request.json()) as AccountUpdateRequestBody;
 
     const payload = {
       action: "addAccountUpdate",
-      date: body.date || "",
-      accountName: body.accountName || "",
-      accountId: body.accountId || "",
-      updateType: body.updateType || "",
-      manager: body.manager || "",
-      notes: body.notes || "",
-      notifyEmail: body.notifyEmail || "",
+      date: clean(body.date),
+      accountName: clean(body.accountName),
+      accountId: clean(body.accountId),
+      updateType: clean(body.updateType),
+      manager: clean(body.manager),
+      notes: clean(body.notes),
+      notifyEmail: clean(body.notifyEmail),
     };
 
     console.log("Saving account update payload:", payload);
@@ -103,15 +128,16 @@ export async function POST(request: Request) {
 
     const text = await response.text();
 
-    let data: any;
+    let data: ScriptResponse;
 
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as ScriptResponse;
     } catch {
       return NextResponse.json(
         {
           success: false,
-          error: "Google Script did not return valid JSON while saving account update.",
+          error:
+            "Google Script did not return valid JSON while saving account update.",
           sentPayload: payload,
           rawResponse: text,
         },

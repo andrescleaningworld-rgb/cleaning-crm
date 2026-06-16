@@ -61,6 +61,13 @@ type Subcontractor = {
   Notes?: string;
 };
 
+type SubcontractorsApiResponse = {
+  success?: boolean;
+  error?: string;
+  subcontractors?: Subcontractor[];
+  data?: Subcontractor[];
+};
+
 function getSubId(sub: Subcontractor) {
   return sub.id || sub.ID || sub.subcontractorId || "";
 }
@@ -143,6 +150,15 @@ function getScoreStatus(scoreValue: string) {
   };
 }
 
+function getLoadedSubcontractors(
+  data: SubcontractorsApiResponse | Subcontractor[]
+) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.subcontractors)) return data.subcontractors;
+  if (Array.isArray(data.data)) return data.data;
+  return [];
+}
+
 export default function SubcontractorsPage() {
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -180,14 +196,17 @@ export default function SubcontractorsPage() {
         cache: "no-store",
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as SubcontractorsApiResponse | Subcontractor[];
 
-      if (!res.ok || data.success === false) {
-        throw new Error(data.error || "Failed to load subcontractors.");
+      if (!res.ok || (!Array.isArray(data) && data.success === false)) {
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "Failed to load subcontractors."
+        );
       }
 
-      const list = Array.isArray(data) ? data : data.subcontractors || [];
-      setSubcontractors(list);
+      setSubcontractors(getLoadedSubcontractors(data));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -212,6 +231,7 @@ export default function SubcontractorsPage() {
         getEmail(sub),
         getStatus(sub),
         getScore(sub),
+        getAvgCondition(sub),
         getScoreStatus(getScore(sub)).label,
       ]
         .join(" ")
@@ -246,7 +266,7 @@ export default function SubcontractorsPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as SubcontractorsApiResponse;
 
       if (!res.ok || data.success === false) {
         throw new Error(data.error || "Failed to save subcontractor.");
@@ -283,13 +303,13 @@ export default function SubcontractorsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 px-6 py-8 text-slate-900">
+    <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
-              <h1 className="text-2xl font-bold">Subcontractors</h1>
-              <p className="mt-1 text-sm text-slate-600">
+              <h1 className="text-2xl font-bold sm:text-3xl">Subcontractors</h1>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
                 View, score, add, and manage Cleaning World subcontractors.
               </p>
             </div>
@@ -297,7 +317,7 @@ export default function SubcontractorsPage() {
             <button
               type="button"
               onClick={() => setShowForm((prev) => !prev)}
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+              className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
             >
               {showForm ? "Cancel" : "Add New Subcontractor"}
             </button>
@@ -308,7 +328,7 @@ export default function SubcontractorsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search subcontractors..."
-              className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm outline-none focus:border-blue-600"
+              className="min-h-[48px] w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
             />
           </div>
 
@@ -328,7 +348,7 @@ export default function SubcontractorsPage() {
         {showForm && (
           <form
             onSubmit={handleSubmit}
-            className="rounded-2xl bg-white p-6 shadow-sm"
+            className="rounded-2xl bg-white p-5 shadow-sm sm:p-6"
           >
             <h2 className="text-lg font-bold">Add New Subcontractor</h2>
 
@@ -339,7 +359,7 @@ export default function SubcontractorsPage() {
                   value={form.companyName}
                   onChange={(e) => updateForm("companyName", e.target.value)}
                   required
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -348,7 +368,7 @@ export default function SubcontractorsPage() {
                 <input
                   value={form.contactName}
                   onChange={(e) => updateForm("contactName", e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -357,7 +377,7 @@ export default function SubcontractorsPage() {
                 <input
                   value={form.phone}
                   onChange={(e) => updateForm("phone", e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -367,7 +387,7 @@ export default function SubcontractorsPage() {
                   type="email"
                   value={form.email}
                   onChange={(e) => updateForm("email", e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -376,7 +396,7 @@ export default function SubcontractorsPage() {
                 <input
                   value={form.address}
                   onChange={(e) => updateForm("address", e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -386,7 +406,7 @@ export default function SubcontractorsPage() {
                   value={form.areasServiced}
                   onChange={(e) => updateForm("areasServiced", e.target.value)}
                   placeholder="Example: Bergen, Essex, Hudson"
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -400,7 +420,7 @@ export default function SubcontractorsPage() {
                     updateForm("servicesProvided", e.target.value)
                   }
                   placeholder="Example: Janitorial, floor work, carpet"
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -413,7 +433,7 @@ export default function SubcontractorsPage() {
                   onChange={(e) =>
                     updateForm("employeeCapacity", e.target.value)
                   }
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -427,7 +447,7 @@ export default function SubcontractorsPage() {
                   onChange={(e) =>
                     updateForm("insuranceExpiration", e.target.value)
                   }
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
 
@@ -436,7 +456,7 @@ export default function SubcontractorsPage() {
                 <select
                   value={form.status}
                   onChange={(e) => updateForm("status", e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 >
                   <option value="Active">Active</option>
                   <option value="Paused">Paused</option>
@@ -447,7 +467,7 @@ export default function SubcontractorsPage() {
 
             <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <h3 className="font-bold">Performance Score</h3>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm leading-6 text-slate-600">
                 Use a simple 0–10 score to track subcontractor performance.
               </p>
 
@@ -462,7 +482,7 @@ export default function SubcontractorsPage() {
                     value={form.score}
                     onChange={(e) => updateForm("score", e.target.value)}
                     placeholder="8.5"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                   />
                 </div>
 
@@ -474,7 +494,7 @@ export default function SubcontractorsPage() {
                     value={form.complaints}
                     onChange={(e) => updateForm("complaints", e.target.value)}
                     placeholder="0"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                   />
                 </div>
 
@@ -492,7 +512,7 @@ export default function SubcontractorsPage() {
                       updateForm("avgCondition", e.target.value)
                     }
                     placeholder="8.0"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                   />
                 </div>
 
@@ -508,7 +528,7 @@ export default function SubcontractorsPage() {
                       updateForm("accountsAssigned", e.target.value)
                     }
                     placeholder="12"
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                   />
                 </div>
 
@@ -518,7 +538,7 @@ export default function SubcontractorsPage() {
                     type="date"
                     value={form.lastReview}
                     onChange={(e) => updateForm("lastReview", e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                   />
                 </div>
               </div>
@@ -530,15 +550,15 @@ export default function SubcontractorsPage() {
                 value={form.notes}
                 onChange={(e) => updateForm("notes", e.target.value)}
                 rows={4}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
               />
             </div>
 
-            <div className="mt-5 flex gap-3">
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
               >
                 {saving ? "Saving..." : "Save Subcontractor"}
               </button>
@@ -546,7 +566,7 @@ export default function SubcontractorsPage() {
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -554,8 +574,8 @@ export default function SubcontractorsPage() {
           </form>
         )}
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
+        <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-lg font-bold">Current Subcontractors</h2>
             <p className="text-sm text-slate-600">
               {filteredSubcontractors.length} shown
@@ -575,6 +595,9 @@ export default function SubcontractorsPage() {
                     <th className="px-4 py-3 font-semibold">Contact</th>
                     <th className="px-4 py-3 font-semibold">Phone</th>
                     <th className="px-4 py-3 font-semibold">Score</th>
+                    <th className="px-4 py-3 font-semibold">
+                      Avg Condition
+                    </th>
                     <th className="px-4 py-3 font-semibold">Performance</th>
                     <th className="px-4 py-3 font-semibold">Complaints</th>
                     <th className="px-4 py-3 font-semibold">Accounts</th>
@@ -588,6 +611,7 @@ export default function SubcontractorsPage() {
                     const id = getSubId(sub);
                     const safeId = encodeURIComponent(id);
                     const score = getScore(sub);
+                    const avgCondition = getAvgCondition(sub);
                     const scoreStatus = getScoreStatus(score);
 
                     return (
@@ -613,6 +637,10 @@ export default function SubcontractorsPage() {
 
                         <td className="px-4 py-3 font-semibold">
                           {score ? `${score} / 10` : "-"}
+                        </td>
+
+                        <td className="px-4 py-3 font-semibold">
+                          {avgCondition ? `${avgCondition} / 10` : "-"}
                         </td>
 
                         <td className="px-4 py-3">

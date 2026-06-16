@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 type AppHeaderProps = {
@@ -54,11 +55,15 @@ export default function AppHeader({
               padding: "8px",
               boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
               overflow: "hidden",
+              position: "relative",
             }}
           >
-            <img
+            <Image
               src="/cw-logo.jpg"
               alt="Cleaning World Logo"
+              width={82}
+              height={82}
+              priority
               style={{
                 width: "100%",
                 height: "100%",

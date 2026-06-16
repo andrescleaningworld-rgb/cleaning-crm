@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 type Subcontractor = {
   id?: string;
@@ -17,6 +17,8 @@ type Subcontractor = {
   "Company Name"?: string;
   company?: string;
   Company?: string;
+  name?: string;
+  Name?: string;
 
   contactName?: string;
   ContactName?: string;
@@ -76,18 +78,42 @@ type Subcontractor = {
   Notes?: string;
 };
 
+type ApiResponse = {
+  success?: boolean;
+  error?: string;
+  subcontractors?: Subcontractor[];
+  accounts?: AnyRow[];
+  complaints?: AnyRow[];
+  data?: AnyRow[];
+};
+
+type SaveResponse = {
+  success?: boolean;
+  error?: string;
+};
+
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function getAnyValue(row: AnyRow, possibleKeys: string[]) {
   for (const key of possibleKeys) {
-    if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
-      return row[key];
+    const value = row[key];
+
+    if (value !== undefined && value !== null && value !== "") {
+      return clean(value);
     }
   }
 
   return "";
 }
 
+function subcontractorToRow(sub: Subcontractor): AnyRow {
+  return sub as AnyRow;
+}
+
 function getSubId(sub: Subcontractor) {
-  return getAnyValue(sub, [
+  return getAnyValue(subcontractorToRow(sub), [
     "id",
     "ID",
     "subcontractorId",
@@ -97,7 +123,7 @@ function getSubId(sub: Subcontractor) {
 
 function getCompanyName(sub: Subcontractor) {
   return (
-    getAnyValue(sub, [
+    getAnyValue(subcontractorToRow(sub), [
       "companyName",
       "CompanyName",
       "Company Name",
@@ -115,13 +141,13 @@ function getValue(
   capsKey: keyof Subcontractor,
   spacedKey?: keyof Subcontractor
 ) {
-  return String(
+  return clean(
     sub[camelKey] || sub[capsKey] || (spacedKey ? sub[spacedKey] : "") || ""
   );
 }
 
-function money(value: any) {
-  const number = Number(String(value || 0).replace(/[$,]/g, "") || 0);
+function money(value: unknown) {
+  const number = Number(clean(value).replace(/[$,]/g, "") || 0);
 
   return number.toLocaleString("en-US", {
     style: "currency",
@@ -129,17 +155,19 @@ function money(value: any) {
   });
 }
 
-function numberValue(value: any) {
-  return Number(String(value || 0).replace(/[$,% ,]/g, "") || 0);
+function numberValue(value: unknown) {
+  return Number(clean(value).replace(/[$,% ,]/g, "") || 0);
 }
 
-function safeDate(value: any) {
-  if (!value) return "-";
+function safeDate(value: unknown) {
+  const text = clean(value);
 
-  const date = new Date(value);
+  if (!text) return "-";
+
+  const date = new Date(text);
 
   if (Number.isNaN(date.getTime())) {
-    return String(value);
+    return text;
   }
 
   return date.toLocaleDateString();
@@ -190,12 +218,12 @@ function getScoreStatus(scoreValue: string, existingStatus?: string) {
 }
 
 function getScoreStatusClass(status: string) {
-  const clean = status.toLowerCase();
+  const cleanStatus = status.toLowerCase();
 
-  if (clean === "excellent") return "bg-green-100 text-green-800";
-  if (clean === "good") return "bg-blue-100 text-blue-800";
-  if (clean === "needs attention") return "bg-yellow-100 text-yellow-800";
-  if (clean === "high risk") return "bg-red-100 text-red-800";
+  if (cleanStatus === "excellent") return "bg-green-100 text-green-800";
+  if (cleanStatus === "good") return "bg-blue-100 text-blue-800";
+  if (cleanStatus === "needs attention") return "bg-yellow-100 text-yellow-800";
+  if (cleanStatus === "high risk") return "bg-red-100 text-red-800";
 
   return "bg-slate-100 text-slate-700";
 }
@@ -312,6 +340,8 @@ function getCleaningDays(account: AnyRow) {
 
 function getStartDate(account: AnyRow) {
   return getAnyValue(account, [
+    "accountStartDate",
+    "Account Start Date",
     "startDate",
     "Start Date",
     "serviceStartDate",
@@ -447,15 +477,50 @@ function getComplaintValidity(complaint: AnyRow) {
   ]);
 }
 
-function normalize(value: any) {
-  return String(value || "").trim().toLowerCase();
+function normalize(value: unknown) {
+  return clean(value).toLowerCase();
+}
+
+function createIdFromName(name: string) {
+  return String(name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, "-");
+}
+
+async function readResult(
+  result: PromiseSettledResult<Response>,
+  type: "subcontractors" | "accounts" | "complaints"
+): Promise<Subcontractor[] | AnyRow[]> {
+  if (result.status !== "fulfilled") return [];
+
+  const data = (await result.value.json()) as ApiResponse | AnyRow[];
+
+  if (Array.isArray(data)) return data;
+
+  if (type === "subcontractors" && Array.isArray(data.subcontractors)) {
+    return data.subcontractors;
+  }
+
+  if (type === "accounts" && Array.isArray(data.accounts)) {
+    return data.accounts;
+  }
+
+  if (type === "complaints" && Array.isArray(data.complaints)) {
+    return data.complaints;
+  }
+
+  if (Array.isArray(data.data)) return data.data;
+
+  return [];
 }
 
 export default function SubcontractorDetailPage() {
   const params = useParams();
 
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
-  const pageId = decodeURIComponent(rawId || "");
+  const pageId = decodeURIComponent(clean(rawId));
 
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
@@ -493,22 +558,16 @@ export default function SubcontractorDetailPage() {
           fetch("/api/complaints", { cache: "no-store" }),
         ]);
 
-      async function readResult(result: PromiseSettledResult<Response>) {
-        if (result.status !== "fulfilled") return [];
+      const loadedSubcontractors = await readResult(
+        subcontractorsRes,
+        "subcontractors"
+      );
+      const loadedAccounts = await readResult(accountsRes, "accounts");
+      const loadedComplaints = await readResult(complaintsRes, "complaints");
 
-        const data = await result.value.json();
-
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data.subcontractors)) return data.subcontractors;
-        if (Array.isArray(data.accounts)) return data.accounts;
-        if (Array.isArray(data.complaints)) return data.complaints;
-
-        return [];
-      }
-
-      setSubcontractors(await readResult(subcontractorsRes));
-      setAccounts(await readResult(accountsRes));
-      setComplaintsData(await readResult(complaintsRes));
+      setSubcontractors(loadedSubcontractors as Subcontractor[]);
+      setAccounts(loadedAccounts as AnyRow[]);
+      setComplaintsData(loadedComplaints as AnyRow[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -523,7 +582,7 @@ export default function SubcontractorDetailPage() {
   const subcontractor = useMemo(() => {
     return subcontractors.find((sub) => {
       const subId = getSubId(sub);
-      return String(subId).trim() === String(pageId).trim();
+      return clean(subId) === clean(pageId);
     });
   }, [subcontractors, pageId]);
 
@@ -532,7 +591,7 @@ export default function SubcontractorDetailPage() {
 
     setForm({
       companyName:
-        getAnyValue(subcontractor, [
+        getAnyValue(subcontractorToRow(subcontractor), [
           "companyName",
           "CompanyName",
           "Company Name",
@@ -614,7 +673,7 @@ export default function SubcontractorDetailPage() {
         }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as SaveResponse;
 
       if (!res.ok || data.success === false) {
         throw new Error(data.error || "Failed to update subcontractor.");
@@ -749,7 +808,7 @@ export default function SubcontractorDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-100 px-6 py-8 text-slate-900">
+      <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-5xl rounded-2xl bg-white p-6 shadow-sm">
           <p className="text-sm text-slate-600">Loading subcontractor...</p>
         </div>
@@ -759,7 +818,7 @@ export default function SubcontractorDetailPage() {
 
   if (!subcontractor) {
     return (
-      <main className="min-h-screen bg-gray-100 px-6 py-8 text-slate-900">
+      <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-5xl rounded-2xl bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-bold">Subcontractor Not Found</h1>
 
@@ -770,7 +829,7 @@ export default function SubcontractorDetailPage() {
           <div className="mt-5">
             <Link
               href="/subcontractors"
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+              className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white no-underline hover:bg-blue-800"
             >
               Back to Subcontractors
             </Link>
@@ -781,21 +840,21 @@ export default function SubcontractorDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 px-6 py-8 text-slate-900">
+    <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="mb-3">
                 <Link
                   href="/subcontractors"
-                  className="text-sm font-semibold text-blue-700 hover:underline"
+                  className="text-sm font-semibold text-blue-700 no-underline hover:underline"
                 >
                   ← Back to Subcontractors
                 </Link>
               </div>
 
-              <h1 className="text-2xl font-bold">
+              <h1 className="text-2xl font-bold sm:text-3xl">
                 {getCompanyName(subcontractor)}
               </h1>
 
@@ -826,11 +885,11 @@ export default function SubcontractorDetailPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row">
               <button
                 type="button"
                 onClick={loadData}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Refresh
               </button>
@@ -838,7 +897,7 @@ export default function SubcontractorDetailPage() {
               <button
                 type="button"
                 onClick={() => setEditing((prev) => !prev)}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
               >
                 {editing ? "Cancel Edit" : "Edit Subcontractor"}
               </button>
@@ -858,7 +917,7 @@ export default function SubcontractorDetailPage() {
           )}
         </div>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
           <StatCard label="Active Accounts" value={String(currentAccounts.length)} />
           <StatCard label="Past Accounts" value={String(pastAccounts.length)} />
           <StatCard
@@ -875,11 +934,11 @@ export default function SubcontractorDetailPage() {
           <StatCard label="Valid Complaints" value={String(validComplaints.length)} />
         </section>
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-bold">Automatic Performance Score</h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm leading-6 text-slate-600">
                 This score is calculated from visits, complaints, and assigned
                 accounts.
               </p>
@@ -892,7 +951,7 @@ export default function SubcontractorDetailPage() {
             </span>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-5">
+          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
             <Detail label="Score" value={score ? `${score} / 10` : "-"} />
             <Detail label="Performance" value={scoreStatus.label} />
             <Detail label="Open Complaints" value={String(openComplaints.length)} />
@@ -904,7 +963,7 @@ export default function SubcontractorDetailPage() {
             <Detail label="Last Activity" value={lastReview || "-"} />
           </div>
 
-          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
             Score logic: starts from average visit condition, then subtracts 0.5
             for each open complaint. Status: 9–10 Excellent, 8–8.9 Good,
             7–7.9 Needs Attention, below 7 High Risk.
@@ -912,7 +971,7 @@ export default function SubcontractorDetailPage() {
         </section>
 
         {!editing ? (
-          <section className="rounded-2xl bg-white p-6 shadow-sm">
+          <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
             <h2 className="text-lg font-bold">Subcontractor Details</h2>
 
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -935,7 +994,7 @@ export default function SubcontractorDetailPage() {
         ) : (
           <form
             onSubmit={handleSave}
-            className="rounded-2xl bg-white p-6 shadow-sm"
+            className="rounded-2xl bg-white p-5 shadow-sm sm:p-6"
           >
             <h2 className="text-lg font-bold">Edit Subcontractor</h2>
 
@@ -1003,7 +1062,7 @@ export default function SubcontractorDetailPage() {
                 <select
                   value={form.status}
                   onChange={(e) => updateForm("status", e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 >
                   <option value="Active">Active</option>
                   <option value="Paused">Paused</option>
@@ -1017,22 +1076,22 @@ export default function SubcontractorDetailPage() {
                   value={form.notes}
                   onChange={(e) => updateForm("notes", e.target.value)}
                   rows={4}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
                 />
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+            <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
               The performance score is automatic and cannot be edited here. It
               updates from visits, complaints, and accounts assigned to this
               subcontractor.
             </div>
 
-            <div className="mt-5 flex gap-3">
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap">
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
               >
                 {saving ? "Saving..." : "Save Changes"}
               </button>
@@ -1040,7 +1099,7 @@ export default function SubcontractorDetailPage() {
               <button
                 type="button"
                 onClick={() => setEditing(false)}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -1064,10 +1123,10 @@ export default function SubcontractorDetailPage() {
           showCancelledDate
         />
 
-        <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="mb-4">
             <h2 className="text-lg font-bold">Recent Complaints</h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm leading-6 text-slate-600">
               Complaints connected to this subcontractor’s current and past
               accounts.
             </p>
@@ -1158,11 +1217,11 @@ function AccountsTable({
   );
 
   return (
-    <section className="rounded-2xl bg-white p-6 shadow-sm">
+    <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
       <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
         <div>
           <h2 className="text-lg font-bold">{title}</h2>
-          <p className="text-sm text-slate-600">{description}</p>
+          <p className="text-sm leading-6 text-slate-600">{description}</p>
         </div>
 
         <div className="text-sm font-semibold text-slate-700">
@@ -1176,6 +1235,7 @@ function AccountsTable({
           <thead>
             <tr className="border-b bg-slate-50 text-slate-700">
               {showCancelledDate && <th className="px-4 py-3">Cancelled</th>}
+              <th className="px-4 py-3">Start Date</th>
               <th className="px-4 py-3">Account</th>
               <th className="px-4 py-3">Manager</th>
               <th className="px-4 py-3">Schedule</th>
@@ -1193,7 +1253,7 @@ function AccountsTable({
             {accounts.length === 0 ? (
               <tr>
                 <td
-                  colSpan={showCancelledDate ? 11 : 9}
+                  colSpan={showCancelledDate ? 12 : 10}
                   className="px-4 py-6 text-center text-slate-500"
                 >
                   {emptyText}
@@ -1202,26 +1262,28 @@ function AccountsTable({
             ) : (
               accounts.map((account, index) => {
                 const accountId = getAccountId(account);
+                const accountName = getAccountName(account);
+                const accountLinkId = accountId || createIdFromName(accountName);
 
                 return (
-                  <tr key={accountId || index} className="border-b">
+                  <tr key={accountLinkId || index} className="border-b">
                     {showCancelledDate && (
                       <td className="px-4 py-3">
                         {safeDate(getCancelledDate(account))}
                       </td>
                     )}
 
+                    <td className="px-4 py-3">
+                      {safeDate(getStartDate(account))}
+                    </td>
+
                     <td className="px-4 py-3 font-semibold">
-                      {accountId ? (
-                        <Link
-                          href={`/accounts/${encodeURIComponent(accountId)}`}
-                          className="text-blue-700 hover:underline"
-                        >
-                          {getAccountName(account)}
-                        </Link>
-                      ) : (
-                        getAccountName(account)
-                      )}
+                      <Link
+                        href={`/accounts/${encodeURIComponent(accountLinkId)}`}
+                        className="text-blue-700 no-underline hover:underline"
+                      >
+                        {accountName}
+                      </Link>
                     </td>
 
                     <td className="px-4 py-3">
@@ -1324,7 +1386,7 @@ function Input({
         value={value}
         required={required}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
       />
     </div>
   );

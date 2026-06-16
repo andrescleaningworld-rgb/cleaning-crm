@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 type AccountLocation = {
   id: string;
@@ -18,7 +18,15 @@ type AccountLocation = {
   status: string;
 };
 
-function cleanText(value: any, fallback = "") {
+type AccountsApiResponse = {
+  success?: boolean;
+  error?: string;
+  accounts?: AnyRow[];
+  data?: AnyRow[];
+  rows?: AnyRow[];
+};
+
+function cleanText(value: unknown, fallback = "") {
   if (value === null || value === undefined) return fallback;
   return String(value).trim() || fallback;
 }
@@ -155,6 +163,14 @@ function mapAccount(row: AnyRow): AccountLocation {
   };
 }
 
+function getLoadedAccounts(data: AccountsApiResponse | AnyRow[]) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.accounts)) return data.accounts;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.rows)) return data.rows;
+  return [];
+}
+
 function buildGoogleMapsSearchUrl(destination: string) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     destination
@@ -201,17 +217,24 @@ export default function MapPage() {
           cache: "no-store",
         });
 
-        const result = await response.json();
+        const result = (await response.json()) as AccountsApiResponse | AnyRow[];
 
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || "Could not load accounts.");
+        if (
+          !response.ok ||
+          (!Array.isArray(result) && result.success === false)
+        ) {
+          throw new Error(
+            !Array.isArray(result) && result.error
+              ? result.error
+              : "Could not load accounts."
+          );
         }
 
-        const rawAccounts = result.accounts || result.data || result.rows || [];
+        const rawAccounts = getLoadedAccounts(result);
 
         const mappedAccounts: AccountLocation[] = rawAccounts
           .map(mapAccount)
-          .filter((account: AccountLocation) => {
+          .filter((account) => {
             return account.name !== "Unnamed Account" && account.fullAddress;
           });
 
@@ -344,17 +367,18 @@ export default function MapPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6 text-gray-900">
+    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Account Map</h1>
             <p className="mt-2 text-gray-600">
-              Search accounts, view the address on Google Maps, and get driving directions.
+              Search accounts, view the address on Google Maps, and get driving
+              directions.
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 md:flex-row">
+          <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-row">
             <button
               type="button"
               onClick={useMyLocation}
@@ -391,13 +415,13 @@ export default function MapPage() {
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
               placeholder="Search account, address, manager, or sub..."
-              className="rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 xl:col-span-2"
+              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 xl:col-span-2"
             />
 
             <select
               value={managerFilter}
               onChange={(event) => setManagerFilter(event.target.value)}
-              className="rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
             >
               {managerOptions.map((manager) => (
                 <option key={manager} value={manager}>
@@ -409,7 +433,7 @@ export default function MapPage() {
             <select
               value={subFilter}
               onChange={(event) => setSubFilter(event.target.value)}
-              className="rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
             >
               {subOptions.map((sub) => (
                 <option key={sub} value={sub}>
@@ -436,10 +460,13 @@ export default function MapPage() {
               <select
                 value={selectedAccount?.id || ""}
                 onChange={(event) => setSelectedAccountId(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
               >
                 {filteredAccounts.map((account) => (
-                  <option key={`${account.id}-${account.fullAddress}`} value={account.id}>
+                  <option
+                    key={`${account.id}-${account.fullAddress}`}
+                    value={account.id}
+                  >
                     {account.name}
                   </option>
                 ))}
@@ -474,7 +501,8 @@ export default function MapPage() {
               />
             ) : (
               <div className="flex h-[650px] items-center justify-center text-center text-gray-600">
-                No account address found. Check that your Accounts sheet has address columns.
+                No account address found. Check that your Accounts sheet has
+                address columns.
               </div>
             )}
           </div>
@@ -537,13 +565,12 @@ export default function MapPage() {
                 </div>
 
                 <p className="mt-5 text-xs leading-5 text-gray-500">
-                  This map page only reads account address information. It does not save or edit anything.
+                  This map page only reads account address information. It does
+                  not save or edit anything.
                 </p>
               </>
             ) : (
-              <p className="mt-4 text-gray-600">
-                No account selected.
-              </p>
+              <p className="mt-4 text-gray-600">No account selected.</p>
             )}
           </aside>
         </section>

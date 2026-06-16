@@ -384,7 +384,7 @@ export default function AccountsPage() {
 
   if (loading) {
     return (
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
         <p className="text-sm font-semibold text-slate-600">
           Loading accounts...
         </p>
@@ -394,7 +394,7 @@ export default function AccountsPage() {
 
   if (error) {
     return (
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
+      <div className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
           {error}
         </div>
@@ -404,27 +404,27 @@ export default function AccountsPage() {
 
   return (
     <div>
-      <section className="rounded-3xl bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <section className="rounded-3xl bg-white p-4 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-blue-700">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
               Cleaning World
             </p>
 
-            <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
               Accounts
             </h1>
 
-            <p className="mt-2 max-w-3xl text-sm text-slate-500">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
               View accounts by status, manager, subcontractor, revenue, start
               date, and account details. The default view shows active accounts.
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row sm:flex-wrap">
             <Link
               href="/accounts/new"
-              className="rounded-2xl bg-blue-700 px-5 py-3 text-center text-sm font-black text-white shadow-sm no-underline hover:bg-blue-800"
+              className="rounded-2xl bg-blue-700 px-5 py-3.5 text-center text-sm font-black text-white shadow-sm no-underline hover:bg-blue-800"
             >
               + Add Account
             </Link>
@@ -432,65 +432,65 @@ export default function AccountsPage() {
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950"
+              className="rounded-2xl bg-slate-950 px-5 py-3.5 text-sm font-black text-white shadow-sm hover:bg-blue-950"
             >
               Print
             </button>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Total Accounts
+        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
+            <p className="text-[11px] font-black uppercase tracking-wide text-blue-700 sm:text-xs">
+              Total
             </p>
-            <p className="mt-2 text-3xl font-black text-slate-950">
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
               {accounts.length}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 sm:p-5">
+            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-700 sm:text-xs">
               Active
             </p>
-            <p className="mt-2 text-3xl font-black text-slate-950">
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
               {activeAccounts}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-red-100 bg-red-50 p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-red-700">
+          <div className="rounded-2xl border border-red-100 bg-red-50 p-4 sm:p-5">
+            <p className="text-[11px] font-black uppercase tracking-wide text-red-700 sm:text-xs">
               Cancelled
             </p>
-            <p className="mt-2 text-3xl font-black text-slate-950">
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
               {cancelledAccounts}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 sm:p-5">
+            <p className="text-[11px] font-black uppercase tracking-wide text-amber-700 sm:text-xs">
               High Risk
             </p>
-            <p className="mt-2 text-3xl font-black text-slate-950">
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
               {highRiskAccounts}
             </p>
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+        <div className="mt-4 rounded-2xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
           <p className="text-xs font-black uppercase tracking-wide text-blue-700">
             Revenue In Current View
           </p>
-          <p className="mt-2 text-3xl font-black text-slate-950">
+          <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
             {filteredRevenue.toLocaleString("en-US", {
               style: "currency",
               currency: "USD",
               maximumFractionDigits: 0,
             })}
           </p>
-          <p className="mt-1 text-xs font-semibold text-slate-500">
-            This number changes when you filter by status, manager, sub, or
-            search.
+          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+            This number changes when you filter by status, manager,
+            subcontractor, or search.
           </p>
         </div>
 
@@ -499,7 +499,7 @@ export default function AccountsPage() {
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             placeholder="Search accounts..."
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           />
 
           <select
@@ -507,7 +507,7 @@ export default function AccountsPage() {
             onChange={(event) =>
               setStatusFilter(event.target.value as StatusFilter)
             }
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {statusOptions.map((status) => (
               <option key={status} value={status}>
@@ -519,7 +519,7 @@ export default function AccountsPage() {
           <select
             value={managerFilter}
             onChange={(event) => setManagerFilter(event.target.value)}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {managers.map((manager) => (
               <option key={String(manager)} value={String(manager)}>
@@ -531,7 +531,7 @@ export default function AccountsPage() {
           <select
             value={subcontractorFilter}
             onChange={(event) => setSubcontractorFilter(event.target.value)}
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {subcontractors.map((sub) => (
               <option key={String(sub)} value={String(sub)}>
@@ -545,7 +545,7 @@ export default function AccountsPage() {
             onChange={(event) =>
               setSortOption(event.target.value as SortOption)
             }
-            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-blue-500"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {sortOptions.map((sort) => (
               <option key={sort} value={sort}>
@@ -555,8 +555,22 @@ export default function AccountsPage() {
           </select>
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-3xl border border-slate-200">
-          <div className="grid grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500">
+        <div className="mt-4 flex flex-col gap-1 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>
+            Showing{" "}
+            <span className="font-black text-slate-900">
+              {filteredAccounts.length}
+            </span>{" "}
+            account{filteredAccounts.length === 1 ? "" : "s"}
+          </p>
+
+          <p className="text-xs">
+            Tap any account to open the account detail page.
+          </p>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200">
+          <div className="hidden grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 lg:grid">
             <div className="col-span-3">Account</div>
             <div className="col-span-2">Manager</div>
             <div className="col-span-2">Subcontractor</div>
@@ -582,58 +596,94 @@ export default function AccountsPage() {
                   <Link
                     key={`${accountId}-${index}`}
                     href={accountHref}
-                    className="grid grid-cols-12 gap-3 px-4 py-4 text-sm no-underline hover:bg-blue-50"
+                    className="block px-4 py-4 text-sm no-underline hover:bg-blue-50 lg:grid lg:grid-cols-12 lg:gap-3"
                   >
-                    <div className="col-span-3">
-                      <p className="font-black text-blue-900">
-                        {account.accountName || "Unnamed Account"}
-                      </p>
+                    <div className="lg:col-span-3">
+                      <div className="flex items-start justify-between gap-3 lg:block">
+                        <div>
+                          <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
+                            {account.accountName || "Unnamed Account"}
+                          </p>
 
-                      <p className="mt-1 text-xs font-semibold text-slate-500">
-                        {[account.address, account.city, account.state]
-                          .filter(Boolean)
-                          .join(", ") || "No address"}
-                      </p>
+                          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                            {[account.address, account.city, account.state]
+                              .filter(Boolean)
+                              .join(", ") || "No address"}
+                          </p>
 
-                      <p className="mt-1 text-xs font-bold text-slate-400">
-                        ID: {accountId || "N/A"}
-                      </p>
+                          <p className="mt-1 text-xs font-bold text-slate-400">
+                            ID: {accountId || "N/A"}
+                          </p>
+                        </div>
+
+                        <div className="text-right lg:hidden">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Revenue
+                          </p>
+                          <p className="text-sm font-black text-slate-950">
+                            {formatMoney(account.monthlyRevenue)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="col-span-2 font-bold text-slate-700">
-                      {account.manager || "Unassigned"}
-                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3 lg:mt-0 lg:contents">
+                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
+                          Manager
+                        </p>
+                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">
+                          {account.manager || "Unassigned"}
+                        </p>
+                      </div>
 
-                    <div className="col-span-2 font-bold text-slate-700">
-                      {account.subcontractor || "Unassigned"}
-                    </div>
+                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
+                          Subcontractor
+                        </p>
+                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">
+                          {account.subcontractor || "Unassigned"}
+                        </p>
+                      </div>
 
-                    <div className="col-span-1">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-1 text-xs font-black ${getStatusClass(
-                          account.status
-                        )}`}
-                      >
-                        {account.status || "N/A"}
-                      </span>
-                    </div>
+                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
+                          Status
+                        </p>
+                        <span
+                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getStatusClass(
+                            account.status
+                          )}`}
+                        >
+                          {account.status || "N/A"}
+                        </span>
+                      </div>
 
-                    <div className="col-span-1">
-                      <span
-                        className={`inline-flex rounded-full border px-2 py-1 text-xs font-black ${getHealthClass(
-                          account.accountHealth
-                        )}`}
-                      >
-                        {account.accountHealth || "N/A"}
-                      </span>
-                    </div>
+                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
+                          Health
+                        </p>
+                        <span
+                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getHealthClass(
+                            account.accountHealth
+                          )}`}
+                        >
+                          {account.accountHealth || "N/A"}
+                        </span>
+                      </div>
 
-                    <div className="col-span-1 text-xs font-bold text-slate-600">
-                      {formatDate(account.accountStartDate) || "-"}
-                    </div>
+                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
+                          Start Date
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-slate-600 lg:mt-0">
+                          {formatDate(account.accountStartDate) || "-"}
+                        </p>
+                      </div>
 
-                    <div className="col-span-2 text-right font-black text-slate-950">
-                      {formatMoney(account.monthlyRevenue)}
+                      <div className="hidden text-right font-black text-slate-950 lg:col-span-2 lg:block">
+                        {formatMoney(account.monthlyRevenue)}
+                      </div>
                     </div>
                   </Link>
                 );

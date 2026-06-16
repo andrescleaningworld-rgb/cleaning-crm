@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 type DashboardData = {
   accounts: AnyRow[];
@@ -11,6 +11,16 @@ type DashboardData = {
   complaints: AnyRow[];
   sales: AnyRow[];
   subcontractors: AnyRow[];
+};
+
+type ApiResponse = {
+  data?: AnyRow[];
+  accounts?: AnyRow[];
+  visits?: AnyRow[];
+  complaints?: AnyRow[];
+  sales?: AnyRow[];
+  subcontractors?: AnyRow[];
+  rows?: AnyRow[];
 };
 
 const moneyFormatter = new Intl.NumberFormat("en-US", {
@@ -21,11 +31,11 @@ const moneyFormatter = new Intl.NumberFormat("en-US", {
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
-function cleanText(value: any): string {
+function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function cleanLower(value: any): string {
+function cleanLower(value: unknown): string {
   return cleanText(value).toLowerCase();
 }
 
@@ -39,14 +49,14 @@ function normalizeAccountName(value: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function parseMoney(value: any): number {
+function parseMoney(value: unknown): number {
   if (value === null || value === undefined || value === "") return 0;
 
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : 0;
   }
 
-  const cleaned = String(value)
+  const cleaned = cleanText(value)
     .replace(/\$/g, "")
     .replace(/,/g, "")
     .replace(/\s/g, "")
@@ -69,7 +79,7 @@ function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-function getValue(row: AnyRow, possibleKeys: string[]): any {
+function getValue(row: AnyRow, possibleKeys: string[]): unknown {
   for (const key of possibleKeys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
       return row[key];
@@ -85,7 +95,12 @@ function getValue(row: AnyRow, possibleKeys: string[]): any {
     const wanted = normalizeKey(possibleKey);
     const found = entries.find((entry) => entry.key === wanted);
 
-    if (found && found.value !== undefined && found.value !== null && found.value !== "") {
+    if (
+      found &&
+      found.value !== undefined &&
+      found.value !== null &&
+      found.value !== ""
+    ) {
       return found.value;
     }
   }
@@ -234,15 +249,17 @@ function dedupeAccountsByName(accounts: AnyRow[]): AnyRow[] {
     const key = name
       ? `name:${normalizeAccountName(name)}`
       : id
-      ? `id:${cleanLower(id)}`
-      : `row:${JSON.stringify(account)}`;
+        ? `id:${cleanLower(id)}`
+        : `row:${JSON.stringify(account)}`;
 
     if (!map.has(key)) {
       map.set(key, account);
       continue;
     }
 
-    const existing = map.get(key)!;
+    const existing = map.get(key);
+
+    if (!existing) continue;
 
     const existingIsRevenue = isRevenueAccount(existing);
     const newIsRevenue = isRevenueAccount(account);
@@ -288,7 +305,7 @@ function getDate(row: AnyRow): Date | null {
 
   if (!rawDate) return null;
 
-  const parsed = new Date(rawDate);
+  const parsed = new Date(cleanText(rawDate));
   if (Number.isNaN(parsed.getTime())) return null;
 
   return parsed;
@@ -312,7 +329,10 @@ function isThisMonth(row: AnyRow): boolean {
 
   const now = new Date();
 
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth()
+  );
 }
 
 function isThisQuarter(row: AnyRow): boolean {
@@ -323,11 +343,15 @@ function isThisQuarter(row: AnyRow): boolean {
   const currentQuarter = Math.floor(now.getMonth() / 3);
   const rowQuarter = Math.floor(date.getMonth() / 3);
 
-  return date.getFullYear() === now.getFullYear() && rowQuarter === currentQuarter;
+  return (
+    date.getFullYear() === now.getFullYear() && rowQuarter === currentQuarter
+  );
 }
 
 function getComplaintStatus(row: AnyRow): string {
-  return cleanText(getValue(row, ["Status", "status", "Complaint Status", "complaintStatus"]));
+  return cleanText(
+    getValue(row, ["Status", "status", "Complaint Status", "complaintStatus"])
+  );
 }
 
 function isComplaintOpen(row: AnyRow): boolean {
@@ -445,10 +469,10 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
       return [];
     }
 
-    let json: any;
+    let json: ApiResponse | AnyRow[];
 
     try {
-      json = JSON.parse(text);
+      json = JSON.parse(text) as ApiResponse | AnyRow[];
     } catch {
       console.warn(`${key} API did not return JSON:`, text.slice(0, 300));
       return [];
@@ -481,8 +505,12 @@ function StatCard({
 }) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-bold uppercase tracking-wide text-gray-500">{label}</p>
-      <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">{value}</h2>
+      <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+        {label}
+      </p>
+      <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">
+        {value}
+      </h2>
       {note ? <p className="mt-2 text-sm text-gray-500">{note}</p> : null}
     </div>
   );
@@ -503,13 +531,14 @@ export default function DashboardPage() {
     async function loadDashboard() {
       setLoading(true);
 
-      const [accounts, visits, complaints, sales, subcontractors] = await Promise.all([
-        safeReadData("/api/accounts", "Accounts"),
-        safeReadData("/api/visits", "Visits"),
-        safeReadData("/api/complaints", "Complaints"),
-        safeReadData("/api/sales", "Sales"),
-        safeReadData("/api/subcontractors", "Subcontractors"),
-      ]);
+      const [accounts, visits, complaints, sales, subcontractors] =
+        await Promise.all([
+          safeReadData("/api/accounts", "Accounts"),
+          safeReadData("/api/visits", "Visits"),
+          safeReadData("/api/complaints", "Complaints"),
+          safeReadData("/api/sales", "Sales"),
+          safeReadData("/api/subcontractors", "Subcontractors"),
+        ]);
 
       setData({
         accounts,
@@ -609,19 +638,23 @@ export default function DashboardPage() {
   }, [data]);
 
   return (
-    <main className="min-h-screen bg-gray-50 px-6 py-6 text-gray-900">
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <main className="min-h-screen bg-gray-50 px-4 py-6 text-gray-900 sm:px-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
             Cleaning World
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">Operations Dashboard</h1>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">
+            Operations Dashboard
+          </h1>
           <p className="mt-2 text-gray-500">
-            Accounts, revenue, complaints, visits, sales, and subcontractor activity.
+            Accounts, revenue, complaints, visits, sales, and subcontractor
+            activity.
           </p>
         </div>
 
         <button
+          type="button"
           onClick={() => window.print()}
           className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white"
         >
@@ -639,7 +672,9 @@ export default function DashboardPage() {
             <StatCard
               label="Monthly Revenue"
               value={formatMoney(dashboard.monthlyRevenue)}
-              note={`${formatNumber(dashboard.revenueAccounts.length)} revenue accounts from ${formatNumber(
+              note={`${formatNumber(
+                dashboard.revenueAccounts.length
+              )} revenue accounts from ${formatNumber(
                 dashboard.rawAccounts.length
               )} rows`}
             />
@@ -701,26 +736,47 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {dashboard.accountsNeedingAttention.slice(0, 8).map((account, index) => {
-                      const id = getAccountId(account);
-                      const name = getAccountName(account) || "Unnamed Account";
-                      const href = id ? `/accounts/${encodeURIComponent(id)}` : "/accounts";
+                    {dashboard.accountsNeedingAttention
+                      .slice(0, 8)
+                      .map((account, index) => {
+                        const id = getAccountId(account);
+                        const name =
+                          getAccountName(account) || "Unnamed Account";
+                        const href = id
+                          ? `/accounts/${encodeURIComponent(id)}`
+                          : "/accounts";
 
-                      return (
-                        <tr key={`attention-${index}`} className="border-b last:border-b-0">
-                          <td className="p-3">
-                            <Link className="font-bold hover:text-blue-600" href={href}>
-                              {name}
-                            </Link>
-                          </td>
-                          <td className="p-3">{getAccountStatus(account) || "-"}</td>
-                          <td className="p-3">{getAccountHealth(account) || "-"}</td>
-                          <td className="p-3">{getAccountManager(account) || "-"}</td>
-                          <td className="p-3">{getAccountSubcontractor(account) || "-"}</td>
-                          <td className="p-3 text-right">{formatMoney(getMonthlyRevenue(account))}</td>
-                        </tr>
-                      );
-                    })}
+                        return (
+                          <tr
+                            key={`attention-${index}`}
+                            className="border-b last:border-b-0"
+                          >
+                            <td className="p-3">
+                              <Link
+                                className="font-bold hover:text-blue-600"
+                                href={href}
+                              >
+                                {name}
+                              </Link>
+                            </td>
+                            <td className="p-3">
+                              {getAccountStatus(account) || "-"}
+                            </td>
+                            <td className="p-3">
+                              {getAccountHealth(account) || "-"}
+                            </td>
+                            <td className="p-3">
+                              {getAccountManager(account) || "-"}
+                            </td>
+                            <td className="p-3">
+                              {getAccountSubcontractor(account) || "-"}
+                            </td>
+                            <td className="p-3 text-right">
+                              {formatMoney(getMonthlyRevenue(account))}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -745,10 +801,15 @@ export default function DashboardPage() {
                       key={`complaint-${index}`}
                       className="rounded-xl border border-gray-100 bg-gray-50 p-4"
                     >
-                      <strong>{getRowAccountName(complaint) || "Unknown Account"}</strong>
-                      <p className="mt-1 text-gray-700">{getRowTitle(complaint) || "Complaint"}</p>
+                      <strong>
+                        {getRowAccountName(complaint) || "Unknown Account"}
+                      </strong>
+                      <p className="mt-1 text-gray-700">
+                        {getRowTitle(complaint) || "Complaint"}
+                      </p>
                       <p className="mt-1 text-sm text-gray-500">
-                        {getComplaintStatus(complaint) || "Open"} · {getDisplayDate(complaint)}
+                        {getComplaintStatus(complaint) || "Open"} ·{" "}
+                        {getDisplayDate(complaint)}
                       </p>
                     </div>
                   ))}
@@ -773,8 +834,12 @@ export default function DashboardPage() {
                       key={`visit-${index}`}
                       className="rounded-xl border border-gray-100 bg-gray-50 p-4"
                     >
-                      <strong>{getRowAccountName(visit) || "Unknown Account"}</strong>
-                      <p className="mt-1 text-gray-700">{getRowTitle(visit) || "Visit"}</p>
+                      <strong>
+                        {getRowAccountName(visit) || "Unknown Account"}
+                      </strong>
+                      <p className="mt-1 text-gray-700">
+                        {getRowTitle(visit) || "Visit"}
+                      </p>
                       <p className="mt-1 text-sm text-gray-500">
                         {getRowPerson(visit) || "-"} · {getDisplayDate(visit)}
                       </p>
@@ -801,10 +866,15 @@ export default function DashboardPage() {
                       key={`sale-${index}`}
                       className="rounded-xl border border-gray-100 bg-gray-50 p-4"
                     >
-                      <strong>{getRowAccountName(sale) || "Unknown Account"}</strong>
-                      <p className="mt-1 text-gray-700">{getRowTitle(sale) || "Sale"}</p>
+                      <strong>
+                        {getRowAccountName(sale) || "Unknown Account"}
+                      </strong>
+                      <p className="mt-1 text-gray-700">
+                        {getRowTitle(sale) || "Sale"}
+                      </p>
                       <p className="mt-1 text-sm text-gray-500">
-                        {formatMoney(getSaleAmount(sale))} · {getDisplayDate(sale)}
+                        {formatMoney(getSaleAmount(sale))} ·{" "}
+                        {getDisplayDate(sale)}
                       </p>
                     </div>
                   ))}

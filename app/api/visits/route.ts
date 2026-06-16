@@ -2,6 +2,33 @@ import { NextResponse } from "next/server";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
+type ScriptResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  id?: string;
+  visits?: unknown[];
+  data?: unknown[];
+};
+
+type VisitRequestBody = {
+  accountId?: string;
+  accountName?: string;
+  date?: string;
+  visitType?: string;
+  manager?: string;
+  completedBy?: string;
+  subcontractor?: string;
+  condition?: string;
+  followUpNeeded?: string;
+  followUpDate?: string;
+  notes?: string;
+};
+
+function clean(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 export async function GET() {
   try {
     if (!SCRIPT_URL) {
@@ -21,10 +48,10 @@ export async function GET() {
 
     const text = await response.text();
 
-    let data: any;
+    let data: ScriptResponse;
 
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as ScriptResponse;
     } catch {
       return NextResponse.json(
         {
@@ -49,7 +76,11 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      visits: data.visits || [],
+      visits: Array.isArray(data.visits)
+        ? data.visits
+        : Array.isArray(data.data)
+          ? data.data
+          : [],
     });
   } catch (error) {
     return NextResponse.json(
@@ -77,31 +108,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    const body = (await request.json()) as VisitRequestBody;
 
     const payload = {
       action: "addVisit",
 
-      accountId: body.accountId || "",
-      accountName: body.accountName || "",
+      accountId: clean(body.accountId),
+      accountName: clean(body.accountName),
 
-      date: body.date || "",
-      visitDate: body.date || "",
+      date: clean(body.date),
+      visitDate: clean(body.date),
 
-      visitType: body.visitType || "",
+      visitType: clean(body.visitType),
 
-      manager: body.manager || "",
-      completedBy: body.manager || body.completedBy || "",
+      manager: clean(body.manager),
+      completedBy: clean(body.manager || body.completedBy),
 
-      subcontractor: body.subcontractor || "",
+      subcontractor: clean(body.subcontractor),
 
-      condition: body.condition || "",
-      conditionScore: body.condition || "",
+      condition: clean(body.condition),
+      conditionScore: clean(body.condition),
 
-      followUpNeeded: body.followUpNeeded || "",
-      followUpDate: body.followUpDate || "",
+      followUpNeeded: clean(body.followUpNeeded),
+      followUpDate: clean(body.followUpDate),
 
-      notes: body.notes || "",
+      notes: clean(body.notes),
     };
 
     console.log("Saving visit payload:", payload);
@@ -117,10 +148,10 @@ export async function POST(request: Request) {
 
     const text = await response.text();
 
-    let data: any;
+    let data: ScriptResponse;
 
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as ScriptResponse;
     } catch {
       return NextResponse.json(
         {

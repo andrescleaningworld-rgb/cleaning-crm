@@ -131,6 +131,22 @@ function getHealthStatusFromScore(score: number): HealthStatus {
   return "Good";
 }
 
+function getHealthStatusDescription(status: HealthStatus) {
+  if (status === "Critical") {
+    return "0–3: Immediate attention required";
+  }
+
+  if (status === "Problem") {
+    return "4–5: Active issue or repeated concern";
+  }
+
+  if (status === "Watch") {
+    return "6–7: Monitor closely";
+  }
+
+  return "8–10: Stable account";
+}
+
 function getHealthStatusClass(status: HealthStatus) {
   if (status === "Critical") {
     return "bg-red-200 text-red-900";
@@ -234,7 +250,7 @@ export default function AccountHealthPage() {
     });
   }
 
-  function handleAddHealthItem(event: { preventDefault: () => void }) {
+  function handleAddHealthItem(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (!formData.internalNotes.trim()) {
@@ -290,7 +306,7 @@ export default function AccountHealthPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6 print:bg-white">
+    <main className="min-h-screen bg-gray-100 p-4 print:bg-white sm:p-6">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -340,6 +356,44 @@ export default function AccountHealthPage() {
             <p className="mt-2 text-2xl font-bold text-gray-900">
               {averageHealthScore.toFixed(1)}/10
             </p>
+          </div>
+        </section>
+
+        <section className="rounded-xl bg-white p-5 shadow print:hidden">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">
+                Smart Health Status Guide
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                The system automatically calculates account health from the
+                health score. Later, this can also include complaints, visits,
+                follow-ups, and subcontractor performance.
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
+              Current logic: score-based
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            {healthStatusOptions.map((status) => (
+              <div key={status} className="rounded-lg border border-gray-200 p-3">
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getHealthStatusClass(
+                    status
+                  )}`}
+                >
+                  {status}
+                </span>
+
+                <p className="mt-2 text-sm text-gray-600">
+                  {getHealthStatusDescription(status)}
+                </p>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -684,7 +738,7 @@ export default function AccountHealthPage() {
 
         <section className="rounded-xl bg-white p-6 shadow print:hidden">
           <h2 className="text-xl font-bold text-gray-900">
-            Future Connection
+            Future Smart Connection
           </h2>
 
           <p className="mt-3 text-sm leading-6 text-gray-700">

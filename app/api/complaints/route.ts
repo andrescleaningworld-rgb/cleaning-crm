@@ -2,6 +2,69 @@ import { NextResponse } from "next/server";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
+type ScriptResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  id?: string;
+  rowNumber?: string | number;
+  status?: string;
+  complaints?: unknown[];
+  data?: unknown[];
+};
+
+type ComplaintPayload = {
+  rowNumber?: string | number;
+  id?: string;
+  complaintId?: string;
+  accountId?: string;
+  accountName?: string;
+  date?: string;
+  complaintDate?: string;
+  complaintType?: string;
+  issueType?: string;
+  type?: string;
+  issue?: string;
+  Issue?: string;
+  description?: string;
+  priority?: string;
+  Priority?: string;
+  severity?: string;
+  status?: string;
+  Status?: string;
+  complaintValidity?: string;
+  validity?: string;
+  manager?: string;
+  assignedTo?: string;
+  subcontractor?: string;
+  Subcontractor?: string;
+  resolution?: string;
+  Resolution?: string;
+  resolutionNotes?: string;
+  followUpDate?: string;
+  lastFollowUp?: string;
+  closedDate?: string;
+  notes?: string;
+  Notes?: string;
+  reportedBy?: string;
+  [key: string]: unknown;
+};
+
+type RequestBody = {
+  action?: string;
+  complaint?: ComplaintPayload;
+  rowNumber?: string | number;
+  id?: string;
+} & ComplaintPayload;
+
+function clean(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function getText(row: ComplaintPayload, key: string): string {
+  return clean(row[key]);
+}
+
 export async function GET() {
   try {
     if (!SCRIPT_URL) {
@@ -21,10 +84,10 @@ export async function GET() {
 
     const text = await response.text();
 
-    let data: any;
+    let data: ScriptResponse;
 
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as ScriptResponse;
     } catch {
       return NextResponse.json(
         {
@@ -50,7 +113,11 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      complaints: data.complaints || data.data || [],
+      complaints: Array.isArray(data.complaints)
+        ? data.complaints
+        : Array.isArray(data.data)
+          ? data.data
+          : [],
     });
   } catch (error) {
     return NextResponse.json(
@@ -78,10 +145,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = await request.json();
+    const body = (await request.json()) as RequestBody;
 
-    const requestedAction = body.action || "addComplaint";
-    const complaint = body.complaint || body;
+    const requestedAction = clean(body.action) || "addComplaint";
+    const complaint: ComplaintPayload = body.complaint || body;
 
     const isClosingComplaint =
       requestedAction === "closeComplaint" ||
@@ -93,43 +160,33 @@ export async function POST(request: Request) {
         action: "closeComplaint",
         complaint: {
           rowNumber: complaint.rowNumber || body.rowNumber || "",
-          id: complaint.id || complaint.complaintId || body.id || "",
-          accountName: complaint.accountName || complaint["Account Name"] || "",
-          date:
+          id: clean(complaint.id || complaint.complaintId || body.id),
+          accountName: clean(
+            complaint.accountName || getText(complaint, "Account Name")
+          ),
+          date: clean(
             complaint.date ||
-            complaint.complaintDate ||
-            complaint["Complaint Date"] ||
-            "",
-          description:
-            complaint.description ||
-            complaint.issue ||
-            complaint.Issue ||
-            "",
-          issue:
-            complaint.issue ||
-            complaint.description ||
-            complaint.Issue ||
-            "",
-          status: complaint.status || "Closed",
-          resolution:
-            complaint.resolution ||
-            complaint.resolutionNotes ||
-            complaint.notes ||
-            "",
-          resolutionNotes:
-            complaint.resolutionNotes ||
-            complaint.resolution ||
-            complaint.notes ||
-            "",
+              complaint.complaintDate ||
+              getText(complaint, "Complaint Date")
+          ),
+          description: clean(
+            complaint.description || complaint.issue || complaint.Issue
+          ),
+          issue: clean(complaint.issue || complaint.description || complaint.Issue),
+          status: clean(complaint.status) || "Closed",
+          resolution: clean(
+            complaint.resolution || complaint.resolutionNotes || complaint.notes
+          ),
+          resolutionNotes: clean(
+            complaint.resolutionNotes || complaint.resolution || complaint.notes
+          ),
           followUpDate:
-            complaint.followUpDate ||
-            complaint.closedDate ||
+            clean(complaint.followUpDate || complaint.closedDate) ||
             new Date().toISOString().slice(0, 10),
           closedDate:
-            complaint.closedDate ||
-            complaint.followUpDate ||
+            clean(complaint.closedDate || complaint.followUpDate) ||
             new Date().toISOString().slice(0, 10),
-          notes: complaint.notes || "",
+          notes: clean(complaint.notes),
         },
       };
 
@@ -144,10 +201,10 @@ export async function POST(request: Request) {
 
       const text = await response.text();
 
-      let data: any;
+      let data: ScriptResponse;
 
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(text) as ScriptResponse;
       } catch {
         return NextResponse.json(
           {
@@ -185,122 +242,120 @@ export async function POST(request: Request) {
     const payload = {
       action: "addComplaint",
       complaint: {
-        accountId: complaint.accountId || complaint["Account ID"] || "",
-        accountName: complaint.accountName || complaint["Account Name"] || "",
+        accountId: clean(
+          complaint.accountId || getText(complaint, "Account ID")
+        ),
+        accountName: clean(
+          complaint.accountName || getText(complaint, "Account Name")
+        ),
 
-        date:
+        date: clean(
           complaint.date ||
-          complaint.complaintDate ||
-          complaint["Complaint Date"] ||
-          "",
+            complaint.complaintDate ||
+            getText(complaint, "Complaint Date")
+        ),
 
-        complaintDate:
+        complaintDate: clean(
           complaint.complaintDate ||
-          complaint.date ||
-          complaint["Complaint Date"] ||
-          "",
+            complaint.date ||
+            getText(complaint, "Complaint Date")
+        ),
 
-        complaintType:
+        complaintType: clean(
           complaint.complaintType ||
-          complaint.issueType ||
-          complaint.type ||
-          complaint.issue ||
-          complaint.Issue ||
-          "",
+            complaint.issueType ||
+            complaint.type ||
+            complaint.issue ||
+            complaint.Issue
+        ),
 
-        issue: complaint.issue || complaint.Issue || complaint.description || "",
-        description:
-          complaint.description || complaint.issue || complaint.Issue || "",
+        issue: clean(complaint.issue || complaint.Issue || complaint.description),
+        description: clean(complaint.description || complaint.issue || complaint.Issue),
 
         priority:
-          complaint.priority ||
-          complaint.Priority ||
-          complaint.severity ||
+          clean(complaint.priority || complaint.Priority || complaint.severity) ||
           "Medium",
 
         severity:
-          complaint.severity ||
-          complaint.priority ||
-          complaint.Priority ||
+          clean(complaint.severity || complaint.priority || complaint.Priority) ||
           "Medium",
 
-        status: complaint.status || complaint.Status || "Open",
+        status: clean(complaint.status || complaint.Status) || "Open",
 
         complaintValidity:
-          complaint.complaintValidity ||
-          complaint.validity ||
-          complaint["Complaint Validity"] ||
-          "Needs Review",
+          clean(
+            complaint.complaintValidity ||
+              complaint.validity ||
+              getText(complaint, "Complaint Validity")
+          ) || "Needs Review",
 
         validity:
-          complaint.complaintValidity ||
-          complaint.validity ||
-          complaint["Complaint Validity"] ||
-          "Needs Review",
+          clean(
+            complaint.complaintValidity ||
+              complaint.validity ||
+              getText(complaint, "Complaint Validity")
+          ) || "Needs Review",
 
-        manager:
-          complaint.manager ||
-          complaint.assignedTo ||
-          complaint["Assigned To"] ||
-          "",
+        manager: clean(
+          complaint.manager || complaint.assignedTo || getText(complaint, "Assigned To")
+        ),
 
-        assignedTo:
-          complaint.assignedTo ||
-          complaint.manager ||
-          complaint["Assigned To"] ||
-          "",
+        assignedTo: clean(
+          complaint.assignedTo || complaint.manager || getText(complaint, "Assigned To")
+        ),
 
-        subcontractor: complaint.subcontractor || complaint.Subcontractor || "",
+        subcontractor: clean(complaint.subcontractor || complaint.Subcontractor),
 
-        resolution: complaint.resolution || complaint.Resolution || "",
+        resolution: clean(complaint.resolution || complaint.Resolution),
 
-        followUpDate:
+        followUpDate: clean(
           complaint.followUpDate ||
+            complaint.lastFollowUp ||
+            getText(complaint, "Last Follow-Up") ||
+            getText(complaint, "Follow Up Date")
+        ),
+
+        lastFollowUp: clean(
           complaint.lastFollowUp ||
-          complaint["Last Follow-Up"] ||
-          complaint["Follow Up Date"] ||
-          "",
+            complaint.followUpDate ||
+            getText(complaint, "Last Follow-Up")
+        ),
 
-        lastFollowUp:
-          complaint.lastFollowUp ||
-          complaint.followUpDate ||
-          complaint["Last Follow-Up"] ||
-          "",
+        notes: clean(complaint.notes || complaint.Notes),
+        reportedBy: clean(complaint.reportedBy || getText(complaint, "Reported By")),
 
-        notes: complaint.notes || complaint.Notes || "",
-        reportedBy: complaint.reportedBy || complaint["Reported By"] || "",
-
-        "Account ID": complaint.accountId || complaint["Account ID"] || "",
-        "Account Name": complaint.accountName || complaint["Account Name"] || "",
-        "Complaint Date":
+        "Account ID": clean(
+          complaint.accountId || getText(complaint, "Account ID")
+        ),
+        "Account Name": clean(
+          complaint.accountName || getText(complaint, "Account Name")
+        ),
+        "Complaint Date": clean(
           complaint.complaintDate ||
-          complaint.date ||
-          complaint["Complaint Date"] ||
-          "",
-        Issue: complaint.issue || complaint.Issue || complaint.description || "",
+            complaint.date ||
+            getText(complaint, "Complaint Date")
+        ),
+        Issue: clean(complaint.issue || complaint.Issue || complaint.description),
         Priority:
-          complaint.priority ||
-          complaint.Priority ||
-          complaint.severity ||
+          clean(complaint.priority || complaint.Priority || complaint.severity) ||
           "Medium",
-        Status: complaint.status || complaint.Status || "Open",
+        Status: clean(complaint.status || complaint.Status) || "Open",
         "Complaint Validity":
-          complaint.complaintValidity ||
-          complaint.validity ||
-          complaint["Complaint Validity"] ||
-          "Needs Review",
-        "Reported By": complaint.reportedBy || complaint["Reported By"] || "",
-        "Assigned To":
-          complaint.assignedTo ||
-          complaint.manager ||
-          complaint["Assigned To"] ||
-          "",
-        "Last Follow-Up":
+          clean(
+            complaint.complaintValidity ||
+              complaint.validity ||
+              getText(complaint, "Complaint Validity")
+          ) || "Needs Review",
+        "Reported By": clean(complaint.reportedBy || getText(complaint, "Reported By")),
+        "Assigned To": clean(
+          complaint.assignedTo || complaint.manager || getText(complaint, "Assigned To")
+        ),
+        "Last Follow-Up": clean(
           complaint.lastFollowUp ||
-          complaint.followUpDate ||
-          complaint["Last Follow-Up"] ||
-          "",
-        Notes: complaint.notes || complaint.Notes || "",
+            complaint.followUpDate ||
+            getText(complaint, "Last Follow-Up")
+        ),
+        Notes: clean(complaint.notes || complaint.Notes),
       },
     };
 
@@ -315,10 +370,10 @@ export async function POST(request: Request) {
 
     const text = await response.text();
 
-    let data: any;
+    let data: ScriptResponse;
 
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(text) as ScriptResponse;
     } catch {
       return NextResponse.json(
         {

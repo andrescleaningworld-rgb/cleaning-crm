@@ -1,13 +1,22 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 type DateRange = {
   label: string;
   start: Date;
   end: Date;
+};
+
+type ApiResponse = {
+  accounts?: AnyRow[];
+  visits?: AnyRow[];
+  complaints?: AnyRow[];
+  sales?: AnyRow[];
+  data?: AnyRow[];
 };
 
 function normalizeKey(value: string) {
@@ -16,10 +25,14 @@ function normalizeKey(value: string) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
 function getValue(row: AnyRow, possibleKeys: string[]) {
   for (const key of possibleKeys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
-      return row[key];
+      return clean(row[key]);
     }
   }
 
@@ -40,15 +53,15 @@ function getValue(row: AnyRow, possibleKeys: string[]) {
       row[realKey] !== null &&
       row[realKey] !== ""
     ) {
-      return row[realKey];
+      return clean(row[realKey]);
     }
   }
 
   return "";
 }
 
-function money(value: any) {
-  const number = Number(String(value || 0).replace(/[$,]/g, "") || 0);
+function money(value: unknown) {
+  const number = Number(clean(value).replace(/[$,]/g, "") || 0);
 
   return number.toLocaleString("en-US", {
     style: "currency",
@@ -56,18 +69,18 @@ function money(value: any) {
   });
 }
 
-function numberValue(value: any) {
-  return Number(String(value || 0).replace(/[$,% ,]/g, "") || 0);
+function numberValue(value: unknown) {
+  return Number(clean(value).replace(/[$,% ,]/g, "") || 0);
 }
 
-function safeDate(value: any) {
+function safeDate(value: unknown) {
   if (!value) return "";
   const date = getDate(value);
-  if (!date) return String(value);
+  if (!date) return clean(value);
   return date.toLocaleDateString();
 }
 
-function getDate(value: any) {
+function getDate(value: unknown): Date | null {
   if (!value) return null;
 
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -79,7 +92,7 @@ function getDate(value: any) {
     if (!Number.isNaN(excelDate.getTime())) return excelDate;
   }
 
-  const text = String(value).trim();
+  const text = clean(value);
 
   if (!text) return null;
 
@@ -113,7 +126,7 @@ function getDate(value: any) {
   return null;
 }
 
-function isDateInRange(value: any, start: Date, end: Date) {
+function isDateInRange(value: unknown, start: Date, end: Date) {
   const date = getDate(value);
 
   if (!date) {
@@ -129,7 +142,7 @@ function isDateInRange(value: any, start: Date, end: Date) {
   return date >= startDate && date <= endDate;
 }
 
-function isDateInRangeOrMissing(value: any, start: Date, end: Date) {
+function isDateInRangeOrMissing(value: unknown, start: Date, end: Date) {
   const date = getDate(value);
 
   if (!date) {
@@ -145,7 +158,7 @@ function isDateInRangeOrMissing(value: any, start: Date, end: Date) {
   return date >= startDate && date <= endDate;
 }
 
-function getQuarter(value: any) {
+function getQuarter(value: unknown) {
   if (!value) return "No Date";
 
   const date = getDate(value);
@@ -356,6 +369,27 @@ function rowMatchesSearch(row: AnyRow, search: string) {
     .includes(search.toLowerCase());
 }
 
+async function readResult(
+  result: PromiseSettledResult<Response>,
+  type: "accounts" | "visits" | "complaints" | "sales"
+): Promise<AnyRow[]> {
+  if (result.status !== "fulfilled") return [];
+
+  const data = (await result.value.json()) as ApiResponse | AnyRow[];
+
+  if (Array.isArray(data)) return data;
+
+  if (type === "accounts" && Array.isArray(data.accounts)) return data.accounts;
+  if (type === "visits" && Array.isArray(data.visits)) return data.visits;
+  if (type === "complaints" && Array.isArray(data.complaints)) {
+    return data.complaints;
+  }
+  if (type === "sales" && Array.isArray(data.sales)) return data.sales;
+  if (Array.isArray(data.data)) return data.data;
+
+  return [];
+}
+
 export default function ReportsPage() {
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
   const [visits, setVisits] = useState<AnyRow[]>([]);
@@ -373,7 +407,7 @@ export default function ReportsPage() {
   );
   const [customEndDate, setCustomEndDate] = useState(toInputDate(today));
 
-  const [reportType, setReportType] = useState("All");
+  const [reportType, setReportType] = useState("Overview");
   const [managerFilter, setManagerFilter] = useState("All");
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
   const [salespersonFilter, setSalespersonFilter] = useState("All");
@@ -393,24 +427,10 @@ export default function ReportsPage() {
           fetch("/api/sales", { cache: "no-store" }),
         ]);
 
-      async function readResult(result: PromiseSettledResult<Response>) {
-        if (result.status !== "fulfilled") return [];
-
-        const data = await result.value.json();
-
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data.accounts)) return data.accounts;
-        if (Array.isArray(data.visits)) return data.visits;
-        if (Array.isArray(data.complaints)) return data.complaints;
-        if (Array.isArray(data.sales)) return data.sales;
-
-        return [];
-      }
-
-      setAccounts(await readResult(accountsRes));
-      setVisits(await readResult(visitsRes));
-      setComplaints(await readResult(complaintsRes));
-      setSales(await readResult(salesRes));
+      setAccounts(await readResult(accountsRes, "accounts"));
+      setVisits(await readResult(visitsRes, "visits"));
+      setComplaints(await readResult(complaintsRes, "complaints"));
+      setSales(await readResult(salesRes, "sales"));
     } catch (error) {
       console.error("Error loading reports:", error);
       setLoadError(
@@ -474,7 +494,7 @@ export default function ReportsPage() {
         getAccountManager(row) ||
         getValue(row, ["visitedBy", "Visited By", "assignedTo", "Assigned To"]);
 
-      if (manager) names.add(String(manager));
+      if (manager) names.add(manager);
     });
 
     return ["All", ...Array.from(names).sort()];
@@ -485,7 +505,7 @@ export default function ReportsPage() {
 
     accounts.forEach((row) => {
       const sub = getSubcontractor(row);
-      if (sub) names.add(String(sub));
+      if (sub) names.add(sub);
     });
 
     return ["All", ...Array.from(names).sort()];
@@ -504,7 +524,7 @@ export default function ReportsPage() {
         "Salesperson",
       ]);
 
-      if (soldBy) names.add(String(soldBy));
+      if (soldBy) names.add(soldBy);
     });
 
     return ["All", ...Array.from(names).sort()];
@@ -515,7 +535,7 @@ export default function ReportsPage() {
 
     accounts.forEach((row) => {
       const status = getStatus(row);
-      if (status) list.add(String(status));
+      if (status) list.add(status);
     });
 
     return ["All", ...Array.from(list).sort()];
@@ -539,7 +559,7 @@ export default function ReportsPage() {
 
   const activeAccounts = useMemo(() => {
     return filteredAccounts.filter((account) => {
-      const status = String(getStatus(account)).toLowerCase();
+      const status = getStatus(account).toLowerCase();
       return !status.includes("cancel");
     });
   }, [filteredAccounts]);
@@ -559,7 +579,7 @@ export default function ReportsPage() {
   const cancelledAccounts = useMemo(() => {
     return filteredAccounts
       .filter((account) => {
-        const status = String(getStatus(account)).toLowerCase();
+        const status = getStatus(account).toLowerCase();
         const cancelledDate = getCancelledDate(account);
 
         return (
@@ -668,14 +688,12 @@ export default function ReportsPage() {
     }, 0);
 
     const openComplaints = filteredComplaints.filter((complaint) => {
-      const status = String(
-        getValue(complaint, [
-          "status",
-          "Status",
-          "complaintStatus",
-          "Complaint Status",
-        ])
-      ).toLowerCase();
+      const status = getValue(complaint, [
+        "status",
+        "Status",
+        "complaintStatus",
+        "Complaint Status",
+      ]).toLowerCase();
 
       return (
         status.includes("open") ||
@@ -798,19 +816,15 @@ export default function ReportsPage() {
     cancelledAccounts,
   ]);
 
-  const showOverview = reportType === "All" || reportType === "Overview";
-  const showStarted =
-    reportType === "All" || reportType === "YTD Started Accounts";
-  const showCancelled =
-    reportType === "All" || reportType === "YTD Cancelled Accounts";
-  const showManagerSummary =
-    reportType === "All" || reportType === "Manager Summary";
-  const showComplaints = reportType === "All" || reportType === "Complaints";
-  const showSales =
-    reportType === "All" || reportType === "Sales & Commissions";
+  const showOverview = reportType === "Overview";
+  const showStarted = reportType === "YTD Started Accounts";
+  const showCancelled = reportType === "YTD Cancelled Accounts";
+  const showManagerSummary = reportType === "Manager Summary";
+  const showComplaints = reportType === "Complaints";
+  const showSales = reportType === "Sales & Commissions";
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6 print:bg-white print:p-0">
+    <main className="min-h-screen bg-gray-100 p-4 text-gray-900 print:bg-white print:p-0 sm:p-6">
       <style>{`
         @media print {
           @page {
@@ -835,11 +849,11 @@ export default function ReportsPage() {
           }
 
           table {
-            font-size: 11px;
+            font-size: 10.5px;
           }
 
           th, td {
-            padding: 6px !important;
+            padding: 5px !important;
           }
         }
       `}</style>
@@ -848,14 +862,14 @@ export default function ReportsPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-            <p className="text-gray-600">
-              Filtered reports for account growth, cancellations, visits,
-              complaints, sales, and commissions.
+            <p className="text-sm leading-6 text-gray-600 sm:text-base">
+              Select one report, preview it, then print or save as PDF.
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row">
             <button
+              type="button"
               onClick={loadAllReportsData}
               className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-semibold text-gray-700 hover:bg-gray-50"
             >
@@ -863,25 +877,42 @@ export default function ReportsPage() {
             </button>
 
             <button
+              type="button"
               onClick={() => window.print()}
               className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800"
             >
-              Print / Save PDF
+              Print Selected Report
             </button>
           </div>
         </div>
 
         <section className="hidden print:block">
-          <div className="border-b border-gray-300 pb-4">
-            <h1 className="text-2xl font-bold">Cleaning World</h1>
-            <p className="text-lg font-semibold">Operations & Quality Report</p>
-            <p className="text-sm text-gray-600">
-              Date Range: {safeDate(dateRange.start)} -{" "}
-              {safeDate(dateRange.end)}
-            </p>
-            <p className="text-sm text-gray-600">
-              Printed on {new Date().toLocaleDateString()}
-            </p>
+          <div className="mb-5 flex items-center justify-between border-b border-gray-300 pb-4">
+            <div>
+              <Image
+                src="/cw-logo.jpg"
+                alt="Cleaning World Logo"
+                width={170}
+                height={70}
+                className="h-auto w-[170px]"
+                priority
+              />
+            </div>
+
+            <div className="text-right">
+              <h1 className="text-2xl font-bold">Cleaning World</h1>
+              <p className="text-lg font-semibold">
+                Operations & Quality Report
+              </p>
+              <p className="text-sm text-gray-600">{reportType}</p>
+              <p className="text-sm text-gray-600">
+                Date Range: {safeDate(dateRange.start)} -{" "}
+                {safeDate(dateRange.end)}
+              </p>
+              <p className="text-sm text-gray-600">
+                Printed on {new Date().toLocaleDateString()}
+              </p>
+            </div>
           </div>
         </section>
 
@@ -894,9 +925,8 @@ export default function ReportsPage() {
               <select
                 value={reportType}
                 onChange={(event) => setReportType(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               >
-                <option>All</option>
                 <option>Overview</option>
                 <option>YTD Started Accounts</option>
                 <option>YTD Cancelled Accounts</option>
@@ -913,7 +943,7 @@ export default function ReportsPage() {
               <select
                 value={datePreset}
                 onChange={(event) => setDatePreset(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               >
                 <option>YTD</option>
                 <option>This Month</option>
@@ -933,7 +963,7 @@ export default function ReportsPage() {
                   setDatePreset("Custom");
                   setCustomStartDate(event.target.value);
                 }}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
 
@@ -948,7 +978,7 @@ export default function ReportsPage() {
                   setDatePreset("Custom");
                   setCustomEndDate(event.target.value);
                 }}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
 
@@ -960,7 +990,7 @@ export default function ReportsPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search reports..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
 
@@ -971,7 +1001,7 @@ export default function ReportsPage() {
               <select
                 value={managerFilter}
                 onChange={(event) => setManagerFilter(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               >
                 {managers.map((manager) => (
                   <option key={manager} value={manager}>
@@ -988,7 +1018,7 @@ export default function ReportsPage() {
               <select
                 value={subcontractorFilter}
                 onChange={(event) => setSubcontractorFilter(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               >
                 {subcontractors.map((subcontractor) => (
                   <option key={subcontractor} value={subcontractor}>
@@ -1005,7 +1035,7 @@ export default function ReportsPage() {
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               >
                 {statuses.map((status) => (
                   <option key={status} value={status}>
@@ -1022,7 +1052,7 @@ export default function ReportsPage() {
               <select
                 value={salespersonFilter}
                 onChange={(event) => setSalespersonFilter(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
               >
                 {salespeople.map((person) => (
                   <option key={person} value={person}>
@@ -1063,84 +1093,53 @@ export default function ReportsPage() {
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">Active Accounts</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {totals.activeAccounts}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Total shown: {totals.totalAccounts}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Active Accounts"
+                    value={String(totals.activeAccounts)}
+                    note={`Total shown: ${totals.totalAccounts}`}
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">Accounts Started</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {totals.startedAccounts}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Revenue added: {money(totals.revenueAdded)}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Accounts Started"
+                    value={String(totals.startedAccounts)}
+                    note={`Revenue added: ${money(totals.revenueAdded)}`}
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">Accounts Cancelled</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {totals.cancelledAccounts}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Revenue lost: {money(totals.revenueLost)}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Accounts Cancelled"
+                    value={String(totals.cancelledAccounts)}
+                    note={`Revenue lost: ${money(totals.revenueLost)}`}
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">Net Monthly Growth</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {money(totals.netRevenueGrowth)}
-                    </p>
-                    <p className="text-sm text-gray-600">Added minus lost</p>
-                  </div>
+                  <SummaryCard
+                    label="Net Monthly Growth"
+                    value={money(totals.netRevenueGrowth)}
+                    note="Added minus lost"
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">
-                      Active Monthly Revenue
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {money(totals.activeRevenue)}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Sub pay: {money(totals.activeSubPay)}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Active Monthly Revenue"
+                    value={money(totals.activeRevenue)}
+                    note={`Sub pay: ${money(totals.activeSubPay)}`}
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">
-                      Active Gross Margin
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {money(totals.activeGrossMargin)}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Active Gross Margin"
+                    value={money(totals.activeGrossMargin)}
+                    note="Revenue minus sub pay"
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">Complaints</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {totals.complaints}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Open / Pending: {totals.openComplaints}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Complaints"
+                    value={String(totals.complaints)}
+                    note={`Open / Pending: ${totals.openComplaints}`}
+                  />
 
-                  <div className="print-card rounded-xl bg-white p-5 shadow">
-                    <p className="text-sm text-gray-500">Sales</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {money(totals.salesTotal)}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Commission: {money(totals.commissionTotal)}
-                    </p>
-                  </div>
+                  <SummaryCard
+                    label="Sales"
+                    value={money(totals.salesTotal)}
+                    note={`Commission: ${money(totals.commissionTotal)}`}
+                  />
                 </div>
               </section>
             )}
@@ -1157,64 +1156,62 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3">Manager</th>
-                        <th className="px-4 py-3">Visits</th>
-                        <th className="px-4 py-3">Complaints</th>
-                        <th className="px-4 py-3">Started</th>
-                        <th className="px-4 py-3">Cancelled</th>
-                        <th className="px-4 py-3">Revenue Added</th>
-                        <th className="px-4 py-3">Revenue Lost</th>
-                        <th className="px-4 py-3">Sales</th>
-                        <th className="px-4 py-3">Commission</th>
-                      </tr>
-                    </thead>
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Manager</th>
+                      <th className="px-4 py-3">Visits</th>
+                      <th className="px-4 py-3">Complaints</th>
+                      <th className="px-4 py-3">Started</th>
+                      <th className="px-4 py-3">Cancelled</th>
+                      <th className="px-4 py-3">Revenue Added</th>
+                      <th className="px-4 py-3">Revenue Lost</th>
+                      <th className="px-4 py-3">Sales</th>
+                      <th className="px-4 py-3">Commission</th>
+                    </tr>
+                  </thead>
 
-                    <tbody>
-                      {managerSummary.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={9}
-                            className="px-4 py-6 text-center text-gray-500"
-                          >
-                            No manager activity found.
+                  <tbody>
+                    {managerSummary.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={9}
+                          className="px-4 py-6 text-center text-gray-500"
+                        >
+                          No manager activity found.
+                        </td>
+                      </tr>
+                    ) : (
+                      managerSummary.map(([manager, data]) => (
+                        <tr key={manager} className="border-b">
+                          <td className="px-4 py-3 font-semibold text-gray-900">
+                            {manager}
+                          </td>
+                          <td className="px-4 py-3">{data.visits}</td>
+                          <td className="px-4 py-3">{data.complaints}</td>
+                          <td className="px-4 py-3">
+                            {data.accountsStarted}
+                          </td>
+                          <td className="px-4 py-3">
+                            {data.accountsCancelled}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(data.revenueAdded)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(data.revenueLost)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(data.salesTotal)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(data.commissionTotal)}
                           </td>
                         </tr>
-                      ) : (
-                        managerSummary.map(([manager, data]) => (
-                          <tr key={manager} className="border-b">
-                            <td className="px-4 py-3 font-semibold text-gray-900">
-                              {manager}
-                            </td>
-                            <td className="px-4 py-3">{data.visits}</td>
-                            <td className="px-4 py-3">{data.complaints}</td>
-                            <td className="px-4 py-3">
-                              {data.accountsStarted}
-                            </td>
-                            <td className="px-4 py-3">
-                              {data.accountsCancelled}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(data.revenueAdded)}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(data.revenueLost)}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(data.salesTotal)}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(data.commissionTotal)}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      ))
+                    )}
+                  </tbody>
+                </ReportTable>
               </section>
             )}
 
@@ -1237,70 +1234,68 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3">Start Date</th>
-                        <th className="px-4 py-3">Account</th>
-                        <th className="px-4 py-3">Manager</th>
-                        <th className="px-4 py-3">Subcontractor</th>
-                        <th className="px-4 py-3">Monthly Revenue</th>
-                        <th className="px-4 py-3">Sub Pay</th>
-                        <th className="px-4 py-3">Gross Margin</th>
-                        <th className="px-4 py-3">GM %</th>
-                        <th className="px-4 py-3">Status</th>
-                      </tr>
-                    </thead>
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Start Date</th>
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Manager</th>
+                      <th className="px-4 py-3">Subcontractor</th>
+                      <th className="px-4 py-3">Monthly Revenue</th>
+                      <th className="px-4 py-3">Sub Pay</th>
+                      <th className="px-4 py-3">Gross Margin</th>
+                      <th className="px-4 py-3">GM %</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
 
-                    <tbody>
-                      {startedAccounts.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={9}
-                            className="px-4 py-6 text-center text-gray-500"
-                          >
-                            No started accounts found for this filter. Check
-                            that the Accounts sheet has a Start Date / Starting
-                            Date / Date Started column with dates in this range.
+                  <tbody>
+                    {startedAccounts.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={9}
+                          className="px-4 py-6 text-center text-gray-500"
+                        >
+                          No started accounts found for this filter. Check that
+                          the Accounts sheet has a Start Date / Starting Date /
+                          Date Started column with dates in this range.
+                        </td>
+                      </tr>
+                    ) : (
+                      startedAccounts.map((account, index) => (
+                        <tr key={index} className="border-b">
+                          <td className="px-4 py-3">
+                            {safeDate(getStartDate(account))}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-gray-900">
+                            {getAccountName(account)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getAccountManager(account) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getSubcontractor(account) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(getMonthlyRevenue(account))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(getMonthlySubPay(account))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(getGrossMargin(account))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getGrossMarginPercent(account).toFixed(1)}%
+                          </td>
+                          <td className="px-4 py-3">
+                            {getStatus(account) || "-"}
                           </td>
                         </tr>
-                      ) : (
-                        startedAccounts.map((account, index) => (
-                          <tr key={index} className="border-b">
-                            <td className="px-4 py-3">
-                              {safeDate(getStartDate(account))}
-                            </td>
-                            <td className="px-4 py-3 font-semibold text-gray-900">
-                              {getAccountName(account)}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getAccountManager(account) || "-"}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getSubcontractor(account) || "-"}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(getMonthlyRevenue(account))}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(getMonthlySubPay(account))}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(getGrossMargin(account))}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getGrossMarginPercent(account).toFixed(1)}%
-                            </td>
-                            <td className="px-4 py-3">
-                              {getStatus(account) || "-"}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      ))
+                    )}
+                  </tbody>
+                </ReportTable>
               </section>
             )}
 
@@ -1323,77 +1318,75 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3">Cancelled Date</th>
-                        <th className="px-4 py-3">Account</th>
-                        <th className="px-4 py-3">Manager</th>
-                        <th className="px-4 py-3">Subcontractor</th>
-                        <th className="px-4 py-3">Lost Revenue</th>
-                        <th className="px-4 py-3">Sub Pay</th>
-                        <th className="px-4 py-3">Lost Margin</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Notes / Reason</th>
-                      </tr>
-                    </thead>
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Cancelled Date</th>
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Manager</th>
+                      <th className="px-4 py-3">Subcontractor</th>
+                      <th className="px-4 py-3">Lost Revenue</th>
+                      <th className="px-4 py-3">Sub Pay</th>
+                      <th className="px-4 py-3">Lost Margin</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Notes / Reason</th>
+                    </tr>
+                  </thead>
 
-                    <tbody>
-                      {cancelledAccounts.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={9}
-                            className="px-4 py-6 text-center text-gray-500"
-                          >
-                            No cancelled accounts found for this filter.
+                  <tbody>
+                    {cancelledAccounts.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={9}
+                          className="px-4 py-6 text-center text-gray-500"
+                        >
+                          No cancelled accounts found for this filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      cancelledAccounts.map((account, index) => (
+                        <tr key={index} className="border-b">
+                          <td className="px-4 py-3">
+                            {safeDate(getCancelledDate(account))}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-gray-900">
+                            {getAccountName(account)}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getAccountManager(account) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getSubcontractor(account) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(getMonthlyRevenue(account))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(getMonthlySubPay(account))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {money(getGrossMargin(account))}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getStatus(account) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getValue(account, [
+                              "notes",
+                              "Notes",
+                              "reason",
+                              "Reason",
+                              "cancelReason",
+                              "Cancel Reason",
+                              "cancellationReason",
+                              "Cancellation Reason",
+                            ]) || "-"}
                           </td>
                         </tr>
-                      ) : (
-                        cancelledAccounts.map((account, index) => (
-                          <tr key={index} className="border-b">
-                            <td className="px-4 py-3">
-                              {safeDate(getCancelledDate(account))}
-                            </td>
-                            <td className="px-4 py-3 font-semibold text-gray-900">
-                              {getAccountName(account)}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getAccountManager(account) || "-"}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getSubcontractor(account) || "-"}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(getMonthlyRevenue(account))}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(getMonthlySubPay(account))}
-                            </td>
-                            <td className="px-4 py-3">
-                              {money(getGrossMargin(account))}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getStatus(account) || "-"}
-                            </td>
-                            <td className="px-4 py-3">
-                              {getValue(account, [
-                                "notes",
-                                "Notes",
-                                "reason",
-                                "Reason",
-                                "cancelReason",
-                                "Cancel Reason",
-                                "cancellationReason",
-                                "Cancellation Reason",
-                              ]) || "-"}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      ))
+                    )}
+                  </tbody>
+                </ReportTable>
               </section>
             )}
 
@@ -1410,88 +1403,84 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3">Date</th>
-                        <th className="px-4 py-3">Account</th>
-                        <th className="px-4 py-3">Issue</th>
-                        <th className="px-4 py-3">Manager</th>
-                        <th className="px-4 py-3">Validity</th>
-                        <th className="px-4 py-3">Status</th>
-                      </tr>
-                    </thead>
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Issue</th>
+                      <th className="px-4 py-3">Manager</th>
+                      <th className="px-4 py-3">Validity</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
 
-                    <tbody>
-                      {filteredComplaints.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="px-4 py-6 text-center text-gray-500"
-                          >
-                            No complaints found for this filter.
+                  <tbody>
+                    {filteredComplaints.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-6 text-center text-gray-500"
+                        >
+                          No complaints found for this filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredComplaints.slice(0, 50).map((complaint, index) => (
+                        <tr key={index} className="border-b">
+                          <td className="px-4 py-3">
+                            {safeDate(
+                              getValue(complaint, [
+                                "date",
+                                "Date",
+                                "complaintDate",
+                                "Complaint Date",
+                              ])
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-gray-900">
+                            {getValue(complaint, [
+                              "account",
+                              "Account",
+                              "accountName",
+                              "Account Name",
+                            ]) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getValue(complaint, [
+                              "issue",
+                              "Issue",
+                              "complaint",
+                              "Complaint",
+                              "description",
+                              "Description",
+                            ]) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getValue(complaint, [
+                              "manager",
+                              "Manager",
+                              "assignedTo",
+                              "Assigned To",
+                            ]) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getValue(complaint, [
+                              "validity",
+                              "Validity",
+                              "complaintValidity",
+                              "Complaint Validity",
+                            ]) || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {getValue(complaint, ["status", "Status"]) ||
+                              "Pending"}
                           </td>
                         </tr>
-                      ) : (
-                        filteredComplaints
-                          .slice(0, 50)
-                          .map((complaint, index) => (
-                            <tr key={index} className="border-b">
-                              <td className="px-4 py-3">
-                                {safeDate(
-                                  getValue(complaint, [
-                                    "date",
-                                    "Date",
-                                    "complaintDate",
-                                    "Complaint Date",
-                                  ])
-                                )}
-                              </td>
-                              <td className="px-4 py-3 font-semibold text-gray-900">
-                                {getValue(complaint, [
-                                  "account",
-                                  "Account",
-                                  "accountName",
-                                  "Account Name",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(complaint, [
-                                  "issue",
-                                  "Issue",
-                                  "complaint",
-                                  "Complaint",
-                                  "description",
-                                  "Description",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(complaint, [
-                                  "manager",
-                                  "Manager",
-                                  "assignedTo",
-                                  "Assigned To",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(complaint, [
-                                  "validity",
-                                  "Validity",
-                                  "complaintValidity",
-                                  "Complaint Validity",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(complaint, ["status", "Status"]) ||
-                                  "Pending"}
-                              </td>
-                            </tr>
-                          ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                      ))
+                    )}
+                  </tbody>
+                </ReportTable>
               </section>
             )}
 
@@ -1514,111 +1503,137 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3">Date</th>
-                        <th className="px-4 py-3">Quarter</th>
-                        <th className="px-4 py-3">Estimate / WO #</th>
-                        <th className="px-4 py-3">Account</th>
-                        <th className="px-4 py-3">Service</th>
-                        <th className="px-4 py-3">Sold By</th>
-                        <th className="px-4 py-3">Amount</th>
-                        <th className="px-4 py-3">Commission %</th>
-                        <th className="px-4 py-3">Commission</th>
-                        <th className="px-4 py-3">Status</th>
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Quarter</th>
+                      <th className="px-4 py-3">Estimate / WO #</th>
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Service</th>
+                      <th className="px-4 py-3">Sold By</th>
+                      <th className="px-4 py-3">Amount</th>
+                      <th className="px-4 py-3">Commission %</th>
+                      <th className="px-4 py-3">Commission</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {filteredSales.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={10}
+                          className="px-4 py-6 text-center text-gray-500"
+                        >
+                          No sales found for this filter.
+                        </td>
                       </tr>
-                    </thead>
+                    ) : (
+                      filteredSales.map((sale, index) => {
+                        const date = getSaleDate(sale);
 
-                    <tbody>
-                      {filteredSales.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={10}
-                            className="px-4 py-6 text-center text-gray-500"
-                          >
-                            No sales found for this filter.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredSales.map((sale, index) => {
-                          const date = getSaleDate(sale);
-
-                          return (
-                            <tr key={index} className="border-b">
-                              <td className="px-4 py-3">{safeDate(date)}</td>
-                              <td className="px-4 py-3">{getQuarter(date)}</td>
-                              <td className="px-4 py-3">
-                                {getValue(sale, [
-                                  "estimateNumber",
-                                  "Estimate Number",
-                                  "workOrderNumber",
-                                  "Work Order Number",
-                                  "woNumber",
-                                  "WO Number",
-                                  "invoiceNumber",
-                                  "Invoice Number",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3 font-semibold text-gray-900">
-                                {getValue(sale, [
-                                  "account",
-                                  "Account",
-                                  "accountName",
-                                  "Account Name",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(sale, [
-                                  "service",
-                                  "Service",
-                                  "type",
-                                  "Type",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(sale, [
-                                  "soldBy",
-                                  "Sold By",
-                                  "salesPerson",
-                                  "Sales Person",
-                                  "salesperson",
-                                  "Salesperson",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {money(getSaleAmount(sale))}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(sale, [
-                                  "commissionPercent",
-                                  "Commission Percent",
-                                  "commission%",
-                                  "Commission %",
-                                  "commissionRate",
-                                  "Commission Rate",
-                                ]) || "-"}
-                              </td>
-                              <td className="px-4 py-3">
-                                {money(getCommissionAmount(sale))}
-                              </td>
-                              <td className="px-4 py-3">
-                                {getValue(sale, ["status", "Status"]) ||
-                                  "Pending"}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                        return (
+                          <tr key={index} className="border-b">
+                            <td className="px-4 py-3">{safeDate(date)}</td>
+                            <td className="px-4 py-3">{getQuarter(date)}</td>
+                            <td className="px-4 py-3">
+                              {getValue(sale, [
+                                "estimateNumber",
+                                "Estimate Number",
+                                "workOrderNumber",
+                                "Work Order Number",
+                                "woNumber",
+                                "WO Number",
+                                "invoiceNumber",
+                                "Invoice Number",
+                              ]) || "-"}
+                            </td>
+                            <td className="px-4 py-3 font-semibold text-gray-900">
+                              {getValue(sale, [
+                                "account",
+                                "Account",
+                                "accountName",
+                                "Account Name",
+                              ]) || "-"}
+                            </td>
+                            <td className="px-4 py-3">
+                              {getValue(sale, [
+                                "service",
+                                "Service",
+                                "type",
+                                "Type",
+                              ]) || "-"}
+                            </td>
+                            <td className="px-4 py-3">
+                              {getValue(sale, [
+                                "soldBy",
+                                "Sold By",
+                                "salesPerson",
+                                "Sales Person",
+                                "salesperson",
+                                "Salesperson",
+                              ]) || "-"}
+                            </td>
+                            <td className="px-4 py-3">
+                              {money(getSaleAmount(sale))}
+                            </td>
+                            <td className="px-4 py-3">
+                              {getValue(sale, [
+                                "commissionPercent",
+                                "Commission Percent",
+                                "commission%",
+                                "Commission %",
+                                "commissionRate",
+                                "Commission Rate",
+                              ]) || "-"}
+                            </td>
+                            <td className="px-4 py-3">
+                              {money(getCommissionAmount(sale))}
+                            </td>
+                            <td className="px-4 py-3">
+                              {getValue(sale, ["status", "Status"]) ||
+                                "Pending"}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </ReportTable>
               </section>
             )}
           </>
         )}
       </div>
     </main>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: string;
+  note: string;
+}) {
+  return (
+    <div className="print-card rounded-xl bg-white p-5 shadow">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-sm text-gray-600">{note}</p>
+    </div>
+  );
+}
+
+function ReportTable({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-left text-sm">
+        {children}
+      </table>
+    </div>
   );
 }

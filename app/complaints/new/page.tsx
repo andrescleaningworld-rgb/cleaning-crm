@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type AnyRow = Record<string, any>;
+type AnyRow = Record<string, unknown>;
 
 type ComplaintForm = {
   accountId: string;
@@ -19,7 +19,30 @@ type ComplaintForm = {
   notes: string;
 };
 
-function getValue(row: AnyRow, keys: string[]) {
+type AccountsApiResponse = {
+  success?: boolean;
+  error?: string;
+  data?: AnyRow[];
+  rows?: AnyRow[];
+  items?: AnyRow[];
+  accounts?: AnyRow[];
+};
+
+type SaveComplaintResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  notification?: {
+    sent?: boolean;
+    reason?: string;
+  };
+};
+
+function cleanText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function getValue(row: AnyRow, keys: string[]): unknown {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
       return row[key];
@@ -34,7 +57,7 @@ function todayDate() {
 }
 
 function getAccountName(account: AnyRow) {
-  return String(
+  return cleanText(
     getValue(account, [
       "Account Name",
       "accountName",
@@ -43,31 +66,31 @@ function getAccountName(account: AnyRow) {
       "Name",
       "name",
     ])
-  ).trim();
+  );
 }
 
 function getAccountId(account: AnyRow) {
-  return String(
+  return cleanText(
     getValue(account, ["Account ID", "accountId", "ID", "id"])
-  ).trim();
+  );
 }
 
 function getAccountManager(account: AnyRow) {
-  return String(
+  return cleanText(
     getValue(account, [
       "Manager",
       "manager",
       "Account Manager",
       "accountManager",
     ])
-  ).trim();
+  );
 }
 
 function isRealAccount(account: AnyRow) {
   return getAccountName(account).length > 0;
 }
 
-async function safeReadData(response: Response) {
+async function safeReadData(response: Response): Promise<AnyRow[]> {
   try {
     if (!response.ok) {
       const text = await response.text();
@@ -84,7 +107,7 @@ async function safeReadData(response: Response) {
       return [];
     }
 
-    const data = JSON.parse(text);
+    const data = JSON.parse(text) as AccountsApiResponse | AnyRow[];
 
     if (Array.isArray(data)) return data;
     if (Array.isArray(data.data)) return data.data;
@@ -132,7 +155,7 @@ export default function NewComplaintPage() {
 
       const data = await safeReadData(response);
 
-      setAccounts(data.filter((account: AnyRow) => isRealAccount(account)));
+      setAccounts(data.filter((account) => isRealAccount(account)));
     } catch (error) {
       console.error("Load accounts error:", error);
       setAccounts([]);
@@ -265,10 +288,10 @@ export default function NewComplaintPage() {
         throw new Error(text || "Failed to save complaint.");
       }
 
-      let data: any = {};
+      let data: SaveComplaintResponse = {};
 
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(text) as SaveComplaintResponse;
       } catch {
         data = {};
       }
@@ -291,16 +314,18 @@ export default function NewComplaintPage() {
       setForm(emptyForm);
       setAccountSearch("");
       setShowAccountResults(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Save complaint error:", error);
-      setMessage(error?.message || "Failed to save complaint.");
+      setMessage(
+        error instanceof Error ? error.message : "Failed to save complaint."
+      );
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6">
+    <main className="min-h-screen bg-gray-100 p-4 sm:p-6">
       <div className="mx-auto max-w-3xl space-y-6">
         <section className="rounded-2xl bg-white p-6 shadow">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

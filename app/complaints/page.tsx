@@ -22,11 +22,23 @@ type Complaint = {
   reportedBy?: string;
 };
 
-function clean(value: any): string {
+type ComplaintsApiResponse = {
+  success?: boolean;
+  error?: string;
+  complaints?: Complaint[];
+  data?: Complaint[];
+};
+
+type CloseComplaintResponse = {
+  success?: boolean;
+  error?: string;
+};
+
+function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function slugify(value: any): string {
+function slugify(value: unknown): string {
   return clean(value)
     .toLowerCase()
     .replace(/&/g, "and")
@@ -34,7 +46,7 @@ function slugify(value: any): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function formatDate(value: any): string {
+function formatDate(value: unknown): string {
   const text = clean(value);
 
   if (!text) return "-";
@@ -54,12 +66,12 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isClosedComplaint(status: any): boolean {
+function isClosedComplaint(status: unknown): boolean {
   const value = clean(status).toLowerCase();
   return value.includes("closed") || value.includes("resolved");
 }
 
-function getStatusClass(status: any): string {
+function getStatusClass(status: unknown): string {
   const value = clean(status).toLowerCase();
 
   if (value.includes("resolved") || value.includes("closed")) {
@@ -77,7 +89,7 @@ function getStatusClass(status: any): string {
   return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
 }
 
-function getSeverityClass(severity: any): string {
+function getSeverityClass(severity: unknown): string {
   const value = clean(severity).toLowerCase();
 
   if (value.includes("high") || value.includes("urgent")) {
@@ -95,7 +107,7 @@ function getSeverityClass(severity: any): string {
   return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
 }
 
-function getValidityClass(validity: any): string {
+function getValidityClass(validity: unknown): string {
   const value = clean(validity).toLowerCase();
 
   if (value === "valid") {
@@ -115,6 +127,13 @@ function getValidityClass(validity: any): string {
   }
 
   return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
+}
+
+function getLoadedComplaints(data: ComplaintsApiResponse | Complaint[]) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.complaints)) return data.complaints;
+  if (Array.isArray(data.data)) return data.data;
+  return [];
 }
 
 export default function ComplaintsPage() {
@@ -141,27 +160,28 @@ export default function ComplaintsPage() {
 
       const text = await response.text();
 
-      let data: any;
+      let data: ComplaintsApiResponse | Complaint[];
 
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(text) as ComplaintsApiResponse | Complaint[];
       } catch {
         throw new Error("Complaints API did not return valid JSON.");
       }
 
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || "Failed to load complaints.");
+      if (
+        !response.ok ||
+        (!Array.isArray(data) && data.success === false)
+      ) {
+        throw new Error(
+          !Array.isArray(data) && data.error
+            ? data.error
+            : "Failed to load complaints."
+        );
       }
 
-      const loadedComplaints = Array.isArray(data.complaints)
-        ? data.complaints
-        : Array.isArray(data.data)
-        ? data.data
-        : Array.isArray(data)
-        ? data
-        : [];
+      const loadedComplaints = getLoadedComplaints(data);
 
-      const realComplaints = loadedComplaints.filter((complaint: Complaint) => {
+      const realComplaints = loadedComplaints.filter((complaint) => {
         return (
           clean(complaint.accountName) ||
           clean(complaint.description) ||
@@ -238,12 +258,14 @@ export default function ComplaintsPage() {
 
       const text = await response.text();
 
-      let data: any;
+      let data: CloseComplaintResponse;
 
       try {
-        data = JSON.parse(text);
+        data = JSON.parse(text) as CloseComplaintResponse;
       } catch {
-        throw new Error("Complaints API did not return valid JSON while closing.");
+        throw new Error(
+          "Complaints API did not return valid JSON while closing."
+        );
       }
 
       if (!response.ok || data.success === false) {
@@ -336,6 +358,7 @@ export default function ComplaintsPage() {
           </Link>
 
           <button
+            type="button"
             onClick={() => window.print()}
             className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white shadow-sm"
           >
@@ -449,7 +472,9 @@ export default function ComplaintsPage() {
                       <h3 className="mt-1 font-bold">
                         {clean(complaint.accountName) ? (
                           <Link
-                            href={`/accounts/${slugify(complaint.accountName)}`}
+                            href={`/accounts/${slugify(
+                              complaint.accountName
+                            )}`}
                             className="text-blue-700 hover:underline"
                           >
                             {clean(complaint.accountName)}
@@ -510,6 +535,7 @@ export default function ComplaintsPage() {
 
                   {!isClosedComplaint(complaint.status) ? (
                     <button
+                      type="button"
                       onClick={() => openCloseModal(complaint)}
                       className="w-full rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-700"
                     >
@@ -554,7 +580,9 @@ export default function ComplaintsPage() {
                       <td className="p-3 font-bold">
                         {clean(complaint.accountName) ? (
                           <Link
-                            href={`/accounts/${slugify(complaint.accountName)}`}
+                            href={`/accounts/${slugify(
+                              complaint.accountName
+                            )}`}
                             className="text-blue-700 hover:underline"
                           >
                             {clean(complaint.accountName)}
@@ -620,6 +648,7 @@ export default function ComplaintsPage() {
                       <td className="whitespace-nowrap p-3">
                         {!isClosedComplaint(complaint.status) ? (
                           <button
+                            type="button"
                             onClick={() => openCloseModal(complaint)}
                             className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700"
                           >
@@ -670,6 +699,7 @@ export default function ComplaintsPage() {
 
             <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <button
+                type="button"
                 onClick={closeCloseModal}
                 disabled={savingClose}
                 className="rounded-xl border border-gray-300 px-4 py-3 font-bold text-gray-700 hover:bg-gray-50"
@@ -678,6 +708,7 @@ export default function ComplaintsPage() {
               </button>
 
               <button
+                type="button"
                 onClick={handleCloseComplaint}
                 disabled={savingClose}
                 className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
