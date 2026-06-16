@@ -829,31 +829,57 @@ export default function ReportsPage() {
         @media print {
           @page {
             size: letter;
-            margin: 0.45in;
+            margin: 0.35in;
           }
 
+          html,
           body {
             background: white !important;
             color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          main {
+            min-height: 0 !important;
+            padding: 0 !important;
+            background: white !important;
           }
 
           .print-card {
             box-shadow: none !important;
             border: 1px solid #d1d5db !important;
-            break-inside: avoid;
           }
 
           .print-section {
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-before: auto !important;
+            page-break-before: auto !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+
+          .print-avoid-break {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
           }
 
           table {
-            font-size: 10.5px;
+            font-size: 10px;
+            page-break-inside: auto !important;
           }
 
-          th, td {
-            padding: 5px !important;
+          thead {
+            display: table-header-group;
+          }
+
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          th,
+          td {
+            padding: 4px !important;
           }
         }
       `}</style>
@@ -1620,7 +1646,7 @@ function SummaryCard({
   note: string;
 }) {
   return (
-    <div className="print-card rounded-xl bg-white p-5 shadow">
+    <div className="print-avoid-break rounded-xl bg-white p-5 shadow print-card">
       <p className="text-sm text-gray-500">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
       <p className="text-sm text-gray-600">{note}</p>
