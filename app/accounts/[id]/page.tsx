@@ -36,6 +36,33 @@ type Account = {
   notes?: string;
 };
 
+type ApiResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  data?: Account[];
+  accounts?: Account[];
+};
+
+type QuickStatusOption =
+  | "Active"
+  | "Cancelled"
+  | "Paused"
+  | "Over 90 Days"
+  | "Inactive"
+  | "Needs Review"
+  | "Other";
+
+const quickStatusOptions: QuickStatusOption[] = [
+  "Active",
+  "Cancelled",
+  "Paused",
+  "Over 90 Days",
+  "Inactive",
+  "Needs Review",
+  "Other",
+];
+
 function normalizeValue(value: string | number | undefined | null) {
   return String(value || "")
     .toLowerCase()
@@ -43,6 +70,10 @@ function normalizeValue(value: string | number | undefined | null) {
     .replace(/%20/g, " ")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function cleanText(value: unknown) {
+  return String(value || "").trim();
 }
 
 function moneyToNumber(value: string | undefined) {
@@ -123,6 +154,30 @@ function getHealthClass(health: string | undefined) {
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
+function getAccountId(account: Account, fallback = "") {
+  return cleanText(
+    account.accountId ||
+      account.id ||
+      account.rowNumber ||
+      account.accountName ||
+      fallback
+  );
+}
+
+async function readApiResponse(response: Response): Promise<ApiResponse> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as ApiResponse;
+  } catch {
+    throw new Error("The server did not return valid JSON.");
+  }
+}
+
 export default function AccountDetailPage() {
   const params = useParams();
   const rawAccountIdFromUrl = String(params?.id || "");
@@ -136,6 +191,13 @@ export default function AccountDetailPage() {
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
 
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
+  const [statusReason, setStatusReason] = useState("");
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+
   useEffect(() => {
     async function loadAccount() {
       try {
@@ -148,9 +210,9 @@ export default function AccountDetailPage() {
           cache: "no-store",
         });
 
-        const data = await response.json();
+        const data = await readApiResponse(response);
 
-        if (!response.ok || !data.success) {
+        if (!response.ok || data.success === false) {
           throw new Error(data.error || "Could not load accounts.");
         }
 
@@ -195,9 +257,9 @@ export default function AccountDetailPage() {
   const accountAddress = useMemo(() => {
     if (!account) return "";
 
-    return [account.address, account.city, account.state, account.zip]
-      .filter(Boolean)
-      .join(", ");
+    if (account.address) return account.address;
+
+    return [account.city, account.state, account.zip].filter(Boolean).join(", ");
   }, [account]);
 
   const monthlyRevenueNumber = moneyToNumber(account?.monthlyRevenue);
@@ -270,9 +332,9 @@ export default function AccountDetailPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
-      if (!response.ok || !data.success) {
+      if (!response.ok || data.success === false) {
         throw new Error(data.error || "Could not send new account packet.");
       }
 
@@ -285,6 +347,128 @@ export default function AccountDetailPage() {
       );
     } finally {
       setSendingPacket(false);
+    }
+  }
+
+  function openStatusModal() {
+    if (!account) return;
+
+    const currentStatus = cleanText(account.status);
+
+    setNewStatus(
+      quickStatusOptions.includes(currentStatus as QuickStatusOption)
+        ? (currentStatus as QuickStatusOption)
+        : "Active"
+    );
+    setStatusReason("");
+    setStatusError("");
+    setStatusMessage("");
+    setShowStatusModal(true);
+  }
+
+  function closeStatusModal() {
+    if (savingStatus) return;
+
+    setShowStatusModal(false);
+    setStatusReason("");
+    setStatusError("");
+  }
+
+  async function handleSaveStatusChange() {
+    if (!account) return;
+
+    const cleanReason = statusReason.trim();
+
+    if (!cleanReason) {
+      setStatusError("Please add a reason/note for the status change.");
+      return;
+    }
+
+    const oldStatus = cleanText(account.status) || "N/A";
+    const accountId = getAccountId(account, rawAccountIdFromUrl);
+    const accountName = cleanText(account.accountName) || "Unnamed Account";
+
+    try {
+      setSavingStatus(true);
+      setStatusError("");
+      setStatusMessage("");
+
+      const updatedAccount: Account = {
+        ...account,
+        id: account.id || accountId,
+        accountId: account.accountId || accountId,
+        status: newStatus,
+      };
+
+      const accountResponse = await fetch("/api/accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "updateAccount",
+          account: updatedAccount,
+        }),
+      });
+
+      const accountData = await readApiResponse(accountResponse);
+
+      if (!accountResponse.ok || accountData.success === false) {
+        throw new Error(accountData.error || "Could not update account status.");
+      }
+
+      const updateNote =
+        "Status changed from " +
+        oldStatus +
+        " to " +
+        newStatus +
+        ". Reason: " +
+        cleanReason;
+
+      const updateResponse = await fetch("/api/account-updates", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "addAccountUpdate",
+          accountId: accountId,
+          accountName: accountName,
+          updateType: "Status Change",
+          manager: account.manager || "",
+          notes: updateNote,
+          notifyEmail: "No",
+        }),
+      });
+
+      const updateData = await readApiResponse(updateResponse);
+
+      if (!updateResponse.ok || updateData.success === false) {
+        throw new Error(
+          updateData.error ||
+            "Status changed, but the history note could not be saved."
+        );
+      }
+
+      setAccount((current) =>
+        current
+          ? {
+              ...current,
+              status: newStatus,
+            }
+          : current
+      );
+
+      setStatusMessage("Status changed and history note saved.");
+      setShowStatusModal(false);
+    } catch (err) {
+      setStatusError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong changing the account status."
+      );
+    } finally {
+      setSavingStatus(false);
     }
   }
 
@@ -363,7 +547,7 @@ export default function AccountDetailPage() {
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[380px]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[420px]">
               <button
                 onClick={handleSendNewAccountPacket}
                 disabled={sendingPacket}
@@ -378,6 +562,14 @@ export default function AccountDetailPage() {
               >
                 Edit Account
               </Link>
+
+              <button
+                type="button"
+                onClick={openStatusModal}
+                className="rounded-2xl bg-purple-200 px-4 py-3 text-center text-sm font-black text-purple-950 shadow-sm hover:bg-purple-100"
+              >
+                Change Status
+              </button>
 
               <Link
                 href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
@@ -402,7 +594,7 @@ export default function AccountDetailPage() {
 
               <Link
                 href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-                className="rounded-2xl bg-sky-100 px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-white"
+                className="rounded-2xl bg-sky-100 px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-white sm:col-span-2"
               >
                 Add Update
               </Link>
@@ -418,6 +610,12 @@ export default function AccountDetailPage() {
           {packetError ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
               {packetError}
+            </div>
+          ) : null}
+
+          {statusMessage ? (
+            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
+              {statusMessage}
             </div>
           ) : null}
         </div>
@@ -558,77 +756,104 @@ export default function AccountDetailPage() {
             </div>
           </section>
         </div>
-
-        <section className="border-t border-slate-200 bg-slate-50 p-6">
-          <div>
-            <h2 className="text-xl font-black text-slate-950">
-              Quick Actions
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Add activity or jump into account reports.
-            </p>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            <button
-              onClick={handleSendNewAccountPacket}
-              disabled={sendingPacket}
-              className="rounded-2xl border border-emerald-300 bg-emerald-100 px-4 py-2 text-sm font-black text-emerald-900 shadow-sm hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {sendingPacket ? "Sending Packet..." : "Send New Account Packet"}
-            </button>
-
-            <Link
-              href={`/accounts/${accountIdForUrl}/edit`}
-              className="rounded-2xl border border-yellow-300 bg-yellow-100 px-4 py-2 text-sm font-black text-slate-900 shadow-sm hover:bg-yellow-200"
-            >
-              Edit Account
-            </Link>
-
-            <Link
-              href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-              className="rounded-2xl border border-blue-200 bg-white px-4 py-2 text-sm font-black text-blue-900 shadow-sm hover:bg-blue-50"
-            >
-              Add Sale
-            </Link>
-
-            <Link
-              href={`/visits?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-              className="rounded-2xl border border-blue-200 bg-white px-4 py-2 text-sm font-black text-blue-900 shadow-sm hover:bg-blue-50"
-            >
-              Add Visit
-            </Link>
-
-            <Link
-              href={accountComplaintLink}
-              className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-black text-red-800 shadow-sm hover:bg-red-50"
-            >
-              Add Complaint
-            </Link>
-
-            <Link
-              href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-              className="rounded-2xl border border-sky-200 bg-white px-4 py-2 text-sm font-black text-blue-900 shadow-sm hover:bg-sky-50"
-            >
-              Add Update
-            </Link>
-
-            <Link
-              href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-100"
-            >
-              View Account Sales
-            </Link>
-
-            <Link
-              href="/sales"
-              className="rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-100"
-            >
-              Full Sales & Commissions
-            </Link>
-          </div>
-        </section>
       </section>
+
+      {showStatusModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+                  Quick Status Change
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">
+                  {account.accountName || "Unnamed Account"}
+                </h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Current status:{" "}
+                  <span className="font-black text-slate-800">
+                    {account.status || "N/A"}
+                  </span>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeStatusModal}
+                disabled={savingStatus}
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                X
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  New Status
+                </label>
+                <select
+                  value={newStatus}
+                  onChange={(event) =>
+                    setNewStatus(event.target.value as QuickStatusOption)
+                  }
+                  disabled={savingStatus}
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                >
+                  {quickStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Reason / History Note
+                </label>
+                <textarea
+                  value={statusReason}
+                  onChange={(event) => setStatusReason(event.target.value)}
+                  disabled={savingStatus}
+                  placeholder="Example: Customer requested cancellation effective July 1. / Paused due to remodeling. / Account needs review due to service concern."
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                />
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  This will also create an Account Update history note.
+                </p>
+              </div>
+
+              {statusError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                  {statusError}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={closeStatusModal}
+                  disabled={savingStatus}
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveStatusChange}
+                  disabled={savingStatus}
+                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingStatus ? "Saving..." : "Save Status Change"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -35,11 +35,24 @@ type ExistingAccount = {
   subcontractor?: string;
 };
 
+type AccountsApiResponse = {
+  success?: boolean;
+  error?: string;
+  accounts?: ExistingAccount[];
+  data?: ExistingAccount[];
+};
+
+type SaveAccountResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+};
+
 const emptyForm: AccountForm = {
   accountName: "",
   address: "",
   city: "",
-  state: "NJ",
+  state: "",
   zip: "",
   manager: "",
   subcontractor: "",
@@ -65,11 +78,27 @@ function cleanText(value: unknown) {
   return String(value || "").trim();
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("API did not return valid JSON.");
+  }
+}
+
 export default function NewAccountPage() {
   const router = useRouter();
 
   const [form, setForm] = useState<AccountForm>(emptyForm);
-  const [existingAccounts, setExistingAccounts] = useState<ExistingAccount[]>([]);
+  const [existingAccounts, setExistingAccounts] = useState<ExistingAccount[]>(
+    []
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -81,13 +110,13 @@ export default function NewAccountPage() {
           cache: "no-store",
         });
 
-        const data = await response.json();
+        const data = await readJsonResponse<AccountsApiResponse>(response);
 
-        if (!response.ok || !data.success) {
+        if (!response.ok || data.success === false) {
           return;
         }
 
-        setExistingAccounts(data.accounts || []);
+        setExistingAccounts(data.accounts || data.data || []);
       } catch {
         // Do not block the form if options fail to load.
       }
@@ -135,6 +164,14 @@ export default function NewAccountPage() {
         throw new Error("Account name is required.");
       }
 
+      const accountPayload: AccountForm = {
+        ...form,
+        address: form.address.trim(),
+        city: "",
+        state: "",
+        zip: "",
+      };
+
       const response = await fetch("/api/accounts", {
         method: "POST",
         headers: {
@@ -142,21 +179,13 @@ export default function NewAccountPage() {
         },
         body: JSON.stringify({
           action: "addAccount",
-          account: form,
+          account: accountPayload,
         }),
       });
 
-      const text = await response.text();
+      const data = await readJsonResponse<SaveAccountResponse>(response);
 
-      let data;
-
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error("API did not return valid JSON while saving account.");
-      }
-
-      if (!response.ok || !data.success) {
+      if (!response.ok || data.success === false) {
         throw new Error(data.error || "Could not save account.");
       }
 
@@ -178,20 +207,20 @@ export default function NewAccountPage() {
 
   return (
     <div>
-      <section className="rounded-3xl bg-white p-6 shadow-sm">
+      <section className="rounded-3xl bg-white p-4 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-blue-700">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
               Cleaning World
             </p>
 
-            <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">
+            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
               Add New Account
             </h1>
 
-            <p className="mt-2 max-w-3xl text-sm text-slate-500">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
               Add a new account to the Cleaning World Operations & Quality
-              Management System.
+              Management System. Use the full address in one field.
             </p>
           </div>
 
@@ -231,7 +260,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("accountName", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                   required
                 />
               </label>
@@ -243,7 +272,7 @@ export default function NewAccountPage() {
                 <select
                   value={form.status}
                   onChange={(event) => updateField("status", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 >
                   <option>Active</option>
                   <option>Paused</option>
@@ -262,7 +291,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("accountStartDate", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -275,7 +304,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("accountHealth", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 >
                   <option>Stable</option>
                   <option>Needs Attention</option>
@@ -285,42 +314,20 @@ export default function NewAccountPage() {
 
               <label className="block md:col-span-2">
                 <span className="text-sm font-black text-slate-700">
-                  Address
+                  Full Address
                 </span>
                 <input
                   value={form.address}
                   onChange={(event) =>
                     updateField("address", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  placeholder="Example: 1010 Kendal Way, Tarrytown, NY 10591, USA"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">City</span>
-                <input
-                  value={form.city}
-                  onChange={(event) => updateField("city", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">State</span>
-                <input
-                  value={form.state}
-                  onChange={(event) => updateField("state", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">Zip</span>
-                <input
-                  value={form.zip}
-                  onChange={(event) => updateField("zip", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
-                />
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  Paste the full address from Google Maps. City, state, and zip
+                  do not need to be entered separately.
+                </p>
               </label>
             </div>
           </div>
@@ -342,7 +349,7 @@ export default function NewAccountPage() {
                     updateField("manager", event.target.value)
                   }
                   placeholder="Search or type manager name"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -357,7 +364,7 @@ export default function NewAccountPage() {
                     updateField("subcontractor", event.target.value)
                   }
                   placeholder="Search or type subcontractor name"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -371,7 +378,7 @@ export default function NewAccountPage() {
                     updateField("monthlyRevenue", event.target.value)
                   }
                   placeholder="Example: 2500"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -385,7 +392,7 @@ export default function NewAccountPage() {
                     updateField("monthlySubcontractorPay", event.target.value)
                   }
                   placeholder="Example: 1800"
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
             </div>
@@ -406,7 +413,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("contactName", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -415,7 +422,7 @@ export default function NewAccountPage() {
                 <input
                   value={form.phone}
                   onChange={(event) => updateField("phone", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -424,7 +431,7 @@ export default function NewAccountPage() {
                 <input
                   value={form.email}
                   onChange={(event) => updateField("email", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -437,7 +444,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("serviceType", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -450,7 +457,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("frequency", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -463,7 +470,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("cleaningDays", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
             </div>
@@ -482,7 +489,7 @@ export default function NewAccountPage() {
                 <select
                   value={form.hasKey}
                   onChange={(event) => updateField("hasKey", event.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 >
                   <option value="">Select</option>
                   <option>Yes</option>
@@ -500,7 +507,7 @@ export default function NewAccountPage() {
                   onChange={(event) =>
                     updateField("alarmCode", event.target.value)
                   }
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -514,7 +521,7 @@ export default function NewAccountPage() {
                     updateField("keyAlarmAccessInfo", event.target.value)
                   }
                   rows={3}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -528,7 +535,7 @@ export default function NewAccountPage() {
                     updateField("scopeOfWork", event.target.value)
                   }
                   rows={4}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
 
@@ -538,7 +545,7 @@ export default function NewAccountPage() {
                   value={form.notes}
                   onChange={(event) => updateField("notes", event.target.value)}
                   rows={4}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
+                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
               </label>
             </div>
