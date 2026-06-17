@@ -11,6 +11,7 @@ type DashboardData = {
   complaints: AnyRow[];
   sales: AnyRow[];
   subcontractors: AnyRow[];
+  supplyOrders: AnyRow[];
 };
 
 type ApiResponse = {
@@ -20,6 +21,8 @@ type ApiResponse = {
   complaints?: AnyRow[];
   sales?: AnyRow[];
   subcontractors?: AnyRow[];
+  supplyOrders?: AnyRow[];
+  orders?: AnyRow[];
   rows?: AnyRow[];
 };
 
@@ -301,6 +304,12 @@ function getDate(row: AnyRow): Date | null {
     "complaintDate",
     "Sale Date",
     "saleDate",
+    "Order Date",
+    "orderDate",
+    "Request Date",
+    "requestDate",
+    "Submitted At",
+    "submittedAt",
   ]);
 
   if (!rawDate) return null;
@@ -402,6 +411,51 @@ function isSaleValid(row: AnyRow): boolean {
   );
 }
 
+function getSupplyOrderStatus(row: AnyRow): string {
+  return cleanText(
+    getValue(row, [
+      "Status",
+      "status",
+      "Order Status",
+      "orderStatus",
+      "Supply Order Status",
+      "supplyOrderStatus",
+    ])
+  );
+}
+
+function isNewSupplyOrder(row: AnyRow): boolean {
+  const status = cleanLower(getSupplyOrderStatus(row));
+
+  // Important: blank status should NOT show the notification bell.
+  if (!status) return false;
+
+  return (
+    status === "new" ||
+    status === "requested" ||
+    status === "submitted" ||
+    status.includes("new order") ||
+    status.includes("new request")
+  );
+}
+
+function getSupplyOrderTitle(row: AnyRow): string {
+  return cleanText(
+    getValue(row, [
+      "Supply Item",
+      "supplyItem",
+      "Item",
+      "item",
+      "Items",
+      "items",
+      "Order",
+      "order",
+      "Title",
+      "title",
+    ])
+  );
+}
+
 function getRowAccountName(row: AnyRow): string {
   return cleanText(
     getValue(row, [
@@ -485,6 +539,8 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
     if (Array.isArray(json.complaints)) return json.complaints;
     if (Array.isArray(json.sales)) return json.sales;
     if (Array.isArray(json.subcontractors)) return json.subcontractors;
+    if (Array.isArray(json.supplyOrders)) return json.supplyOrders;
+    if (Array.isArray(json.orders)) return json.orders;
     if (Array.isArray(json.rows)) return json.rows;
 
     return [];
@@ -516,6 +572,30 @@ function StatCard({
   );
 }
 
+function DashboardButton({
+  href,
+  label,
+  badgeCount = 0,
+}: {
+  href: string;
+  label: string;
+  badgeCount?: number;
+}) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-bold text-gray-900 shadow-sm hover:bg-gray-50"
+    >
+      <span>{label}</span>
+      {badgeCount > 0 ? (
+        <span className="ml-2 inline-flex items-center rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+          🔔 {badgeCount}
+        </span>
+      ) : null}
+    </Link>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData>({
     accounts: [],
@@ -523,6 +603,7 @@ export default function DashboardPage() {
     complaints: [],
     sales: [],
     subcontractors: [],
+    supplyOrders: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -531,13 +612,14 @@ export default function DashboardPage() {
     async function loadDashboard() {
       setLoading(true);
 
-      const [accounts, visits, complaints, sales, subcontractors] =
+      const [accounts, visits, complaints, sales, subcontractors, supplyOrders] =
         await Promise.all([
           safeReadData("/api/accounts", "Accounts"),
           safeReadData("/api/visits", "Visits"),
           safeReadData("/api/complaints", "Complaints"),
           safeReadData("/api/sales", "Sales"),
           safeReadData("/api/subcontractors", "Subcontractors"),
+          safeReadData("/api/supply-orders", "Supply Orders"),
         ]);
 
       setData({
@@ -546,6 +628,7 @@ export default function DashboardPage() {
         complaints,
         sales,
         subcontractors,
+        supplyOrders,
       });
 
       setLoading(false);
@@ -583,6 +666,8 @@ export default function DashboardPage() {
       return total + getSaleAmount(sale);
     }, 0);
 
+    const newSupplyOrders = data.supplyOrders.filter(isNewSupplyOrder);
+
     const accountsNeedingAttention = revenueAccounts.filter((account) => {
       const health = cleanLower(getAccountHealth(account));
 
@@ -618,6 +703,14 @@ export default function DashboardPage() {
       })
       .slice(0, 5);
 
+    const recentSupplyOrders = [...data.supplyOrders]
+      .sort((a, b) => {
+        const dateA = getDate(a)?.getTime() ?? 0;
+        const dateB = getDate(b)?.getTime() ?? 0;
+        return dateB - dateA;
+      })
+      .slice(0, 5);
+
     return {
       rawAccounts,
       uniqueAccounts,
@@ -630,10 +723,12 @@ export default function DashboardPage() {
       visitsThisMonth,
       salesThisQuarter,
       salesThisQuarterTotal,
+      newSupplyOrders,
       accountsNeedingAttention,
       recentComplaints,
       recentVisits,
       recentSales,
+      recentSupplyOrders,
     };
   }, [data]);
 
@@ -653,13 +748,21 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white"
-        >
-          Print
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <DashboardButton href="/supply-list" label="Supply List" />
+          <DashboardButton
+            href="/supply-orders"
+            label="Supply Orders"
+            badgeCount={dashboard.newSupplyOrders.length}
+          />
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white"
+          >
+            Print
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -707,6 +810,12 @@ export default function DashboardPage() {
               label="Sales This Quarter"
               value={formatMoney(dashboard.salesThisQuarterTotal)}
               note={`${formatNumber(dashboard.salesThisQuarter.length)} sales`}
+            />
+
+            <StatCard
+              label="New Supply Orders"
+              value={formatNumber(dashboard.newSupplyOrders.length)}
+              note="New, requested, or submitted orders"
             />
           </section>
 
@@ -783,7 +892,7 @@ export default function DashboardPage() {
             )}
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-4">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-bold">Recent Complaints</h2>
@@ -875,6 +984,39 @@ export default function DashboardPage() {
                       <p className="mt-1 text-sm text-gray-500">
                         {formatMoney(getSaleAmount(sale))} ·{" "}
                         {getDisplayDate(sale)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-bold">Recent Supply Orders</h2>
+                <Link className="font-bold text-blue-600" href="/supply-orders">
+                  View
+                </Link>
+              </div>
+
+              {dashboard.recentSupplyOrders.length === 0 ? (
+                <p className="text-gray-500">No supply orders found.</p>
+              ) : (
+                <div className="space-y-3">
+                  {dashboard.recentSupplyOrders.map((order, index) => (
+                    <div
+                      key={`supply-order-${index}`}
+                      className="rounded-xl border border-gray-100 bg-gray-50 p-4"
+                    >
+                      <strong>
+                        {getRowAccountName(order) || "Unknown Account"}
+                      </strong>
+                      <p className="mt-1 text-gray-700">
+                        {getSupplyOrderTitle(order) || "Supply Order"}
+                      </p>
+                      <p className="mt-1 text-sm text-gray-500">
+                        {getSupplyOrderStatus(order) || "No status"} ·{" "}
+                        {getDisplayDate(order)}
                       </p>
                     </div>
                   ))}
