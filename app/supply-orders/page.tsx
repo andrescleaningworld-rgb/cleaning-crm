@@ -19,20 +19,65 @@ type SupplyOrder = {
   notes?: string;
 };
 
-type SupplyOrdersResponse = {
+type NestedSupplyOrdersResponse = {
   success?: boolean;
-  error?: string;
-  message?: string;
   count?: number;
   data?: SupplyOrder[];
   supplyOrders?: SupplyOrder[];
   orders?: SupplyOrder[];
 };
 
+type SupplyOrdersResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  count?: number;
+  data?: SupplyOrder[];
+  supplyOrders?: SupplyOrder[] | NestedSupplyOrdersResponse;
+  orders?: SupplyOrder[] | NestedSupplyOrdersResponse;
+};
+
 function getLoadedOrders(data: SupplyOrdersResponse): SupplyOrder[] {
   if (Array.isArray(data.supplyOrders)) return data.supplyOrders;
   if (Array.isArray(data.orders)) return data.orders;
   if (Array.isArray(data.data)) return data.data;
+
+  if (
+    data.supplyOrders &&
+    typeof data.supplyOrders === "object" &&
+    !Array.isArray(data.supplyOrders)
+  ) {
+    if (Array.isArray(data.supplyOrders.supplyOrders)) {
+      return data.supplyOrders.supplyOrders;
+    }
+
+    if (Array.isArray(data.supplyOrders.orders)) {
+      return data.supplyOrders.orders;
+    }
+
+    if (Array.isArray(data.supplyOrders.data)) {
+      return data.supplyOrders.data;
+    }
+  }
+
+  if (
+    data.orders &&
+    typeof data.orders === "object" &&
+    !Array.isArray(data.orders)
+  ) {
+    if (Array.isArray(data.orders.supplyOrders)) {
+      return data.orders.supplyOrders;
+    }
+
+    if (Array.isArray(data.orders.orders)) {
+      return data.orders.orders;
+    }
+
+    if (Array.isArray(data.orders.data)) {
+      return data.orders.data;
+    }
+  }
+
   return [];
 }
 
@@ -255,7 +300,6 @@ export default function SupplyOrdersPage() {
                 <thead>
                   <tr className="border-b bg-slate-50 text-slate-700">
                     <th className="px-4 py-3 font-semibold">Date</th>
-                    <th className="px-4 py-3 font-semibold">Order ID</th>
                     <th className="px-4 py-3 font-semibold">Subcontractor</th>
                     <th className="px-4 py-3 font-semibold">Account</th>
                     <th className="px-4 py-3 font-semibold">Supply</th>
@@ -280,10 +324,6 @@ export default function SupplyOrdersPage() {
                       >
                         <td className="whitespace-nowrap px-4 py-3">
                           {order.timestamp || "-"}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 font-semibold">
-                          {order.orderId || "-"}
                         </td>
 
                         <td className="px-4 py-3">
