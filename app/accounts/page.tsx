@@ -49,6 +49,23 @@ type SortOption =
   | "Start Date - Newest First"
   | "Start Date - Oldest First";
 
+type ApiResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  data?: Account[];
+  accounts?: Account[];
+};
+
+type QuickStatusOption =
+  | "Active"
+  | "Cancelled"
+  | "Paused"
+  | "Over 90 Days"
+  | "Inactive"
+  | "Needs Review"
+  | "Other";
+
 function normalizeText(value: unknown) {
   return String(value || "").trim();
 }
@@ -209,46 +226,68 @@ function getHealthClass(health: string | undefined) {
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
+async function readApiResponse(response: Response): Promise<ApiResponse> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as ApiResponse;
+  } catch {
+    throw new Error("The server did not return valid JSON.");
+  }
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [managerFilter, setManagerFilter] = useState("All");
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
   const [sortOption, setSortOption] = useState<SortOption>("Account Name");
 
-  useEffect(() => {
-    async function loadAccounts() {
-      try {
-        setLoading(true);
-        setError("");
+  const [statusModalAccount, setStatusModalAccount] =
+    useState<Account | null>(null);
+  const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
+  const [statusReason, setStatusReason] = useState("");
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [statusError, setStatusError] = useState("");
 
-        const response = await fetch("/api/accounts", {
-          cache: "no-store",
-        });
+  async function loadAccounts() {
+    try {
+      setLoading(true);
+      setError("");
 
-        const data = await response.json();
+      const response = await fetch("/api/accounts", {
+        cache: "no-store",
+      });
 
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || "Could not load accounts.");
-        }
+      const data = await readApiResponse(response);
 
-        const loadedAccounts: Account[] = data.accounts || data.data || [];
-
-        setAccounts(loadedAccounts);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Something went wrong loading accounts."
-        );
-      } finally {
-        setLoading(false);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Could not load accounts.");
       }
-    }
 
+      const loadedAccounts: Account[] = data.accounts || data.data || [];
+
+      setAccounts(loadedAccounts);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong loading accounts."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
     loadAccounts();
   }, []);
 
@@ -285,6 +324,16 @@ export default function AccountsPage() {
     "All",
   ];
 
+  const quickStatusOptions: QuickStatusOption[] = [
+    "Active",
+    "Cancelled",
+    "Paused",
+    "Over 90 Days",
+    "Inactive",
+    "Needs Review",
+    "Other",
+  ];
+
   const sortOptions: SortOption[] = [
     "Account Name",
     "Start Date - Newest First",
@@ -300,9 +349,6 @@ export default function AccountsPage() {
       const searchableText = [
         account.accountName,
         account.address,
-        account.city,
-        account.state,
-        account.zip,
         account.manager,
         account.subcontractor,
         account.status,
@@ -381,6 +427,131 @@ export default function AccountsPage() {
   const filteredRevenue = filteredAccounts.reduce((sum, account) => {
     return sum + moneyToNumber(account.monthlyRevenue);
   }, 0);
+
+  function openStatusModal(account: Account) {
+    const currentStatus = normalizeText(account.status);
+
+    setStatusModalAccount(account);
+    setNewStatus(
+      quickStatusOptions.includes(currentStatus as QuickStatusOption)
+        ? (currentStatus as QuickStatusOption)
+        : "Active"
+    );
+    setStatusReason("");
+    setStatusError("");
+  }
+
+  function closeStatusModal() {
+    if (savingStatus) return;
+
+    setStatusModalAccount(null);
+    setNewStatus("Active");
+    setStatusReason("");
+    setStatusError("");
+  }
+
+  async function handleSaveStatusChange() {
+    if (!statusModalAccount) return;
+
+    const cleanReason = statusReason.trim();
+
+    if (!cleanReason) {
+      setStatusError("Please add a reason/note for the status change.");
+      return;
+    }
+
+    const oldStatus = normalizeText(statusModalAccount.status) || "N/A";
+    const accountId = getAccountId(statusModalAccount);
+    const accountName =
+      normalizeText(statusModalAccount.accountName) || "Unnamed Account";
+
+    try {
+      setSavingStatus(true);
+      setStatusError("");
+
+      const updatedAccount: Account = {
+        ...statusModalAccount,
+        id: statusModalAccount.id || accountId,
+        accountId: statusModalAccount.accountId || accountId,
+        status: newStatus,
+      };
+
+      const accountResponse = await fetch("/api/accounts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "updateAccount",
+          account: updatedAccount,
+        }),
+      });
+
+      const accountData = await readApiResponse(accountResponse);
+
+      if (!accountResponse.ok || accountData.success === false) {
+        throw new Error(accountData.error || "Could not update account status.");
+      }
+
+      const updateNote =
+        "Status changed from " +
+        oldStatus +
+        " to " +
+        newStatus +
+        ". Reason: " +
+        cleanReason;
+
+      const updateResponse = await fetch("/api/account-updates", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "addAccountUpdate",
+          accountId: accountId,
+          accountName: accountName,
+          updateType: "Status Change",
+          manager: statusModalAccount.manager || "",
+          notes: updateNote,
+          notifyEmail: "No",
+        }),
+      });
+
+      const updateData = await readApiResponse(updateResponse);
+
+      if (!updateResponse.ok || updateData.success === false) {
+        throw new Error(
+          updateData.error ||
+            "Status changed, but the history note could not be saved."
+        );
+      }
+
+      setAccounts((currentAccounts) =>
+        currentAccounts.map((account) => {
+          const currentId = getAccountId(account);
+
+          if (currentId === accountId) {
+            return {
+              ...account,
+              status: newStatus,
+            };
+          }
+
+          return account;
+        })
+      );
+
+      closeStatusModal();
+    } catch (err) {
+      setStatusError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong changing the account status."
+      );
+    } finally {
+      setSavingStatus(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -565,7 +736,7 @@ export default function AccountsPage() {
           </p>
 
           <p className="text-xs">
-            Tap any account to open the account detail page.
+            Tap any account name to open the account detail page.
           </p>
         </div>
 
@@ -577,7 +748,8 @@ export default function AccountsPage() {
             <div className="col-span-1">Status</div>
             <div className="col-span-1">Health</div>
             <div className="col-span-1">Start Date</div>
-            <div className="col-span-2 text-right">Revenue</div>
+            <div className="col-span-1 text-right">Revenue</div>
+            <div className="col-span-1 text-right">Action</div>
           </div>
 
           {filteredAccounts.length === 0 ? (
@@ -593,12 +765,14 @@ export default function AccountsPage() {
                 )}`;
 
                 return (
-                  <Link
+                  <div
                     key={`${accountId}-${index}`}
-                    href={accountHref}
-                    className="block px-4 py-4 text-sm no-underline hover:bg-blue-50 lg:grid lg:grid-cols-12 lg:gap-3"
+                    className="px-4 py-4 text-sm hover:bg-blue-50 lg:grid lg:grid-cols-12 lg:gap-3"
                   >
-                    <div className="lg:col-span-3">
+                    <Link
+                      href={accountHref}
+                      className="block no-underline lg:col-span-3"
+                    >
                       <div className="flex items-start justify-between gap-3 lg:block">
                         <div>
                           <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
@@ -606,9 +780,7 @@ export default function AccountsPage() {
                           </p>
 
                           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                            {[account.address, account.city, account.state]
-                              .filter(Boolean)
-                              .join(", ") || "No address"}
+                            {account.address || "No address"}
                           </p>
 
                           <p className="mt-1 text-xs font-bold text-slate-400">
@@ -625,9 +797,9 @@ export default function AccountsPage() {
                           </p>
                         </div>
                       </div>
-                    </div>
+                    </Link>
 
-                    <div className="mt-4 grid grid-cols-2 gap-3 lg:mt-0 lg:contents">
+                    <div className="mt-4 grid grid-cols-2 gap-3 lg:col-span-9 lg:mt-0 lg:grid-cols-9">
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
                         <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
                           Manager
@@ -681,17 +853,124 @@ export default function AccountsPage() {
                         </p>
                       </div>
 
-                      <div className="hidden text-right font-black text-slate-950 lg:col-span-2 lg:block">
+                      <div className="hidden text-right font-black text-slate-950 lg:col-span-1 lg:block">
                         {formatMoney(account.monthlyRevenue)}
                       </div>
+
+                      <div className="col-span-2 lg:col-span-1 lg:text-right">
+                        <button
+                          type="button"
+                          onClick={() => openStatusModal(account)}
+                          className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 lg:w-auto"
+                        >
+                          Change Status
+                        </button>
+                      </div>
                     </div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
           )}
         </div>
       </section>
+
+      {statusModalAccount ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+                  Quick Status Change
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">
+                  {statusModalAccount.accountName || "Unnamed Account"}
+                </h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Current status:{" "}
+                  <span className="font-black text-slate-800">
+                    {statusModalAccount.status || "N/A"}
+                  </span>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeStatusModal}
+                disabled={savingStatus}
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                X
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4">
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  New Status
+                </label>
+                <select
+                  value={newStatus}
+                  onChange={(event) =>
+                    setNewStatus(event.target.value as QuickStatusOption)
+                  }
+                  disabled={savingStatus}
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                >
+                  {quickStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Reason / History Note
+                </label>
+                <textarea
+                  value={statusReason}
+                  onChange={(event) => setStatusReason(event.target.value)}
+                  disabled={savingStatus}
+                  placeholder="Example: Customer requested cancellation effective July 1. / Paused due to remodeling. / Account needs review due to service concern."
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                />
+                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                  This will also create an Account Update history note.
+                </p>
+              </div>
+
+              {statusError ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                  {statusError}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={closeStatusModal}
+                  disabled={savingStatus}
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveStatusChange}
+                  disabled={savingStatus}
+                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {savingStatus ? "Saving..." : "Save Status Change"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
