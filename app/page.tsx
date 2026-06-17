@@ -749,7 +749,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <DashboardButton href="/supply-list" label="Supply List" />
+          <DashboardButton href="/supply-list" label="Supplies" />
           <DashboardButton
             href="/supply-orders"
             label="Supply Orders"
