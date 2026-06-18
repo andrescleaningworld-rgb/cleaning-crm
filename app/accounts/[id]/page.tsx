@@ -284,12 +284,13 @@ export default function AccountDetailPage() {
   const startDate =
     account?.startDate || account?.serviceStartDate || "Not provided";
 
-  const cleaningSchedule =
+  const cleaningDays =
+    account?.cleaningDays ||
     account?.cleaningSchedule ||
     account?.schedule ||
-    account?.frequency ||
-    account?.cleaningDays ||
     "Not provided";
+
+  const cleaningFrequency = account?.frequency || "Not provided";
 
   const subcontractorPay =
     account?.subcontractorPay || account?.monthlySubcontractorPay || "";
@@ -320,7 +321,7 @@ export default function AccountDetailPage() {
           accountName: account.accountName || "",
           address: accountAddress,
           startDate,
-          cleaningSchedule,
+          cleaningSchedule: cleaningDays,
           subcontractor: account.subcontractor || "",
           subcontractorEmail: account.subcontractorEmail || "",
           monthlySubcontractorPay: subcontractorPay,
@@ -698,10 +699,19 @@ export default function AccountDetailPage() {
 
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Cleaning Schedule
+                  Cleaning Days
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {cleaningSchedule}
+                  {cleaningDays}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Frequency
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {cleaningFrequency}
                 </p>
               </div>
 

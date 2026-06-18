@@ -16,6 +16,8 @@ type Account = {
   manager?: string;
   subcontractor?: string;
   status?: string;
+  startDate?: string;
+  serviceStartDate?: string;
   cancelledDate?: string;
   accountHealth?: string;
   monthlyRevenue?: string;
@@ -279,6 +281,10 @@ export default function EditAccountPage() {
       return;
     }
 
+    const cleanStartDate = cleanText(
+      formData.startDate || formData.serviceStartDate
+    );
+
     try {
       setSaving(true);
       setSaveError("");
@@ -296,6 +302,8 @@ export default function EditAccountPage() {
             id: formData.id || formData.accountId,
             accountId: formData.accountId || formData.id,
             rowNumber: formData.rowNumber,
+            startDate: cleanStartDate,
+            serviceStartDate: cleanStartDate,
             subcontractor: cleanText(formData.subcontractor),
             grossMargin: String(grossMargin),
             grossMarginPercent: grossMarginPercent.toFixed(1),
@@ -487,6 +495,21 @@ export default function EditAccountPage() {
 
               <div>
                 <label className="text-sm font-medium text-gray-700">
+                  Start Date
+                </label>
+                <input
+                  type="text"
+                  value={formData.startDate || formData.serviceStartDate || ""}
+                  onChange={(event) =>
+                    updateField("startDate", event.target.value)
+                  }
+                  placeholder="Example: 6/10/2026"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
                   Cancelled Date
                 </label>
                 <input
@@ -664,6 +687,7 @@ export default function EditAccountPage() {
                   onChange={(event) =>
                     updateField("cleaningDays", event.target.value)
                   }
+                  placeholder="Example: Mon, Wed, Fri"
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
               </div>
