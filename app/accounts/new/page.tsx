@@ -35,11 +35,27 @@ type ExistingAccount = {
   subcontractor?: string;
 };
 
+type Subcontractor = {
+  id?: string;
+  name?: string;
+  subcontractorName?: string;
+  companyName?: string;
+  email?: string;
+  status?: string;
+};
+
 type AccountsApiResponse = {
   success?: boolean;
   error?: string;
   accounts?: ExistingAccount[];
   data?: ExistingAccount[];
+};
+
+type SubcontractorsApiResponse = {
+  success?: boolean;
+  error?: string;
+  subcontractors?: Subcontractor[];
+  data?: Subcontractor[];
 };
 
 type SaveAccountResponse = {
@@ -78,6 +94,15 @@ function cleanText(value: unknown) {
   return String(value || "").trim();
 }
 
+function getSubcontractorDisplayName(subcontractor: Subcontractor) {
+  return (
+    cleanText(subcontractor.name) ||
+    cleanText(subcontractor.subcontractorName) ||
+    cleanText(subcontractor.companyName) ||
+    cleanText(subcontractor.email)
+  );
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
 
@@ -99,7 +124,9 @@ export default function NewAccountPage() {
   const [existingAccounts, setExistingAccounts] = useState<ExistingAccount[]>(
     []
   );
+  const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [saving, setSaving] = useState(false);
+  const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -118,11 +145,36 @@ export default function NewAccountPage() {
 
         setExistingAccounts(data.accounts || data.data || []);
       } catch {
-        // Do not block the form if options fail to load.
+        // Do not block the form if manager options fail to load.
+      }
+    }
+
+    async function loadSubcontractors() {
+      try {
+        setLoadingSubcontractors(true);
+
+        const response = await fetch("/api/subcontractors", {
+          cache: "no-store",
+        });
+
+        const data = await readJsonResponse<SubcontractorsApiResponse>(
+          response
+        );
+
+        if (!response.ok || data.success === false) {
+          return;
+        }
+
+        setSubcontractors(data.subcontractors || data.data || []);
+      } catch {
+        // Do not block the full form if subcontractors fail to load.
+      } finally {
+        setLoadingSubcontractors(false);
       }
     }
 
     loadExistingOptions();
+    loadSubcontractors();
   }, []);
 
   const managerOptions = useMemo(() => {
@@ -138,12 +190,12 @@ export default function NewAccountPage() {
   const subcontractorOptions = useMemo(() => {
     return Array.from(
       new Set(
-        existingAccounts
-          .map((account) => cleanText(account.subcontractor))
+        subcontractors
+          .map((subcontractor) => getSubcontractorDisplayName(subcontractor))
           .filter(Boolean)
       )
     ).sort();
-  }, [existingAccounts]);
+  }, [subcontractors]);
 
   function updateField(field: keyof AccountForm, value: string) {
     setForm((current) => ({
@@ -166,7 +218,10 @@ export default function NewAccountPage() {
 
       const accountPayload: AccountForm = {
         ...form,
+        accountName: form.accountName.trim(),
         address: form.address.trim(),
+        manager: form.manager.trim(),
+        subcontractor: form.subcontractor.trim(),
         city: "",
         state: "",
         zip: "",
@@ -357,15 +412,38 @@ export default function NewAccountPage() {
                 <span className="text-sm font-black text-slate-700">
                   Subcontractor
                 </span>
-                <input
-                  list="subcontractor-options"
+                <select
                   value={form.subcontractor}
                   onChange={(event) =>
                     updateField("subcontractor", event.target.value)
                   }
-                  placeholder="Search or type subcontractor name"
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
+                  disabled={loadingSubcontractors}
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
+                >
+                  <option value="">
+                    {loadingSubcontractors
+                      ? "Loading subcontractors..."
+                      : "Select subcontractor"}
+                  </option>
+
+                  {subcontractorOptions.map((subcontractor) => (
+                    <option key={subcontractor} value={subcontractor}>
+                      {subcontractor}
+                    </option>
+                  ))}
+                </select>
+
+                {!loadingSubcontractors && subcontractorOptions.length === 0 ? (
+                  <p className="mt-2 text-xs font-semibold leading-5 text-red-500">
+                    No subcontractors were found. Add the subcontractor first
+                    from the Subcontractors page.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+                    Subcontractor must come from the existing subcontractor
+                    list.
+                  </p>
+                )}
               </label>
 
               <label className="block">
@@ -554,12 +632,6 @@ export default function NewAccountPage() {
           <datalist id="manager-options">
             {managerOptions.map((manager) => (
               <option key={manager} value={manager} />
-            ))}
-          </datalist>
-
-          <datalist id="subcontractor-options">
-            {subcontractorOptions.map((subcontractor) => (
-              <option key={subcontractor} value={subcontractor} />
             ))}
           </datalist>
 
