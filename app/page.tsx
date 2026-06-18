@@ -9,9 +9,8 @@ type DashboardData = {
   accounts: AnyRow[];
   visits: AnyRow[];
   complaints: AnyRow[];
-  sales: AnyRow[];
-  subcontractors: AnyRow[];
   supplyOrders: AnyRow[];
+  todos: AnyRow[];
 };
 
 type ApiResponse = {
@@ -19,9 +18,8 @@ type ApiResponse = {
   accounts?: AnyRow[];
   visits?: AnyRow[];
   complaints?: AnyRow[];
-  sales?: AnyRow[];
-  subcontractors?: AnyRow[];
   supplyOrders?: AnyRow[];
+  todos?: AnyRow[];
   orders?: AnyRow[];
   rows?: AnyRow[];
 };
@@ -226,7 +224,6 @@ function isRevenueAccount(row: AnyRow): boolean {
   const revenue = getMonthlyRevenue(row);
 
   if (revenue <= 0) return false;
-
   if (!status) return true;
 
   const excludedStatuses = [
@@ -261,7 +258,6 @@ function dedupeAccountsByName(accounts: AnyRow[]): AnyRow[] {
     }
 
     const existing = map.get(key);
-
     if (!existing) continue;
 
     const existingIsRevenue = isRevenueAccount(existing);
@@ -298,18 +294,20 @@ function getDate(row: AnyRow): Date | null {
     "createdAt",
     "Created",
     "created",
+    "Created Date",
+    "createdDate",
     "Visit Date",
     "visitDate",
     "Complaint Date",
     "complaintDate",
-    "Sale Date",
-    "saleDate",
     "Order Date",
     "orderDate",
     "Request Date",
     "requestDate",
     "Submitted At",
     "submittedAt",
+    "Due Date",
+    "dueDate",
   ]);
 
   if (!rawDate) return null;
@@ -322,7 +320,27 @@ function getDate(row: AnyRow): Date | null {
 
 function getDisplayDate(row: AnyRow): string {
   const date = getDate(row);
+  if (!date) return "-";
 
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getDueDate(row: AnyRow): Date | null {
+  const rawDate = getValue(row, ["Due Date", "dueDate"]);
+  if (!rawDate) return null;
+
+  const parsed = new Date(cleanText(rawDate));
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return parsed;
+}
+
+function getDisplayDueDate(row: AnyRow): string {
+  const date = getDueDate(row);
   if (!date) return "-";
 
   return date.toLocaleDateString("en-US", {
@@ -341,19 +359,6 @@ function isThisMonth(row: AnyRow): boolean {
   return (
     date.getFullYear() === now.getFullYear() &&
     date.getMonth() === now.getMonth()
-  );
-}
-
-function isThisQuarter(row: AnyRow): boolean {
-  const date = getDate(row);
-  if (!date) return false;
-
-  const now = new Date();
-  const currentQuarter = Math.floor(now.getMonth() / 3);
-  const rowQuarter = Math.floor(date.getMonth() / 3);
-
-  return (
-    date.getFullYear() === now.getFullYear() && rowQuarter === currentQuarter
   );
 }
 
@@ -378,39 +383,6 @@ function isComplaintOpen(row: AnyRow): boolean {
   );
 }
 
-function getSaleAmount(row: AnyRow): number {
-  return parseMoney(
-    getValue(row, [
-      "Amount",
-      "amount",
-      "Sale Amount",
-      "saleAmount",
-      "Total",
-      "total",
-      "Price",
-      "price",
-    ])
-  );
-}
-
-function getSaleStatus(row: AnyRow): string {
-  return cleanText(getValue(row, ["Status", "status", "Sale Status", "saleStatus"]));
-}
-
-function isSaleValid(row: AnyRow): boolean {
-  const status = cleanLower(getSaleStatus(row));
-
-  if (!status) return true;
-
-  return !(
-    status.includes("cancelled") ||
-    status.includes("canceled") ||
-    status.includes("declined") ||
-    status.includes("void") ||
-    status.includes("lost")
-  );
-}
-
 function getSupplyOrderStatus(row: AnyRow): string {
   return cleanText(
     getValue(row, [
@@ -427,7 +399,6 @@ function getSupplyOrderStatus(row: AnyRow): string {
 function isNewSupplyOrder(row: AnyRow): boolean {
   const status = cleanLower(getSupplyOrderStatus(row));
 
-  // Important: blank status should NOT show the notification bell.
   if (!status) return false;
 
   return (
@@ -454,6 +425,55 @@ function getSupplyOrderTitle(row: AnyRow): string {
       "title",
     ])
   );
+}
+
+function getToDoStatus(row: AnyRow): string {
+  return cleanText(getValue(row, ["Status", "status"]));
+}
+
+function isToDoOpen(row: AnyRow): boolean {
+  const status = cleanLower(getToDoStatus(row));
+
+  if (!status) return true;
+
+  return !(
+    status.includes("done") ||
+    status.includes("completed") ||
+    status.includes("cancelled") ||
+    status.includes("canceled")
+  );
+}
+
+function isToDoOverdue(row: AnyRow): boolean {
+  if (!isToDoOpen(row)) return false;
+
+  const dueDate = getDueDate(row);
+  if (!dueDate) return false;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  dueDate.setHours(0, 0, 0, 0);
+
+  return dueDate < today;
+}
+
+function getToDoAccount(row: AnyRow): string {
+  return cleanText(
+    getValue(row, ["Account", "Account Name", "account", "accountName"])
+  );
+}
+
+function getToDoAssignedTo(row: AnyRow): string {
+  return cleanText(getValue(row, ["Assigned to", "Assigned To", "assignedTo"]));
+}
+
+function getToDoTaskType(row: AnyRow): string {
+  return cleanText(getValue(row, ["Task Type", "taskType"]));
+}
+
+function getToDoWhy(row: AnyRow): string {
+  return cleanText(getValue(row, ["Why", "why", "Reason", "Reason / Why"]));
 }
 
 function getRowAccountName(row: AnyRow): string {
@@ -484,27 +504,10 @@ function getRowTitle(row: AnyRow): string {
       "subject",
       "Issue",
       "issue",
-      "Visit Type",
-      "visitType",
       "Complaint Type",
       "complaintType",
-    ])
-  );
-}
-
-function getRowPerson(row: AnyRow): string {
-  return cleanText(
-    getValue(row, [
-      "Manager",
-      "manager",
-      "Sold By",
-      "soldBy",
-      "Sales Person",
-      "salesPerson",
-      "Created By",
-      "createdBy",
-      "Person",
-      "person",
+      "Visit Type",
+      "visitType",
     ])
   );
 }
@@ -537,9 +540,8 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
     if (Array.isArray(json.accounts)) return json.accounts;
     if (Array.isArray(json.visits)) return json.visits;
     if (Array.isArray(json.complaints)) return json.complaints;
-    if (Array.isArray(json.sales)) return json.sales;
-    if (Array.isArray(json.subcontractors)) return json.subcontractors;
     if (Array.isArray(json.supplyOrders)) return json.supplyOrders;
+    if (Array.isArray(json.todos)) return json.todos;
     if (Array.isArray(json.orders)) return json.orders;
     if (Array.isArray(json.rows)) return json.rows;
 
@@ -554,13 +556,15 @@ function StatCard({
   label,
   value,
   note,
+  href,
 }: {
   label: string;
   value: string;
   note?: string;
+  href?: string;
 }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+  const content = (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md">
       <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
         {label}
       </p>
@@ -569,6 +573,14 @@ function StatCard({
       </h2>
       {note ? <p className="mt-2 text-sm text-gray-500">{note}</p> : null}
     </div>
+  );
+
+  if (!href) return content;
+
+  return (
+    <Link href={href} className="block">
+      {content}
+    </Link>
   );
 }
 
@@ -596,14 +608,33 @@ function DashboardButton({
   );
 }
 
+function QuickLink({
+  href,
+  title,
+  note,
+}: {
+  href: string;
+  title: string;
+  note: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+    >
+      <h3 className="font-bold text-gray-900">{title}</h3>
+      <p className="mt-2 text-sm text-gray-500">{note}</p>
+    </Link>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData>({
     accounts: [],
     visits: [],
     complaints: [],
-    sales: [],
-    subcontractors: [],
     supplyOrders: [],
+    todos: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -612,23 +643,21 @@ export default function DashboardPage() {
     async function loadDashboard() {
       setLoading(true);
 
-      const [accounts, visits, complaints, sales, subcontractors, supplyOrders] =
+      const [accounts, visits, complaints, supplyOrders, todos] =
         await Promise.all([
           safeReadData("/api/accounts", "Accounts"),
           safeReadData("/api/visits", "Visits"),
           safeReadData("/api/complaints", "Complaints"),
-          safeReadData("/api/sales", "Sales"),
-          safeReadData("/api/subcontractors", "Subcontractors"),
           safeReadData("/api/supply-orders", "Supply Orders"),
+          safeReadData("/api/to-do", "To-Dos"),
         ]);
 
       setData({
         accounts,
         visits,
         complaints,
-        sales,
-        subcontractors,
         supplyOrders,
+        todos,
       });
 
       setLoading(false);
@@ -655,18 +684,12 @@ export default function DashboardPage() {
     const grossMarginPercent =
       monthlyRevenue > 0 ? (grossMargin / monthlyRevenue) * 100 : 0;
 
-    const openComplaints = data.complaints.filter(isComplaintOpen);
     const visitsThisMonth = data.visits.filter(isThisMonth);
-
-    const salesThisQuarter = data.sales.filter((sale) => {
-      return isSaleValid(sale) && isThisQuarter(sale);
-    });
-
-    const salesThisQuarterTotal = salesThisQuarter.reduce((total, sale) => {
-      return total + getSaleAmount(sale);
-    }, 0);
-
+    const openComplaints = data.complaints.filter(isComplaintOpen);
     const newSupplyOrders = data.supplyOrders.filter(isNewSupplyOrder);
+
+    const openTodos = data.todos.filter(isToDoOpen);
+    const overdueTodos = data.todos.filter(isToDoOverdue);
 
     const accountsNeedingAttention = revenueAccounts.filter((account) => {
       const health = cleanLower(getAccountHealth(account));
@@ -679,23 +702,15 @@ export default function DashboardPage() {
       );
     });
 
+    const recentTodos = [...openTodos]
+      .sort((a, b) => {
+        const dateA = getDueDate(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const dateB = getDueDate(b)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        return dateA - dateB;
+      })
+      .slice(0, 6);
+
     const recentComplaints = [...data.complaints]
-      .sort((a, b) => {
-        const dateA = getDate(a)?.getTime() ?? 0;
-        const dateB = getDate(b)?.getTime() ?? 0;
-        return dateB - dateA;
-      })
-      .slice(0, 5);
-
-    const recentVisits = [...data.visits]
-      .sort((a, b) => {
-        const dateA = getDate(a)?.getTime() ?? 0;
-        const dateB = getDate(b)?.getTime() ?? 0;
-        return dateB - dateA;
-      })
-      .slice(0, 5);
-
-    const recentSales = [...data.sales]
       .sort((a, b) => {
         const dateA = getDate(a)?.getTime() ?? 0;
         const dateB = getDate(b)?.getTime() ?? 0;
@@ -713,21 +728,19 @@ export default function DashboardPage() {
 
     return {
       rawAccounts,
-      uniqueAccounts,
       revenueAccounts,
       monthlyRevenue,
       monthlySubcontractorPay,
       grossMargin,
       grossMarginPercent,
-      openComplaints,
       visitsThisMonth,
-      salesThisQuarter,
-      salesThisQuarterTotal,
+      openComplaints,
       newSupplyOrders,
+      openTodos,
+      overdueTodos,
+      recentTodos,
       accountsNeedingAttention,
       recentComplaints,
-      recentVisits,
-      recentSales,
       recentSupplyOrders,
     };
   }, [data]);
@@ -740,15 +753,25 @@ export default function DashboardPage() {
             Cleaning World
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            Operations Dashboard
+            Operations Command Center
           </h1>
           <p className="mt-2 text-gray-500">
-            Accounts, revenue, complaints, visits, sales, and subcontractor
-            activity.
+            Faster daily view focused on urgent tasks, visits, complaints,
+            supply orders, and accounts needing attention.
           </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
+          <DashboardButton
+            href="/to-do"
+            label="To-Do List"
+            badgeCount={dashboard.overdueTodos.length}
+          />
+          <DashboardButton
+            href="/complaints"
+            label="Complaints"
+            badgeCount={dashboard.openComplaints.length}
+          />
           <DashboardButton href="/supplies" label="Supplies" />
           <DashboardButton
             href="/supply-orders"
@@ -767,19 +790,105 @@ export default function DashboardPage() {
 
       {loading ? (
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          Loading dashboard...
+          Loading command center...
         </div>
       ) : (
         <>
-          <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Overdue To-Dos"
+              value={formatNumber(dashboard.overdueTodos.length)}
+              note="Needs attention first"
+              href="/to-do"
+            />
+
+            <StatCard
+              label="Visits This Month"
+              value={formatNumber(dashboard.visitsThisMonth.length)}
+              note="Field/account visits logged"
+              href="/visits"
+            />
+
+            <StatCard
+              label="Open Complaints"
+              value={formatNumber(dashboard.openComplaints.length)}
+              note="Not closed or resolved"
+              href="/complaints"
+            />
+
+            <StatCard
+              label="Accounts Needing Attention"
+              value={formatNumber(dashboard.accountsNeedingAttention.length)}
+              note="High risk or needs attention"
+              href="/accounts"
+            />
+          </section>
+
+          <section className="mb-5 rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold">Today&apos;s Manager To-Dos</h2>
+                <p className="text-sm text-gray-600">
+                  Open tasks sorted by due date. Use this first when assigning
+                  or checking work.
+                </p>
+              </div>
+
+              <Link className="font-bold text-blue-700" href="/to-do">
+                View all
+              </Link>
+            </div>
+
+            {dashboard.recentTodos.length === 0 ? (
+              <p className="text-gray-500">No open to-dos found.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {dashboard.recentTodos.map((todo, index) => (
+                  <Link
+                    key={`todo-${index}`}
+                    href="/to-do"
+                    className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm hover:border-blue-300"
+                  >
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700">
+                        {getToDoTaskType(todo) || "Task"}
+                      </span>
+
+                      {isToDoOverdue(todo) ? (
+                        <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-700">
+                          Overdue
+                        </span>
+                      ) : null}
+
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-bold text-gray-700">
+                        {getToDoStatus(todo) || "Open"}
+                      </span>
+                    </div>
+
+                    <strong>{getToDoAccount(todo) || "No account"}</strong>
+
+                    <p className="mt-1 text-sm text-gray-700">
+                      {getToDoWhy(todo) || "No reason entered."}
+                    </p>
+
+                    <p className="mt-2 text-xs text-gray-500">
+                      Assigned to: {getToDoAssignedTo(todo) || "-"} · Due:{" "}
+                      {getDisplayDueDate(todo)}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
             <StatCard
               label="Monthly Revenue"
               value={formatMoney(dashboard.monthlyRevenue)}
               note={`${formatNumber(
                 dashboard.revenueAccounts.length
-              )} revenue accounts from ${formatNumber(
-                dashboard.rawAccounts.length
-              )} rows`}
+              )} active revenue accounts`}
+              href="/accounts"
             />
 
             <StatCard
@@ -792,30 +901,6 @@ export default function DashboardPage() {
               label="Gross Margin"
               value={formatMoney(dashboard.grossMargin)}
               note={formatPercent(dashboard.grossMarginPercent)}
-            />
-
-            <StatCard
-              label="Open Complaints"
-              value={formatNumber(dashboard.openComplaints.length)}
-              note="Not closed or resolved"
-            />
-
-            <StatCard
-              label="Visits This Month"
-              value={formatNumber(dashboard.visitsThisMonth.length)}
-              note="Based on visit date"
-            />
-
-            <StatCard
-              label="Sales This Quarter"
-              value={formatMoney(dashboard.salesThisQuarterTotal)}
-              note={`${formatNumber(dashboard.salesThisQuarter.length)} sales`}
-            />
-
-            <StatCard
-              label="New Supply Orders"
-              value={formatNumber(dashboard.newSupplyOrders.length)}
-              note="New, requested, or submitted orders"
             />
           </section>
 
@@ -892,7 +977,7 @@ export default function DashboardPage() {
             )}
           </section>
 
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-4">
+          <section className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-xl font-bold">Recent Complaints</h2>
@@ -919,71 +1004,6 @@ export default function DashboardPage() {
                       <p className="mt-1 text-sm text-gray-500">
                         {getComplaintStatus(complaint) || "Open"} ·{" "}
                         {getDisplayDate(complaint)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold">Recent Visits</h2>
-                <Link className="font-bold text-blue-600" href="/visits">
-                  View
-                </Link>
-              </div>
-
-              {dashboard.recentVisits.length === 0 ? (
-                <p className="text-gray-500">No visits found.</p>
-              ) : (
-                <div className="space-y-3">
-                  {dashboard.recentVisits.map((visit, index) => (
-                    <div
-                      key={`visit-${index}`}
-                      className="rounded-xl border border-gray-100 bg-gray-50 p-4"
-                    >
-                      <strong>
-                        {getRowAccountName(visit) || "Unknown Account"}
-                      </strong>
-                      <p className="mt-1 text-gray-700">
-                        {getRowTitle(visit) || "Visit"}
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        {getRowPerson(visit) || "-"} · {getDisplayDate(visit)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold">Recent Sales</h2>
-                <Link className="font-bold text-blue-600" href="/sales">
-                  View
-                </Link>
-              </div>
-
-              {dashboard.recentSales.length === 0 ? (
-                <p className="text-gray-500">No sales found.</p>
-              ) : (
-                <div className="space-y-3">
-                  {dashboard.recentSales.map((sale, index) => (
-                    <div
-                      key={`sale-${index}`}
-                      className="rounded-xl border border-gray-100 bg-gray-50 p-4"
-                    >
-                      <strong>
-                        {getRowAccountName(sale) || "Unknown Account"}
-                      </strong>
-                      <p className="mt-1 text-gray-700">
-                        {getRowTitle(sale) || "Sale"}
-                      </p>
-                      <p className="mt-1 text-sm text-gray-500">
-                        {formatMoney(getSaleAmount(sale))} ·{" "}
-                        {getDisplayDate(sale)}
                       </p>
                     </div>
                   ))}
@@ -1022,6 +1042,38 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold">Quick Links</h2>
+              <p className="text-sm text-gray-500">
+                Heavier pages only load when you click them.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <QuickLink
+                href="/visits"
+                title="Visits"
+                note="View or add account visits."
+              />
+              <QuickLink
+                href="/sales"
+                title="Sales"
+                note="Sales and commissions."
+              />
+              <QuickLink
+                href="/subcontractors"
+                title="Subcontractors"
+                note="Sub list, accounts, and performance."
+              />
+              <QuickLink
+                href="/reports"
+                title="Reports"
+                note="Print and review reports."
+              />
             </div>
           </section>
         </>

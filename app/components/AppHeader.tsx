@@ -105,6 +105,7 @@ export default function AppHeader({
           }}
         >
           <HeaderLink href="/" label="Dashboard" />
+          <HeaderLink href="/to-do" label="To-Do List" />
           <HeaderLink href="/accounts" label="Accounts" />
           <HeaderLink href="/visits" label="Visits" />
           <HeaderLink href="/complaints" label="Complaints" />
