@@ -677,10 +677,7 @@ export default function SubcontractorPortalPage() {
                                   )}`}
                                   value={getSupplyName(item)}
                                 >
-                                  {getSupplyName(item)}
-                                  {getSupplyUnit(item)
-                                    ? ` / ${getSupplyUnit(item)}`
-                                    : ""}
+                                  {getSupplyDescription(item) || getSupplyName(item)}
                                 </option>
                               ))}
                               <option value={OTHER_ITEM_VALUE}>

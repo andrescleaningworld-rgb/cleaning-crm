@@ -53,6 +53,20 @@ type Subcontractor = {
   AccountsAssigned?: string;
   "Accounts Assigned"?: string;
 
+  subRevenue?: string;
+  SubRevenue?: string;
+  "Sub Revenue"?: string;
+  monthlySubRevenue?: string;
+  MonthlySubRevenue?: string;
+  "Monthly Sub Revenue"?: string;
+
+  cleaningWorldRevenue?: string;
+  CleaningWorldRevenue?: string;
+  "Cleaning World Revenue"?: string;
+  monthlyRevenue?: string;
+  MonthlyRevenue?: string;
+  "Monthly Revenue"?: string;
+
   lastReview?: string;
   LastReview?: string;
   "Last Review"?: string;
@@ -113,12 +127,60 @@ function getAccountsAssigned(sub: Subcontractor) {
   );
 }
 
+function getSubRevenue(sub: Subcontractor) {
+  return (
+    sub.subRevenue ||
+    sub.SubRevenue ||
+    sub["Sub Revenue"] ||
+    sub.monthlySubRevenue ||
+    sub.MonthlySubRevenue ||
+    sub["Monthly Sub Revenue"] ||
+    ""
+  );
+}
+
+function getCleaningWorldRevenue(sub: Subcontractor) {
+  return (
+    sub.cleaningWorldRevenue ||
+    sub.CleaningWorldRevenue ||
+    sub["Cleaning World Revenue"] ||
+    sub.monthlyRevenue ||
+    sub.MonthlyRevenue ||
+    sub["Monthly Revenue"] ||
+    ""
+  );
+}
+
+function getNumberValue(value: string) {
+  const numberValue = Number(value);
+  return Number.isNaN(numberValue) ? 0 : numberValue;
+}
+
+function getMoneyValue(value: string) {
+  const cleaned = String(value || "").replace(/[$,]/g, "").trim();
+  const numberValue = Number(cleaned);
+  return Number.isNaN(numberValue) ? 0 : numberValue;
+}
+
+function formatMoney(value: string) {
+  const numberValue = getMoneyValue(value);
+
+  if (!numberValue) return "-";
+
+  return numberValue.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
+}
+
 function getScoreStatus(scoreValue: string) {
   const score = Number(scoreValue);
 
   if (!scoreValue || Number.isNaN(score)) {
     return {
       label: "Not Scored",
+      value: "notScored",
       className: "bg-slate-100 text-slate-700",
     };
   }
@@ -126,6 +188,7 @@ function getScoreStatus(scoreValue: string) {
   if (score >= 9) {
     return {
       label: "Excellent",
+      value: "excellent",
       className: "bg-green-100 text-green-800",
     };
   }
@@ -133,6 +196,7 @@ function getScoreStatus(scoreValue: string) {
   if (score >= 8) {
     return {
       label: "Good",
+      value: "good",
       className: "bg-blue-100 text-blue-800",
     };
   }
@@ -140,12 +204,14 @@ function getScoreStatus(scoreValue: string) {
   if (score >= 7) {
     return {
       label: "Needs Attention",
+      value: "needsAttention",
       className: "bg-yellow-100 text-yellow-800",
     };
   }
 
   return {
     label: "High Risk",
+    value: "highRisk",
     className: "bg-red-100 text-red-800",
   };
 }
@@ -164,6 +230,10 @@ export default function SubcontractorsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [performanceFilter, setPerformanceFilter] = useState("all");
+  const [accountFilter, setAccountFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("nameAsc");
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
@@ -196,7 +266,9 @@ export default function SubcontractorsPage() {
         cache: "no-store",
       });
 
-      const data = (await res.json()) as SubcontractorsApiResponse | Subcontractor[];
+      const data = (await res.json()) as
+        | SubcontractorsApiResponse
+        | Subcontractor[];
 
       if (!res.ok || (!Array.isArray(data) && data.success === false)) {
         throw new Error(
@@ -221,24 +293,132 @@ export default function SubcontractorsPage() {
   const filteredSubcontractors = useMemo(() => {
     const q = search.toLowerCase().trim();
 
-    if (!q) return subcontractors;
+    const filtered = subcontractors.filter((sub) => {
+      const status = getStatus(sub).toLowerCase().trim();
+      const scoreStatus = getScoreStatus(getScore(sub));
+      const accountsAssigned = getNumberValue(getAccountsAssigned(sub));
 
-    return subcontractors.filter((sub) => {
-      return [
-        getCompanyName(sub),
-        getContactName(sub),
-        getPhone(sub),
-        getEmail(sub),
-        getStatus(sub),
-        getScore(sub),
-        getAvgCondition(sub),
-        getScoreStatus(getScore(sub)).label,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(q);
+      const matchesSearch =
+        !q ||
+        [
+          getCompanyName(sub),
+          getContactName(sub),
+          getPhone(sub),
+          getEmail(sub),
+          getStatus(sub),
+          getScore(sub),
+          getAvgCondition(sub),
+          getScoreStatus(getScore(sub)).label,
+          getAccountsAssigned(sub),
+          getSubRevenue(sub),
+          getCleaningWorldRevenue(sub),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+
+      const matchesStatus =
+        statusFilter === "all" || status === statusFilter.toLowerCase();
+
+      const matchesPerformance =
+        performanceFilter === "all" || scoreStatus.value === performanceFilter;
+
+      const matchesAccountFilter =
+        accountFilter === "all" ||
+        (accountFilter === "hasAccounts" && accountsAssigned > 0) ||
+        (accountFilter === "noAccounts" && accountsAssigned <= 0);
+
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesPerformance &&
+        matchesAccountFilter
+      );
     });
-  }, [subcontractors, search]);
+
+    return [...filtered].sort((a, b) => {
+      const companyA = getCompanyName(a).toLowerCase();
+      const companyB = getCompanyName(b).toLowerCase();
+
+      const scoreA = getNumberValue(getScore(a));
+      const scoreB = getNumberValue(getScore(b));
+
+      const conditionA = getNumberValue(getAvgCondition(a));
+      const conditionB = getNumberValue(getAvgCondition(b));
+
+      const accountsA = getNumberValue(getAccountsAssigned(a));
+      const accountsB = getNumberValue(getAccountsAssigned(b));
+
+      const complaintsA = getNumberValue(getComplaints(a));
+      const complaintsB = getNumberValue(getComplaints(b));
+
+      const subRevenueA = getMoneyValue(getSubRevenue(a));
+      const subRevenueB = getMoneyValue(getSubRevenue(b));
+
+      const cleaningWorldRevenueA = getMoneyValue(getCleaningWorldRevenue(a));
+      const cleaningWorldRevenueB = getMoneyValue(getCleaningWorldRevenue(b));
+
+      switch (sortBy) {
+        case "nameDesc":
+          return companyB.localeCompare(companyA);
+
+        case "scoreHigh":
+          return scoreB - scoreA;
+
+        case "scoreLow":
+          return scoreA - scoreB;
+
+        case "conditionHigh":
+          return conditionB - conditionA;
+
+        case "conditionLow":
+          return conditionA - conditionB;
+
+        case "accountsHigh":
+          return accountsB - accountsA;
+
+        case "accountsLow":
+          return accountsA - accountsB;
+
+        case "complaintsHigh":
+          return complaintsB - complaintsA;
+
+        case "complaintsLow":
+          return complaintsA - complaintsB;
+
+        case "subRevenueHigh":
+          return subRevenueB - subRevenueA;
+
+        case "subRevenueLow":
+          return subRevenueA - subRevenueB;
+
+        case "cleaningWorldRevenueHigh":
+          return cleaningWorldRevenueB - cleaningWorldRevenueA;
+
+        case "cleaningWorldRevenueLow":
+          return cleaningWorldRevenueA - cleaningWorldRevenueB;
+
+        case "nameAsc":
+        default:
+          return companyA.localeCompare(companyB);
+      }
+    });
+  }, [
+    subcontractors,
+    search,
+    statusFilter,
+    performanceFilter,
+    accountFilter,
+    sortBy,
+  ]);
+
+  function clearFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setPerformanceFilter("all");
+    setAccountFilter("all");
+    setSortBy("nameAsc");
+  }
 
   function updateForm(field: string, value: string) {
     setForm((prev) => ({
@@ -323,13 +503,119 @@ export default function SubcontractorsPage() {
             </button>
           </div>
 
-          <div className="mt-5">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search subcontractors..."
-              className="min-h-[48px] w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
-            />
+          <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-6">
+            <div className="lg:col-span-2">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Search
+              </label>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, phone, email..."
+                className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Status
+              </label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Performance
+              </label>
+              <select
+                value={performanceFilter}
+                onChange={(e) => setPerformanceFilter(e.target.value)}
+                className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
+              >
+                <option value="all">All performance</option>
+                <option value="excellent">Excellent</option>
+                <option value="good">Good</option>
+                <option value="needsAttention">Needs Attention</option>
+                <option value="highRisk">High Risk</option>
+                <option value="notScored">Not Scored</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Accounts
+              </label>
+              <select
+                value={accountFilter}
+                onChange={(e) => setAccountFilter(e.target.value)}
+                className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
+              >
+                <option value="all">All accounts</option>
+                <option value="hasAccounts">Has accounts</option>
+                <option value="noAccounts">No accounts</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Sort
+              </label>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
+              >
+                <option value="nameAsc">Name A-Z</option>
+                <option value="nameDesc">Name Z-A</option>
+                <option value="scoreHigh">Highest score</option>
+                <option value="scoreLow">Lowest score</option>
+                <option value="conditionHigh">Best avg condition</option>
+                <option value="conditionLow">Worst avg condition</option>
+                <option value="accountsHigh">Most accounts</option>
+                <option value="accountsLow">Least accounts</option>
+                <option value="subRevenueHigh">Most sub revenue</option>
+                <option value="subRevenueLow">Least sub revenue</option>
+                <option value="cleaningWorldRevenueHigh">
+                  Most CW revenue
+                </option>
+                <option value="cleaningWorldRevenueLow">
+                  Least CW revenue
+                </option>
+                <option value="complaintsHigh">Most complaints</option>
+                <option value="complaintsLow">Least complaints</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-600">
+              Showing{" "}
+              <span className="font-semibold text-slate-900">
+                {filteredSubcontractors.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-slate-900">
+                {subcontractors.length}
+              </span>{" "}
+              subcontractors
+            </p>
+
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Clear Filters
+            </button>
           </div>
 
           {successMessage && (
@@ -593,12 +879,10 @@ export default function SubcontractorsPage() {
                   <tr className="border-b bg-slate-50 text-slate-700">
                     <th className="px-4 py-3 font-semibold">Company</th>
                     <th className="px-4 py-3 font-semibold">Contact</th>
-                    <th className="px-4 py-3 font-semibold">Phone</th>
                     <th className="px-4 py-3 font-semibold">Score</th>
-                    <th className="px-4 py-3 font-semibold">
-                      Avg Condition
-                    </th>
                     <th className="px-4 py-3 font-semibold">Performance</th>
+                    <th className="px-4 py-3 font-semibold">Sub Revenue</th>
+                    <th className="px-4 py-3 font-semibold">CW Revenue</th>
                     <th className="px-4 py-3 font-semibold">Complaints</th>
                     <th className="px-4 py-3 font-semibold">Accounts</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
@@ -611,8 +895,9 @@ export default function SubcontractorsPage() {
                     const id = getSubId(sub);
                     const safeId = encodeURIComponent(id);
                     const score = getScore(sub);
-                    const avgCondition = getAvgCondition(sub);
                     const scoreStatus = getScoreStatus(score);
+                    const subRevenue = getSubRevenue(sub);
+                    const cleaningWorldRevenue = getCleaningWorldRevenue(sub);
 
                     return (
                       <tr
@@ -633,14 +918,9 @@ export default function SubcontractorsPage() {
                         </td>
 
                         <td className="px-4 py-3">{getContactName(sub)}</td>
-                        <td className="px-4 py-3">{getPhone(sub)}</td>
 
                         <td className="px-4 py-3 font-semibold">
                           {score ? `${score} / 10` : "-"}
-                        </td>
-
-                        <td className="px-4 py-3 font-semibold">
-                          {avgCondition ? `${avgCondition} / 10` : "-"}
                         </td>
 
                         <td className="px-4 py-3">
@@ -649,6 +929,14 @@ export default function SubcontractorsPage() {
                           >
                             {scoreStatus.label}
                           </span>
+                        </td>
+
+                        <td className="px-4 py-3 font-semibold">
+                          {formatMoney(subRevenue)}
+                        </td>
+
+                        <td className="px-4 py-3 font-semibold">
+                          {formatMoney(cleaningWorldRevenue)}
                         </td>
 
                         <td className="px-4 py-3">
