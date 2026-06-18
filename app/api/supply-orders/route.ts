@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -7,11 +7,15 @@ type SupplyOrder = {
   rowNumber?: number;
   timestamp?: string;
   orderId?: string;
+  orderGroupId?: string;
   subcontractor?: string;
   subcontractorEmail?: string;
   accountName?: string;
   accountId?: string;
   supplyItem?: string;
+  category?: string;
+  description?: string;
+  itemDescription?: string;
   quantity?: string;
   unit?: string;
   deliveryMode?: string;
@@ -29,20 +33,30 @@ type ScriptResponse = {
   orders?: SupplyOrder[];
 };
 
+type SupplyOrderPostBody = {
+  action?: string;
+  rowNumber?: number;
+  orderId?: string;
+  id?: string;
+  status?: string;
+  orderStatus?: string;
+  [key: string]: string | number | boolean | null | undefined;
+};
+
+function getScriptUrl() {
+  if (!SCRIPT_URL) {
+    throw new Error(
+      "Missing GOOGLE_SCRIPT_URL or NEXT_PUBLIC_GOOGLE_SCRIPT_URL in .env.local"
+    );
+  }
+
+  return SCRIPT_URL;
+}
+
 export async function GET() {
   try {
-    if (!SCRIPT_URL) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Missing GOOGLE_SCRIPT_URL or NEXT_PUBLIC_GOOGLE_SCRIPT_URL in .env.local",
-        },
-        { status: 500 }
-      );
-    }
-
-    const url = `${SCRIPT_URL}?action=getSupplyOrders`;
+    const scriptUrl = getScriptUrl();
+    const url = `${scriptUrl}?action=getSupplyOrders`;
 
     const response = await fetch(url, {
       method: "GET",
@@ -96,6 +110,58 @@ export async function GET() {
             : "Unknown supply orders API error.",
         supplyOrders: [],
         orders: [],
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const scriptUrl = getScriptUrl();
+    const body = (await request.json()) as SupplyOrderPostBody;
+
+    const action = body.action || "updateSupplyOrderStatus";
+
+    const response = await fetch(scriptUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify({
+        ...body,
+        action,
+      }),
+      cache: "no-store",
+    });
+
+    const text = await response.text();
+
+    try {
+      const data = JSON.parse(text);
+
+      return NextResponse.json(data, {
+        status: response.ok ? 200 : 500,
+      });
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Google Script did not return valid JSON while updating supply order.",
+          rawResponse: text,
+        },
+        { status: 500 }
+      );
+    }
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown supply order update error.",
       },
       { status: 500 }
     );

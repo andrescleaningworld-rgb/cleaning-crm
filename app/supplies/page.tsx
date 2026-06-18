@@ -18,17 +18,27 @@ type SupplyItem = {
   category?: string;
   Category?: string;
 
+  description?: string;
+  itemDescription?: string;
+  Description?: string;
+  "Item Description"?: string;
+  "Supply Description"?: string;
+
   unit?: string;
   Unit?: string;
 
-  active?: string;
-  Active?: string;
   status?: string;
   Status?: string;
+  "Supply Status"?: string;
+  "Item Status"?: string;
+
+  active?: string;
+  Active?: string;
 
   currentStock?: string;
   CurrentStock?: string;
   "Current Stock"?: string;
+  "current stock"?: string;
   stock?: string;
 
   minimumStock?: string;
@@ -59,31 +69,57 @@ type SupplyForm = {
   rowNumber: string;
   supplyItem: string;
   category: string;
+  description: string;
   unit: string;
+  status: string;
   active: string;
   currentStock: string;
   minimumStock: string;
   notes: string;
 };
+
 const supplyCategories = [
   "Paper",
   "Trash Bags",
   "Soap",
   "Chemicals / Cleaners",
   "Equipment",
+  "Tools",
+  "Floor Care",
+  "Wax / Stripper",
   "Misc",
+  "Other / Needs Review",
 ];
+
+const supplyStatuses = [
+  "Active",
+  "Inactive",
+  "Office Only",
+  "Discontinued",
+  "Needs Review",
+];
+
 const emptyForm: SupplyForm = {
   supplyId: "",
   rowNumber: "",
   supplyItem: "",
   category: "",
+  description: "",
   unit: "",
-  active: "Yes",
+  status: "Active",
+  active: "yes",
   currentStock: "",
   minimumStock: "",
   notes: "",
 };
+
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function cleanLower(value: unknown) {
+  return cleanText(value).toLowerCase();
+}
 
 function getSupplyId(item: SupplyItem) {
   return item.supplyId || item.id || item.ID || item["Supply ID"] || "";
@@ -104,12 +140,47 @@ function getCategory(item: SupplyItem) {
   return item.category || item.Category || "";
 }
 
+function getDescription(item: SupplyItem) {
+  return (
+    item.description ||
+    item.itemDescription ||
+    item.Description ||
+    item["Item Description"] ||
+    item["Supply Description"] ||
+    ""
+  );
+}
+
 function getUnit(item: SupplyItem) {
   return item.unit || item.Unit || "";
 }
 
+function getStatus(item: SupplyItem) {
+  return (
+    item.status ||
+    item.Status ||
+    item["Supply Status"] ||
+    item["Item Status"] ||
+    ""
+  );
+}
+
 function getActive(item: SupplyItem) {
-  return item.active || item.Active || item.status || item.Status || "Yes";
+  return item.active || item.Active || "";
+}
+
+function getAvailabilityStatus(item: SupplyItem) {
+  const status = cleanText(getStatus(item));
+  if (status) return status;
+
+  const active = cleanLower(getActive(item));
+
+  if (["yes", "true", "active", "y"].includes(active)) return "Active";
+  if (["no", "false", "inactive", "n", "disabled", "removed"].includes(active)) {
+    return "Inactive";
+  }
+
+  return "Active";
 }
 
 function getCurrentStock(item: SupplyItem) {
@@ -117,6 +188,7 @@ function getCurrentStock(item: SupplyItem) {
     item.currentStock ||
     item.CurrentStock ||
     item["Current Stock"] ||
+    item["current stock"] ||
     item.stock ||
     ""
   );
@@ -149,21 +221,44 @@ function getLoadedSupplyItems(data: SuppliesApiResponse | SupplyItem[]) {
 }
 
 function isActiveSupply(item: SupplyItem) {
-  const active = String(getActive(item) || "").toLowerCase().trim();
+  const status = cleanLower(getAvailabilityStatus(item));
 
-  if (!active) return true;
-
-  return !["no", "inactive", "false", "disabled", "removed"].includes(active);
+  return ![
+    "no",
+    "inactive",
+    "false",
+    "disabled",
+    "removed",
+    "discontinued",
+  ].includes(status);
 }
 
 function isLowStock(item: SupplyItem) {
-  const current = Number(String(getCurrentStock(item)).replace(/,/g, ""));
-  const minimum = Number(String(getMinimumStock(item)).replace(/,/g, ""));
+  const current = Number(cleanText(getCurrentStock(item)).replace(/,/g, ""));
+  const minimum = Number(cleanText(getMinimumStock(item)).replace(/,/g, ""));
 
   if (Number.isNaN(current) || Number.isNaN(minimum)) return false;
   if (minimum <= 0) return false;
 
   return current <= minimum;
+}
+
+function getStatusClass(statusValue: string) {
+  const status = cleanLower(statusValue);
+
+  if (status === "active") {
+    return "rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800";
+  }
+
+  if (status === "office only" || status === "needs review") {
+    return "rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800";
+  }
+
+  if (status === "inactive" || status === "discontinued") {
+    return "rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700";
+  }
+
+  return "rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800";
 }
 
 export default function SuppliesPage() {
@@ -218,7 +313,9 @@ export default function SuppliesPage() {
         getSupplyId(item),
         getSupplyName(item),
         getCategory(item),
+        getDescription(item),
         getUnit(item),
+        getAvailabilityStatus(item),
         getActive(item),
         getCurrentStock(item),
         getMinimumStock(item),
@@ -252,13 +349,18 @@ export default function SuppliesPage() {
   }
 
   function startEdit(item: SupplyItem) {
+    const status = getAvailabilityStatus(item);
+    const active = getActive(item) || (cleanLower(status) === "active" ? "yes" : "no");
+
     setForm({
       supplyId: getSupplyId(item),
       rowNumber: item.rowNumber ? String(item.rowNumber) : "",
       supplyItem: getSupplyName(item),
       category: getCategory(item),
+      description: getDescription(item),
       unit: getUnit(item),
-      active: getActive(item) || "Yes",
+      status,
+      active,
       currentStock: getCurrentStock(item),
       minimumStock: getMinimumStock(item),
       notes: getNotes(item),
@@ -289,6 +391,7 @@ export default function SuppliesPage() {
         body: JSON.stringify({
           action,
           ...form,
+          itemDescription: form.description,
           rowNumber: form.rowNumber ? Number(form.rowNumber) : undefined,
         }),
       });
@@ -337,6 +440,8 @@ export default function SuppliesPage() {
           supplyId: getSupplyId(item),
           supplyItem: supplyName,
           rowNumber: item.rowNumber,
+          status: "Inactive",
+          active: "no",
         }),
       });
 
@@ -376,28 +481,28 @@ export default function SuppliesPage() {
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-  <Link
-    href="/supply-orders"
-    className="relative rounded-lg border border-blue-200 bg-white px-4 py-3 text-center text-sm font-semibold text-blue-800 hover:bg-blue-50"
-  >
-    <span className="mr-2">🔔</span>
-    Supply Orders
+              <Link
+                href="/supply-orders"
+                className="relative rounded-lg border border-blue-200 bg-white px-4 py-3 text-center text-sm font-semibold text-blue-800 hover:bg-blue-50"
+              >
+                {newSupplyOrdersCount > 0 ? <span className="mr-2">🔔</span> : null}
+                Supply Orders
 
-    {newSupplyOrdersCount > 0 ? (
-      <span className="absolute -right-2 -top-2 rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
-        {newSupplyOrdersCount}
-      </span>
-    ) : null}
-  </Link>
+                {newSupplyOrdersCount > 0 ? (
+                  <span className="absolute -right-2 -top-2 rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
+                    {newSupplyOrdersCount}
+                  </span>
+                ) : null}
+              </Link>
 
-  <button
-    type="button"
-    onClick={showForm ? resetForm : startAdd}
-    className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
-  >
-    {showForm ? "Cancel" : "Add Supply"}
-  </button>
-</div>
+              <button
+                type="button"
+                onClick={showForm ? resetForm : startAdd}
+                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                {showForm ? "Cancel" : "Add Supply"}
+              </button>
+            </div>
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -427,7 +532,7 @@ export default function SuppliesPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search supplies..."
+              placeholder="Search supplies by item, category, description, status..."
               className="min-h-[48px] w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
             />
           </div>
@@ -466,20 +571,31 @@ export default function SuppliesPage() {
               </div>
 
               <div>
-  <label className="text-sm font-semibold">Category</label>
-  <select
-    value={form.category}
-    onChange={(e) => updateForm("category", e.target.value)}
-    className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base sm:text-sm"
-  >
-    <option value="">Select category</option>
-    {supplyCategories.map((category) => (
-      <option key={category} value={category}>
-        {category}
-      </option>
-    ))}
-  </select>
-</div>
+                <label className="text-sm font-semibold">Category</label>
+                <select
+                  value={form.category}
+                  onChange={(e) => updateForm("category", e.target.value)}
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base sm:text-sm"
+                >
+                  <option value="">Select category</option>
+                  {supplyCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-sm font-semibold">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => updateForm("description", e.target.value)}
+                  rows={3}
+                  placeholder="Short description so the office and subcontractors know exactly what this item is."
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
+                />
+              </div>
 
               <div>
                 <label className="text-sm font-semibold">Unit</label>
@@ -492,15 +608,28 @@ export default function SuppliesPage() {
               </div>
 
               <div>
-                <label className="text-sm font-semibold">Active</label>
+                <label className="text-sm font-semibold">Status</label>
                 <select
-                  value={form.active}
-                  onChange={(e) => updateForm("active", e.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
+                  value={form.status}
+                  onChange={(e) => {
+                    const status = e.target.value;
+                    updateForm("status", status);
+                    updateForm(
+                      "active",
+                      cleanLower(status) === "active" ? "yes" : "no"
+                    );
+                  }}
+                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base sm:text-sm"
                 >
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
+                  {supplyStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
                 </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Active shows in the subcontractor portal. Office Only and Needs Review can be used internally.
+                </p>
               </div>
 
               <div>
@@ -591,21 +720,28 @@ export default function SuppliesPage() {
                 <tbody>
                   {filteredSupplies.map((item, index) => {
                     const id = getSupplyId(item);
-                    const active = isActiveSupply(item);
+                    const availabilityStatus = getAvailabilityStatus(item);
                     const lowStock = isLowStock(item);
+                    const description = getDescription(item);
+                    const notes = getNotes(item);
 
                     return (
                       <tr
                         key={id || `${getSupplyName(item)}-${index}`}
                         className="border-b last:border-b-0 hover:bg-slate-50"
                       >
-                        <td className="px-4 py-3 font-semibold">
+                        <td className="min-w-[280px] px-4 py-3 font-semibold">
                           <div>{getSupplyName(item)}</div>
-                          {getNotes(item) && (
-                            <div className="mt-1 text-xs font-normal text-slate-500">
-                              {getNotes(item)}
+                          {description ? (
+                            <div className="mt-1 text-xs font-normal leading-5 text-slate-600">
+                              {description}
                             </div>
-                          )}
+                          ) : null}
+                          {notes ? (
+                            <div className="mt-1 text-xs font-normal leading-5 text-slate-500">
+                              Notes: {notes}
+                            </div>
+                          ) : null}
                         </td>
 
                         <td className="px-4 py-3">{getCategory(item) || "-"}</td>
@@ -615,11 +751,11 @@ export default function SuppliesPage() {
                           <span className={lowStock ? "font-bold text-red-700" : ""}>
                             {getCurrentStock(item) || "-"}
                           </span>
-                          {lowStock && (
+                          {lowStock ? (
                             <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-700">
                               Low
                             </span>
-                          )}
+                          ) : null}
                         </td>
 
                         <td className="px-4 py-3">
@@ -627,14 +763,8 @@ export default function SuppliesPage() {
                         </td>
 
                         <td className="px-4 py-3">
-                          <span
-                            className={
-                              active
-                                ? "rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800"
-                                : "rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700"
-                            }
-                          >
-                            {active ? "Active" : "Inactive"}
+                          <span className={getStatusClass(availabilityStatus)}>
+                            {availabilityStatus}
                           </span>
                         </td>
 
@@ -652,7 +782,7 @@ export default function SuppliesPage() {
                               Edit
                             </button>
 
-                            {active && (
+                            {isActiveSupply(item) ? (
                               <button
                                 type="button"
                                 disabled={saving}
@@ -661,7 +791,7 @@ export default function SuppliesPage() {
                               >
                                 Remove
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       </tr>
