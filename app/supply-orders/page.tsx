@@ -117,10 +117,6 @@ function cleanText(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function cleanLower(value: unknown): string {
-  return cleanText(value).toLowerCase();
-}
-
 function normalizeStatus(statusValue?: string) {
   const status = cleanText(statusValue);
 

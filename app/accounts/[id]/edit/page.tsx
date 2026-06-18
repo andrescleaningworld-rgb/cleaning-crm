@@ -36,6 +36,35 @@ type Account = {
   notes?: string;
 };
 
+type Subcontractor = {
+  id?: string;
+  name?: string;
+  subcontractorName?: string;
+  companyName?: string;
+  email?: string;
+  status?: string;
+};
+
+type SubcontractorsApiResponse = {
+  success?: boolean;
+  error?: string;
+  subcontractors?: Subcontractor[];
+  data?: Subcontractor[];
+};
+
+function cleanText(value: unknown) {
+  return String(value || "").trim();
+}
+
+function getSubcontractorDisplayName(subcontractor: Subcontractor) {
+  return (
+    cleanText(subcontractor.name) ||
+    cleanText(subcontractor.subcontractorName) ||
+    cleanText(subcontractor.companyName) ||
+    cleanText(subcontractor.email)
+  );
+}
+
 function normalizeValue(value: string | number | undefined | null) {
   return String(value || "")
     .toLowerCase()
@@ -69,6 +98,20 @@ function formatCurrency(value: string | undefined) {
   });
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error("API did not return valid JSON.");
+  }
+}
+
 export default function EditAccountPage() {
   const params = useParams();
   const rawAccountIdFromUrl = String(params?.id || "");
@@ -76,7 +119,9 @@ export default function EditAccountPage() {
   const normalizedUrlValue = normalizeValue(decodedAccountIdFromUrl);
 
   const [formData, setFormData] = useState<Account | null>(null);
+  const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [error, setError] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -92,7 +137,12 @@ export default function EditAccountPage() {
           cache: "no-store",
         });
 
-        const data = await response.json();
+        const data = await readJsonResponse<{
+          success?: boolean;
+          error?: string;
+          accounts?: Account[];
+          data?: Account[];
+        }>(response);
 
         if (!response.ok || !data.success) {
           throw new Error(data.error || "Could not load accounts.");
@@ -109,7 +159,8 @@ export default function EditAccountPage() {
             itemId === normalizedUrlValue ||
             itemRowNumber === normalizedUrlValue ||
             itemName === normalizedUrlValue ||
-            String(item.accountId || item.id || "") === decodedAccountIdFromUrl ||
+            String(item.accountId || item.id || "") ===
+              decodedAccountIdFromUrl ||
             String(item.rowNumber || "") === decodedAccountIdFromUrl ||
             String(item.accountName || "") === decodedAccountIdFromUrl
           );
@@ -133,8 +184,51 @@ export default function EditAccountPage() {
       }
     }
 
+    async function loadSubcontractors() {
+      try {
+        setLoadingSubcontractors(true);
+
+        const response = await fetch("/api/subcontractors", {
+          cache: "no-store",
+        });
+
+        const data = await readJsonResponse<SubcontractorsApiResponse>(
+          response
+        );
+
+        if (!response.ok || data.success === false) {
+          return;
+        }
+
+        setSubcontractors(data.subcontractors || data.data || []);
+      } catch {
+        // Do not block the edit form if subcontractors fail to load.
+      } finally {
+        setLoadingSubcontractors(false);
+      }
+    }
+
     loadAccount();
+    loadSubcontractors();
   }, [decodedAccountIdFromUrl, normalizedUrlValue]);
+
+  const subcontractorOptions = useMemo(() => {
+    const currentValue = cleanText(formData?.subcontractor);
+
+    const options = Array.from(
+      new Set(
+        subcontractors
+          .map((subcontractor) => getSubcontractorDisplayName(subcontractor))
+          .filter(Boolean)
+      )
+    );
+
+    if (currentValue && !options.includes(currentValue)) {
+      options.push(currentValue);
+    }
+
+    return options.sort();
+  }, [subcontractors, formData?.subcontractor]);
 
   const accountIdForUrl = encodeURIComponent(
     String(
@@ -202,21 +296,17 @@ export default function EditAccountPage() {
             id: formData.id || formData.accountId,
             accountId: formData.accountId || formData.id,
             rowNumber: formData.rowNumber,
+            subcontractor: cleanText(formData.subcontractor),
             grossMargin: String(grossMargin),
             grossMarginPercent: grossMarginPercent.toFixed(1),
           },
         }),
       });
 
-      const text = await response.text();
-
-      let data;
-
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error("API did not return valid JSON while updating account.");
-      }
+      const data = await readJsonResponse<{
+        success?: boolean;
+        error?: string;
+      }>(response);
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not update account.");
@@ -414,15 +504,18 @@ export default function EditAccountPage() {
                 <label className="text-sm font-medium text-gray-700">
                   Account Health
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formData.accountHealth || ""}
                   onChange={(event) =>
                     updateField("accountHealth", event.target.value)
                   }
-                  placeholder="Stable, Needs Attention, High Risk, etc."
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
+                >
+                  <option value="">Select Account Health</option>
+                  <option value="Stable">Stable</option>
+                  <option value="Needs Attention">Needs Attention</option>
+                  <option value="High Risk">High Risk</option>
+                </select>
               </div>
 
               <div>
@@ -499,14 +592,38 @@ export default function EditAccountPage() {
                 <label className="text-sm font-medium text-gray-700">
                   Assigned Subcontractor
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formData.subcontractor || ""}
                   onChange={(event) =>
                     updateField("subcontractor", event.target.value)
                   }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
+                  disabled={loadingSubcontractors}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  <option value="">
+                    {loadingSubcontractors
+                      ? "Loading subcontractors..."
+                      : "Select subcontractor"}
+                  </option>
+
+                  {subcontractorOptions.map((subcontractor) => (
+                    <option key={subcontractor} value={subcontractor}>
+                      {subcontractor}
+                    </option>
+                  ))}
+                </select>
+
+                {!loadingSubcontractors && subcontractorOptions.length === 0 ? (
+                  <p className="mt-2 text-xs font-semibold text-red-600">
+                    No subcontractors were found. Add the subcontractor first
+                    from the Subcontractors page.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs font-semibold text-gray-500">
+                    Subcontractor must come from the existing subcontractor
+                    list.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -601,12 +718,16 @@ export default function EditAccountPage() {
                 <label className="text-sm font-medium text-gray-700">
                   Has Key?
                 </label>
-                <input
-                  type="text"
+                <select
                   value={formData.hasKey || ""}
                   onChange={(event) => updateField("hasKey", event.target.value)}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
+                >
+                  <option value="">Select</option>
+                  <option value="Yes">Yes</option>
+                  <option value="No">No</option>
+                  <option value="N/A">N/A</option>
+                </select>
               </div>
 
               <div>
@@ -706,8 +827,7 @@ export default function EditAccountPage() {
 
             <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
               Change history will be added later. For now, this page loads live
-              account data and saves account edits back to Google Sheets once
-              the updateAccount Apps Script action is added.
+              account data and saves account edits back to Google Sheets.
             </div>
           </section>
 
