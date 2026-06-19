@@ -1,429 +1,614 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-type AnyRow = Record<string, unknown>;
+type AccountRecord = Record<string, unknown>;
 
-type AccountLocation = {
+type Account = {
   id: string;
   name: string;
+  address: string;
+  cityStateZip: string;
+  status: string;
   manager: string;
   subcontractor: string;
-  address: string;
-  city: string;
-  state: string;
-  zip: string;
-  fullAddress: string;
-  status: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
-type AccountsApiResponse = {
-  success?: boolean;
-  error?: string;
-  accounts?: AnyRow[];
-  data?: AnyRow[];
-  rows?: AnyRow[];
+type UserLocation = {
+  latitude: number;
+  longitude: number;
 };
 
-function cleanText(value: unknown, fallback = "") {
-  if (value === null || value === undefined) return fallback;
-  return String(value).trim() || fallback;
-}
+function getText(row: AccountRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
 
-function normalizeKey(value: string) {
-  return value.toLowerCase().replace(/\s+/g, "").replace(/_/g, "");
-}
-
-function getValue(row: AnyRow, possibleKeys: string[]) {
-  for (const key of possibleKeys) {
-    if (row[key] !== undefined && row[key] !== null && row[key] !== "") {
-      return row[key];
-    }
-  }
-
-  const entries = Object.entries(row).map(([key, value]) => ({
-    key: normalizeKey(key),
-    value,
-  }));
-
-  for (const possibleKey of possibleKeys) {
-    const wanted = normalizeKey(possibleKey);
-    const found = entries.find((entry) => entry.key === wanted);
-
-    if (
-      found &&
-      found.value !== undefined &&
-      found.value !== null &&
-      found.value !== ""
-    ) {
-      return found.value;
+    if (value !== undefined && value !== null) {
+      return String(value).trim();
     }
   }
 
   return "";
 }
 
-function createIdFromName(name: string) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9 ]/g, "")
-    .replace(/\s+/g, "-");
-}
+function getNumber(row: AccountRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = row[key];
 
-function mapAccount(row: AnyRow): AccountLocation {
-  const name = cleanText(
-    getValue(row, [
-      "Account Name",
-      "accountName",
-      "Account",
-      "account",
-      "Customer",
-      "customer",
-      "Name",
-      "name",
-    ]),
-    "Unnamed Account"
-  );
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
 
-  const id = cleanText(
-    getValue(row, ["ID", "id", "Account ID", "accountId", "account_id"]),
-    createIdFromName(name)
-  );
+    if (typeof value === "string") {
+      const cleaned = value.trim();
 
-  const address = cleanText(
-    getValue(row, [
-      "Address",
-      "address",
-      "Street Address",
-      "streetAddress",
-      "Service Address",
-      "serviceAddress",
-      "Location Address",
-      "locationAddress",
-    ])
-  );
+      if (!cleaned) continue;
 
-  const city = cleanText(getValue(row, ["City", "city"]));
-  const state = cleanText(getValue(row, ["State", "state"]));
+      const parsed = Number(cleaned);
 
-  const zip = cleanText(
-    getValue(row, ["Zip", "zip", "ZIP", "Zip Code", "zipCode", "Postal Code"])
-  );
-
-  const fullAddress =
-    cleanText(
-      getValue(row, [
-        "Full Address",
-        "fullAddress",
-        "Complete Address",
-        "completeAddress",
-        "Google Address",
-        "googleAddress",
-      ])
-    ) || [address, city, state, zip].filter(Boolean).join(", ");
-
-  return {
-    id,
-    name,
-    manager: cleanText(
-      getValue(row, [
-        "Manager",
-        "manager",
-        "Account Manager",
-        "accountManager",
-        "Assigned Manager",
-        "assignedManager",
-      ]),
-      "Unassigned"
-    ),
-    subcontractor: cleanText(
-      getValue(row, [
-        "Subcontractor",
-        "subcontractor",
-        "Sub",
-        "sub",
-        "Assigned Subcontractor",
-        "assignedSubcontractor",
-        "Cleaner",
-        "cleaner",
-      ]),
-      "Unassigned"
-    ),
-    address,
-    city,
-    state,
-    zip,
-    fullAddress,
-    status: cleanText(
-      getValue(row, ["Status", "status", "Account Status", "accountStatus"]),
-      "N/A"
-    ),
-  };
-}
-
-function getLoadedAccounts(data: AccountsApiResponse | AnyRow[]) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.accounts)) return data.accounts;
-  if (Array.isArray(data.data)) return data.data;
-  if (Array.isArray(data.rows)) return data.rows;
-  return [];
-}
-
-function buildGoogleMapsSearchUrl(destination: string) {
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    destination
-  )}`;
-}
-
-function buildGoogleMapsEmbedUrl(destination: string) {
-  return `https://www.google.com/maps?q=${encodeURIComponent(
-    destination
-  )}&output=embed`;
-}
-
-function buildDirectionsUrl(destination: string, currentLocation: string) {
-  if (currentLocation) {
-    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-      currentLocation
-    )}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
   }
 
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-    destination
-  )}&travelmode=driving`;
+  return null;
 }
 
-export default function MapPage() {
-  const [accounts, setAccounts] = useState<AccountLocation[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState("");
+function normalizeAccounts(data: unknown): Account[] {
+  let rows: AccountRecord[] = [];
 
-  const [searchText, setSearchText] = useState("");
+  if (Array.isArray(data)) {
+    rows = data as AccountRecord[];
+  } else if (data && typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+
+    if (Array.isArray(obj.accounts)) {
+      rows = obj.accounts as AccountRecord[];
+    } else if (Array.isArray(obj.data)) {
+      rows = obj.data as AccountRecord[];
+    } else if (Array.isArray(obj.rows)) {
+      rows = obj.rows as AccountRecord[];
+    }
+  }
+
+  return rows
+    .map((row, index) => {
+      const id =
+        getText(row, [
+          "Account ID",
+          "Account Id",
+          "ID",
+          "Id",
+          "id",
+          "accountId",
+        ]) || String(index);
+
+      const name =
+        getText(row, [
+          "Account Name",
+          "Account",
+          "Name",
+          "accountName",
+          "name",
+        ]) || "Unnamed Account";
+
+      const address = getText(row, [
+        "Address",
+        "Service Address",
+        "Account Address",
+        "address",
+      ]);
+
+      const city = getText(row, ["City", "city"]);
+      const state = getText(row, ["State", "state"]);
+      const zip = getText(row, ["Zip", "ZIP", "Zip Code", "zip"]);
+
+      const cityStateZip = [city, state, zip].filter(Boolean).join(", ");
+
+      const status =
+        getText(row, ["Status", "status", "Account Status"]) || "Active";
+
+      const manager = getText(row, [
+        "Manager",
+        "Account Manager",
+        "manager",
+        "accountManager",
+      ]);
+
+      const subcontractor = getText(row, [
+        "Subcontractor",
+        "Sub",
+        "Sub Assigned",
+        "Assigned Sub",
+        "subcontractor",
+        "sub",
+      ]);
+
+      const latitude = getNumber(row, [
+        "Latitude",
+        "Lat",
+        "latitude",
+        "lat",
+      ]);
+
+      const longitude = getNumber(row, [
+        "Longitude",
+        "Lng",
+        "Long",
+        "longitude",
+        "lng",
+        "long",
+      ]);
+
+      return {
+        id,
+        name,
+        address,
+        cityStateZip,
+        status,
+        manager,
+        subcontractor,
+        latitude,
+        longitude,
+      };
+    })
+    .filter((account) => account.name && account.address);
+}
+
+function hasCoordinates(account: Account) {
+  return (
+    typeof account.latitude === "number" &&
+    Number.isFinite(account.latitude) &&
+    typeof account.longitude === "number" &&
+    Number.isFinite(account.longitude)
+  );
+}
+
+function buildFullAddress(account: Account) {
+  return [account.address, account.cityStateZip].filter(Boolean).join(", ");
+}
+
+function buildGoogleMapsUrl(account: Account) {
+  const query = encodeURIComponent(buildFullAddress(account));
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
+}
+
+function buildDirectionsUrl(account: Account, userLocation: UserLocation | null) {
+  const destination = encodeURIComponent(buildFullAddress(account));
+
+  if (userLocation) {
+    const origin = encodeURIComponent(
+      `${userLocation.latitude},${userLocation.longitude}`
+    );
+
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}`;
+  }
+
+  return `https://www.google.com/maps/dir/?api=1&destination=${destination}`;
+}
+
+function haversineMiles(
+  userLocation: UserLocation,
+  accountLatitude: number,
+  accountLongitude: number
+) {
+  const earthRadiusMiles = 3958.8;
+
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+
+  const lat1 = toRadians(userLocation.latitude);
+  const lat2 = toRadians(accountLatitude);
+  const deltaLat = toRadians(accountLatitude - userLocation.latitude);
+  const deltaLng = toRadians(accountLongitude - userLocation.longitude);
+
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1) *
+      Math.cos(lat2) *
+      Math.sin(deltaLng / 2) *
+      Math.sin(deltaLng / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return earthRadiusMiles * c;
+}
+
+export default function AccountMapPage() {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<unknown>(null);
+  const markersLayerRef = useRef<unknown>(null);
+
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [search, setSearch] = useState("");
   const [managerFilter, setManagerFilter] = useState("All Managers");
   const [subFilter, setSubFilter] = useState("All Subs");
-  const [currentLocation, setCurrentLocation] = useState("");
-  const [locationMessage, setLocationMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [locationError, setLocationError] = useState("");
+  const [usingLocation, setUsingLocation] = useState(false);
 
   useEffect(() => {
     async function loadAccounts() {
       try {
-        setIsLoading(true);
-        setErrorMessage("");
+        setLoading(true);
+        setLoadError("");
 
         const response = await fetch("/api/accounts", {
           cache: "no-store",
         });
 
-        const result = (await response.json()) as AccountsApiResponse | AnyRow[];
+        const data = await response.json();
 
-        if (
-          !response.ok ||
-          (!Array.isArray(result) && result.success === false)
-        ) {
-          throw new Error(
-            !Array.isArray(result) && result.error
-              ? result.error
-              : "Could not load accounts."
-          );
+        if (!response.ok) {
+          throw new Error(data?.error || "Unable to load accounts.");
         }
 
-        const rawAccounts = getLoadedAccounts(result);
+        const normalized = normalizeAccounts(data);
+        setAccounts(normalized);
 
-        const mappedAccounts: AccountLocation[] = rawAccounts
-          .map(mapAccount)
-          .filter((account) => {
-            return account.name !== "Unnamed Account" && account.fullAddress;
-          });
+        const firstWithCoordinates = normalized.find(hasCoordinates);
+        const firstAccount = firstWithCoordinates || normalized[0];
 
-        const uniqueAccounts = Array.from(
-          new Map(
-            mappedAccounts.map((account) => [
-              `${account.name.toLowerCase()}-${account.fullAddress.toLowerCase()}`,
-              account,
-            ])
-          ).values()
-        ).sort((a, b) => a.name.localeCompare(b.name));
-
-        setAccounts(uniqueAccounts);
-
-        if (uniqueAccounts.length > 0) {
-          setSelectedAccountId(uniqueAccounts[0].id);
+        if (firstAccount) {
+          setSelectedAccountId(firstAccount.id);
         }
       } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Could not load map data."
-        );
+        const message =
+          error instanceof Error ? error.message : "Unable to load accounts.";
+
+        setLoadError(message);
       } finally {
-        setIsLoading(false);
+        setLoading(false);
       }
     }
 
     loadAccounts();
   }, []);
 
-  const managerOptions = useMemo(() => {
-    const managers = Array.from(
-      new Set(accounts.map((account) => account.manager).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b));
+  useEffect(() => {
+    const existing = document.querySelector(
+      'link[data-cleaning-world-leaflet="true"]'
+    );
 
-    return ["All Managers", ...managers];
+    if (!existing) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      link.setAttribute("data-cleaning-world-leaflet", "true");
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  const managers = useMemo(() => {
+    const unique = Array.from(
+      new Set(accounts.map((account) => account.manager).filter(Boolean))
+    ).sort();
+
+    return ["All Managers", ...unique];
   }, [accounts]);
 
-  const subOptions = useMemo(() => {
-    const subs = Array.from(
+  const subs = useMemo(() => {
+    const unique = Array.from(
       new Set(accounts.map((account) => account.subcontractor).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b));
+    ).sort();
 
-    return ["All Subs", ...subs];
+    return ["All Subs", ...unique];
   }, [accounts]);
 
   const filteredAccounts = useMemo(() => {
-    const search = searchText.toLowerCase().trim();
+    const query = search.toLowerCase().trim();
 
-    return accounts
-      .filter((account) => {
-        const matchesSearch = search
-          ? account.name.toLowerCase().includes(search) ||
-            account.fullAddress.toLowerCase().includes(search) ||
-            account.manager.toLowerCase().includes(search) ||
-            account.subcontractor.toLowerCase().includes(search)
-          : true;
+    const filtered = accounts.filter((account) => {
+      const matchesSearch =
+        !query ||
+        account.name.toLowerCase().includes(query) ||
+        account.address.toLowerCase().includes(query) ||
+        account.cityStateZip.toLowerCase().includes(query) ||
+        account.manager.toLowerCase().includes(query) ||
+        account.subcontractor.toLowerCase().includes(query);
 
-        const matchesManager =
-          managerFilter === "All Managers"
-            ? true
-            : account.manager === managerFilter;
+      const matchesManager =
+        managerFilter === "All Managers" || account.manager === managerFilter;
 
-        const matchesSub =
-          subFilter === "All Subs" ? true : account.subcontractor === subFilter;
+      const matchesSub =
+        subFilter === "All Subs" || account.subcontractor === subFilter;
 
-        return matchesSearch && matchesManager && matchesSub;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [accounts, searchText, managerFilter, subFilter]);
+      return matchesSearch && matchesManager && matchesSub;
+    });
+
+    if (!userLocation) {
+      return filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
+      if (!hasCoordinates(a) || !hasCoordinates(b)) return 0;
+
+      const distanceA = haversineMiles(
+        userLocation,
+        a.latitude as number,
+        a.longitude as number
+      );
+
+      const distanceB = haversineMiles(
+        userLocation,
+        b.latitude as number,
+        b.longitude as number
+      );
+
+      return distanceA - distanceB;
+    });
+  }, [accounts, managerFilter, search, subFilter, userLocation]);
+
+  const accountsWithPins = useMemo(() => {
+    return filteredAccounts.filter(hasCoordinates);
+  }, [filteredAccounts]);
 
   const selectedAccount = useMemo(() => {
-    const selectedFromId = filteredAccounts.find(
-      (account) => account.id === selectedAccountId
+    return (
+      accounts.find((account) => account.id === selectedAccountId) ||
+      filteredAccounts[0] ||
+      accounts[0] ||
+      null
     );
+  }, [accounts, filteredAccounts, selectedAccountId]);
 
-    if (selectedFromId) return selectedFromId;
+  useEffect(() => {
+    async function initializeMap() {
+      if (!mapContainerRef.current || mapRef.current) return;
 
-    return filteredAccounts[0] || null;
-  }, [filteredAccounts, selectedAccountId]);
+      const leaflet = await import("leaflet");
 
-  const mapUrl = selectedAccount
-    ? buildGoogleMapsEmbedUrl(selectedAccount.fullAddress)
-    : "";
+      const map = leaflet.map(mapContainerRef.current).setView(
+        [40.8584, -74.1638],
+        10
+      );
 
-  const directionsUrl = selectedAccount
-    ? buildDirectionsUrl(selectedAccount.fullAddress, currentLocation)
-    : "";
+      leaflet
+        .tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+          maxZoom: 19,
+        })
+        .addTo(map);
 
-  const googleMapsUrl = selectedAccount
-    ? buildGoogleMapsSearchUrl(selectedAccount.fullAddress)
-    : "";
+      const markersLayer = leaflet.layerGroup().addTo(map);
 
-  function clearFilters() {
-    setSearchText("");
-    setManagerFilter("All Managers");
-    setSubFilter("All Subs");
-
-    if (accounts.length > 0) {
-      setSelectedAccountId(accounts[0].id);
+      mapRef.current = map;
+      markersLayerRef.current = markersLayer;
     }
-  }
 
-  function useMyLocation() {
-    setLocationMessage("");
+    initializeMap();
+  }, []);
+
+  useEffect(() => {
+    async function renderMarkers() {
+      if (!mapRef.current || !markersLayerRef.current) return;
+
+      const leaflet = await import("leaflet");
+
+      const map = mapRef.current as import("leaflet").Map;
+      const markersLayer = markersLayerRef.current as import("leaflet").LayerGroup;
+
+      markersLayer.clearLayers();
+
+      const bounds: import("leaflet").LatLngExpression[] = [];
+
+      const accountIcon = leaflet.divIcon({
+        className: "",
+        html: `<div style="
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          background: #dc2626;
+          border: 3px solid white;
+          box-shadow: 0 2px 8px rgba(0,0,0,.35);
+        "></div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+
+      const selectedIcon = leaflet.divIcon({
+        className: "",
+        html: `<div style="
+          width: 28px;
+          height: 28px;
+          border-radius: 999px;
+          background: #1d4ed8;
+          border: 4px solid white;
+          box-shadow: 0 3px 10px rgba(0,0,0,.45);
+        "></div>`,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+
+      accountsWithPins.forEach((account) => {
+        if (!hasCoordinates(account)) return;
+
+        const isSelected = account.id === selectedAccount?.id;
+        const position: import("leaflet").LatLngExpression = [
+          account.latitude as number,
+          account.longitude as number,
+        ];
+
+        bounds.push(position);
+
+        const directionsUrl = buildDirectionsUrl(account, userLocation);
+        const mapsUrl = buildGoogleMapsUrl(account);
+        const accountUrl = `/accounts/${encodeURIComponent(account.id)}`;
+
+        const marker = leaflet
+          .marker(position, {
+            icon: isSelected ? selectedIcon : accountIcon,
+          })
+          .addTo(markersLayer);
+
+        marker.bindPopup(`
+          <div style="min-width: 220px;">
+            <strong style="font-size: 14px;">${account.name}</strong>
+            <div style="margin-top: 4px; font-size: 12px;">
+              ${buildFullAddress(account)}
+            </div>
+            <div style="margin-top: 6px; font-size: 12px;">
+              Status: ${account.status || "N/A"}
+            </div>
+            <div style="margin-top: 10px; display: grid; gap: 6px;">
+              <a href="${directionsUrl}" target="_blank" rel="noopener noreferrer">
+                Get Directions
+              </a>
+              <a href="${mapsUrl}" target="_blank" rel="noopener noreferrer">
+                Open in Google Maps
+              </a>
+              <a href="${accountUrl}">
+                Open Account Detail
+              </a>
+            </div>
+          </div>
+        `);
+
+        marker.on("click", () => {
+          setSelectedAccountId(account.id);
+        });
+      });
+
+      if (userLocation) {
+        const userPosition: import("leaflet").LatLngExpression = [
+          userLocation.latitude,
+          userLocation.longitude,
+        ];
+
+        bounds.push(userPosition);
+
+        leaflet
+          .circleMarker(userPosition, {
+            radius: 10,
+            weight: 4,
+            color: "#ffffff",
+            fillColor: "#2563eb",
+            fillOpacity: 1,
+          })
+          .addTo(markersLayer)
+          .bindPopup("<strong>You are here</strong>");
+      }
+
+      if (selectedAccount && hasCoordinates(selectedAccount)) {
+        map.setView(
+          [
+            selectedAccount.latitude as number,
+            selectedAccount.longitude as number,
+          ],
+          14
+        );
+      } else if (bounds.length > 0) {
+        map.fitBounds(leaflet.latLngBounds(bounds), {
+          padding: [40, 40],
+          maxZoom: 13,
+        });
+      }
+    }
+
+    renderMarkers();
+  }, [accountsWithPins, selectedAccount, userLocation]);
+
+  function handleUseCurrentLocation() {
+    setLocationError("");
 
     if (!navigator.geolocation) {
-      setLocationMessage("Your browser does not support location access.");
+      setLocationError("Your browser does not support current location.");
       return;
     }
 
-    setLocationMessage("Getting your current location...");
+    setUsingLocation(true);
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const location = `${position.coords.latitude},${position.coords.longitude}`;
-        setCurrentLocation(location);
-        setLocationMessage("Current location ready for directions.");
+        setUserLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+
+        setUsingLocation(false);
       },
       () => {
-        setLocationMessage(
-          "Could not get your location. Directions will still open, but Google Maps may ask for the starting point."
+        setLocationError(
+          "Could not get your current location. Make sure location permission is allowed."
         );
+
+        setUsingLocation(false);
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
+        timeout: 12000,
+        maximumAge: 30000,
       }
     );
   }
 
+  function clearFilters() {
+    setSearch("");
+    setManagerFilter("All Managers");
+    setSubFilter("All Subs");
+  }
+
+  const selectedDistance =
+    userLocation && selectedAccount && hasCoordinates(selectedAccount)
+      ? haversineMiles(
+          userLocation,
+          selectedAccount.latitude as number,
+          selectedAccount.longitude as number
+        )
+      : null;
+
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <main style={styles.page}>
+      <section style={styles.shell}>
+        <div style={styles.headerRow}>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Account Map</h1>
-            <p className="mt-2 text-gray-600">
-              Search accounts, view the address on Google Maps, and get driving
-              directions.
+            <h1 style={styles.title}>Account Map</h1>
+            <p style={styles.subtitle}>
+              View Cleaning World accounts as pins, see your current location,
+              and get directions.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-row">
+          <div style={styles.headerActions}>
             <button
               type="button"
-              onClick={useMyLocation}
-              className="rounded-xl bg-blue-700 px-5 py-3 text-center font-bold text-white shadow-sm hover:bg-blue-800"
+              onClick={handleUseCurrentLocation}
+              style={styles.primaryButton}
             >
-              Use My Current Location
+              {usingLocation ? "Finding Location..." : "Use My Current Location"}
             </button>
 
-            <Link
-              href="/accounts"
-              className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-center font-bold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
+            <Link href="/accounts" style={styles.secondaryButton}>
               Back to Accounts
             </Link>
           </div>
         </div>
 
-        {locationMessage ? (
-          <section className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-800">
-            {locationMessage}
-          </section>
-        ) : null}
+        {locationError ? <div style={styles.errorBox}>{locationError}</div> : null}
+        {loadError ? <div style={styles.errorBox}>{loadError}</div> : null}
 
-        {errorMessage ? (
-          <section className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {errorMessage}
-          </section>
-        ) : null}
-
-        <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <section style={styles.filtersCard}>
+          <div style={styles.filterGrid}>
             <input
-              type="text"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search account, address, manager, or sub..."
-              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 xl:col-span-2"
+              style={styles.input}
             />
 
             <select
               value={managerFilter}
               onChange={(event) => setManagerFilter(event.target.value)}
-              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              style={styles.input}
             >
-              {managerOptions.map((manager) => (
+              {managers.map((manager) => (
                 <option key={manager} value={manager}>
                   {manager}
                 </option>
@@ -433,148 +618,387 @@ export default function MapPage() {
             <select
               value={subFilter}
               onChange={(event) => setSubFilter(event.target.value)}
-              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              style={styles.input}
             >
-              {subOptions.map((sub) => (
+              {subs.map((sub) => (
                 <option key={sub} value={sub}>
                   {sub}
                 </option>
               ))}
             </select>
 
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
+            <button type="button" onClick={clearFilters} style={styles.clearButton}>
               Clear Filters
             </button>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="text-sm font-bold text-gray-700">
-                Select Account
-              </label>
-
+          <div style={styles.selectRow}>
+            <label style={styles.label}>
+              Select Account
               <select
                 value={selectedAccount?.id || ""}
                 onChange={(event) => setSelectedAccountId(event.target.value)}
-                className="mt-2 min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                style={styles.accountSelect}
               >
-                {filteredAccounts.map((account) => (
-                  <option
-                    key={`${account.id}-${account.fullAddress}`}
-                    value={account.id}
-                  >
-                    {account.name}
-                  </option>
-                ))}
+                {filteredAccounts.map((account) => {
+                  const pinText = hasCoordinates(account) ? "📍" : "No pin";
+
+                  return (
+                    <option key={account.id} value={account.id}>
+                      {account.name} — {pinText}
+                    </option>
+                  );
+                })}
               </select>
+            </label>
+
+            <div style={styles.countPill}>
+              {filteredAccounts.length} accounts found
             </div>
 
-            <div className="flex items-end">
-              <p className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
-                {isLoading
-                  ? "Loading accounts with addresses..."
-                  : `${filteredAccounts.length} account${
-                      filteredAccounts.length === 1 ? "" : "s"
-                    } found`}
-              </p>
+            <div style={styles.countPill}>
+              {accountsWithPins.length} pins on map
             </div>
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1fr_360px]">
-          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-            {isLoading ? (
-              <div className="flex h-[650px] items-center justify-center text-gray-600">
-                Loading map...
+        <section style={styles.contentGrid}>
+          <div style={styles.mapCard}>
+            {loading ? (
+              <div style={styles.loadingBox}>Loading accounts...</div>
+            ) : accountsWithPins.length === 0 ? (
+              <div style={styles.loadingBox}>
+                No account pins yet. Add Latitude and Longitude to a few accounts
+                in Google Sheets.
               </div>
-            ) : selectedAccount && mapUrl ? (
-              <iframe
-                title="Account Google Map"
-                src={mapUrl}
-                className="h-[650px] w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
-            ) : (
-              <div className="flex h-[650px] items-center justify-center text-center text-gray-600">
-                No account address found. Check that your Accounts sheet has
-                address columns.
-              </div>
-            )}
+            ) : null}
+
+            <div ref={mapContainerRef} style={styles.map} />
           </div>
 
-          <aside className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold">Selected Account</h2>
+          <aside style={styles.sideCard}>
+            <h2 style={styles.sideTitle}>Selected Account</h2>
 
             {selectedAccount ? (
               <>
-                <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
-                  <Link
-                    href={`/accounts/${encodeURIComponent(selectedAccount.id)}`}
-                    className="text-lg font-bold text-blue-700 hover:underline"
-                  >
-                    {selectedAccount.name}
-                  </Link>
+                <div style={styles.selectedBox}>
+                  <h3 style={styles.selectedName}>{selectedAccount.name}</h3>
+                  <p style={styles.selectedAddress}>
+                    {buildFullAddress(selectedAccount)}
+                  </p>
 
-                  <p className="mt-3 text-sm text-gray-700">
-                    {selectedAccount.fullAddress}
+                  {selectedDistance !== null ? (
+                    <p style={styles.distanceText}>
+                      About {selectedDistance.toFixed(1)} miles away
+                    </p>
+                  ) : null}
+                </div>
+
+                <div style={styles.details}>
+                  <p>
+                    <strong>Status:</strong> {selectedAccount.status || "N/A"}
+                  </p>
+                  <p>
+                    <strong>Manager:</strong> {selectedAccount.manager || "N/A"}
+                  </p>
+                  <p>
+                    <strong>Sub:</strong>{" "}
+                    {selectedAccount.subcontractor || "N/A"}
+                  </p>
+                  <p>
+                    <strong>Pin:</strong>{" "}
+                    {hasCoordinates(selectedAccount)
+                      ? "Available"
+                      : "Missing Latitude/Longitude"}
                   </p>
                 </div>
 
-                <div className="mt-4 grid gap-2 text-sm text-gray-700">
-                  <p>
-                    <strong>Status:</strong> {selectedAccount.status}
-                  </p>
-                  <p>
-                    <strong>Manager:</strong> {selectedAccount.manager}
-                  </p>
-                  <p>
-                    <strong>Sub:</strong> {selectedAccount.subcontractor}
-                  </p>
-                </div>
-
-                <div className="mt-5 grid gap-3">
+                <div style={styles.buttonStack}>
                   <a
-                    href={directionsUrl}
+                    href={buildDirectionsUrl(selectedAccount, userLocation)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-xl bg-blue-700 px-4 py-3 text-center font-bold text-white hover:bg-blue-800"
+                    style={styles.primaryLink}
                   >
                     Get Directions
                   </a>
 
                   <a
-                    href={googleMapsUrl}
+                    href={buildGoogleMapsUrl(selectedAccount)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-center font-bold text-gray-800 hover:bg-gray-50"
+                    style={styles.secondaryLink}
                   >
                     Open in Google Maps
                   </a>
 
                   <Link
                     href={`/accounts/${encodeURIComponent(selectedAccount.id)}`}
-                    className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-center font-bold text-gray-800 hover:bg-gray-50"
+                    style={styles.secondaryLink}
                   >
                     Open Account Detail
                   </Link>
+
+                  <Link
+                    href={`/visits/new?accountId=${encodeURIComponent(
+                      selectedAccount.id
+                    )}`}
+                    style={styles.secondaryLink}
+                  >
+                    Add Visit
+                  </Link>
+
+                  <Link
+                    href={`/complaints/new?accountId=${encodeURIComponent(
+                      selectedAccount.id
+                    )}`}
+                    style={styles.secondaryLink}
+                  >
+                    Add Complaint
+                  </Link>
                 </div>
 
-                <p className="mt-5 text-xs leading-5 text-gray-500">
-                  This map page only reads account address information. It does
-                  not save or edit anything.
+                <p style={styles.note}>
+                  This page reads account information only. It does not save or
+                  edit anything.
                 </p>
               </>
             ) : (
-              <p className="mt-4 text-gray-600">No account selected.</p>
+              <p style={styles.note}>Select an account to view details.</p>
             )}
           </aside>
         </section>
-      </div>
+      </section>
     </main>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    padding: "24px",
+    background: "#eef4fb",
+    minHeight: "100vh",
+  },
+  shell: {
+    maxWidth: "1400px",
+    margin: "0 auto",
+    background: "#ffffff",
+    borderRadius: "22px",
+    padding: "28px",
+    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: "18px",
+    flexWrap: "wrap",
+    marginBottom: "24px",
+  },
+  title: {
+    margin: 0,
+    fontSize: "30px",
+    color: "#0f172a",
+  },
+  subtitle: {
+    margin: "8px 0 0",
+    color: "#475569",
+    fontSize: "16px",
+  },
+  headerActions: {
+    display: "flex",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+  primaryButton: {
+    background: "#1d4ed8",
+    color: "#ffffff",
+    border: "none",
+    borderRadius: "10px",
+    padding: "14px 20px",
+    fontWeight: 800,
+    cursor: "pointer",
+    boxShadow: "0 6px 16px rgba(29, 78, 216, 0.25)",
+  },
+  secondaryButton: {
+    background: "#ffffff",
+    color: "#0f172a",
+    border: "1px solid #cbd5e1",
+    borderRadius: "10px",
+    padding: "14px 20px",
+    fontWeight: 800,
+    textDecoration: "none",
+    boxShadow: "0 4px 10px rgba(15, 23, 42, 0.08)",
+  },
+  errorBox: {
+    background: "#fee2e2",
+    color: "#991b1b",
+    border: "1px solid #fecaca",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginBottom: "16px",
+    fontWeight: 700,
+  },
+  filtersCard: {
+    border: "1px solid #e2e8f0",
+    borderRadius: "14px",
+    padding: "20px",
+    marginBottom: "24px",
+    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.06)",
+  },
+  filterGrid: {
+    display: "grid",
+    gridTemplateColumns: "2fr 1fr 1fr 1fr",
+    gap: "12px",
+    marginBottom: "18px",
+  },
+  input: {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: "10px",
+    padding: "13px 14px",
+    fontSize: "15px",
+    color: "#0f172a",
+    background: "#ffffff",
+  },
+  clearButton: {
+    border: "1px solid #cbd5e1",
+    borderRadius: "10px",
+    padding: "13px 14px",
+    fontWeight: 800,
+    background: "#ffffff",
+    cursor: "pointer",
+  },
+  selectRow: {
+    display: "flex",
+    alignItems: "end",
+    gap: "12px",
+    flexWrap: "wrap",
+  },
+  label: {
+    flex: "1 1 420px",
+    display: "grid",
+    gap: "8px",
+    fontWeight: 800,
+    color: "#0f172a",
+    fontSize: "13px",
+  },
+  accountSelect: {
+    width: "100%",
+    border: "1px solid #cbd5e1",
+    borderRadius: "10px",
+    padding: "13px 14px",
+    fontSize: "15px",
+    color: "#0f172a",
+    background: "#ffffff",
+  },
+  countPill: {
+    border: "1px solid #e2e8f0",
+    borderRadius: "10px",
+    padding: "13px 16px",
+    color: "#0f172a",
+    fontWeight: 800,
+    background: "#f8fafc",
+  },
+  contentGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) 360px",
+    gap: "24px",
+  },
+  mapCard: {
+    position: "relative",
+    border: "1px solid #e2e8f0",
+    borderRadius: "14px",
+    overflow: "hidden",
+    minHeight: "560px",
+    background: "#f8fafc",
+  },
+  map: {
+    width: "100%",
+    height: "620px",
+    minHeight: "560px",
+    zIndex: 1,
+  },
+  loadingBox: {
+    position: "absolute",
+    top: "16px",
+    left: "16px",
+    zIndex: 10,
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    color: "#0f172a",
+    fontWeight: 800,
+    boxShadow: "0 6px 18px rgba(15, 23, 42, 0.12)",
+  },
+  sideCard: {
+    border: "1px solid #e2e8f0",
+    borderRadius: "14px",
+    padding: "20px",
+    alignSelf: "start",
+    boxShadow: "0 4px 12px rgba(15, 23, 42, 0.06)",
+  },
+  sideTitle: {
+    margin: "0 0 16px",
+    fontSize: "22px",
+    color: "#0f172a",
+  },
+  selectedBox: {
+    background: "#eff6ff",
+    border: "1px solid #bfdbfe",
+    borderRadius: "10px",
+    padding: "16px",
+    marginBottom: "16px",
+  },
+  selectedName: {
+    margin: "0 0 8px",
+    color: "#1d4ed8",
+    fontSize: "18px",
+  },
+  selectedAddress: {
+    margin: 0,
+    color: "#0f172a",
+    fontSize: "14px",
+  },
+  distanceText: {
+    margin: "10px 0 0",
+    color: "#0f172a",
+    fontWeight: 800,
+  },
+  details: {
+    color: "#0f172a",
+    fontSize: "14px",
+    lineHeight: 1.5,
+  },
+  buttonStack: {
+    display: "grid",
+    gap: "10px",
+    marginTop: "20px",
+  },
+  primaryLink: {
+    background: "#1d4ed8",
+    color: "#ffffff",
+    borderRadius: "10px",
+    padding: "13px 14px",
+    textAlign: "center",
+    fontWeight: 900,
+    textDecoration: "none",
+  },
+  secondaryLink: {
+    background: "#ffffff",
+    color: "#0f172a",
+    border: "1px solid #cbd5e1",
+    borderRadius: "10px",
+    padding: "13px 14px",
+    textAlign: "center",
+    fontWeight: 800,
+    textDecoration: "none",
+  },
+  note: {
+    marginTop: "20px",
+    color: "#475569",
+    fontSize: "12px",
+    lineHeight: 1.5,
+  },
+};
