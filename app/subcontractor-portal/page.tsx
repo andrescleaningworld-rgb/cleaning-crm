@@ -12,6 +12,43 @@ type Account = {
   zip?: string;
   subcontractor?: string;
   status?: string;
+  frequency?: string;
+  cleaningDays?: string;
+  scopeOfWork?: string;
+  serviceType?: string;
+  hasKey?: string;
+  alarmCode?: string;
+  keyAlarmAccessInfo?: string;
+  manager?: string;
+  notes?: string;
+};
+
+type Complaint = {
+  rowNumber?: number | string;
+  id?: string;
+  complaintId?: string;
+  accountId?: string;
+  accountName?: string;
+  date?: string;
+  complaintDate?: string;
+  complaintType?: string;
+  issueType?: string;
+  type?: string;
+  issue?: string;
+  description?: string;
+  priority?: string;
+  severity?: string;
+  status?: string;
+  complaintValidity?: string;
+  validity?: string;
+  manager?: string;
+  assignedTo?: string;
+  subcontractor?: string;
+  resolution?: string;
+  resolutionNotes?: string;
+  followUpDate?: string;
+  lastFollowUp?: string;
+  notes?: string;
 };
 
 type SupplyItem = {
@@ -44,6 +81,7 @@ type PortalResponse = {
   error?: string;
   subcontractor?: Subcontractor | null;
   accounts?: Account[];
+  complaints?: Complaint[];
   supplyItems?: SupplyItem[];
   orderId?: string | null;
 };
@@ -99,6 +137,16 @@ function isActiveAccount(account: Account) {
   ].some((badStatus) => status.includes(badStatus));
 }
 
+function isOpenComplaint(complaint: Complaint) {
+  const status = cleanLower(complaint.status);
+
+  if (!status) return true;
+
+  return !["closed", "complete", "completed"].some((closedStatus) => {
+    return status === closedStatus;
+  });
+}
+
 function getSupplyName(item: SupplyItem) {
   return cleanText(item.supplyItem);
 }
@@ -148,12 +196,65 @@ function getSubcontractorDisplayName(subcontractor: Subcontractor) {
   );
 }
 
+function getAccountAddress(account: Account) {
+  return [account.address, account.city, account.state, account.zip]
+    .map(cleanText)
+    .filter(Boolean)
+    .join(", ");
+}
+
+function getComplaintId(complaint: Complaint) {
+  return (
+    cleanText(complaint.id) ||
+    cleanText(complaint.complaintId) ||
+    cleanText(complaint.rowNumber) ||
+    `${cleanText(complaint.accountName)}-${cleanText(
+      complaint.complaintDate || complaint.date
+    )}`
+  );
+}
+
+function getComplaintDate(complaint: Complaint) {
+  return cleanText(complaint.complaintDate || complaint.date) || "No date";
+}
+
+function getComplaintType(complaint: Complaint) {
+  return (
+    cleanText(
+      complaint.complaintType ||
+        complaint.issueType ||
+        complaint.type ||
+        complaint.issue
+    ) || "Complaint"
+  );
+}
+
+function getComplaintDescription(complaint: Complaint) {
+  return (
+    cleanText(complaint.description || complaint.issue || complaint.notes) ||
+    "No description provided."
+  );
+}
+
+function getComplaintPriority(complaint: Complaint) {
+  return cleanText(complaint.priority || complaint.severity) || "Medium";
+}
+
+function getComplaintStatus(complaint: Complaint) {
+  return cleanText(complaint.status) || "Open";
+}
+
+function getComplaintFollowUp(complaint: Complaint) {
+  return cleanText(complaint.followUpDate || complaint.lastFollowUp);
+}
+
 export default function SubcontractorPortalPage() {
   const [email, setEmail] = useState("");
   const [subcontractor, setSubcontractor] = useState<Subcontractor | null>(
     null
   );
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [supplyItems, setSupplyItems] = useState<SupplyItem[]>([]);
 
   const [selectedAccountName, setSelectedAccountName] = useState("");
@@ -163,6 +264,11 @@ export default function SubcontractorPortalPage() {
     makeLineItem(),
   ]);
 
+  const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>(
+    {}
+  );
+  const [resolvingComplaintId, setResolvingComplaintId] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [error, setError] = useState("");
@@ -171,6 +277,10 @@ export default function SubcontractorPortalPage() {
   const activeAccounts = useMemo(() => {
     return accounts.filter(isActiveAccount);
   }, [accounts]);
+
+  const openComplaints = useMemo(() => {
+    return complaints.filter(isOpenComplaint);
+  }, [complaints]);
 
   const activeSupplyItems = useMemo(() => {
     return supplyItems
@@ -243,7 +353,8 @@ export default function SubcontractorPortalPage() {
           return {
             ...item,
             supplyItem: value,
-            customItemName: value === OTHER_ITEM_VALUE ? item.customItemName : "",
+            customItemName:
+              value === OTHER_ITEM_VALUE ? item.customItemName : "",
             itemDescription:
               value === OTHER_ITEM_VALUE
                 ? item.itemDescription
@@ -270,6 +381,31 @@ export default function SubcontractorPortalPage() {
     });
   }
 
+  async function loadPortal(emailToLoad: string) {
+    const response = await fetch("/api/subcontractor-portal", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "getSubcontractorPortalByEmail",
+        email: emailToLoad.trim(),
+      }),
+    });
+
+    const data = (await response.json()) as PortalResponse;
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.error ||
+          data.message ||
+          "We could not load the subcontractor portal."
+      );
+    }
+
+    return data;
+  }
+
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -278,38 +414,17 @@ export default function SubcontractorPortalPage() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/subcontractor-portal", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "getSubcontractorPortalByEmail",
-          email: email.trim(),
-        }),
-      });
-
-      const data = (await response.json()) as PortalResponse;
-
-      if (!response.ok || !data.success) {
-        setError(
-          data.error ||
-            data.message ||
-            "We could not load the subcontractor portal."
-        );
-        setSubcontractor(null);
-        setAccounts([]);
-        setSupplyItems(data.supplyItems || []);
-        return;
-      }
+      const data = await loadPortal(email);
 
       setSubcontractor(data.subcontractor || null);
       setAccounts(data.accounts || []);
+      setComplaints(data.complaints || []);
       setSupplyItems(data.supplyItems || []);
       setSelectedAccountName("");
       setDeliveryMode("");
       setNotes("");
       setOrderItems([makeLineItem()]);
+      setResolutionNotes({});
 
       if (!data.subcontractor) {
         setError("We could not find that email on file.");
@@ -323,6 +438,9 @@ export default function SubcontractorPortalPage() {
           ? loginError.message
           : "Unknown error loading portal."
       );
+      setSubcontractor(null);
+      setAccounts([]);
+      setComplaints([]);
     } finally {
       setLoading(false);
     }
@@ -470,19 +588,110 @@ export default function SubcontractorPortalPage() {
     }
   }
 
+  async function handleResolveComplaint(complaint: Complaint) {
+    if (!subcontractor) return;
+
+    const complaintKey = getComplaintId(complaint);
+    const resolutionNote = cleanText(resolutionNotes[complaintKey]);
+
+    if (!resolutionNote) {
+      setError("Please enter a resolution note before marking resolved.");
+      return;
+    }
+
+    setError("");
+    setSuccessMessage("");
+    setResolvingComplaintId(complaintKey);
+
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+
+      const response = await fetch("/api/subcontractor-portal", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "resolveComplaintBySubcontractor",
+          complaint: {
+            rowNumber: complaint.rowNumber || "",
+            id: complaint.id || complaint.complaintId || "",
+            accountId: complaint.accountId || "",
+            accountName: complaint.accountName || "",
+            date: complaint.date || complaint.complaintDate || "",
+            complaintDate: complaint.complaintDate || complaint.date || "",
+            complaintType: getComplaintType(complaint),
+            issue: complaint.issue || complaint.description || "",
+            description: getComplaintDescription(complaint),
+            priority: getComplaintPriority(complaint),
+            status: "Resolved by Sub",
+            subcontractor:
+              complaint.subcontractor ||
+              getSubcontractorDisplayName(subcontractor),
+            resolution: resolutionNote,
+            resolutionNotes: resolutionNote,
+            notes: `Resolved by ${getSubcontractorDisplayName(
+              subcontractor
+            )}: ${resolutionNote}`,
+            followUpDate: today,
+            closedDate: "",
+          },
+        }),
+      });
+
+      const data = (await response.json()) as PortalResponse;
+
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data.error || data.message || "Could not resolve complaint."
+        );
+      }
+
+      setComplaints((currentComplaints) =>
+        currentComplaints.map((item) => {
+          if (getComplaintId(item) !== complaintKey) return item;
+
+          return {
+            ...item,
+            status: "Resolved by Sub",
+            resolution: resolutionNote,
+            resolutionNotes: resolutionNote,
+            followUpDate: today,
+          };
+        })
+      );
+
+      setResolutionNotes((currentNotes) => ({
+        ...currentNotes,
+        [complaintKey]: "",
+      }));
+
+      setSuccessMessage(
+        "Complaint marked as Resolved by Sub. Cleaning World will review and close it."
+      );
+    } catch (resolveError) {
+      setError(
+        resolveError instanceof Error
+          ? resolveError.message
+          : "Unknown error resolving complaint."
+      );
+    } finally {
+      setResolvingComplaintId("");
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-5xl">
         <section className="rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-6 text-white shadow-lg">
           <p className="text-sm font-semibold uppercase tracking-wide text-blue-100">
             Cleaning World
           </p>
-          <h1 className="mt-2 text-3xl font-black">
-            Subcontractor Supply Portal
-          </h1>
+          <h1 className="mt-2 text-3xl font-black">Subcontractor Portal</h1>
           <p className="mt-3 text-sm leading-6 text-blue-50">
             Enter the email Cleaning World has on file. After your email is
-            verified, you will only see your active assigned accounts.
+            verified, you will only see your assigned accounts, complaints, and
+            supply order options.
           </p>
         </section>
 
@@ -525,308 +734,521 @@ export default function SubcontractorPortalPage() {
         ) : null}
 
         {subcontractor ? (
-          <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                Logged in as
-              </p>
-              <h2 className="mt-1 text-xl font-black text-slate-900">
-                {getSubcontractorDisplayName(subcontractor)}
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                {subcontractor.email}
-              </p>
-            </div>
+          <>
+            <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Logged in as
+                </p>
+                <h2 className="mt-1 text-xl font-black text-slate-900">
+                  {getSubcontractorDisplayName(subcontractor)}
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {subcontractor.email}
+                </p>
+              </div>
 
-            <form onSubmit={handleSubmitOrder} className="mt-5 space-y-5">
-              <div>
-                <label className="text-sm font-bold text-slate-700">
-                  Account
-                </label>
-                <select
-                  value={selectedAccountName}
-                  onChange={(event) =>
-                    setSelectedAccountName(event.target.value)
-                  }
-                  className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
-                  required
-                >
-                  <option value="">Select account</option>
+              <div className="mt-5 grid gap-4 sm:grid-cols-3">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                  <p className="text-xs font-black uppercase text-blue-700">
+                    Assigned Accounts
+                  </p>
+                  <p className="mt-2 text-3xl font-black text-blue-950">
+                    {activeAccounts.length}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                  <p className="text-xs font-black uppercase text-orange-700">
+                    Open Complaints
+                  </p>
+                  <p className="mt-2 text-3xl font-black text-orange-900">
+                    {openComplaints.length}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-green-100 bg-green-50 p-4">
+                  <p className="text-xs font-black uppercase text-green-700">
+                    Portal Status
+                  </p>
+                  <p className="mt-2 text-lg font-black text-green-900">
+                    Active
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-xl font-black text-slate-900">
+                My Assigned Accounts
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                These are the active accounts currently assigned to you.
+              </p>
+
+              {activeAccounts.length === 0 ? (
+                <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-700">
+                  No active assigned accounts were found for this email.
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {activeAccounts.map((account) => (
-                    <option
+                    <div
                       key={`${account.accountId || account.id || ""}-${
                         account.accountName || ""
                       }`}
-                      value={account.accountName || ""}
+                      className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
                     >
-                      {account.accountName}
-                    </option>
+                      <h3 className="text-lg font-black text-slate-900">
+                        {account.accountName || "Unnamed Account"}
+                      </h3>
+
+                      <div className="mt-3 space-y-2 text-sm text-slate-700">
+                        <p>
+                          <strong>Address:</strong>{" "}
+                          {getAccountAddress(account) || "Not listed"}
+                        </p>
+                        <p>
+                          <strong>Schedule:</strong>{" "}
+                          {cleanText(account.cleaningDays) ||
+                            cleanText(account.frequency) ||
+                            "Not listed"}
+                        </p>
+                        <p>
+                          <strong>Service:</strong>{" "}
+                          {cleanText(account.serviceType) || "Not listed"}
+                        </p>
+                        <p>
+                          <strong>Key:</strong>{" "}
+                          {cleanText(account.hasKey) || "Not listed"}
+                        </p>
+                        <p>
+                          <strong>Manager:</strong>{" "}
+                          {cleanText(account.manager) || "Cleaning World"}
+                        </p>
+                      </div>
+
+                      {account.scopeOfWork ? (
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                            Scope / Notes
+                          </p>
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                            {account.scopeOfWork}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
                   ))}
-                </select>
-
-                {activeAccounts.length === 0 ? (
-                  <p className="mt-2 text-sm font-semibold text-amber-700">
-                    No active assigned accounts were found for this email.
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-black text-slate-900">
-                      Supply Items
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      Add one or multiple items for this account.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={addLineItem}
-                    className="rounded-2xl bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800"
-                  >
-                    + Add
-                  </button>
                 </div>
+              )}
+            </section>
 
+            <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-xl font-black text-slate-900">
+                My Open Complaints
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Review complaints connected to your assigned accounts. Mark them
+                as resolved after the issue has been corrected. Cleaning World
+                will review and officially close the complaint.
+              </p>
+
+              {openComplaints.length === 0 ? (
+                <p className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+                  No open complaints are currently assigned to your accounts.
+                </p>
+              ) : (
                 <div className="mt-4 space-y-4">
-                  {orderItems.map((lineItem, index) => {
-                    const selectedSupply = getSelectedSupplyForLine(lineItem);
-                    const filteredSupplies = getFilteredSuppliesForLine(lineItem);
-                    const isOther = lineItem.supplyItem === OTHER_ITEM_VALUE;
-                    const selectedDescription = isOther
-                      ? lineItem.itemDescription
-                      : lineItem.itemDescription ||
-                        getSupplyDescription(selectedSupply || {});
-                    const selectedUnit = isOther
-                      ? ""
-                      : getSupplyUnit(selectedSupply || {});
+                  {openComplaints.map((complaint) => {
+                    const complaintKey = getComplaintId(complaint);
+                    const status = getComplaintStatus(complaint);
+                    const isResolvedBySub =
+                      cleanLower(status) === "resolved by sub";
 
                     return (
                       <div
-                        key={lineItem.id}
-                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                        key={complaintKey}
+                        className="rounded-3xl border border-orange-200 bg-orange-50 p-4"
                       >
-                        <div className="mb-4 flex items-center justify-between gap-3">
-                          <h4 className="font-black text-slate-900">
-                            Item {index + 1}
-                          </h4>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-wide text-orange-700">
+                              {getComplaintPriority(complaint)} Priority
+                            </p>
+                            <h3 className="mt-1 text-lg font-black text-slate-900">
+                              {complaint.accountName || "Account"}
+                            </h3>
+                            <p className="mt-1 text-sm font-semibold text-slate-700">
+                              {getComplaintType(complaint)} •{" "}
+                              {getComplaintDate(complaint)}
+                            </p>
+                          </div>
 
-                          {orderItems.length > 1 ? (
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-orange-700">
+                            {status}
+                          </span>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-orange-100 bg-white p-4">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                            Description
+                          </p>
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                            {getComplaintDescription(complaint)}
+                          </p>
+                        </div>
+
+                        {getComplaintFollowUp(complaint) ? (
+                          <p className="mt-3 text-sm text-slate-700">
+                            <strong>Follow-up date:</strong>{" "}
+                            {getComplaintFollowUp(complaint)}
+                          </p>
+                        ) : null}
+
+                        {isResolvedBySub ? (
+                          <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+                            This complaint has been marked Resolved by Sub and
+                            is waiting for Cleaning World review.
+                          </div>
+                        ) : (
+                          <div className="mt-4">
+                            <label className="text-sm font-bold text-slate-700">
+                              Resolution Note
+                            </label>
+                            <textarea
+                              value={resolutionNotes[complaintKey] || ""}
+                              onChange={(event) =>
+                                setResolutionNotes((currentNotes) => ({
+                                  ...currentNotes,
+                                  [complaintKey]: event.target.value,
+                                }))
+                              }
+                              rows={3}
+                              placeholder="Explain what was corrected, when, and any follow-up needed."
+                              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-orange-600"
+                            />
+
                             <button
                               type="button"
-                              onClick={() => removeLineItem(lineItem.id)}
-                              className="rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                              onClick={() => handleResolveComplaint(complaint)}
+                              disabled={resolvingComplaintId === complaintKey}
+                              className="mt-3 w-full rounded-2xl bg-orange-600 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              Remove
+                              {resolvingComplaintId === complaintKey
+                                ? "Saving Resolution..."
+                                : "Mark Resolved by Sub"}
                             </button>
-                          ) : null}
-                        </div>
-
-                        <div className="space-y-4">
-                          <div>
-                            <label className="text-sm font-bold text-slate-700">
-                              Category
-                            </label>
-                            <select
-                              value={lineItem.category}
-                              onChange={(event) =>
-                                updateLineItem(
-                                  lineItem.id,
-                                  "category",
-                                  event.target.value
-                                )
-                              }
-                              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
-                            >
-                              <option value="">All categories</option>
-                              {supplyCategories.map((category) => (
-                                <option key={category} value={category}>
-                                  {category}
-                                </option>
-                              ))}
-                              <option value={OTHER_CATEGORY_VALUE}>
-                                Other / Not Listed
-                              </option>
-                            </select>
                           </div>
-
-                          <div>
-                            <label className="text-sm font-bold text-slate-700">
-                              Supply Item
-                            </label>
-                            <select
-                              value={lineItem.supplyItem}
-                              onChange={(event) =>
-                                updateLineItem(
-                                  lineItem.id,
-                                  "supplyItem",
-                                  event.target.value
-                                )
-                              }
-                              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
-                              required
-                            >
-                              <option value="">Select supply item</option>
-                              {filteredSupplies.map((item) => (
-                                <option
-                                  key={`${item.rowNumber || ""}-${getSupplyName(
-                                    item
-                                  )}`}
-                                  value={getSupplyName(item)}
-                                >
-                                  {getSupplyDescription(item) || getSupplyName(item)}
-                                </option>
-                              ))}
-                              <option value={OTHER_ITEM_VALUE}>
-                                Other / Not Listed
-                              </option>
-                            </select>
-                          </div>
-
-                          {isOther ? (
-                            <div>
-                              <label className="text-sm font-bold text-slate-700">
-                                Requested Item Name
-                              </label>
-                              <input
-                                value={lineItem.customItemName}
-                                onChange={(event) =>
-                                  updateLineItem(
-                                    lineItem.id,
-                                    "customItemName",
-                                    event.target.value
-                                  )
-                                }
-                                placeholder="Example: wax, stripper, tool, equipment..."
-                                className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
-                                required
-                              />
-                            </div>
-                          ) : null}
-
-                          {selectedSupply && !isOther ? (
-                            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                              <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-                                Item Description
-                              </p>
-
-                              {selectedDescription ? (
-                                <p className="mt-2 text-sm leading-6 text-slate-700">
-                                  {selectedDescription}
-                                </p>
-                              ) : (
-                                <p className="mt-2 text-sm leading-6 text-slate-500">
-                                  No description is currently listed for this
-                                  item.
-                                </p>
-                              )}
-                            </div>
-                          ) : null}
-
-                          {isOther ? (
-                            <div>
-                              <label className="text-sm font-bold text-slate-700">
-                                Describe Requested Item
-                              </label>
-                              <textarea
-                                value={lineItem.itemDescription}
-                                onChange={(event) =>
-                                  updateLineItem(
-                                    lineItem.id,
-                                    "itemDescription",
-                                    event.target.value
-                                  )
-                                }
-                                rows={3}
-                                placeholder="Describe exactly what is needed. Example: floor wax, stripper, equipment, tool, or special supply."
-                                className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
-                                required
-                              />
-                            </div>
-                          ) : null}
-
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <div>
-                              <label className="text-sm font-bold text-slate-700">
-                                Quantity
-                              </label>
-                              <input
-                                value={lineItem.quantity}
-                                onChange={(event) =>
-                                  updateLineItem(
-                                    lineItem.id,
-                                    "quantity",
-                                    event.target.value
-                                  )
-                                }
-                                placeholder="Example: 2"
-                                className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
-                                required
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-sm font-bold text-slate-700">
-                                Unit
-                              </label>
-                              <input
-                                value={selectedUnit}
-                                readOnly
-                                placeholder={
-                                  isOther ? "Office will review" : "Auto-filled"
-                                }
-                                className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-base text-slate-600"
-                              />
-                            </div>
-                          </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              )}
+            </section>
 
-              <div>
-                <label className="text-sm font-bold text-slate-700">
-                  Delivery Mode
-                </label>
-                <select
-                  value={deliveryMode}
-                  onChange={(event) => setDeliveryMode(event.target.value)}
-                  className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
-                  required
+            <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-xl font-black text-slate-900">
+                Submit Supply Order
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Select one of your assigned accounts and add one or more supply
+                items.
+              </p>
+
+              <form onSubmit={handleSubmitOrder} className="mt-5 space-y-5">
+                <div>
+                  <label className="text-sm font-bold text-slate-700">
+                    Account
+                  </label>
+                  <select
+                    value={selectedAccountName}
+                    onChange={(event) =>
+                      setSelectedAccountName(event.target.value)
+                    }
+                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                    required
+                  >
+                    <option value="">Select account</option>
+                    {activeAccounts.map((account) => (
+                      <option
+                        key={`${account.accountId || account.id || ""}-${
+                          account.accountName || ""
+                        }`}
+                        value={account.accountName || ""}
+                      >
+                        {account.accountName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-black text-slate-900">
+                        Supply Items
+                      </h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        Add one or multiple items for this account.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={addLineItem}
+                      className="rounded-2xl bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800"
+                    >
+                      + Add
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    {orderItems.map((lineItem, index) => {
+                      const selectedSupply = getSelectedSupplyForLine(lineItem);
+                      const filteredSupplies =
+                        getFilteredSuppliesForLine(lineItem);
+                      const isOther = lineItem.supplyItem === OTHER_ITEM_VALUE;
+                      const selectedDescription = isOther
+                        ? lineItem.itemDescription
+                        : lineItem.itemDescription ||
+                          getSupplyDescription(selectedSupply || {});
+                      const selectedUnit = isOther
+                        ? ""
+                        : getSupplyUnit(selectedSupply || {});
+
+                      return (
+                        <div
+                          key={lineItem.id}
+                          className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                        >
+                          <div className="mb-4 flex items-center justify-between gap-3">
+                            <h4 className="font-black text-slate-900">
+                              Item {index + 1}
+                            </h4>
+
+                            {orderItems.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => removeLineItem(lineItem.id)}
+                                className="rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+
+                          <div className="space-y-4">
+                            <div>
+                              <label className="text-sm font-bold text-slate-700">
+                                Category
+                              </label>
+                              <select
+                                value={lineItem.category}
+                                onChange={(event) =>
+                                  updateLineItem(
+                                    lineItem.id,
+                                    "category",
+                                    event.target.value
+                                  )
+                                }
+                                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                              >
+                                <option value="">All categories</option>
+                                {supplyCategories.map((category) => (
+                                  <option key={category} value={category}>
+                                    {category}
+                                  </option>
+                                ))}
+                                <option value={OTHER_CATEGORY_VALUE}>
+                                  Other / Not Listed
+                                </option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-sm font-bold text-slate-700">
+                                Supply Item
+                              </label>
+                              <select
+                                value={lineItem.supplyItem}
+                                onChange={(event) =>
+                                  updateLineItem(
+                                    lineItem.id,
+                                    "supplyItem",
+                                    event.target.value
+                                  )
+                                }
+                                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                                required
+                              >
+                                <option value="">Select supply item</option>
+                                {filteredSupplies.map((item) => (
+                                  <option
+                                    key={`${
+                                      item.rowNumber || ""
+                                    }-${getSupplyName(item)}`}
+                                    value={getSupplyName(item)}
+                                  >
+                                    {getSupplyDescription(item) ||
+                                      getSupplyName(item)}
+                                  </option>
+                                ))}
+                                <option value={OTHER_ITEM_VALUE}>
+                                  Other / Not Listed
+                                </option>
+                              </select>
+                            </div>
+
+                            {isOther ? (
+                              <div>
+                                <label className="text-sm font-bold text-slate-700">
+                                  Requested Item Name
+                                </label>
+                                <input
+                                  value={lineItem.customItemName}
+                                  onChange={(event) =>
+                                    updateLineItem(
+                                      lineItem.id,
+                                      "customItemName",
+                                      event.target.value
+                                    )
+                                  }
+                                  placeholder="Example: wax, stripper, tool, equipment..."
+                                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                                  required
+                                />
+                              </div>
+                            ) : null}
+
+                            {selectedSupply && !isOther ? (
+                              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                                <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+                                  Item Description
+                                </p>
+
+                                {selectedDescription ? (
+                                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                                    {selectedDescription}
+                                  </p>
+                                ) : (
+                                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                                    No description is currently listed for this
+                                    item.
+                                  </p>
+                                )}
+                              </div>
+                            ) : null}
+
+                            {isOther ? (
+                              <div>
+                                <label className="text-sm font-bold text-slate-700">
+                                  Describe Requested Item
+                                </label>
+                                <textarea
+                                  value={lineItem.itemDescription}
+                                  onChange={(event) =>
+                                    updateLineItem(
+                                      lineItem.id,
+                                      "itemDescription",
+                                      event.target.value
+                                    )
+                                  }
+                                  rows={3}
+                                  placeholder="Describe exactly what is needed."
+                                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                                  required
+                                />
+                              </div>
+                            ) : null}
+
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div>
+                                <label className="text-sm font-bold text-slate-700">
+                                  Quantity
+                                </label>
+                                <input
+                                  value={lineItem.quantity}
+                                  onChange={(event) =>
+                                    updateLineItem(
+                                      lineItem.id,
+                                      "quantity",
+                                      event.target.value
+                                    )
+                                  }
+                                  placeholder="Example: 2"
+                                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                                  required
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-sm font-bold text-slate-700">
+                                  Unit
+                                </label>
+                                <input
+                                  value={selectedUnit}
+                                  readOnly
+                                  placeholder={
+                                    isOther
+                                      ? "Office will review"
+                                      : "Auto-filled"
+                                  }
+                                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-base text-slate-600"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-bold text-slate-700">
+                    Delivery Mode
+                  </label>
+                  <select
+                    value={deliveryMode}
+                    onChange={(event) => setDeliveryMode(event.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                    required
+                  >
+                    <option value="">Select delivery mode</option>
+                    <option value="Pick Up">Pick Up</option>
+                    <option value="Deliver to Account">
+                      Deliver to Account
+                    </option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-sm font-bold text-slate-700">
+                    Notes
+                  </label>
+                  <textarea
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    placeholder="Add any special instructions or notes"
+                    rows={4}
+                    className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submittingOrder}
+                  className="w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <option value="">Select delivery mode</option>
-                  <option value="Pick Up">Pick Up</option>
-                  <option value="Deliver to Account">Deliver to Account</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-bold text-slate-700">
-                  Notes
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Add any special instructions or notes"
-                  rows={4}
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={submittingOrder}
-                className="w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submittingOrder ? "Submitting Order..." : "Submit Supply Order"}
-              </button>
-            </form>
-          </section>
+                  {submittingOrder
+                    ? "Submitting Order..."
+                    : "Submit Supply Order"}
+                </button>
+              </form>
+            </section>
+          </>
         ) : null}
       </div>
     </main>

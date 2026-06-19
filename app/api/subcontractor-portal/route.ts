@@ -9,9 +9,12 @@ type ScriptResponse = {
   error?: string;
   subcontractor?: unknown;
   accounts?: unknown[];
+  complaints?: unknown[];
   supplyItems?: unknown[];
   orderId?: string;
   id?: string;
+  rowNumber?: string | number;
+  status?: string;
 };
 
 export async function POST(request: Request) {
@@ -29,12 +32,38 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
+    const finalBody =
+      body?.action === "resolveComplaintBySubcontractor"
+        ? {
+            action: "resolveComplaint",
+            complaint: {
+              ...(body.complaint || {}),
+              status: "Resolved by Sub",
+              resolution:
+                body.complaint?.resolution ||
+                body.complaint?.resolutionNotes ||
+                body.complaint?.notes ||
+                "",
+              resolutionNotes:
+                body.complaint?.resolutionNotes ||
+                body.complaint?.resolution ||
+                body.complaint?.notes ||
+                "",
+              notes: body.complaint?.notes || body.complaint?.resolutionNotes || "",
+              followUpDate:
+                body.complaint?.followUpDate ||
+                new Date().toISOString().slice(0, 10),
+              closedDate: "",
+            },
+          }
+        : body;
+
     const response = await fetch(SCRIPT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(finalBody),
       cache: "no-store",
     });
 
@@ -50,6 +79,7 @@ export async function POST(request: Request) {
           success: false,
           error:
             "Google Script did not return valid JSON for subcontractor portal.",
+          sentPayload: finalBody,
           rawResponse: text,
         },
         { status: 500 }
@@ -67,8 +97,12 @@ export async function POST(request: Request) {
           message: data.message || "",
           subcontractor: data.subcontractor || null,
           accounts: data.accounts || [],
+          complaints: data.complaints || [],
           supplyItems: data.supplyItems || [],
           orderId: data.orderId || data.id || null,
+          rowNumber: data.rowNumber || "",
+          status: data.status || "",
+          rawResponse: data,
         },
         { status: 500 }
       );
@@ -79,8 +113,12 @@ export async function POST(request: Request) {
       message: data.message || "Request completed successfully.",
       subcontractor: data.subcontractor || null,
       accounts: data.accounts || [],
+      complaints: data.complaints || [],
       supplyItems: data.supplyItems || [],
       orderId: data.orderId || data.id || null,
+      rowNumber: data.rowNumber || "",
+      status: data.status || "",
+      scriptResponse: data,
     });
   } catch (error) {
     return NextResponse.json(
