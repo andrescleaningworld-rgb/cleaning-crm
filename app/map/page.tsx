@@ -204,8 +204,11 @@ export default function MapPage() {
   const [searchText, setSearchText] = useState("");
   const [managerFilter, setManagerFilter] = useState("All Managers");
   const [subFilter, setSubFilter] = useState("All Subs");
+
   const [currentLocation, setCurrentLocation] = useState("");
-  const [locationMessage, setLocationMessage] = useState("");
+  const [locationMessage, setLocationMessage] = useState(
+    "Map will start with your current location when permission is allowed."
+  );
 
   useEffect(() => {
     async function loadAccounts() {
@@ -248,10 +251,6 @@ export default function MapPage() {
         ).sort((a, b) => a.name.localeCompare(b.name));
 
         setAccounts(uniqueAccounts);
-
-        if (uniqueAccounts.length > 0) {
-          setSelectedAccountId(uniqueAccounts[0].id);
-        }
       } catch (error) {
         setErrorMessage(
           error instanceof Error ? error.message : "Could not load map data."
@@ -262,6 +261,10 @@ export default function MapPage() {
     }
 
     loadAccounts();
+  }, []);
+
+  useEffect(() => {
+    useMyLocationOnLoad();
   }, []);
 
   const managerOptions = useMemo(() => {
@@ -306,18 +309,19 @@ export default function MapPage() {
   }, [accounts, searchText, managerFilter, subFilter]);
 
   const selectedAccount = useMemo(() => {
-    const selectedFromId = filteredAccounts.find(
-      (account) => account.id === selectedAccountId
+    if (!selectedAccountId) return null;
+
+    return (
+      filteredAccounts.find((account) => account.id === selectedAccountId) ||
+      null
     );
-
-    if (selectedFromId) return selectedFromId;
-
-    return filteredAccounts[0] || null;
   }, [filteredAccounts, selectedAccountId]);
 
-  const mapUrl = selectedAccount
-    ? buildGoogleMapsEmbedUrl(selectedAccount.fullAddress)
-    : "";
+  const mapDestination = selectedAccount
+    ? selectedAccount.fullAddress
+    : currentLocation;
+
+  const mapUrl = mapDestination ? buildGoogleMapsEmbedUrl(mapDestination) : "";
 
   const directionsUrl = selectedAccount
     ? buildDirectionsUrl(selectedAccount.fullAddress, currentLocation)
@@ -325,20 +329,19 @@ export default function MapPage() {
 
   const googleMapsUrl = selectedAccount
     ? buildGoogleMapsSearchUrl(selectedAccount.fullAddress)
-    : "";
+    : currentLocation
+      ? buildGoogleMapsSearchUrl(currentLocation)
+      : "";
 
   function clearFilters() {
     setSearchText("");
     setManagerFilter("All Managers");
     setSubFilter("All Subs");
-
-    if (accounts.length > 0) {
-      setSelectedAccountId(accounts[0].id);
-    }
+    setSelectedAccountId("");
   }
 
-  function useMyLocation() {
-    setLocationMessage("");
+  function useMyLocationOnLoad() {
+    if (typeof window === "undefined") return;
 
     if (!navigator.geolocation) {
       setLocationMessage("Your browser does not support location access.");
@@ -351,11 +354,14 @@ export default function MapPage() {
       (position) => {
         const location = `${position.coords.latitude},${position.coords.longitude}`;
         setCurrentLocation(location);
-        setLocationMessage("Current location ready for directions.");
+        setSelectedAccountId("");
+        setLocationMessage(
+          "Showing your current location. Select an account when you want directions."
+        );
       },
       () => {
         setLocationMessage(
-          "Could not get your location. Directions will still open, but Google Maps may ask for the starting point."
+          "Could not get your location. Select an account to view it on the map."
         );
       },
       {
@@ -366,14 +372,20 @@ export default function MapPage() {
     );
   }
 
+  function useMyLocationButton() {
+    useMyLocationOnLoad();
+  }
+
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
+    <main className="min-h-screen bg-gray-50 p-3 text-gray-900 sm:p-6">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Account Map</h1>
-            <p className="mt-2 text-gray-600">
-              Search accounts, view the address on Google Maps, and get driving
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              Account Map
+            </h1>
+            <p className="mt-2 text-sm text-gray-600 sm:text-base">
+              Start from your current location, search accounts, and get driving
               directions.
             </p>
           </div>
@@ -381,8 +393,8 @@ export default function MapPage() {
           <div className="grid grid-cols-1 gap-3 sm:flex sm:flex-row">
             <button
               type="button"
-              onClick={useMyLocation}
-              className="rounded-xl bg-blue-700 px-5 py-3 text-center font-bold text-white shadow-sm hover:bg-blue-800"
+              onClick={useMyLocationButton}
+              className="rounded-xl bg-green-700 px-5 py-3 text-center font-bold text-white shadow-sm hover:bg-green-800"
             >
               Use My Current Location
             </button>
@@ -397,31 +409,31 @@ export default function MapPage() {
         </div>
 
         {locationMessage ? (
-          <section className="mb-6 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-800">
+          <section className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-800">
             {locationMessage}
           </section>
         ) : null}
 
         {errorMessage ? (
-          <section className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          <section className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
             {errorMessage}
           </section>
         ) : null}
 
-        <section className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <input
               type="text"
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
               placeholder="Search account, address, manager, or sub..."
-              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 xl:col-span-2"
+              className="min-h-[50px] rounded-xl border border-gray-300 px-4 py-3 text-base outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 xl:col-span-2"
             />
 
             <select
               value={managerFilter}
               onChange={(event) => setManagerFilter(event.target.value)}
-              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              className="min-h-[50px] rounded-xl border border-gray-300 px-4 py-3 text-base outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
             >
               {managerOptions.map((manager) => (
                 <option key={manager} value={manager}>
@@ -433,7 +445,7 @@ export default function MapPage() {
             <select
               value={subFilter}
               onChange={(event) => setSubFilter(event.target.value)}
-              className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+              className="min-h-[50px] rounded-xl border border-gray-300 px-4 py-3 text-base outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
             >
               {subOptions.map((sub) => (
                 <option key={sub} value={sub}>
@@ -445,13 +457,13 @@ export default function MapPage() {
             <button
               type="button"
               onClick={clearFilters}
-              className="rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-800 shadow-sm hover:bg-gray-50"
+              className="min-h-[50px] rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-800 shadow-sm hover:bg-gray-50"
             >
               Clear Filters
             </button>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto]">
             <div>
               <label className="text-sm font-bold text-gray-700">
                 Select Account
@@ -460,8 +472,10 @@ export default function MapPage() {
               <select
                 value={selectedAccount?.id || ""}
                 onChange={(event) => setSelectedAccountId(event.target.value)}
-                className="mt-2 min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 min-h-[52px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
               >
+                <option value="">Start with my current location</option>
+
                 {filteredAccounts.map((account) => (
                   <option
                     key={`${account.id}-${account.fullAddress}`}
@@ -474,7 +488,7 @@ export default function MapPage() {
             </div>
 
             <div className="flex items-end">
-              <p className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+              <p className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 lg:w-auto">
                 {isLoading
                   ? "Loading accounts with addresses..."
                   : `${filteredAccounts.length} account${
@@ -485,37 +499,43 @@ export default function MapPage() {
           </div>
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[1fr_360px]">
+        <section className="grid gap-5 xl:grid-cols-[1fr_370px]">
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
             {isLoading ? (
-              <div className="flex h-[650px] items-center justify-center text-gray-600">
+              <div className="flex h-[520px] items-center justify-center text-gray-600 sm:h-[650px]">
                 Loading map...
               </div>
-            ) : selectedAccount && mapUrl ? (
+            ) : mapUrl ? (
               <iframe
-                title="Account Google Map"
+                title="Cleaning World Account Map"
                 src={mapUrl}
-                className="h-[650px] w-full border-0"
+                className="h-[520px] w-full border-0 sm:h-[650px]"
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
               />
             ) : (
-              <div className="flex h-[650px] items-center justify-center text-center text-gray-600">
-                No account address found. Check that your Accounts sheet has
-                address columns.
+              <div className="flex h-[520px] items-center justify-center px-5 text-center text-gray-600 sm:h-[650px]">
+                Location is not available yet. Allow location access or select
+                an account.
               </div>
             )}
           </div>
 
-          <aside className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-bold">Selected Account</h2>
+          <aside className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
+            <h2 className="text-xl font-bold">
+              {selectedAccount ? "Selected Account" : "Map Starting Point"}
+            </h2>
 
             {selectedAccount ? (
               <>
-                <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+                <div className="mt-4 rounded-xl border-2 border-orange-300 bg-orange-50 p-4">
+                  <div className="mb-2 inline-flex rounded-full bg-orange-600 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+                    Selected
+                  </div>
+
                   <Link
                     href={`/accounts/${encodeURIComponent(selectedAccount.id)}`}
-                    className="text-lg font-bold text-blue-700 hover:underline"
+                    className="block text-lg font-bold text-orange-800 hover:underline"
                   >
                     {selectedAccount.name}
                   </Link>
@@ -542,7 +562,7 @@ export default function MapPage() {
                     href={directionsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-xl bg-blue-700 px-4 py-3 text-center font-bold text-white hover:bg-blue-800"
+                    className="rounded-xl bg-orange-600 px-4 py-3 text-center font-bold text-white hover:bg-orange-700"
                   >
                     Get Directions
                   </a>
@@ -563,15 +583,54 @@ export default function MapPage() {
                     Open Account Detail
                   </Link>
                 </div>
-
-                <p className="mt-5 text-xs leading-5 text-gray-500">
-                  This map page only reads account address information. It does
-                  not save or edit anything.
-                </p>
               </>
             ) : (
-              <p className="mt-4 text-gray-600">No account selected.</p>
+              <>
+                <div className="mt-4 rounded-xl border-2 border-green-300 bg-green-50 p-4">
+                  <div className="mb-2 inline-flex rounded-full bg-green-700 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
+                    You are here
+                  </div>
+
+                  <p className="text-sm font-semibold text-gray-700">
+                    The map starts with your current location when the browser
+                    allows location access.
+                  </p>
+                </div>
+
+                <div className="mt-5 grid gap-3">
+                  <button
+                    type="button"
+                    onClick={useMyLocationButton}
+                    className="rounded-xl bg-green-700 px-4 py-3 text-center font-bold text-white hover:bg-green-800"
+                  >
+                    Refresh My Location
+                  </button>
+
+                  {googleMapsUrl ? (
+                    <a
+                      href={googleMapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-center font-bold text-gray-800 hover:bg-gray-50"
+                    >
+                      Open My Location in Google Maps
+                    </a>
+                  ) : null}
+                </div>
+              </>
             )}
+
+            <div className="mt-5 rounded-xl border border-gray-200 bg-gray-50 p-4 text-xs leading-5 text-gray-600">
+              <p className="font-bold text-gray-700">Map legend</p>
+              <p className="mt-2">Green = your current location.</p>
+              <p>Orange = selected account.</p>
+              <p>Google Maps controls the actual iframe pin color.</p>
+            </div>
+
+            <p className="mt-5 text-xs leading-5 text-gray-500">
+              This map page only reads account address information. It does not
+              save or edit anything.
+            </p>
           </aside>
         </section>
       </div>
