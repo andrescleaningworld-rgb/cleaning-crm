@@ -1,12 +1,31 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
 import "./globals.css";
+
 
 export const metadata: Metadata = {
   title: "Cleaning World App",
   description: "Cleaning World Operations & Quality Management System",
+  manifest: "/manifest.json",
+  applicationName: "Cleaning World Operations",
+  appleWebApp: {
+    capable: true,
+    title: "Cleaning World",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/cw-logo.jpg",
+    apple: "/cw-logo.jpg",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#003b7a",
+  width: "device-width",
+  initialScale: 1,
 };
 
 const navItems = [
