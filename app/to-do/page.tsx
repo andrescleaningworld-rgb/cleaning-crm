@@ -378,8 +378,9 @@ export default function ToDoPage() {
 
             <div>
               <label className="text-sm font-semibold">Account</label>
+
               <input
-                list="account-list"
+                list="to-do-account-options"
                 value={form.accountName}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -387,15 +388,29 @@ export default function ToDoPage() {
                     accountName: event.target.value,
                   }))
                 }
-                placeholder="Select or type account"
+                onFocus={(event) => {
+                  event.currentTarget.showPicker?.();
+                }}
+                placeholder={
+                  accountOptions.length > 0
+                    ? "Click to select or type account"
+                    : "Loading accounts..."
+                }
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
               />
 
-              <datalist id="account-list">
+              <datalist id="to-do-account-options">
                 {accountOptions.map((accountName) => (
-                  <option key={accountName} value={accountName} />
+                  <option key={accountName} value={accountName}>
+                    {accountName}
+                  </option>
                 ))}
               </datalist>
+
+              <p className="mt-1 text-xs text-slate-500">
+                Start typing to search, or click the field to choose from the
+                account list.
+              </p>
             </div>
 
             <div>
