@@ -12,13 +12,16 @@ type Account = {
   zip?: string;
   subcontractor?: string;
   status?: string;
+  serviceType?: string;
   frequency?: string;
   cleaningDays?: string;
   scopeOfWork?: string;
-  serviceType?: string;
+  monthlySubcontractorPay?: string;
+  subcontractorPay?: string;
   hasKey?: string;
   alarmCode?: string;
   keyAlarmAccessInfo?: string;
+  accountHealth?: string;
   manager?: string;
   notes?: string;
 };
@@ -117,6 +120,11 @@ function cleanLower(value: unknown): string {
   return cleanText(value).toLowerCase();
 }
 
+function displayValue(value: unknown) {
+  const text = cleanText(value);
+  return text || "Not listed";
+}
+
 function isActiveAccount(account: Account) {
   const status = cleanLower(account.status);
 
@@ -145,6 +153,33 @@ function isOpenComplaint(complaint: Complaint) {
   return !["closed", "complete", "completed"].some((closedStatus) => {
     return status === closedStatus;
   });
+}
+
+function getAccountId(account: Account) {
+  return cleanText(account.accountId || account.id || account.accountName);
+}
+
+function getAccountName(account: Account) {
+  return cleanText(account.accountName) || "Unnamed Account";
+}
+
+function getFullAddress(account: Account) {
+  return [account.address, account.city, account.state, account.zip]
+    .map(cleanText)
+    .filter(Boolean)
+    .join(", ");
+}
+
+function getSubPay(account: Account) {
+  return cleanText(account.monthlySubcontractorPay || account.subcontractorPay);
+}
+
+function getKeyInfo(account: Account) {
+  return cleanText(account.keyAlarmAccessInfo || account.hasKey);
+}
+
+function getAlarmInfo(account: Account) {
+  return cleanText(account.alarmCode || account.keyAlarmAccessInfo);
 }
 
 function getSupplyName(item: SupplyItem) {
@@ -194,13 +229,6 @@ function getSubcontractorDisplayName(subcontractor: Subcontractor) {
     subcontractor.name ||
     "Subcontractor"
   );
-}
-
-function getAccountAddress(account: Account) {
-  return [account.address, account.city, account.state, account.zip]
-    .map(cleanText)
-    .filter(Boolean)
-    .join(", ");
 }
 
 function getComplaintId(complaint: Complaint) {
@@ -300,9 +328,9 @@ export default function SubcontractorPortalPage() {
   }, [activeSupplyItems]);
 
   const selectedAccount = useMemo(() => {
-    return activeAccounts.find(
-      (account) => account.accountName === selectedAccountName
-    );
+    return activeAccounts.find((account) => {
+      return getAccountName(account) === selectedAccountName;
+    });
   }, [activeAccounts, selectedAccountName]);
 
   function getFilteredSuppliesForLine(line: OrderLineItem) {
@@ -323,6 +351,12 @@ export default function SubcontractorPortalPage() {
     });
   }
 
+  function selectAccount(account: Account) {
+    setSelectedAccountName(getAccountName(account));
+    setError("");
+    setSuccessMessage("");
+  }
+
   function updateLineItem(
     lineId: string,
     field: keyof OrderLineItem,
@@ -341,7 +375,6 @@ export default function SubcontractorPortalPage() {
               value === OTHER_CATEGORY_VALUE ? item.customItemName : "",
             itemDescription:
               value === OTHER_CATEGORY_VALUE ? item.itemDescription : "",
-            quantity: item.quantity,
           };
         }
 
@@ -441,6 +474,7 @@ export default function SubcontractorPortalPage() {
       setSubcontractor(null);
       setAccounts([]);
       setComplaints([]);
+      setSupplyItems([]);
     } finally {
       setLoading(false);
     }
@@ -779,69 +813,164 @@ export default function SubcontractorPortalPage() {
             </section>
 
             <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="text-xl font-black text-slate-900">
-                My Assigned Accounts
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                These are the active accounts currently assigned to you.
-              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">
+                    My Assigned Accounts
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Tap an account to view job details and select it for supply
+                    orders.
+                  </p>
+                </div>
+
+                <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+                  {activeAccounts.length} active
+                </span>
+              </div>
 
               {activeAccounts.length === 0 ? (
                 <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-700">
                   No active assigned accounts were found for this email.
                 </p>
               ) : (
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  {activeAccounts.map((account) => (
-                    <div
-                      key={`${account.accountId || account.id || ""}-${
-                        account.accountName || ""
-                      }`}
-                      className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
-                    >
-                      <h3 className="text-lg font-black text-slate-900">
-                        {account.accountName || "Unnamed Account"}
-                      </h3>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {activeAccounts.map((account) => {
+                    const accountName = getAccountName(account);
+                    const accountId = getAccountId(account);
+                    const isSelected = accountName === selectedAccountName;
 
-                      <div className="mt-3 space-y-2 text-sm text-slate-700">
-                        <p>
-                          <strong>Address:</strong>{" "}
-                          {getAccountAddress(account) || "Not listed"}
-                        </p>
-                        <p>
-                          <strong>Schedule:</strong>{" "}
-                          {cleanText(account.cleaningDays) ||
-                            cleanText(account.frequency) ||
-                            "Not listed"}
-                        </p>
-                        <p>
-                          <strong>Service:</strong>{" "}
-                          {cleanText(account.serviceType) || "Not listed"}
-                        </p>
-                        <p>
-                          <strong>Key:</strong>{" "}
-                          {cleanText(account.hasKey) || "Not listed"}
-                        </p>
-                        <p>
-                          <strong>Manager:</strong>{" "}
-                          {cleanText(account.manager) || "Cleaning World"}
-                        </p>
-                      </div>
+                    return (
+                      <button
+                        key={`${accountId}-${accountName}`}
+                        type="button"
+                        onClick={() => selectAccount(account)}
+                        className={`rounded-2xl border p-4 text-left shadow-sm transition ${
+                          isSelected
+                            ? "border-blue-500 bg-blue-50 ring-2 ring-blue-100"
+                            : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-black text-slate-950">
+                              {accountName}
+                            </h3>
+                            <p className="mt-1 text-sm leading-5 text-slate-600">
+                              {getFullAddress(account) || "Address not listed"}
+                            </p>
+                          </div>
 
-                      {account.scopeOfWork ? (
-                        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-                          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                            Scope / Notes
-                          </p>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                            {account.scopeOfWork}
-                          </p>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-black ${
+                              isSelected
+                                ? "bg-blue-700 text-white"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {isSelected ? "Selected" : "View"}
+                          </span>
                         </div>
-                      ) : null}
-                    </div>
-                  ))}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
+
+              {selectedAccount ? (
+                <div className="mt-5 rounded-3xl border border-blue-100 bg-blue-50 p-5">
+                  <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+                    Selected Account Details
+                  </p>
+
+                  <h3 className="mt-2 text-2xl font-black text-slate-950">
+                    {getAccountName(selectedAccount)}
+                  </h3>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {getFullAddress(selectedAccount) || "Address not listed"}
+                  </p>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl bg-white p-4 shadow-sm">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Service Type
+                      </p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {displayValue(selectedAccount.serviceType)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Frequency
+                      </p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {displayValue(selectedAccount.frequency)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Cleaning Days / Schedule
+                      </p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {displayValue(selectedAccount.cleaningDays)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Account Health
+                      </p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {displayValue(selectedAccount.accountHealth)}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Sub Pay
+                      </p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {displayValue(getSubPay(selectedAccount))}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Key
+                      </p>
+                      <p className="mt-1 font-bold text-slate-900">
+                        {displayValue(getKeyInfo(selectedAccount))}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm md:col-span-2">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Alarm
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap font-bold text-slate-900">
+                        {displayValue(getAlarmInfo(selectedAccount))}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-white p-4 shadow-sm md:col-span-2">
+                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        Scope of Work
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                        {displayValue(selectedAccount.scopeOfWork)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="mt-4 text-xs font-semibold text-slate-500">
+                    Internal Cleaning World notes, revenue, gross margin, and
+                    private customer information are hidden from this portal.
+                  </p>
+                </div>
+              ) : null}
             </section>
 
             <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -973,12 +1102,12 @@ export default function SubcontractorPortalPage() {
                     <option value="">Select account</option>
                     {activeAccounts.map((account) => (
                       <option
-                        key={`${account.accountId || account.id || ""}-${
-                          account.accountName || ""
-                        }`}
-                        value={account.accountName || ""}
+                        key={`${getAccountId(account)}-${getAccountName(
+                          account
+                        )}`}
+                        value={getAccountName(account)}
                       >
-                        {account.accountName}
+                        {getAccountName(account)}
                       </option>
                     ))}
                   </select>
@@ -1226,12 +1355,12 @@ export default function SubcontractorPortalPage() {
 
                 <div>
                   <label className="text-sm font-bold text-slate-700">
-                    Notes
+                    Supply Order Notes
                   </label>
                   <textarea
                     value={notes}
                     onChange={(event) => setNotes(event.target.value)}
-                    placeholder="Add any special instructions or notes"
+                    placeholder="Add supply order instructions only, if needed"
                     rows={4}
                     className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
                   />

@@ -375,6 +375,10 @@ function AccountUpdatesPageContent() {
     selectedAccountName,
   ]);
 
+  const visibleUpdates = useMemo(() => {
+    return filteredUpdates.slice(0, 5);
+  }, [filteredUpdates]);
+
   function handleAccountSelect(account: Account) {
     setSelectedAccountId(account.id);
     setSelectedAccountName(account.name);
@@ -498,7 +502,7 @@ function AccountUpdatesPageContent() {
 
             <p className="mt-1 text-gray-600">
               {openedFromAccountDetail
-                ? "Review previous updates first, then add a new update for this account below."
+                ? "Review the latest updates first, then add a new update for this account below."
                 : "Track account notes, service changes, missed cleanings, price changes, and important updates."}
             </p>
           </div>
@@ -544,16 +548,16 @@ function AccountUpdatesPageContent() {
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">
                     {openedFromAccountDetail
-                      ? `Updates Log${
+                      ? `Latest Updates${
                           selectedAccountName ? ` - ${selectedAccountName}` : ""
                         }`
-                      : "Account Updates Log"}
+                      : "Latest Account Updates"}
                   </h2>
 
                   <p className="mt-1 text-sm text-gray-600">
                     {isLoadingUpdates
                       ? "Loading account updates from Google Sheets..."
-                      : `${filteredUpdates.length} update${
+                      : `${visibleUpdates.length} of ${filteredUpdates.length} update${
                           filteredUpdates.length === 1 ? "" : "s"
                         } showing`}
                   </p>
@@ -614,6 +618,11 @@ function AccountUpdatesPageContent() {
                   <option value="Manager A-Z">Manager A-Z</option>
                 </select>
               </div>
+
+              <p className="text-xs font-medium text-gray-500">
+                Showing only the latest 5 results. Use search or filters to narrow
+                the list.
+              </p>
             </div>
           </div>
 
@@ -632,7 +641,7 @@ function AccountUpdatesPageContent() {
               </thead>
 
               <tbody>
-                {filteredUpdates.map((update) => (
+                {visibleUpdates.map((update) => (
                   <tr key={update.id} className="border-b hover:bg-purple-50">
                     <td className="px-4 py-3 text-gray-700">{update.date}</td>
 
