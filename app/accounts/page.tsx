@@ -66,6 +66,9 @@ type QuickStatusOption =
   | "Needs Review"
   | "Other";
 
+const INITIAL_VISIBLE_COUNT = 30;
+const LOAD_MORE_COUNT = 30;
+
 function normalizeText(value: unknown) {
   return String(value || "").trim();
 }
@@ -242,6 +245,7 @@ async function readApiResponse(response: Response): Promise<ApiResponse> {
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -290,6 +294,16 @@ export default function AccountsPage() {
   useEffect(() => {
     loadAccounts();
   }, []);
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_COUNT);
+  }, [
+    searchText,
+    statusFilter,
+    managerFilter,
+    subcontractorFilter,
+    sortOption,
+  ]);
 
   const managers = useMemo(() => {
     const uniqueManagers = Array.from(
@@ -349,6 +363,9 @@ export default function AccountsPage() {
       const searchableText = [
         account.accountName,
         account.address,
+        account.city,
+        account.state,
+        account.zip,
         account.manager,
         account.subcontractor,
         account.status,
@@ -412,21 +429,41 @@ export default function AccountsPage() {
     sortOption,
   ]);
 
-  const activeAccounts = accounts.filter(
-    (account) => getStatusCategory(account.status) === "Active"
-  ).length;
+  const visibleAccounts = useMemo(() => {
+    return filteredAccounts.slice(0, visibleCount);
+  }, [filteredAccounts, visibleCount]);
 
-  const cancelledAccounts = accounts.filter(
-    (account) => getStatusCategory(account.status) === "Cancelled"
-  ).length;
+  const activeAccounts = useMemo(() => {
+    return accounts.filter(
+      (account) => getStatusCategory(account.status) === "Active"
+    ).length;
+  }, [accounts]);
 
-  const highRiskAccounts = accounts.filter((account) =>
-    normalizeLower(account.accountHealth).includes("high risk")
-  ).length;
+  const cancelledAccounts = useMemo(() => {
+    return accounts.filter(
+      (account) => getStatusCategory(account.status) === "Cancelled"
+    ).length;
+  }, [accounts]);
 
-  const filteredRevenue = filteredAccounts.reduce((sum, account) => {
-    return sum + moneyToNumber(account.monthlyRevenue);
-  }, 0);
+  const highRiskAccounts = useMemo(() => {
+    return accounts.filter((account) =>
+      normalizeLower(account.accountHealth).includes("high risk")
+    ).length;
+  }, [accounts]);
+
+  const filteredRevenue = useMemo(() => {
+    return filteredAccounts.reduce((sum, account) => {
+      return sum + moneyToNumber(account.monthlyRevenue);
+    }, 0);
+  }, [filteredAccounts]);
+
+  function clearFilters() {
+    setSearchText("");
+    setStatusFilter("Active");
+    setManagerFilter("All");
+    setSubcontractorFilter("All");
+    setSortOption("Account Name");
+  }
 
   function openStatusModal(account: Account) {
     const currentStatus = normalizeText(account.status);
@@ -508,8 +545,8 @@ export default function AccountsPage() {
         },
         body: JSON.stringify({
           action: "addAccountUpdate",
-          accountId: accountId,
-          accountName: accountName,
+          accountId,
+          accountName,
           updateType: "Status Change",
           manager: statusModalAccount.manager || "",
           notes: updateNote,
@@ -613,7 +650,7 @@ export default function AccountsPage() {
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
             <p className="text-[11px] font-black uppercase tracking-wide text-blue-700 sm:text-xs">
-              Total
+              Total Loaded
             </p>
             <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
               {accounts.length}
@@ -692,9 +729,9 @@ export default function AccountsPage() {
             onChange={(event) => setManagerFilter(event.target.value)}
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
-            {managers.map((manager) => (
-              <option key={String(manager)} value={String(manager)}>
-                Manager: {manager}
+            {managers.map((managerName) => (
+              <option key={String(managerName)} value={String(managerName)}>
+                Manager: {managerName}
               </option>
             ))}
           </select>
@@ -726,18 +763,32 @@ export default function AccountsPage() {
           </select>
         </div>
 
-        <div className="mt-4 flex flex-col gap-1 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            Showing{" "}
-            <span className="font-black text-slate-900">
-              {filteredAccounts.length}
-            </span>{" "}
-            account{filteredAccounts.length === 1 ? "" : "s"}
-          </p>
+        <div className="mt-4 flex flex-col gap-3 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p>
+              Showing{" "}
+              <span className="font-black text-slate-900">
+                {visibleAccounts.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-black text-slate-900">
+                {filteredAccounts.length}
+              </span>{" "}
+              matching account{filteredAccounts.length === 1 ? "" : "s"}
+            </p>
 
-          <p className="text-xs">
-            Tap any account name to open the account detail page.
-          </p>
+            <p className="mt-1 text-xs">
+              Tap any account name to open the account detail page.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+          >
+            Clear Filters
+          </button>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200">
@@ -752,13 +803,13 @@ export default function AccountsPage() {
             <div className="col-span-1 text-right">Action</div>
           </div>
 
-          {filteredAccounts.length === 0 ? (
+          {visibleAccounts.length === 0 ? (
             <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
               No accounts found.
             </div>
           ) : (
             <div className="divide-y divide-slate-100 bg-white">
-              {filteredAccounts.map((account, index) => {
+              {visibleAccounts.map((account, index) => {
                 const accountId = getAccountId(account);
                 const accountHref = `/accounts/${encodeURIComponent(
                   accountId
@@ -873,6 +924,20 @@ export default function AccountsPage() {
             </div>
           )}
         </div>
+
+        {visibleCount < filteredAccounts.length ? (
+          <div className="mt-5 flex justify-center">
+            <button
+              type="button"
+              onClick={() =>
+                setVisibleCount((currentCount) => currentCount + LOAD_MORE_COUNT)
+              }
+              className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950"
+            >
+              Load 30 More
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {statusModalAccount ? (
