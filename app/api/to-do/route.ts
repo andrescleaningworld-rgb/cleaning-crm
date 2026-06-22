@@ -16,6 +16,7 @@ export async function GET() {
 
   try {
     const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getToDos`, {
+      method: "GET",
       cache: "no-store",
     });
 
@@ -24,13 +25,17 @@ export async function GET() {
     try {
       const data = JSON.parse(text);
 
-      return NextResponse.json({
-        success: Boolean(data.success),
-        todos: Array.isArray(data.todos)
+      const todos = Array.isArray(data)
+        ? data
+        : Array.isArray(data.todos)
           ? data.todos
           : Array.isArray(data.data)
             ? data.data
-            : [],
+            : [];
+
+      return NextResponse.json({
+        success: true,
+        todos,
         message: data.message || "",
       });
     } catch {
@@ -81,7 +86,10 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "text/plain;charset=utf-8",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        ...body,
+        action,
+      }),
       cache: "no-store",
     });
 
