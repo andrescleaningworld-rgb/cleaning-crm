@@ -36,6 +36,25 @@ type Account = {
   cancelledDate?: string;
 };
 
+type Subcontractor = {
+  id?: string;
+  subcontractorId?: string;
+  name?: string;
+  subcontractor?: string;
+  subcontractorName?: string;
+  companyName?: string;
+  contactName?: string;
+  displayName?: string;
+  dropdownLabel?: string;
+  email?: string;
+  status?: string;
+};
+
+type SubcontractorFilterOption = {
+  value: string;
+  label: string;
+};
+
 type StatusFilter =
   | "Active"
   | "Cancelled"
@@ -55,6 +74,15 @@ type ApiResponse = {
   message?: string;
   data?: Account[];
   accounts?: Account[];
+};
+
+type SubcontractorsApiResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  data?: Subcontractor[];
+  subcontractors?: Subcontractor[];
+  subs?: Subcontractor[];
 };
 
 type QuickStatusOption =
@@ -77,10 +105,118 @@ function normalizeLower(value: unknown) {
   return normalizeText(value).toLowerCase();
 }
 
+function normalizeSubcontractorMatch(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
 function getAccountId(account: Account) {
   return normalizeText(
     account.accountId || account.id || account.rowNumber || account.accountName
   );
+}
+
+function getSubcontractorCompanyName(subcontractor: Subcontractor) {
+  return normalizeText(subcontractor.companyName || subcontractor.subcontractor);
+}
+
+function getSubcontractorContactName(subcontractor: Subcontractor) {
+  return normalizeText(
+    subcontractor.contactName ||
+      subcontractor.name ||
+      subcontractor.subcontractorName
+  );
+}
+
+function getSubcontractorLabel(subcontractor: Subcontractor) {
+  const contactName = getSubcontractorContactName(subcontractor);
+  const companyName = getSubcontractorCompanyName(subcontractor);
+
+  if (contactName && companyName) {
+    return `${contactName} — ${companyName}`;
+  }
+
+  return (
+    normalizeText(subcontractor.displayName) ||
+    normalizeText(subcontractor.dropdownLabel) ||
+    contactName ||
+    companyName ||
+    normalizeText(subcontractor.email)
+  );
+}
+
+function findMatchingSubcontractor(
+  accountSubcontractor: unknown,
+  subcontractors: Subcontractor[]
+) {
+  const accountValue = normalizeSubcontractorMatch(accountSubcontractor);
+
+  if (!accountValue) return null;
+
+  return (
+    subcontractors.find((subcontractor) => {
+      const companyName = normalizeSubcontractorMatch(
+        subcontractor.companyName
+      );
+      const subcontractorName = normalizeSubcontractorMatch(
+        subcontractor.subcontractor
+      );
+      const displayName = normalizeSubcontractorMatch(
+        subcontractor.displayName
+      );
+      const dropdownLabel = normalizeSubcontractorMatch(
+        subcontractor.dropdownLabel
+      );
+      const contactName = normalizeSubcontractorMatch(
+        subcontractor.contactName
+      );
+      const name = normalizeSubcontractorMatch(subcontractor.name);
+      const subcontractorNameAlt = normalizeSubcontractorMatch(
+        subcontractor.subcontractorName
+      );
+
+      return (
+        companyName === accountValue ||
+        subcontractorName === accountValue ||
+        displayName === accountValue ||
+        dropdownLabel === accountValue ||
+        contactName === accountValue ||
+        name === accountValue ||
+        subcontractorNameAlt === accountValue
+      );
+    }) || null
+  );
+}
+
+function getAccountSubcontractorDisplay(
+  account: Account,
+  subcontractors: Subcontractor[]
+) {
+  const matchedSubcontractor = findMatchingSubcontractor(
+    account.subcontractor,
+    subcontractors
+  );
+
+  const contactName =
+    matchedSubcontractor?.contactName ||
+    matchedSubcontractor?.name ||
+    matchedSubcontractor?.subcontractorName ||
+    "";
+
+  const companyName =
+    matchedSubcontractor?.companyName ||
+    matchedSubcontractor?.subcontractor ||
+    account.subcontractor ||
+    "";
+
+  return {
+    contactName: normalizeText(contactName),
+    companyName: normalizeText(companyName),
+    fallback: normalizeText(account.subcontractor) || "Unassigned",
+  };
 }
 
 function moneyToNumber(value: string | number | undefined) {
@@ -243,8 +379,27 @@ async function readApiResponse(response: Response): Promise<ApiResponse> {
   }
 }
 
+async function readSubcontractorsApiResponse(
+  response: Response
+): Promise<SubcontractorsApiResponse> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as SubcontractorsApiResponse;
+  } catch {
+    throw new Error("The subcontractors server did not return valid JSON.");
+  }
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [subcontractorsData, setSubcontractorsData] = useState<Subcontractor[]>(
+    []
+  );
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -280,6 +435,30 @@ export default function AccountsPage() {
       const loadedAccounts: Account[] = data.accounts || data.data || [];
 
       setAccounts(loadedAccounts);
+
+      try {
+        const subcontractorsResponse = await fetch("/api/subcontractors", {
+          cache: "no-store",
+        });
+
+        const subcontractorsData = await readSubcontractorsApiResponse(
+          subcontractorsResponse
+        );
+
+        if (
+          subcontractorsResponse.ok &&
+          subcontractorsData.success !== false
+        ) {
+          setSubcontractorsData(
+            subcontractorsData.subcontractors ||
+              subcontractorsData.subs ||
+              subcontractorsData.data ||
+              []
+          );
+        }
+      } catch {
+        setSubcontractorsData([]);
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -317,8 +496,8 @@ export default function AccountsPage() {
     return ["All", ...uniqueManagers.sort()];
   }, [accounts]);
 
-  const subcontractors = useMemo(() => {
-    const uniqueSubs = Array.from(
+  const subcontractors = useMemo<SubcontractorFilterOption[]>(() => {
+    const accountSubcontractors = Array.from(
       new Set(
         accounts
           .map((account) => normalizeText(account.subcontractor))
@@ -326,8 +505,28 @@ export default function AccountsPage() {
       )
     );
 
-    return ["All", ...uniqueSubs.sort()];
-  }, [accounts]);
+    const options = accountSubcontractors.map((storedSubcontractor) => {
+      const matchedSubcontractor = findMatchingSubcontractor(
+        storedSubcontractor,
+        subcontractorsData
+      );
+
+      return {
+        value: storedSubcontractor,
+        label: matchedSubcontractor
+          ? getSubcontractorLabel(matchedSubcontractor)
+          : storedSubcontractor,
+      };
+    });
+
+    return [
+      {
+        value: "All",
+        label: "All",
+      },
+      ...options.sort((a, b) => a.label.localeCompare(b.label)),
+    ];
+  }, [accounts, subcontractorsData]);
 
   const statusOptions: StatusFilter[] = [
     "Active",
@@ -359,6 +558,10 @@ export default function AccountsPage() {
 
     const filtered = accounts.filter((account) => {
       const statusCategory = getStatusCategory(account.status);
+      const subDisplay = getAccountSubcontractorDisplay(
+        account,
+        subcontractorsData
+      );
 
       const searchableText = [
         account.accountName,
@@ -368,6 +571,8 @@ export default function AccountsPage() {
         account.zip,
         account.manager,
         account.subcontractor,
+        subDisplay.contactName,
+        subDisplay.companyName,
         account.status,
         account.accountHealth,
         account.accountStartDate,
@@ -422,6 +627,7 @@ export default function AccountsPage() {
     return sorted;
   }, [
     accounts,
+    subcontractorsData,
     searchText,
     statusFilter,
     managerFilter,
@@ -741,9 +947,9 @@ export default function AccountsPage() {
             onChange={(event) => setSubcontractorFilter(event.target.value)}
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
-            {subcontractors.map((sub) => (
-              <option key={String(sub)} value={String(sub)}>
-                Sub: {sub}
+            {subcontractors.map((subcontractor) => (
+              <option key={subcontractor.value} value={subcontractor.value}>
+                Sub: {subcontractor.label}
               </option>
             ))}
           </select>
@@ -814,6 +1020,10 @@ export default function AccountsPage() {
                 const accountHref = `/accounts/${encodeURIComponent(
                   accountId
                 )}`;
+                const subcontractorDisplay = getAccountSubcontractorDisplay(
+                  account,
+                  subcontractorsData
+                );
 
                 return (
                   <div
@@ -864,9 +1074,23 @@ export default function AccountsPage() {
                         <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
                           Subcontractor
                         </p>
-                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">
-                          {account.subcontractor || "Unassigned"}
-                        </p>
+
+                        {subcontractorDisplay.contactName ? (
+                          <>
+                            <p className="mt-1 font-bold text-slate-700 lg:mt-0">
+                              {subcontractorDisplay.contactName}
+                            </p>
+                            {subcontractorDisplay.companyName ? (
+                              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                                {subcontractorDisplay.companyName}
+                              </p>
+                            ) : null}
+                          </>
+                        ) : (
+                          <p className="mt-1 font-bold text-slate-700 lg:mt-0">
+                            {subcontractorDisplay.fallback}
+                          </p>
+                        )}
                       </div>
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
