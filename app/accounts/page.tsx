@@ -114,8 +114,8 @@ type SubcontractorsApiResponse = {
 // Constants
 // ---------------------------------------------------------------------------
 
-const INITIAL_VISIBLE_COUNT = 30;
-const LOAD_MORE_COUNT = 30;
+const INITIAL_VISIBLE_COUNT = 15;
+const LOAD_MORE_COUNT = 15;
 const SEARCH_DEBOUNCE_MS = 200;
 
 const STATUS_CATEGORY_MAP: Record<string, StatusFilter> = {
