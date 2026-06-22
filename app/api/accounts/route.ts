@@ -82,14 +82,24 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
+    const requestedAction = String(body.action || "").trim();
+
+    const action =
+      requestedAction === "updateAccount" ||
+      requestedAction === "editAccount"
+        ? "updateAccount"
+        : "addAccount";
+
+    const accountPayload = body.account || body;
+
     const response = await fetch(SCRIPT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8",
       },
       body: JSON.stringify({
-        action: body.action || "addAccount",
-        account: body.account || body,
+        action,
+        account: accountPayload,
       }),
       cache: "no-store",
     });
@@ -116,7 +126,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: data.error || "Failed to save account in Google Script.",
+          error: data.error || data.message || "Failed to save account in Google Script.",
           googleScriptResponse: data,
           rawGoogleScriptResponse: text,
           googleScriptStatus: response.status,
@@ -129,7 +139,7 @@ export async function POST(request: Request) {
       success: true,
       message: data.message || "Account saved successfully.",
       account: data.account || null,
-      accountId: data.accountId || null,
+      accountId: data.accountId || data.id || null,
     });
   } catch (error) {
     return NextResponse.json(
