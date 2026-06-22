@@ -40,17 +40,28 @@ type Account = {
 
 type Subcontractor = {
   id?: string;
+  subcontractorId?: string;
   name?: string;
+  subcontractor?: string;
   subcontractorName?: string;
   companyName?: string;
+  contactName?: string;
+  displayName?: string;
+  dropdownLabel?: string;
   email?: string;
   status?: string;
+};
+
+type SubcontractorOption = {
+  value: string;
+  label: string;
 };
 
 type SubcontractorsApiResponse = {
   success?: boolean;
   error?: string;
   subcontractors?: Subcontractor[];
+  subs?: Subcontractor[];
   data?: Subcontractor[];
 };
 
@@ -59,10 +70,25 @@ function cleanText(value: unknown) {
 }
 
 function getSubcontractorDisplayName(subcontractor: Subcontractor) {
+  const contactName = cleanText(
+    subcontractor.contactName ||
+      subcontractor.name ||
+      subcontractor.subcontractorName
+  );
+
+  const companyName = cleanText(
+    subcontractor.companyName || subcontractor.subcontractor
+  );
+
+  if (contactName && companyName) {
+    return `${contactName} — ${companyName}`;
+  }
+
   return (
-    cleanText(subcontractor.name) ||
-    cleanText(subcontractor.subcontractorName) ||
-    cleanText(subcontractor.companyName) ||
+    cleanText(subcontractor.displayName) ||
+    cleanText(subcontractor.dropdownLabel) ||
+    contactName ||
+    companyName ||
     cleanText(subcontractor.email)
   );
 }
@@ -202,7 +228,7 @@ export default function EditAccountPage() {
           return;
         }
 
-        setSubcontractors(data.subcontractors || data.data || []);
+        setSubcontractors(data.subcontractors || data.subs || data.data || []);
       } catch {
         // Do not block the edit form if subcontractors fail to load.
       } finally {
@@ -214,22 +240,36 @@ export default function EditAccountPage() {
     loadSubcontractors();
   }, [decodedAccountIdFromUrl, normalizedUrlValue]);
 
-  const subcontractorOptions = useMemo(() => {
+  const subcontractorOptions = useMemo<SubcontractorOption[]>(() => {
     const currentValue = cleanText(formData?.subcontractor);
 
-    const options = Array.from(
-      new Set(
-        subcontractors
-          .map((subcontractor) => getSubcontractorDisplayName(subcontractor))
-          .filter(Boolean)
-      )
+    const options = subcontractors
+      .map((subcontractor) => {
+        const companyName = cleanText(
+          subcontractor.companyName || subcontractor.subcontractor
+        );
+
+        const label = getSubcontractorDisplayName(subcontractor);
+
+        return {
+          value: companyName || label,
+          label,
+        };
+      })
+      .filter((option) => option.value && option.label);
+
+    const alreadyHasCurrentValue = options.some(
+      (option) => option.value === currentValue
     );
 
-    if (currentValue && !options.includes(currentValue)) {
-      options.push(currentValue);
+    if (currentValue && !alreadyHasCurrentValue) {
+      options.push({
+        value: currentValue,
+        label: currentValue,
+      });
     }
 
-    return options.sort();
+    return options.sort((a, b) => a.label.localeCompare(b.label));
   }, [subcontractors, formData?.subcontractor]);
 
   const accountIdForUrl = encodeURIComponent(
@@ -630,8 +670,11 @@ export default function EditAccountPage() {
                   </option>
 
                   {subcontractorOptions.map((subcontractor) => (
-                    <option key={subcontractor} value={subcontractor}>
-                      {subcontractor}
+                    <option
+                      key={subcontractor.value}
+                      value={subcontractor.value}
+                    >
+                      {subcontractor.label}
                     </option>
                   ))}
                 </select>

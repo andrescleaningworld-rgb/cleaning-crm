@@ -37,11 +37,21 @@ type ExistingAccount = {
 
 type Subcontractor = {
   id?: string;
+  subcontractorId?: string;
   name?: string;
+  subcontractor?: string;
   subcontractorName?: string;
   companyName?: string;
+  contactName?: string;
+  displayName?: string;
+  dropdownLabel?: string;
   email?: string;
   status?: string;
+};
+
+type SubcontractorOption = {
+  value: string;
+  label: string;
 };
 
 type AccountsApiResponse = {
@@ -55,6 +65,7 @@ type SubcontractorsApiResponse = {
   success?: boolean;
   error?: string;
   subcontractors?: Subcontractor[];
+  subs?: Subcontractor[];
   data?: Subcontractor[];
 };
 
@@ -95,10 +106,25 @@ function cleanText(value: unknown) {
 }
 
 function getSubcontractorDisplayName(subcontractor: Subcontractor) {
+  const contactName = cleanText(
+    subcontractor.contactName ||
+      subcontractor.name ||
+      subcontractor.subcontractorName
+  );
+
+  const companyName = cleanText(
+    subcontractor.companyName || subcontractor.subcontractor
+  );
+
+  if (contactName && companyName) {
+    return `${contactName} — ${companyName}`;
+  }
+
   return (
-    cleanText(subcontractor.name) ||
-    cleanText(subcontractor.subcontractorName) ||
-    cleanText(subcontractor.companyName) ||
+    cleanText(subcontractor.displayName) ||
+    cleanText(subcontractor.dropdownLabel) ||
+    contactName ||
+    companyName ||
     cleanText(subcontractor.email)
   );
 }
@@ -165,7 +191,9 @@ export default function NewAccountPage() {
           return;
         }
 
-        setSubcontractors(data.subcontractors || data.data || []);
+        setSubcontractors(
+          data.subcontractors || data.subs || data.data || []
+        );
       } catch {
         // Do not block the full form if subcontractors fail to load.
       } finally {
@@ -187,14 +215,22 @@ export default function NewAccountPage() {
     ).sort();
   }, [existingAccounts]);
 
-  const subcontractorOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        subcontractors
-          .map((subcontractor) => getSubcontractorDisplayName(subcontractor))
-          .filter(Boolean)
-      )
-    ).sort();
+  const subcontractorOptions = useMemo<SubcontractorOption[]>(() => {
+    return subcontractors
+      .map((subcontractor) => {
+        const companyName = cleanText(
+          subcontractor.companyName || subcontractor.subcontractor
+        );
+
+        const label = getSubcontractorDisplayName(subcontractor);
+
+        return {
+          value: companyName || label,
+          label,
+        };
+      })
+      .filter((option) => option.value && option.label)
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [subcontractors]);
 
   function updateField(field: keyof AccountForm, value: string) {
@@ -427,8 +463,11 @@ export default function NewAccountPage() {
                   </option>
 
                   {subcontractorOptions.map((subcontractor) => (
-                    <option key={subcontractor} value={subcontractor}>
-                      {subcontractor}
+                    <option
+                      key={subcontractor.value}
+                      value={subcontractor.value}
+                    >
+                      {subcontractor.label}
                     </option>
                   ))}
                 </select>
