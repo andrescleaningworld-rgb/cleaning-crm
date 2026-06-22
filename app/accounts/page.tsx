@@ -840,7 +840,7 @@ export default function AccountsPage() {
       setTransferError("");
       setTransferMessage("");
 
-      const response = await fetch("/api/accounts", {
+      const response = await fetch("/api/sub-transfer-proposals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -876,7 +876,7 @@ export default function AccountsPage() {
       setTransferError("");
       setTransferMessage("");
 
-      const response = await fetch("/api/accounts", {
+      const response = await fetch("/api/sub-transfer-proposals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
