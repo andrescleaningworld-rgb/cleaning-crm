@@ -110,6 +110,17 @@ type SubcontractorsApiResponse = {
   subs?: Subcontractor[];
 };
 
+
+type TransferProposalsApiResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  data?: StoredTransferProposal[];
+  proposals?: StoredTransferProposal[];
+  transferProposals?: StoredTransferProposal[];
+  subTransferProposals?: StoredTransferProposal[];
+};
+
 type TransferProposalPayload = {
   proposalId?: string;
   newSubcontractor: string;
@@ -129,6 +140,39 @@ type TransferProposalPayload = {
     proposedMonthlyPay: number;
     monthlyRevenue: number;
   }[];
+};
+
+
+type StoredTransferProposalAccount = {
+  accountId?: string;
+  accountName?: string;
+  address?: string;
+  cleaningDays?: string;
+  scope?: string;
+  keysAlarm?: string;
+  proposedMonthlyPay?: string | number;
+  monthlyRevenue?: string | number;
+};
+
+type StoredTransferProposal = {
+  proposalId?: string;
+  id?: string;
+  date?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  status?: string;
+  newSubcontractor?: string;
+  newSubcontractorEmail?: string;
+  subcontractorName?: string;
+  subcontractorEmail?: string;
+  email?: string;
+  proposedMonthlyPay?: string | number;
+  totalProposedPay?: string | number;
+  monthlyRevenue?: string | number;
+  totalMonthlyRevenue?: string | number;
+  notes?: string;
+  accounts?: StoredTransferProposalAccount[];
+  accountCount?: string | number;
 };
 
 // ---------------------------------------------------------------------------
@@ -252,6 +296,56 @@ function formatDate(value: string | undefined): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+
+function getStoredProposalId(proposal: StoredTransferProposal): string {
+  return normalizeText(proposal.proposalId ?? proposal.id);
+}
+
+function getStoredProposalDate(proposal: StoredTransferProposal): string {
+  return formatDate(proposal.date ?? proposal.createdAt ?? proposal.updatedAt) || "N/A";
+}
+
+function getStoredProposalSubcontractor(proposal: StoredTransferProposal): string {
+  return (
+    normalizeText(proposal.newSubcontractor ?? proposal.subcontractorName) ||
+    normalizeText(proposal.newSubcontractorEmail ?? proposal.subcontractorEmail ?? proposal.email) ||
+    "N/A"
+  );
+}
+
+function getStoredProposalEmail(proposal: StoredTransferProposal): string {
+  return normalizeText(proposal.newSubcontractorEmail ?? proposal.subcontractorEmail ?? proposal.email);
+}
+
+function getStoredProposalStatus(proposal: StoredTransferProposal): string {
+  return normalizeText(proposal.status) || "Draft";
+}
+
+function getStoredProposalAccountCount(proposal: StoredTransferProposal): number {
+  if (Array.isArray(proposal.accounts)) return proposal.accounts.length;
+  return moneyToNumber(proposal.accountCount);
+}
+
+function getStoredProposalRevenue(proposal: StoredTransferProposal): number {
+  const direct = moneyToNumber(proposal.totalMonthlyRevenue ?? proposal.monthlyRevenue);
+  if (direct > 0) return direct;
+  return (proposal.accounts ?? []).reduce((sum, account) => sum + moneyToNumber(account.monthlyRevenue), 0);
+}
+
+function getStoredProposalPay(proposal: StoredTransferProposal): number {
+  const direct = moneyToNumber(proposal.proposedMonthlyPay ?? proposal.totalProposedPay);
+  if (direct > 0) return direct;
+  return (proposal.accounts ?? []).reduce((sum, account) => sum + moneyToNumber(account.proposedMonthlyPay), 0);
+}
+
+function getStoredProposalStatusClass(status: string): string {
+  const clean = normalizeLower(status);
+  if (clean.includes("accept")) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (clean.includes("sent")) return "border-blue-200 bg-blue-50 text-blue-800";
+  if (clean.includes("declin") || clean.includes("cancel")) return "border-red-200 bg-red-50 text-red-800";
+  return "border-amber-200 bg-amber-50 text-amber-800";
 }
 
 function hasSensitiveAccessValue(value: unknown): boolean {
@@ -506,6 +600,9 @@ export default function AccountsPage() {
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferMessage, setTransferMessage] = useState("");
   const [transferError, setTransferError] = useState("");
+  const [storedTransferProposals, setStoredTransferProposals] = useState<StoredTransferProposal[]>([]);
+  const [transferProposalsLoading, setTransferProposalsLoading] = useState(false);
+  const [transferProposalsError, setTransferProposalsError] = useState("");
 
   const debouncedSearch = useDebounce(searchText, SEARCH_DEBOUNCE_MS);
 
@@ -559,9 +656,57 @@ export default function AccountsPage() {
     }
   }
 
+
+  async function loadTransferProposals() {
+    try {
+      setTransferProposalsLoading(true);
+      setTransferProposalsError("");
+
+      const response = await fetch(
+        "/api/sub-transfer-proposals?action=getSubTransferProposals",
+        { cache: "no-store" }
+      );
+
+      const data = await readJson<TransferProposalsApiResponse>(response);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error ?? data.message ?? "Could not load stored transfer proposals.");
+      }
+
+      const proposals =
+        data.proposals ??
+        data.transferProposals ??
+        data.subTransferProposals ??
+        data.data ??
+        [];
+
+      setStoredTransferProposals(
+        [...proposals].sort((a, b) => {
+          const bDate = getDateTime(b.createdAt ?? b.date ?? b.updatedAt);
+          const aDate = getDateTime(a.createdAt ?? a.date ?? a.updatedAt);
+          return bDate - aDate;
+        })
+      );
+    } catch (err) {
+      setTransferProposalsError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong loading stored transfer proposals."
+      );
+    } finally {
+      setTransferProposalsLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadAccounts();
   }, []);
+
+
+  useEffect(() => {
+    if (transferMode) {
+      loadTransferProposals();
+    }
+  }, [transferMode]);
 
   // Reset visible count whenever filters change
   useEffect(() => {
@@ -658,6 +803,10 @@ export default function AccountsPage() {
 
   const transferCandidateAccounts = useMemo(() => {
     const cleanSearch = transferAccountSearch.toLowerCase().trim();
+    const hasSearchOrSubFilter =
+      Boolean(cleanSearch) || transferSourceSubcontractorFilter !== "All";
+
+    if (!hasSearchOrSubFilter) return [];
 
     return accounts
       .filter((account) => {
@@ -828,6 +977,55 @@ export default function AccountsPage() {
     return "";
   }
 
+
+  function loadStoredProposalIntoBuilder(proposal: StoredTransferProposal) {
+    const proposalAccounts = proposal.accounts ?? [];
+    const proposalIds = proposalAccounts
+      .map((account) => normalizeText(account.accountId))
+      .filter(Boolean);
+
+    const matchingIds = proposalIds.filter((id) =>
+      accounts.some((account) => getAccountId(account) === id)
+    );
+
+    const payById: Record<string, string> = {};
+    proposalAccounts.forEach((account) => {
+      const accountId = normalizeText(account.accountId);
+      if (!accountId) return;
+      const proposedPay = moneyToNumber(account.proposedMonthlyPay);
+      payById[accountId] = proposedPay > 0 ? String(proposedPay) : "";
+    });
+
+    const email = getStoredProposalEmail(proposal);
+    const existingSub = activeSubcontractors.find(
+      (sub) => normalizeText(sub.email) === email
+    );
+
+    setSelectedTransferAccountIds(matchingIds);
+    setTransferPayByAccountId(payById);
+    setTransferProposalId(getStoredProposalId(proposal));
+    setTransferNotes(normalizeText(proposal.notes));
+    setTransferError("");
+
+    if (existingSub) {
+      setTransferNewSubcontractorMode("existing");
+      setTransferSubcontractorEmail(email);
+      setManualTransferSubcontractorName("");
+      setManualTransferSubcontractorEmail("");
+    } else {
+      setTransferNewSubcontractorMode("new");
+      setTransferSubcontractorEmail("");
+      setManualTransferSubcontractorName(getStoredProposalSubcontractor(proposal));
+      setManualTransferSubcontractorEmail(email);
+    }
+
+    setTransferMessage(
+      matchingIds.length === proposalIds.length
+        ? "Stored proposal loaded for editing."
+        : "Stored proposal loaded. Some old accounts were not matched to active account IDs."
+    );
+  }
+
   async function handleSaveTransferProposal() {
     const validationError = validateTransferProposal();
     if (validationError) {
@@ -857,6 +1055,7 @@ export default function AccountsPage() {
       const savedProposalId = data.proposalId ?? data.id ?? data.data?.proposalId ?? transferProposalId;
       if (savedProposalId) setTransferProposalId(savedProposalId);
       setTransferMessage(savedProposalId ? `Proposal saved: ${savedProposalId}` : "Proposal saved.");
+      loadTransferProposals();
     } catch (err) {
       setTransferError(err instanceof Error ? err.message : "Something went wrong saving the proposal.");
     } finally {
@@ -891,6 +1090,7 @@ export default function AccountsPage() {
       }
 
       setTransferMessage(data.message ?? "Proposal email sent.");
+      loadTransferProposals();
     } catch (err) {
       setTransferError(err instanceof Error ? err.message : "Something went wrong sending the email.");
     } finally {
@@ -1294,7 +1494,7 @@ export default function AccountsPage() {
                   New Transfer Proposal
                 </h2>
                 <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                  Select accounts on the left, build the offer on the right, then save, print, or send the email manually.
+                  Use the search box or choose the current subcontractor, build the offer, then save, print, or send the email manually.
                 </p>
               </div>
               <button
@@ -1314,10 +1514,10 @@ export default function AccountsPage() {
                     Select Accounts
                   </p>
                   <h3 className="text-xl font-black text-slate-950">
-                    Accounts to offer
+                    Accounts to Transfer
                   </h3>
                   <p className="text-xs font-semibold leading-5 text-slate-500">
-                    Default is all active accounts, so you can select accounts from different current subcontractors.
+                    No full account list here. Search by account or choose the current subcontractor to show matching accounts.
                   </p>
                 </div>
 
@@ -1360,17 +1560,17 @@ export default function AccountsPage() {
                     {selectedTransferAccounts.length} selected
                   </p>
                   <p className="text-xs font-semibold text-slate-500">
-                    Showing {Math.min(transferCandidateAccounts.length, 80)} of {transferCandidateAccounts.length} matching active accounts.
+                    Showing {Math.min(transferCandidateAccounts.length, 25)} of {transferCandidateAccounts.length} matching active accounts.
                   </p>
                 </div>
 
                 <div className="mt-3 max-h-[560px] space-y-2 overflow-y-auto pr-1">
                   {transferCandidateAccounts.length === 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
-                      No active accounts match this search/filter.
+                      Search for an account or choose a current subcontractor to show matching active accounts.
                     </div>
                   ) : (
-                    transferCandidateAccounts.slice(0, 80).map((account) => {
+                    transferCandidateAccounts.slice(0, 25).map((account) => {
                       const accountId = getAccountId(account);
                       const subDisplay = account._subDisplay ?? {
                         contactName: "",
@@ -1639,10 +1839,123 @@ export default function AccountsPage() {
                 </div>
               </div>
             </div>
+
+            <div className="mt-5 rounded-3xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+                    Stored Transfer Proposals
+                  </p>
+                  <h3 className="mt-2 text-xl font-black text-slate-950">
+                    Drafts and old proposals
+                  </h3>
+                  <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                    Saved drafts, sent proposals, accepted, declined, and cancelled proposals appear here.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadTransferProposals}
+                  disabled={transferProposalsLoading}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {transferProposalsLoading ? "Loading..." : "Refresh"}
+                </button>
+              </div>
+
+              {transferProposalsError ? (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-black text-amber-800">
+                  {transferProposalsError}
+                </div>
+              ) : null}
+
+              {transferProposalsLoading && storedTransferProposals.length === 0 ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                  Loading stored proposals...
+                </div>
+              ) : storedTransferProposals.length === 0 ? (
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+                  No stored transfer proposals yet. Saved drafts and sent proposals will show here.
+                </div>
+              ) : (
+                <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="hidden grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 lg:grid">
+                    <div className="col-span-2">Date</div>
+                    <div className="col-span-3">New Subcontractor</div>
+                    <div className="col-span-1 text-right">Accounts</div>
+                    <div className="col-span-2 text-right">Revenue</div>
+                    <div className="col-span-2 text-right">Proposed Pay</div>
+                    <div className="col-span-1">Status</div>
+                    <div className="col-span-1 text-right">Action</div>
+                  </div>
+
+                  <div className="divide-y divide-slate-100">
+                    {storedTransferProposals.map((proposal, index) => {
+                      const proposalId = getStoredProposalId(proposal) || `proposal-${index}`;
+                      const status = getStoredProposalStatus(proposal);
+                      return (
+                        <div
+                          key={`${proposalId}-${index}`}
+                          className="grid gap-3 px-4 py-4 text-sm lg:grid-cols-12 lg:items-center"
+                        >
+                          <div className="lg:col-span-2">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-400 lg:hidden">Date</p>
+                            <p className="font-bold text-slate-700">{getStoredProposalDate(proposal)}</p>
+                            <p className="mt-1 text-[11px] font-bold text-slate-400">{proposalId}</p>
+                          </div>
+
+                          <div className="lg:col-span-3">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-400 lg:hidden">New Subcontractor</p>
+                            <p className="font-black text-slate-950">{getStoredProposalSubcontractor(proposal)}</p>
+                            {getStoredProposalEmail(proposal) ? (
+                              <p className="mt-1 text-xs font-semibold text-slate-500">{getStoredProposalEmail(proposal)}</p>
+                            ) : null}
+                          </div>
+
+                          <div className="lg:col-span-1 lg:text-right">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-400 lg:hidden">Accounts</p>
+                            <p className="font-black text-slate-950">{getStoredProposalAccountCount(proposal)}</p>
+                          </div>
+
+                          <div className="lg:col-span-2 lg:text-right">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-400 lg:hidden">Revenue</p>
+                            <p className="font-black text-slate-950">{formatMoney(getStoredProposalRevenue(proposal))}</p>
+                          </div>
+
+                          <div className="lg:col-span-2 lg:text-right">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-400 lg:hidden">Proposed Pay</p>
+                            <p className="font-black text-slate-950">{formatMoney(getStoredProposalPay(proposal))}</p>
+                          </div>
+
+                          <div className="lg:col-span-1">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-400 lg:hidden">Status</p>
+                            <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-black ${getStoredProposalStatusClass(status)}`}>
+                              {status}
+                            </span>
+                          </div>
+
+                          <div className="lg:col-span-1 lg:text-right">
+                            <button
+                              type="button"
+                              onClick={() => loadStoredProposalIntoBuilder(proposal)}
+                              className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 lg:w-auto"
+                            >
+                              View
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         ) : null}
 
         {/* Accounts table */}
+        {!transferMode ? (
+          <>
         <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200">
           <div className="hidden grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 lg:grid">
             <div className="col-span-3">Account</div>
@@ -1673,15 +1986,6 @@ export default function AccountsPage() {
                   >
                     <div className="lg:col-span-3">
                       <div className="flex items-start gap-3">
-                        {transferMode ? (
-                          <input
-                            type="checkbox"
-                            checked={selectedTransferAccountIds.includes(accountId)}
-                            onChange={() => toggleTransferAccount(account)}
-                            aria-label={`Select ${account.accountName ?? "this account"} for transfer proposal`}
-                            className="mt-1 h-5 w-5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
-                          />
-                        ) : null}
                         <Link href={accountHref} className="block flex-1 no-underline">
                       <div className="flex items-start justify-between gap-3 lg:block">
                         <div>
@@ -1777,6 +2081,8 @@ export default function AccountsPage() {
               Load 30 More
             </button>
           </div>
+        ) : null}
+          </>
         ) : null}
       </section>
 
