@@ -152,6 +152,14 @@ function formatCalculatedMoney(value: number) {
   });
 }
 
+function formatGrossMarginPercent(revenue: number, grossMargin: number) {
+  if (!revenue || !grossMargin) return "N/A";
+
+  const percent = (grossMargin / revenue) * 100;
+
+  return `${percent.toFixed(1)}%`;
+}
+
 function getStatusClass(status: string | undefined) {
   const clean = String(status || "").toLowerCase();
 
@@ -810,19 +818,11 @@ export default function AccountDetailPage() {
 
           <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Est. Gross Margin
+              Sub Pay
             </p>
             <p className="mt-2 text-xl font-black text-slate-950">
-              {estimatedGrossMargin
-                ? formatCalculatedMoney(estimatedGrossMargin)
-                : account.grossMargin || "N/A"}
+              {formatMoney(subcontractorPay)}
             </p>
-
-            {account.grossMarginPercent ? (
-              <p className="mt-1 text-xs font-bold text-slate-500">
-                {account.grossMarginPercent}
-              </p>
-            ) : null}
           </div>
         </div>
 
@@ -1106,6 +1106,13 @@ export default function AccountDetailPage() {
                   {estimatedGrossMargin
                     ? formatCalculatedMoney(estimatedGrossMargin)
                     : account.grossMargin || "N/A"}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-500">
+                  {account.grossMarginPercent ||
+                    formatGrossMarginPercent(
+                      monthlyRevenueNumber,
+                      estimatedGrossMargin
+                    )}
                 </p>
               </div>
 
