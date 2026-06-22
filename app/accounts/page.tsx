@@ -478,7 +478,12 @@ export default function AccountsPage() {
 
   const [transferMode, setTransferMode] = useState(false);
   const [selectedTransferAccountIds, setSelectedTransferAccountIds] = useState<string[]>([]);
+  const [transferSourceSubcontractorFilter, setTransferSourceSubcontractorFilter] = useState("All");
+  const [transferAccountSearch, setTransferAccountSearch] = useState("");
   const [transferSubcontractorEmail, setTransferSubcontractorEmail] = useState("");
+  const [transferNewSubcontractorMode, setTransferNewSubcontractorMode] = useState<"existing" | "new">("existing");
+  const [manualTransferSubcontractorName, setManualTransferSubcontractorName] = useState("");
+  const [manualTransferSubcontractorEmail, setManualTransferSubcontractorEmail] = useState("");
   const [transferPayByAccountId, setTransferPayByAccountId] = useState<Record<string, string>>({});
   const [transferNotes, setTransferNotes] = useState("");
   const [transferProposalId, setTransferProposalId] = useState("");
@@ -627,6 +632,36 @@ export default function AccountsPage() {
     return accounts.filter((account) => selected.has(getAccountId(account)));
   }, [accounts, selectedTransferAccountIds]);
 
+  const transferCandidateAccounts = useMemo(() => {
+    const cleanSearch = transferAccountSearch.toLowerCase().trim();
+
+    return accounts
+      .filter((account) => {
+        const isActive = account._statusCategory === "Active";
+        const matchesSourceSub =
+          transferSourceSubcontractorFilter === "All" ||
+          normalizeText(account.subcontractor) === transferSourceSubcontractorFilter;
+        const searchBlob = [
+          account.accountName,
+          account.address,
+          account.city,
+          account.state,
+          account.zip,
+          account.manager,
+          account.subcontractor,
+          account._subDisplay?.contactName,
+          account._subDisplay?.companyName,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        const matchesSearch = !cleanSearch || searchBlob.includes(cleanSearch);
+
+        return isActive && matchesSourceSub && matchesSearch;
+      })
+      .sort((a, b) => normalizeText(a.accountName).localeCompare(normalizeText(b.accountName)));
+  }, [accounts, transferAccountSearch, transferSourceSubcontractorFilter]);
+
   const transferTotalProposedPay = useMemo(() => {
     return selectedTransferAccounts.reduce((sum, account) => {
       return sum + moneyToNumber(transferPayByAccountId[getAccountId(account)]);
@@ -666,7 +701,12 @@ export default function AccountsPage() {
 
   function clearTransferProposal() {
     setSelectedTransferAccountIds([]);
+    setTransferSourceSubcontractorFilter("All");
+    setTransferAccountSearch("");
     setTransferSubcontractorEmail("");
+    setTransferNewSubcontractorMode("existing");
+    setManualTransferSubcontractorName("");
+    setManualTransferSubcontractorEmail("");
     setTransferPayByAccountId({});
     setTransferNotes("");
     setTransferProposalId("");
@@ -674,18 +714,34 @@ export default function AccountsPage() {
     setTransferError("");
   }
 
-  function buildTransferProposalPayload(): TransferProposalPayload {
-    const newSubName = selectedTransferSubcontractor
+  function getTransferDestinationSubcontractor() {
+    if (transferNewSubcontractorMode === "new") {
+      return {
+        name: manualTransferSubcontractorName.trim(),
+        email: manualTransferSubcontractorEmail.trim(),
+      };
+    }
+
+    const name = selectedTransferSubcontractor
       ? getSubcontractorLabel(selectedTransferSubcontractor)
       : "";
 
     return {
-      proposalId: transferProposalId || undefined,
-      newSubcontractor: newSubName,
-      newSubcontractorEmail: transferSubcontractorEmail,
-      subcontractorName: newSubName,
-      subcontractorEmail: transferSubcontractorEmail,
+      name,
       email: transferSubcontractorEmail,
+    };
+  }
+
+  function buildTransferProposalPayload(): TransferProposalPayload {
+    const destination = getTransferDestinationSubcontractor();
+
+    return {
+      proposalId: transferProposalId || undefined,
+      newSubcontractor: destination.name,
+      newSubcontractorEmail: destination.email,
+      subcontractorName: destination.name,
+      subcontractorEmail: destination.email,
+      email: destination.email,
       proposedMonthlyPay: transferTotalProposedPay,
       notes: transferNotes.trim(),
       accounts: selectedTransferAccounts.map((account) => {
@@ -698,14 +754,22 @@ export default function AccountsPage() {
           scope: getProposalScope(account),
           keysAlarm: getKeysAlarmRequired(account),
           proposedMonthlyPay: moneyToNumber(transferPayByAccountId[accountId]),
-          monthlyRevenue: moneyToNumber(transferPayByAccountId[accountId]),
+          monthlyRevenue: moneyToNumber(account.monthlyRevenue),
         };
       }),
     };
   }
 
   function validateTransferProposal(): string {
-    if (!transferSubcontractorEmail) return "Choose the new subcontractor first.";
+    const destination = getTransferDestinationSubcontractor();
+
+    if (transferNewSubcontractorMode === "new") {
+      if (!destination.name) return "Add the new subcontractor name.";
+      if (!destination.email) return "Add the new subcontractor email.";
+    } else if (!destination.email) {
+      return "Choose the new subcontractor first.";
+    }
+
     if (selectedTransferAccounts.length === 0) return "Select at least one account.";
     const missingPayAccount = selectedTransferAccounts.find((account) => {
       const accountId = getAccountId(account);
@@ -1183,7 +1247,7 @@ export default function AccountsPage() {
                   New Transfer Proposal
                 </h2>
                 <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
-                  Select account(s), choose the new subcontractor, enter proposed pay, then save, print, or send the email manually.
+                  Select accounts on the left, build the offer on the right, then save, print, or send the email manually.
                 </p>
               </div>
               <button
@@ -1195,150 +1259,330 @@ export default function AccountsPage() {
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 lg:grid-cols-3">
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  New Subcontractor
-                </label>
-                <select
-                  value={transferSubcontractorEmail}
-                  onChange={(e) => {
-                    setTransferSubcontractorEmail(e.target.value);
-                    setTransferProposalId("");
-                    setTransferMessage("");
-                    setTransferError("");
-                  }}
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
-                >
-                  <option value="">Choose subcontractor...</option>
-                  {activeSubcontractors.map((sub) => {
-                    const email = normalizeText(sub.email);
-                    const label = getSubcontractorLabel(sub);
-                    if (!email) return null;
-                    return (
-                      <option key={`${email}-${label}`} value={email}>
-                        {label} — {email}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Selected Accounts
-                </label>
-                <div className="mt-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
-                  <p className="text-lg font-black text-slate-950">{selectedTransferAccounts.length}</p>
-                  <p className="text-xs font-semibold text-slate-500">
-                    Total proposed pay: {formatMoney(transferTotalProposedPay)}
+            <div className="mt-5 grid gap-4 xl:grid-cols-2">
+              {/* Left side: source accounts */}
+              <div className="rounded-3xl border border-emerald-200 bg-white p-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                    Select Accounts
+                  </p>
+                  <h3 className="text-xl font-black text-slate-950">
+                    Accounts to offer
+                  </h3>
+                  <p className="text-xs font-semibold leading-5 text-slate-500">
+                    Default is all active accounts, so you can select accounts from different current subcontractors.
                   </p>
                 </div>
-              </div>
 
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Proposal ID
-                </label>
-                <div className="mt-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
-                  <p className="text-sm font-black text-slate-900">{transferProposalId || "Not saved yet"}</p>
-                  <p className="text-xs font-semibold text-slate-500">Save first, then email when ready.</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Current Subcontractor
+                    </label>
+                    <select
+                      value={transferSourceSubcontractorFilter}
+                      onChange={(e) => setTransferSourceSubcontractorFilter(e.target.value)}
+                      className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                    >
+                      <option value="All">All Subcontractors</option>
+                      {subcontractors
+                        .filter((sub) => sub.value !== "All")
+                        .map((sub) => (
+                          <option key={`source-${sub.value}`} value={sub.value}>
+                            {sub.label}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Search Accounts
+                    </label>
+                    <input
+                      value={transferAccountSearch}
+                      onChange={(e) => setTransferAccountSearch(e.target.value)}
+                      placeholder="Name, address, city, sub..."
+                      className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-sm font-black text-slate-900">
+                    {selectedTransferAccounts.length} selected
+                  </p>
+                  <p className="text-xs font-semibold text-slate-500">
+                    Showing {Math.min(transferCandidateAccounts.length, 80)} of {transferCandidateAccounts.length} matching active accounts.
+                  </p>
+                </div>
+
+                <div className="mt-3 max-h-[560px] space-y-2 overflow-y-auto pr-1">
+                  {transferCandidateAccounts.length === 0 ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
+                      No active accounts match this search/filter.
+                    </div>
+                  ) : (
+                    transferCandidateAccounts.slice(0, 80).map((account) => {
+                      const accountId = getAccountId(account);
+                      const subDisplay = account._subDisplay ?? {
+                        contactName: "",
+                        companyName: "",
+                        fallback: normalizeText(account.subcontractor) || "Unassigned",
+                      };
+                      const checked = selectedTransferAccountIds.includes(accountId);
+
+                      return (
+                        <label
+                          key={`transfer-pick-${accountId}`}
+                          className={`block cursor-pointer rounded-2xl border p-3 transition ${
+                            checked
+                              ? "border-emerald-400 bg-emerald-50"
+                              : "border-slate-200 bg-white hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleTransferAccount(account)}
+                              className="mt-1 h-5 w-5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="font-black leading-5 text-slate-950">
+                                {account.accountName || "Unnamed Account"}
+                              </p>
+                              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                                {getProposalAddress(account) || "No address"}
+                              </p>
+                              <p className="mt-1 text-xs font-bold text-slate-500">
+                                Current Sub:{" "}
+                                <span className="text-slate-800">
+                                  {subDisplay.contactName || subDisplay.companyName || subDisplay.fallback}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })
+                  )}
                 </div>
               </div>
-            </div>
 
-            {selectedTransferAccounts.length ? (
-              <div className="mt-4 space-y-3">
-                {selectedTransferAccounts.map((account) => {
-                  const accountId = getAccountId(account);
-                  return (
-                    <div key={`proposal-${accountId}`} className="rounded-2xl border border-emerald-200 bg-white p-4">
-                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <p className="text-base font-black text-slate-950">{account.accountName || "Unnamed Account"}</p>
-                          <p className="mt-1 text-sm font-semibold text-slate-600">{getProposalAddress(account) || "No address"}</p>
-                          <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-3">
-                            <p><span className="text-slate-400">Days:</span> {getProposalCleaningDays(account)}</p>
-                            <p><span className="text-slate-400">Keys / Alarm:</span> {getKeysAlarmRequired(account)}</p>
-                            <p><span className="text-slate-400">Scope:</span> {getProposalScope(account)}</p>
+              {/* Right side: destination + proposal */}
+              <div className="rounded-3xl border border-emerald-200 bg-white p-4">
+                <div className="flex flex-col gap-1">
+                  <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                    Proposal Details
+                  </p>
+                  <h3 className="text-xl font-black text-slate-950">
+                    Offer to new subcontractor
+                  </h3>
+                  <p className="text-xs font-semibold leading-5 text-slate-500">
+                    Keys/alarm shows only Yes or No. Details are not included until accepted and approved.
+                  </p>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      New Subcontractor
+                    </label>
+                    <select
+                      value={transferNewSubcontractorMode === "new" ? "__ADD_NEW__" : transferSubcontractorEmail}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === "__ADD_NEW__") {
+                          setTransferNewSubcontractorMode("new");
+                          setTransferSubcontractorEmail("");
+                        } else {
+                          setTransferNewSubcontractorMode("existing");
+                          setTransferSubcontractorEmail(value);
+                        }
+                        setTransferProposalId("");
+                        setTransferMessage("");
+                        setTransferError("");
+                      }}
+                      className="mt-2 min-h-[48px] w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                    >
+                      <option value="">Choose existing subcontractor...</option>
+                      <option value="__ADD_NEW__">+ Add New Subcontractor</option>
+                      {activeSubcontractors.map((sub) => {
+                        const email = normalizeText(sub.email);
+                        const label = getSubcontractorLabel(sub);
+                        if (!email) return null;
+                        return (
+                          <option key={`${email}-${label}`} value={email}>
+                            {label} — {email}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {transferNewSubcontractorMode === "new" ? (
+                    <>
+                      <div>
+                        <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                          New Sub Name
+                        </label>
+                        <input
+                          value={manualTransferSubcontractorName}
+                          onChange={(e) => {
+                            setManualTransferSubcontractorName(e.target.value);
+                            setTransferProposalId("");
+                          }}
+                          placeholder="Company or contact name"
+                          className="mt-2 min-h-[48px] w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                          New Sub Email
+                        </label>
+                        <input
+                          value={manualTransferSubcontractorEmail}
+                          onChange={(e) => {
+                            setManualTransferSubcontractorEmail(e.target.value);
+                            setTransferProposalId("");
+                          }}
+                          placeholder="email@example.com"
+                          className="mt-2 min-h-[48px] w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                        />
+                      </div>
+                    </>
+                  ) : null}
+
+                  <div>
+                    <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Selected Accounts
+                    </label>
+                    <div className="mt-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <p className="text-lg font-black text-slate-950">{selectedTransferAccounts.length}</p>
+                      <p className="text-xs font-semibold text-slate-500">
+                        Total proposed pay: {formatMoney(transferTotalProposedPay)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Proposal ID
+                    </label>
+                    <div className="mt-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-sm font-black text-slate-900">{transferProposalId || "Not saved yet"}</p>
+                      <p className="text-xs font-semibold text-slate-500">Save first, then email when ready.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedTransferAccounts.length ? (
+                  <div className="mt-4 max-h-[460px] space-y-3 overflow-y-auto pr-1">
+                    {selectedTransferAccounts.map((account) => {
+                      const accountId = getAccountId(account);
+                      return (
+                        <div key={`proposal-${accountId}`} className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                          <div className="flex flex-col gap-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-base font-black text-slate-950">{account.accountName || "Unnamed Account"}</p>
+                                <p className="mt-1 text-sm font-semibold text-slate-600">{getProposalAddress(account) || "No address"}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleTransferAccount(account)}
+                                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100"
+                              >
+                                Remove
+                              </button>
+                            </div>
+
+                            <div className="grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-2">
+                              <p><span className="text-slate-400">Days:</span> {getProposalCleaningDays(account)}</p>
+                              <p><span className="text-slate-400">Keys / Alarm:</span> {getKeysAlarmRequired(account)}</p>
+                              <p className="sm:col-span-2"><span className="text-slate-400">Scope:</span> {getProposalScope(account)}</p>
+                            </div>
+
+                            <div>
+                              <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                                Proposed Monthly Pay
+                              </label>
+                              <input
+                                value={transferPayByAccountId[accountId] ?? ""}
+                                onChange={(e) => updateTransferPay(accountId, e.target.value)}
+                                inputMode="decimal"
+                                placeholder="850"
+                                className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                              />
+                            </div>
                           </div>
                         </div>
-                        <div className="w-full lg:w-48">
-                          <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                            Proposed Pay
-                          </label>
-                          <input
-                            value={transferPayByAccountId[accountId] ?? ""}
-                            onChange={(e) => updateTransferPay(accountId, e.target.value)}
-                            inputMode="decimal"
-                            placeholder="850"
-                            className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm font-bold text-slate-600">
-                Use the checkboxes in the account list below to select accounts for this proposal.
-              </div>
-            )}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-slate-600">
+                    Select accounts from the left side to build this proposal.
+                  </div>
+                )}
 
-            <div className="mt-4">
-              <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                Notes
-              </label>
-              <textarea
-                value={transferNotes}
-                onChange={(e) => {
-                  setTransferNotes(e.target.value);
-                  setTransferProposalId("");
-                }}
-                rows={3}
-                placeholder="Optional notes for this proposal..."
-                className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
-              />
-            </div>
+                <div className="mt-4">
+                  <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Notes
+                  </label>
+                  <textarea
+                    value={transferNotes}
+                    onChange={(e) => {
+                      setTransferNotes(e.target.value);
+                      setTransferProposalId("");
+                    }}
+                    rows={3}
+                    placeholder="Optional notes for this proposal..."
+                    className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                  />
+                </div>
 
-            {transferError ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">
-                {transferError}
+                {transferError ? (
+                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">
+                    {transferError}
+                  </div>
+                ) : null}
+
+                {transferMessage ? (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-black text-emerald-800">
+                    {transferMessage}
+                  </div>
+                ) : null}
+
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={handleSaveTransferProposal}
+                    disabled={transferSaving}
+                    className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {transferSaving ? "Working..." : "Save Draft"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePrintTransferProposal}
+                    disabled={transferSaving}
+                    className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Print Proposal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendTransferProposalEmail}
+                    disabled={transferSaving}
+                    className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Send Email
+                  </button>
+                </div>
               </div>
-            ) : null}
-
-            {transferMessage ? (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-black text-emerald-800">
-                {transferMessage}
-              </div>
-            ) : null}
-
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <button
-                type="button"
-                onClick={handleSaveTransferProposal}
-                disabled={transferSaving}
-                className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {transferSaving ? "Working..." : "Save Draft"}
-              </button>
-              <button
-                type="button"
-                onClick={handlePrintTransferProposal}
-                disabled={transferSaving}
-                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Print Proposal
-              </button>
-              <button
-                type="button"
-                onClick={handleSendTransferProposalEmail}
-                disabled={transferSaving}
-                className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Send Email
-              </button>
             </div>
           </div>
         ) : null}
