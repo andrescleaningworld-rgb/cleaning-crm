@@ -687,7 +687,25 @@ export default function AccountsPage() {
     setTransferProposalId("");
 
     setSelectedTransferAccountIds((current) => {
-      if (current.includes(accountId)) return current.filter((id) => id !== accountId);
+      if (current.includes(accountId)) {
+        setTransferPayByAccountId((payCurrent) => {
+          const copy = { ...payCurrent };
+          delete copy[accountId];
+          return copy;
+        });
+
+        return current.filter((id) => id !== accountId);
+      }
+
+      const defaultPay = moneyToNumber(
+        account.monthlySubcontractorPay ?? account.subcontractorPay
+      );
+
+      setTransferPayByAccountId((payCurrent) => ({
+        ...payCurrent,
+        [accountId]: defaultPay > 0 ? String(defaultPay) : "",
+      }));
+
       return [...current, accountId];
     });
   }
@@ -712,6 +730,11 @@ export default function AccountsPage() {
     setTransferProposalId("");
     setTransferMessage("");
     setTransferError("");
+  }
+
+  function cancelTransferProposal() {
+    clearTransferProposal();
+    setTransferMode(false);
   }
 
   function getTransferDestinationSubcontractor() {
@@ -1556,7 +1579,15 @@ export default function AccountsPage() {
                   </div>
                 ) : null}
 
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
+                  <button
+                    type="button"
+                    onClick={cancelTransferProposal}
+                    disabled={transferSaving}
+                    className="rounded-2xl border border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
                   <button
                     type="button"
                     onClick={handleSaveTransferProposal}
