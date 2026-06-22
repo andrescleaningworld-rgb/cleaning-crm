@@ -36,12 +36,34 @@ type Account = {
   notes?: string;
 };
 
+type Subcontractor = {
+  id?: string;
+  subcontractorId?: string;
+  companyName?: string;
+  contactName?: string;
+  displayName?: string;
+  dropdownLabel?: string;
+  name?: string;
+  subcontractor?: string;
+  email?: string;
+  phone?: string;
+};
+
 type ApiResponse = {
   success?: boolean;
   error?: string;
   message?: string;
   data?: Account[];
   accounts?: Account[];
+};
+
+type SubcontractorsApiResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  data?: Subcontractor[];
+  subcontractors?: Subcontractor[];
+  subs?: Subcontractor[];
 };
 
 type QuickStatusOption =
@@ -74,6 +96,14 @@ function normalizeValue(value: string | number | undefined | null) {
 
 function cleanText(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeSubcontractorMatch(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
 }
 
 function moneyToNumber(value: string | undefined) {
@@ -178,6 +208,22 @@ async function readApiResponse(response: Response): Promise<ApiResponse> {
   }
 }
 
+async function readSubcontractorsApiResponse(
+  response: Response
+): Promise<SubcontractorsApiResponse> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as SubcontractorsApiResponse;
+  } catch {
+    throw new Error("The subcontractors server did not return valid JSON.");
+  }
+}
+
 export default function AccountDetailPage() {
   const params = useParams();
   const rawAccountIdFromUrl = String(params?.id || "");
@@ -185,6 +231,7 @@ export default function AccountDetailPage() {
   const normalizedUrlValue = normalizeValue(decodedAccountIdFromUrl);
 
   const [account, setAccount] = useState<Account | null>(null);
+  const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [sendingPacket, setSendingPacket] = useState(false);
   const [error, setError] = useState("");
@@ -218,6 +265,30 @@ export default function AccountDetailPage() {
 
         const accounts: Account[] = data.accounts || data.data || [];
 
+        try {
+          const subcontractorsResponse = await fetch("/api/subcontractors", {
+            cache: "no-store",
+          });
+
+          const subcontractorsData = await readSubcontractorsApiResponse(
+            subcontractorsResponse
+          );
+
+          if (
+            subcontractorsResponse.ok &&
+            subcontractorsData.success !== false
+          ) {
+            setSubcontractors(
+              subcontractorsData.subcontractors ||
+                subcontractorsData.subs ||
+                subcontractorsData.data ||
+                []
+            );
+          }
+        } catch {
+          setSubcontractors([]);
+        }
+
         const foundAccount = accounts.find((item) => {
           const itemId = normalizeValue(item.accountId || item.id);
           const itemRowNumber = normalizeValue(item.rowNumber);
@@ -227,7 +298,8 @@ export default function AccountDetailPage() {
             itemId === normalizedUrlValue ||
             itemRowNumber === normalizedUrlValue ||
             itemName === normalizedUrlValue ||
-            String(item.accountId || item.id || "") === decodedAccountIdFromUrl ||
+            String(item.accountId || item.id || "") ===
+              decodedAccountIdFromUrl ||
             String(item.rowNumber || "") === decodedAccountIdFromUrl ||
             String(item.accountName || "") === decodedAccountIdFromUrl
           );
@@ -296,6 +368,46 @@ export default function AccountDetailPage() {
     account?.subcontractorPay || account?.monthlySubcontractorPay || "";
 
   const alarmInfo = account?.alarmInfo || account?.alarmCode || "";
+
+  const matchedSubcontractor = useMemo(() => {
+    if (!account?.subcontractor) return null;
+
+    const accountSubcontractor = normalizeSubcontractorMatch(
+      account.subcontractor
+    );
+
+    return (
+      subcontractors.find((sub) => {
+        const companyName = normalizeSubcontractorMatch(sub.companyName);
+        const subcontractorName = normalizeSubcontractorMatch(sub.subcontractor);
+        const displayName = normalizeSubcontractorMatch(sub.displayName);
+        const dropdownLabel = normalizeSubcontractorMatch(sub.dropdownLabel);
+        const contactName = normalizeSubcontractorMatch(sub.contactName);
+        const name = normalizeSubcontractorMatch(sub.name);
+
+        return (
+          companyName === accountSubcontractor ||
+          subcontractorName === accountSubcontractor ||
+          displayName === accountSubcontractor ||
+          dropdownLabel === accountSubcontractor ||
+          contactName === accountSubcontractor ||
+          name === accountSubcontractor
+        );
+      }) || null
+    );
+  }, [account?.subcontractor, subcontractors]);
+
+  const subcontractorContactDisplay =
+    matchedSubcontractor?.contactName ||
+    matchedSubcontractor?.name ||
+    account?.subcontractor ||
+    "Unassigned";
+
+  const subcontractorCompanyDisplay =
+    matchedSubcontractor?.companyName &&
+    matchedSubcontractor.companyName !== subcontractorContactDisplay
+      ? matchedSubcontractor.companyName
+      : "";
 
   async function handleSendNewAccountPacket() {
     if (!account) return;
@@ -636,8 +748,14 @@ export default function AccountDetailPage() {
               Subcontractor
             </p>
             <p className="mt-2 text-xl font-black text-slate-950">
-              {account.subcontractor || "Unassigned"}
+              {subcontractorContactDisplay}
             </p>
+
+            {subcontractorCompanyDisplay ? (
+              <p className="mt-1 text-xs font-bold text-slate-500">
+                {subcontractorCompanyDisplay}
+              </p>
+            ) : null}
           </div>
 
           <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
