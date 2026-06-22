@@ -345,6 +345,22 @@ function buildSubDisplay(
   };
 }
 
+function getSubDisplayLabel(display: SubcontractorDisplay | undefined): string {
+  const contactName = normalizeText(display?.contactName);
+  const companyName = normalizeText(display?.companyName);
+  const fallback = normalizeText(display?.fallback);
+
+  if (
+    contactName &&
+    companyName &&
+    normalizeForMatch(contactName) !== normalizeForMatch(companyName)
+  ) {
+    return `${contactName} — ${companyName}`;
+  }
+
+  return contactName || companyName || fallback || "Unassigned";
+}
+
 // ---------------------------------------------------------------------------
 // API helpers (single generic implementation)
 // ---------------------------------------------------------------------------
@@ -567,14 +583,22 @@ export default function AccountsPage() {
     const unique = Array.from(
       new Set(accounts.map((a) => normalizeText(a.subcontractor)).filter(Boolean))
     );
-    const options = unique.map((storedSub) => ({
-      value: storedSub,
-      // Use the pre-computed display label from any matching enriched account
-      label:
-        accounts.find((a) => normalizeText(a.subcontractor) === storedSub)?._subDisplay?.companyName ||
-        storedSub,
-    }));
-    return [{ value: "All", label: "All" }, ...options.sort((a, b) => a.label.localeCompare(b.label))];
+
+    const options = unique.map((storedSub) => {
+      const matchingAccount = accounts.find(
+        (a) => normalizeText(a.subcontractor) === storedSub
+      );
+
+      return {
+        value: storedSub,
+        label: getSubDisplayLabel(matchingAccount?._subDisplay),
+      };
+    });
+
+    return [
+      { value: "All", label: "All Subcontractors" },
+      ...options.sort((a, b) => a.label.localeCompare(b.label)),
+    ];
   }, [accounts]);
 
   // -------------------------------------------------------------------------
@@ -1381,7 +1405,7 @@ export default function AccountsPage() {
                               <p className="mt-1 text-xs font-bold text-slate-500">
                                 Current Sub:{" "}
                                 <span className="text-slate-800">
-                                  {subDisplay.contactName || subDisplay.companyName || subDisplay.fallback}
+                                  {getSubDisplayLabel(subDisplay)}
                                 </span>
                               </p>
                             </div>
@@ -1688,16 +1712,9 @@ export default function AccountsPage() {
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
                         <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Subcontractor</p>
-                        {subDisplay.contactName ? (
-                          <>
-                            <p className="mt-1 font-bold text-slate-700 lg:mt-0">{subDisplay.contactName}</p>
-                            {subDisplay.companyName ? (
-                              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{subDisplay.companyName}</p>
-                            ) : null}
-                          </>
-                        ) : (
-                          <p className="mt-1 font-bold text-slate-700 lg:mt-0">{subDisplay.fallback}</p>
-                        )}
+                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">
+                          {getSubDisplayLabel(subDisplay)}
+                        </p>
                       </div>
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
