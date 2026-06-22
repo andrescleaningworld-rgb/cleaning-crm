@@ -42,6 +42,9 @@ export async function GET() {
         {
           success: false,
           error: data.error || "Failed to load accounts from Google Script.",
+          googleScriptResponse: data,
+          rawGoogleScriptResponse: text,
+          googleScriptStatus: response.status,
         },
         { status: 500 }
       );
@@ -114,6 +117,9 @@ export async function POST(request: Request) {
         {
           success: false,
           error: data.error || "Failed to save account in Google Script.",
+          googleScriptResponse: data,
+          rawGoogleScriptResponse: text,
+          googleScriptStatus: response.status,
         },
         { status: 500 }
       );
