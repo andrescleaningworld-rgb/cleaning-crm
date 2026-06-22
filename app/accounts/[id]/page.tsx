@@ -34,6 +34,18 @@ type Account = {
   cleaningDays?: string;
   scope?: string;
   notes?: string;
+
+  contactPerson?: string;
+  contactName?: string;
+  primaryContact?: string;
+  mainContact?: string;
+  customerContact?: string;
+  phone?: string;
+  contactPhone?: string;
+  customerPhone?: string;
+  email?: string;
+  contactEmail?: string;
+  customerEmail?: string;
 };
 
 type Subcontractor = {
@@ -237,6 +249,7 @@ export default function AccountDetailPage() {
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
+  const [showFullAccountInfo, setShowFullAccountInfo] = useState(false);
 
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
@@ -368,6 +381,26 @@ export default function AccountDetailPage() {
     account?.subcontractorPay || account?.monthlySubcontractorPay || "";
 
   const alarmInfo = account?.alarmInfo || account?.alarmCode || "";
+
+  const contactPerson =
+    account?.contactPerson ||
+    account?.contactName ||
+    account?.primaryContact ||
+    account?.mainContact ||
+    account?.customerContact ||
+    "N/A";
+
+  const contactPhone =
+    account?.phone ||
+    account?.contactPhone ||
+    account?.customerPhone ||
+    "N/A";
+
+  const contactEmail =
+    account?.email ||
+    account?.contactEmail ||
+    account?.customerEmail ||
+    "N/A";
 
   const matchedSubcontractor = useMemo(() => {
     if (!account?.subcontractor) return null;
@@ -707,10 +740,18 @@ export default function AccountDetailPage() {
 
               <Link
                 href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-                className="rounded-2xl bg-sky-100 px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-white sm:col-span-2"
+                className="rounded-2xl bg-sky-100 px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-white"
               >
                 Add Update
               </Link>
+
+              <button
+                type="button"
+                onClick={() => setShowFullAccountInfo(true)}
+                className="rounded-2xl bg-slate-100 px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-white"
+              >
+                Full Account Info
+              </button>
             </div>
           </div>
 
@@ -796,13 +837,219 @@ export default function AccountDetailPage() {
               </p>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="mt-5">
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+                  Contact Info
+                </p>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                  <div className="rounded-2xl bg-white p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Contact Person
+                    </p>
+                    <p className="mt-2 text-sm font-bold text-slate-900">
+                      {contactPerson}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Phone
+                    </p>
+                    <p className="mt-2 text-sm font-bold text-slate-900">
+                      {contactPhone}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl bg-white p-4">
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                      Email
+                    </p>
+                    <p className="mt-2 break-words text-sm font-bold text-slate-900">
+                      {contactEmail}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Start Date
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {startDate}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Cleaning Days
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {cleaningDays}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Frequency
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {cleaningFrequency}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Subcontractor Pay
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {formatMoney(subcontractorPay)}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Has Key
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {account.hasKey || "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Alarm Info
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {alarmInfo || "N/A"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
+                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    Address
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-slate-900">
+                    {accountAddress || "N/A"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="text-xl font-black text-slate-950">Notes</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Internal account notes.
+            </p>
+
+            <div className="mt-5 rounded-2xl bg-blue-50 p-4">
+              <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                {account.notes || "No notes added for this account yet."}
+              </p>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      {showFullAccountInfo ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+                  Full Account Info
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">
+                  {account.accountName || "Unnamed Account"}
+                </h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Complete account reference information.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowFullAccountInfo(false)}
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
+              >
+                X
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Account ID
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
                   {account.accountId || account.id || account.rowNumber || "N/A"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Status
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {account.status || "N/A"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Address
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {accountAddress || "N/A"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Contact Person
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {contactPerson}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Phone
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {contactPhone}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Email
+                </p>
+                <p className="mt-2 break-words text-sm font-bold text-slate-900">
+                  {contactEmail}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Manager
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {account.manager || "N/A"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Subcontractor
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {subcontractorContactDisplay}
                 </p>
               </div>
 
@@ -835,10 +1082,30 @@ export default function AccountDetailPage() {
 
               <div className="rounded-2xl bg-slate-50 p-4">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Monthly Revenue
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {formatMoney(account.monthlyRevenue)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Subcontractor Pay
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
                   {formatMoney(subcontractorPay)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Estimated Gross Margin
+                </p>
+                <p className="mt-2 text-sm font-bold text-slate-900">
+                  {estimatedGrossMargin
+                    ? formatCalculatedMoney(estimatedGrossMargin)
+                    : account.grossMargin || "N/A"}
                 </p>
               </div>
 
@@ -851,40 +1118,36 @@ export default function AccountDetailPage() {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
+              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Alarm Info
                 </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
+                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-900">
                   {alarmInfo || "N/A"}
                 </p>
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Address
+                  Scope / Special Instructions
                 </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {accountAddress || "N/A"}
+                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-900">
+                  {account.scope || "N/A"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Notes
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-900">
+                  {account.notes || "N/A"}
                 </p>
               </div>
             </div>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-slate-950">Notes</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Internal account notes.
-            </p>
-
-            <div className="mt-5 rounded-2xl bg-blue-50 p-4">
-              <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                {account.notes || "No notes added for this account yet."}
-              </p>
-            </div>
-          </section>
+          </div>
         </div>
-      </section>
+      ) : null}
 
       {showStatusModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
