@@ -110,6 +110,27 @@ type SubcontractorsApiResponse = {
   subs?: Subcontractor[];
 };
 
+type TransferProposalPayload = {
+  proposalId?: string;
+  newSubcontractor: string;
+  newSubcontractorEmail: string;
+  subcontractorName: string;
+  subcontractorEmail: string;
+  email: string;
+  proposedMonthlyPay: number;
+  notes: string;
+  accounts: {
+    accountId: string;
+    accountName: string;
+    address: string;
+    cleaningDays: string;
+    scope: string;
+    keysAlarm: string;
+    proposedMonthlyPay: number;
+    monthlyRevenue: number;
+  }[];
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -231,6 +252,43 @@ function formatDate(value: string | undefined): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function hasSensitiveAccessValue(value: unknown): boolean {
+  const clean = normalizeLower(value);
+  if (!clean) return false;
+  return !["no", "none", "n/a", "na", "0", "false"].includes(clean);
+}
+
+function getKeysAlarmRequired(account: Account): "Yes" | "No" {
+  return hasSensitiveAccessValue(account.hasKey) ||
+    hasSensitiveAccessValue(account.alarmCode) ||
+    hasSensitiveAccessValue(account.keyAlarmAccessInfo)
+    ? "Yes"
+    : "No";
+}
+
+function getProposalAddress(account: Account): string {
+  return [account.address, account.city, account.state, account.zip]
+    .map((part) => normalizeText(part))
+    .filter(Boolean)
+    .join(", ");
+}
+
+function getProposalCleaningDays(account: Account): string {
+  return normalizeText(account.cleaningDays ?? account.frequency) || "N/A";
+}
+
+function getProposalScope(account: Account): string {
+  return normalizeText(account.scopeOfWork ?? account.serviceType) || "N/A";
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +464,7 @@ function useFocusTrap(active: boolean) {
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [allSubcontractors, setAllSubcontractors] = useState<Subcontractor[]>([]);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -416,6 +475,16 @@ export default function AccountsPage() {
   const [managerFilter, setManagerFilter] = useState("All");
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
   const [sortOption, setSortOption] = useState<SortOption>("Account Name");
+
+  const [transferMode, setTransferMode] = useState(false);
+  const [selectedTransferAccountIds, setSelectedTransferAccountIds] = useState<string[]>([]);
+  const [transferSubcontractorEmail, setTransferSubcontractorEmail] = useState("");
+  const [transferPayByAccountId, setTransferPayByAccountId] = useState<Record<string, string>>({});
+  const [transferNotes, setTransferNotes] = useState("");
+  const [transferProposalId, setTransferProposalId] = useState("");
+  const [transferSaving, setTransferSaving] = useState(false);
+  const [transferMessage, setTransferMessage] = useState("");
+  const [transferError, setTransferError] = useState("");
 
   const debouncedSearch = useDebounce(searchText, SEARCH_DEBOUNCE_MS);
 
@@ -452,6 +521,7 @@ export default function AccountsPage() {
         const subData = await readJson<SubcontractorsApiResponse>(subcontractorsResponse);
         if (subcontractorsResponse.ok && subData.success !== false) {
           subcontractors = subData.subcontractors ?? subData.subs ?? subData.data ?? [];
+          setAllSubcontractors(subcontractors);
         } else {
           setSubcontractorWarning("Subcontractor names may not display correctly — check the subcontractors API.");
         }
@@ -534,6 +604,255 @@ export default function AccountsPage() {
   const cancelledCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Cancelled").length, [accounts]);
   const highRiskCount = useMemo(() => accounts.filter((a) => normalizeLower(a.accountHealth).includes("high risk")).length, [accounts]);
   const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
+
+  const activeSubcontractors = useMemo(() => {
+    return allSubcontractors
+      .filter((sub) => {
+        const status = normalizeLower(sub.status);
+        return !status || status.includes("active");
+      })
+      .sort((a, b) => getSubcontractorLabel(a).localeCompare(getSubcontractorLabel(b)));
+  }, [allSubcontractors]);
+
+  const selectedTransferSubcontractor = useMemo(() => {
+    if (!transferSubcontractorEmail) return null;
+    return (
+      activeSubcontractors.find((sub) => normalizeText(sub.email) === transferSubcontractorEmail) ??
+      null
+    );
+  }, [activeSubcontractors, transferSubcontractorEmail]);
+
+  const selectedTransferAccounts = useMemo(() => {
+    const selected = new Set(selectedTransferAccountIds);
+    return accounts.filter((account) => selected.has(getAccountId(account)));
+  }, [accounts, selectedTransferAccountIds]);
+
+  const transferTotalProposedPay = useMemo(() => {
+    return selectedTransferAccounts.reduce((sum, account) => {
+      return sum + moneyToNumber(transferPayByAccountId[getAccountId(account)]);
+    }, 0);
+  }, [selectedTransferAccounts, transferPayByAccountId]);
+
+  // -------------------------------------------------------------------------
+  // Transfer proposal helpers
+  // -------------------------------------------------------------------------
+
+  function toggleTransferMode() {
+    setTransferMode((current) => !current);
+    setTransferMessage("");
+    setTransferError("");
+  }
+
+  function toggleTransferAccount(account: Account) {
+    const accountId = getAccountId(account);
+    if (!accountId) return;
+
+    setTransferMessage("");
+    setTransferError("");
+    setTransferProposalId("");
+
+    setSelectedTransferAccountIds((current) => {
+      if (current.includes(accountId)) return current.filter((id) => id !== accountId);
+      return [...current, accountId];
+    });
+  }
+
+  function updateTransferPay(accountId: string, value: string) {
+    setTransferPayByAccountId((current) => ({ ...current, [accountId]: value }));
+    setTransferProposalId("");
+    setTransferMessage("");
+    setTransferError("");
+  }
+
+  function clearTransferProposal() {
+    setSelectedTransferAccountIds([]);
+    setTransferSubcontractorEmail("");
+    setTransferPayByAccountId({});
+    setTransferNotes("");
+    setTransferProposalId("");
+    setTransferMessage("");
+    setTransferError("");
+  }
+
+  function buildTransferProposalPayload(): TransferProposalPayload {
+    const newSubName = selectedTransferSubcontractor
+      ? getSubcontractorLabel(selectedTransferSubcontractor)
+      : "";
+
+    return {
+      proposalId: transferProposalId || undefined,
+      newSubcontractor: newSubName,
+      newSubcontractorEmail: transferSubcontractorEmail,
+      subcontractorName: newSubName,
+      subcontractorEmail: transferSubcontractorEmail,
+      email: transferSubcontractorEmail,
+      proposedMonthlyPay: transferTotalProposedPay,
+      notes: transferNotes.trim(),
+      accounts: selectedTransferAccounts.map((account) => {
+        const accountId = getAccountId(account);
+        return {
+          accountId,
+          accountName: normalizeText(account.accountName) || "Unnamed Account",
+          address: getProposalAddress(account) || "N/A",
+          cleaningDays: getProposalCleaningDays(account),
+          scope: getProposalScope(account),
+          keysAlarm: getKeysAlarmRequired(account),
+          proposedMonthlyPay: moneyToNumber(transferPayByAccountId[accountId]),
+          monthlyRevenue: moneyToNumber(transferPayByAccountId[accountId]),
+        };
+      }),
+    };
+  }
+
+  function validateTransferProposal(): string {
+    if (!transferSubcontractorEmail) return "Choose the new subcontractor first.";
+    if (selectedTransferAccounts.length === 0) return "Select at least one account.";
+    const missingPayAccount = selectedTransferAccounts.find((account) => {
+      const accountId = getAccountId(account);
+      return moneyToNumber(transferPayByAccountId[accountId]) <= 0;
+    });
+    if (missingPayAccount) {
+      return `Add proposed monthly pay for ${missingPayAccount.accountName || "the selected account"}.`;
+    }
+    return "";
+  }
+
+  async function handleSaveTransferProposal() {
+    const validationError = validateTransferProposal();
+    if (validationError) {
+      setTransferError(validationError);
+      return;
+    }
+
+    try {
+      setTransferSaving(true);
+      setTransferError("");
+      setTransferMessage("");
+
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "createSubTransferProposal",
+          proposal: buildTransferProposalPayload(),
+        }),
+      });
+
+      const data = await readJson<{ success?: boolean; error?: string; message?: string; proposalId?: string; id?: string; data?: { proposalId?: string } }>(response);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error ?? "Could not save transfer proposal.");
+      }
+
+      const savedProposalId = data.proposalId ?? data.id ?? data.data?.proposalId ?? transferProposalId;
+      if (savedProposalId) setTransferProposalId(savedProposalId);
+      setTransferMessage(savedProposalId ? `Proposal saved: ${savedProposalId}` : "Proposal saved.");
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Something went wrong saving the proposal.");
+    } finally {
+      setTransferSaving(false);
+    }
+  }
+
+  async function handleSendTransferProposalEmail() {
+    const validationError = validateTransferProposal();
+    if (validationError) {
+      setTransferError(validationError);
+      return;
+    }
+
+    try {
+      setTransferSaving(true);
+      setTransferError("");
+      setTransferMessage("");
+
+      const response = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sendSubTransferProposalEmail",
+          proposal: buildTransferProposalPayload(),
+        }),
+      });
+
+      const data = await readJson<{ success?: boolean; error?: string; message?: string }>(response);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error ?? "Could not send transfer proposal email.");
+      }
+
+      setTransferMessage(data.message ?? "Proposal email sent.");
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Something went wrong sending the email.");
+    } finally {
+      setTransferSaving(false);
+    }
+  }
+
+  function handlePrintTransferProposal() {
+    const validationError = validateTransferProposal();
+    if (validationError) {
+      setTransferError(validationError);
+      return;
+    }
+
+    const proposal = buildTransferProposalPayload();
+    const rows = proposal.accounts
+      .map(
+        (account, index) => `
+          <div class="account">
+            <h2>${index + 1}. ${escapeHtml(account.accountName)}</h2>
+            <p><strong>Address:</strong> ${escapeHtml(account.address)}</p>
+            <p><strong>Cleaning Days:</strong> ${escapeHtml(account.cleaningDays)}</p>
+            <p><strong>Scope:</strong> ${escapeHtml(account.scope)}</p>
+            <p><strong>Keys / Alarm Required:</strong> ${escapeHtml(account.keysAlarm)}</p>
+            <p><strong>Proposed Monthly Pay:</strong> ${formatMoney(account.proposedMonthlyPay)}</p>
+          </div>
+        `
+      )
+      .join("");
+
+    const printWindow = window.open("", "_blank", "width=900,height=700");
+    if (!printWindow) {
+      setTransferError("Popup blocked. Allow popups for this site and try Print Proposal again.");
+      return;
+    }
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Cleaning World Transfer Proposal</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 32px; color: #0f172a; }
+            h1 { margin: 0 0 8px; font-size: 24px; }
+            .meta { margin-bottom: 24px; color: #475569; }
+            .account { border: 1px solid #cbd5e1; border-radius: 14px; padding: 18px; margin-bottom: 14px; page-break-inside: avoid; }
+            .account h2 { margin: 0 0 12px; font-size: 18px; }
+            p { margin: 8px 0; line-height: 1.45; }
+            .note { margin-top: 24px; border-top: 1px solid #cbd5e1; padding-top: 16px; }
+            @media print { button { display: none; } body { margin: 20px; } }
+          </style>
+        </head>
+        <body>
+          <h1>Cleaning World Account Transfer Proposal</h1>
+          <div class="meta">
+            <p><strong>Subcontractor:</strong> ${escapeHtml(proposal.newSubcontractor)}</p>
+            <p><strong>Email:</strong> ${escapeHtml(proposal.newSubcontractorEmail)}</p>
+            <p><strong>Total Proposed Monthly Pay:</strong> ${formatMoney(transferTotalProposedPay)}</p>
+          </div>
+          ${rows}
+          <div class="note">
+            <p><strong>Notes:</strong></p>
+            <p>${escapeHtml(proposal.notes || "N/A")}</p>
+            <p><strong>Access details:</strong> Key/alarm details are not included in this proposal. Details will be provided only after acceptance and approval.</p>
+          </div>
+          <button onclick="window.print()">Print</button>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+  }
+
 
   // -------------------------------------------------------------------------
   // Filters
@@ -725,6 +1044,17 @@ export default function AccountsPage() {
             </Link>
             <button
               type="button"
+              onClick={toggleTransferMode}
+              className={`rounded-2xl px-5 py-3.5 text-sm font-black shadow-sm ${
+                transferMode
+                  ? "bg-amber-500 text-white hover:bg-amber-600"
+                  : "bg-emerald-700 text-white hover:bg-emerald-800"
+              }`}
+            >
+              {transferMode ? "Close Transfer" : "Transfer Proposal"}
+            </button>
+            <button
+              type="button"
               onClick={() => window.print()}
               className="rounded-2xl bg-slate-950 px-5 py-3.5 text-sm font-black text-white shadow-sm hover:bg-blue-950"
             >
@@ -841,6 +1171,178 @@ export default function AccountsPage() {
           </button>
         </div>
 
+        {/* Transfer proposal panel */}
+        {transferMode ? (
+          <div className="mt-5 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 sm:p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">
+                  Subcontractor Account Transfer
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">
+                  New Transfer Proposal
+                </h2>
+                <p className="mt-1 text-sm font-semibold leading-6 text-slate-600">
+                  Select account(s), choose the new subcontractor, enter proposed pay, then save, print, or send the email manually.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={clearTransferProposal}
+                className="rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-xs font-black text-emerald-800 hover:bg-emerald-100"
+              >
+                Clear Proposal
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  New Subcontractor
+                </label>
+                <select
+                  value={transferSubcontractorEmail}
+                  onChange={(e) => {
+                    setTransferSubcontractorEmail(e.target.value);
+                    setTransferProposalId("");
+                    setTransferMessage("");
+                    setTransferError("");
+                  }}
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                >
+                  <option value="">Choose subcontractor...</option>
+                  {activeSubcontractors.map((sub) => {
+                    const email = normalizeText(sub.email);
+                    const label = getSubcontractorLabel(sub);
+                    if (!email) return null;
+                    return (
+                      <option key={`${email}-${label}`} value={email}>
+                        {label} — {email}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Selected Accounts
+                </label>
+                <div className="mt-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
+                  <p className="text-lg font-black text-slate-950">{selectedTransferAccounts.length}</p>
+                  <p className="text-xs font-semibold text-slate-500">
+                    Total proposed pay: {formatMoney(transferTotalProposedPay)}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Proposal ID
+                </label>
+                <div className="mt-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
+                  <p className="text-sm font-black text-slate-900">{transferProposalId || "Not saved yet"}</p>
+                  <p className="text-xs font-semibold text-slate-500">Save first, then email when ready.</p>
+                </div>
+              </div>
+            </div>
+
+            {selectedTransferAccounts.length ? (
+              <div className="mt-4 space-y-3">
+                {selectedTransferAccounts.map((account) => {
+                  const accountId = getAccountId(account);
+                  return (
+                    <div key={`proposal-${accountId}`} className="rounded-2xl border border-emerald-200 bg-white p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <p className="text-base font-black text-slate-950">{account.accountName || "Unnamed Account"}</p>
+                          <p className="mt-1 text-sm font-semibold text-slate-600">{getProposalAddress(account) || "No address"}</p>
+                          <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-3">
+                            <p><span className="text-slate-400">Days:</span> {getProposalCleaningDays(account)}</p>
+                            <p><span className="text-slate-400">Keys / Alarm:</span> {getKeysAlarmRequired(account)}</p>
+                            <p><span className="text-slate-400">Scope:</span> {getProposalScope(account)}</p>
+                          </div>
+                        </div>
+                        <div className="w-full lg:w-48">
+                          <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                            Proposed Pay
+                          </label>
+                          <input
+                            value={transferPayByAccountId[accountId] ?? ""}
+                            onChange={(e) => updateTransferPay(accountId, e.target.value)}
+                            inputMode="decimal"
+                            placeholder="850"
+                            className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm font-bold text-slate-600">
+                Use the checkboxes in the account list below to select accounts for this proposal.
+              </div>
+            )}
+
+            <div className="mt-4">
+              <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                Notes
+              </label>
+              <textarea
+                value={transferNotes}
+                onChange={(e) => {
+                  setTransferNotes(e.target.value);
+                  setTransferProposalId("");
+                }}
+                rows={3}
+                placeholder="Optional notes for this proposal..."
+                className="mt-2 w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
+              />
+            </div>
+
+            {transferError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-700">
+                {transferError}
+              </div>
+            ) : null}
+
+            {transferMessage ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-black text-emerald-800">
+                {transferMessage}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <button
+                type="button"
+                onClick={handleSaveTransferProposal}
+                disabled={transferSaving}
+                className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {transferSaving ? "Working..." : "Save Draft"}
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintTransferProposal}
+                disabled={transferSaving}
+                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Print Proposal
+              </button>
+              <button
+                type="button"
+                onClick={handleSendTransferProposalEmail}
+                disabled={transferSaving}
+                className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Send Email
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {/* Accounts table */}
         <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200">
           <div className="hidden grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 lg:grid">
@@ -870,7 +1372,18 @@ export default function AccountsPage() {
                     key={`${accountId}-${index}`}
                     className="px-4 py-4 text-sm hover:bg-blue-50 lg:grid lg:grid-cols-12 lg:gap-3"
                   >
-                    <Link href={accountHref} className="block no-underline lg:col-span-3">
+                    <div className="lg:col-span-3">
+                      <div className="flex items-start gap-3">
+                        {transferMode ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedTransferAccountIds.includes(accountId)}
+                            onChange={() => toggleTransferAccount(account)}
+                            aria-label={`Select ${account.accountName ?? "this account"} for transfer proposal`}
+                            className="mt-1 h-5 w-5 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+                          />
+                        ) : null}
+                        <Link href={accountHref} className="block flex-1 no-underline">
                       <div className="flex items-start justify-between gap-3 lg:block">
                         <div>
                           <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
@@ -888,7 +1401,9 @@ export default function AccountsPage() {
                           <p className="text-sm font-black text-slate-950">{formatMoney(account.monthlyRevenue)}</p>
                         </div>
                       </div>
-                    </Link>
+                        </Link>
+                      </div>
+                    </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3 lg:col-span-9 lg:mt-0 lg:grid-cols-9">
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
