@@ -34,6 +34,8 @@ type CloseComplaintResponse = {
   error?: string;
 };
 
+type SortBy = "recent" | "priority" | "status";
+
 function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -62,6 +64,18 @@ function formatDate(value: unknown): string {
   });
 }
 
+function getDateTime(value: unknown): number {
+  const text = clean(value);
+
+  if (!text) return 0;
+
+  const date = new Date(text);
+
+  if (Number.isNaN(date.getTime())) return 0;
+
+  return date.getTime();
+}
+
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -69,6 +83,31 @@ function todayIsoDate(): string {
 function isClosedComplaint(status: unknown): boolean {
   const value = clean(status).toLowerCase();
   return value.includes("closed") || value.includes("resolved");
+}
+
+function getPriorityRank(value: unknown): number {
+  const text = clean(value).toLowerCase();
+
+  if (text.includes("urgent")) return 1;
+  if (text.includes("high")) return 2;
+  if (text.includes("medium")) return 3;
+  if (text.includes("low")) return 4;
+
+  return 99;
+}
+
+function getStatusRank(value: unknown): number {
+  const text = clean(value).toLowerCase();
+
+  if (text.includes("open")) return 1;
+  if (text.includes("progress")) return 2;
+  if (text.includes("pending")) return 3;
+  if (text.includes("needs attention")) return 4;
+  if (text.includes("needs review")) return 5;
+  if (text.includes("resolved")) return 6;
+  if (text.includes("closed")) return 7;
+
+  return 99;
 }
 
 function getStatusClass(status: unknown): string {
@@ -143,6 +182,7 @@ export default function ComplaintsPage() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortBy>("recent");
 
   const [selectedComplaint, setSelectedComplaint] =
     useState<Complaint | null>(null);
@@ -168,10 +208,7 @@ export default function ComplaintsPage() {
         throw new Error("Complaints API did not return valid JSON.");
       }
 
-      if (
-        !response.ok ||
-        (!Array.isArray(data) && data.success === false)
-      ) {
+      if (!response.ok || (!Array.isArray(data) && data.success === false)) {
         throw new Error(
           !Array.isArray(data) && data.error
             ? data.error
@@ -305,6 +342,31 @@ export default function ComplaintsPage() {
     });
   }, [complaints, search]);
 
+  const sortedComplaints = useMemo(() => {
+    return [...filteredComplaints].sort((a, b) => {
+      if (sortBy === "priority") {
+        const priorityDifference =
+          getPriorityRank(a.severity || a.priority) -
+          getPriorityRank(b.severity || b.priority);
+
+        if (priorityDifference !== 0) return priorityDifference;
+
+        return getDateTime(b.date) - getDateTime(a.date);
+      }
+
+      if (sortBy === "status") {
+        const statusDifference =
+          getStatusRank(a.status) - getStatusRank(b.status);
+
+        if (statusDifference !== 0) return statusDifference;
+
+        return getDateTime(b.date) - getDateTime(a.date);
+      }
+
+      return getDateTime(b.date) - getDateTime(a.date);
+    });
+  }, [filteredComplaints, sortBy]);
+
   const openComplaints = useMemo(() => {
     return complaints.filter((complaint) => {
       const value = clean(complaint.status).toLowerCase();
@@ -339,7 +401,7 @@ export default function ComplaintsPage() {
     <main className="min-h-screen bg-gray-50 p-4 text-gray-900 md:p-6">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-red-600">
+          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
             Cleaning World
           </p>
           <h1 className="mt-2 text-3xl font-bold">Complaints</h1>
@@ -352,7 +414,7 @@ export default function ComplaintsPage() {
         <div className="flex flex-col gap-3 sm:flex-row">
           <Link
             href="/complaints/new"
-            className="rounded-xl bg-red-600 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-red-700"
+            className="rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-blue-700"
           >
             + Add Complaint
           </Link>
@@ -405,7 +467,9 @@ export default function ComplaintsPage() {
           <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
             Review
           </p>
-          <h2 className="mt-2 text-3xl font-bold">{needsReviewComplaints}</h2>
+          <h2 className="mt-2 text-3xl font-bold">
+            {needsReviewComplaints}
+          </h2>
         </div>
 
         <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:col-span-1 md:p-5">
@@ -417,17 +481,34 @@ export default function ComplaintsPage() {
       </section>
 
       <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <label className="block">
-          <span className="mb-2 block text-sm font-bold text-gray-700">
-            Search Complaints
-          </span>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search by account, issue, status, validity, priority..."
-            className="w-full rounded-xl border border-gray-300 px-4 py-3"
-          />
-        </label>
+        <div className="grid gap-4 md:grid-cols-[1fr_220px] md:items-end">
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-gray-700">
+              Search Complaints
+            </span>
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by account, issue, status, validity, priority..."
+              className="w-full rounded-xl border border-gray-300 px-4 py-3"
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-bold text-gray-700">
+              Sort By
+            </span>
+            <select
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as SortBy)}
+              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 font-semibold text-gray-800"
+            >
+              <option value="recent">Most Recent</option>
+              <option value="priority">Priority</option>
+              <option value="status">Status</option>
+            </select>
+          </label>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
@@ -440,18 +521,18 @@ export default function ComplaintsPage() {
           </div>
 
           <span className="font-bold text-gray-500">
-            {filteredComplaints.length} complaints
+            {sortedComplaints.length} complaints
           </span>
         </div>
 
         {loading ? (
           <p className="text-gray-500">Loading complaints...</p>
-        ) : filteredComplaints.length === 0 ? (
+        ) : sortedComplaints.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
             <p className="font-semibold text-gray-700">No complaints found.</p>
             <Link
               href="/complaints/new"
-              className="mt-4 inline-block rounded-xl bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-700"
+              className="mt-4 inline-block rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700"
             >
               + Add Complaint
             </Link>
@@ -459,7 +540,7 @@ export default function ComplaintsPage() {
         ) : (
           <>
             <div className="space-y-4 md:hidden">
-              {filteredComplaints.map((complaint, index) => (
+              {sortedComplaints.map((complaint, index) => (
                 <div
                   key={`${complaint.id || "mobile-complaint"}-${index}`}
                   className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
@@ -568,7 +649,7 @@ export default function ComplaintsPage() {
                 </thead>
 
                 <tbody>
-                  {filteredComplaints.map((complaint, index) => (
+                  {sortedComplaints.map((complaint, index) => (
                     <tr
                       key={`${complaint.id || "complaint"}-${index}`}
                       className="border-b last:border-b-0"
