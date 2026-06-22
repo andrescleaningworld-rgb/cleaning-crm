@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type Account = {
   id?: string;
@@ -34,6 +38,12 @@ type Account = {
   scopeOfWork?: string;
   notes?: string;
   cancelledDate?: string;
+  // Pre-normalized fields added at load time
+  _searchBlob?: string;
+  _statusCategory?: StatusFilter;
+  _monthlyRevenueNum?: number;
+  _startDateTime?: number;
+  _subDisplay?: SubcontractorDisplay;
 };
 
 type Subcontractor = {
@@ -48,6 +58,12 @@ type Subcontractor = {
   dropdownLabel?: string;
   email?: string;
   status?: string;
+};
+
+type SubcontractorDisplay = {
+  contactName: string;
+  companyName: string;
+  fallback: string;
 };
 
 type SubcontractorFilterOption = {
@@ -68,6 +84,15 @@ type SortOption =
   | "Start Date - Newest First"
   | "Start Date - Oldest First";
 
+type QuickStatusOption =
+  | "Active"
+  | "Cancelled"
+  | "Paused"
+  | "Over 90 Days"
+  | "Inactive"
+  | "Needs Review"
+  | "Other";
+
 type ApiResponse = {
   success?: boolean;
   error?: string;
@@ -85,324 +110,306 @@ type SubcontractorsApiResponse = {
   subs?: Subcontractor[];
 };
 
-type QuickStatusOption =
-  | "Active"
-  | "Cancelled"
-  | "Paused"
-  | "Over 90 Days"
-  | "Inactive"
-  | "Needs Review"
-  | "Other";
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const INITIAL_VISIBLE_COUNT = 30;
 const LOAD_MORE_COUNT = 30;
+const SEARCH_DEBOUNCE_MS = 200;
 
-function normalizeText(value: unknown) {
-  return String(value || "").trim();
+const STATUS_CATEGORY_MAP: Record<string, StatusFilter> = {
+  active: "Active",
+  "active account": "Active",
+  current: "Active",
+};
+
+const quickStatusOptions: QuickStatusOption[] = [
+  "Active",
+  "Cancelled",
+  "Paused",
+  "Over 90 Days",
+  "Inactive",
+  "Needs Review",
+  "Other",
+];
+
+const statusOptions: StatusFilter[] = [
+  "Active",
+  "Cancelled",
+  "Paused",
+  "Over 90 Days",
+  "Other",
+  "All",
+];
+
+const sortOptions: SortOption[] = [
+  "Account Name",
+  "Start Date - Newest First",
+  "Start Date - Oldest First",
+];
+
+// ---------------------------------------------------------------------------
+// Pure helpers
+// ---------------------------------------------------------------------------
+
+function normalizeText(value: unknown): string {
+  return String(value ?? "").trim();
 }
 
-function normalizeLower(value: unknown) {
+function normalizeLower(value: unknown): string {
   return normalizeText(value).toLowerCase();
 }
 
-function normalizeSubcontractorMatch(value: unknown) {
-  return String(value || "")
+/** Strips punctuation/symbols for fuzzy subcontractor matching. */
+function normalizeForMatch(value: unknown): string {
+  return String(value ?? "")
     .toLowerCase()
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]/g, "")
     .trim();
 }
 
-function getAccountId(account: Account) {
+function getAccountId(account: Account): string {
   return normalizeText(
-    account.accountId || account.id || account.rowNumber || account.accountName
+    account.accountId ?? account.id ?? account.rowNumber ?? account.accountName
   );
 }
 
-function getSubcontractorCompanyName(subcontractor: Subcontractor) {
-  return normalizeText(subcontractor.companyName || subcontractor.subcontractor);
+function getStatusCategory(status: string | undefined): StatusFilter {
+  const clean = normalizeLower(status);
+  if (!clean) return "Other";
+
+  // Exact-match lookup first
+  if (STATUS_CATEGORY_MAP[clean]) return STATUS_CATEGORY_MAP[clean];
+
+  // Substring checks — ordered by specificity
+  if (clean.includes("cancel") || clean.includes("lost") || clean.includes("terminated") || clean.includes("closed")) return "Cancelled";
+  if (clean.includes("pause") || clean.includes("hold") || clean.includes("suspended")) return "Paused";
+  if (clean.includes("90") || clean.includes("over 90") || clean.includes("over ninety") || clean.includes("old")) return "Over 90 Days";
+
+  return "Other";
 }
 
-function getSubcontractorContactName(subcontractor: Subcontractor) {
-  return normalizeText(
-    subcontractor.contactName ||
-      subcontractor.name ||
-      subcontractor.subcontractorName
-  );
+function getStatusClass(status: string | undefined): string {
+  const category = getStatusCategory(status);
+  if (category === "Active") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (category === "Cancelled") return "border-red-200 bg-red-50 text-red-800";
+  if (category === "Paused" || category === "Over 90 Days") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
 }
 
-function getSubcontractorLabel(subcontractor: Subcontractor) {
-  const contactName = getSubcontractorContactName(subcontractor);
-  const companyName = getSubcontractorCompanyName(subcontractor);
+function getHealthClass(health: string | undefined): string {
+  const clean = normalizeLower(health);
+  if (clean.includes("high risk")) return "border-red-200 bg-red-50 text-red-800";
+  if (clean.includes("attention")) return "border-amber-200 bg-amber-50 text-amber-800";
+  if (clean.includes("stable") || clean.includes("good") || clean.includes("excellent")) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
 
-  if (contactName && companyName) {
-    return `${contactName} — ${companyName}`;
-  }
+function moneyToNumber(value: string | number | undefined): number {
+  if (value === undefined || value === null || value === "") return 0;
+  if (typeof value === "number") return Number.isNaN(value) ? 0 : value;
+  const parsed = Number(String(value).replace(/\$/g, "").replace(/,/g, "").trim());
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
 
-  return (
-    normalizeText(subcontractor.displayName) ||
-    normalizeText(subcontractor.dropdownLabel) ||
-    contactName ||
-    companyName ||
-    normalizeText(subcontractor.email)
-  );
+function formatMoney(value: string | number | undefined): string {
+  const number = moneyToNumber(value);
+  if (!number) return "N/A";
+  return number.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+function getDateTime(value: string | undefined): number {
+  if (!value) return 0;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function formatDate(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// Subcontractor helpers
+// ---------------------------------------------------------------------------
+
+function getSubcontractorContactName(sub: Subcontractor): string {
+  return normalizeText(sub.contactName ?? sub.name ?? sub.subcontractorName);
+}
+
+function getSubcontractorCompanyName(sub: Subcontractor): string {
+  return normalizeText(sub.companyName ?? sub.subcontractor);
+}
+
+function getSubcontractorLabel(sub: Subcontractor): string {
+  const contact = getSubcontractorContactName(sub);
+  const company = getSubcontractorCompanyName(sub);
+  if (contact && company) return `${contact} — ${company}`;
+  return normalizeText(sub.displayName) || normalizeText(sub.dropdownLabel) || contact || company || normalizeText(sub.email);
 }
 
 function findMatchingSubcontractor(
   accountSubcontractor: unknown,
   subcontractors: Subcontractor[]
-) {
-  const accountValue = normalizeSubcontractorMatch(accountSubcontractor);
-
+): Subcontractor | null {
+  const accountValue = normalizeForMatch(accountSubcontractor);
   if (!accountValue) return null;
 
   return (
-    subcontractors.find((subcontractor) => {
-      const companyName = normalizeSubcontractorMatch(
-        subcontractor.companyName
-      );
-      const subcontractorName = normalizeSubcontractorMatch(
-        subcontractor.subcontractor
-      );
-      const displayName = normalizeSubcontractorMatch(
-        subcontractor.displayName
-      );
-      const dropdownLabel = normalizeSubcontractorMatch(
-        subcontractor.dropdownLabel
-      );
-      const contactName = normalizeSubcontractorMatch(
-        subcontractor.contactName
-      );
-      const name = normalizeSubcontractorMatch(subcontractor.name);
-      const subcontractorNameAlt = normalizeSubcontractorMatch(
-        subcontractor.subcontractorName
-      );
-
-      return (
-        companyName === accountValue ||
-        subcontractorName === accountValue ||
-        displayName === accountValue ||
-        dropdownLabel === accountValue ||
-        contactName === accountValue ||
-        name === accountValue ||
-        subcontractorNameAlt === accountValue
-      );
-    }) || null
+    subcontractors.find((sub) => {
+      const candidates = [
+        sub.companyName,
+        sub.subcontractor,
+        sub.displayName,
+        sub.dropdownLabel,
+        sub.contactName,
+        sub.name,
+        sub.subcontractorName,
+      ];
+      return candidates.some((c) => normalizeForMatch(c) === accountValue);
+    }) ?? null
   );
 }
 
-function getAccountSubcontractorDisplay(
+function buildSubDisplay(
   account: Account,
   subcontractors: Subcontractor[]
-) {
-  const matchedSubcontractor = findMatchingSubcontractor(
-    account.subcontractor,
-    subcontractors
-  );
-
-  const contactName =
-    matchedSubcontractor?.contactName ||
-    matchedSubcontractor?.name ||
-    matchedSubcontractor?.subcontractorName ||
-    "";
-
-  const companyName =
-    matchedSubcontractor?.companyName ||
-    matchedSubcontractor?.subcontractor ||
-    account.subcontractor ||
-    "";
-
+): SubcontractorDisplay {
+  const matched = findMatchingSubcontractor(account.subcontractor, subcontractors);
   return {
-    contactName: normalizeText(contactName),
-    companyName: normalizeText(companyName),
+    contactName: normalizeText(matched?.contactName ?? matched?.name ?? matched?.subcontractorName),
+    companyName: normalizeText(matched?.companyName ?? matched?.subcontractor ?? account.subcontractor),
     fallback: normalizeText(account.subcontractor) || "Unassigned",
   };
 }
 
-function moneyToNumber(value: string | number | undefined) {
-  if (value === undefined || value === null || value === "") return 0;
+// ---------------------------------------------------------------------------
+// API helpers (single generic implementation)
+// ---------------------------------------------------------------------------
 
-  if (typeof value === "number") {
-    return Number.isNaN(value) ? 0 : value;
-  }
-
-  const cleaned = String(value)
-    .replace(/\$/g, "")
-    .replace(/,/g, "")
-    .trim();
-
-  const parsed = Number(cleaned);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function formatMoney(value: string | number | undefined) {
-  const number = moneyToNumber(value);
-
-  if (!number) return "N/A";
-
-  return number.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  });
-}
-
-function getDateTime(value: string | undefined) {
-  if (!value) return 0;
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return 0;
-  }
-
-  return date.getTime();
-}
-
-function formatDate(value: string | undefined) {
-  if (!value) return "";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function getStatusCategory(status: string | undefined): StatusFilter {
-  const clean = normalizeLower(status);
-
-  if (!clean) return "Other";
-
-  if (
-    clean === "active" ||
-    clean === "active account" ||
-    clean === "current"
-  ) {
-    return "Active";
-  }
-
-  if (
-    clean.includes("cancel") ||
-    clean.includes("lost") ||
-    clean.includes("terminated") ||
-    clean.includes("closed")
-  ) {
-    return "Cancelled";
-  }
-
-  if (
-    clean.includes("pause") ||
-    clean.includes("hold") ||
-    clean.includes("suspended")
-  ) {
-    return "Paused";
-  }
-
-  if (
-    clean.includes("90") ||
-    clean.includes("over 90") ||
-    clean.includes("over ninety") ||
-    clean.includes("old")
-  ) {
-    return "Over 90 Days";
-  }
-
-  if (
-    clean.includes("inactive") ||
-    clean.includes("archive") ||
-    clean.includes("duplicate")
-  ) {
-    return "Other";
-  }
-
-  return "Other";
-}
-
-function getStatusClass(status: string | undefined) {
-  const category = getStatusCategory(status);
-
-  if (category === "Active") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  }
-
-  if (category === "Cancelled") {
-    return "border-red-200 bg-red-50 text-red-800";
-  }
-
-  if (category === "Paused" || category === "Over 90 Days") {
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
-function getHealthClass(health: string | undefined) {
-  const clean = normalizeLower(health);
-
-  if (clean.includes("high risk")) {
-    return "border-red-200 bg-red-50 text-red-800";
-  }
-
-  if (clean.includes("attention")) {
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  }
-
-  if (
-    clean.includes("stable") ||
-    clean.includes("good") ||
-    clean.includes("excellent")
-  ) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
-async function readApiResponse(response: Response): Promise<ApiResponse> {
+async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-
-  if (!text.trim()) {
-    return {};
-  }
-
+  if (!text.trim()) return {} as T;
   try {
-    return JSON.parse(text) as ApiResponse;
+    return JSON.parse(text) as T;
   } catch {
     throw new Error("The server did not return valid JSON.");
   }
 }
 
-async function readSubcontractorsApiResponse(
-  response: Response
-): Promise<SubcontractorsApiResponse> {
-  const text = await response.text();
+// ---------------------------------------------------------------------------
+// Pre-normalization — runs once when accounts + subcontractors are loaded
+// ---------------------------------------------------------------------------
 
-  if (!text.trim()) {
-    return {};
-  }
+function enrichAccounts(accounts: Account[], subcontractors: Subcontractor[]): Account[] {
+  return accounts.map((account) => {
+    const subDisplay = buildSubDisplay(account, subcontractors);
+    const searchBlob = [
+      account.accountName,
+      account.address,
+      account.city,
+      account.state,
+      account.zip,
+      account.manager,
+      account.subcontractor,
+      subDisplay.contactName,
+      subDisplay.companyName,
+      account.status,
+      account.accountHealth,
+      account.accountStartDate,
+      account.contactName,
+      account.phone,
+      account.email,
+      account.notes,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
-  try {
-    return JSON.parse(text) as SubcontractorsApiResponse;
-  } catch {
-    throw new Error("The subcontractors server did not return valid JSON.");
-  }
+    return {
+      ...account,
+      _searchBlob: searchBlob,
+      _statusCategory: getStatusCategory(account.status),
+      _monthlyRevenueNum: moneyToNumber(account.monthlyRevenue),
+      _startDateTime: getDateTime(account.accountStartDate),
+      _subDisplay: subDisplay,
+    };
+  });
 }
+
+// ---------------------------------------------------------------------------
+// useDebounce hook
+// ---------------------------------------------------------------------------
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+
+  return debounced;
+}
+
+// ---------------------------------------------------------------------------
+// useFocusTrap hook — keeps keyboard focus inside a modal
+// ---------------------------------------------------------------------------
+
+function useFocusTrap(active: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!active || !ref.current) return;
+
+    const container = ref.current;
+    const focusable = container.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    // Move focus into the dialog
+    first?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Tab") return;
+      if (focusable.length === 0) { event.preventDefault(); return; }
+
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [active]);
+
+  return ref;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [subcontractorsData, setSubcontractorsData] = useState<Subcontractor[]>(
-    []
-  );
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [subcontractorWarning, setSubcontractorWarning] = useState("");
 
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
@@ -410,61 +417,52 @@ export default function AccountsPage() {
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
   const [sortOption, setSortOption] = useState<SortOption>("Account Name");
 
-  const [statusModalAccount, setStatusModalAccount] =
-    useState<Account | null>(null);
+  const debouncedSearch = useDebounce(searchText, SEARCH_DEBOUNCE_MS);
+
+  const [statusModalAccount, setStatusModalAccount] = useState<Account | null>(null);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
   const [statusReason, setStatusReason] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState("");
 
+  const modalRef = useFocusTrap(statusModalAccount !== null);
+
+  // -------------------------------------------------------------------------
+  // Data loading
+  // -------------------------------------------------------------------------
+
   async function loadAccounts() {
     try {
       setLoading(true);
       setError("");
+      setSubcontractorWarning("");
 
-      const response = await fetch("/api/accounts", {
-        cache: "no-store",
-      });
+      const [accountsResponse, subcontractorsResponse] = await Promise.all([
+        fetch("/api/accounts", { cache: "no-store" }),
+        fetch("/api/subcontractors", { cache: "no-store" }),
+      ]);
 
-      const data = await readApiResponse(response);
-
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || "Could not load accounts.");
+      const accountsData = await readJson<ApiResponse>(accountsResponse);
+      if (!accountsResponse.ok || accountsData.success === false) {
+        throw new Error(accountsData.error ?? "Could not load accounts.");
       }
 
-      const loadedAccounts: Account[] = data.accounts || data.data || [];
-
-      setAccounts(loadedAccounts);
-
+      let subcontractors: Subcontractor[] = [];
       try {
-        const subcontractorsResponse = await fetch("/api/subcontractors", {
-          cache: "no-store",
-        });
-
-        const subcontractorsData = await readSubcontractorsApiResponse(
-          subcontractorsResponse
-        );
-
-        if (
-          subcontractorsResponse.ok &&
-          subcontractorsData.success !== false
-        ) {
-          setSubcontractorsData(
-            subcontractorsData.subcontractors ||
-              subcontractorsData.subs ||
-              subcontractorsData.data ||
-              []
-          );
+        const subData = await readJson<SubcontractorsApiResponse>(subcontractorsResponse);
+        if (subcontractorsResponse.ok && subData.success !== false) {
+          subcontractors = subData.subcontractors ?? subData.subs ?? subData.data ?? [];
+        } else {
+          setSubcontractorWarning("Subcontractor names may not display correctly — check the subcontractors API.");
         }
       } catch {
-        setSubcontractorsData([]);
+        setSubcontractorWarning("Subcontractor names may not display correctly — the subcontractors API returned an unexpected response.");
       }
+
+      const rawAccounts: Account[] = accountsData.accounts ?? accountsData.data ?? [];
+      setAccounts(enrichAccounts(rawAccounts, subcontractors));
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong loading accounts."
-      );
+      setError(err instanceof Error ? err.message : "Something went wrong loading accounts.");
     } finally {
       setLoading(false);
     }
@@ -474,194 +472,72 @@ export default function AccountsPage() {
     loadAccounts();
   }, []);
 
+  // Reset visible count whenever filters change
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
-  }, [
-    searchText,
-    statusFilter,
-    managerFilter,
-    subcontractorFilter,
-    sortOption,
-  ]);
+  }, [debouncedSearch, statusFilter, managerFilter, subcontractorFilter, sortOption]);
+
+  // -------------------------------------------------------------------------
+  // Derived filter options (managers + subcontractors)
+  // -------------------------------------------------------------------------
 
   const managers = useMemo(() => {
-    const uniqueManagers = Array.from(
-      new Set(
-        accounts
-          .map((account) => normalizeText(account.manager))
-          .filter(Boolean)
-      )
+    const unique = Array.from(
+      new Set(accounts.map((a) => normalizeText(a.manager)).filter(Boolean))
     );
-
-    return ["All", ...uniqueManagers.sort()];
+    return ["All", ...unique.sort()];
   }, [accounts]);
 
   const subcontractors = useMemo<SubcontractorFilterOption[]>(() => {
-    const accountSubcontractors = Array.from(
-      new Set(
-        accounts
-          .map((account) => normalizeText(account.subcontractor))
-          .filter(Boolean)
-      )
+    const unique = Array.from(
+      new Set(accounts.map((a) => normalizeText(a.subcontractor)).filter(Boolean))
     );
+    const options = unique.map((storedSub) => ({
+      value: storedSub,
+      // Use the pre-computed display label from any matching enriched account
+      label:
+        accounts.find((a) => normalizeText(a.subcontractor) === storedSub)?._subDisplay?.companyName ||
+        storedSub,
+    }));
+    return [{ value: "All", label: "All" }, ...options.sort((a, b) => a.label.localeCompare(b.label))];
+  }, [accounts]);
 
-    const options = accountSubcontractors.map((storedSubcontractor) => {
-      const matchedSubcontractor = findMatchingSubcontractor(
-        storedSubcontractor,
-        subcontractorsData
-      );
-
-      return {
-        value: storedSubcontractor,
-        label: matchedSubcontractor
-          ? getSubcontractorLabel(matchedSubcontractor)
-          : storedSubcontractor,
-      };
-    });
-
-    return [
-      {
-        value: "All",
-        label: "All",
-      },
-      ...options.sort((a, b) => a.label.localeCompare(b.label)),
-    ];
-  }, [accounts, subcontractorsData]);
-
-  const statusOptions: StatusFilter[] = [
-    "Active",
-    "Cancelled",
-    "Paused",
-    "Over 90 Days",
-    "Other",
-    "All",
-  ];
-
-  const quickStatusOptions: QuickStatusOption[] = [
-    "Active",
-    "Cancelled",
-    "Paused",
-    "Over 90 Days",
-    "Inactive",
-    "Needs Review",
-    "Other",
-  ];
-
-  const sortOptions: SortOption[] = [
-    "Account Name",
-    "Start Date - Newest First",
-    "Start Date - Oldest First",
-  ];
+  // -------------------------------------------------------------------------
+  // Filtering + sorting — uses pre-normalized fields for speed
+  // -------------------------------------------------------------------------
 
   const filteredAccounts = useMemo(() => {
-    const cleanSearch = searchText.toLowerCase().trim();
+    const cleanSearch = debouncedSearch.toLowerCase().trim();
 
     const filtered = accounts.filter((account) => {
-      const statusCategory = getStatusCategory(account.status);
-      const subDisplay = getAccountSubcontractorDisplay(
-        account,
-        subcontractorsData
-      );
-
-      const searchableText = [
-        account.accountName,
-        account.address,
-        account.city,
-        account.state,
-        account.zip,
-        account.manager,
-        account.subcontractor,
-        subDisplay.contactName,
-        subDisplay.companyName,
-        account.status,
-        account.accountHealth,
-        account.accountStartDate,
-        account.contactName,
-        account.phone,
-        account.email,
-        account.notes,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch = !cleanSearch || searchableText.includes(cleanSearch);
-
-      const matchesStatus =
-        statusFilter === "All" || statusCategory === statusFilter;
-
-      const matchesManager =
-        managerFilter === "All" ||
-        normalizeText(account.manager) === managerFilter;
-
-      const matchesSubcontractor =
-        subcontractorFilter === "All" ||
-        normalizeText(account.subcontractor) === subcontractorFilter;
-
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesManager &&
-        matchesSubcontractor
-      );
+      const matchesSearch = !cleanSearch || (account._searchBlob ?? "").includes(cleanSearch);
+      const matchesStatus = statusFilter === "All" || account._statusCategory === statusFilter;
+      const matchesManager = managerFilter === "All" || normalizeText(account.manager) === managerFilter;
+      const matchesSubcontractor = subcontractorFilter === "All" || normalizeText(account.subcontractor) === subcontractorFilter;
+      return matchesSearch && matchesStatus && matchesManager && matchesSubcontractor;
     });
 
-    const sorted = [...filtered];
+    return [...filtered].sort((a, b) => {
+      if (sortOption === "Start Date - Newest First") return (b._startDateTime ?? 0) - (a._startDateTime ?? 0);
+      if (sortOption === "Start Date - Oldest First") return (a._startDateTime ?? 0) - (b._startDateTime ?? 0);
+      return normalizeText(a.accountName).localeCompare(normalizeText(b.accountName));
+    });
+  }, [accounts, debouncedSearch, statusFilter, managerFilter, subcontractorFilter, sortOption]);
 
-    if (sortOption === "Start Date - Newest First") {
-      sorted.sort((a, b) => {
-        return getDateTime(b.accountStartDate) - getDateTime(a.accountStartDate);
-      });
-    } else if (sortOption === "Start Date - Oldest First") {
-      sorted.sort((a, b) => {
-        return getDateTime(a.accountStartDate) - getDateTime(b.accountStartDate);
-      });
-    } else {
-      sorted.sort((a, b) => {
-        return normalizeText(a.accountName).localeCompare(
-          normalizeText(b.accountName)
-        );
-      });
-    }
+  const visibleAccounts = useMemo(() => filteredAccounts.slice(0, visibleCount), [filteredAccounts, visibleCount]);
 
-    return sorted;
-  }, [
-    accounts,
-    subcontractorsData,
-    searchText,
-    statusFilter,
-    managerFilter,
-    subcontractorFilter,
-    sortOption,
-  ]);
+  // -------------------------------------------------------------------------
+  // Summary stats
+  // -------------------------------------------------------------------------
 
-  const visibleAccounts = useMemo(() => {
-    return filteredAccounts.slice(0, visibleCount);
-  }, [filteredAccounts, visibleCount]);
+  const activeCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Active").length, [accounts]);
+  const cancelledCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Cancelled").length, [accounts]);
+  const highRiskCount = useMemo(() => accounts.filter((a) => normalizeLower(a.accountHealth).includes("high risk")).length, [accounts]);
+  const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
 
-  const activeAccounts = useMemo(() => {
-    return accounts.filter(
-      (account) => getStatusCategory(account.status) === "Active"
-    ).length;
-  }, [accounts]);
-
-  const cancelledAccounts = useMemo(() => {
-    return accounts.filter(
-      (account) => getStatusCategory(account.status) === "Cancelled"
-    ).length;
-  }, [accounts]);
-
-  const highRiskAccounts = useMemo(() => {
-    return accounts.filter((account) =>
-      normalizeLower(account.accountHealth).includes("high risk")
-    ).length;
-  }, [accounts]);
-
-  const filteredRevenue = useMemo(() => {
-    return filteredAccounts.reduce((sum, account) => {
-      return sum + moneyToNumber(account.monthlyRevenue);
-    }, 0);
-  }, [filteredAccounts]);
+  // -------------------------------------------------------------------------
+  // Filters
+  // -------------------------------------------------------------------------
 
   function clearFilters() {
     setSearchText("");
@@ -671,33 +547,38 @@ export default function AccountsPage() {
     setSortOption("Account Name");
   }
 
-  function openStatusModal(account: Account) {
-    const currentStatus = normalizeText(account.status);
+  // -------------------------------------------------------------------------
+  // Status modal
+  // -------------------------------------------------------------------------
 
+  function openStatusModal(account: Account) {
+    const current = normalizeText(account.status);
     setStatusModalAccount(account);
-    setNewStatus(
-      quickStatusOptions.includes(currentStatus as QuickStatusOption)
-        ? (currentStatus as QuickStatusOption)
-        : "Active"
-    );
+    setNewStatus(quickStatusOptions.includes(current as QuickStatusOption) ? (current as QuickStatusOption) : "Active");
     setStatusReason("");
     setStatusError("");
   }
 
   function closeStatusModal() {
     if (savingStatus) return;
-
     setStatusModalAccount(null);
     setNewStatus("Active");
     setStatusReason("");
     setStatusError("");
   }
 
+  function handleOverlayClick(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) closeStatusModal();
+  }
+
+  function handleOverlayKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") closeStatusModal();
+  }
+
   async function handleSaveStatusChange() {
     if (!statusModalAccount) return;
 
     const cleanReason = statusReason.trim();
-
     if (!cleanReason) {
       setStatusError("Please add a reason/note for the status change.");
       return;
@@ -705,8 +586,7 @@ export default function AccountsPage() {
 
     const oldStatus = normalizeText(statusModalAccount.status) || "N/A";
     const accountId = getAccountId(statusModalAccount);
-    const accountName =
-      normalizeText(statusModalAccount.accountName) || "Unnamed Account";
+    const accountName = normalizeText(statusModalAccount.accountName) || "Unnamed Account";
 
     try {
       setSavingStatus(true);
@@ -714,124 +594,125 @@ export default function AccountsPage() {
 
       const updatedAccount: Account = {
         ...statusModalAccount,
-        id: statusModalAccount.id || accountId,
-        accountId: statusModalAccount.accountId || accountId,
+        id: statusModalAccount.id ?? accountId,
+        accountId: statusModalAccount.accountId ?? accountId,
         status: newStatus,
       };
 
       const accountResponse = await fetch("/api/accounts", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "updateAccount",
-          account: updatedAccount,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "updateAccount", account: updatedAccount }),
       });
 
-      const accountData = await readApiResponse(accountResponse);
-
+      const accountData = await readJson<ApiResponse>(accountResponse);
       if (!accountResponse.ok || accountData.success === false) {
-        throw new Error(accountData.error || "Could not update account status.");
+        throw new Error(accountData.error ?? "Could not update account status.");
       }
 
-      const updateNote =
-        "Status changed from " +
-        oldStatus +
-        " to " +
-        newStatus +
-        ". Reason: " +
-        cleanReason;
-
-      const updateResponse = await fetch("/api/account-updates", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "addAccountUpdate",
-          accountId,
-          accountName,
-          updateType: "Status Change",
-          manager: statusModalAccount.manager || "",
-          notes: updateNote,
-          notifyEmail: "No",
-        }),
-      });
-
-      const updateData = await readApiResponse(updateResponse);
-
-      if (!updateResponse.ok || updateData.success === false) {
-        throw new Error(
-          updateData.error ||
-            "Status changed, but the history note could not be saved."
-        );
-      }
-
-      setAccounts((currentAccounts) =>
-        currentAccounts.map((account) => {
-          const currentId = getAccountId(account);
-
-          if (currentId === accountId) {
-            return {
-              ...account,
-              status: newStatus,
-            };
-          }
-
-          return account;
+      // Reflect the status change in state immediately, regardless of the history note outcome
+      setAccounts((current) =>
+        current.map((a) => {
+          if (getAccountId(a) !== accountId) return a;
+          const updated: Account = { ...a, status: newStatus, _statusCategory: getStatusCategory(newStatus) };
+          return updated;
         })
       );
 
+      // Attempt to save the history note — surface a specific message if it fails
+      const noteText = `Status changed from ${oldStatus} to ${newStatus}. Reason: ${cleanReason}`;
+      try {
+        const noteResponse = await fetch("/api/account-updates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "addAccountUpdate",
+            accountId,
+            accountName,
+            updateType: "Status Change",
+            manager: statusModalAccount.manager ?? "",
+            notes: noteText,
+            notifyEmail: "No",
+          }),
+        });
+
+        const noteData = await readJson<ApiResponse>(noteResponse);
+        if (!noteResponse.ok || noteData.success === false) {
+          throw new Error(noteData.error ?? "History note could not be saved.");
+        }
+      } catch (noteErr) {
+        // Status already saved — close the modal but warn the user
+        closeStatusModal();
+        setError(
+          `Status updated to "${newStatus}", but the history note could not be saved: ${
+            noteErr instanceof Error ? noteErr.message : "Unknown error"
+          }`
+        );
+        return;
+      }
+
       closeStatusModal();
     } catch (err) {
-      setStatusError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong changing the account status."
-      );
+      setStatusError(err instanceof Error ? err.message : "Something went wrong changing the account status.");
     } finally {
       setSavingStatus(false);
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Render: loading / error states
+  // -------------------------------------------------------------------------
+
   if (loading) {
     return (
       <div className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
-        <p className="text-sm font-semibold text-slate-600">
-          Loading accounts...
-        </p>
+        <p className="text-sm font-semibold text-slate-600">Loading accounts...</p>
       </div>
     );
   }
 
-  if (error) {
+  if (error && accounts.length === 0) {
     return (
       <div className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-          {error}
-        </div>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>
       </div>
     );
   }
+
+  // -------------------------------------------------------------------------
+  // Render: main page
+  // -------------------------------------------------------------------------
 
   return (
     <div>
       <section className="rounded-3xl bg-white p-4 shadow-sm sm:p-6">
+
+        {/* Soft error banner (e.g. partial failures after load) */}
+        {error ? (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+            {error}
+          </div>
+        ) : null}
+
+        {/* Subcontractor data warning */}
+        {subcontractorWarning ? (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+            {subcontractorWarning}
+          </div>
+        ) : null}
+
+        {/* Header */}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
               Cleaning World
             </p>
-
             <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
               Accounts
             </h1>
-
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-              View accounts by status, manager, subcontractor, revenue, start
-              date, and account details. The default view shows active accounts.
+              View accounts by status, manager, subcontractor, revenue, start date, and account details.
+              The default view shows active accounts.
             </p>
           </div>
 
@@ -842,7 +723,6 @@ export default function AccountsPage() {
             >
               + Add Account
             </Link>
-
             <button
               type="button"
               onClick={() => window.print()}
@@ -853,139 +733,103 @@ export default function AccountsPage() {
           </div>
         </div>
 
+        {/* Summary stats */}
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-blue-700 sm:text-xs">
-              Total Loaded
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {accounts.length}
-            </p>
+            <p className="text-[11px] font-black uppercase tracking-wide text-blue-700 sm:text-xs">Total Loaded</p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{accounts.length}</p>
           </div>
-
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-700 sm:text-xs">
-              Active
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {activeAccounts}
-            </p>
+            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-700 sm:text-xs">Active</p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{activeCount}</p>
           </div>
-
           <div className="rounded-2xl border border-red-100 bg-red-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-red-700 sm:text-xs">
-              Cancelled
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {cancelledAccounts}
-            </p>
+            <p className="text-[11px] font-black uppercase tracking-wide text-red-700 sm:text-xs">Cancelled</p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{cancelledCount}</p>
           </div>
-
           <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-amber-700 sm:text-xs">
-              High Risk
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {highRiskAccounts}
-            </p>
+            <p className="text-[11px] font-black uppercase tracking-wide text-amber-700 sm:text-xs">High Risk</p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{highRiskCount}</p>
           </div>
         </div>
 
+        {/* Revenue tile */}
         <div className="mt-4 rounded-2xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
-          <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-            Revenue In Current View
-          </p>
+          <p className="text-xs font-black uppercase tracking-wide text-blue-700">Revenue In Current View</p>
           <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-            {filteredRevenue.toLocaleString("en-US", {
-              style: "currency",
-              currency: "USD",
-              maximumFractionDigits: 0,
-            })}
+            {filteredRevenue.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
           </p>
           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-            This number changes when you filter by status, manager,
-            subcontractor, or search.
+            Updates when you filter by status, manager, subcontractor, or search.
           </p>
         </div>
 
+        {/* Filters */}
         <div className="mt-6 grid gap-3 lg:grid-cols-5">
           <input
             value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
+            onChange={(e) => setSearchText(e.target.value)}
             placeholder="Search accounts..."
+            aria-label="Search accounts"
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           />
 
           <select
             value={statusFilter}
-            onChange={(event) =>
-              setStatusFilter(event.target.value as StatusFilter)
-            }
+            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+            aria-label="Filter by status"
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                Status: {status}
-              </option>
+            {statusOptions.map((s) => (
+              <option key={s} value={s}>Status: {s}</option>
             ))}
           </select>
 
           <select
             value={managerFilter}
-            onChange={(event) => setManagerFilter(event.target.value)}
+            onChange={(e) => setManagerFilter(e.target.value)}
+            aria-label="Filter by manager"
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
-            {managers.map((managerName) => (
-              <option key={String(managerName)} value={String(managerName)}>
-                Manager: {managerName}
-              </option>
+            {managers.map((m) => (
+              <option key={String(m)} value={String(m)}>Manager: {m}</option>
             ))}
           </select>
 
           <select
             value={subcontractorFilter}
-            onChange={(event) => setSubcontractorFilter(event.target.value)}
+            onChange={(e) => setSubcontractorFilter(e.target.value)}
+            aria-label="Filter by subcontractor"
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
-            {subcontractors.map((subcontractor) => (
-              <option key={subcontractor.value} value={subcontractor.value}>
-                Sub: {subcontractor.label}
-              </option>
+            {subcontractors.map((sub) => (
+              <option key={sub.value} value={sub.value}>Sub: {sub.label}</option>
             ))}
           </select>
 
           <select
             value={sortOption}
-            onChange={(event) =>
-              setSortOption(event.target.value as SortOption)
-            }
+            onChange={(e) => setSortOption(e.target.value as SortOption)}
+            aria-label="Sort accounts"
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
-            {sortOptions.map((sort) => (
-              <option key={sort} value={sort}>
-                Sort: {sort}
-              </option>
+            {sortOptions.map((s) => (
+              <option key={s} value={s}>Sort: {s}</option>
             ))}
           </select>
         </div>
 
+        {/* Result count + clear */}
         <div className="mt-4 flex flex-col gap-3 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p>
               Showing{" "}
-              <span className="font-black text-slate-900">
-                {visibleAccounts.length}
-              </span>{" "}
-              of{" "}
-              <span className="font-black text-slate-900">
-                {filteredAccounts.length}
-              </span>{" "}
-              matching account{filteredAccounts.length === 1 ? "" : "s"}
+              <span className="font-black text-slate-900">{visibleAccounts.length}</span>
+              {" "}of{" "}
+              <span className="font-black text-slate-900">{filteredAccounts.length}</span>
+              {" "}matching account{filteredAccounts.length === 1 ? "" : "s"}
             </p>
-
-            <p className="mt-1 text-xs">
-              Tap any account name to open the account detail page.
-            </p>
+            <p className="mt-1 text-xs">Tap any account name to open the account detail page.</p>
           </div>
 
           <button
@@ -997,6 +841,7 @@ export default function AccountsPage() {
           </button>
         </div>
 
+        {/* Accounts table */}
         <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200">
           <div className="hidden grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 lg:grid">
             <div className="col-span-3">Account</div>
@@ -1011,118 +856,82 @@ export default function AccountsPage() {
 
           {visibleAccounts.length === 0 ? (
             <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
-              No accounts found.
+              No accounts match your filters.
             </div>
           ) : (
             <div className="divide-y divide-slate-100 bg-white">
               {visibleAccounts.map((account, index) => {
                 const accountId = getAccountId(account);
-                const accountHref = `/accounts/${encodeURIComponent(
-                  accountId
-                )}`;
-                const subcontractorDisplay = getAccountSubcontractorDisplay(
-                  account,
-                  subcontractorsData
-                );
+                const accountHref = `/accounts/${encodeURIComponent(accountId)}`;
+                const subDisplay = account._subDisplay ?? { contactName: "", companyName: "", fallback: normalizeText(account.subcontractor) || "Unassigned" };
 
                 return (
                   <div
                     key={`${accountId}-${index}`}
                     className="px-4 py-4 text-sm hover:bg-blue-50 lg:grid lg:grid-cols-12 lg:gap-3"
                   >
-                    <Link
-                      href={accountHref}
-                      className="block no-underline lg:col-span-3"
-                    >
+                    <Link href={accountHref} className="block no-underline lg:col-span-3">
                       <div className="flex items-start justify-between gap-3 lg:block">
                         <div>
                           <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
                             {account.accountName || "Unnamed Account"}
                           </p>
-
                           <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
                             {account.address || "No address"}
                           </p>
-
                           <p className="mt-1 text-xs font-bold text-slate-400">
                             ID: {accountId || "N/A"}
                           </p>
                         </div>
-
                         <div className="text-right lg:hidden">
-                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                            Revenue
-                          </p>
-                          <p className="text-sm font-black text-slate-950">
-                            {formatMoney(account.monthlyRevenue)}
-                          </p>
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">Revenue</p>
+                          <p className="text-sm font-black text-slate-950">{formatMoney(account.monthlyRevenue)}</p>
                         </div>
                       </div>
                     </Link>
 
                     <div className="mt-4 grid grid-cols-2 gap-3 lg:col-span-9 lg:mt-0 lg:grid-cols-9">
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
-                          Manager
-                        </p>
-                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">
-                          {account.manager || "Unassigned"}
-                        </p>
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Manager</p>
+                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">{account.manager || "Unassigned"}</p>
                       </div>
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
-                          Subcontractor
-                        </p>
-
-                        {subcontractorDisplay.contactName ? (
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Subcontractor</p>
+                        {subDisplay.contactName ? (
                           <>
-                            <p className="mt-1 font-bold text-slate-700 lg:mt-0">
-                              {subcontractorDisplay.contactName}
-                            </p>
-                            {subcontractorDisplay.companyName ? (
-                              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-                                {subcontractorDisplay.companyName}
-                              </p>
+                            <p className="mt-1 font-bold text-slate-700 lg:mt-0">{subDisplay.contactName}</p>
+                            {subDisplay.companyName ? (
+                              <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{subDisplay.companyName}</p>
                             ) : null}
                           </>
                         ) : (
-                          <p className="mt-1 font-bold text-slate-700 lg:mt-0">
-                            {subcontractorDisplay.fallback}
-                          </p>
+                          <p className="mt-1 font-bold text-slate-700 lg:mt-0">{subDisplay.fallback}</p>
                         )}
                       </div>
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
-                          Status
-                        </p>
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Status</p>
                         <span
-                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getStatusClass(
-                            account.status
-                          )}`}
+                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getStatusClass(account.status)}`}
+                          aria-label={`Status: ${account.status ?? "N/A"}`}
                         >
                           {account.status || "N/A"}
                         </span>
                       </div>
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
-                          Health
-                        </p>
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Health</p>
                         <span
-                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getHealthClass(
-                            account.accountHealth
-                          )}`}
+                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getHealthClass(account.accountHealth)}`}
+                          aria-label={`Account health: ${account.accountHealth ?? "N/A"}`}
                         >
                           {account.accountHealth || "N/A"}
                         </span>
                       </div>
 
                       <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">
-                          Start Date
-                        </p>
+                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Start Date</p>
                         <p className="mt-1 text-xs font-bold text-slate-600 lg:mt-0">
                           {formatDate(account.accountStartDate) || "-"}
                         </p>
@@ -1136,7 +945,8 @@ export default function AccountsPage() {
                         <button
                           type="button"
                           onClick={() => openStatusModal(account)}
-                          className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 lg:w-auto"
+                          aria-label={`Change status for ${account.accountName ?? "this account"}`}
+                          className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 lg:w-auto"
                         >
                           Change Status
                         </button>
@@ -1149,13 +959,12 @@ export default function AccountsPage() {
           )}
         </div>
 
+        {/* Load more */}
         {visibleCount < filteredAccounts.length ? (
           <div className="mt-5 flex justify-center">
             <button
               type="button"
-              onClick={() =>
-                setVisibleCount((currentCount) => currentCount + LOAD_MORE_COUNT)
-              }
+              onClick={() => setVisibleCount((n) => n + LOAD_MORE_COUNT)}
               className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950"
             >
               Load 30 More
@@ -1164,22 +973,35 @@ export default function AccountsPage() {
         ) : null}
       </section>
 
+      {/* ----------------------------------------------------------------- */}
+      {/* Status modal                                                        */}
+      {/* ----------------------------------------------------------------- */}
+
       {statusModalAccount ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+          role="presentation"
+          onClick={handleOverlayClick}
+          onKeyDown={handleOverlayKeyDown}
+        >
+          <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="status-modal-title"
+            className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6"
+          >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
                   Quick Status Change
                 </p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">
+                <h2 id="status-modal-title" className="mt-2 text-2xl font-black text-slate-950">
                   {statusModalAccount.accountName || "Unnamed Account"}
                 </h2>
                 <p className="mt-1 text-sm font-semibold text-slate-500">
                   Current status:{" "}
-                  <span className="font-black text-slate-800">
-                    {statusModalAccount.status || "N/A"}
-                  </span>
+                  <span className="font-black text-slate-800">{statusModalAccount.status || "N/A"}</span>
                 </p>
               </div>
 
@@ -1187,52 +1009,51 @@ export default function AccountsPage() {
                 type="button"
                 onClick={closeStatusModal}
                 disabled={savingStatus}
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close dialog"
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                X
+                ✕
               </button>
             </div>
 
             <div className="mt-5 grid gap-4">
               <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                <label htmlFor="new-status" className="text-xs font-black uppercase tracking-wide text-slate-500">
                   New Status
                 </label>
                 <select
+                  id="new-status"
                   value={newStatus}
-                  onChange={(event) =>
-                    setNewStatus(event.target.value as QuickStatusOption)
-                  }
+                  onChange={(e) => setNewStatus(e.target.value as QuickStatusOption)}
                   disabled={savingStatus}
                   className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
                 >
-                  {quickStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
+                  {quickStatusOptions.map((s) => (
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
+                <label htmlFor="status-reason" className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Reason / History Note
                 </label>
                 <textarea
+                  id="status-reason"
                   value={statusReason}
-                  onChange={(event) => setStatusReason(event.target.value)}
+                  onChange={(e) => setStatusReason(e.target.value)}
                   disabled={savingStatus}
-                  placeholder="Example: Customer requested cancellation effective July 1. / Paused due to remodeling. / Account needs review due to service concern."
+                  placeholder="Example: Customer requested cancellation effective July 1. / Paused due to remodeling."
                   rows={5}
                   className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
                 />
                 <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                  This will also create an Account Update history note.
+                  This also creates an Account Update history note.
                 </p>
               </div>
 
               {statusError ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
                   {statusError}
                 </div>
               ) : null}
@@ -1242,16 +1063,15 @@ export default function AccountsPage() {
                   type="button"
                   onClick={closeStatusModal}
                   disabled={savingStatus}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancel
                 </button>
-
                 <button
                   type="button"
                   onClick={handleSaveStatusChange}
                   disabled={savingStatus}
-                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {savingStatus ? "Saving..." : "Save Status Change"}
                 </button>
