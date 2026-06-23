@@ -26,6 +26,10 @@ const Popup = dynamic(
   { ssr: false }
 );
 
+const INITIAL_PIN_LIMIT = 75;
+const PIN_BATCH_SIZE = 75;
+const SELECT_OPTION_LIMIT = 250;
+
 type AnyRow = Record<string, unknown>;
 
 type AccountLocation = {
@@ -332,6 +336,7 @@ export default function MapPage() {
   const [searchText, setSearchText] = useState("");
   const [managerFilter, setManagerFilter] = useState("All Managers");
   const [subFilter, setSubFilter] = useState("All Subs");
+  const [pinLimit, setPinLimit] = useState(INITIAL_PIN_LIMIT);
 
   const [currentLocation, setCurrentLocation] = useState("");
   const [currentCoords, setCurrentCoords] = useState<CurrentCoords | null>(null);
@@ -480,6 +485,10 @@ export default function MapPage() {
     useMyLocationOnLoad();
   }, []);
 
+  useEffect(() => {
+    setPinLimit(INITIAL_PIN_LIMIT);
+  }, [searchText, managerFilter, subFilter]);
+
   const managerOptions = useMemo(() => {
     const managers = Array.from(
       new Set(accounts.map((account) => account.manager).filter(Boolean))
@@ -557,6 +566,25 @@ export default function MapPage() {
     );
   }, [filteredAccounts]);
 
+  const visibleAccountsWithPins = useMemo(() => {
+    const limitedPins = accountsWithPins.slice(0, pinLimit);
+
+    if (
+      selectedAccount &&
+      selectedAccount.latitude !== null &&
+      selectedAccount.longitude !== null &&
+      !limitedPins.some((account) => account.id === selectedAccount.id)
+    ) {
+      return [selectedAccount, ...limitedPins];
+    }
+
+    return limitedPins;
+  }, [accountsWithPins, pinLimit, selectedAccount]);
+
+  const selectAccountOptions = useMemo(() => {
+    return filteredAccounts.slice(0, SELECT_OPTION_LIMIT);
+  }, [filteredAccounts]);
+
   const mapCenter = getMapCenter(selectedAccount, currentCoords, accountsWithPins);
 
   const mapKey = `${mapCenter[0].toFixed(5)}-${mapCenter[1].toFixed(5)}-${
@@ -574,12 +602,14 @@ export default function MapPage() {
       : "";
 
   const accountsMissingPins = filteredAccounts.length - accountsWithPins.length;
+  const hiddenPinCount = Math.max(accountsWithPins.length - pinLimit, 0);
 
   function clearFilters() {
     setSearchText("");
     setManagerFilter("All Managers");
     setSubFilter("All Subs");
     setSelectedAccountId("");
+    setPinLimit(INITIAL_PIN_LIMIT);
   }
 
   function useMyLocationOnLoad() {
@@ -613,15 +643,23 @@ export default function MapPage() {
         );
       },
       {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
+        enableHighAccuracy: false,
+        timeout: 7000,
+        maximumAge: 300000,
       }
     );
   }
 
   function useMyLocationButton() {
     useMyLocationOnLoad();
+  }
+
+  function loadMorePins() {
+    setPinLimit((current) => current + PIN_BATCH_SIZE);
+  }
+
+  function showAllPins() {
+    setPinLimit(accountsWithPins.length);
   }
 
   return (
@@ -679,7 +717,7 @@ export default function MapPage() {
               >
                 <option value="">Map starts at my location</option>
 
-                {filteredAccounts.map((account) => (
+                {selectAccountOptions.map((account) => (
                   <option
                     key={`${account.id}-${account.fullAddress}`}
                     value={account.id}
@@ -705,15 +743,50 @@ export default function MapPage() {
               <p>
                 {isLoading
                   ? "Loading accounts..."
-                  : `${filteredAccounts.length} found / ${accountsWithPins.length} with pins`}
+                  : `${filteredAccounts.length} found / ${accountsWithPins.length} with pins / showing ${visibleAccountsWithPins.length}`}
               </p>
             </div>
+
+            {!isLoading && filteredAccounts.length > SELECT_OPTION_LIMIT ? (
+              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">
+                The dropdown is showing the first {SELECT_OPTION_LIMIT} results
+                for speed. Use search or filters to find a specific account.
+              </div>
+            ) : null}
 
             {!isLoading && accountsMissingPins > 0 ? (
               <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
                 {accountsMissingPins} account
                 {accountsMissingPins === 1 ? "" : "s"} do not have latitude and
                 longitude yet, so they can show in the list but not as pins.
+              </div>
+            ) : null}
+
+            {!isLoading && hiddenPinCount > 0 ? (
+              <div className="mt-2 flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs font-bold text-gray-700 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Showing {visibleAccountsWithPins.length} pins first for faster
+                  loading. {hiddenPinCount} more pin
+                  {hiddenPinCount === 1 ? "" : "s"} available.
+                </span>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={loadMorePins}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700"
+                  >
+                    Load More Pins
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={showAllPins}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-black text-gray-800 hover:bg-gray-50"
+                  >
+                    Show All Pins
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>
@@ -753,7 +826,7 @@ export default function MapPage() {
                     </Marker>
                   ) : null}
 
-                  {accountsWithPins.map((account) => {
+                  {visibleAccountsWithPins.map((account) => {
                     const isSelected = selectedAccount?.id === account.id;
 
                     if (
