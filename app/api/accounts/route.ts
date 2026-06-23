@@ -2,7 +2,16 @@ import { NextResponse } from "next/server";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
-export async function GET() {
+const ALLOWED_GET_ACTIONS = new Set([
+  "getAccounts",
+  "accounts",
+  "getAllAccounts",
+  "allAccounts",
+  "getMapAccounts",
+  "mapAccounts",
+]);
+
+export async function GET(request: Request) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -14,10 +23,20 @@ export async function GET() {
       );
     }
 
-    const response = await fetch(`${SCRIPT_URL}?action=getAllAccounts`, {
-      method: "GET",
-      cache: "no-store",
-    });
+    const { searchParams } = new URL(request.url);
+    const requestedAction = searchParams.get("action") || "getAllAccounts";
+
+    const action = ALLOWED_GET_ACTIONS.has(requestedAction)
+      ? requestedAction
+      : "getAllAccounts";
+
+    const response = await fetch(
+      `${SCRIPT_URL}?action=${encodeURIComponent(action)}`,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
 
     const text = await response.text();
 
@@ -32,6 +51,7 @@ export async function GET() {
           error:
             "Google Script did not return valid JSON while loading accounts.",
           rawResponse: text,
+          requestedAction: action,
         },
         { status: 500 }
       );
@@ -41,10 +61,11 @@ export async function GET() {
       return NextResponse.json(
         {
           success: false,
-          error: data.error || "Failed to load accounts from Google Script.",
+          error: data.error || data.message || "Failed to load accounts from Google Script.",
           googleScriptResponse: data,
           rawGoogleScriptResponse: text,
           googleScriptStatus: response.status,
+          requestedAction: action,
         },
         { status: 500 }
       );
@@ -52,6 +73,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
+      action,
       accounts: data.accounts || data.data || [],
     });
   } catch (error) {
@@ -126,7 +148,10 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: data.error || data.message || "Failed to save account in Google Script.",
+          error:
+            data.error ||
+            data.message ||
+            "Failed to save account in Google Script.",
           googleScriptResponse: data,
           rawGoogleScriptResponse: text,
           googleScriptStatus: response.status,
