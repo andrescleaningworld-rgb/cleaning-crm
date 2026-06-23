@@ -434,9 +434,9 @@ export default function MapPage() {
         setIsLoading(true);
         setErrorMessage("");
 
-        const response = await fetch("/api/accounts", {
-          cache: "no-store",
-        });
+       const response = await fetch("/api/accounts?action=getMapAccounts", {
+  cache: "no-store",
+});
 
         const result = (await response.json()) as AccountsApiResponse | AnyRow[];
 
