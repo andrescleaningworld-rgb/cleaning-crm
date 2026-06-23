@@ -45,6 +45,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
+        <ServiceWorkerRegister />
         <div className="cw-app-shell">
           <div className="cw-app-container">
             <header className="cw-header">

@@ -129,6 +129,15 @@ function LoginForm() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                value="Cleaning World Admin"
+                readOnly
+                className="hidden"
+              />
+
               <div>
                 <label
                   htmlFor="password"
@@ -139,6 +148,7 @@ function LoginForm() {
 
                 <input
                   id="password"
+                  name="password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}

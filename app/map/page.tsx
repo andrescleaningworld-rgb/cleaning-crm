@@ -1,7 +1,30 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+
+import type { DivIcon } from "leaflet";
+
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((module) => module.MapContainer),
+  { ssr: false }
+);
+
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((module) => module.TileLayer),
+  { ssr: false }
+);
+
+const Marker = dynamic(
+  () => import("react-leaflet").then((module) => module.Marker),
+  { ssr: false }
+);
+
+const Popup = dynamic(
+  () => import("react-leaflet").then((module) => module.Popup),
+  { ssr: false }
+);
 
 type AnyRow = Record<string, unknown>;
 
@@ -18,6 +41,10 @@ type AccountLocation = {
   status: string;
   latitude: number | null;
   longitude: number | null;
+};
+
+type AccountWithDistance = AccountLocation & {
+  distance: number | null;
 };
 
 type AccountsApiResponse = {
@@ -222,12 +249,6 @@ function buildGoogleMapsSearchUrl(destination: string) {
   )}`;
 }
 
-function buildGoogleMapsEmbedUrl(destination: string) {
-  return `https://www.google.com/maps?q=${encodeURIComponent(
-    destination
-  )}&output=embed`;
-}
-
 function buildDirectionsUrl(destination: string, currentLocation: string) {
   if (currentLocation) {
     return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
@@ -272,6 +293,36 @@ function formatMiles(value: number | null) {
   return `${Math.round(value)} mi`;
 }
 
+function getMapCenter(
+  selectedAccount: AccountWithDistance | null,
+  currentCoords: CurrentCoords | null,
+  accountsWithPins: AccountWithDistance[]
+): [number, number] {
+  if (
+    selectedAccount &&
+    selectedAccount.latitude !== null &&
+    selectedAccount.longitude !== null
+  ) {
+    return [selectedAccount.latitude, selectedAccount.longitude];
+  }
+
+  if (currentCoords) {
+    return [currentCoords.latitude, currentCoords.longitude];
+  }
+
+  const firstAccountWithPin = accountsWithPins[0];
+
+  if (
+    firstAccountWithPin &&
+    firstAccountWithPin.latitude !== null &&
+    firstAccountWithPin.longitude !== null
+  ) {
+    return [firstAccountWithPin.latitude, firstAccountWithPin.longitude];
+  }
+
+  return [40.8584, -74.1638];
+}
+
 export default function MapPage() {
   const [accounts, setAccounts] = useState<AccountLocation[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -287,6 +338,90 @@ export default function MapPage() {
   const [locationMessage, setLocationMessage] = useState(
     "Allow location access to see nearby accounts first."
   );
+
+  const [accountPinIcon, setAccountPinIcon] = useState<DivIcon | null>(null);
+  const [selectedPinIcon, setSelectedPinIcon] = useState<DivIcon | null>(null);
+  const [myLocationIcon, setMyLocationIcon] = useState<DivIcon | null>(null);
+
+  useEffect(() => {
+    async function loadLeafletIcons() {
+      const leaflet = await import("leaflet");
+
+      const accountIcon = leaflet.divIcon({
+        className: "",
+        html: `
+          <div style="
+            width: 22px;
+            height: 22px;
+            background: #2563eb;
+            border: 3px solid white;
+            border-radius: 9999px;
+            box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+          "></div>
+        `,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -12],
+      });
+
+      const selectedIcon = leaflet.divIcon({
+        className: "",
+        html: `
+          <div style="
+            width: 30px;
+            height: 30px;
+            background: #f97316;
+            border: 4px solid white;
+            border-radius: 9999px;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.45);
+          "></div>
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+        popupAnchor: [0, -16],
+      });
+
+      const locationIcon = leaflet.divIcon({
+        className: "",
+        html: `
+          <div style="
+            width: 20px;
+            height: 20px;
+            background: #16a34a;
+            border: 3px solid white;
+            border-radius: 9999px;
+            box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+          "></div>
+        `,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+        popupAnchor: [0, -12],
+      });
+
+      setAccountPinIcon(accountIcon);
+      setSelectedPinIcon(selectedIcon);
+      setMyLocationIcon(locationIcon);
+    }
+
+    loadLeafletIcons();
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const existingLink = document.getElementById("leaflet-css");
+
+    if (existingLink) return;
+
+    const link = document.createElement("link");
+    link.id = "leaflet-css";
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    link.integrity = "sha256-p4NxAoJBhIINfQdX1tYtk0qfd9stS4d/6fduG3wyy0=";
+    link.crossOrigin = "";
+
+    document.head.appendChild(link);
+  }, []);
 
   useEffect(() => {
     async function loadAccounts() {
@@ -361,7 +496,7 @@ export default function MapPage() {
     return ["All Subs", ...subs];
   }, [accounts]);
 
-  const accountsWithDistance = useMemo(() => {
+  const accountsWithDistance = useMemo<AccountWithDistance[]>(() => {
     return accounts.map((account) => ({
       ...account,
       distance: distanceInMiles(currentCoords, account),
@@ -416,11 +551,17 @@ export default function MapPage() {
     return filteredAccounts.slice(0, 25);
   }, [filteredAccounts]);
 
-  const mapDestination = selectedAccount
-    ? selectedAccount.fullAddress
-    : currentLocation;
+  const accountsWithPins = useMemo(() => {
+    return filteredAccounts.filter(
+      (account) => account.latitude !== null && account.longitude !== null
+    );
+  }, [filteredAccounts]);
 
-  const mapUrl = mapDestination ? buildGoogleMapsEmbedUrl(mapDestination) : "";
+  const mapCenter = getMapCenter(selectedAccount, currentCoords, accountsWithPins);
+
+  const mapKey = `${mapCenter[0].toFixed(5)}-${mapCenter[1].toFixed(5)}-${
+    selectedAccount?.id || "my-location"
+  }`;
 
   const directionsUrl = selectedAccount
     ? buildDirectionsUrl(selectedAccount.fullAddress, currentLocation)
@@ -431,6 +572,8 @@ export default function MapPage() {
     : currentLocation
       ? buildGoogleMapsSearchUrl(currentLocation)
       : "";
+
+  const accountsMissingPins = filteredAccounts.length - accountsWithPins.length;
 
   function clearFilters() {
     setSearchText("");
@@ -461,12 +604,12 @@ export default function MapPage() {
         setCurrentLocation(location);
         setSelectedAccountId("");
         setLocationMessage(
-          "Showing accounts closest to your current location when latitude/longitude are available."
+          "Showing account pins and sorting nearby accounts by distance when latitude/longitude are available."
         );
       },
       () => {
         setLocationMessage(
-          "Could not get your location. Select an account to view it on the map."
+          "Could not get your location. The map will still show account pins that have latitude/longitude."
         );
       },
       {
@@ -562,11 +705,17 @@ export default function MapPage() {
               <p>
                 {isLoading
                   ? "Loading accounts..."
-                  : `${filteredAccounts.length} account${
-                      filteredAccounts.length === 1 ? "" : "s"
-                    } found`}
+                  : `${filteredAccounts.length} found / ${accountsWithPins.length} with pins`}
               </p>
             </div>
+
+            {!isLoading && accountsMissingPins > 0 ? (
+              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
+                {accountsMissingPins} account
+                {accountsMissingPins === 1 ? "" : "s"} do not have latitude and
+                longitude yet, so they can show in the list but not as pins.
+              </div>
+            ) : null}
           </div>
 
           <div className="relative">
@@ -574,23 +723,111 @@ export default function MapPage() {
               <div className="flex h-[68vh] min-h-[460px] items-center justify-center text-gray-600">
                 Loading map...
               </div>
-            ) : mapUrl ? (
-              <iframe
-                title="Cleaning World Account Map"
-                src={mapUrl}
-                className="h-[68vh] min-h-[460px] w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+            ) : accountPinIcon && selectedPinIcon && myLocationIcon ? (
+              <div className="h-[68vh] min-h-[460px] w-full">
+                <MapContainer
+                  key={mapKey}
+                  center={mapCenter}
+                  zoom={selectedAccount ? 15 : 11}
+                  scrollWheelZoom
+                  className="h-full w-full"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+
+                  {currentCoords ? (
+                    <Marker
+                      position={[
+                        currentCoords.latitude,
+                        currentCoords.longitude,
+                      ]}
+                      icon={myLocationIcon}
+                    >
+                      <Popup>
+                        <div className="text-sm">
+                          <p className="font-black">My Location</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  ) : null}
+
+                  {accountsWithPins.map((account) => {
+                    const isSelected = selectedAccount?.id === account.id;
+
+                    if (
+                      account.latitude === null ||
+                      account.longitude === null
+                    ) {
+                      return null;
+                    }
+
+                    return (
+                      <Marker
+                        key={`${account.id}-${account.fullAddress}`}
+                        position={[account.latitude, account.longitude]}
+                        icon={isSelected ? selectedPinIcon : accountPinIcon}
+                        eventHandlers={{
+                          click: () => setSelectedAccountId(account.id),
+                        }}
+                      >
+                        <Popup>
+                          <div className="max-w-[240px] text-sm">
+                            <Link
+                              href={`/accounts/${encodeURIComponent(account.id)}`}
+                              className="font-black text-blue-800 hover:underline"
+                            >
+                              {account.name}
+                            </Link>
+
+                            <p className="mt-1 text-gray-700">
+                              {account.fullAddress}
+                            </p>
+
+                            {account.distance !== null ? (
+                              <p className="mt-1 font-bold text-blue-700">
+                                {formatMiles(account.distance)}
+                              </p>
+                            ) : null}
+
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <a
+                                href={buildDirectionsUrl(
+                                  account.fullAddress,
+                                  currentLocation
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded-lg bg-orange-600 px-3 py-1 text-xs font-bold text-white"
+                              >
+                                Directions
+                              </a>
+
+                              <Link
+                                href={`/accounts/${encodeURIComponent(
+                                  account.id
+                                )}`}
+                                className="rounded-lg border border-gray-300 px-3 py-1 text-xs font-bold text-gray-800"
+                              >
+                                Account
+                              </Link>
+                            </div>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  })}
+                </MapContainer>
+              </div>
             ) : (
               <div className="flex h-[68vh] min-h-[460px] items-center justify-center px-5 text-center text-gray-600">
-                Location is not available yet. Allow location access or select
-                an account.
+                Loading map pins...
               </div>
             )}
 
             {selectedAccount ? (
-              <div className="absolute bottom-3 left-3 right-3 rounded-2xl border border-orange-200 bg-white/95 p-4 shadow-lg backdrop-blur md:left-auto md:w-[390px]">
+              <div className="absolute bottom-3 left-3 right-3 z-[500] rounded-2xl border border-orange-200 bg-white/95 p-4 shadow-lg backdrop-blur md:left-auto md:w-[390px]">
                 <div className="mb-2 inline-flex rounded-full bg-orange-600 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
                   Selected Account
                 </div>
@@ -605,6 +842,20 @@ export default function MapPage() {
                 <p className="mt-2 text-sm font-semibold text-gray-700">
                   {selectedAccount.fullAddress}
                 </p>
+
+                {selectedAccount.distance !== null ? (
+                  <p className="mt-2 text-sm font-black text-blue-700">
+                    {formatMiles(selectedAccount.distance)}
+                  </p>
+                ) : null}
+
+                {selectedAccount.latitude === null ||
+                selectedAccount.longitude === null ? (
+                  <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-bold text-amber-800">
+                    This account has no latitude/longitude yet, so it cannot
+                    show as a pin.
+                  </p>
+                ) : null}
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <a
@@ -663,7 +914,8 @@ export default function MapPage() {
           </select>
 
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700">
-            Nearby list sorts by distance when Lat/Lng exist.
+            Blue pins are accounts. Orange pin is selected. Green pin is your
+            location.
           </div>
         </section>
 
@@ -672,7 +924,8 @@ export default function MapPage() {
             <div>
               <h2 className="text-xl font-black">Nearby Accounts</h2>
               <p className="text-sm text-gray-500">
-                Tap an account to move the map and open directions.
+                Tap an account to move the map, highlight the pin, and open
+                directions.
               </p>
             </div>
 
@@ -687,6 +940,8 @@ export default function MapPage() {
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {nearbyAccounts.map((account) => {
                 const isSelected = selectedAccount?.id === account.id;
+                const hasPin =
+                  account.latitude !== null && account.longitude !== null;
 
                 return (
                   <button
@@ -714,11 +969,23 @@ export default function MapPage() {
                         </p>
                       </div>
 
-                      {account.distance !== null ? (
-                        <span className="shrink-0 rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-                          {formatMiles(account.distance)}
+                      <div className="flex shrink-0 flex-col items-end gap-2">
+                        {account.distance !== null ? (
+                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
+                            {formatMiles(account.distance)}
+                          </span>
+                        ) : null}
+
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black ${
+                            hasPin
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {hasPin ? "Pin" : "No Pin"}
                         </span>
-                      ) : null}
+                      </div>
                     </div>
 
                     <div className="mt-3 grid gap-1 text-xs font-semibold text-gray-500">
