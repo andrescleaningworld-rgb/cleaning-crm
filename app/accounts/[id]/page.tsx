@@ -160,6 +160,90 @@ function formatGrossMarginPercent(revenue: number, grossMargin: number) {
   return `${percent.toFixed(1)}%`;
 }
 
+function buildGoogleMapsSearchUrl(address: string) {
+  const cleanAddress = cleanText(address);
+
+  if (!cleanAddress || cleanAddress === "N/A") return "";
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    cleanAddress
+  )}`;
+}
+
+function buildPhoneHref(phone: string) {
+  const cleanPhone = cleanText(phone);
+
+  if (!cleanPhone || cleanPhone === "N/A") return "";
+
+  const phoneHref = cleanPhone.replace(/[^+\d]/g, "");
+
+  return phoneHref ? `tel:${phoneHref}` : "";
+}
+
+function buildEmailHref(email: string) {
+  const cleanEmail = cleanText(email);
+
+  if (!cleanEmail || cleanEmail === "N/A" || !cleanEmail.includes("@")) {
+    return "";
+  }
+
+  return `mailto:${cleanEmail}`;
+}
+
+function ClickablePhone({ value }: { value: string }) {
+  const href = buildPhoneHref(value);
+
+  if (!href) {
+    return <>{value || "N/A"}</>;
+  }
+
+  return (
+    <a
+      href={href}
+      className="text-blue-800 underline underline-offset-2 hover:text-blue-950"
+    >
+      {value}
+    </a>
+  );
+}
+
+function ClickableEmail({ value }: { value: string }) {
+  const href = buildEmailHref(value);
+
+  if (!href) {
+    return <>{value || "N/A"}</>;
+  }
+
+  return (
+    <a
+      href={href}
+      className="break-words text-blue-800 underline underline-offset-2 hover:text-blue-950"
+    >
+      {value}
+    </a>
+  );
+}
+
+function ClickableAddress({
+  value,
+  className = "text-blue-800 underline underline-offset-2 hover:text-blue-950",
+}: {
+  value: string;
+  className?: string;
+}) {
+  const href = buildGoogleMapsSearchUrl(value);
+
+  if (!href) {
+    return <>{value || "N/A"}</>;
+  }
+
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+      {value}
+    </a>
+  );
+}
+
 function getStatusClass(status: string | undefined) {
   const clean = String(status || "").toLowerCase();
 
@@ -350,9 +434,12 @@ export default function AccountDetailPage() {
   const accountAddress = useMemo(() => {
     if (!account) return "";
 
-    if (account.address) return account.address;
+    const fullAddress = [account.address, account.city, account.state, account.zip]
+      .map((part) => cleanText(part))
+      .filter(Boolean)
+      .join(", ");
 
-    return [account.city, account.state, account.zip].filter(Boolean).join(", ");
+    return fullAddress;
   }, [account]);
 
   const monthlyRevenueNumber = moneyToNumber(account?.monthlyRevenue);
@@ -678,7 +765,10 @@ export default function AccountDetailPage() {
 
               {accountAddress ? (
                 <p className="mt-3 max-w-3xl text-sm font-medium text-blue-100">
-                  {accountAddress}
+                  <ClickableAddress
+                    value={accountAddress}
+                    className="text-blue-100 underline underline-offset-2 hover:text-white"
+                  />
                 </p>
               ) : null}
 
@@ -858,7 +948,7 @@ export default function AccountDetailPage() {
                       Phone
                     </p>
                     <p className="mt-2 text-sm font-bold text-slate-900">
-                      {contactPhone}
+                      <ClickablePhone value={contactPhone} />
                     </p>
                   </div>
 
@@ -867,7 +957,7 @@ export default function AccountDetailPage() {
                       Email
                     </p>
                     <p className="mt-2 break-words text-sm font-bold text-slate-900">
-                      {contactEmail}
+                      <ClickableEmail value={contactEmail} />
                     </p>
                   </div>
                 </div>
@@ -933,7 +1023,7 @@ export default function AccountDetailPage() {
                     Address
                   </p>
                   <p className="mt-2 text-sm font-bold text-slate-900">
-                    {accountAddress || "N/A"}
+                    <ClickableAddress value={accountAddress || "N/A"} />
                   </p>
                 </div>
               </div>
@@ -1004,7 +1094,7 @@ export default function AccountDetailPage() {
                   Address
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {accountAddress || "N/A"}
+                  <ClickableAddress value={accountAddress || "N/A"} />
                 </p>
               </div>
 
@@ -1022,7 +1112,7 @@ export default function AccountDetailPage() {
                   Phone
                 </p>
                 <p className="mt-2 text-sm font-bold text-slate-900">
-                  {contactPhone}
+                  <ClickablePhone value={contactPhone} />
                 </p>
               </div>
 
@@ -1031,7 +1121,7 @@ export default function AccountDetailPage() {
                   Email
                 </p>
                 <p className="mt-2 break-words text-sm font-bold text-slate-900">
-                  {contactEmail}
+                  <ClickableEmail value={contactEmail} />
                 </p>
               </div>
 

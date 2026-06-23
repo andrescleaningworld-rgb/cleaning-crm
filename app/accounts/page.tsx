@@ -42,6 +42,8 @@ type Account = {
   _searchBlob?: string;
   _statusCategory?: StatusFilter;
   _monthlyRevenueNum?: number;
+  _subPayNum?: number;
+  _frequencyText?: string;
   _startDateTime?: number;
   _subDisplay?: SubcontractorDisplay;
 };
@@ -82,7 +84,12 @@ type StatusFilter =
 type SortOption =
   | "Account Name"
   | "Start Date - Newest First"
-  | "Start Date - Oldest First";
+  | "Start Date - Oldest First"
+  | "Monthly Revenue - Highest First"
+  | "Monthly Revenue - Lowest First"
+  | "Sub Pay - Highest First"
+  | "Sub Pay - Lowest First"
+  | "Frequency";
 
 type QuickStatusOption =
   | "Active"
@@ -212,6 +219,11 @@ const sortOptions: SortOption[] = [
   "Account Name",
   "Start Date - Newest First",
   "Start Date - Oldest First",
+  "Monthly Revenue - Highest First",
+  "Monthly Revenue - Lowest First",
+  "Sub Pay - Highest First",
+  "Sub Pay - Lowest First",
+  "Frequency",
 ];
 
 // ---------------------------------------------------------------------------
@@ -489,6 +501,11 @@ function enrichAccounts(accounts: Account[], subcontractors: Subcontractor[]): A
       account.status,
       account.accountHealth,
       account.accountStartDate,
+      account.frequency,
+      account.cleaningDays,
+      account.monthlyRevenue,
+      account.monthlySubcontractorPay,
+      account.subcontractorPay,
       account.contactName,
       account.phone,
       account.email,
@@ -503,6 +520,10 @@ function enrichAccounts(accounts: Account[], subcontractors: Subcontractor[]): A
       _searchBlob: searchBlob,
       _statusCategory: getStatusCategory(account.status),
       _monthlyRevenueNum: moneyToNumber(account.monthlyRevenue),
+      _subPayNum: moneyToNumber(
+        account.monthlySubcontractorPay ?? account.subcontractorPay
+      ),
+      _frequencyText: normalizeText(account.frequency ?? account.cleaningDays),
       _startDateTime: getDateTime(account.accountStartDate),
       _subDisplay: subDisplay,
     };
@@ -584,6 +605,11 @@ export default function AccountsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [managerFilter, setManagerFilter] = useState("All");
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
+  const [frequencyFilter, setFrequencyFilter] = useState("All");
+  const [minRevenueFilter, setMinRevenueFilter] = useState("");
+  const [maxRevenueFilter, setMaxRevenueFilter] = useState("");
+  const [minSubPayFilter, setMinSubPayFilter] = useState("");
+  const [maxSubPayFilter, setMaxSubPayFilter] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("Account Name");
 
   const [transferMode, setTransferMode] = useState(false);
@@ -711,7 +737,18 @@ export default function AccountsPage() {
   // Reset visible count whenever filters change
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
-  }, [debouncedSearch, statusFilter, managerFilter, subcontractorFilter, sortOption]);
+  }, [
+    debouncedSearch,
+    statusFilter,
+    managerFilter,
+    subcontractorFilter,
+    frequencyFilter,
+    minRevenueFilter,
+    maxRevenueFilter,
+    minSubPayFilter,
+    maxSubPayFilter,
+    sortOption,
+  ]);
 
   // -------------------------------------------------------------------------
   // Derived filter options (managers + subcontractors)
@@ -746,6 +783,18 @@ export default function AccountsPage() {
     ];
   }, [accounts]);
 
+  const frequencies = useMemo(() => {
+    const unique = Array.from(
+      new Set(
+        accounts
+          .map((account) => normalizeText(account._frequencyText))
+          .filter(Boolean)
+      )
+    );
+
+    return ["All", ...unique.sort((a, b) => a.localeCompare(b))];
+  }, [accounts]);
+
   // -------------------------------------------------------------------------
   // Filtering + sorting — uses pre-normalized fields for speed
   // -------------------------------------------------------------------------
@@ -753,20 +802,99 @@ export default function AccountsPage() {
   const filteredAccounts = useMemo(() => {
     const cleanSearch = debouncedSearch.toLowerCase().trim();
 
+    const minRevenue = moneyToNumber(minRevenueFilter);
+    const maxRevenue = moneyToNumber(maxRevenueFilter);
+    const minSubPay = moneyToNumber(minSubPayFilter);
+    const maxSubPay = moneyToNumber(maxSubPayFilter);
+
     const filtered = accounts.filter((account) => {
-      const matchesSearch = !cleanSearch || (account._searchBlob ?? "").includes(cleanSearch);
-      const matchesStatus = statusFilter === "All" || account._statusCategory === statusFilter;
-      const matchesManager = managerFilter === "All" || normalizeText(account.manager) === managerFilter;
-      const matchesSubcontractor = subcontractorFilter === "All" || normalizeText(account.subcontractor) === subcontractorFilter;
-      return matchesSearch && matchesStatus && matchesManager && matchesSubcontractor;
+      const revenue = account._monthlyRevenueNum ?? 0;
+      const subPay = account._subPayNum ?? 0;
+
+      const matchesSearch =
+        !cleanSearch || (account._searchBlob ?? "").includes(cleanSearch);
+
+      const matchesStatus =
+        statusFilter === "All" || account._statusCategory === statusFilter;
+
+      const matchesManager =
+        managerFilter === "All" || normalizeText(account.manager) === managerFilter;
+
+      const matchesSubcontractor =
+        subcontractorFilter === "All" ||
+        normalizeText(account.subcontractor) === subcontractorFilter;
+
+      const matchesFrequency =
+        frequencyFilter === "All" ||
+        normalizeText(account._frequencyText) === frequencyFilter;
+
+      const matchesMinRevenue = minRevenue <= 0 || revenue >= minRevenue;
+      const matchesMaxRevenue = maxRevenue <= 0 || revenue <= maxRevenue;
+
+      const matchesMinSubPay = minSubPay <= 0 || subPay >= minSubPay;
+      const matchesMaxSubPay = maxSubPay <= 0 || subPay <= maxSubPay;
+
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesManager &&
+        matchesSubcontractor &&
+        matchesFrequency &&
+        matchesMinRevenue &&
+        matchesMaxRevenue &&
+        matchesMinSubPay &&
+        matchesMaxSubPay
+      );
     });
 
     return [...filtered].sort((a, b) => {
-      if (sortOption === "Start Date - Newest First") return (b._startDateTime ?? 0) - (a._startDateTime ?? 0);
-      if (sortOption === "Start Date - Oldest First") return (a._startDateTime ?? 0) - (b._startDateTime ?? 0);
-      return normalizeText(a.accountName).localeCompare(normalizeText(b.accountName));
+      if (sortOption === "Start Date - Newest First") {
+        return (b._startDateTime ?? 0) - (a._startDateTime ?? 0);
+      }
+
+      if (sortOption === "Start Date - Oldest First") {
+        return (a._startDateTime ?? 0) - (b._startDateTime ?? 0);
+      }
+
+      if (sortOption === "Monthly Revenue - Highest First") {
+        return (b._monthlyRevenueNum ?? 0) - (a._monthlyRevenueNum ?? 0);
+      }
+
+      if (sortOption === "Monthly Revenue - Lowest First") {
+        return (a._monthlyRevenueNum ?? 0) - (b._monthlyRevenueNum ?? 0);
+      }
+
+      if (sortOption === "Sub Pay - Highest First") {
+        return (b._subPayNum ?? 0) - (a._subPayNum ?? 0);
+      }
+
+      if (sortOption === "Sub Pay - Lowest First") {
+        return (a._subPayNum ?? 0) - (b._subPayNum ?? 0);
+      }
+
+      if (sortOption === "Frequency") {
+        return normalizeText(a._frequencyText).localeCompare(
+          normalizeText(b._frequencyText)
+        );
+      }
+
+      return normalizeText(a.accountName).localeCompare(
+        normalizeText(b.accountName)
+      );
     });
-  }, [accounts, debouncedSearch, statusFilter, managerFilter, subcontractorFilter, sortOption]);
+  }, [
+    accounts,
+    debouncedSearch,
+    statusFilter,
+    managerFilter,
+    subcontractorFilter,
+    frequencyFilter,
+    minRevenueFilter,
+    maxRevenueFilter,
+    minSubPayFilter,
+    maxSubPayFilter,
+    sortOption,
+  ]);
 
   const visibleAccounts = useMemo(() => filteredAccounts.slice(0, visibleCount), [filteredAccounts, visibleCount]);
 
@@ -778,6 +906,10 @@ export default function AccountsPage() {
   const cancelledCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Cancelled").length, [accounts]);
   const highRiskCount = useMemo(() => accounts.filter((a) => normalizeLower(a.accountHealth).includes("high risk")).length, [accounts]);
   const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
+  const filteredSubPay = useMemo(
+    () => filteredAccounts.reduce((sum, account) => sum + (account._subPayNum ?? 0), 0),
+    [filteredAccounts]
+  );
 
   const activeSubcontractors = useMemo(() => {
     return allSubcontractors
@@ -1174,6 +1306,11 @@ export default function AccountsPage() {
     setStatusFilter("Active");
     setManagerFilter("All");
     setSubcontractorFilter("All");
+    setFrequencyFilter("All");
+    setMinRevenueFilter("");
+    setMaxRevenueFilter("");
+    setMinSubPayFilter("");
+    setMaxSubPayFilter("");
     setSortOption("Account Name");
   }
 
@@ -1394,15 +1531,39 @@ export default function AccountsPage() {
           </div>
         </div>
 
-        {/* Revenue tile */}
-        <div className="mt-4 rounded-2xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
-          <p className="text-xs font-black uppercase tracking-wide text-blue-700">Revenue In Current View</p>
-          <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-            {filteredRevenue.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
-          </p>
-          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-            Updates when you filter by status, manager, subcontractor, or search.
-          </p>
+        {/* Money summary tiles */}
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
+            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+              Revenue In Current View
+            </p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
+              {filteredRevenue.toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 0,
+              })}
+            </p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+              Updates when you filter accounts.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
+            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
+              Sub Pay In Current View
+            </p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
+              {filteredSubPay.toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 0,
+              })}
+            </p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+              Total subcontractor pay for the filtered accounts.
+            </p>
+          </div>
         </div>
 
         {/* Filters */}
@@ -1422,7 +1583,9 @@ export default function AccountsPage() {
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {statusOptions.map((s) => (
-              <option key={s} value={s}>Status: {s}</option>
+              <option key={s} value={s}>
+                Status: {s}
+              </option>
             ))}
           </select>
 
@@ -1433,7 +1596,9 @@ export default function AccountsPage() {
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {managers.map((m) => (
-              <option key={String(m)} value={String(m)}>Manager: {m}</option>
+              <option key={String(m)} value={String(m)}>
+                Manager: {m}
+              </option>
             ))}
           </select>
 
@@ -1444,9 +1609,62 @@ export default function AccountsPage() {
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {subcontractors.map((sub) => (
-              <option key={sub.value} value={sub.value}>Sub: {sub.label}</option>
+              <option key={sub.value} value={sub.value}>
+                Sub: {sub.label}
+              </option>
             ))}
           </select>
+
+          <select
+            value={frequencyFilter}
+            onChange={(e) => setFrequencyFilter(e.target.value)}
+            aria-label="Filter by frequency"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+          >
+            {frequencies.map((frequency) => (
+              <option key={frequency} value={frequency}>
+                Frequency: {frequency}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mt-3 grid gap-3 lg:grid-cols-5">
+          <input
+            value={minRevenueFilter}
+            onChange={(e) => setMinRevenueFilter(e.target.value)}
+            inputMode="decimal"
+            placeholder="Min revenue"
+            aria-label="Minimum monthly revenue"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+          />
+
+          <input
+            value={maxRevenueFilter}
+            onChange={(e) => setMaxRevenueFilter(e.target.value)}
+            inputMode="decimal"
+            placeholder="Max revenue"
+            aria-label="Maximum monthly revenue"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+          />
+
+          <input
+            value={minSubPayFilter}
+            onChange={(e) => setMinSubPayFilter(e.target.value)}
+            inputMode="decimal"
+            placeholder="Min sub pay"
+            aria-label="Minimum subcontractor pay"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+          />
+
+          <input
+            value={maxSubPayFilter}
+            onChange={(e) => setMaxSubPayFilter(e.target.value)}
+            inputMode="decimal"
+            placeholder="Max sub pay"
+            aria-label="Maximum subcontractor pay"
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+          />
 
           <select
             value={sortOption}
@@ -1455,7 +1673,9 @@ export default function AccountsPage() {
             className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           >
             {sortOptions.map((s) => (
-              <option key={s} value={s}>Sort: {s}</option>
+              <option key={s} value={s}>
+                Sort: {s}
+              </option>
             ))}
           </select>
         </div>
@@ -1964,7 +2184,7 @@ export default function AccountsPage() {
             <div className="col-span-1">Status</div>
             <div className="col-span-1">Health</div>
             <div className="col-span-1">Start Date</div>
-            <div className="col-span-1 text-right">Revenue</div>
+            <div className="col-span-1 text-right">Revenue / Sub Pay</div>
             <div className="col-span-1 text-right">Action</div>
           </div>
 
@@ -2000,8 +2220,15 @@ export default function AccountsPage() {
                           </p>
                         </div>
                         <div className="text-right lg:hidden">
-                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">Revenue</p>
-                          <p className="text-sm font-black text-slate-950">{formatMoney(account.monthlyRevenue)}</p>
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Revenue
+                          </p>
+                          <p className="text-sm font-black text-slate-950">
+                            {formatMoney(account.monthlyRevenue)}
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-emerald-700">
+                            Sub Pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
+                          </p>
                         </div>
                       </div>
                         </Link>
@@ -2048,8 +2275,18 @@ export default function AccountsPage() {
                         </p>
                       </div>
 
-                      <div className="hidden text-right font-black text-slate-950 lg:col-span-1 lg:block">
-                        {formatMoney(account.monthlyRevenue)}
+                      <div className="hidden text-right lg:col-span-1 lg:block">
+                        <p className="font-black text-slate-950">
+                          {formatMoney(account.monthlyRevenue)}
+                        </p>
+                        <p className="mt-1 text-[11px] font-bold text-emerald-700">
+                          Sub: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
+                        </p>
+                        {normalizeText(account._frequencyText) ? (
+                          <p className="mt-1 text-[11px] font-bold text-slate-400">
+                            {account._frequencyText}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="col-span-2 lg:col-span-1 lg:text-right">
@@ -2078,7 +2315,7 @@ export default function AccountsPage() {
               onClick={() => setVisibleCount((n) => n + LOAD_MORE_COUNT)}
               className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950"
             >
-              Load 30 More
+              Load 15 More
             </button>
           </div>
         ) : null}

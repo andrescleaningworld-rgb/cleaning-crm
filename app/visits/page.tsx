@@ -46,6 +46,27 @@ function formatDate(value: unknown): string {
   });
 }
 
+function getVisitTime(visit: Visit): number {
+  const possibleDates = [
+    visit.date,
+    visit.createdAt,
+    visit.updatedAt,
+    visit.followUpDate,
+  ];
+
+  for (const value of possibleDates) {
+    const text = clean(value);
+    if (!text) continue;
+
+    const date = new Date(text);
+    if (!Number.isNaN(date.getTime())) {
+      return date.getTime();
+    }
+  }
+
+  return 0;
+}
+
 function getConditionClass(value: unknown): string {
   const score = Number(value);
 
@@ -125,12 +146,18 @@ export default function VisitsPage() {
     loadVisits();
   }, []);
 
+  const sortedVisits = useMemo(() => {
+    return [...visits].sort((a, b) => {
+      return getVisitTime(b) - getVisitTime(a);
+    });
+  }, [visits]);
+
   const filteredVisits = useMemo(() => {
     const term = search.toLowerCase().trim();
 
-    if (!term) return visits;
+    if (!term) return sortedVisits;
 
-    return visits.filter((visit) => {
+    return sortedVisits.filter((visit) => {
       return (
         clean(visit.accountName).toLowerCase().includes(term) ||
         clean(visit.accountId).toLowerCase().includes(term) ||
@@ -140,7 +167,7 @@ export default function VisitsPage() {
         clean(visit.notes).toLowerCase().includes(term)
       );
     });
-  }, [visits, search]);
+  }, [sortedVisits, search]);
 
   const followUpsNeeded = useMemo(() => {
     return visits.filter((visit) => {
@@ -368,7 +395,11 @@ export default function VisitsPage() {
                           <td className="p-3">
                             {clean(visit.visitType) || "-"}
                           </td>
-                          <td className="p-3">{clean(visit.manager) || "-"}</td>
+
+                          <td className="p-3">
+                            {clean(visit.manager) || "-"}
+                          </td>
+
                           <td className="p-3">
                             {clean(visit.subcontractor) || "-"}
                           </td>
@@ -382,6 +413,7 @@ export default function VisitsPage() {
                           <td className="p-3">
                             {clean(visit.followUpNeeded) || "-"}
                           </td>
+
                           <td className="whitespace-nowrap p-3">
                             {formatDate(visit.followUpDate)}
                           </td>
