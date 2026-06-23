@@ -557,10 +557,22 @@ export default function MapPage() {
   }, [filteredAccounts]);
 
   const accountsWithPins = useMemo(() => {
-    return filteredAccounts.filter(
-      (account) => account.latitude !== null && account.longitude !== null
-    );
-  }, [filteredAccounts]);
+  return filteredAccounts.filter((account) => {
+    if (account.latitude === null || account.longitude === null) {
+      return false;
+    }
+
+    // Keep only accounts roughly in NJ / NYC / nearby service area.
+    // This prevents bad Google geocodes from throwing the map across the world.
+    const isNearbyServiceArea =
+      account.latitude >= 38.5 &&
+      account.latitude <= 42.5 &&
+      account.longitude >= -76.5 &&
+      account.longitude <= -72.5;
+
+    return isNearbyServiceArea;
+  });
+}, [filteredAccounts]);
 
   const visibleAccountsWithPins = useMemo(() => {
     const limitedPins = accountsWithPins.slice(0, pinLimit);
