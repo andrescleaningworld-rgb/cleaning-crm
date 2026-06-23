@@ -26,8 +26,8 @@ const Popup = dynamic(
   { ssr: false }
 );
 
-const INITIAL_PIN_LIMIT = 75;
-const PIN_BATCH_SIZE = 75;
+const INITIAL_PIN_LIMIT = 25;
+const PIN_BATCH_SIZE = 50;
 const SELECT_OPTION_LIMIT = 250;
 
 type AnyRow = Record<string, unknown>;
@@ -341,7 +341,7 @@ export default function MapPage() {
   const [currentLocation, setCurrentLocation] = useState("");
   const [currentCoords, setCurrentCoords] = useState<CurrentCoords | null>(null);
   const [locationMessage, setLocationMessage] = useState(
-    "Allow location access to see nearby accounts first."
+    "Use the location button to sort nearby accounts by distance."
   );
 
   const [accountPinIcon, setAccountPinIcon] = useState<DivIcon | null>(null);
@@ -482,10 +482,6 @@ export default function MapPage() {
   }, []);
 
   useEffect(() => {
-    useMyLocationOnLoad();
-  }, []);
-
-  useEffect(() => {
     setPinLimit(INITIAL_PIN_LIMIT);
   }, [searchText, managerFilter, subFilter]);
 
@@ -588,7 +584,7 @@ export default function MapPage() {
   const mapCenter = getMapCenter(selectedAccount, currentCoords, accountsWithPins);
 
   const mapKey = `${mapCenter[0].toFixed(5)}-${mapCenter[1].toFixed(5)}-${
-    selectedAccount?.id || "my-location"
+    selectedAccount?.id || "map"
   }`;
 
   const directionsUrl = selectedAccount
@@ -634,7 +630,7 @@ export default function MapPage() {
         setCurrentLocation(location);
         setSelectedAccountId("");
         setLocationMessage(
-          "Showing account pins and sorting nearby accounts by distance when latitude/longitude are available."
+          "Sorting nearby accounts by distance when latitude/longitude are available."
         );
       },
       () => {
@@ -715,7 +711,7 @@ export default function MapPage() {
                 onChange={(event) => setSelectedAccountId(event.target.value)}
                 className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 text-base font-semibold outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 lg:w-[320px]"
               >
-                <option value="">Map starts at my location</option>
+                <option value="">Select account</option>
 
                 {selectAccountOptions.map((account) => (
                   <option
@@ -794,7 +790,7 @@ export default function MapPage() {
           <div className="relative">
             {isLoading ? (
               <div className="flex h-[68vh] min-h-[460px] items-center justify-center text-gray-600">
-                Loading map...
+                Loading accounts from Google Sheets...
               </div>
             ) : accountPinIcon && selectedPinIcon && myLocationIcon ? (
               <div className="h-[68vh] min-h-[460px] w-full">
