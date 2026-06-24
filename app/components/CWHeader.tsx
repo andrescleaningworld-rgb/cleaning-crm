@@ -85,6 +85,12 @@ function getSavedRole(pathname: string): UserRole {
   return "admin";
 }
 
+function getHomeHref(role: UserRole): string {
+  if (role === "subcontractor") return "/subcontractor-portal";
+  if (role === "admin") return "/";
+  return "/login";
+}
+
 export default function CWHeader() {
   const pathname = usePathname();
 
@@ -159,7 +165,7 @@ export default function CWHeader() {
   return (
     <header className="cw-header">
       <div className="cw-header-inner">
-        <Link href={role ? "/" : "/login"} className="cw-brand">
+        <Link href={getHomeHref(role)} className="cw-brand">
           <div className="cw-logo-box">
             <Image
               src="/cw-logo.jpg"
@@ -208,6 +214,16 @@ export default function CWHeader() {
                 ) : null}
               </Link>
             ) : null}
+
+            <Link
+              href="/help"
+              className="cw-nav-button"
+              aria-label="Help and app instructions"
+              title="Help and app instructions"
+            >
+              <span>❔</span>
+              <span>Help</span>
+            </Link>
 
             {navItems.map((item) => (
               <Link key={item.href} href={item.href} className="cw-nav-button">

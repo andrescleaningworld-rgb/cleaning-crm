@@ -152,13 +152,24 @@ type TransferProposalPayload = {
 
 type StoredTransferProposalAccount = {
   accountId?: string;
+  id?: string;
   accountName?: string;
+  name?: string;
   address?: string;
   cleaningDays?: string;
+  frequency?: string;
   scope?: string;
+  scopeOfWork?: string;
   keysAlarm?: string;
+  hasKey?: string;
+  alarmCode?: string;
   proposedMonthlyPay?: string | number;
+  proposedPay?: string | number;
+  monthlySubcontractorPay?: string | number;
+  subcontractorPay?: string | number;
+  pay?: string | number;
   monthlyRevenue?: string | number;
+  revenue?: string | number;
 };
 
 type StoredTransferProposal = {
@@ -343,13 +354,70 @@ function getStoredProposalAccountCount(proposal: StoredTransferProposal): number
 function getStoredProposalRevenue(proposal: StoredTransferProposal): number {
   const direct = moneyToNumber(proposal.totalMonthlyRevenue ?? proposal.monthlyRevenue);
   if (direct > 0) return direct;
-  return (proposal.accounts ?? []).reduce((sum, account) => sum + moneyToNumber(account.monthlyRevenue), 0);
+
+  return (proposal.accounts ?? []).reduce(
+    (sum, account) => sum + getStoredProposalAccountRevenue(account),
+    0
+  );
+}
+
+function getStoredProposalAccountPay(
+  account: StoredTransferProposalAccount
+): number {
+  return moneyToNumber(
+    account.proposedMonthlyPay ??
+      account.proposedPay ??
+      account.monthlySubcontractorPay ??
+      account.subcontractorPay ??
+      account.pay
+  );
+}
+
+function getStoredProposalAccountRevenue(
+  account: StoredTransferProposalAccount
+): number {
+  return moneyToNumber(account.monthlyRevenue ?? account.revenue);
+}
+
+function getStoredProposalAccountName(
+  account: StoredTransferProposalAccount
+): string {
+  return normalizeText(account.accountName ?? account.name) || "Unnamed Account";
+}
+
+function getStoredProposalAccountDays(
+  account: StoredTransferProposalAccount
+): string {
+  return normalizeText(account.cleaningDays ?? account.frequency) || "N/A";
+}
+
+function getStoredProposalAccountScope(
+  account: StoredTransferProposalAccount
+): string {
+  return normalizeText(account.scope ?? account.scopeOfWork) || "N/A";
+}
+
+function getStoredProposalAccountKeysAlarm(
+  account: StoredTransferProposalAccount
+): string {
+  return normalizeText(account.keysAlarm) ||
+    (hasSensitiveAccessValue(account.hasKey) ||
+    hasSensitiveAccessValue(account.alarmCode)
+      ? "Yes"
+      : "No");
 }
 
 function getStoredProposalPay(proposal: StoredTransferProposal): number {
-  const direct = moneyToNumber(proposal.proposedMonthlyPay ?? proposal.totalProposedPay);
+  const direct = moneyToNumber(
+    proposal.proposedMonthlyPay ?? proposal.totalProposedPay
+  );
+
   if (direct > 0) return direct;
-  return (proposal.accounts ?? []).reduce((sum, account) => sum + moneyToNumber(account.proposedMonthlyPay), 0);
+
+  return (proposal.accounts ?? []).reduce(
+    (sum, account) => sum + getStoredProposalAccountPay(account),
+    0
+  );
 }
 
 function getStoredProposalStatusClass(status: string): string {
@@ -1332,6 +1400,268 @@ async function handleSaveTransferProposal() {
   // Filters
   // -------------------------------------------------------------------------
 
+  function handlePrintSubcontractorAccountList() {
+  if (subcontractorFilter === "All") {
+    setError("Choose a subcontractor first, then click Print Sub Account List.");
+    return;
+  }
+
+  const selectedSubOption = subcontractors.find(
+    (sub) => sub.value === subcontractorFilter
+  );
+
+  const subLabel = selectedSubOption?.label || subcontractorFilter;
+
+  const subAccounts = accounts
+    .filter((account) => {
+      return (
+        account._statusCategory === "Active" &&
+        normalizeText(account.subcontractor) === subcontractorFilter
+      );
+    })
+    .sort((a, b) =>
+      normalizeText(a.accountName).localeCompare(normalizeText(b.accountName))
+    );
+
+  if (subAccounts.length === 0) {
+    setError(`No active accounts found for ${subLabel}.`);
+    return;
+  }
+
+  const totalRevenue = subAccounts.reduce(
+    (sum, account) => sum + moneyToNumber(account.monthlyRevenue),
+    0
+  );
+
+  const totalSubPay = subAccounts.reduce(
+    (sum, account) =>
+      sum +
+      moneyToNumber(
+        account.monthlySubcontractorPay ?? account.subcontractorPay
+      ),
+    0
+  );
+
+  const rows = subAccounts
+    .map((account, index) => {
+      const address = getProposalAddress(account) || "N/A";
+      const cleaningDays = getProposalCleaningDays(account);
+      const scope = getProposalScope(account);
+      const subPay = moneyToNumber(
+        account.monthlySubcontractorPay ?? account.subcontractorPay
+      );
+
+      return `
+        <div class="account">
+          <div class="account-header">
+            <div>
+              <h2>${index + 1}. ${escapeHtml(
+                account.accountName || "Unnamed Account"
+              )}</h2>
+              <p class="address">${escapeHtml(address)}</p>
+            </div>
+            <div class="pay">
+              <span>Sub Pay</span>
+              <strong>${formatMoney(subPay)}</strong>
+            </div>
+          </div>
+
+          <div class="grid">
+            <p><strong>Account ID:</strong> ${escapeHtml(getAccountId(account) || "N/A")}</p>
+            <p><strong>Cleaning Days:</strong> ${escapeHtml(cleaningDays)}</p>
+            <p><strong>Frequency:</strong> ${escapeHtml(normalizeText(account.frequency) || "N/A")}</p>
+            <p><strong>Keys / Alarm:</strong> ${escapeHtml(getKeysAlarmRequired(account))}</p>
+            <p><strong>Monthly Revenue:</strong> ${formatMoney(account.monthlyRevenue)}</p>
+            <p><strong>Account Health:</strong> ${escapeHtml(account.accountHealth || "N/A")}</p>
+          </div>
+
+          <p class="scope"><strong>Scope:</strong> ${escapeHtml(scope)}</p>
+        </div>
+      `;
+    })
+    .join("");
+
+  const printWindow = window.open("", "_blank", "width=900,height=700");
+
+  if (!printWindow) {
+    setError("Popup blocked. Allow popups for this site and try again.");
+    return;
+  }
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <title>Cleaning World Subcontractor Account List</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 28px;
+            color: #0f172a;
+          }
+
+          h1 {
+            margin: 0 0 6px;
+            font-size: 24px;
+          }
+
+          .subtitle {
+            margin: 0 0 18px;
+            color: #475569;
+            font-size: 14px;
+            line-height: 1.4;
+          }
+
+          .summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 18px 0 22px;
+          }
+
+          .summary-box {
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            padding: 12px;
+            background: #f8fafc;
+          }
+
+          .summary-box span {
+            display: block;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+          }
+
+          .summary-box strong {
+            display: block;
+            margin-top: 5px;
+            font-size: 18px;
+          }
+
+          .account {
+            border: 1px solid #cbd5e1;
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 12px;
+            page-break-inside: avoid;
+          }
+
+          .account-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+          }
+
+          .account h2 {
+            margin: 0;
+            font-size: 18px;
+          }
+
+          .address {
+            margin: 5px 0 0;
+            color: #475569;
+            font-size: 13px;
+            font-weight: 700;
+          }
+
+          .pay {
+            text-align: right;
+            min-width: 120px;
+          }
+
+          .pay span {
+            display: block;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 800;
+          }
+
+          .pay strong {
+            display: block;
+            margin-top: 4px;
+            font-size: 16px;
+          }
+
+          .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px 16px;
+            margin-top: 12px;
+          }
+
+          p {
+            margin: 4px 0;
+            font-size: 13px;
+            line-height: 1.4;
+          }
+
+          .scope {
+            margin-top: 10px;
+          }
+
+          .print-button {
+            margin-top: 18px;
+            padding: 10px 16px;
+            border: 0;
+            border-radius: 10px;
+            background: #0f172a;
+            color: white;
+            font-weight: 800;
+            cursor: pointer;
+          }
+
+          @media print {
+            body {
+              margin: 18px;
+            }
+
+            .print-button {
+              display: none;
+            }
+          }
+        </style>
+      </head>
+
+      <body>
+        <h1>Cleaning World Subcontractor Account List</h1>
+        <p class="subtitle">
+          <strong>Subcontractor:</strong> ${escapeHtml(subLabel)}<br />
+          <strong>Printed:</strong> ${escapeHtml(new Date().toLocaleDateString("en-US"))}
+        </p>
+
+        <div class="summary">
+          <div class="summary-box">
+            <span>Active Accounts</span>
+            <strong>${subAccounts.length}</strong>
+          </div>
+
+          <div class="summary-box">
+            <span>Total Revenue</span>
+            <strong>${formatMoney(totalRevenue)}</strong>
+          </div>
+
+          <div class="summary-box">
+            <span>Total Sub Pay</span>
+            <strong>${formatMoney(totalSubPay)}</strong>
+          </div>
+        </div>
+
+        ${rows}
+
+        <button class="print-button" onclick="window.print()">Print</button>
+      </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+  printWindow.focus();
+}
+
   function clearFilters() {
     setSearchText("");
     setStatusFilter("Active");
@@ -1723,6 +2053,14 @@ async function handleSaveTransferProposal() {
             </p>
             <p className="mt-1 text-xs">Tap any account name to open the account detail page.</p>
           </div>
+          
+          <button
+            type="button"
+            onClick={handlePrintSubcontractorAccountList}
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-black text-blue-800 hover:bg-blue-100"
+>
+            Print Sub Account List
+          </button>
 
           <button
             type="button"
@@ -1848,7 +2186,7 @@ async function handleSaveTransferProposal() {
                             />
                             <div className="min-w-0 flex-1">
                               <p className="font-black leading-5 text-slate-950">
-                                {account.accountName || "Unnamed Account"}
+                                {getStoredProposalAccountName(account)}
                               </p>
                               <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
                                 {getProposalAddress(account) || "No address"}
@@ -2069,7 +2407,7 @@ async function handleSaveTransferProposal() {
                   Proposed Pay
                 </p>
                 <p className="text-sm font-black text-slate-950">
-                  {formatMoney(account.proposedMonthlyPay)}
+                  {formatMoney(getStoredProposalAccountPay(account))}
                 </p>
               </div>
             </div>
@@ -2081,19 +2419,19 @@ async function handleSaveTransferProposal() {
               </p>
               <p>
                 <span className="text-slate-400">Cleaning Days:</span>{" "}
-                {account.cleaningDays || "N/A"}
+                {getStoredProposalAccountDays(account)}
               </p>
               <p>
                 <span className="text-slate-400">Keys / Alarm:</span>{" "}
-                {account.keysAlarm || "N/A"}
+                {getStoredProposalAccountKeysAlarm(account)}
               </p>
               <p>
                 <span className="text-slate-400">Revenue:</span>{" "}
-                {formatMoney(account.monthlyRevenue)}
+                {formatMoney(getStoredProposalAccountRevenue(account))}
               </p>
               <p className="sm:col-span-2">
                 <span className="text-slate-400">Scope:</span>{" "}
-                {account.scope || "N/A"}
+                {getStoredProposalAccountScope(account)}
               </p>
             </div>
           </div>
