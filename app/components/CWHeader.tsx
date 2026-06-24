@@ -7,6 +7,12 @@ import { usePathname } from "next/navigation";
 
 type UserRole = "admin" | "subcontractor" | null;
 
+type NotificationsResponse = {
+  success?: boolean;
+  message?: string;
+  newCount?: number;
+};
+
 const adminNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts", label: "Accounts" },
@@ -76,9 +82,6 @@ function getSavedRole(pathname: string): UserRole {
     return "subcontractor";
   }
 
-  // Important fallback:
-  // If the user is already inside an admin page, proxy/login already allowed them.
-  // So show the admin navigation instead of leaving the header blank.
   return "admin";
 }
 
@@ -87,6 +90,7 @@ export default function CWHeader() {
 
   const [role, setRole] = useState<UserRole>(null);
   const [ready, setReady] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
 
   useEffect(() => {
     setRole(getSavedRole(pathname));
@@ -107,6 +111,44 @@ export default function CWHeader() {
       window.removeEventListener("focus", refreshRole);
     };
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadNotificationCount() {
+      if (role !== "admin") {
+        setNotificationCount(0);
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/notifications", {
+          cache: "no-store",
+        });
+
+        const data = (await response.json()) as NotificationsResponse;
+
+        if (!isMounted) return;
+
+        if (response.ok && data.success !== false) {
+          setNotificationCount(Number(data.newCount || 0));
+        }
+      } catch {
+        if (isMounted) {
+          setNotificationCount(0);
+        }
+      }
+    }
+
+    loadNotificationCount();
+
+    const interval = window.setInterval(loadNotificationCount, 60000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, [role, pathname]);
 
   const navItems = useMemo(() => {
     if (role === "admin") return adminNavItems;
@@ -137,6 +179,36 @@ export default function CWHeader() {
 
         {ready && navItems.length > 0 ? (
           <nav className="cw-nav" aria-label="Main navigation">
+            {role === "admin" ? (
+              <Link
+                href="/notifications"
+                className="cw-nav-button"
+                aria-label={
+                  notificationCount > 0
+                    ? `${notificationCount} new notifications`
+                    : "Notifications"
+                }
+              >
+                <span>🔔</span>
+                <span>Notifications</span>
+                {notificationCount > 0 ? (
+                  <span
+                    style={{
+                      marginLeft: "6px",
+                      borderRadius: "999px",
+                      background: "#dc2626",
+                      color: "white",
+                      padding: "2px 7px",
+                      fontSize: "12px",
+                      fontWeight: 900,
+                    }}
+                  >
+                    {notificationCount}
+                  </span>
+                ) : null}
+              </Link>
+            ) : null}
+
             {navItems.map((item) => (
               <Link key={item.href} href={item.href} className="cw-nav-button">
                 {item.label}

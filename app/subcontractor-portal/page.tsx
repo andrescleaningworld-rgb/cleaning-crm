@@ -714,24 +714,27 @@ export default function SubcontractorPortalPage() {
     setSubmittingIssue(true);
 
     try {
-      const response = await fetch("/api/subcontractor-issues", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          subcontractorEmail: subcontractor.email || email.trim(),
-          subcontractorName: getSubcontractorDisplayName(subcontractor),
-          accountId:
-            selectedIssueAccount?.accountId || selectedIssueAccount?.id || "",
-          accountName: issueAccountName,
-          issueType,
-          urgency: issueUrgency,
-          description: issueDescription.trim(),
-          photoCount: issuePhotos.length,
-          status: "New",
-        }),
-      });
+      const response = await fetch("/api/subcontractor-portal", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    action: "submitSubPortalIssue",
+    issue: {
+      subcontractorEmail: subcontractor.email || email.trim(),
+      subcontractorName: getSubcontractorDisplayName(subcontractor),
+      accountId:
+        selectedIssueAccount?.accountId || selectedIssueAccount?.id || "",
+      accountName: issueAccountName,
+      issueType,
+      urgency: issueUrgency,
+      description: issueDescription.trim(),
+      photoCount: issuePhotos.length,
+      status: "New",
+    },
+  }),
+});
 
       const text = await response.text();
 
