@@ -215,15 +215,14 @@ export default function CWHeader() {
               </Link>
             ) : null}
 
-            <Link
+             <Link
               href="/help"
-              className="cw-nav-button"
-              aria-label="Help and app instructions"
-              title="Help and app instructions"
-            >
-              <span>❔</span>
-              <span>Help</span>
-            </Link>
+              title="Help"
+              aria-label="Help"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-white/15 text-lg font-black text-white shadow-sm transition hover:bg-white/25"
+              >
+  ?
+             </Link>
 
             {navItems.map((item) => (
               <Link key={item.href} href={item.href} className="cw-nav-button">
