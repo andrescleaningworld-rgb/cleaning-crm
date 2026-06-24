@@ -55,7 +55,7 @@ type SelectedPhoto = {
 };
 
 const MAX_COMPLAINT_PHOTOS = 5;
-const MAX_PHOTO_SIZE_MB = 8;
+const MAX_PHOTO_SIZE_MB = 25;
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();

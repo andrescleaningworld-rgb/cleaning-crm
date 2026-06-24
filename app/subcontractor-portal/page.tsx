@@ -106,7 +106,7 @@ type SelectedIssuePhoto = {
 type PortalView = "accounts" | "complaints" | "issue" | "supplies";
 
 const MAX_SUB_ISSUE_PHOTOS = 5;
-const MAX_SUB_ISSUE_PHOTO_SIZE_MB = 8;
+const MAX_SUB_ISSUE_PHOTO_SIZE_MB = 25;
 
 const issueTypes = [
   "Access / Key / Alarm Issue",
