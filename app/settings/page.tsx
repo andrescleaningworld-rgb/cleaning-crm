@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type Dispatch, type SetStateAction } from "react";
 
 type SettingItem = {
@@ -151,6 +152,72 @@ function SettingsSection({
   );
 }
 
+function SupplySettingsSection() {
+  return (
+    <section className="rounded-xl border border-green-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-sm font-bold uppercase tracking-wide text-green-700">
+            Supply Settings
+          </p>
+
+          <h2 className="mt-1 text-xl font-bold text-gray-900">
+            Supply Items and Categories
+          </h2>
+
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
+            Manage the supply categories, item names, descriptions, units,
+            stock levels, and active/inactive status used by subcontractors when
+            placing supply orders.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 sm:flex-row lg:min-w-[360px]">
+          <Link
+            href="/supplies"
+            className="rounded-lg bg-green-700 px-5 py-3 text-center text-sm font-bold text-white shadow-sm hover:bg-green-800"
+          >
+            Manage Supply Items
+          </Link>
+
+          <Link
+            href="/supply-orders"
+            className="rounded-lg border border-green-300 bg-green-50 px-5 py-3 text-center text-sm font-bold text-green-800 shadow-sm hover:bg-green-100"
+          >
+            View Supply Orders
+          </Link>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-green-100 bg-green-50 p-4">
+          <p className="text-sm font-bold text-green-900">Categories</p>
+          <p className="mt-1 text-sm leading-6 text-green-800">
+            Categories come from the supply items list, such as Chemicals,
+            Trash Bags, Paper Products, Floor Care, Tools, and Other.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <p className="text-sm font-bold text-blue-900">Item Descriptions</p>
+          <p className="mt-1 text-sm leading-6 text-blue-800">
+            Descriptions are shown to subcontractors so they know exactly what
+            they are requesting.
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-bold text-slate-900">Order Log</p>
+          <p className="mt-1 text-sm leading-6 text-slate-700">
+            Submitted orders are tracked in the Supply Orders page for review,
+            approval, denial, and completion.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function SettingsPage() {
   const [managers, setManagers] = useState<SettingItem[]>(startingManagers);
   const [visitTypes, setVisitTypes] =
@@ -278,6 +345,8 @@ export default function SettingsPage() {
         </div>
 
         <div className="grid gap-6">
+          <SupplySettingsSection />
+
           <SettingsSection
             title="Managers"
             description="People responsible for visits, complaints, follow-ups, and account management."
