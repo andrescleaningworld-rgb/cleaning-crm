@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useMemo, useState } from "react";
 
 type Account = {
   id?: string;
@@ -56,11 +56,17 @@ type Complaint = {
 
 type SupplyItem = {
   rowNumber?: number;
+  itemId?: string;
+  id?: string;
+  itemName?: string;
   supplyItem?: string;
+  name?: string;
   category?: string;
   description?: string;
   itemDescription?: string;
   unit?: string;
+  currentStock?: string | number;
+  minimumStock?: string | number;
   notes?: string;
   active?: string;
   status?: string;
@@ -87,6 +93,18 @@ type PortalResponse = {
   complaints?: Complaint[];
   supplyItems?: SupplyItem[];
   orderId?: string | null;
+};
+
+type SuppliesResponse = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  count?: number;
+  data?: SupplyItem[];
+  supplies?: SupplyItem[];
+  supplyItems?: SupplyItem[];
+  items?: SupplyItem[];
+  categories?: string[];
 };
 
 type OrderLineItem = {
@@ -205,7 +223,11 @@ function getAlarmInfo(account: Account) {
 }
 
 function getSupplyName(item: SupplyItem) {
-  return cleanText(item.supplyItem);
+  return (
+    cleanText(item.supplyItem) ||
+    cleanText(item.itemName) ||
+    cleanText(item.name)
+  );
 }
 
 function getSupplyCategory(item: SupplyItem) {
@@ -233,11 +255,20 @@ function isActiveSupply(item: SupplyItem) {
   const active = cleanLower(getSupplyActive(item));
 
   if (status) {
-    return status === "active";
+    return ![
+      "inactive",
+      "disabled",
+      "deleted",
+      "archive",
+      "archived",
+      "discontinued",
+      "cancelled",
+      "canceled",
+    ].includes(status);
   }
 
   if (active) {
-    return active === "yes" || active === "true" || active === "active";
+    return !["no", "false", "inactive", "disabled"].includes(active);
   }
 
   return true;
@@ -519,6 +550,31 @@ export default function SubcontractorPortalPage() {
     return data;
   }
 
+  function getSupplyItemsFromResponse(data: SuppliesResponse): SupplyItem[] {
+    if (Array.isArray(data.supplies)) return data.supplies;
+    if (Array.isArray(data.supplyItems)) return data.supplyItems;
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.data)) return data.data;
+
+    return [];
+  }
+
+  async function loadSupplyItems() {
+    const response = await fetch("/api/supplies?action=getSupplies", {
+      cache: "no-store",
+    });
+
+    const data = (await response.json()) as SuppliesResponse;
+
+    if (!response.ok || data.success === false) {
+      throw new Error(
+        data.error || data.message || "Could not load supply items."
+      );
+    }
+
+    return getSupplyItemsFromResponse(data);
+  }
+
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -528,11 +584,14 @@ export default function SubcontractorPortalPage() {
 
     try {
       const data = await loadPortal(email);
+      const loadedSupplyItems = await loadSupplyItems().catch(() => {
+        return data.supplyItems || [];
+      });
 
       setSubcontractor(data.subcontractor || null);
       setAccounts(data.accounts || []);
       setComplaints(data.complaints || []);
-      setSupplyItems(data.supplyItems || []);
+      setSupplyItems(loadedSupplyItems.length > 0 ? loadedSupplyItems : data.supplyItems || []);
       setSelectedAccountName("");
       setDeliveryMode("");
       setNotes("");
@@ -567,7 +626,7 @@ export default function SubcontractorPortalPage() {
     }
   }
 
-  function handleIssuePhotoSelect(event: React.ChangeEvent<HTMLInputElement>) {
+  function handleIssuePhotoSelect(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
 
     const remainingSlots = MAX_SUB_ISSUE_PHOTOS - issuePhotos.length;
