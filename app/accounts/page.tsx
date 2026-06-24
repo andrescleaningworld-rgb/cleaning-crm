@@ -629,6 +629,8 @@ export default function AccountsPage() {
   const [storedTransferProposals, setStoredTransferProposals] = useState<StoredTransferProposal[]>([]);
   const [transferProposalsLoading, setTransferProposalsLoading] = useState(false);
   const [transferProposalsError, setTransferProposalsError] = useState("");
+  const [viewedStoredProposal, setViewedStoredProposal] =
+  useState<StoredTransferProposal | null>(null);
 
   const debouncedSearch = useDebounce(searchText, SEARCH_DEBOUNCE_MS);
 
@@ -1111,89 +1113,58 @@ export default function AccountsPage() {
 
 
   function loadStoredProposalIntoBuilder(proposal: StoredTransferProposal) {
-    const proposalAccounts = proposal.accounts ?? [];
-    const proposalIds = proposalAccounts
-      .map((account) => normalizeText(account.accountId))
-      .filter(Boolean);
+  const proposalAccounts = Array.isArray(proposal.accounts)
+    ? proposal.accounts
+    : [];
 
-    const matchingIds = proposalIds.filter((id) =>
-      accounts.some((account) => getAccountId(account) === id)
-    );
+  const proposalIds = proposalAccounts
+    .map((account) => normalizeText(account.accountId))
+    .filter(Boolean);
 
-    const payById: Record<string, string> = {};
-    proposalAccounts.forEach((account) => {
-      const accountId = normalizeText(account.accountId);
-      if (!accountId) return;
-      const proposedPay = moneyToNumber(account.proposedMonthlyPay);
-      payById[accountId] = proposedPay > 0 ? String(proposedPay) : "";
-    });
+  const matchingIds = proposalIds.filter((id) =>
+    accounts.some((account) => getAccountId(account) === id)
+  );
 
-    const email = getStoredProposalEmail(proposal);
-    const existingSub = activeSubcontractors.find(
-      (sub) => normalizeText(sub.email) === email
-    );
+  const payById: Record<string, string> = {};
 
-    setSelectedTransferAccountIds(matchingIds);
-    setTransferPayByAccountId(payById);
-    setTransferProposalId(getStoredProposalId(proposal));
-    setTransferNotes(normalizeText(proposal.notes));
-    setTransferError("");
+  proposalAccounts.forEach((storedAccount) => {
+    const storedAccountId = normalizeText(storedAccount.accountId);
+    if (!storedAccountId) return;
 
-    if (existingSub) {
-      setTransferNewSubcontractorMode("existing");
-      setTransferSubcontractorEmail(email);
-      setManualTransferSubcontractorName("");
-      setManualTransferSubcontractorEmail("");
-    } else {
-      setTransferNewSubcontractorMode("new");
-      setTransferSubcontractorEmail("");
-      setManualTransferSubcontractorName(getStoredProposalSubcontractor(proposal));
-      setManualTransferSubcontractorEmail(email);
-    }
+    const proposedPay = moneyToNumber(storedAccount.proposedMonthlyPay);
+    payById[storedAccountId] = proposedPay > 0 ? String(proposedPay) : "";
+  });
 
-    setTransferMessage(
-      matchingIds.length === proposalIds.length
-        ? "Stored proposal loaded for editing."
-        : "Stored proposal loaded. Some old accounts were not matched to active account IDs."
-    );
+  const email = getStoredProposalEmail(proposal);
+  const existingSub = activeSubcontractors.find(
+    (sub) => normalizeText(sub.email) === email
+  );
+
+  setViewedStoredProposal(proposal);
+  setSelectedTransferAccountIds(matchingIds);
+  setTransferPayByAccountId(payById);
+  setTransferProposalId(getStoredProposalId(proposal));
+  setTransferNotes(normalizeText(proposal.notes));
+  setTransferError("");
+
+  if (existingSub) {
+    setTransferNewSubcontractorMode("existing");
+    setTransferSubcontractorEmail(email);
+    setManualTransferSubcontractorName("");
+    setManualTransferSubcontractorEmail("");
+  } else {
+    setTransferNewSubcontractorMode("new");
+    setTransferSubcontractorEmail("");
+    setManualTransferSubcontractorName(getStoredProposalSubcontractor(proposal));
+    setManualTransferSubcontractorEmail(email);
   }
 
-  async function handleSaveTransferProposal() {
-    const validationError = validateTransferProposal();
-    if (validationError) {
-      setTransferError(validationError);
-      return;
-    }
-
-    try {
-      setTransferSaving(true);
-      setTransferError("");
-      setTransferMessage("");
-
-      const response = await fetch("/api/sub-transfer-proposals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "createSubTransferProposal",
-          proposal: buildTransferProposalPayload(),
-        }),
-      });
-
-      const data = await readJson<{ success?: boolean; error?: string; message?: string; proposalId?: string; id?: string; data?: { proposalId?: string } }>(response);
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error ?? "Could not save transfer proposal.");
-      }
-
-      const savedProposalId = data.proposalId ?? data.id ?? data.data?.proposalId ?? transferProposalId;
-      if (savedProposalId) setTransferProposalId(savedProposalId);
-      setTransferMessage(savedProposalId ? `Proposal saved: ${savedProposalId}` : "Proposal saved.");
-      loadTransferProposals();
-    } catch (err) {
-      setTransferError(err instanceof Error ? err.message : "Something went wrong saving the proposal.");
-    } finally {
-      setTransferSaving(false);
-    }
-  }
+  setTransferMessage(
+    proposalAccounts.length > 0
+      ? "Stored proposal opened below. You can review it, print it, or edit matched accounts."
+      : "Stored proposal opened, but this saved record has no account details attached."
+  );
+}
 
   async function handleSendTransferProposalEmail() {
     const validationError = validateTransferProposal();
@@ -1944,6 +1915,137 @@ export default function AccountsPage() {
                     </div>
                   </div>
                 </div>
+
+{viewedStoredProposal ? (
+  <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+          Viewing Stored Proposal
+        </p>
+        <h4 className="mt-1 text-lg font-black text-slate-950">
+          {getStoredProposalId(viewedStoredProposal) || "Stored Proposal"}
+        </h4>
+        <p className="mt-1 text-sm font-semibold text-slate-600">
+          New Subcontractor: {getStoredProposalSubcontractor(viewedStoredProposal)}
+        </p>
+        <p className="text-sm font-semibold text-slate-600">
+          Email: {getStoredProposalEmail(viewedStoredProposal) || "N/A"}
+        </p>
+        <p className="text-sm font-semibold text-slate-600">
+          Status: {getStoredProposalStatus(viewedStoredProposal)}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setViewedStoredProposal(null)}
+        className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100"
+      >
+        Close View
+      </button>
+    </div>
+
+    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="rounded-xl border border-blue-100 bg-white p-3">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+          Accounts
+        </p>
+        <p className="mt-1 text-xl font-black text-slate-950">
+          {getStoredProposalAccountCount(viewedStoredProposal)}
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-blue-100 bg-white p-3">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+          Revenue
+        </p>
+        <p className="mt-1 text-xl font-black text-slate-950">
+          {formatMoney(getStoredProposalRevenue(viewedStoredProposal))}
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-blue-100 bg-white p-3">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+          Proposed Pay
+        </p>
+        <p className="mt-1 text-xl font-black text-slate-950">
+          {formatMoney(getStoredProposalPay(viewedStoredProposal))}
+        </p>
+      </div>
+    </div>
+
+    {viewedStoredProposal.notes ? (
+      <div className="mt-4 rounded-xl border border-blue-100 bg-white p-3">
+        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+          Notes
+        </p>
+        <p className="mt-1 whitespace-pre-wrap text-sm font-semibold leading-6 text-slate-700">
+          {viewedStoredProposal.notes}
+        </p>
+      </div>
+    ) : null}
+
+    <div className="mt-4 space-y-2">
+      {Array.isArray(viewedStoredProposal.accounts) &&
+      viewedStoredProposal.accounts.length > 0 ? (
+        viewedStoredProposal.accounts.map((account, index) => (
+          <div
+            key={`${normalizeText(account.accountId) || index}-${index}`}
+            className="rounded-xl border border-blue-100 bg-white p-3"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-black text-slate-950">
+                  {index + 1}. {account.accountName || "Unnamed Account"}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-slate-600">
+                  {account.address || "No address"}
+                </p>
+              </div>
+
+              <div className="text-left sm:text-right">
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Proposed Pay
+                </p>
+                <p className="text-sm font-black text-slate-950">
+                  {formatMoney(account.proposedMonthlyPay)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs font-bold text-slate-600 sm:grid-cols-2">
+              <p>
+                <span className="text-slate-400">Account ID:</span>{" "}
+                {account.accountId || "N/A"}
+              </p>
+              <p>
+                <span className="text-slate-400">Cleaning Days:</span>{" "}
+                {account.cleaningDays || "N/A"}
+              </p>
+              <p>
+                <span className="text-slate-400">Keys / Alarm:</span>{" "}
+                {account.keysAlarm || "N/A"}
+              </p>
+              <p>
+                <span className="text-slate-400">Revenue:</span>{" "}
+                {formatMoney(account.monthlyRevenue)}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="text-slate-400">Scope:</span>{" "}
+                {account.scope || "N/A"}
+              </p>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-black text-amber-800">
+          This stored proposal does not include account details yet. It may have been saved before account items were being stored.
+        </div>
+      )}
+    </div>
+  </div>
+) : null}                  
 
                 {selectedTransferAccounts.length ? (
                   <div className="mt-4 max-h-[460px] space-y-3 overflow-y-auto pr-1">
