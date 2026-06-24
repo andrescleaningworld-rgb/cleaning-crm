@@ -8,11 +8,14 @@ type SupplyOrder = {
   timestamp?: string;
   orderId?: string;
   orderGroupId?: string;
+  requestedBy?: string;
+  userRole?: string;
   subcontractor?: string;
   subcontractorEmail?: string;
   accountName?: string;
   accountId?: string;
   supplyItem?: string;
+  itemName?: string;
   category?: string;
   description?: string;
   itemDescription?: string;
@@ -21,6 +24,9 @@ type SupplyOrder = {
   deliveryMode?: string;
   status?: string;
   notes?: string;
+  emailStatus?: string;
+  emailSentTo?: string;
+  lastUpdated?: string;
 };
 
 type ScriptResponse = {
@@ -40,7 +46,33 @@ type SupplyOrderPostBody = {
   id?: string;
   status?: string;
   orderStatus?: string;
-  [key: string]: string | number | boolean | null | undefined;
+
+  requestedBy?: string;
+  userRole?: string;
+  subcontractor?: string;
+  subcontractorEmail?: string;
+  accountName?: string;
+  accountId?: string;
+  supplyItem?: string;
+  itemName?: string;
+  category?: string;
+  description?: string;
+  itemDescription?: string;
+  quantity?: string;
+  unit?: string;
+  deliveryMode?: string;
+  notes?: string;
+
+  orders?: SupplyOrder[];
+  items?: SupplyOrder[];
+
+  [key: string]:
+    | string
+    | number
+    | boolean
+    | null
+    | undefined
+    | SupplyOrder[];
 };
 
 function getScriptUrl() {
@@ -53,6 +85,32 @@ function getScriptUrl() {
   return SCRIPT_URL;
 }
 
+function getOrdersFromResponse(data: ScriptResponse): SupplyOrder[] {
+  if (Array.isArray(data.supplyOrders)) return data.supplyOrders;
+  if (Array.isArray(data.orders)) return data.orders;
+  if (Array.isArray(data.data)) return data.data;
+
+  return [];
+}
+
+async function readScriptJson(response: Response) {
+  const text = await response.text();
+
+  try {
+    return {
+      data: JSON.parse(text),
+      rawText: text,
+      isJson: true,
+    };
+  } catch {
+    return {
+      data: null,
+      rawText: text,
+      isJson: false,
+    };
+  }
+}
+
 export async function GET() {
   try {
     const scriptUrl = getScriptUrl();
@@ -63,22 +121,22 @@ export async function GET() {
       cache: "no-store",
     });
 
-    const text = await response.text();
+    const parsed = await readScriptJson(response);
 
-    let data: ScriptResponse;
-
-    try {
-      data = JSON.parse(text) as ScriptResponse;
-    } catch {
+    if (!parsed.isJson) {
       return NextResponse.json(
         {
           success: false,
           error: "Google Script did not return valid JSON for supply orders.",
-          rawResponse: text,
+          rawResponse: parsed.rawText,
+          supplyOrders: [],
+          orders: [],
         },
         { status: 500 }
       );
     }
+
+    const data = parsed.data as ScriptResponse;
 
     if (!response.ok || data.success === false) {
       return NextResponse.json(
@@ -92,7 +150,7 @@ export async function GET() {
       );
     }
 
-    const supplyOrders = data.supplyOrders || data.orders || data.data || [];
+    const supplyOrders = getOrdersFromResponse(data);
 
     return NextResponse.json({
       success: true,
@@ -121,7 +179,13 @@ export async function POST(request: NextRequest) {
     const scriptUrl = getScriptUrl();
     const body = (await request.json()) as SupplyOrderPostBody;
 
-    const action = body.action || "updateSupplyOrderStatus";
+    /*
+      Important:
+      - Admin status dropdown sends action: updateSupplyOrderStatus
+      - Subcontractor new supply order should send action: createSupplyOrder
+      - If no action is passed, we assume it is a new supply order, not a status update.
+    */
+    const action = body.action || "createSupplyOrder";
 
     const response = await fetch(scriptUrl, {
       method: "POST",
@@ -135,25 +199,43 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     });
 
-    const text = await response.text();
+    const parsed = await readScriptJson(response);
 
-    try {
-      const data = JSON.parse(text);
-
-      return NextResponse.json(data, {
-        status: response.ok ? 200 : 500,
-      });
-    } catch {
+    if (!parsed.isJson) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "Google Script did not return valid JSON while updating supply order.",
-          rawResponse: text,
+            action === "updateSupplyOrderStatus"
+              ? "Google Script did not return valid JSON while updating supply order."
+              : "Google Script did not return valid JSON while creating supply order.",
+          rawResponse: parsed.rawText,
         },
         { status: 500 }
       );
     }
+
+    const data = parsed.data;
+
+    if (!response.ok || data.success === false) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            data.error ||
+            data.message ||
+            (action === "updateSupplyOrderStatus"
+              ? "Failed to update supply order."
+              : "Failed to create supply order."),
+          rawResponse: parsed.rawText,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(data, {
+      status: 200,
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -161,7 +243,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Unknown supply order update error.",
+            : "Unknown supply order API error.",
       },
       { status: 500 }
     );
