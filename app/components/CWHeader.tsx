@@ -24,6 +24,64 @@ const subcontractorNavItems = [
   { href: "/subcontractor-portal", label: "My Accounts" },
 ];
 
+function getSavedRole(pathname: string): UserRole {
+  if (typeof window === "undefined") return null;
+
+  const cleanPath = pathname || "";
+
+  if (cleanPath.startsWith("/login")) {
+    return null;
+  }
+
+  if (cleanPath.startsWith("/subcontractor-portal")) {
+    return "subcontractor";
+  }
+
+  const roleValues = [
+    localStorage.getItem("cwUserRole"),
+    localStorage.getItem("cwRole"),
+    localStorage.getItem("userRole"),
+    localStorage.getItem("role"),
+    localStorage.getItem("cleaningWorldRole"),
+  ]
+    .map((value) => String(value || "").toLowerCase().trim())
+    .filter(Boolean);
+
+  if (roleValues.includes("admin")) {
+    return "admin";
+  }
+
+  if (roleValues.includes("subcontractor") || roleValues.includes("sub")) {
+    return "subcontractor";
+  }
+
+  const adminLoggedIn =
+    localStorage.getItem("cwAdminLoggedIn") === "true" ||
+    localStorage.getItem("isAdminLoggedIn") === "true" ||
+    localStorage.getItem("adminLoggedIn") === "true" ||
+    localStorage.getItem("cleaningWorldAdminLoggedIn") === "true";
+
+  if (adminLoggedIn) {
+    return "admin";
+  }
+
+  const subLoggedIn =
+    localStorage.getItem("cwSubcontractorLoggedIn") === "true" ||
+    localStorage.getItem("subcontractorLoggedIn") === "true" ||
+    localStorage.getItem("cleaningWorldSubcontractorLoggedIn") === "true" ||
+    Boolean(localStorage.getItem("cwSubcontractorEmail")) ||
+    Boolean(localStorage.getItem("subcontractorEmail"));
+
+  if (subLoggedIn) {
+    return "subcontractor";
+  }
+
+  // Important fallback:
+  // If the user is already inside an admin page, proxy/login already allowed them.
+  // So show the admin navigation instead of leaving the header blank.
+  return "admin";
+}
+
 export default function CWHeader() {
   const pathname = usePathname();
 
@@ -31,26 +89,24 @@ export default function CWHeader() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const adminLoggedIn =
-      localStorage.getItem("cwAdminLoggedIn") === "true" ||
-      localStorage.getItem("isAdminLoggedIn") === "true" ||
-      localStorage.getItem("adminLoggedIn") === "true";
-
-    const subLoggedIn =
-      localStorage.getItem("cwSubcontractorLoggedIn") === "true" ||
-      localStorage.getItem("subcontractorLoggedIn") === "true" ||
-      Boolean(localStorage.getItem("cwSubcontractorEmail"));
-
-    if (adminLoggedIn) {
-      setRole("admin");
-    } else if (subLoggedIn) {
-      setRole("subcontractor");
-    } else {
-      setRole(null);
-    }
-
+    setRole(getSavedRole(pathname));
     setReady(true);
   }, [pathname]);
+
+  useEffect(() => {
+    function refreshRole() {
+      setRole(getSavedRole(window.location.pathname));
+      setReady(true);
+    }
+
+    window.addEventListener("storage", refreshRole);
+    window.addEventListener("focus", refreshRole);
+
+    return () => {
+      window.removeEventListener("storage", refreshRole);
+      window.removeEventListener("focus", refreshRole);
+    };
+  }, []);
 
   const navItems = useMemo(() => {
     if (role === "admin") return adminNavItems;
@@ -79,7 +135,7 @@ export default function CWHeader() {
           </div>
         </Link>
 
-        {ready && role && (
+        {ready && navItems.length > 0 ? (
           <nav className="cw-nav" aria-label="Main navigation">
             {navItems.map((item) => (
               <Link key={item.href} href={item.href} className="cw-nav-button">
@@ -87,7 +143,7 @@ export default function CWHeader() {
               </Link>
             ))}
           </nav>
-        )}
+        ) : null}
       </div>
     </header>
   );

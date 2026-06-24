@@ -38,6 +38,12 @@ function LoginForm() {
         throw new Error(data.message || "Login failed.");
       }
 
+      localStorage.setItem("cwUserRole", "admin");
+      localStorage.setItem("cwRole", "admin");
+      localStorage.setItem("userRole", "admin");
+      localStorage.setItem("cwAdminLoggedIn", "true");
+      localStorage.setItem("isAdminLoggedIn", "true");
+
       router.push(nextPath);
       router.refresh();
     } catch (err) {
