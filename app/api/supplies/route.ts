@@ -92,6 +92,18 @@ function getCategories(items: SupplyItem[], data: ScriptSupplyResponse) {
   );
 }
 
+function mapSupplyGetAction(requestedAction: string) {
+  if (
+    requestedAction === "getSupplies" ||
+    requestedAction === "getSupplyItems" ||
+    requestedAction === "supplies"
+  ) {
+    return "getSupplyItemsAdmin";
+  }
+
+  return requestedAction;
+}
+
 async function readScriptJson(response: Response) {
   const text = await response.text();
 
@@ -115,11 +127,8 @@ export async function GET(request: NextRequest) {
     const scriptUrl = getScriptUrl();
     const { searchParams } = new URL(request.url);
 
-    /*
-      Default stays admin-friendly, but this route now normalizes the result
-      so subcontractor portal can also read categories/items/descriptions.
-    */
-    const action = searchParams.get("action") || "getSupplyItemsAdmin";
+    const requestedAction = searchParams.get("action") || "getSupplyItemsAdmin";
+    const action = mapSupplyGetAction(requestedAction);
 
     const url = new URL(scriptUrl);
     url.searchParams.set("action", action);
@@ -169,13 +178,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       count: normalizedItems.length,
-
-      // Give every page the field name it may be expecting
       supplies: normalizedItems,
       supplyItems: normalizedItems,
       items: normalizedItems,
       data: normalizedItems,
-
       categories,
     });
   } catch (error) {
