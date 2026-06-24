@@ -175,6 +175,20 @@ function getLoadedComplaints(data: ComplaintsApiResponse | Complaint[]) {
   return [];
 }
 
+function getComplaintDetailId(complaint: Complaint, index: number): string {
+  return (
+    clean(complaint.id) ||
+    clean(complaint.rowNumber) ||
+    `complaint-${index + 1}`
+  );
+}
+
+function getComplaintDetailHref(complaint: Complaint, index: number): string {
+  return `/complaints/${encodeURIComponent(
+    getComplaintDetailId(complaint, index)
+  )}`;
+}
+
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -614,6 +628,13 @@ export default function ComplaintsPage() {
                     </p>
                   </div>
 
+                  <Link
+                    href={getComplaintDetailHref(complaint, index)}
+                    className="mb-3 block w-full rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white hover:bg-blue-700"
+                  >
+                    View Complaint Details
+                  </Link>
+
                   {!isClosedComplaint(complaint.status) ? (
                     <button
                       type="button"
@@ -727,19 +748,28 @@ export default function ComplaintsPage() {
                       </td>
 
                       <td className="whitespace-nowrap p-3">
-                        {!isClosedComplaint(complaint.status) ? (
-                          <button
-                            type="button"
-                            onClick={() => openCloseModal(complaint)}
-                            className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700"
+                        <div className="flex flex-col gap-2">
+                          <Link
+                            href={getComplaintDetailHref(complaint, index)}
+                            className="rounded-xl bg-blue-600 px-4 py-2 text-center font-bold text-white hover:bg-blue-700"
                           >
-                            Close
-                          </button>
-                        ) : (
-                          <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-bold text-green-700">
-                            Closed
-                          </span>
-                        )}
+                            View
+                          </Link>
+
+                          {!isClosedComplaint(complaint.status) ? (
+                            <button
+                              type="button"
+                              onClick={() => openCloseModal(complaint)}
+                              className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700"
+                            >
+                              Close
+                            </button>
+                          ) : (
+                            <span className="rounded-full bg-green-50 px-3 py-1 text-center text-xs font-bold text-green-700">
+                              Closed
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
