@@ -1166,6 +1166,66 @@ export default function AccountsPage() {
   );
 }
 
+async function handleSaveTransferProposal() {
+  const validationError = validateTransferProposal();
+  if (validationError) {
+    setTransferError(validationError);
+    return;
+  }
+
+  try {
+    setTransferSaving(true);
+    setTransferError("");
+    setTransferMessage("");
+
+    const response = await fetch("/api/sub-transfer-proposals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "createSubTransferProposal",
+        proposal: buildTransferProposalPayload(),
+      }),
+    });
+
+    const data = await readJson<{
+      success?: boolean;
+      error?: string;
+      message?: string;
+      proposalId?: string;
+      id?: string;
+      data?: { proposalId?: string };
+    }>(response);
+
+    if (!response.ok || data.success === false) {
+      throw new Error(data.error ?? data.message ?? "Could not save transfer proposal.");
+    }
+
+    const savedProposalId =
+      data.proposalId ??
+      data.id ??
+      data.data?.proposalId ??
+      transferProposalId;
+
+    if (savedProposalId) {
+      setTransferProposalId(savedProposalId);
+    }
+
+    setTransferMessage(
+      savedProposalId ? `Proposal saved: ${savedProposalId}` : "Proposal saved."
+    );
+
+    loadTransferProposals();
+  } catch (err) {
+    setTransferError(
+      err instanceof Error
+        ? err.message
+        : "Something went wrong saving the proposal."
+    );
+  } finally {
+    setTransferSaving(false);
+  }
+}
+
   async function handleSendTransferProposalEmail() {
     const validationError = validateTransferProposal();
     if (validationError) {
