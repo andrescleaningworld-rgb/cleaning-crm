@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 type UserRole = "admin" | "subcontractor" | null;
 
@@ -26,7 +26,6 @@ const subcontractorNavItems = [
 
 export default function CWHeader() {
   const pathname = usePathname();
-  const router = useRouter();
 
   const [role, setRole] = useState<UserRole>(null);
   const [ready, setReady] = useState(false);
@@ -59,20 +58,6 @@ export default function CWHeader() {
     return [];
   }, [role]);
 
-  function handleLogout() {
-    localStorage.removeItem("cwAdminLoggedIn");
-    localStorage.removeItem("isAdminLoggedIn");
-    localStorage.removeItem("adminLoggedIn");
-
-    localStorage.removeItem("cwSubcontractorLoggedIn");
-    localStorage.removeItem("subcontractorLoggedIn");
-    localStorage.removeItem("cwSubcontractorEmail");
-    localStorage.removeItem("subcontractorEmail");
-
-    router.push("/login");
-    router.refresh();
-  }
-
   return (
     <header className="cw-header">
       <div className="cw-header-inner">
@@ -101,14 +86,6 @@ export default function CWHeader() {
                 {item.label}
               </Link>
             ))}
-
-            <button
-              type="button"
-              className="cw-nav-button"
-              onClick={handleLogout}
-            >
-              Logout
-            </button>
           </nav>
         )}
       </div>
