@@ -562,8 +562,14 @@ export default function AccountDetailPage() {
           address: accountAddress,
           startDate,
           cleaningSchedule: cleaningDays,
-          subcontractor: account.subcontractor || "",
-          subcontractorEmail: account.subcontractorEmail || "",
+          subcontractor:
+            matchedSubcontractor?.companyName ||
+            matchedSubcontractor?.contactName ||
+            matchedSubcontractor?.name ||
+            account.subcontractor ||
+      "",
+          subcontractorEmail:
+            matchedSubcontractor?.email || account.subcontractorEmail || "",
           monthlySubcontractorPay: subcontractorPay,
           hasKey: account.hasKey || "",
           alarmInfo,
