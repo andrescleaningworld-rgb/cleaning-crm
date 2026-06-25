@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
 type Account = {
   id?: string;
@@ -82,6 +82,10 @@ type Subcontractor = {
   email?: string;
   phone?: string;
   status?: string;
+  score?: string | number;
+  rating?: string | number;
+  subcontractorScore?: string | number;
+  qualityScore?: string | number;
 };
 
 type PortalResponse = {
@@ -166,6 +170,19 @@ function displayValue(value: unknown) {
   return text || "Not listed";
 }
 
+function parseMoney(value: unknown): number {
+  const amount = Number(cleanText(value).replace(/[$,]/g, ""));
+
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatMoney(value: number): string {
+  return value.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
+
 function isActiveAccount(account: Account) {
   const status = cleanLower(account.status);
 
@@ -213,6 +230,18 @@ function getFullAddress(account: Account) {
 
 function getSubPay(account: Account) {
   return cleanText(account.monthlySubcontractorPay || account.subcontractorPay);
+}
+
+function getSubcontractorScore(subcontractor: Subcontractor | null): string {
+  if (!subcontractor) return "Not listed";
+
+  const score =
+    cleanText(subcontractor.score) ||
+    cleanText(subcontractor.subcontractorScore) ||
+    cleanText(subcontractor.qualityScore) ||
+    cleanText(subcontractor.rating);
+
+  return score || "Not listed";
 }
 
 function getKeyInfo(account: Account) {
@@ -337,6 +366,19 @@ function getComplaintFollowUp(complaint: Complaint) {
   return cleanText(complaint.followUpDate || complaint.lastFollowUp);
 }
 
+function getStoredSubcontractorEmail(): string {
+  if (typeof window === "undefined") return "";
+
+  return cleanText(window.localStorage.getItem("cwSubcontractorEmail"));
+}
+
+function saveSubcontractorSession(emailToSave: string) {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.setItem("cwRole", "subcontractor");
+  window.localStorage.setItem("cwSubcontractorEmail", emailToSave.trim());
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -394,6 +436,16 @@ export default function SubcontractorPortalPage() {
   const activeAccounts = useMemo(() => {
     return accounts.filter(isActiveAccount);
   }, [accounts]);
+
+  const totalSubPay = useMemo(() => {
+    return activeAccounts.reduce((total, account) => {
+      return total + parseMoney(getSubPay(account));
+    }, 0);
+  }, [activeAccounts]);
+
+  const subcontractorScore = useMemo(() => {
+    return getSubcontractorScore(subcontractor);
+  }, [subcontractor]);
 
   const openComplaints = useMemo(() => {
     return complaints.filter(isOpenComplaint);
@@ -568,47 +620,50 @@ export default function SubcontractorPortalPage() {
   }
 
   async function loadSupplyItems() {
-  const response = await fetch("/api/supplies", {
-    method: "GET",
-    cache: "no-store",
-  });
+    const response = await fetch("/api/supplies", {
+      method: "GET",
+      cache: "no-store",
+    });
 
-  const text = await response.text();
+    const text = await response.text();
 
-  let data: SuppliesResponse;
+    let data: SuppliesResponse;
 
-  try {
-    data = JSON.parse(text) as SuppliesResponse;
-  } catch {
-    throw new Error("Supplies API did not return valid JSON.");
+    try {
+      data = JSON.parse(text) as SuppliesResponse;
+    } catch {
+      throw new Error("Supplies API did not return valid JSON.");
+    }
+
+    if (!response.ok || data.success === false) {
+      throw new Error(
+        data.error || data.message || "Could not load supply items."
+      );
+    }
+
+    return getSupplyItemsFromResponse(data);
   }
 
-  if (!response.ok || data.success === false) {
-    throw new Error(
-      data.error || data.message || "Could not load supply items."
-    );
-  }
-
-  return getSupplyItemsFromResponse(data);
-}
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function loadAndSetPortal(emailToLoad: string, showSuccess: boolean) {
     setError("");
     setSuccessMessage("");
     setLoading(true);
 
     try {
-      const data = await loadPortal(email);
+      const data = await loadPortal(emailToLoad);
       const loadedSupplyItems = await loadSupplyItems().catch(() => {
         return data.supplyItems || [];
       });
 
+      setEmail(emailToLoad.trim());
       setSubcontractor(data.subcontractor || null);
       setAccounts(data.accounts || []);
       setComplaints(data.complaints || []);
-      setSupplyItems(loadedSupplyItems.length > 0 ? loadedSupplyItems : data.supplyItems || []);
+      setSupplyItems(
+        loadedSupplyItems.length > 0
+          ? loadedSupplyItems
+          : data.supplyItems || []
+      );
       setSelectedAccountName("");
       setDeliveryMode("");
       setNotes("");
@@ -627,7 +682,11 @@ export default function SubcontractorPortalPage() {
         return;
       }
 
-      setSuccessMessage("Portal loaded successfully.");
+      saveSubcontractorSession(emailToLoad);
+
+      if (showSuccess) {
+        setSuccessMessage("Portal loaded successfully.");
+      }
     } catch (loginError) {
       setError(
         loginError instanceof Error
@@ -641,6 +700,26 @@ export default function SubcontractorPortalPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  useEffect(() => {
+    const storedEmail = getStoredSubcontractorEmail();
+
+    if (storedEmail) {
+      setEmail(storedEmail);
+      loadAndSetPortal(storedEmail, false);
+    }
+
+    return () => {
+      issuePhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    await loadAndSetPortal(email, true);
   }
 
   function handleIssuePhotoSelect(event: ChangeEvent<HTMLInputElement>) {
@@ -791,26 +870,26 @@ export default function SubcontractorPortalPage() {
 
     try {
       const response = await fetch("/api/subcontractor-portal", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    action: "submitSubPortalIssue",
-    issue: {
-      subcontractorEmail: subcontractor.email || email.trim(),
-      subcontractorName: getSubcontractorDisplayName(subcontractor),
-      accountId:
-        selectedIssueAccount?.accountId || selectedIssueAccount?.id || "",
-      accountName: issueAccountName,
-      issueType,
-      urgency: issueUrgency,
-      description: issueDescription.trim(),
-      photoCount: issuePhotos.length,
-      status: "New",
-    },
-  }),
-});
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "submitSubPortalIssue",
+          issue: {
+            subcontractorEmail: subcontractor.email || email.trim(),
+            subcontractorName: getSubcontractorDisplayName(subcontractor),
+            accountId:
+              selectedIssueAccount?.accountId || selectedIssueAccount?.id || "",
+            accountName: issueAccountName,
+            issueType,
+            urgency: issueUrgency,
+            description: issueDescription.trim(),
+            photoCount: issuePhotos.length,
+            status: "New",
+          },
+        }),
+      });
 
       const text = await response.text();
 
@@ -1159,7 +1238,7 @@ export default function SubcontractorPortalPage() {
         {subcontractor ? (
           <>
             <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                     Logged in as
@@ -1172,7 +1251,7 @@ export default function SubcontractorPortalPage() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:min-w-[620px]">
                   <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-center">
                     <p className="text-xs font-black uppercase text-blue-700">
                       Accounts
@@ -1191,12 +1270,30 @@ export default function SubcontractorPortalPage() {
                     </p>
                   </div>
 
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-center">
+                    <p className="text-xs font-black uppercase text-emerald-700">
+                      Total Sub Pay
+                    </p>
+                    <p className="mt-1 text-xl font-black text-emerald-950">
+                      {formatMoney(totalSubPay)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3 text-center">
+                    <p className="text-xs font-black uppercase text-purple-700">
+                      Score
+                    </p>
+                    <p className="mt-1 text-xl font-black text-purple-950">
+                      {subcontractorScore}
+                    </p>
+                  </div>
+
                   <div className="rounded-2xl border border-green-100 bg-green-50 p-3 text-center">
                     <p className="text-xs font-black uppercase text-green-700">
                       Status
                     </p>
                     <p className="mt-2 text-sm font-black text-green-900">
-                      Active
+                      {cleanText(subcontractor.status) || "Active"}
                     </p>
                   </div>
                 </div>
@@ -1751,15 +1848,17 @@ export default function SubcontractorPortalPage() {
                 Select one of your assigned accounts and add one or more supply
                 items.
               </p>
+
               {activeSupplyItems.length === 0 ? (
-  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
-    Supply items did not load. Please contact Cleaning World before submitting a supply order.
-  </div>
-) : (
-  <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-700">
-    {activeSupplyItems.length} supply item(s) loaded.
-  </div>
-)}
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                  Supply items did not load. Please contact Cleaning World
+                  before submitting a supply order.
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-700">
+                  {activeSupplyItems.length} supply item(s) loaded.
+                </div>
+              )}
 
               <form onSubmit={handleSubmitOrder} className="mt-5 space-y-5">
                 <div>
