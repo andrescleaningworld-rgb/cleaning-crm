@@ -140,6 +140,7 @@ const issueUrgencies = ["Normal", "Important", "Urgent"];
 
 const OTHER_ITEM_VALUE = "__OTHER_NOT_LISTED__";
 const OTHER_CATEGORY_VALUE = "Other / Needs Review";
+const UNCATEGORIZED_CATEGORY_VALUE = "Uncategorized";
 
 function makeLineItem(): OrderLineItem {
   return {
@@ -231,11 +232,18 @@ function getSupplyName(item: SupplyItem) {
 }
 
 function getSupplyCategory(item: SupplyItem) {
-  return cleanText(item.category);
+  return cleanText(item.category) || UNCATEGORIZED_CATEGORY_VALUE;
 }
 
 function getSupplyDescription(item: SupplyItem) {
-  return cleanText(item.description || item.itemDescription || item.notes);
+  return (
+    cleanText(item.description) ||
+    cleanText(item.itemDescription) ||
+    cleanText(item.notes) ||
+    cleanText(item.supplyItem) ||
+    cleanText(item.itemName) ||
+    cleanText(item.name)
+  );
 }
 
 function getSupplyUnit(item: SupplyItem) {
@@ -560,20 +568,29 @@ export default function SubcontractorPortalPage() {
   }
 
   async function loadSupplyItems() {
-    const response = await fetch("/api/supplies?action=getSupplies", {
-      cache: "no-store",
-    });
+  const response = await fetch("/api/supplies", {
+    method: "GET",
+    cache: "no-store",
+  });
 
-    const data = (await response.json()) as SuppliesResponse;
+  const text = await response.text();
 
-    if (!response.ok || data.success === false) {
-      throw new Error(
-        data.error || data.message || "Could not load supply items."
-      );
-    }
+  let data: SuppliesResponse;
 
-    return getSupplyItemsFromResponse(data);
+  try {
+    data = JSON.parse(text) as SuppliesResponse;
+  } catch {
+    throw new Error("Supplies API did not return valid JSON.");
   }
+
+  if (!response.ok || data.success === false) {
+    throw new Error(
+      data.error || data.message || "Could not load supply items."
+    );
+  }
+
+  return getSupplyItemsFromResponse(data);
+}
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1734,6 +1751,15 @@ export default function SubcontractorPortalPage() {
                 Select one of your assigned accounts and add one or more supply
                 items.
               </p>
+              {activeSupplyItems.length === 0 ? (
+  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+    Supply items did not load. Please contact Cleaning World before submitting a supply order.
+  </div>
+) : (
+  <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-700">
+    {activeSupplyItems.length} supply item(s) loaded.
+  </div>
+)}
 
               <form onSubmit={handleSubmitOrder} className="mt-5 space-y-5">
                 <div>
@@ -1778,7 +1804,7 @@ export default function SubcontractorPortalPage() {
                       onClick={addLineItem}
                       className="rounded-2xl bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800"
                     >
-                      + Add
+                      + Add Another Item
                     </button>
                   </div>
 

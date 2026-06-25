@@ -18,6 +18,7 @@ type SupplyItem = {
   minimumStock?: string | number;
   status?: string;
   notes?: string;
+  [key: string]: unknown;
 };
 
 type ScriptSupplyResponse = {
@@ -53,10 +54,29 @@ function normalizeSupplyItem(item: SupplyItem): SupplyItem {
   const itemName =
     cleanText(item.itemName) ||
     cleanText(item.supplyItem) ||
-    cleanText(item.name);
+    cleanText(item.name) ||
+    cleanText(item["Item Name"]) ||
+    cleanText(item["Supply Item"]) ||
+    cleanText(item["Name"]);
 
   const description =
-    cleanText(item.description) || cleanText(item.itemDescription);
+    cleanText(item.description) ||
+    cleanText(item.itemDescription) ||
+    cleanText(item["Description"]) ||
+    cleanText(item["Item Description"]);
+
+  const category =
+    cleanText(item.category) ||
+    cleanText(item["Category"]);
+
+  const unit =
+    cleanText(item.unit) ||
+    cleanText(item["Unit"]);
+
+  const status =
+    cleanText(item.status) ||
+    cleanText(item["Status"]) ||
+    "Active";
 
   return {
     ...item,
@@ -65,9 +85,9 @@ function normalizeSupplyItem(item: SupplyItem): SupplyItem {
     name: itemName,
     description,
     itemDescription: description,
-    category: cleanText(item.category),
-    unit: cleanText(item.unit),
-    status: cleanText(item.status) || "Active",
+    category,
+    unit,
+    status,
   };
 }
 
@@ -92,18 +112,6 @@ function getCategories(items: SupplyItem[], data: ScriptSupplyResponse) {
   );
 }
 
-function mapSupplyGetAction(requestedAction: string) {
-  if (
-    requestedAction === "getSupplies" ||
-    requestedAction === "getSupplyItems" ||
-    requestedAction === "supplies"
-  ) {
-    return "getSupplyItemsAdmin";
-  }
-
-  return requestedAction;
-}
-
 async function readScriptJson(response: Response) {
   const text = await response.text();
 
@@ -122,68 +130,118 @@ async function readScriptJson(response: Response) {
   }
 }
 
+async function fetchSuppliesWithAction(scriptUrl: string, action: string) {
+  const url = new URL(scriptUrl);
+  url.searchParams.set("action", action);
+
+  const response = await fetch(url.toString(), {
+    cache: "no-store",
+  });
+
+  const parsed = await readScriptJson(response);
+
+  return {
+    action,
+    response,
+    parsed,
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const scriptUrl = getScriptUrl();
     const { searchParams } = new URL(request.url);
 
-    const requestedAction = searchParams.get("action") || "getSupplyItemsAdmin";
-    const action = mapSupplyGetAction(requestedAction);
+    const requestedAction = searchParams.get("action") || "";
 
-    const url = new URL(scriptUrl);
-    url.searchParams.set("action", action);
+    const actionsToTry = requestedAction
+      ? [
+          requestedAction,
+          "getSupplyItemsAdmin",
+          "getSupplyItems",
+          "getSupplies",
+          "supplies",
+        ]
+      : [
+          "getSupplyItemsAdmin",
+          "getSupplyItems",
+          "getSupplies",
+          "supplies",
+        ];
 
-    const response = await fetch(url.toString(), {
-      cache: "no-store",
-    });
+    const uniqueActionsToTry = Array.from(new Set(actionsToTry));
 
-    const parsed = await readScriptJson(response);
+    const attempts: {
+      action: string;
+      success: boolean;
+      error?: string;
+      raw?: string;
+      count?: number;
+    }[] = [];
 
-    if (!parsed.isJson) {
-      return NextResponse.json(
-        {
+    for (const action of uniqueActionsToTry) {
+      const result = await fetchSuppliesWithAction(scriptUrl, action);
+
+      if (!result.parsed.isJson) {
+        attempts.push({
+          action,
           success: false,
-          error:
-            "Google Script did not return valid JSON while loading supplies.",
-          raw: parsed.rawText.slice(0, 500),
-          supplies: [],
-          supplyItems: [],
-          items: [],
-          categories: [],
-        },
-        { status: 502 }
-      );
+          error: "Google Script did not return JSON.",
+          raw: result.parsed.rawText.slice(0, 250),
+        });
+        continue;
+      }
+
+      const data = result.parsed.data as ScriptSupplyResponse;
+
+      if (!result.response.ok || data.success === false) {
+        attempts.push({
+          action,
+          success: false,
+          error: data.error || data.message || "Action failed.",
+        });
+        continue;
+      }
+
+      const rawItems = getSupplyItemsFromResponse(data);
+      const normalizedItems = rawItems.map(normalizeSupplyItem);
+      const categories = getCategories(normalizedItems, data);
+
+      if (normalizedItems.length > 0 || categories.length > 0) {
+        return NextResponse.json({
+          success: true,
+          actionUsed: action,
+          count: normalizedItems.length,
+          supplies: normalizedItems,
+          supplyItems: normalizedItems,
+          items: normalizedItems,
+          data: normalizedItems,
+          categories,
+        });
+      }
+
+      attempts.push({
+        action,
+        success: true,
+        error: "Action returned JSON but no supply items/categories.",
+        count: 0,
+      });
     }
 
-    const data = parsed.data as ScriptSupplyResponse;
-
-    if (!response.ok || data.success === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.error || data.message || "Failed to load supplies.",
-          supplies: [],
-          supplyItems: [],
-          items: [],
-          categories: [],
-        },
-        { status: 500 }
-      );
-    }
-
-    const rawItems = getSupplyItemsFromResponse(data);
-    const normalizedItems = rawItems.map(normalizeSupplyItem);
-    const categories = getCategories(normalizedItems, data);
-
-    return NextResponse.json({
-      success: true,
-      count: normalizedItems.length,
-      supplies: normalizedItems,
-      supplyItems: normalizedItems,
-      items: normalizedItems,
-      data: normalizedItems,
-      categories,
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "No supply action returned supply items or categories from Google Script.",
+        attempts,
+        supplies: [],
+        supplyItems: [],
+        items: [],
+        data: [],
+        categories: [],
+      },
+      { status: 500 }
+    );
   } catch (error) {
     return NextResponse.json(
       {
@@ -192,6 +250,7 @@ export async function GET(request: NextRequest) {
         supplies: [],
         supplyItems: [],
         items: [],
+        data: [],
         categories: [],
       },
       { status: 500 }
@@ -232,7 +291,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const data = parsed.data;
+    const data = parsed.data as {
+      success?: boolean;
+      error?: string;
+      message?: string;
+    };
 
     if (!response.ok || data.success === false) {
       return NextResponse.json(
