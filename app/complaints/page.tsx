@@ -22,11 +22,32 @@ type Complaint = {
   reportedBy?: string;
 };
 
+type ComplaintPhoto = {
+  rowNumber?: number | string;
+  photoId?: string;
+  accountId?: string;
+  accountName?: string;
+  sourceType?: string;
+  sourceId?: string;
+  uploadedBy?: string;
+  fileName?: string;
+  driveUrl?: string;
+  folderUrl?: string;
+  status?: string;
+};
+
 type ComplaintsApiResponse = {
   success?: boolean;
   error?: string;
   complaints?: Complaint[];
   data?: Complaint[];
+};
+
+type PhotosApiResponse = {
+  success?: boolean;
+  message?: string;
+  photos?: ComplaintPhoto[];
+  data?: ComplaintPhoto[];
 };
 
 type CloseComplaintResponse = {
@@ -35,9 +56,14 @@ type CloseComplaintResponse = {
 };
 
 type SortBy = "recent" | "priority" | "status";
+type StatusFilter = "all" | "open" | "review" | "closed" | "not-valid" | "photos";
 
 function clean(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function normalize(value: unknown): string {
+  return clean(value).toLowerCase();
 }
 
 function slugify(value: unknown): string {
@@ -81,12 +107,26 @@ function todayIsoDate(): string {
 }
 
 function isClosedComplaint(status: unknown): boolean {
-  const value = clean(status).toLowerCase();
+  const value = normalize(status);
   return value.includes("closed") || value.includes("resolved");
 }
 
+function isOpenComplaint(status: unknown): boolean {
+  const value = normalize(status);
+
+  return (
+    !isClosedComplaint(value) &&
+    (value === "" ||
+      value === "open" ||
+      value.includes("progress") ||
+      value.includes("pending") ||
+      value.includes("needs attention") ||
+      value.includes("needs review"))
+  );
+}
+
 function getPriorityRank(value: unknown): number {
-  const text = clean(value).toLowerCase();
+  const text = normalize(value);
 
   if (text.includes("urgent")) return 1;
   if (text.includes("high")) return 2;
@@ -97,7 +137,7 @@ function getPriorityRank(value: unknown): number {
 }
 
 function getStatusRank(value: unknown): number {
-  const text = clean(value).toLowerCase();
+  const text = normalize(value);
 
   if (text.includes("open")) return 1;
   if (text.includes("progress")) return 2;
@@ -111,13 +151,13 @@ function getStatusRank(value: unknown): number {
 }
 
 function getStatusClass(status: unknown): string {
-  const value = clean(status).toLowerCase();
+  const value = normalize(status);
 
   if (value.includes("resolved") || value.includes("closed")) {
     return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
   }
 
-  if (value.includes("open")) {
+  if (value.includes("open") || !value) {
     return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
   }
 
@@ -125,11 +165,15 @@ function getStatusClass(status: unknown): string {
     return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
   }
 
+  if (value.includes("review")) {
+    return "rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-800";
+  }
+
   return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
 }
 
 function getSeverityClass(severity: unknown): string {
-  const value = clean(severity).toLowerCase();
+  const value = normalize(severity);
 
   if (value.includes("high") || value.includes("urgent")) {
     return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
@@ -147,7 +191,7 @@ function getSeverityClass(severity: unknown): string {
 }
 
 function getValidityClass(validity: unknown): string {
-  const value = clean(validity).toLowerCase();
+  const value = normalize(validity);
 
   if (value === "valid") {
     return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
@@ -175,6 +219,13 @@ function getLoadedComplaints(data: ComplaintsApiResponse | Complaint[]) {
   return [];
 }
 
+function getLoadedPhotos(data: PhotosApiResponse | ComplaintPhoto[]) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.photos)) return data.photos;
+  if (Array.isArray(data.data)) return data.data;
+  return [];
+}
+
 function getComplaintDetailId(complaint: Complaint, index: number): string {
   return (
     clean(complaint.id) ||
@@ -189,14 +240,68 @@ function getComplaintDetailHref(complaint: Complaint, index: number): string {
   )}`;
 }
 
+function getDriveFileId(url?: string): string {
+  const text = clean(url);
+
+  if (!text) return "";
+
+  const filePathMatch = text.match(/\/d\/([^/]+)/);
+  const idParamMatch = text.match(/[?&]id=([^&]+)/);
+
+  return clean(filePathMatch?.[1] || idParamMatch?.[1]);
+}
+
+function getDriveImageUrl(url?: string): string {
+  const fileId = getDriveFileId(url);
+
+  if (!fileId) return clean(url);
+
+  return `https://drive.google.com/uc?export=view&id=${encodeURIComponent(
+    fileId
+  )}`;
+}
+
+function getComplaintPhotos(
+  complaint: Complaint,
+  allPhotos: ComplaintPhoto[]
+): ComplaintPhoto[] {
+  const complaintId = clean(complaint.id || complaint.rowNumber);
+
+  if (!complaintId) return [];
+
+  return allPhotos.filter((photo) => {
+    const sourceType = normalize(photo.sourceType);
+    const sourceId = clean(photo.sourceId);
+    const status = normalize(photo.status);
+    const driveUrl = clean(photo.driveUrl);
+
+    return (
+      sourceId === complaintId &&
+      sourceType.includes("complaint") &&
+      status !== "inactive" &&
+      Boolean(driveUrl)
+    );
+  });
+}
+
+function getComplaintPhotoCount(
+  complaint: Complaint,
+  allPhotos: ComplaintPhoto[]
+): number {
+  return getComplaintPhotos(complaint, allPhotos).length;
+}
+
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [photos, setPhotos] = useState<ComplaintPhoto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingPhotos, setLoadingPhotos] = useState(true);
   const [savingClose, setSavingClose] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const [selectedComplaint, setSelectedComplaint] =
     useState<Complaint | null>(null);
@@ -253,8 +358,42 @@ export default function ComplaintsPage() {
     }
   }
 
+  async function loadPhotos() {
+    try {
+      setLoadingPhotos(true);
+
+      const response = await fetch("/api/photos", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const text = await response.text();
+
+      let data: PhotosApiResponse | ComplaintPhoto[];
+
+      try {
+        data = JSON.parse(text) as PhotosApiResponse | ComplaintPhoto[];
+      } catch {
+        setPhotos([]);
+        return;
+      }
+
+      if (!response.ok || (!Array.isArray(data) && data.success === false)) {
+        setPhotos([]);
+        return;
+      }
+
+      setPhotos(getLoadedPhotos(data));
+    } catch {
+      setPhotos([]);
+    } finally {
+      setLoadingPhotos(false);
+    }
+  }
+
   useEffect(() => {
     loadComplaints();
+    loadPhotos();
   }, []);
 
   function openCloseModal(complaint: Complaint) {
@@ -335,12 +474,73 @@ export default function ComplaintsPage() {
     }
   }
 
+  const complaintStats = useMemo(() => {
+    const total = complaints.length;
+
+    const open = complaints.filter((complaint) =>
+      isOpenComplaint(complaint.status)
+    ).length;
+
+    const closed = complaints.filter((complaint) =>
+      isClosedComplaint(complaint.status)
+    ).length;
+
+    const review = complaints.filter(
+      (complaint) => normalize(complaint.complaintValidity) === "needs review"
+    ).length;
+
+    const notValid = complaints.filter(
+      (complaint) => normalize(complaint.complaintValidity) === "not valid"
+    ).length;
+
+    const withPhotos = complaints.filter(
+      (complaint) => getComplaintPhotoCount(complaint, photos) > 0
+    ).length;
+
+    return {
+      total,
+      open,
+      closed,
+      review,
+      notValid,
+      withPhotos,
+    };
+  }, [complaints, photos]);
+
   const filteredComplaints = useMemo(() => {
     const term = search.toLowerCase().trim();
 
-    if (!term) return complaints;
-
     return complaints.filter((complaint) => {
+      const hasPhotos = getComplaintPhotoCount(complaint, photos) > 0;
+
+      if (statusFilter === "open" && !isOpenComplaint(complaint.status)) {
+        return false;
+      }
+
+      if (statusFilter === "closed" && !isClosedComplaint(complaint.status)) {
+        return false;
+      }
+
+      if (
+        statusFilter === "review" &&
+        normalize(complaint.complaintValidity) !== "needs review"
+      ) {
+        return false;
+      }
+
+      if (
+        statusFilter === "not-valid" &&
+        normalize(complaint.complaintValidity) !== "not valid"
+      ) {
+        return false;
+      }
+
+      if (statusFilter === "photos" && !hasPhotos) {
+        return false;
+      }
+
+      if (!term) return true;
+
       return (
         clean(complaint.accountName).toLowerCase().includes(term) ||
         clean(complaint.complaintType).toLowerCase().includes(term) ||
@@ -351,10 +551,11 @@ export default function ComplaintsPage() {
         clean(complaint.manager).toLowerCase().includes(term) ||
         clean(complaint.subcontractor).toLowerCase().includes(term) ||
         clean(complaint.description).toLowerCase().includes(term) ||
-        clean(complaint.notes).toLowerCase().includes(term)
+        clean(complaint.notes).toLowerCase().includes(term) ||
+        clean(complaint.reportedBy).toLowerCase().includes(term)
       );
     });
-  }, [complaints, search]);
+  }, [complaints, photos, search, statusFilter]);
 
   const sortedComplaints = useMemo(() => {
     return [...filteredComplaints].sort((a, b) => {
@@ -381,67 +582,143 @@ export default function ComplaintsPage() {
     });
   }, [filteredComplaints, sortBy]);
 
-  const openComplaints = useMemo(() => {
-    return complaints.filter((complaint) => {
-      const value = clean(complaint.status).toLowerCase();
-      return (
-        value === "open" ||
-        value.includes("progress") ||
-        value.includes("pending") ||
-        value.includes("needs attention")
-      );
-    }).length;
-  }, [complaints]);
-
-  const resolvedComplaints = useMemo(() => {
-    return complaints.filter((complaint) => {
-      return isClosedComplaint(complaint.status);
-    }).length;
-  }, [complaints]);
-
-  const needsReviewComplaints = useMemo(() => {
-    return complaints.filter((complaint) => {
-      return clean(complaint.complaintValidity).toLowerCase() === "needs review";
-    }).length;
-  }, [complaints]);
-
-  const notValidComplaints = useMemo(() => {
-    return complaints.filter((complaint) => {
-      return clean(complaint.complaintValidity).toLowerCase() === "not valid";
-    }).length;
-  }, [complaints]);
-
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 md:p-6">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-            Cleaning World
-          </p>
-          <h1 className="mt-2 text-3xl font-bold">Complaints</h1>
-          <p className="mt-2 text-gray-500">
-            Track account complaints, status, validity, follow-ups, and
-            resolution notes.
-          </p>
+    <main className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-6">
+      <section className="mb-6 overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-blue-800 via-blue-700 to-sky-500 p-5 text-white md:p-6">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-blue-100">
+                Cleaning World
+              </p>
+              <h1 className="mt-2 text-3xl font-black md:text-4xl">
+                Complaints Control Center
+              </h1>
+              <p className="mt-2 max-w-3xl text-sm font-medium text-blue-50 md:text-base">
+                Review complaints, see priorities, view photos inside the app,
+                and close issues with resolution notes.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link
+                href="/complaints/new"
+                className="rounded-2xl bg-white px-5 py-3 text-center font-black text-blue-800 shadow-sm hover:bg-blue-50"
+              >
+                + Add Complaint
+              </Link>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="rounded-2xl bg-slate-950 px-5 py-3 font-black text-white shadow-sm hover:bg-slate-800"
+              >
+                Print
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Link
-            href="/complaints/new"
-            className="rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-blue-700"
+        <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-6 md:p-5">
+          <button
+            type="button"
+            onClick={() => setStatusFilter("all")}
+            className={`rounded-2xl border p-4 text-left shadow-sm ${
+              statusFilter === "all"
+                ? "border-blue-300 bg-blue-50"
+                : "border-slate-200 bg-white"
+            }`}
           >
-            + Add Complaint
-          </Link>
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Total
+            </p>
+            <p className="mt-2 text-3xl font-black">{complaintStats.total}</p>
+          </button>
 
           <button
             type="button"
-            onClick={() => window.print()}
-            className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white shadow-sm"
+            onClick={() => setStatusFilter("open")}
+            className={`rounded-2xl border p-4 text-left shadow-sm ${
+              statusFilter === "open"
+                ? "border-red-300 bg-red-50"
+                : "border-slate-200 bg-white"
+            }`}
           >
-            Print
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Open
+            </p>
+            <p className="mt-2 text-3xl font-black text-red-700">
+              {complaintStats.open}
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("review")}
+            className={`rounded-2xl border p-4 text-left shadow-sm ${
+              statusFilter === "review"
+                ? "border-yellow-300 bg-yellow-50"
+                : "border-slate-200 bg-white"
+            }`}
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Review
+            </p>
+            <p className="mt-2 text-3xl font-black text-yellow-700">
+              {complaintStats.review}
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("not-valid")}
+            className={`rounded-2xl border p-4 text-left shadow-sm ${
+              statusFilter === "not-valid"
+                ? "border-green-300 bg-green-50"
+                : "border-slate-200 bg-white"
+            }`}
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Not Valid
+            </p>
+            <p className="mt-2 text-3xl font-black text-green-700">
+              {complaintStats.notValid}
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("photos")}
+            className={`rounded-2xl border p-4 text-left shadow-sm ${
+              statusFilter === "photos"
+                ? "border-purple-300 bg-purple-50"
+                : "border-slate-200 bg-white"
+            }`}
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Photos
+            </p>
+            <p className="mt-2 text-3xl font-black text-purple-700">
+              {complaintStats.withPhotos}
+            </p>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter("closed")}
+            className={`rounded-2xl border p-4 text-left shadow-sm ${
+              statusFilter === "closed"
+                ? "border-slate-400 bg-slate-100"
+                : "border-slate-200 bg-white"
+            }`}
+          >
+            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+              Closed
+            </p>
+            <p className="mt-2 text-3xl font-black">{complaintStats.closed}</p>
           </button>
         </div>
-      </div>
+      </section>
 
       {error ? (
         <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5 font-bold text-red-700">
@@ -455,348 +732,310 @@ export default function ComplaintsPage() {
         </div>
       ) : null}
 
-      <section className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Total
-          </p>
-          <h2 className="mt-2 text-3xl font-bold">{complaints.length}</h2>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Open
-          </p>
-          <h2 className="mt-2 text-3xl font-bold">{openComplaints}</h2>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Closed
-          </p>
-          <h2 className="mt-2 text-3xl font-bold">{resolvedComplaints}</h2>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Review
-          </p>
-          <h2 className="mt-2 text-3xl font-bold">
-            {needsReviewComplaints}
-          </h2>
-        </div>
-
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:col-span-1 md:p-5">
-          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-            Not Valid
-          </p>
-          <h2 className="mt-2 text-3xl font-bold">{notValidComplaints}</h2>
-        </div>
-      </section>
-
-      <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1fr_220px] md:items-end">
+      <section className="mb-5 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="grid gap-4 md:grid-cols-[1fr_220px_180px] md:items-end">
           <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
+            <span className="mb-2 block text-sm font-black text-slate-700">
               Search Complaints
             </span>
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by account, issue, status, validity, priority..."
-              className="w-full rounded-xl border border-gray-300 px-4 py-3"
+              placeholder="Search account, issue, subcontractor, status..."
+              className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
             />
           </label>
 
           <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
+            <span className="mb-2 block text-sm font-black text-slate-700">
               Sort By
             </span>
             <select
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value as SortBy)}
-              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 font-semibold text-gray-800"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
             >
               <option value="recent">Most Recent</option>
               <option value="priority">Priority</option>
               <option value="status">Status</option>
             </select>
           </label>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearch("");
+              setStatusFilter("all");
+              setSortBy("recent");
+            }}
+            className="rounded-2xl border border-slate-300 px-4 py-3 font-black text-slate-700 hover:bg-slate-50"
+          >
+            Reset
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          <span className="font-bold">{sortedComplaints.length} showing</span>
+          <span>•</span>
+          <span>
+            {loadingPhotos
+              ? "Loading photos..."
+              : `${photos.length} photo records loaded`}
+          </span>
         </div>
       </section>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-xl font-bold">Complaint List</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Open complaints can now be closed with a resolution note.
+            <h2 className="text-2xl font-black">Complaint List</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Photos appear automatically when the complaint ID matches the
+              photo Source ID.
             </p>
           </div>
-
-          <span className="font-bold text-gray-500">
-            {sortedComplaints.length} complaints
-          </span>
         </div>
 
         {loading ? (
-          <p className="text-gray-500">Loading complaints...</p>
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center font-bold text-slate-500">
+            Loading complaints...
+          </div>
         ) : sortedComplaints.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
-            <p className="font-semibold text-gray-700">No complaints found.</p>
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <p className="font-bold text-slate-700">No complaints found.</p>
             <Link
               href="/complaints/new"
-              className="mt-4 inline-block rounded-xl bg-blue-600 px-4 py-2 font-bold text-white hover:bg-blue-700"
+              className="mt-4 inline-block rounded-2xl bg-blue-600 px-5 py-3 font-black text-white hover:bg-blue-700"
             >
               + Add Complaint
             </Link>
           </div>
         ) : (
-          <>
-            <div className="space-y-4 md:hidden">
-              {sortedComplaints.map((complaint, index) => (
-                <div
-                  key={`${complaint.id || "mobile-complaint"}-${index}`}
-                  className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+          <div className="grid gap-4">
+            {sortedComplaints.map((complaint, index) => {
+              const complaintPhotos = getComplaintPhotos(complaint, photos);
+              const photoCount = complaintPhotos.length;
+              const firstPhotoUrl = getDriveImageUrl(
+                complaintPhotos[0]?.driveUrl
+              );
+              const priority = complaint.severity || complaint.priority;
+
+              return (
+                <article
+                  key={`${
+                    complaint.id || complaint.rowNumber || "complaint"
+                  }-${index}`}
+                  className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:shadow-md md:p-5"
                 >
-                  <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                        {formatDate(complaint.date)}
-                      </p>
-                      <h3 className="mt-1 font-bold">
-                        {clean(complaint.accountName) ? (
-                          <Link
-                            href={`/accounts/${slugify(
-                              complaint.accountName
-                            )}`}
-                            className="text-blue-700 hover:underline"
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-widest text-slate-400">
+                            {formatDate(complaint.date)}
+                          </p>
+
+                          <h3 className="mt-1 text-xl font-black text-slate-950">
+                            {clean(complaint.accountName) ? (
+                              <Link
+                                href={`/accounts/${slugify(
+                                  complaint.accountName
+                                )}`}
+                                className="text-blue-800 hover:underline"
+                              >
+                                {clean(complaint.accountName)}
+                              </Link>
+                            ) : (
+                              "No account"
+                            )}
+                          </h3>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <span className={getStatusClass(complaint.status)}>
+                            {clean(complaint.status) || "Open"}
+                          </span>
+
+                          <span className={getSeverityClass(priority)}>
+                            {clean(priority) || "Priority"}
+                          </span>
+
+                          <span
+                            className={getValidityClass(
+                              complaint.complaintValidity
+                            )}
                           >
-                            {clean(complaint.accountName)}
-                          </Link>
-                        ) : (
-                          "No account"
-                        )}
-                      </h3>
-                    </div>
+                            {clean(complaint.complaintValidity) ||
+                              "Needs Review"}
+                          </span>
+                        </div>
+                      </div>
 
-                    <span className={getStatusClass(complaint.status)}>
-                      {clean(complaint.status) || "Open"}
-                    </span>
-                  </div>
-
-                  <div className="mb-3">
-                    <p className="font-semibold">
-                      {clean(complaint.complaintType) || "Complaint"}
-                    </p>
-                    <p className="mt-1 text-sm text-gray-600">
-                      {clean(complaint.description) || "-"}
-                    </p>
-                  </div>
-
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    <span
-                      className={getSeverityClass(
-                        complaint.severity || complaint.priority
-                      )}
-                    >
-                      {clean(complaint.severity || complaint.priority) ||
-                        "Priority"}
-                    </span>
-
-                    <span
-                      className={getValidityClass(complaint.complaintValidity)}
-                    >
-                      {clean(complaint.complaintValidity) || "Needs Review"}
-                    </span>
-                  </div>
-
-                  <div className="mb-3 text-sm text-gray-600">
-                    <p>
-                      <strong>Assigned:</strong>{" "}
-                      {clean(complaint.manager) ||
-                        clean(complaint.subcontractor) ||
-                        "-"}
-                    </p>
-                    <p>
-                      <strong>Follow-Up:</strong>{" "}
-                      {formatDate(complaint.followUpDate)}
-                    </p>
-                    <p>
-                      <strong>Resolution:</strong>{" "}
-                      {clean(complaint.resolution) || "-"}
-                    </p>
-                  </div>
-
-                  <Link
-                    href={getComplaintDetailHref(complaint, index)}
-                    className="mb-3 block w-full rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white hover:bg-blue-700"
-                  >
-                    View Complaint Details
-                  </Link>
-
-                  {!isClosedComplaint(complaint.status) ? (
-                    <button
-                      type="button"
-                      onClick={() => openCloseModal(complaint)}
-                      className="w-full rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-700"
-                    >
-                      Close Complaint
-                    </button>
-                  ) : (
-                    <div className="rounded-xl bg-green-50 px-4 py-3 text-center text-sm font-bold text-green-700">
-                      Complaint Closed
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Account</th>
-                    <th className="p-3">Issue</th>
-                    <th className="p-3">Priority</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Validity</th>
-                    <th className="p-3">Assigned To</th>
-                    <th className="p-3">Follow-Up</th>
-                    <th className="p-3">Notes</th>
-                    <th className="p-3">Action</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {sortedComplaints.map((complaint, index) => (
-                    <tr
-                      key={`${complaint.id || "complaint"}-${index}`}
-                      className="border-b last:border-b-0"
-                    >
-                      <td className="whitespace-nowrap p-3">
-                        {formatDate(complaint.date)}
-                      </td>
-
-                      <td className="p-3 font-bold">
-                        {clean(complaint.accountName) ? (
-                          <Link
-                            href={`/accounts/${slugify(
-                              complaint.accountName
-                            )}`}
-                            className="text-blue-700 hover:underline"
-                          >
-                            {clean(complaint.accountName)}
-                          </Link>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-
-                      <td className="min-w-[280px] p-3">
-                        <div className="font-semibold">
+                      <div className="mt-4 rounded-2xl bg-slate-50 p-4">
+                        <p className="font-black text-slate-800">
                           {clean(complaint.complaintType) || "Complaint"}
-                        </div>
-                        <div className="mt-1 text-gray-600">
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
                           {clean(complaint.description) || "-"}
+                        </p>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 p-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Assigned
+                          </p>
+                          <p className="mt-1 font-bold text-slate-800">
+                            {clean(complaint.manager) ||
+                              clean(complaint.subcontractor) ||
+                              "-"}
+                          </p>
                         </div>
-                      </td>
 
-                      <td className="p-3">
-                        <span
-                          className={getSeverityClass(
-                            complaint.severity || complaint.priority
-                          )}
-                        >
-                          {clean(complaint.severity || complaint.priority) ||
-                            "-"}
-                        </span>
-                      </td>
-
-                      <td className="p-3">
-                        <span className={getStatusClass(complaint.status)}>
-                          {clean(complaint.status) || "-"}
-                        </span>
-                      </td>
-
-                      <td className="p-3">
-                        <span
-                          className={getValidityClass(
-                            complaint.complaintValidity
-                          )}
-                        >
-                          {clean(complaint.complaintValidity) ||
-                            "Needs Review"}
-                        </span>
-                      </td>
-
-                      <td className="p-3">
-                        {clean(complaint.manager) ||
-                          clean(complaint.subcontractor) ||
-                          "-"}
-                      </td>
-
-                      <td className="whitespace-nowrap p-3">
-                        {formatDate(complaint.followUpDate)}
-                      </td>
-
-                      <td className="min-w-[260px] p-3">
-                        {clean(complaint.notes) ||
-                          clean(complaint.resolution) ||
-                          "-"}
-                      </td>
-
-                      <td className="whitespace-nowrap p-3">
-                        <div className="flex flex-col gap-2">
-                          <Link
-                            href={getComplaintDetailHref(complaint, index)}
-                            className="rounded-xl bg-blue-600 px-4 py-2 text-center font-bold text-white hover:bg-blue-700"
-                          >
-                            View
-                          </Link>
-
-                          {!isClosedComplaint(complaint.status) ? (
-                            <button
-                              type="button"
-                              onClick={() => openCloseModal(complaint)}
-                              className="rounded-xl bg-green-600 px-4 py-2 font-bold text-white hover:bg-green-700"
-                            >
-                              Close
-                            </button>
-                          ) : (
-                            <span className="rounded-full bg-green-50 px-3 py-1 text-center text-xs font-bold text-green-700">
-                              Closed
-                            </span>
-                          )}
+                        <div className="rounded-2xl border border-slate-200 p-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Follow-Up
+                          </p>
+                          <p className="mt-1 font-bold text-slate-800">
+                            {formatDate(complaint.followUpDate)}
+                          </p>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+
+                        <div className="rounded-2xl border border-slate-200 p-3">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Photos
+                          </p>
+                          <p className="mt-1 font-bold text-slate-800">
+                            {photoCount > 0 ? `${photoCount} attached` : "None"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {photoCount > 0 ? (
+                        <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50 p-4">
+                          <p className="text-xs font-black uppercase tracking-wide text-purple-700">
+                            Attached Photos
+                          </p>
+
+                          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                            {complaintPhotos.slice(0, 4).map((photo, photoIndex) => {
+                              const imageUrl = getDriveImageUrl(photo.driveUrl);
+
+                              return (
+                                <a
+                                  key={`${
+                                    photo.photoId ||
+                                    photo.rowNumber ||
+                                    photo.fileName ||
+                                    "photo"
+                                  }-${photoIndex}`}
+                                  href={imageUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="group overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm"
+                                  title="Open photo only"
+                                >
+                                  <img
+                                    src={imageUrl}
+                                    alt={
+                                      clean(photo.fileName) ||
+                                      `Complaint photo ${photoIndex + 1}`
+                                    }
+                                    className="h-28 w-full object-cover transition group-hover:scale-105"
+                                  />
+                                  <div className="p-2 text-center text-xs font-black text-purple-700">
+                                    View Photo
+                                  </div>
+                                </a>
+                              );
+                            })}
+                          </div>
+
+                          {photoCount > 4 ? (
+                            <p className="mt-3 text-xs font-bold text-purple-700">
+                              Showing 4 of {photoCount} photos. Open details to
+                              view more.
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {clean(complaint.notes) || clean(complaint.resolution) ? (
+                        <div className="mt-4 rounded-2xl border border-slate-200 p-4 text-sm">
+                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Notes / Resolution
+                          </p>
+                          <p className="mt-2 whitespace-pre-wrap text-slate-700">
+                            {clean(complaint.notes) ||
+                              clean(complaint.resolution) ||
+                              "-"}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <Link
+                        href={getComplaintDetailHref(complaint, index)}
+                        className="rounded-2xl bg-blue-600 px-5 py-3 text-center font-black text-white hover:bg-blue-700"
+                      >
+                        View Details
+                      </Link>
+
+                      {firstPhotoUrl ? (
+                        <a
+                          href={firstPhotoUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-2xl bg-purple-600 px-5 py-3 text-center font-black text-white hover:bg-purple-700"
+                        >
+                          📷 Open Photo
+                        </a>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-300 px-5 py-3 text-center text-sm font-bold text-slate-400">
+                          No Photos
+                        </div>
+                      )}
+
+                      {!isClosedComplaint(complaint.status) ? (
+                        <button
+                          type="button"
+                          onClick={() => openCloseModal(complaint)}
+                          className="rounded-2xl bg-green-600 px-5 py-3 font-black text-white hover:bg-green-700"
+                        >
+                          Close Complaint
+                        </button>
+                      ) : (
+                        <div className="rounded-2xl bg-green-50 px-5 py-3 text-center text-sm font-black text-green-700">
+                          Complaint Closed
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         )}
       </section>
 
       {selectedComplaint ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-5 shadow-xl">
             <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-widest text-green-600">
+              <p className="text-xs font-black uppercase tracking-widest text-green-600">
                 Close Complaint
               </p>
-              <h2 className="mt-2 text-2xl font-bold">
+              <h2 className="mt-2 text-2xl font-black">
                 {clean(selectedComplaint.accountName) || "Complaint"}
               </h2>
-              <p className="mt-2 text-sm text-gray-600">
+              <p className="mt-2 text-sm text-slate-600">
                 {clean(selectedComplaint.description) || "No issue description"}
               </p>
             </div>
 
             <label className="block">
-              <span className="mb-2 block text-sm font-bold text-gray-700">
+              <span className="mb-2 block text-sm font-black text-slate-700">
                 Resolution Note
               </span>
               <textarea
@@ -804,7 +1043,7 @@ export default function ComplaintsPage() {
                 onChange={(event) => setResolutionNote(event.target.value)}
                 rows={5}
                 placeholder="Example: Spoke with subcontractor, issue corrected, customer satisfied."
-                className="w-full rounded-xl border border-gray-300 px-4 py-3"
+                className="w-full rounded-2xl border border-slate-300 px-4 py-3 outline-none focus:border-green-500 focus:ring-4 focus:ring-green-100"
               />
             </label>
 
@@ -813,7 +1052,7 @@ export default function ComplaintsPage() {
                 type="button"
                 onClick={closeCloseModal}
                 disabled={savingClose}
-                className="rounded-xl border border-gray-300 px-4 py-3 font-bold text-gray-700 hover:bg-gray-50"
+                className="rounded-2xl border border-slate-300 px-4 py-3 font-black text-slate-700 hover:bg-slate-50"
               >
                 Cancel
               </button>
@@ -822,7 +1061,7 @@ export default function ComplaintsPage() {
                 type="button"
                 onClick={handleCloseComplaint}
                 disabled={savingClose}
-                className="rounded-xl bg-green-600 px-4 py-3 font-bold text-white hover:bg-green-700 disabled:opacity-60"
+                className="rounded-2xl bg-green-600 px-4 py-3 font-black text-white hover:bg-green-700 disabled:opacity-60"
               >
                 {savingClose ? "Closing..." : "Close Complaint"}
               </button>
