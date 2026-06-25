@@ -27,7 +27,7 @@ const adminNavItems = [
 ];
 
 const subcontractorNavItems = [
-  { href: "/subcontractor-portal", label: "My Accounts" },
+  { href: "/subcontractor-portal", label: "Home" },
 ];
 
 function getStoredRole(): UserRole {
@@ -102,7 +102,6 @@ export default function CWHeader() {
     <header className="w-full bg-slate-50 px-4 py-8">
       <div className="mx-auto max-w-7xl">
         <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-blue-900 via-blue-700 to-sky-500 px-6 py-6 shadow-xl">
-          {/* Help button top-right */}
           {!isLoginPage && (
             <Link
               href="/help"
