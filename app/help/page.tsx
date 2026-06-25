@@ -1,15 +1,27 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type Language = "en" | "es" | "pt";
+type UserRole = "admin" | "subcontractor" | null;
 
 type HelpSection = {
   title: string;
   description: string;
   items: string[];
 };
+
+function getStoredRole(): UserRole {
+  if (typeof window === "undefined") return null;
+
+  const role = window.localStorage.getItem("cwRole");
+
+  if (role === "admin") return "admin";
+  if (role === "subcontractor") return "subcontractor";
+
+  return null;
+}
 
 const content: Record<
   Language,
@@ -181,6 +193,16 @@ const content: Record<
     ],
     subSections: [
       {
+        title: "Home Button",
+        description:
+          "Use the Home button at the top of the app to return to your subcontractor dashboard.",
+        items: [
+          "If you are already logged in, Home will bring you back to your subcontractor dashboard.",
+          "You do not need to log in again unless you logged out, cleared your browser, or are using a different phone.",
+          "Use Home instead of using the browser back button when you want to return to your main subcontractor page.",
+        ],
+      },
+      {
         title: "My Accounts",
         description:
           "Use My Accounts to see the accounts currently assigned to you.",
@@ -220,6 +242,8 @@ const content: Record<
           "Take clear photos with good lighting.",
           "Do not upload unnecessary photos.",
           "Use photos when reporting complaints, damages, or unusual conditions.",
+          "Photos should open as photo previews or image view inside the Cleaning World app.",
+          "Photos should not be used to browse Cleaning World Google Drive folders.",
         ],
       },
     ],
@@ -372,6 +396,16 @@ const content: Record<
     ],
     subSections: [
       {
+        title: "Botón Home",
+        description:
+          "Use el botón Home en la parte superior de la aplicación para regresar a su panel principal de subcontratista.",
+        items: [
+          "Si ya inició sesión, Home lo llevará de regreso a su panel de subcontratista.",
+          "No necesita iniciar sesión otra vez a menos que haya cerrado sesión, borrado el navegador, o esté usando otro teléfono.",
+          "Use Home en vez del botón de regresar del navegador cuando quiera volver a su página principal.",
+        ],
+      },
+      {
         title: "Mis Cuentas",
         description:
           "Use Mis Cuentas para ver las cuentas asignadas a usted.",
@@ -411,6 +445,8 @@ const content: Record<
           "Tome fotos claras y con buena luz.",
           "No suba fotos innecesarias.",
           "Use fotos para quejas, daños o condiciones inusuales.",
+          "Las fotos deben abrir como vista previa o imagen dentro de la aplicación de Cleaning World.",
+          "Las fotos no deben usarse para navegar carpetas de Google Drive de Cleaning World.",
         ],
       },
     ],
@@ -563,6 +599,16 @@ const content: Record<
     ],
     subSections: [
       {
+        title: "Botão Home",
+        description:
+          "Use o botão Home no topo do aplicativo para voltar ao painel principal do subcontratado.",
+        items: [
+          "Se você já fez login, Home levará você de volta ao painel do subcontratado.",
+          "Você não precisa fazer login novamente, a menos que tenha saído, limpado o navegador, ou esteja usando outro telefone.",
+          "Use Home em vez do botão voltar do navegador quando quiser retornar à página principal.",
+        ],
+      },
+      {
         title: "Minhas Contas",
         description:
           "Use Minhas Contas para ver as contas atribuídas a você.",
@@ -602,6 +648,8 @@ const content: Record<
           "Tire fotos claras e com boa iluminação.",
           "Não envie fotos desnecessárias.",
           "Use fotos para reclamações, danos ou condições incomuns.",
+          "As fotos devem abrir como pré-visualização ou imagem dentro do aplicativo da Cleaning World.",
+          "As fotos não devem ser usadas para navegar nas pastas do Google Drive da Cleaning World.",
         ],
       },
     ],
@@ -616,8 +664,17 @@ const languageButtons: { value: Language; label: string }[] = [
 
 export default function HelpPage() {
   const [language, setLanguage] = useState<Language>("en");
+  const [role, setRole] = useState<UserRole>(null);
+
+  useEffect(() => {
+    setRole(getStoredRole());
+  }, []);
 
   const selectedContent = useMemo(() => content[language], [language]);
+
+  const backHref = role === "subcontractor" ? "/subcontractor-portal" : "/";
+  const backLabel =
+    role === "subcontractor" ? "Back to Home" : "Back to Dashboard";
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -636,10 +693,10 @@ export default function HelpPage() {
           </div>
 
           <Link
-            href="/"
+            href={backHref}
             className="rounded-2xl bg-slate-950 px-5 py-3 text-center text-sm font-black text-white no-underline shadow-sm hover:bg-blue-950"
           >
-            Back to Dashboard
+            {backLabel}
           </Link>
         </div>
 
@@ -718,8 +775,15 @@ export default function HelpPage() {
           </div>
         </div>
 
-        <HelpGroup title={selectedContent.adminTitle} sections={selectedContent.adminSections} />
-        <HelpGroup title={selectedContent.subTitle} sections={selectedContent.subSections} />
+        <HelpGroup
+          title={selectedContent.adminTitle}
+          sections={selectedContent.adminSections}
+        />
+
+        <HelpGroup
+          title={selectedContent.subTitle}
+          sections={selectedContent.subSections}
+        />
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-600">
           {selectedContent.footerNote}
