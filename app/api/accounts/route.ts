@@ -48,8 +48,7 @@ export async function GET(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Google Script did not return valid JSON while loading accounts.",
+          error: "Google Script did not return valid JSON while loading accounts.",
           rawResponse: text,
           requestedAction: action,
         },
@@ -103,15 +102,32 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+    const action = String(body.action || "").trim();
 
-    const requestedAction = String(body.action || "").trim();
+    // === NEW: Handle Send New Account Packet ===
+    if (action === "sendNewAccountPacket") {
+      const response = await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(body),
+      });
 
-    const action =
-      requestedAction === "updateAccount" ||
-      requestedAction === "editAccount"
-        ? "updateAccount"
-        : "addAccount";
+      const text = await response.text();
 
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return NextResponse.json(
+          { success: false, error: "Invalid response from Google Script for packet" },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json(data);
+    }
+
+    // Handle other account actions (add / update)
     const accountPayload = body.account || body;
 
     const response = await fetch(SCRIPT_URL, {
@@ -120,7 +136,7 @@ export async function POST(request: Request) {
         "Content-Type": "text/plain;charset=utf-8",
       },
       body: JSON.stringify({
-        action,
+        action: action === "updateAccount" || action === "editAccount" ? "updateAccount" : "addAccount",
         account: accountPayload,
       }),
       cache: "no-store",
@@ -129,16 +145,13 @@ export async function POST(request: Request) {
     const text = await response.text();
 
     let data;
-
     try {
       data = JSON.parse(text);
     } catch {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Google Script did not return valid JSON while saving account.",
-          rawResponse: text,
+          error: "Google Script did not return valid JSON while saving account.",
         },
         { status: 500 }
       );
@@ -148,13 +161,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            data.error ||
-            data.message ||
-            "Failed to save account in Google Script.",
-          googleScriptResponse: data,
-          rawGoogleScriptResponse: text,
-          googleScriptStatus: response.status,
+          error: data.error || data.message || "Failed to save account.",
         },
         { status: 500 }
       );
@@ -170,10 +177,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unknown error saving account.",
+        error: error instanceof Error ? error.message : "Unknown error.",
       },
       { status: 500 }
     );
