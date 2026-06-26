@@ -44,12 +44,10 @@ function getStoredRole(): UserRole {
 export default function CWHeader() {
   const pathname = usePathname();
 
-  const [role, setRole] = useState<UserRole>(null);
+  const [role, setRole] = useState<UserRole>(() => getStoredRole());
   const [newNotificationCount, setNewNotificationCount] = useState(0);
 
   useEffect(() => {
-    setRole(getStoredRole());
-
     const handleStorageChange = () => {
       setRole(getStoredRole());
     };

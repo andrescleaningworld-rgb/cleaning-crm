@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 
 type Account = {
   id?: string;
@@ -1795,9 +1796,12 @@ export default function SubcontractorPortalPage() {
                           key={`${photo.file.name}-${index}`}
                           className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
                         >
-                          <img
+                          <Image
                             src={photo.previewUrl}
                             alt={`Selected issue photo ${index + 1}`}
+                            width={280}
+                            height={112}
+                            unoptimized
                             className="h-28 w-full object-cover"
                           />
 

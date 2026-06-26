@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 
 type Language = "en" | "es" | "pt";
@@ -664,11 +664,7 @@ const languageButtons: { value: Language; label: string }[] = [
 
 export default function HelpPage() {
   const [language, setLanguage] = useState<Language>("en");
-  const [role, setRole] = useState<UserRole>(null);
-
-  useEffect(() => {
-    setRole(getStoredRole());
-  }, []);
+  const role = getStoredRole();
 
   const selectedContent = useMemo(() => content[language], [language]);
 

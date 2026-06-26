@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 
@@ -792,9 +793,12 @@ export default function ComplaintDetailPage() {
                             rel="noopener noreferrer"
                             className="block"
                           >
-                            <img
+                            <Image
                               src={previewUrl}
                               alt={`Complaint photo ${index + 1}`}
+                              width={400}
+                              height={224}
+                              unoptimized
                               className="h-56 w-full object-cover"
                             />
                           </a>

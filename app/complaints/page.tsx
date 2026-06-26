@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 type Complaint = {
@@ -935,12 +936,15 @@ export default function ComplaintsPage() {
                                   className="group overflow-hidden rounded-2xl border border-purple-200 bg-white shadow-sm"
                                   title="Open photo only"
                                 >
-                                  <img
+                                  <Image
                                     src={imageUrl}
                                     alt={
                                       clean(photo.fileName) ||
                                       `Complaint photo ${photoIndex + 1}`
                                     }
+                                    width={280}
+                                    height={112}
+                                    unoptimized
                                     className="h-28 w-full object-cover transition group-hover:scale-105"
                                   />
                                   <div className="p-2 text-center text-xs font-black text-purple-700">

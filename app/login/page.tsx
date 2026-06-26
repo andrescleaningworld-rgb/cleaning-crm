@@ -38,8 +38,10 @@ function LoginForm() {
         throw new Error(data.message || "Login failed.");
       }
 
-      localStorage.setItem("cwUserRole", "admin");
+      // Role is primarily read via "cwRole" (used by CWHeader, help, sub portal).
+      // Extra legacy keys kept for compatibility with any older code/tabs.
       localStorage.setItem("cwRole", "admin");
+      localStorage.setItem("cwUserRole", "admin");
       localStorage.setItem("userRole", "admin");
       localStorage.setItem("cwAdminLoggedIn", "true");
       localStorage.setItem("isAdminLoggedIn", "true");

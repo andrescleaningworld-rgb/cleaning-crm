@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -880,9 +881,12 @@ function NewComplaintPageContent() {
                       key={`${photo.file.name}-${index}`}
                       className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
                     >
-                      <img
+                      <Image
                         src={photo.previewUrl}
                         alt={`Selected complaint photo ${index + 1}`}
+                        width={280}
+                        height={112}
+                        unoptimized
                         className="h-28 w-full object-cover"
                       />
 
