@@ -43,6 +43,8 @@ type Account = {
   _statusCategory?: StatusFilter;
   _monthlyRevenueNum?: number;
   _subPayNum?: number;
+  _grossMarginNum?: number;
+  _grossMarginPercent?: number;
   _frequencyText?: string;
   _startDateTime?: number;
   _subDisplay?: SubcontractorDisplay;
@@ -583,14 +585,19 @@ function enrichAccounts(accounts: Account[], subcontractors: Subcontractor[]): A
       .join(" ")
       .toLowerCase();
 
+    const revenueNum = moneyToNumber(account.monthlyRevenue);
+    const subPayNum = moneyToNumber(
+      account.monthlySubcontractorPay ?? account.subcontractorPay
+    );
+
     return {
       ...account,
       _searchBlob: searchBlob,
       _statusCategory: getStatusCategory(account.status),
-      _monthlyRevenueNum: moneyToNumber(account.monthlyRevenue),
-      _subPayNum: moneyToNumber(
-        account.monthlySubcontractorPay ?? account.subcontractorPay
-      ),
+      _monthlyRevenueNum: revenueNum,
+      _subPayNum: subPayNum,
+      _grossMarginNum: revenueNum - subPayNum,
+      _grossMarginPercent: revenueNum > 0 ? Math.round(((revenueNum - subPayNum) / revenueNum) * 100) : 0,
       _frequencyText: normalizeText(account.frequency ?? account.cleaningDays),
       _startDateTime: getDateTime(account.accountStartDate),
       _subDisplay: subDisplay,
@@ -980,6 +987,13 @@ export default function AccountsPage() {
     () => filteredAccounts.reduce((sum, account) => sum + (account._subPayNum ?? 0), 0),
     [filteredAccounts]
   );
+  const filteredGrossMargin = useMemo(
+    () => filteredAccounts.reduce((sum, a) => sum + ((a._grossMarginNum ?? 0)), 0),
+    [filteredAccounts]
+  );
+  const filteredMarginPercent = filteredRevenue > 0
+    ? Math.round((filteredGrossMargin / filteredRevenue) * 100)
+    : 0;
 
   const activeSubcontractors = useMemo(() => {
     return allSubcontractors
@@ -1893,7 +1907,7 @@ async function handleSaveTransferProposal() {
         </div>
 
         {/* Money summary tiles */}
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="mt-4 grid gap-3 lg:grid-cols-3">
           <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
             <p className="text-xs font-black uppercase tracking-wide text-blue-700">
               Revenue In Current View
@@ -1923,6 +1937,22 @@ async function handleSaveTransferProposal() {
             </p>
             <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
               Total subcontractor pay for the filtered accounts.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm sm:p-5">
+            <p className="text-xs font-black uppercase tracking-wide text-amber-700">
+              Gross Margin In Current View
+            </p>
+            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
+              {filteredGrossMargin.toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 0,
+              })}
+            </p>
+            <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
+              {filteredMarginPercent}% of revenue
             </p>
           </div>
         </div>
@@ -2684,7 +2714,7 @@ async function handleSaveTransferProposal() {
             <div className="col-span-1">Status</div>
             <div className="col-span-1">Health</div>
             <div className="col-span-1">Start Date</div>
-            <div className="col-span-1 text-right">Revenue / Sub Pay</div>
+            <div className="col-span-1 text-right">Revenue / Margin</div>
             <div className="col-span-1 text-right">Action</div>
           </div>
 
@@ -2728,6 +2758,9 @@ async function handleSaveTransferProposal() {
                           </p>
                           <p className="mt-1 text-xs font-bold text-emerald-700">
                             Sub Pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
+                          </p>
+                          <p className="mt-1 text-xs font-bold text-amber-600">
+                            Margin: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} ({account._grossMarginPercent ?? 0}%)
                           </p>
                         </div>
                       </div>
@@ -2781,6 +2814,9 @@ async function handleSaveTransferProposal() {
                         </p>
                         <p className="mt-1 text-[11px] font-bold text-emerald-700">
                           Sub: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
+                        </p>
+                        <p className="mt-1 text-[11px] font-bold text-amber-600">
+                          Margin: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} ({account._grossMarginPercent ?? 0}%)
                         </p>
                         {normalizeText(account._frequencyText) ? (
                           <p className="mt-1 text-[11px] font-bold text-slate-400">
