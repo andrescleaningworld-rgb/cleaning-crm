@@ -228,7 +228,7 @@ async function fetchGoogleScriptData(action: string) {
 
   const response = await fetch(`${SCRIPT_URL}?action=${action}`, {
     method: "GET",
-    cache: "no-store",
+    next: { revalidate: 300 }, // subs relatively static, 5 min cache
   });
 
   const text = await response.text();
@@ -346,10 +346,17 @@ export async function GET() {
       accounts
     );
 
-    return NextResponse.json({
-      success: true,
-      subcontractors: enrichedSubcontractors,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        subcontractors: enrichedSubcontractors,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=120, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       {

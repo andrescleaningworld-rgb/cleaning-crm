@@ -19,7 +19,7 @@ export async function GET() {
     const response = await fetch(
       `${GOOGLE_SCRIPT_URL}?action=getSubPortalIssues`,
       {
-        cache: "no-store",
+        next: { revalidate: 30 },
       }
     );
 
@@ -28,12 +28,19 @@ export async function GET() {
     try {
       const data = JSON.parse(text);
 
-      return NextResponse.json({
-        success: Boolean(data.success),
-        message: data.message || "",
-        issues: Array.isArray(data.issues) ? data.issues : [],
-        newCount: Number(data.newCount || 0),
-      });
+      return NextResponse.json(
+        {
+          success: Boolean(data.success),
+          message: data.message || "",
+          issues: Array.isArray(data.issues) ? data.issues : [],
+          newCount: Number(data.newCount || 0),
+        },
+        {
+          headers: {
+            "Cache-Control": "public, max-age=15, stale-while-revalidate=30",
+          },
+        }
+      );
     } catch {
       return NextResponse.json(
         {

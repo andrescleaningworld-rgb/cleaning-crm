@@ -315,7 +315,6 @@ export default function ComplaintsPage() {
 
       const response = await fetch("/api/complaints", {
         method: "GET",
-        cache: "no-store",
       });
 
       const text = await response.text();

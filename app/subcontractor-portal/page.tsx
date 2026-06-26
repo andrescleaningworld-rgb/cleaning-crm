@@ -1390,7 +1390,27 @@ export default function SubcontractorPortalPage() {
                               {accountName}
                             </h3>
                             <p className="mt-1 text-sm leading-5 text-slate-600">
-                              {getFullAddress(account) || "Address not listed"}
+                              <span
+                                role="link"
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const addr = getFullAddress(account) || "";
+                                  if (addr) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`, "_blank", "noopener,noreferrer");
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const addr = getFullAddress(account) || "";
+                                    if (addr) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`, "_blank", "noopener,noreferrer");
+                                  }
+                                }}
+                                className="hover:text-blue-600 hover:underline cursor-pointer"
+                              >
+                                {getFullAddress(account) || "Address not listed"}
+                              </span>
                             </p>
                           </div>
 
@@ -1420,9 +1440,14 @@ export default function SubcontractorPortalPage() {
                     {getAccountName(selectedAccount)}
                   </h3>
 
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(getFullAddress(selectedAccount) || "")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 block text-sm leading-6 text-slate-700 hover:text-blue-600 hover:underline"
+                  >
                     {getFullAddress(selectedAccount) || "Address not listed"}
-                  </p>
+                  </a>
 
                   <div className="mt-5 grid gap-3 md:grid-cols-2">
                     <div className="rounded-2xl bg-white p-4 shadow-sm">

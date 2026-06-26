@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       `${SCRIPT_URL}?action=${encodeURIComponent(action)}`,
       {
         method: "GET",
-        cache: "no-store",
+        next: { revalidate: 120 }, // cache for 2 minutes - accounts are relatively stable
       }
     );
 
@@ -70,11 +70,18 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      action,
-      accounts: data.accounts || data.data || [],
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        action,
+        accounts: data.accounts || data.data || [],
+      },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=60, stale-while-revalidate=120",
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       {

@@ -38,7 +38,7 @@ export async function GET() {
 
     const response = await fetch(`${SCRIPT_URL}?action=getAccountUpdates`, {
       method: "GET",
-      cache: "no-store",
+      next: { revalidate: 60 },
     });
 
     const text = await response.text();
@@ -70,12 +70,19 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      accountUpdates: Array.isArray(data.accountUpdates)
-        ? data.accountUpdates
-        : [],
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        accountUpdates: Array.isArray(data.accountUpdates)
+          ? data.accountUpdates
+          : [],
+      },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=30, stale-while-revalidate=60",
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { getGoogleMapsUrl } from "../../lib/backend";
 
 type Account = {
   id?: string;
@@ -396,6 +397,12 @@ export default function AccountDetailPage() {
     account?.customerPhone ||
     "N/A";
 
+  function makeTelLink(phone: string | undefined | null): string {
+    if (!phone || phone === "N/A") return "#";
+    const cleaned = phone.replace(/[^0-9+]/g, "");
+    return `tel:${cleaned}`;
+  }
+
   const contactEmail =
     account?.email ||
     account?.contactEmail ||
@@ -669,9 +676,14 @@ export default function AccountDetailPage() {
               </h1>
 
               {accountAddress ? (
-                <p className="mt-3 max-w-3xl text-sm font-medium text-blue-100">
+                <a
+                  href={getGoogleMapsUrl(accountAddress)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 block max-w-3xl text-sm font-medium text-blue-100 hover:text-white hover:underline"
+                >
                   {accountAddress}
-                </p>
+                </a>
               ) : null}
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -857,9 +869,12 @@ export default function AccountDetailPage() {
                     <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                       Phone
                     </p>
-                    <p className="mt-2 text-sm font-bold text-slate-900">
+                    <a
+                      href={makeTelLink(contactPhone)}
+                      className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
+                    >
                       {contactPhone}
-                    </p>
+                    </a>
                   </div>
 
                   <div className="rounded-2xl bg-white p-4">
@@ -932,9 +947,14 @@ export default function AccountDetailPage() {
                   <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                     Address
                   </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
+                  <a
+                    href={getGoogleMapsUrl(accountAddress)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
+                  >
                     {accountAddress || "N/A"}
-                  </p>
+                  </a>
                 </div>
               </div>
             </div>
@@ -1003,9 +1023,14 @@ export default function AccountDetailPage() {
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Address
                 </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
+                <a
+                  href={getGoogleMapsUrl(accountAddress)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
+                >
                   {accountAddress || "N/A"}
-                </p>
+                </a>
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-4">
@@ -1021,9 +1046,12 @@ export default function AccountDetailPage() {
                 <p className="text-xs font-black uppercase tracking-wide text-slate-500">
                   Phone
                 </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
+                <a
+                  href={makeTelLink(contactPhone)}
+                  className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
+                >
                   {contactPhone}
-                </p>
+                </a>
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-4">

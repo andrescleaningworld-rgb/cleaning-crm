@@ -79,7 +79,7 @@ export async function GET() {
 
     const response = await fetch(`${SCRIPT_URL}?action=getComplaints`, {
       method: "GET",
-      cache: "no-store",
+      next: { revalidate: 30 }, // complaints can change quickly
     });
 
     const text = await response.text();
@@ -111,14 +111,21 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      complaints: Array.isArray(data.complaints)
-        ? data.complaints
-        : Array.isArray(data.data)
-          ? data.data
-          : [],
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        complaints: Array.isArray(data.complaints)
+          ? data.complaints
+          : Array.isArray(data.data)
+            ? data.data
+            : [],
+      },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=20, stale-while-revalidate=40",
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       {

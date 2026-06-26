@@ -434,9 +434,7 @@ export default function MapPage() {
         setIsLoading(true);
         setErrorMessage("");
 
-       const response = await fetch("/api/accounts?action=getMapAccounts", {
-  cache: "no-store",
-});
+       const response = await fetch("/api/accounts?action=getMapAccounts");
 
         const result = (await response.json()) as AccountsApiResponse | AnyRow[];
 
@@ -801,8 +799,9 @@ export default function MapPage() {
 
           <div className="relative">
             {isLoading ? (
-              <div className="flex h-[68vh] min-h-[460px] items-center justify-center text-gray-600">
-                Loading accounts from Google Sheets...
+              <div className="flex h-[68vh] min-h-[460px] items-center justify-center px-4 text-center text-gray-600">
+                Loading account locations for the map...<br />
+                <span className="text-xs text-gray-500">(This can take 10-30+ seconds if there are many accounts or the backend is busy)</span>
               </div>
             ) : accountPinIcon && selectedPinIcon && myLocationIcon ? (
               <div className="h-[68vh] min-h-[460px] w-full">
@@ -862,9 +861,14 @@ export default function MapPage() {
                               {account.name}
                             </Link>
 
-                            <p className="mt-1 text-gray-700">
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(account.fullAddress)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mt-1 block text-gray-700 hover:text-blue-600 hover:underline"
+                            >
                               {account.fullAddress}
-                            </p>
+                            </a>
 
                             {account.distance !== null ? (
                               <p className="mt-1 font-bold text-blue-700">
@@ -903,7 +907,7 @@ export default function MapPage() {
               </div>
             ) : (
               <div className="flex h-[68vh] min-h-[460px] items-center justify-center px-5 text-center text-gray-600">
-                Loading map pins...
+                Loading map pins... (rendering limited number for performance)
               </div>
             )}
 
@@ -920,9 +924,14 @@ export default function MapPage() {
                   {selectedAccount.name}
                 </Link>
 
-                <p className="mt-2 text-sm font-semibold text-gray-700">
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedAccount.fullAddress)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 block text-sm font-semibold text-gray-700 hover:text-blue-600 hover:underline"
+                >
                   {selectedAccount.fullAddress}
-                </p>
+                </a>
 
                 {selectedAccount.distance !== null ? (
                   <p className="mt-2 text-sm font-black text-blue-700">
@@ -1045,9 +1054,25 @@ export default function MapPage() {
                           {account.name}
                         </h3>
 
-                        <p className="mt-2 text-sm leading-5 text-gray-600">
+                        <span
+                          role="link"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(account.fullAddress)}`, "_blank", "noopener,noreferrer");
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(account.fullAddress)}`, "_blank", "noopener,noreferrer");
+                            }
+                          }}
+                          className="mt-2 block text-sm leading-5 text-gray-600 hover:text-blue-600 hover:underline cursor-pointer"
+                        >
                           {account.fullAddress}
-                        </p>
+                        </span>
                       </div>
 
                       <div className="flex shrink-0 flex-col items-end gap-2">

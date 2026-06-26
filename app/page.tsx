@@ -516,7 +516,6 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
   try {
     const response = await fetch(url, {
       method: "GET",
-      cache: "no-store",
     });
 
     const text = await response.text();

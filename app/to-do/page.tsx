@@ -86,9 +86,7 @@ export default function ToDoPage() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/to-do", {
-        cache: "no-store",
-      });
+      const response = await fetch("/api/to-do");
 
       const data = await response.json();
       setTodos(Array.isArray(data.todos) ? data.todos : []);
@@ -102,9 +100,7 @@ export default function ToDoPage() {
 
   async function loadAccounts() {
     try {
-      const response = await fetch("/api/accounts", {
-        cache: "no-store",
-      });
+      const response = await fetch("/api/accounts");
 
       const data = await response.json();
 

@@ -5,10 +5,10 @@ import CWHeader from "./components/CWHeader";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cleaning World App",
-  description: "Cleaning World Operations & Quality Management System",
+  title: "Cleaning World",
+  description: "Cleaning World Service Portal & Operations",
   manifest: "/manifest.json",
-  applicationName: "Cleaning World Operations",
+  applicationName: "Cleaning World",
   appleWebApp: {
     capable: true,
     title: "Cleaning World",

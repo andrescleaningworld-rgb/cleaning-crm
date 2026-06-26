@@ -277,9 +277,7 @@ export default function SuppliesPage() {
       setLoading(true);
       setError("");
 
-      const res = await fetch("/api/supplies?action=getSupplyItemsAdmin", {
-        cache: "no-store",
-      });
+      const res = await fetch("/api/supplies?action=getSupplyItemsAdmin");
 
       const data = (await res.json()) as SuppliesApiResponse | SupplyItem[];
 

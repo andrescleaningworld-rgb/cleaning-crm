@@ -299,7 +299,6 @@ function SalesPageContent() {
       try {
         const response = await fetch("/api/accounts", {
           method: "GET",
-          cache: "no-store",
         });
 
         const result = await response.json();
@@ -358,7 +357,6 @@ function SalesPageContent() {
       try {
         const response = await fetch("/api/sales", {
           method: "GET",
-          cache: "no-store",
         });
 
         const result = await response.json();

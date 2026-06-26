@@ -25,7 +25,7 @@ export async function GET() {
 
     const response = await fetch(url.toString(), {
       method: "GET",
-      cache: "no-store",
+      next: { revalidate: 600 }, // photos can be cached longer
     });
 
     const text = await response.text();

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { getGoogleMapsUrl } from "../lib/backend";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +46,7 @@ type Account = {
   _subPayNum?: number;
   _grossMarginNum?: number;
   _grossMarginPercent?: number;
+  _revenuePercent?: number;
   _frequencyText?: string;
   _startDateTime?: number;
   _subDisplay?: SubcontractorDisplay;
@@ -728,8 +730,8 @@ export default function AccountsPage() {
       setSubcontractorWarning("");
 
       const [accountsResponse, subcontractorsResponse] = await Promise.all([
-        fetch("/api/accounts", { cache: "no-store" }),
-        fetch("/api/subcontractors", { cache: "no-store" }),
+        fetch("/api/accounts"),
+        fetch("/api/subcontractors"),
       ]);
 
       const accountsData = await readJson<ApiResponse>(accountsResponse);
@@ -766,8 +768,7 @@ export default function AccountsPage() {
       setTransferProposalsError("");
 
       const response = await fetch(
-        "/api/sub-transfer-proposals?action=getSubTransferProposals",
-        { cache: "no-store" }
+        "/api/sub-transfer-proposals?action=getSubTransferProposals"
       );
 
       const data = await readJson<TransferProposalsApiResponse>(response);
@@ -973,7 +974,19 @@ export default function AccountsPage() {
     sortOption,
   ]);
 
-  const visibleAccounts = useMemo(() => filteredAccounts.slice(0, visibleCount), [filteredAccounts, visibleCount]);
+  const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
+
+  const visibleAccounts = useMemo(() => {
+    const sliced = filteredAccounts.slice(0, visibleCount);
+    return sliced.map((account) => {
+      const revNum = account._monthlyRevenueNum ?? 0;
+      const pct = filteredRevenue > 0 ? Math.round((revNum / filteredRevenue) * 100) : 0;
+      return {
+        ...account,
+        _revenuePercent: pct,
+      };
+    });
+  }, [filteredAccounts, visibleCount, filteredRevenue]);
 
   // -------------------------------------------------------------------------
   // Summary stats
@@ -982,7 +995,7 @@ export default function AccountsPage() {
   const activeCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Active").length, [accounts]);
   const cancelledCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Cancelled").length, [accounts]);
   const highRiskCount = useMemo(() => accounts.filter((a) => normalizeLower(a.accountHealth).includes("high risk")).length, [accounts]);
-  const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
+
   const filteredSubPay = useMemo(
     () => filteredAccounts.reduce((sum, account) => sum + (account._subPayNum ?? 0), 0),
     [filteredAccounts]
@@ -2427,9 +2440,27 @@ async function handleSaveTransferProposal() {
                 <p className="font-black text-slate-950">
                   {index + 1}. {account.accountName || "Unnamed Account"}
                 </p>
-                <p className="mt-1 text-sm font-semibold text-slate-600">
+                <span
+                  role="link"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const url = getGoogleMapsUrl(account.address);
+                    if (url !== "#") window.open(url, "_blank", "noopener,noreferrer");
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const url = getGoogleMapsUrl(account.address);
+                      if (url !== "#") window.open(url, "_blank", "noopener,noreferrer");
+                    }
+                  }}
+                  className="mt-1 block text-sm font-semibold text-slate-600 hover:text-blue-600 hover:underline cursor-pointer"
+                >
                   {account.address || "No address"}
-                </p>
+                </span>
               </div>
 
               <div className="text-left sm:text-right">
@@ -2742,9 +2773,27 @@ async function handleSaveTransferProposal() {
                           <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
                             {account.accountName || "Unnamed Account"}
                           </p>
-                          <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
+                          <span
+                            role="link"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const url = getGoogleMapsUrl(account.address);
+                              if (url !== "#") window.open(url, "_blank", "noopener,noreferrer");
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const url = getGoogleMapsUrl(account.address);
+                                if (url !== "#") window.open(url, "_blank", "noopener,noreferrer");
+                              }
+                            }}
+                            className="mt-1 block text-xs font-semibold leading-5 text-slate-500 hover:text-blue-600 hover:underline cursor-pointer"
+                          >
                             {account.address || "No address"}
-                          </p>
+                          </span>
                           <p className="mt-1 text-xs font-bold text-slate-400">
                             ID: {accountId || "N/A"}
                           </p>
@@ -2755,6 +2804,7 @@ async function handleSaveTransferProposal() {
                           </p>
                           <p className="text-sm font-black text-slate-950">
                             {formatMoney(account.monthlyRevenue)}
+                            <span className="ml-1 text-xs font-normal text-gray-500">({account._revenuePercent ?? 0}%)</span>
                           </p>
                           <p className="mt-1 text-xs font-bold text-emerald-700">
                             Sub Pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
@@ -2811,6 +2861,7 @@ async function handleSaveTransferProposal() {
                       <div className="hidden text-right lg:col-span-1 lg:block">
                         <p className="font-black text-slate-950">
                           {formatMoney(account.monthlyRevenue)}
+                          <span className="ml-1 text-xs font-normal text-gray-500">({account._revenuePercent ?? 0}%)</span>
                         </p>
                         <p className="mt-1 text-[11px] font-bold text-emerald-700">
                           Sub: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}

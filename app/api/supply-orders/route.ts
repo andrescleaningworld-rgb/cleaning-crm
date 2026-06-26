@@ -118,7 +118,7 @@ export async function GET() {
 
     const response = await fetch(url, {
       method: "GET",
-      cache: "no-store",
+      next: { revalidate: 60 },
     });
 
     const parsed = await readScriptJson(response);
@@ -152,12 +152,19 @@ export async function GET() {
 
     const supplyOrders = getOrdersFromResponse(data);
 
-    return NextResponse.json({
-      success: true,
-      count: supplyOrders.length,
-      supplyOrders,
-      orders: supplyOrders,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        count: supplyOrders.length,
+        supplyOrders,
+        orders: supplyOrders,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=30, stale-while-revalidate=60",
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       {

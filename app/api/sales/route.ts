@@ -15,7 +15,7 @@ export async function GET() {
     }
 
     const response = await fetch(`${SCRIPT_URL}?action=getSales`, {
-      cache: "no-store",
+      next: { revalidate: 120 },
     });
 
     const text = await response.text();
@@ -35,7 +35,11 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: {
+        "Cache-Control": "public, max-age=60, stale-while-revalidate=120",
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       {

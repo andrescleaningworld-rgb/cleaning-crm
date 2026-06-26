@@ -111,7 +111,6 @@ export default function VisitsPage() {
 
         const response = await fetch("/api/visits", {
           method: "GET",
-          cache: "no-store",
         });
 
         const text = await response.text();

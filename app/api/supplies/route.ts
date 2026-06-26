@@ -135,7 +135,7 @@ async function fetchSuppliesWithAction(scriptUrl: string, action: string) {
   url.searchParams.set("action", action);
 
   const response = await fetch(url.toString(), {
-    cache: "no-store",
+    next: { revalidate: 300 },
   });
 
   const parsed = await readScriptJson(response);

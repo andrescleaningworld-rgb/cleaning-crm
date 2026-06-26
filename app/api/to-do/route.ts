@@ -17,7 +17,7 @@ export async function GET() {
   try {
     const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getToDos`, {
       method: "GET",
-      cache: "no-store",
+      next: { revalidate: 30 }, // to-dos are dynamic
     });
 
     const text = await response.text();
@@ -33,11 +33,18 @@ export async function GET() {
             ? data.data
             : [];
 
-      return NextResponse.json({
-        success: true,
-        todos,
-        message: data.message || "",
-      });
+      return NextResponse.json(
+        {
+          success: true,
+          todos,
+          message: data.message || "",
+        },
+        {
+          headers: {
+            "Cache-Control": "public, max-age=20, stale-while-revalidate=40",
+          },
+        }
+      );
     } catch {
       return NextResponse.json(
         {

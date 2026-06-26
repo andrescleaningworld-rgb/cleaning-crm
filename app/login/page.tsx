@@ -69,7 +69,7 @@ function LoginForm() {
 
           <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
             Choose the correct login below. Admins use the internal password.
-            Subcontractors use the subcontractor portal.
+            Subcontractors and customers use their respective portals.
           </p>
         </div>
 
@@ -120,6 +120,28 @@ function LoginForm() {
 
               <div className="mt-5 rounded-xl bg-emerald-700 px-4 py-3 text-center text-sm font-bold text-white">
                 Continue as Subcontractor
+              </div>
+            </Link>
+
+            <Link
+              href="/customer-portal"
+              className="rounded-2xl border border-purple-200 bg-purple-50 p-6 text-left shadow-sm transition hover:border-purple-500 hover:bg-purple-100"
+            >
+              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-700 text-xl font-black text-white">
+                C
+              </div>
+
+              <h2 className="text-xl font-bold text-slate-950">
+                Customer Portal
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                For Cleaning World customers to view service details, request
+                specialty services, report complaints, or request changes.
+              </p>
+
+              <div className="mt-5 rounded-xl bg-purple-700 px-4 py-3 text-center text-sm font-bold text-white">
+                Enter Customer Portal
               </div>
             </Link>
           </div>

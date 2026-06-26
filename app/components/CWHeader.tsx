@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
-type UserRole = "admin" | "subcontractor" | null;
+type UserRole = "admin" | "subcontractor" | "customer" | null;
 
 type NotificationsResponse = {
   success?: boolean;
@@ -30,6 +30,12 @@ const subcontractorNavItems = [
   { href: "/subcontractor-portal", label: "Home" },
 ];
 
+const customerNavItems = [
+  { href: "/customer-portal", label: "My Account" },
+  { href: "/customer-portal/requests", label: "Requests" },
+  { href: "/customer-portal/complaints", label: "Complaints" },
+];
+
 function getStoredRole(): UserRole {
   if (typeof window === "undefined") return null;
 
@@ -37,6 +43,7 @@ function getStoredRole(): UserRole {
 
   if (role === "admin") return "admin";
   if (role === "subcontractor") return "subcontractor";
+  if (role === "customer") return "customer";
 
   return null;
 }
@@ -44,10 +51,14 @@ function getStoredRole(): UserRole {
 export default function CWHeader() {
   const pathname = usePathname();
 
-  const [role, setRole] = useState<UserRole>(() => getStoredRole());
+  const [role, setRole] = useState<UserRole>(null);
+  const [mounted, setMounted] = useState(false);
   const [newNotificationCount, setNewNotificationCount] = useState(0);
 
   useEffect(() => {
+    setMounted(true);
+    setRole(getStoredRole());
+
     const handleStorageChange = () => {
       setRole(getStoredRole());
     };
@@ -64,9 +75,7 @@ export default function CWHeader() {
 
     async function loadNotifications() {
       try {
-        const response = await fetch("/api/notifications", {
-          cache: "no-store",
-        });
+        const response = await fetch("/api/notifications");
 
         const data: NotificationsResponse = await response.json();
 
@@ -88,10 +97,12 @@ export default function CWHeader() {
   }, [role]);
 
   const navItems = useMemo(() => {
+    if (!mounted) return [];
     if (role === "admin") return adminNavItems;
     if (role === "subcontractor") return subcontractorNavItems;
+    if (role === "customer") return customerNavItems;
     return [];
-  }, [role]);
+  }, [role, mounted]);
 
   const isLoginPage = pathname === "/login";
   const showNav = !isLoginPage && navItems.length > 0;
@@ -119,6 +130,7 @@ export default function CWHeader() {
                   width={130}
                   height={70}
                   priority
+                  unoptimized
                   className="max-h-full w-auto object-contain"
                 />
               </div>
@@ -128,7 +140,7 @@ export default function CWHeader() {
                   Cleaning World
                 </h1>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  Operations &amp; Quality Management System
+                  Service Portal &amp; Operations
                 </p>
               </div>
             </div>

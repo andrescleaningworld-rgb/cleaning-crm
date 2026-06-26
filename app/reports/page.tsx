@@ -421,10 +421,10 @@ export default function ReportsPage() {
 
       const [accountsRes, visitsRes, complaintsRes, salesRes] =
         await Promise.allSettled([
-          fetch("/api/accounts", { cache: "no-store" }),
-          fetch("/api/visits", { cache: "no-store" }),
-          fetch("/api/complaints", { cache: "no-store" }),
-          fetch("/api/sales", { cache: "no-store" }),
+          fetch("/api/accounts"),
+          fetch("/api/visits"),
+          fetch("/api/complaints"),
+          fetch("/api/sales"),
         ]);
 
       setAccounts(await readResult(accountsRes, "accounts"));
