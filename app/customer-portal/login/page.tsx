@@ -3,17 +3,24 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+function normalizePhone(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
 export default function CustomerLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    const trimmedEmail = email.trim().toLowerCase();
-    if (!trimmedEmail) return;
+    const digits = normalizePhone(phone);
+    if (digits.length < 10) {
+      setError("Please enter a valid 10-digit phone number.");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -24,8 +31,8 @@ export default function CustomerLoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "getAccount",
-          customerId: trimmedEmail,
-          email: trimmedEmail,
+          customerId: digits,
+          phone: digits,
         }),
       });
 
@@ -37,17 +44,15 @@ export default function CustomerLoginPage() {
 
       if (!account) {
         setError(
-          "We couldn't find an account with that email. Please double-check the address or contact Cleaning World directly."
+          "We couldn't find an account with that phone number. Please double-check the number or contact Cleaning World directly."
         );
         return;
       }
 
-      const accountName =
-        (account as Record<string, unknown>).accountName as string ||
-        (account as Record<string, unknown>).name as string ||
-        "Your Account";
+      const acc = account as Record<string, unknown>;
+      const accountName = String(acc.accountName || acc.name || "Your Account");
 
-      localStorage.setItem("cwCustomerId", trimmedEmail);
+      localStorage.setItem("cwCustomerId", digits);
       localStorage.setItem("cwCustomerName", accountName);
       localStorage.setItem("cwRole", "customer");
 
@@ -74,28 +79,29 @@ export default function CustomerLoginPage() {
               Customer Portal
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Enter the email address on your Cleaning World account to access your portal.
+              Enter the phone number on your Cleaning World account to access
+              your portal.
             </p>
           </div>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-4">
             <div>
               <label
-                htmlFor="email"
+                htmlFor="phone"
                 className="mb-2 block text-sm font-semibold text-slate-700"
               >
-                Email Address
+                Phone Number
               </label>
               <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
                 required
                 autoFocus
-                autoComplete="email"
+                autoComplete="tel"
                 className="min-h-[48px] w-full rounded-xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                placeholder="you@example.com"
+                placeholder="(555) 555-5555"
               />
             </div>
 
@@ -115,7 +121,8 @@ export default function CustomerLoginPage() {
           </form>
 
           <p className="mt-6 text-center text-xs leading-5 text-slate-400">
-            Having trouble accessing your account? Contact Cleaning World and we&apos;ll help you right away.
+            Having trouble? Contact Cleaning World and we&apos;ll help you right
+            away.
           </p>
         </div>
       </div>
