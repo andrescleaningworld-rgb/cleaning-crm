@@ -34,6 +34,7 @@ const customerNavItems = [
   { href: "/customer-portal", label: "My Account" },
   { href: "/customer-portal/requests", label: "Requests" },
   { href: "/customer-portal/complaints", label: "Complaints" },
+  { href: "/customer-portal/history", label: "History" },
 ];
 
 function getStoredRole(): UserRole {
@@ -108,9 +109,9 @@ export default function CWHeader() {
   const showNav = !isLoginPage && navItems.length > 0;
 
   return (
-    <header className="w-full bg-slate-50 px-4 py-8">
+    <header className="w-full bg-slate-50 px-4 py-8 sm:py-6">
       <div className="mx-auto max-w-7xl">
-        <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-blue-900 via-blue-700 to-sky-500 px-6 py-6 shadow-xl">
+        <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-blue-900 via-blue-700 to-sky-500 px-6 py-6 sm:py-4 shadow-xl">
           {!isLoginPage && (
             <Link
               href="/help"
@@ -123,7 +124,7 @@ export default function CWHeader() {
 
           <div className="flex flex-col gap-5">
             <div className="flex items-center gap-5 pr-16">
-              <div className="flex h-20 w-36 items-center justify-center rounded-2xl bg-white p-3 shadow-md">
+              <div className="flex h-20 w-36 sm:h-14 sm:w-24 items-center justify-center rounded-2xl bg-white p-3 shadow-md">
                 <Image
                   src="/logo-CW-single-phone-optimized.png"
                   alt="Cleaning World"
@@ -136,10 +137,10 @@ export default function CWHeader() {
               </div>
 
               <div>
-                <h1 className="text-3xl font-extrabold tracking-tight text-white drop-shadow-sm">
+                <h1 className="text-3xl sm:text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">
                   Cleaning World
                 </h1>
-                <p className="mt-1 text-sm font-semibold text-white">
+                <p className="mt-1 text-sm sm:text-xs font-semibold text-white">
                   Service Portal &amp; Operations
                 </p>
               </div>
@@ -176,7 +177,7 @@ export default function CWHeader() {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition ${
+                      className={`rounded-full border px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold shadow-sm transition ${
                         isActive
                           ? "border-white bg-white text-blue-800"
                           : "border-white/25 bg-white/15 text-white hover:bg-white/25"

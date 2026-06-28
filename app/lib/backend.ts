@@ -28,14 +28,26 @@ export interface Complaint {
 // Later: these can call fetch('/api/v2/...') or a real SDK.
 
 export async function getAccountsForCustomer(customerIdentifier: string): Promise<Account[]> {
-  // For now, reuse existing public-ish endpoint if available, or placeholder
-  // In production this would be authenticated per customer.
   try {
-    const res = await fetch('/api/accounts?action=getMapAccounts', { next: { revalidate: 120 } });
+    const res = await fetch("/api/customer-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "getAccount", customerId: customerIdentifier }),
+      next: { revalidate: 60 },
+    });
     const data = await res.json();
-    return data.accounts || data.data || [];
+    return data.account ? [data.account] : data.accounts || [];
   } catch {
-    return [];
+    // Fallback mock for demo if script not ready
+    return [
+      {
+        id: "demo-1",
+        accountName: "Demo Customer Account",
+        address: "123 Main St, Anytown USA",
+        frequency: "Weekly",
+        status: "Active",
+      },
+    ];
   }
 }
 
@@ -44,12 +56,19 @@ export async function submitCustomerRequest(payload: {
   details: string;
   preferredDate?: string;
   accountName?: string;
+  customerId?: string;
 }) {
-  // Placeholder. Will eventually POST to a real endpoint or script action.
-  console.log('[backend] Customer request (simulated):', payload);
-  
-  // For demo, we can call an existing route if it makes sense, or just return success.
-  return { success: true, message: "Request logged (demo mode)" };
+  try {
+    const res = await fetch("/api/customer-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "submitRequest", ...payload }),
+    });
+    return await res.json();
+  } catch {
+    console.log("[backend] Customer request (simulated):", payload);
+    return { success: true, message: "Request logged (demo mode)", id: "req-" + Date.now() };
+  }
 }
 
 export async function submitCustomerComplaint(payload: {
@@ -57,9 +76,52 @@ export async function submitCustomerComplaint(payload: {
   location?: string;
   urgency?: string;
   accountName?: string;
+  customerId?: string;
 }) {
-  console.log('[backend] Customer complaint (simulated):', payload);
-  return { success: true, message: "Complaint received (demo mode)" };
+  try {
+    const res = await fetch("/api/customer-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "submitComplaint", ...payload }),
+    });
+    return await res.json();
+  } catch {
+    console.log("[backend] Customer complaint (simulated):", payload);
+    return { success: true, message: "Complaint received (demo mode)", id: "comp-" + Date.now() };
+  }
+}
+
+export async function getCustomerHistory(customerId: string) {
+  try {
+    const res = await fetch("/api/customer-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "getHistory", customerId }),
+      next: { revalidate: 30 },
+    });
+    const data = await res.json();
+    return data.history || [];
+  } catch {
+    return [
+      { id: "hist-1", type: "Service Visit", date: "2026-06-01", status: "Completed", notes: "Regular weekly clean" },
+      { id: "hist-2", type: "Complaint", date: "2026-05-15", status: "Resolved", notes: "Restroom issue fixed" },
+    ];
+  }
+}
+
+export async function getCustomerRequests(customerId: string) {
+  try {
+    const res = await fetch("/api/customer-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "getRequests", customerId }),
+      next: { revalidate: 30 },
+    });
+    const data = await res.json();
+    return data.requests || [];
+  } catch {
+    return [];
+  }
 }
 
 // Add more methods as features are built:

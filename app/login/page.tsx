@@ -124,7 +124,7 @@ function LoginForm() {
             </Link>
 
             <Link
-              href="/customer-portal"
+              href="/customer-portal/login"
               className="rounded-2xl border border-purple-200 bg-purple-50 p-6 text-left shadow-sm transition hover:border-purple-500 hover:bg-purple-100"
             >
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-700 text-xl font-black text-white">
