@@ -16,7 +16,7 @@ export async function GET() {
 
     const response = await fetch(`${SCRIPT_URL}?action=getAccountUpdates`, {
       method: "GET",
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
 
     const text = await response.text();

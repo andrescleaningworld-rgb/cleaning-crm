@@ -17,7 +17,7 @@ export async function GET() {
   try {
     const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getToDos`, {
       method: "GET",
-      next: { revalidate: 30 }, // to-dos are dynamic
+      cache: "no-store",
     });
 
     const text = await response.text();

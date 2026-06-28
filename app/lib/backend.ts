@@ -33,7 +33,6 @@ export async function getAccountsForCustomer(customerIdentifier: string): Promis
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "getAccount", customerId: customerIdentifier }),
-      next: { revalidate: 60 },
     });
     const data = await res.json();
     return data.account ? [data.account] : data.accounts || [];
@@ -97,7 +96,6 @@ export async function getCustomerHistory(customerId: string) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "getHistory", customerId }),
-      next: { revalidate: 30 },
     });
     const data = await res.json();
     return data.history || [];
@@ -115,7 +113,6 @@ export async function getCustomerRequests(customerId: string) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "getRequests", customerId }),
-      next: { revalidate: 30 },
     });
     const data = await res.json();
     return data.requests || [];

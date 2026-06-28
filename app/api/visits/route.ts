@@ -43,7 +43,7 @@ export async function GET() {
 
     const response = await fetch(`${SCRIPT_URL}?action=getVisits`, {
       method: "GET",
-      next: { revalidate: 60 }, // visits update reasonably often
+      cache: "no-store",
     });
 
     const text = await response.text();

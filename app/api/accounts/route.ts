@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       `${SCRIPT_URL}?action=${encodeURIComponent(action)}`,
       {
         method: "GET",
-        next: { revalidate: 120 }, // cache for 2 minutes - accounts are relatively stable
+        cache: "no-store",
       }
     );
 

@@ -19,7 +19,7 @@ export async function GET() {
     const response = await fetch(
       `${GOOGLE_SCRIPT_URL}?action=getSubPortalIssues`,
       {
-        next: { revalidate: 30 },
+        cache: "no-store",
       }
     );
 

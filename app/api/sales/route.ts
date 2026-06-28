@@ -15,7 +15,7 @@ export async function GET() {
     }
 
     const response = await fetch(`${SCRIPT_URL}?action=getSales`, {
-      next: { revalidate: 120 },
+      cache: "no-store",
     });
 
     const text = await response.text();

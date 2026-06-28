@@ -228,7 +228,7 @@ async function fetchGoogleScriptData(action: string) {
 
   const response = await fetch(`${SCRIPT_URL}?action=${action}`, {
     method: "GET",
-    next: { revalidate: 300 }, // subs relatively static, 5 min cache
+    cache: "no-store",
   });
 
   const text = await response.text();

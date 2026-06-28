@@ -18,7 +18,7 @@ export async function GET() {
       `${SCRIPT_URL}?action=getSubTransferProposals`,
       {
         method: "GET",
-        next: { revalidate: 120 },
+        cache: "no-store",
       }
     );
 

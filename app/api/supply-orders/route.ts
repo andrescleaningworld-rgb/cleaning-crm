@@ -118,7 +118,7 @@ export async function GET() {
 
     const response = await fetch(url, {
       method: "GET",
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
 
     const parsed = await readScriptJson(response);

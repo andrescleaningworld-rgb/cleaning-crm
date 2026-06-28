@@ -79,7 +79,7 @@ export async function GET() {
 
     const response = await fetch(`${SCRIPT_URL}?action=getComplaints`, {
       method: "GET",
-      next: { revalidate: 30 }, // complaints can change quickly
+      cache: "no-store",
     });
 
     const text = await response.text();
