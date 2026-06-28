@@ -29,6 +29,8 @@ const Popup = dynamic(
 const INITIAL_PIN_LIMIT = 25;
 const PIN_BATCH_SIZE = 50;
 const SELECT_OPTION_LIMIT = 250;
+const NEARBY_MILES = 100; // Load all pins within this radius when user location is available
+const GEOCACHE_KEY = "cw-geocache-v1"; // localStorage key for persisted geocode results
 
 type AnyRow = Record<string, unknown>;
 
@@ -341,12 +343,21 @@ export default function MapPage() {
   const [currentLocation, setCurrentLocation] = useState("");
   const [currentCoords, setCurrentCoords] = useState<CurrentCoords | null>(null);
   const [locationMessage, setLocationMessage] = useState(
-    "Use the location button to sort nearby accounts by distance."
+    "Tap 'Use My Location' to load and sort all pins near you."
   );
 
   const [accountPinIcon, setAccountPinIcon] = useState<DivIcon | null>(null);
   const [selectedPinIcon, setSelectedPinIcon] = useState<DivIcon | null>(null);
   const [myLocationIcon, setMyLocationIcon] = useState<DivIcon | null>(null);
+
+  // geocodedCoords keyed by fullAddress — filled from localStorage cache + live Nominatim calls
+  const [geocodedCoords, setGeocodedCoords] = useState<
+    Record<string, { lat: number; lng: number } | null>
+  >({});
+  const [geocodingProgress, setGeocodingProgress] = useState<{
+    total: number;
+    done: number;
+  } | null>(null);
 
   useEffect(() => {
     async function loadLeafletIcons() {
@@ -479,6 +490,102 @@ export default function MapPage() {
     loadAccounts();
   }, []);
 
+  // Geocode accounts that have an address but no lat/lng.
+  // Results are cached in localStorage so subsequent page loads are instant.
+  useEffect(() => {
+    if (accounts.length === 0) return;
+
+    let cache: Record<string, { lat: number; lng: number } | null> = {};
+    try {
+      const raw = localStorage.getItem(GEOCACHE_KEY);
+      if (raw) cache = JSON.parse(raw) as typeof cache;
+    } catch {
+      cache = {};
+    }
+
+    const noCoords = accounts.filter(
+      (a) => a.latitude === null && a.longitude === null && a.fullAddress
+    );
+
+    // Apply cached results immediately so pins appear without waiting
+    const cachedUpdates: Record<string, { lat: number; lng: number } | null> = {};
+    const toFetch: AccountLocation[] = [];
+
+    for (const acc of noCoords) {
+      if (acc.fullAddress in cache) {
+        cachedUpdates[acc.fullAddress] = cache[acc.fullAddress];
+      } else {
+        toFetch.push(acc);
+      }
+    }
+
+    if (Object.keys(cachedUpdates).length > 0) {
+      setGeocodedCoords((prev) => ({ ...prev, ...cachedUpdates }));
+    }
+
+    if (toFetch.length === 0) return;
+
+    setGeocodingProgress({ total: toFetch.length, done: 0 });
+
+    let cancelled = false;
+    let i = 0;
+
+    async function processNext() {
+      if (cancelled || i >= toFetch.length) {
+        if (!cancelled) setGeocodingProgress(null);
+        return;
+      }
+
+      const acc = toFetch[i];
+      i += 1;
+
+      try {
+        const url =
+          `https://nominatim.openstreetmap.org/search?q=` +
+          `${encodeURIComponent(acc.fullAddress)}&format=json&limit=1&countrycodes=us`;
+
+        const res = await fetch(url, {
+          headers: { "User-Agent": "CleaningWorldCRM/1.0 (cleaning-operations-app)" },
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as Array<{ lat: string; lon: string }>;
+          const coords =
+            data.length > 0
+              ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
+              : null;
+
+          cache[acc.fullAddress] = coords;
+          try {
+            localStorage.setItem(GEOCACHE_KEY, JSON.stringify(cache));
+          } catch {
+            // storage full — skip persisting
+          }
+
+          if (!cancelled) {
+            if (coords) {
+              setGeocodedCoords((prev) => ({ ...prev, [acc.fullAddress]: coords }));
+            }
+            setGeocodingProgress({ total: toFetch.length, done: i });
+          }
+        }
+      } catch {
+        // Network error — skip this address; will retry next session
+      }
+
+      if (!cancelled) {
+        // Nominatim usage policy: max 1 request per second
+        setTimeout(processNext, 1100);
+      }
+    }
+
+    processNext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accounts]);
+
   useEffect(() => {
     setPinLimit(INITIAL_PIN_LIMIT);
   }, [searchText, managerFilter, subFilter]);
@@ -499,12 +606,22 @@ export default function MapPage() {
     return ["All Subs", ...subs];
   }, [accounts]);
 
+  // Merge geocoded coordinates into accounts that had no lat/lng from the backend
+  const accountsWithCoords = useMemo<AccountLocation[]>(() => {
+    return accounts.map((acc) => {
+      if (acc.latitude !== null && acc.longitude !== null) return acc;
+      const geocoded = geocodedCoords[acc.fullAddress];
+      if (!geocoded) return acc;
+      return { ...acc, latitude: geocoded.lat, longitude: geocoded.lng };
+    });
+  }, [accounts, geocodedCoords]);
+
   const accountsWithDistance = useMemo<AccountWithDistance[]>(() => {
-    return accounts.map((account) => ({
+    return accountsWithCoords.map((account) => ({
       ...account,
       distance: distanceInMiles(currentCoords, account),
     }));
-  }, [accounts, currentCoords]);
+  }, [accountsWithCoords, currentCoords]);
 
   const filteredAccounts = useMemo(() => {
     const search = searchText.toLowerCase().trim();
@@ -555,22 +672,29 @@ export default function MapPage() {
   }, [filteredAccounts]);
 
   const accountsWithPins = useMemo(() => {
-  return filteredAccounts.filter((account) => {
-    if (account.latitude === null || account.longitude === null) {
-      return false;
-    }
+    return filteredAccounts.filter((account) => {
+      if (account.latitude === null || account.longitude === null) {
+        return false;
+      }
 
-    // Keep only accounts roughly in NJ / NYC / nearby service area.
-    // This prevents bad Google geocodes from throwing the map across the world.
-    const isNearbyServiceArea =
-      account.latitude >= 38.5 &&
-      account.latitude <= 42.5 &&
-      account.longitude >= -76.5 &&
-      account.longitude <= -72.5;
+      // Keep only accounts roughly in NJ / NYC / nearby service area.
+      // This prevents bad Google geocodes from throwing the map across the world.
+      const isNearbyServiceArea =
+        account.latitude >= 38.5 &&
+        account.latitude <= 42.5 &&
+        account.longitude >= -76.5 &&
+        account.longitude <= -72.5;
 
-    return isNearbyServiceArea;
-  });
-}, [filteredAccounts]);
+      if (!isNearbyServiceArea) return false;
+
+      // When user location is known, only include pins near the user
+      if (currentCoords && account.distance !== null) {
+        return account.distance <= NEARBY_MILES;
+      }
+
+      return true;
+    });
+  }, [filteredAccounts, currentCoords]);
 
   const visibleAccountsWithPins = useMemo(() => {
     const limitedPins = accountsWithPins.slice(0, pinLimit);
@@ -593,9 +717,12 @@ export default function MapPage() {
 
   const mapCenter = getMapCenter(selectedAccount, currentCoords, accountsWithPins);
 
-  const mapKey = `${mapCenter[0].toFixed(5)}-${mapCenter[1].toFixed(5)}-${
-    selectedAccount?.id || "map"
-  }`;
+  // Only remount the map when the user's location is first detected (big center jump).
+  // Selecting an account no longer causes a remount — the pin highlights and the
+  // info panel updates without resetting tiles, zoom, or scroll position.
+  const mapKey = currentCoords
+    ? `user-${currentCoords.latitude.toFixed(2)}-${currentCoords.longitude.toFixed(2)}`
+    : "static";
 
   const directionsUrl = selectedAccount
     ? buildDirectionsUrl(selectedAccount.fullAddress, currentLocation)
@@ -639,8 +766,9 @@ export default function MapPage() {
 
         setCurrentLocation(location);
         setSelectedAccountId("");
+        setPinLimit(2000); // Load all nearby pins (within NEARBY_MILES)
         setLocationMessage(
-          "Sorting nearby accounts by distance when latitude/longitude are available."
+          `Showing all pins within ~${NEARBY_MILES} miles of your location, sorted by distance.`
         );
       },
       () => {
@@ -668,6 +796,17 @@ export default function MapPage() {
     setPinLimit(accountsWithPins.length);
   }
 
+  // Auto load location on mount so map shows pins near the user by default
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!currentCoords && typeof window !== "undefined") {
+        useMyLocationOnLoad();
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, []); // run once on mount
+
+
   return (
     <main className="min-h-screen bg-gray-50 p-3 text-gray-900 sm:p-5">
       <div className="mx-auto max-w-7xl">
@@ -685,9 +824,9 @@ export default function MapPage() {
             <button
               type="button"
               onClick={useMyLocationButton}
-              className="rounded-xl bg-green-700 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-green-800"
+              className="rounded-xl bg-green-700 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-green-800 min-h-[48px]"
             >
-              Use My Location
+              Use My Location - load all pins near me
             </button>
 
             <Link
@@ -760,11 +899,14 @@ export default function MapPage() {
               </div>
             ) : null}
 
-            {!isLoading && accountsMissingPins > 0 ? (
+            {!isLoading && geocodingProgress !== null ? (
+              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">
+                Auto-geocoding addresses to add pins: {geocodingProgress.done} / {geocodingProgress.total} done — pins appear as each address resolves. Results are cached so this only runs once per address.
+              </div>
+            ) : !isLoading && accountsMissingPins > 0 ? (
               <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
                 {accountsMissingPins} account
-                {accountsMissingPins === 1 ? "" : "s"} do not have latitude and
-                longitude yet, so they can show in the list but not as pins.
+                {accountsMissingPins === 1 ? "" : "s"} could not be geocoded and cannot show as pins. Check that addresses are complete (street, city, state).
               </div>
             ) : null}
 
@@ -808,7 +950,7 @@ export default function MapPage() {
                 <MapContainer
                   key={mapKey}
                   center={mapCenter}
-                  zoom={selectedAccount ? 15 : 11}
+                  zoom={11}
                   scrollWheelZoom
                   className="h-full w-full"
                 >

@@ -1970,14 +1970,26 @@ async function handleSaveTransferProposal() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="mt-6 grid gap-3 lg:grid-cols-5">
+        {/* Mobile sticky search bar — only visible below sm breakpoint */}
+        <div className="sticky top-2 z-20 sm:hidden mt-4 py-2 bg-white/95 backdrop-blur-sm">
           <input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             placeholder="Search accounts..."
             aria-label="Search accounts"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+            className="w-full min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 shadow-md"
+          />
+        </div>
+
+        {/* Filters */}
+        <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-5">
+          {/* Search hidden on mobile — shown in sticky bar above */}
+          <input
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Search accounts..."
+            aria-label="Search accounts"
+            className="hidden sm:block min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           />
 
           <select
@@ -2033,7 +2045,7 @@ async function handleSaveTransferProposal() {
           </select>
         </div>
 
-        <div className="mt-3 grid gap-3 lg:grid-cols-5">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <input
             value={minRevenueFilter}
             onChange={(e) => setMinRevenueFilter(e.target.value)}
