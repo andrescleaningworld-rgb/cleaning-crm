@@ -100,10 +100,7 @@ export async function POST(request: Request) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL in .env.local",
-        },
+        { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
         { status: 500 }
       );
     }
@@ -137,11 +134,52 @@ export async function POST(request: Request) {
     // Handle other account actions (add / update)
     const accountPayload = body.account || body;
 
+    // Sending a packet must NEVER create a new row in the sheet.
+    // Call the Apps Script via GET so doGet() runs (not doPost which writes rows).
+    if (body.action === "sendNewAccountPacket") {
+      const params = new URLSearchParams({
+        action: "sendNewAccountPacket",
+        accountId:              String(body.accountId              ?? ""),
+        accountName:            String(body.accountName            ?? ""),
+        address:                String(body.address                ?? ""),
+        startDate:              String(body.startDate              ?? ""),
+        cleaningSchedule:       String(body.cleaningSchedule       ?? ""),
+        subcontractor:          String(body.subcontractor          ?? ""),
+        subcontractorEmail:     String(body.subcontractorEmail     ?? ""),
+        monthlySubcontractorPay:String(body.monthlySubcontractorPay?? ""),
+        hasKey:                 String(body.hasKey                 ?? ""),
+        alarmInfo:              String(body.alarmInfo              ?? ""),
+        scope:                  String(body.scope                  ?? ""),
+        notes:                  String(body.notes                  ?? ""),
+        manager:                String(body.manager                ?? ""),
+      });
+
+      const response = await fetch(`${SCRIPT_URL}?${params.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const text = await response.text();
+      let data: Record<string, unknown> = { success: true };
+      try { data = JSON.parse(text); } catch { /* Apps Script may return plain text */ }
+
+      if (data.success === false) {
+        return NextResponse.json(
+          { success: false, error: String(data.error ?? "Apps Script returned failure.") },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: String(data.message ?? "New account packet sent successfully."),
+      });
+    }
+
+    // All other actions (addAccount, updateAccount, etc.) go through doPost as before.
     const response = await fetch(SCRIPT_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({
         action: action === "updateAccount" || action === "editAccount" ? "updateAccount" : "addAccount",
         account: accountPayload,
@@ -150,7 +188,6 @@ export async function POST(request: Request) {
     });
 
     const text = await response.text();
-
     let data;
     try {
       data = JSON.parse(text);
@@ -159,6 +196,7 @@ export async function POST(request: Request) {
         {
           success: false,
           error: "Google Script did not return valid JSON while saving account.",
+          rawResponse: text,
         },
         { status: 500 }
       );
@@ -184,7 +222,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : "Unknown error.",
+        error: error instanceof Error ? error.message : "Unknown error saving account.",
       },
       { status: 500 }
     );

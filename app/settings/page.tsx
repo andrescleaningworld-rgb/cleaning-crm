@@ -312,6 +312,20 @@ export default function SettingsPage() {
           </p>
         </div>
 
+        {/* Portal Access shortcut */}
+        <Link
+          href="/settings/portal"
+          className="mb-6 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm transition hover:bg-blue-100"
+        >
+          <div>
+            <p className="font-bold text-blue-900">Customer Portal Access</p>
+            <p className="mt-0.5 text-sm text-blue-700">
+              Enable / disable portal access and manage portal codes for each customer account.
+            </p>
+          </div>
+          <span className="ml-4 shrink-0 text-blue-500">→</span>
+        </Link>
+
         <div className="mb-6 grid gap-4 md:grid-cols-4">
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Active Managers</p>

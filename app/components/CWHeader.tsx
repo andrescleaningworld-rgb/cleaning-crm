@@ -17,6 +17,7 @@ const adminNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts", label: "Accounts" },
   { href: "/visits", label: "Visits" },
+  { href: "/schedule", label: "Schedule" },
   { href: "/complaints", label: "Complaints" },
   { href: "/account-updates", label: "Updates" },
   { href: "/subcontractors", label: "Subs" },

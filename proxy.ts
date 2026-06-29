@@ -4,6 +4,8 @@ const ADMIN_SESSION_TOKEN = process.env.ADMIN_SESSION_TOKEN || "";
 
 const PUBLIC_PATHS = [
   "/login",
+  "/portal",
+  "/api/portal",
   "/subcontractor-portal",
   "/subcontractor-page",
   "/api/login",
