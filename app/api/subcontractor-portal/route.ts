@@ -7,7 +7,7 @@ type ScriptResponse = {
   success?: boolean;
   message?: string;
   error?: string;
-  subcontractor?: unknown;
+  subcontractor?: { status?: string; [key: string]: unknown } | null;
   accounts?: unknown[];
   complaints?: unknown[];
   supplyItems?: unknown[];
@@ -16,6 +16,10 @@ type ScriptResponse = {
   rowNumber?: string | number;
   status?: string;
 };
+
+function isInactiveSub(sub: ScriptResponse["subcontractor"]): boolean {
+  return String(sub?.status ?? "").trim().toLowerCase() === "inactive";
+}
 
 export async function POST(request: Request) {
   try {
@@ -105,6 +109,18 @@ export async function POST(request: Request) {
           rawResponse: data,
         },
         { status: 500 }
+      );
+    }
+
+    // Block inactive subcontractors. Checked server-side on every response that
+    // includes the subcontractor object (covers login + any action that returns it).
+    if (data.subcontractor && isInactiveSub(data.subcontractor)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Your account is currently inactive. Please contact your manager.",
+        },
+        { status: 401 }
       );
     }
 

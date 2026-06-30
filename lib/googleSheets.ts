@@ -3,6 +3,37 @@ import { google } from "googleapis";
 const SHEET_TAB = "customer-portal";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
 
+// ─── In-memory row cache ─────────────────────────────────────────────────────
+
+const CACHE_TTL_MS = 60_000; // 60 seconds
+const FETCH_TIMEOUT_MS = 9_000; // 9 seconds
+
+const rowCache = new Map<string, { rows: string[][]; expiresAt: number }>();
+
+function getCached(key: string): string[][] | null {
+  const entry = rowCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { rowCache.delete(key); return null; }
+  return entry.rows;
+}
+
+function setCache(key: string, rows: string[][]): void {
+  rowCache.set(key, { rows, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+function invalidateCache(key: string): void {
+  rowCache.delete(key);
+}
+
+function withTimeout<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+  return Promise.race([
+    fn(),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Google Sheets request timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 // Column indices (0-based)
 const COL = {
   ACCOUNT_ID: 0,         // A
@@ -37,17 +68,22 @@ function getAuthClient() {
 }
 
 async function fetchAllRows(): Promise<string[][]> {
-  const auth = getAuthClient();
-  const sheets = google.sheets({ version: "v4", auth });
+  const cacheKey = `portal-main`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${SHEET_TAB}!A:S`,
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${SHEET_TAB}!A:S`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
   });
 
-  // Skip header row
-  const rows = response.data.values ?? [];
-  return rows.slice(1) as string[][];
+  setCache(cacheKey, rows);
+  return rows;
 }
 
 function rowToCustomer(row: string[]) {
@@ -113,12 +149,21 @@ function getMainAuthClient() {
 }
 
 async function fetchMainRows(): Promise<string[][]> {
-  const sheets = google.sheets({ version: "v4", auth: getMainAuthClient() });
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: "Accounts!A:X",
+  const cacheKey = `main-accounts`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const sheets = google.sheets({ version: "v4", auth: getMainAuthClient() });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: "Accounts!A:X",
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
   });
-  return (response.data.values ?? []).slice(1) as string[][];
+
+  setCache(cacheKey, rows);
+  return rows;
 }
 
 function rowToMainAccount(row: string[]) {
@@ -162,6 +207,9 @@ export async function appendToSheet(tab: string, values: string[]): Promise<void
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [values] },
   });
+  // Invalidate cache for the written tab and the main portal cache if it's the portal sheet
+  invalidateCache(`tab-${tab}`);
+  if (tab === SHEET_TAB) invalidateCache(`portal-main`);
 }
 
 export async function getCustomerByPortalCode(portalCode: string) {
@@ -252,6 +300,7 @@ export async function updatePortalAccountFields(
     portalAccess: string;
   }>
 ): Promise<void> {
+  invalidateCache(`portal-main`);
   const colMap: Record<string, string> = {
     phone:                "I",
     nextScheduledService: "N",
@@ -296,6 +345,7 @@ export async function listPortalAccounts() {
 }
 
 export async function updatePortalCell(sheetRow: number, col: "R" | "S", value: string) {
+  invalidateCache(`portal-main`);
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.update({
@@ -329,13 +379,22 @@ const PORTAL_TABS = {
 type PortalTabName = keyof typeof PORTAL_TABS;
 
 async function fetchTabRows(tab: string): Promise<string[][]> {
-  const auth = getAuthClient();
-  const sheets = google.sheets({ version: "v4", auth });
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `${tab}!A:I`,
+  const cacheKey = `tab-${tab}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${tab}!A:I`,
+    });
+    return ((res.data.values ?? []).slice(1)) as string[][];
   });
-  return ((res.data.values ?? []).slice(1)) as string[][];
+
+  setCache(cacheKey, rows);
+  return rows;
 }
 
 export async function getPortalNewCount(): Promise<number> {
@@ -393,6 +452,7 @@ function buildFields(tab: PortalTabName, row: string[]): Record<string, string> 
 }
 
 export async function updateSubmissionStatus(tab: PortalTabName, sheetRow: number, status: string, notes: string) {
+  invalidateCache(`tab-${tab}`);
   const cfg = PORTAL_TABS[tab];
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
@@ -480,6 +540,7 @@ export async function updateSubcontractorVisit(
     notes: string;
   }>,
 ): Promise<void> {
+  invalidateCache(`tab-${VISITS_TAB}`);
   const colLetters: Record<string, string> = {
     accountName: "B",
     subName:     "D",
@@ -503,6 +564,7 @@ export async function updateSubcontractorVisit(
 }
 
 export async function deleteSubcontractorVisit(sheetRow: number): Promise<void> {
+  invalidateCache(`tab-${VISITS_TAB}`);
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.clear({

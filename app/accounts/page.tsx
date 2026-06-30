@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getGoogleMapsUrl } from "../lib/backend";
 
@@ -674,9 +674,10 @@ export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [allSubcontractors, setAllSubcontractors] = useState<Subcontractor[]>([]);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [subcontractorWarning, setSubcontractorWarning] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
 
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
@@ -723,14 +724,16 @@ export default function AccountsPage() {
   // Data loading
   // -------------------------------------------------------------------------
 
-  async function loadAccounts() {
-    try {
-      setLoading(true);
-      setError("");
-      setSubcontractorWarning("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const fetchAccounts = useCallback(async (q: string) => {
+    setLoading(true);
+    setError("");
+    setSubcontractorWarning("");
+    setHasSearched(true);
+    try {
       const [accountsResponse, subcontractorsResponse] = await Promise.all([
-        fetch("/api/accounts"),
+        fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" }),
         fetch("/api/subcontractors"),
       ]);
 
@@ -756,10 +759,11 @@ export default function AccountsPage() {
       setAccounts(enrichAccounts(rawAccounts, subcontractors));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong loading accounts.");
+      setAccounts([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
 
   async function loadTransferProposals() {
@@ -802,8 +806,21 @@ export default function AccountsPage() {
   }
 
   useEffect(() => {
-    loadAccounts();
-  }, []);
+    const q = searchText.trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.length < 2) {
+      setAccounts([]);
+      setHasSearched(false);
+      setError("");
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      void fetchAccounts(q);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchText, fetchAccounts]);
 
 
   useEffect(() => {
@@ -1700,6 +1717,8 @@ async function handleSaveTransferProposal() {
     setMinSubPayFilter("");
     setMaxSubPayFilter("");
     setSortOption("Account Name");
+    setAccounts([]);
+    setHasSearched(false);
   }
 
   // -------------------------------------------------------------------------
@@ -1813,30 +1832,6 @@ async function handleSaveTransferProposal() {
       setSavingStatus(false);
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Render: loading / error states
-  // -------------------------------------------------------------------------
-
-  if (loading) {
-    return (
-      <div className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
-        <p className="text-sm font-semibold text-slate-600">Loading accounts...</p>
-      </div>
-    );
-  }
-
-  if (error && accounts.length === 0) {
-    return (
-      <div className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</div>
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // Render: main page
-  // -------------------------------------------------------------------------
 
   return (
     <div>
@@ -1970,26 +1965,15 @@ async function handleSaveTransferProposal() {
           </div>
         </div>
 
-        {/* Mobile sticky search bar — only visible below sm breakpoint */}
-        <div className="sticky top-2 z-20 sm:hidden mt-4 py-2 bg-white/95 backdrop-blur-sm">
-          <input
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="Search accounts..."
-            aria-label="Search accounts"
-            className="w-full min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 shadow-md"
-          />
-        </div>
-
         {/* Filters */}
         <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-5">
-          {/* Search hidden on mobile — shown in sticky bar above */}
           <input
             value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="Search accounts..."
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder="Type to search accounts (min. 2 characters)..."
             aria-label="Search accounts"
-            className="hidden sm:block min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+            autoFocus
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
           />
 
           <select
@@ -2096,35 +2080,51 @@ async function handleSaveTransferProposal() {
           </select>
         </div>
 
-        {/* Result count + clear */}
-        <div className="mt-4 flex flex-col gap-3 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p>
-              Showing{" "}
-              <span className="font-black text-slate-900">{visibleAccounts.length}</span>
-              {" "}of{" "}
-              <span className="font-black text-slate-900">{filteredAccounts.length}</span>
-              {" "}matching account{filteredAccounts.length === 1 ? "" : "s"}
-            </p>
-            <p className="mt-1 text-xs">Tap any account name to open the account detail page.</p>
-          </div>
-          
-          <button
-            type="button"
-            onClick={handlePrintSubcontractorAccountList}
-            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-black text-blue-800 hover:bg-blue-100"
->
-            Print Sub Account List
-          </button>
+        {hasSearched && !loading ? (
+          <div className="mt-4 flex flex-col gap-3 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p>
+                Showing{" "}
+                <span className="font-black text-slate-900">
+                  {visibleAccounts.length}
+                </span>{" "}
+                of{" "}
+                <span className="font-black text-slate-900">
+                  {filteredAccounts.length}
+                </span>{" "}
+                matching account{filteredAccounts.length === 1 ? "" : "s"}
+              </p>
 
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-          >
-            Clear Filters
-          </button>
-        </div>
+              <p className="mt-1 text-xs">
+                Tap any account name to open the account detail page.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handlePrintSubcontractorAccountList}
+                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-black text-blue-800 hover:bg-blue-100"
+              >
+                Print Sub Account List
+              </button>
+
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+            {error}
+          </div>
+        ) : null}
 
         {/* Transfer proposal panel */}
         {transferMode ? (
@@ -2761,9 +2761,23 @@ async function handleSaveTransferProposal() {
             <div className="col-span-1 text-right">Action</div>
           </div>
 
-          {visibleAccounts.length === 0 ? (
+          {loading ? (
             <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
-              No accounts match your filters.
+              Loading accounts...
+            </div>
+          ) : !hasSearched ? (
+            <div className="bg-white px-4 py-10 text-center">
+              <p className="text-2xl font-black text-slate-300">&#x1F50D;</p>
+              <p className="mt-2 text-sm font-semibold text-slate-500">
+                Search for an account to get started.
+              </p>
+              <p className="mt-1 text-xs font-medium text-slate-400">
+                Type at least 2 characters in the search box above.
+              </p>
+            </div>
+          ) : visibleAccounts.length === 0 ? (
+            <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
+              No accounts found for this search.
             </div>
           ) : (
             <div className="divide-y divide-slate-100 bg-white">

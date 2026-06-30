@@ -27,12 +27,6 @@ type VisitsApiResponse = {
   data?: Visit[];
 };
 
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
 function pad(n: number) { return String(n).padStart(2, "0"); }
 
 function clean(value: unknown): string {
@@ -91,12 +85,6 @@ export default function VisitsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Calendar state — init client-side to avoid SSR mismatch
-  const [calYear, setCalYear] = useState(0);
-  const [calMonth, setCalMonth] = useState(0);
-  const [selectedDay, setSelectedDay] = useState<string | null>(null);
-
-  // Shared filter state (calendar pills + list dropdowns stay in sync)
   const [search, setSearch] = useState("");
   const [filterAccount, setFilterAccount] = useState("");
   const [filterSub, setFilterSub] = useState("");
@@ -104,12 +92,6 @@ export default function VisitsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "account">("recent");
-
-  useEffect(() => {
-    const now = new Date();
-    setCalYear(now.getFullYear());
-    setCalMonth(now.getMonth());
-  }, []);
 
   useEffect(() => {
     async function loadVisits() {
@@ -140,7 +122,6 @@ export default function VisitsPage() {
     loadVisits();
   }, []);
 
-  // Unique values for filter dropdowns
   const uniqueAccounts = useMemo(
     () => [...new Set(visits.map((v) => clean(v.accountName)).filter(Boolean))].sort(),
     [visits],
@@ -150,52 +131,10 @@ export default function VisitsPage() {
     [visits],
   );
 
-  // Calendar: count visits per day respecting account/sub/status filters
-  const monthStr = calYear ? `${calYear}-${pad(calMonth + 1)}` : "";
-
-  const visitCountByDay = useMemo(() => {
-    const counts = new Map<string, number>();
-    const term = search.toLowerCase().trim();
-    visits.forEach((v) => {
-      if (term && !clean(v.accountName).toLowerCase().includes(term)) return;
-      if (filterSub && clean(v.subcontractor) !== filterSub) return;
-      if (filterStatus && deriveStatus(v) !== filterStatus) return;
-      const iso = toISODate(v.date);
-      if (monthStr && iso.startsWith(monthStr)) {
-        counts.set(iso, (counts.get(iso) ?? 0) + 1);
-      }
-    });
-    return counts;
-  }, [visits, monthStr, search, filterSub, filterStatus]);
-
-  // Build calendar grid
-  const firstDow = calYear ? new Date(calYear, calMonth, 1).getDay() : 0;
-  const daysInMonth = calYear ? new Date(calYear, calMonth + 1, 0).getDate() : 31;
-  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
-  const calCells: (number | null)[] = [
-    ...Array<null>(firstDow).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-    ...Array<null>(totalCells - firstDow - daysInMonth).fill(null),
-  ];
-
-  function dayStr(day: number) { return `${calYear}-${pad(calMonth + 1)}-${pad(day)}`; }
-  function prevMonth() {
-    if (calMonth === 0) { setCalYear((y) => y - 1); setCalMonth(11); }
-    else setCalMonth((m) => m - 1);
-    setSelectedDay(null);
-  }
-  function nextMonth() {
-    if (calMonth === 11) { setCalYear((y) => y + 1); setCalMonth(0); }
-    else setCalMonth((m) => m + 1);
-    setSelectedDay(null);
-  }
-
-  // Combined filtered + sorted list
   const filteredVisits = useMemo(() => {
     const term = search.toLowerCase().trim();
     const filtered = visits.filter((visit) => {
       const iso = toISODate(visit.date);
-      if (selectedDay && iso !== selectedDay) return false;
       if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
       if (filterSub && clean(visit.subcontractor) !== filterSub) return false;
       if (filterStatus && deriveStatus(visit) !== filterStatus) return false;
@@ -223,7 +162,7 @@ export default function VisitsPage() {
       if (da === db) return 0;
       return da > db ? -1 : 1;
     });
-  }, [visits, search, selectedDay, filterAccount, filterSub, filterStatus, dateFrom, dateTo, sortBy]);
+  }, [visits, search, filterAccount, filterSub, filterStatus, dateFrom, dateTo, sortBy]);
 
   const followUpsNeeded = useMemo(
     () =>
@@ -235,7 +174,7 @@ export default function VisitsPage() {
   );
 
   const hasActiveFilters = !!(
-    search || filterAccount || filterSub || filterStatus || dateFrom || dateTo || selectedDay
+    search || filterAccount || filterSub || filterStatus || dateFrom || dateTo
   );
 
   function clearFilters() {
@@ -245,7 +184,6 @@ export default function VisitsPage() {
     setFilterStatus("");
     setDateFrom("");
     setDateTo("");
-    setSelectedDay(null);
   }
 
   const pillBase =
@@ -268,7 +206,7 @@ export default function VisitsPage() {
           <div className="flex flex-wrap gap-2">
             <select
               value={filterAccount}
-              onChange={(e) => { setFilterAccount(e.target.value); setSelectedDay(null); }}
+              onChange={(e) => setFilterAccount(e.target.value)}
               className={`${pillBase} ${filterAccount ? pillActive : pillInactive}`}
             >
               <option value="">All Accounts</option>
@@ -276,7 +214,7 @@ export default function VisitsPage() {
             </select>
             <select
               value={filterSub}
-              onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+              onChange={(e) => setFilterSub(e.target.value)}
               className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
             >
               <option value="">All Subs</option>
@@ -289,6 +227,12 @@ export default function VisitsPage() {
               className="rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white no-underline"
             >
               + Add Visit
+            </Link>
+            <Link
+              href="/schedule"
+              className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center text-sm font-bold text-gray-700 no-underline hover:bg-gray-50"
+            >
+              Calendar View →
             </Link>
             <button
               type="button"
@@ -330,137 +274,6 @@ export default function VisitsPage() {
             </div>
           </section>
 
-          {/* ── Calendar with filter pills ── */}
-          <section className="mb-5 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-            {/* Banner: month nav + filter pills */}
-            <div className="border-b border-gray-100 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={prevMonth}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50"
-                >
-                  ‹ Prev
-                </button>
-                <p className="text-base font-black text-gray-900">
-                  {calYear ? `${MONTHS[calMonth]} ${calYear}` : "…"}
-                </p>
-                <button
-                  type="button"
-                  onClick={nextMonth}
-                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50"
-                >
-                  Next ›
-                </button>
-              </div>
-
-              {/* Filter pills */}
-              <div className="mt-3 flex flex-wrap gap-2">
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search accounts…"
-                  className={`${pillBase} ${search ? pillActive : pillInactive} min-w-[160px]`}
-                />
-
-                <select
-                  value={filterSub}
-                  onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
-                  className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
-                >
-                  <option value="">All Subcontractors</option>
-                  {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-
-                <select
-                  value={filterStatus}
-                  onChange={(e) => { setFilterStatus(e.target.value); setSelectedDay(null); }}
-                  className={`${pillBase} ${filterStatus ? pillActive : pillInactive}`}
-                >
-                  <option value="">All Statuses</option>
-                  <option value="Visited">Visited</option>
-                  <option value="Scheduled">Scheduled</option>
-                  <option value="Missed">Missed</option>
-                </select>
-
-                {hasActiveFilters && (
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className={`${pillBase} border-gray-300 bg-white text-gray-500 hover:bg-gray-50`}
-                  >
-                    Clear All ×
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Calendar grid */}
-            <div className="p-5">
-              <div className="mb-1 grid grid-cols-7 gap-0.5">
-                {DOW.map((d) => (
-                  <div
-                    key={d}
-                    className="py-1 text-center text-[10px] font-black uppercase tracking-wide text-gray-400"
-                  >
-                    {d}
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-7 gap-0.5">
-                {calCells.map((day, idx) => {
-                  if (!day) return <div key={idx} className="h-10 rounded-xl" />;
-                  const ds = dayStr(day);
-                  const count = visitCountByDay.get(ds) ?? 0;
-                  const isSelected = selectedDay === ds;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setSelectedDay((prev) => (prev === ds ? null : ds))}
-                      className={[
-                        "relative flex h-10 flex-col items-center justify-center rounded-xl text-sm font-bold transition active:scale-95",
-                        isSelected
-                          ? "bg-blue-600 text-white"
-                          : count > 0
-                            ? "bg-green-100 text-green-800 hover:bg-green-200"
-                            : "text-gray-600 hover:bg-gray-100",
-                      ].join(" ")}
-                    >
-                      {day}
-                      {count > 0 && (
-                        <span
-                          className={[
-                            "absolute bottom-0.5 text-[9px] font-black leading-none",
-                            isSelected ? "text-blue-200" : "text-green-600",
-                          ].join(" ")}
-                        >
-                          {count}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {selectedDay && (
-                <p className="mt-3 text-xs font-semibold text-gray-500">
-                  Showing {filteredVisits.length} visit
-                  {filteredVisits.length !== 1 ? "s" : ""} on {formatDate(selectedDay)}.{" "}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDay(null)}
-                    className="text-blue-600 underline"
-                  >
-                    Show all
-                  </button>
-                </p>
-              )}
-            </div>
-          </section>
-
           {/* ── List filters ── */}
           <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -473,7 +286,7 @@ export default function VisitsPage() {
 
               <select
                 value={filterAccount}
-                onChange={(e) => { setFilterAccount(e.target.value); setSelectedDay(null); }}
+                onChange={(e) => setFilterAccount(e.target.value)}
                 className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
               >
                 <option value="">Filter by Account</option>
@@ -482,7 +295,7 @@ export default function VisitsPage() {
 
               <select
                 value={filterSub}
-                onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+                onChange={(e) => setFilterSub(e.target.value)}
                 className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
               >
                 <option value="">Filter by Subcontractor</option>
@@ -491,7 +304,7 @@ export default function VisitsPage() {
 
               <select
                 value={filterStatus}
-                onChange={(e) => { setFilterStatus(e.target.value); setSelectedDay(null); }}
+                onChange={(e) => setFilterStatus(e.target.value)}
                 className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
               >
                 <option value="">Filter by Status</option>
@@ -557,7 +370,7 @@ export default function VisitsPage() {
                 <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Filter:</span>
                 <select
                   value={filterSub}
-                  onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+                  onChange={(e) => setFilterSub(e.target.value)}
                   className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
                 >
                   <option value="">All Subcontractors</option>
@@ -565,7 +378,7 @@ export default function VisitsPage() {
                 </select>
                 <select
                   value={filterStatus}
-                  onChange={(e) => { setFilterStatus(e.target.value); setSelectedDay(null); }}
+                  onChange={(e) => setFilterStatus(e.target.value)}
                   className={`${pillBase} ${filterStatus ? pillActive : pillInactive}`}
                 >
                   <option value="">All Statuses</option>
