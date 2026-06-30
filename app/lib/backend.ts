@@ -13,6 +13,7 @@ export interface Account {
   id?: string;
   accountName?: string;
   address?: string;
+  frequency?: string;
   // ... other fields as needed
 }
 
