@@ -181,6 +181,7 @@ function generatePortalCode(): string {
 }
 
 export type MergedPortalAccount = {
+  mainAccountId: string;
   accountName: string;
   serviceType: string;
   accountStatus: string;
@@ -213,6 +214,7 @@ export async function getMergedPortalAccounts(): Promise<MergedPortalAccount[]> 
       const name = (row[MAIN_COL.ACCOUNT_NAME] ?? "").trim();
       const portal = portalByName.get(name.toLowerCase());
       return {
+        mainAccountId: (row[MAIN_COL.ACCOUNT_ID] ?? "").trim(),
         accountName: name,
         serviceType: row[MAIN_COL.SERVICE_TYPE] ?? "",
         accountStatus: row[MAIN_COL.STATUS] ?? "",
@@ -227,9 +229,11 @@ export async function getMergedPortalAccounts(): Promise<MergedPortalAccount[]> 
     });
 }
 
-export async function enablePortalAccount(accountName: string, phone: string): Promise<string> {
-  const code = generatePortalCode();
+export async function enablePortalAccount(accountName: string, phone: string, accountId: string): Promise<string> {
+  // Portal code defaults to the account ID — staff can override via "Generate New Code" if needed
+  const code = accountId || generatePortalCode();
   const row = Array(19).fill("") as string[];
+  row[COL.ACCOUNT_ID]    = accountId;
   row[COL.ACCOUNT_NAME]  = accountName;
   row[COL.PHONE]         = phone;
   row[COL.PORTAL_CODE]   = code;
@@ -416,4 +420,77 @@ export async function getCustomerByPhone(phone: string) {
   );
   if (!row) return null;
   return rowToCustomer(row);
+}
+
+// ─── Subcontractor visit log ──────────────────────────────────────────────────
+
+const VISITS_TAB = "subcontractor-visits";
+
+const VISIT_COL = {
+  VISIT_ID:     0, // A
+  ACCOUNT_NAME: 1, // B
+  SUB_EMAIL:    2, // C
+  SUB_NAME:     3, // D
+  VISIT_DATE:   4, // E  YYYY-MM-DD
+  ARRIVAL_TIME: 5, // F  HH:MM
+  NOTES:        6, // G
+} as const;
+
+export type SubcontractorVisit = {
+  visitId: string;
+  accountName: string;
+  subEmail: string;
+  subName: string;
+  visitDate: string;
+  arrivalTime: string;
+  notes: string;
+};
+
+export async function logSubcontractorVisit(data: {
+  accountName: string;
+  subEmail: string;
+  subName: string;
+  visitDate: string;
+  arrivalTime: string;
+  notes: string;
+}): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const visitId = `VIS-${data.visitDate.replace(/-/g, "")}-${stamp.slice(-8)}`;
+  await appendToSheet(VISITS_TAB, [
+    visitId,
+    data.accountName,
+    data.subEmail,
+    data.subName,
+    data.visitDate,
+    data.arrivalTime,
+    data.notes,
+  ]);
+  return visitId;
+}
+
+export async function getSubcontractorVisits(
+  subEmail: string,
+  accountName?: string,
+): Promise<SubcontractorVisit[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${VISITS_TAB}!A:G`,
+  });
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const emailLower = subEmail.trim().toLowerCase();
+  const accountLower = accountName?.trim().toLowerCase();
+  return rows
+    .filter((r) => r[VISIT_COL.SUB_EMAIL]?.trim().toLowerCase() === emailLower)
+    .filter((r) => !accountLower || r[VISIT_COL.ACCOUNT_NAME]?.trim().toLowerCase() === accountLower)
+    .map((r) => ({
+      visitId:     r[VISIT_COL.VISIT_ID]     ?? "",
+      accountName: r[VISIT_COL.ACCOUNT_NAME] ?? "",
+      subEmail:    r[VISIT_COL.SUB_EMAIL]    ?? "",
+      subName:     r[VISIT_COL.SUB_NAME]     ?? "",
+      visitDate:   r[VISIT_COL.VISIT_DATE]   ?? "",
+      arrivalTime: r[VISIT_COL.ARRIVAL_TIME] ?? "",
+      notes:       r[VISIT_COL.NOTES]        ?? "",
+    }));
 }

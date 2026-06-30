@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import VisitCalendar from "./visit-calendar";
 
 type Account = {
   id?: string;
@@ -1549,11 +1550,22 @@ export default function SubcontractorPortalPage() {
               ) : null}
             </section>
 
+            {selectedAccount && subcontractor ? (
+              <VisitCalendar
+                accountName={getAccountName(selectedAccount)}
+                frequency={selectedAccount.frequency ?? ""}
+                cleaningDays={selectedAccount.cleaningDays ?? ""}
+                subEmail={subcontractor.email ?? email}
+                subName={getSubcontractorDisplayName(subcontractor)}
+              />
+            ) : null}
+
             <section
               className={`${
                 activePortalView === "complaints" ? "block" : "hidden"
               } mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm`}
             >
+
               <h2 className="text-xl font-black text-slate-900">
                 My Open Complaints
               </h2>
