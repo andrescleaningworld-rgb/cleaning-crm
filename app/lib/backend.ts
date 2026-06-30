@@ -76,6 +76,7 @@ export async function submitCustomerComplaint(payload: {
   urgency?: string;
   accountName?: string;
   customerId?: string;
+  photoName?: string;
 }) {
   try {
     const res = await fetch("/api/customer-portal", {
