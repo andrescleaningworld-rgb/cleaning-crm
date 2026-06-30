@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
 import CWHeader from "./components/CWHeader";
+import { getPortalNewCount } from "@/lib/googleSheets";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,7 +27,9 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const portalCount = await getPortalNewCount().catch(() => 0);
+
   return (
     <html lang="en">
       <body>
@@ -34,7 +37,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 
         <div className="cw-app-shell">
           <div className="cw-app-container">
-            <CWHeader />
+            <CWHeader portalCount={portalCount} />
 
             <main className="cw-page-card">{children}</main>
           </div>

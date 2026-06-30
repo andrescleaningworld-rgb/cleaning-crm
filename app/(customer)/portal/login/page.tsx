@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 export default function PortalLoginPage() {
   const router = useRouter();
+  const [phone, setPhone] = useState("");
   const [portalCode, setPortalCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -19,7 +20,7 @@ export default function PortalLoginPage() {
       const res = await fetch("/api/portal/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ portalCode: portalCode.trim() }),
+        body: JSON.stringify({ phone: phone.trim(), portalCode: portalCode.trim() }),
       });
 
       const data = (await res.json()) as { success?: boolean; accountName?: string; error?: string };
@@ -63,7 +64,7 @@ export default function PortalLoginPage() {
               Customer Portal
             </h1>
             <p className="mt-1 text-sm text-blue-200">
-              Enter your portal code to sign in
+              Sign in with your phone number and portal code
             </p>
           </div>
         </div>
@@ -71,6 +72,25 @@ export default function PortalLoginPage() {
         {/* Card */}
         <div className="rounded-3xl bg-white px-6 py-8 shadow-xl">
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            <div>
+              <label
+                htmlFor="phone"
+                className="mb-1.5 block text-sm font-semibold text-slate-700"
+              >
+                Phone Number
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                autoComplete="tel"
+                required
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. (201) 555-1234"
+                className="min-h-[52px] w-full rounded-xl border border-slate-300 px-4 py-3 text-base text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#003b7a] focus:ring-2 focus:ring-[#003b7a]/20"
+              />
+            </div>
+
             <div>
               <label
                 htmlFor="portalCode"
@@ -86,7 +106,7 @@ export default function PortalLoginPage() {
                 required
                 value={portalCode}
                 onChange={(e) => setPortalCode(e.target.value)}
-                placeholder="e.g. CW-1234"
+                placeholder="e.g. CW-AB123"
                 className="min-h-[52px] w-full rounded-xl border border-slate-300 px-4 py-3 text-base text-slate-900 outline-none placeholder:text-slate-400 focus:border-[#003b7a] focus:ring-2 focus:ring-[#003b7a]/20"
               />
               <p className="mt-1.5 text-xs text-slate-500">

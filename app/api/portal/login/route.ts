@@ -1,42 +1,69 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { getCustomerByPortalCode } from "@/lib/googleSheets";
+import { getCustomerByPortalCode, getCustomerByPhone } from "@/lib/googleSheets";
 
-const INVALID = NextResponse.json({ error: "Invalid portal code" }, { status: 401 });
+const INVALID = NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 
 export async function POST(request: NextRequest) {
-  let body: { portalCode?: unknown };
+  let body: { phone?: unknown; portalCode?: unknown };
   try {
     body = await request.json();
   } catch {
     return INVALID;
   }
 
+  const phone      = typeof body.phone      === "string" ? body.phone.trim()      : "";
   const portalCode = typeof body.portalCode === "string" ? body.portalCode.trim() : "";
-  if (!portalCode) return INVALID;
+
+  console.log("[portal/login] incoming →", { phone, portalCode });
+
+  if (!phone || !portalCode) {
+    console.log("[portal/login] missing phone or portalCode");
+    return INVALID;
+  }
 
   try {
-    const customer = await getCustomerByPortalCode(portalCode);
+    const [byPhone, byCode] = await Promise.all([
+      getCustomerByPhone(phone),
+      getCustomerByPortalCode(portalCode),
+    ]);
 
-    if (!customer || customer.portalAccess?.toUpperCase() !== "YES") {
+    console.log("[portal/login] getCustomerByPhone →", byPhone
+      ? { accountId: byPhone.accountId, accountName: byPhone.accountName, portalAccess: byPhone.portalAccess }
+      : null);
+
+    console.log("[portal/login] getCustomerByPortalCode →", byCode
+      ? { accountId: byCode.accountId, accountName: byCode.accountName, portalAccess: byCode.portalAccess }
+      : null);
+
+    const phoneId = byPhone?.accountId ?? byPhone?.accountName ?? null;
+    const codeId  = byCode?.accountId  ?? byCode?.accountName  ?? null;
+    const match   = phoneId !== null && codeId !== null && phoneId === codeId;
+
+    console.log("[portal/login] accountId match →", { phoneId, codeId, match });
+
+    if (!match || !byCode || byCode.portalAccess?.toUpperCase() !== "YES") {
+      console.log("[portal/login] REJECTED — match:", match,
+        "| portalAccess:", byCode?.portalAccess);
       return INVALID;
     }
 
     const response = NextResponse.json({
       success: true,
-      accountName: customer.accountName,
+      accountName: byCode.accountName,
     });
 
     const session = await getIronSession<PortalSessionData>(request, response, sessionOptions());
-    session.accountId = customer.accountId;
-    session.accountName = customer.accountName;
-    session.portalCode = customer.portalCode;
+    session.accountId   = byCode.accountId;
+    session.accountName = byCode.accountName;
+    session.portalCode  = byCode.portalCode;
     await session.save();
 
+    console.log("[portal/login] SUCCESS — session saved for", byCode.accountName);
     return response;
   } catch (err) {
-    console.error("[portal/login]", err);
+    console.error("[portal/login] server error →", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

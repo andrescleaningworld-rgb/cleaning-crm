@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
+import LogoutButton from "./LogoutButton";
 
 type UserRole = "admin" | "subcontractor" | "customer" | null;
 
@@ -50,7 +51,7 @@ function getStoredRole(): UserRole {
   return null;
 }
 
-export default function CWHeader() {
+export default function CWHeader({ portalCount = 0 }: { portalCount?: number }) {
   const pathname = usePathname();
 
   const [role, setRole] = useState<UserRole>(null);
@@ -167,6 +168,24 @@ export default function CWHeader() {
                   </Link>
                 )}
 
+                {role === "admin" && (
+                  <Link
+                    href="/portal-requests"
+                    className={`rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition ${
+                      pathname === "/portal-requests"
+                        ? "border-white bg-white text-blue-800"
+                        : "border-white/25 bg-white/15 text-white hover:bg-white/25"
+                    }`}
+                  >
+                    Portal
+                    {portalCount > 0 && (
+                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-xs font-extrabold text-white">
+                        {portalCount}
+                      </span>
+                    )}
+                  </Link>
+                )}
+
                 {navItems.map((item) => {
                   const isActive =
                     item.href === "/"
@@ -188,6 +207,8 @@ export default function CWHeader() {
                     </Link>
                   );
                 })}
+
+                {role === "admin" && <LogoutButton />}
               </nav>
             )}
           </div>
