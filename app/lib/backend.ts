@@ -14,6 +14,7 @@ export interface Account {
   accountName?: string;
   address?: string;
   frequency?: string;
+  status?: string;
   // ... other fields as needed
 }
 
