@@ -446,6 +446,71 @@ export type SubcontractorVisit = {
   notes: string;
 };
 
+export type SubcontractorVisitWithRow = SubcontractorVisit & { sheetRow: number };
+
+export async function getAllSubcontractorVisits(): Promise<SubcontractorVisitWithRow[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: `${VISITS_TAB}!A:G`,
+  });
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  return rows
+    .map((r, i) => ({
+      sheetRow:    i + 2,
+      visitId:     r[VISIT_COL.VISIT_ID]     ?? "",
+      accountName: r[VISIT_COL.ACCOUNT_NAME] ?? "",
+      subEmail:    r[VISIT_COL.SUB_EMAIL]    ?? "",
+      subName:     r[VISIT_COL.SUB_NAME]     ?? "",
+      visitDate:   r[VISIT_COL.VISIT_DATE]   ?? "",
+      arrivalTime: r[VISIT_COL.ARRIVAL_TIME] ?? "",
+      notes:       r[VISIT_COL.NOTES]        ?? "",
+    }))
+    .filter((v) => v.visitDate || v.visitId);
+}
+
+export async function updateSubcontractorVisit(
+  sheetRow: number,
+  fields: Partial<{
+    accountName: string;
+    subName: string;
+    visitDate: string;
+    arrivalTime: string;
+    notes: string;
+  }>,
+): Promise<void> {
+  const colLetters: Record<string, string> = {
+    accountName: "B",
+    subName:     "D",
+    visitDate:   "E",
+    arrivalTime: "F",
+    notes:       "G",
+  };
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const data = Object.entries(fields)
+    .filter(([, v]) => v !== undefined)
+    .map(([key, value]) => ({
+      range: `${VISITS_TAB}!${colLetters[key]}${sheetRow}`,
+      values: [[value]],
+    }));
+  if (data.length === 0) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+export async function deleteSubcontractorVisit(sheetRow: number): Promise<void> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SHEET_ID,
+    range: `${VISITS_TAB}!A${sheetRow}:G${sheetRow}`,
+  });
+}
+
 export async function logSubcontractorVisit(data: {
   accountName: string;
   subEmail: string;
@@ -468,10 +533,49 @@ export async function logSubcontractorVisit(data: {
   return visitId;
 }
 
+// ─── Customer-facing scheduled visits ─────────────────────────────────────────
+// Written by /api/portal/schedule-visit; separate sheet from subcontractor logs.
+
+const CUSTOMER_VISITS_SHEET_ID = "10MDGlN8pVKVcthd2MA5ygsBLVI3nN3DF98i_cF-Pqjs";
+const CUSTOMER_VISITS_TAB = "Visits";
+
+const CUSTOMER_VISIT_COL = {
+  ACCOUNT_NAME: 1, // B
+  VISIT_DATE:   5, // F  YYYY-MM-DD
+  TIME_WINDOW:  6, // G  Morning | Midday | Afternoon | Evening
+  STATUS:       7, // H
+} as const;
+
+export type CustomerVisit = {
+  visitDate: string;
+  timeWindow: string;
+  status: string;
+};
+
+export async function getVisitsByAccountName(accountName: string): Promise<CustomerVisit[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: CUSTOMER_VISITS_SHEET_ID,
+    range: `${CUSTOMER_VISITS_TAB}!A:I`,
+  });
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const accountLower = accountName.trim().toLowerCase();
+  return rows
+    .map((r) => ({
+      accountName: r[CUSTOMER_VISIT_COL.ACCOUNT_NAME] ?? "",
+      visitDate:   r[CUSTOMER_VISIT_COL.VISIT_DATE]   ?? "",
+      timeWindow:  r[CUSTOMER_VISIT_COL.TIME_WINDOW]  ?? "",
+      status:      r[CUSTOMER_VISIT_COL.STATUS]       ?? "",
+    }))
+    .filter((v) => v.accountName.trim().toLowerCase() === accountLower && v.visitDate)
+    .map(({ visitDate, timeWindow, status }) => ({ visitDate, timeWindow, status }));
+}
+
 export async function getSubcontractorVisits(
   subEmail: string,
   accountName?: string,
-): Promise<SubcontractorVisit[]> {
+): Promise<SubcontractorVisitWithRow[]> {
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
@@ -482,9 +586,8 @@ export async function getSubcontractorVisits(
   const emailLower = subEmail.trim().toLowerCase();
   const accountLower = accountName?.trim().toLowerCase();
   return rows
-    .filter((r) => r[VISIT_COL.SUB_EMAIL]?.trim().toLowerCase() === emailLower)
-    .filter((r) => !accountLower || r[VISIT_COL.ACCOUNT_NAME]?.trim().toLowerCase() === accountLower)
-    .map((r) => ({
+    .map((r, i) => ({
+      sheetRow:    i + 2,
       visitId:     r[VISIT_COL.VISIT_ID]     ?? "",
       accountName: r[VISIT_COL.ACCOUNT_NAME] ?? "",
       subEmail:    r[VISIT_COL.SUB_EMAIL]    ?? "",
@@ -492,5 +595,7 @@ export async function getSubcontractorVisits(
       visitDate:   r[VISIT_COL.VISIT_DATE]   ?? "",
       arrivalTime: r[VISIT_COL.ARRIVAL_TIME] ?? "",
       notes:       r[VISIT_COL.NOTES]        ?? "",
-    }));
+    }))
+    .filter((r) => r.subEmail.trim().toLowerCase() === emailLower)
+    .filter((r) => !accountLower || r.accountName.trim().toLowerCase() === accountLower);
 }

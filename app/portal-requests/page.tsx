@@ -1,4 +1,3 @@
-import AppHeader from "@/components/AppHeader";
 import { listPortalSubmissions } from "@/lib/googleSheets";
 import SubmissionsView from "./submissions-view";
 
@@ -9,7 +8,6 @@ export default async function PortalRequestsPage() {
   return (
     <main className="min-h-screen bg-gray-50 p-6">
       <div className="mx-auto max-w-5xl">
-        <AppHeader />
 
         <div className="mb-6">
           <div className="flex items-center gap-3">

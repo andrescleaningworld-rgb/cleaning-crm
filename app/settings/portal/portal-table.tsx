@@ -76,7 +76,7 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
       const res = await fetch("/api/admin/portal-accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountName: a.accountName, phone: a.mainPhone }),
+        body: JSON.stringify({ accountName: a.accountName, phone: a.mainPhone, accountId: a.mainAccountId }),
       });
       const data = await res.json() as { portalCode?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed");

@@ -11,6 +11,7 @@ const PUBLIC_PATHS = [
   "/api/login",
   "/api/logout",
   "/api/subcontractor-portal",
+  "/api/subcontractor-visits",
   "/favicon.ico",
   "/cw-logo.jpg",
 ];

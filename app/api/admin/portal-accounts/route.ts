@@ -18,11 +18,15 @@ export async function GET() {
 // Enable portal access for an account not yet in the portal tab
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { accountName?: string; phone?: string };
+    const body = await request.json() as { accountName?: string; phone?: string; accountId?: string };
     const accountName = body.accountName?.trim();
     if (!accountName) return NextResponse.json({ error: "Account name required" }, { status: 400 });
 
-    const portalCode = await enablePortalAccount(accountName, body.phone?.trim() ?? "");
+    const portalCode = await enablePortalAccount(
+      accountName,
+      body.phone?.trim() ?? "",
+      body.accountId?.trim() ?? "",
+    );
     return NextResponse.json({ success: true, portalCode });
   } catch (err) {
     console.error("[portal-accounts POST]", err);

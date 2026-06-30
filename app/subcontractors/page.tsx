@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+
+const SubVisitLog = dynamic(() => import("../visits/sub-visit-log"), { ssr: false });
 
 type Subcontractor = {
   id?: string;
@@ -226,6 +229,7 @@ function getLoadedSubcontractors(
 }
 
 export default function SubcontractorsPage() {
+  const [adminTab, setAdminTab] = useState<"subs" | "log">("subs");
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -485,6 +489,25 @@ export default function SubcontractorsPage() {
   return (
     <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
+
+        <div className="flex gap-2">
+          {([
+            { id: "subs" as const, label: "Subcontractors" },
+            { id: "log" as const, label: "Service Log" },
+          ]).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setAdminTab(id)}
+              className={`rounded-full px-5 py-2 text-sm font-black transition ${adminTab === id ? "bg-blue-700 text-white shadow-sm" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {adminTab === "subs" && (
+        <>
         <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
@@ -975,6 +998,10 @@ export default function SubcontractorsPage() {
             </div>
           )}
         </section>
+        </>
+        )}
+
+        {adminTab === "log" && <SubVisitLog />}
       </div>
     </main>
   );

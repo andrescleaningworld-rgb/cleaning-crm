@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type Visit = {
   id?: string;
@@ -26,19 +27,31 @@ type VisitsApiResponse = {
   data?: Visit[];
 };
 
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function pad(n: number) { return String(n).padStart(2, "0"); }
+
 function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+function toISODate(value: unknown): string {
+  const text = clean(value);
+  if (!text) return "";
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function formatDate(value: unknown): string {
   const text = clean(value);
-
   if (!text) return "-";
-
   const date = new Date(text);
-
   if (Number.isNaN(date.getTime())) return text;
-
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -46,47 +59,23 @@ function formatDate(value: unknown): string {
   });
 }
 
-function getVisitTime(visit: Visit): number {
-  const possibleDates = [
-    visit.date,
-    visit.createdAt,
-    visit.updatedAt,
-    visit.followUpDate,
-  ];
-
-  for (const value of possibleDates) {
-    const text = clean(value);
-    if (!text) continue;
-
-    const date = new Date(text);
-    if (!Number.isNaN(date.getTime())) {
-      return date.getTime();
-    }
-  }
-
-  return 0;
-}
-
 function getConditionClass(value: unknown): string {
   const score = Number(value);
-
-  if (Number.isNaN(score)) {
-    return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
-  }
-
-  if (score >= 9) {
-    return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
-  }
-
-  if (score >= 8) {
-    return "rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700";
-  }
-
-  if (score >= 7) {
-    return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
-  }
-
+  if (Number.isNaN(score)) return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
+  if (score >= 9) return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
+  if (score >= 8) return "rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700";
+  if (score >= 7) return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
   return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
+}
+
+function deriveStatus(visit: Visit): "Visited" | "Scheduled" | "Missed" {
+  const iso = toISODate(visit.date);
+  if (!iso) return "Visited";
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  if (iso > todayStr) return "Scheduled";
+  if (clean(visit.condition)) return "Visited";
+  return "Missed";
 }
 
 function getLoadedVisits(data: VisitsApiResponse | Visit[]): Visit[] {
@@ -97,112 +86,218 @@ function getLoadedVisits(data: VisitsApiResponse | Visit[]): Visit[] {
 }
 
 export default function VisitsPage() {
+  const router = useRouter();
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Calendar state — init client-side to avoid SSR mismatch
+  const [calYear, setCalYear] = useState(0);
+  const [calMonth, setCalMonth] = useState(0);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  // Shared filter state (calendar pills + list dropdowns stay in sync)
   const [search, setSearch] = useState("");
+  const [filterAccount, setFilterAccount] = useState("");
+  const [filterSub, setFilterSub] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortBy, setSortBy] = useState<"recent" | "account">("recent");
+
+  useEffect(() => {
+    const now = new Date();
+    setCalYear(now.getFullYear());
+    setCalMonth(now.getMonth());
+  }, []);
 
   useEffect(() => {
     async function loadVisits() {
       try {
         setLoading(true);
         setError("");
-
-        const response = await fetch("/api/visits", {
-          method: "GET",
-        });
-
+        const response = await fetch("/api/visits", { method: "GET", cache: "no-store" });
         const text = await response.text();
-
         let data: VisitsApiResponse | Visit[];
-
         try {
           data = JSON.parse(text) as VisitsApiResponse | Visit[];
         } catch {
           throw new Error("Visits API did not return valid JSON.");
         }
-
         if (!response.ok || (!Array.isArray(data) && data.success === false)) {
           throw new Error(
-            !Array.isArray(data) && data.error
-              ? data.error
-              : "Failed to load visits."
+            !Array.isArray(data) && data.error ? data.error : "Failed to load visits."
           );
         }
-
         setVisits(getLoadedVisits(data));
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Unknown error loading visits."
-        );
+        setError(err instanceof Error ? err.message : "Unknown error loading visits.");
         setVisits([]);
       } finally {
         setLoading(false);
       }
     }
-
     loadVisits();
   }, []);
 
-  const sortedVisits = useMemo(() => {
-    return [...visits].sort((a, b) => {
-      return getVisitTime(b) - getVisitTime(a);
-    });
-  }, [visits]);
+  // Unique values for filter dropdowns
+  const uniqueAccounts = useMemo(
+    () => [...new Set(visits.map((v) => clean(v.accountName)).filter(Boolean))].sort(),
+    [visits],
+  );
+  const uniqueSubs = useMemo(
+    () => [...new Set(visits.map((v) => clean(v.subcontractor)).filter(Boolean))].sort(),
+    [visits],
+  );
 
+  // Calendar: count visits per day respecting account/sub/status filters
+  const monthStr = calYear ? `${calYear}-${pad(calMonth + 1)}` : "";
+
+  const visitCountByDay = useMemo(() => {
+    const counts = new Map<string, number>();
+    const term = search.toLowerCase().trim();
+    visits.forEach((v) => {
+      if (term && !clean(v.accountName).toLowerCase().includes(term)) return;
+      if (filterSub && clean(v.subcontractor) !== filterSub) return;
+      if (filterStatus && deriveStatus(v) !== filterStatus) return;
+      const iso = toISODate(v.date);
+      if (monthStr && iso.startsWith(monthStr)) {
+        counts.set(iso, (counts.get(iso) ?? 0) + 1);
+      }
+    });
+    return counts;
+  }, [visits, monthStr, search, filterSub, filterStatus]);
+
+  // Build calendar grid
+  const firstDow = calYear ? new Date(calYear, calMonth, 1).getDay() : 0;
+  const daysInMonth = calYear ? new Date(calYear, calMonth + 1, 0).getDate() : 31;
+  const totalCells = Math.ceil((firstDow + daysInMonth) / 7) * 7;
+  const calCells: (number | null)[] = [
+    ...Array<null>(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+    ...Array<null>(totalCells - firstDow - daysInMonth).fill(null),
+  ];
+
+  function dayStr(day: number) { return `${calYear}-${pad(calMonth + 1)}-${pad(day)}`; }
+  function prevMonth() {
+    if (calMonth === 0) { setCalYear((y) => y - 1); setCalMonth(11); }
+    else setCalMonth((m) => m - 1);
+    setSelectedDay(null);
+  }
+  function nextMonth() {
+    if (calMonth === 11) { setCalYear((y) => y + 1); setCalMonth(0); }
+    else setCalMonth((m) => m + 1);
+    setSelectedDay(null);
+  }
+
+  // Combined filtered + sorted list
   const filteredVisits = useMemo(() => {
     const term = search.toLowerCase().trim();
-
-    if (!term) return sortedVisits;
-
-    return sortedVisits.filter((visit) => {
-      return (
-        clean(visit.accountName).toLowerCase().includes(term) ||
-        clean(visit.accountId).toLowerCase().includes(term) ||
-        clean(visit.manager).toLowerCase().includes(term) ||
-        clean(visit.subcontractor).toLowerCase().includes(term) ||
-        clean(visit.visitType).toLowerCase().includes(term) ||
-        clean(visit.notes).toLowerCase().includes(term)
-      );
+    const filtered = visits.filter((visit) => {
+      const iso = toISODate(visit.date);
+      if (selectedDay && iso !== selectedDay) return false;
+      if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
+      if (filterSub && clean(visit.subcontractor) !== filterSub) return false;
+      if (filterStatus && deriveStatus(visit) !== filterStatus) return false;
+      if (dateFrom && iso && iso < dateFrom) return false;
+      if (dateTo && iso && iso > dateTo) return false;
+      if (term) {
+        return (
+          clean(visit.accountName).toLowerCase().includes(term) ||
+          clean(visit.accountId).toLowerCase().includes(term) ||
+          clean(visit.manager).toLowerCase().includes(term) ||
+          clean(visit.subcontractor).toLowerCase().includes(term) ||
+          clean(visit.visitType).toLowerCase().includes(term) ||
+          clean(visit.notes).toLowerCase().includes(term)
+        );
+      }
+      return true;
     });
-  }, [sortedVisits, search]);
 
-  const followUpsNeeded = useMemo(() => {
-    return visits.filter((visit) => {
-      const value = clean(visit.followUpNeeded).toLowerCase();
-      return value === "yes" || value === "true" || value === "needed";
-    }).length;
-  }, [visits]);
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "account") {
+        return clean(a.accountName).localeCompare(clean(b.accountName));
+      }
+      const da = toISODate(a.date);
+      const db = toISODate(b.date);
+      if (da === db) return 0;
+      return da > db ? -1 : 1;
+    });
+  }, [visits, search, selectedDay, filterAccount, filterSub, filterStatus, dateFrom, dateTo, sortBy]);
+
+  const followUpsNeeded = useMemo(
+    () =>
+      visits.filter((v) => {
+        const val = clean(v.followUpNeeded).toLowerCase();
+        return val === "yes" || val === "true" || val === "needed";
+      }).length,
+    [visits],
+  );
+
+  const hasActiveFilters = !!(
+    search || filterAccount || filterSub || filterStatus || dateFrom || dateTo || selectedDay
+  );
+
+  function clearFilters() {
+    setSearch("");
+    setFilterAccount("");
+    setFilterSub("");
+    setFilterStatus("");
+    setDateFrom("");
+    setDateTo("");
+    setSelectedDay(null);
+  }
+
+  const pillBase =
+    "rounded-full border px-3 py-1.5 text-xs font-bold outline-none transition cursor-pointer";
+  const pillActive = "border-blue-500 bg-blue-600 text-white";
+  const pillInactive = "border-gray-300 bg-white text-gray-700 hover:border-blue-400";
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
+      {/* Header */}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-            Cleaning World
-          </p>
+          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Cleaning World</p>
           <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Visits</h1>
           <p className="mt-2 text-sm leading-6 text-gray-500 sm:text-base">
             Track account visits, conditions, follow-ups, managers, and notes.
           </p>
         </div>
-
-        <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-          <Link
-            href="/visits/new"
-            className="rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white no-underline"
-          >
-            + Add Visit
-          </Link>
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white"
-          >
-            Print
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={filterAccount}
+              onChange={(e) => { setFilterAccount(e.target.value); setSelectedDay(null); }}
+              className={`${pillBase} ${filterAccount ? pillActive : pillInactive}`}
+            >
+              <option value="">All Accounts</option>
+              {uniqueAccounts.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+            <select
+              value={filterSub}
+              onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+              className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
+            >
+              <option value="">All Subs</option>
+              {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/visits/new"
+              className="rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white no-underline"
+            >
+              + Add Visit
+            </Link>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white"
+            >
+              Print
+            </button>
+          </div>
         </div>
       </div>
 
@@ -216,64 +311,282 @@ export default function VisitsPage() {
         </div>
       ) : (
         <>
+          {/* Stats */}
           <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Total Visits
-              </p>
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Total Visits</p>
               <h2 className="mt-2 text-3xl font-bold">{visits.length}</h2>
-              <p className="mt-2 text-sm text-gray-500">
-                Loaded from Google Sheets
-              </p>
+              <p className="mt-2 text-sm text-gray-500">Loaded from Google Sheets</p>
             </div>
-
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Showing
-              </p>
-              <h2 className="mt-2 text-3xl font-bold">
-                {filteredVisits.length}
-              </h2>
-              <p className="mt-2 text-sm text-gray-500">
-                After search filter
-              </p>
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Showing</p>
+              <h2 className="mt-2 text-3xl font-bold">{filteredVisits.length}</h2>
+              <p className="mt-2 text-sm text-gray-500">After filters</p>
             </div>
-
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Follow-Ups Needed
-              </p>
+              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Follow-Ups Needed</p>
               <h2 className="mt-2 text-3xl font-bold">{followUpsNeeded}</h2>
               <p className="mt-2 text-sm text-gray-500">Marked Yes</p>
             </div>
           </section>
 
-          <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search visits..."
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500"
-            />
+          {/* ── Calendar with filter pills ── */}
+          <section className="mb-5 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            {/* Banner: month nav + filter pills */}
+            <div className="border-b border-gray-100 px-5 py-4">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={prevMonth}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                >
+                  ‹ Prev
+                </button>
+                <p className="text-base font-black text-gray-900">
+                  {calYear ? `${MONTHS[calMonth]} ${calYear}` : "…"}
+                </p>
+                <button
+                  type="button"
+                  onClick={nextMonth}
+                  className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50"
+                >
+                  Next ›
+                </button>
+              </div>
+
+              {/* Filter pills */}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search accounts…"
+                  className={`${pillBase} ${search ? pillActive : pillInactive} min-w-[160px]`}
+                />
+
+                <select
+                  value={filterSub}
+                  onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+                  className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
+                >
+                  <option value="">All Subcontractors</option>
+                  {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+
+                <select
+                  value={filterStatus}
+                  onChange={(e) => { setFilterStatus(e.target.value); setSelectedDay(null); }}
+                  className={`${pillBase} ${filterStatus ? pillActive : pillInactive}`}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="Visited">Visited</option>
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Missed">Missed</option>
+                </select>
+
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className={`${pillBase} border-gray-300 bg-white text-gray-500 hover:bg-gray-50`}
+                  >
+                    Clear All ×
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Calendar grid */}
+            <div className="p-5">
+              <div className="mb-1 grid grid-cols-7 gap-0.5">
+                {DOW.map((d) => (
+                  <div
+                    key={d}
+                    className="py-1 text-center text-[10px] font-black uppercase tracking-wide text-gray-400"
+                  >
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-0.5">
+                {calCells.map((day, idx) => {
+                  if (!day) return <div key={idx} className="h-10 rounded-xl" />;
+                  const ds = dayStr(day);
+                  const count = visitCountByDay.get(ds) ?? 0;
+                  const isSelected = selectedDay === ds;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedDay((prev) => (prev === ds ? null : ds))}
+                      className={[
+                        "relative flex h-10 flex-col items-center justify-center rounded-xl text-sm font-bold transition active:scale-95",
+                        isSelected
+                          ? "bg-blue-600 text-white"
+                          : count > 0
+                            ? "bg-green-100 text-green-800 hover:bg-green-200"
+                            : "text-gray-600 hover:bg-gray-100",
+                      ].join(" ")}
+                    >
+                      {day}
+                      {count > 0 && (
+                        <span
+                          className={[
+                            "absolute bottom-0.5 text-[9px] font-black leading-none",
+                            isSelected ? "text-blue-200" : "text-green-600",
+                          ].join(" ")}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedDay && (
+                <p className="mt-3 text-xs font-semibold text-gray-500">
+                  Showing {filteredVisits.length} visit
+                  {filteredVisits.length !== 1 ? "s" : ""} on {formatDate(selectedDay)}.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDay(null)}
+                    className="text-blue-600 underline"
+                  >
+                    Show all
+                  </button>
+                </p>
+              )}
+            </div>
           </section>
 
+          {/* ── List filters ── */}
+          <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by account name…"
+                className="min-h-[44px] rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500 sm:col-span-2 lg:col-span-1"
+              />
+
+              <select
+                value={filterAccount}
+                onChange={(e) => { setFilterAccount(e.target.value); setSelectedDay(null); }}
+                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
+              >
+                <option value="">Filter by Account</option>
+                {uniqueAccounts.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+
+              <select
+                value={filterSub}
+                onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
+              >
+                <option value="">Filter by Subcontractor</option>
+                {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <select
+                value={filterStatus}
+                onChange={(e) => { setFilterStatus(e.target.value); setSelectedDay(null); }}
+                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
+              >
+                <option value="">Filter by Status</option>
+                <option value="Visited">Visited</option>
+                <option value="Scheduled">Scheduled</option>
+                <option value="Missed">Missed</option>
+              </select>
+
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  title="From date"
+                  className="min-h-[44px] flex-1 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
+                />
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  title="To date"
+                  className="min-h-[44px] flex-1 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {hasActiveFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="min-h-[44px] rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-50"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          </section>
+
+          {/* ── Visit list ── */}
           <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-xl font-bold">Visit List</h2>
-              <span className="font-bold text-gray-500">
-                {filteredVisits.length} visits
-              </span>
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-xl font-bold">Visit List</h2>
+                <span className="font-bold text-gray-500">{filteredVisits.length} visits</span>
+              </div>
+              {/* Sort + filter bar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Sort:</span>
+                <button
+                  type="button"
+                  onClick={() => setSortBy("recent")}
+                  className={`${pillBase} ${sortBy === "recent" ? pillActive : pillInactive}`}
+                >
+                  Most Recent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSortBy("account")}
+                  className={`${pillBase} ${sortBy === "account" ? pillActive : pillInactive}`}
+                >
+                  Account A–Z
+                </button>
+                <span className="text-gray-200 select-none">|</span>
+                <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Filter:</span>
+                <select
+                  value={filterSub}
+                  onChange={(e) => { setFilterSub(e.target.value); setSelectedDay(null); }}
+                  className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
+                >
+                  <option value="">All Subcontractors</option>
+                  {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => { setFilterStatus(e.target.value); setSelectedDay(null); }}
+                  className={`${pillBase} ${filterStatus ? pillActive : pillInactive}`}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="Visited">Visited</option>
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Missed">Missed</option>
+                </select>
+              </div>
             </div>
 
             {filteredVisits.length === 0 ? (
               <p className="text-gray-500">No visits found.</p>
             ) : (
               <>
+                {/* Mobile cards */}
                 <div className="space-y-4 md:hidden">
                   {filteredVisits.map((visit, index) => (
                     <div
                       key={`${visit.id || "visit"}-${index}-mobile`}
-                      className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+                      onClick={() => visit.accountId && router.push(`/accounts/${visit.accountId}`)}
+                      className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-shadow"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -289,7 +602,6 @@ export default function VisitsPage() {
                             </p>
                           ) : null}
                         </div>
-
                         <span className={getConditionClass(visit.condition)}>
                           {clean(visit.condition) || "-"}
                         </span>
@@ -297,39 +609,20 @@ export default function VisitsPage() {
 
                       <div className="mt-4 grid grid-cols-2 gap-3">
                         <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                            Type
-                          </p>
-                          <p className="mt-1 font-bold">
-                            {clean(visit.visitType) || "-"}
-                          </p>
+                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Type</p>
+                          <p className="mt-1 font-bold">{clean(visit.visitType) || "-"}</p>
                         </div>
-
                         <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                            Manager
-                          </p>
-                          <p className="mt-1 font-bold">
-                            {clean(visit.manager) || "-"}
-                          </p>
+                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Manager</p>
+                          <p className="mt-1 font-bold">{clean(visit.manager) || "-"}</p>
                         </div>
-
                         <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                            Sub
-                          </p>
-                          <p className="mt-1 font-bold">
-                            {clean(visit.subcontractor) || "-"}
-                          </p>
+                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Sub</p>
+                          <p className="mt-1 font-bold">{clean(visit.subcontractor) || "-"}</p>
                         </div>
-
                         <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                            Follow-Up
-                          </p>
-                          <p className="mt-1 font-bold">
-                            {clean(visit.followUpNeeded) || "-"}
-                          </p>
+                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Follow-Up</p>
+                          <p className="mt-1 font-bold">{clean(visit.followUpNeeded) || "-"}</p>
                         </div>
                       </div>
 
@@ -337,15 +630,11 @@ export default function VisitsPage() {
                         <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
                           Follow-Up Date
                         </p>
-                        <p className="mt-1 font-bold">
-                          {formatDate(visit.followUpDate)}
-                        </p>
+                        <p className="mt-1 font-bold">{formatDate(visit.followUpDate)}</p>
                       </div>
 
                       <div className="mt-3 rounded-xl bg-gray-50 p-3">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                          Notes
-                        </p>
+                        <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Notes</p>
                         <p className="mt-1 text-sm leading-6 text-gray-700">
                           {clean(visit.notes) || "-"}
                         </p>
@@ -354,6 +643,7 @@ export default function VisitsPage() {
                   ))}
                 </div>
 
+                {/* Desktop table */}
                 <div className="hidden overflow-x-auto md:block">
                   <table className="w-full border-collapse text-sm">
                     <thead>
@@ -369,57 +659,31 @@ export default function VisitsPage() {
                         <th className="p-3">Notes</th>
                       </tr>
                     </thead>
-
                     <tbody>
                       {filteredVisits.map((visit, index) => (
                         <tr
                           key={`${visit.id || "visit"}-${index}`}
-                          className="border-b last:border-b-0"
+                          onClick={() => visit.accountId && router.push(`/accounts/${visit.accountId}`)}
+                          className="border-b last:border-b-0 cursor-pointer hover:bg-blue-50 transition-colors"
                         >
-                          <td className="whitespace-nowrap p-3">
-                            {formatDate(visit.date)}
-                          </td>
-
+                          <td className="whitespace-nowrap p-3">{formatDate(visit.date)}</td>
                           <td className="p-3">
-                            <div className="font-bold">
-                              {clean(visit.accountName) || "-"}
-                            </div>
+                            <div className="font-bold">{clean(visit.accountName) || "-"}</div>
                             {clean(visit.accountId) ? (
-                              <div className="text-xs text-gray-500">
-                                {clean(visit.accountId)}
-                              </div>
+                              <div className="text-xs text-gray-500">{clean(visit.accountId)}</div>
                             ) : null}
                           </td>
-
-                          <td className="p-3">
-                            {clean(visit.visitType) || "-"}
-                          </td>
-
-                          <td className="p-3">
-                            {clean(visit.manager) || "-"}
-                          </td>
-
-                          <td className="p-3">
-                            {clean(visit.subcontractor) || "-"}
-                          </td>
-
+                          <td className="p-3">{clean(visit.visitType) || "-"}</td>
+                          <td className="p-3">{clean(visit.manager) || "-"}</td>
+                          <td className="p-3">{clean(visit.subcontractor) || "-"}</td>
                           <td className="p-3">
                             <span className={getConditionClass(visit.condition)}>
                               {clean(visit.condition) || "-"}
                             </span>
                           </td>
-
-                          <td className="p-3">
-                            {clean(visit.followUpNeeded) || "-"}
-                          </td>
-
-                          <td className="whitespace-nowrap p-3">
-                            {formatDate(visit.followUpDate)}
-                          </td>
-
-                          <td className="min-w-[320px] p-3">
-                            {clean(visit.notes) || "-"}
-                          </td>
+                          <td className="p-3">{clean(visit.followUpNeeded) || "-"}</td>
+                          <td className="whitespace-nowrap p-3">{formatDate(visit.followUpDate)}</td>
+                          <td className="min-w-[320px] p-3">{clean(visit.notes) || "-"}</td>
                         </tr>
                       ))}
                     </tbody>

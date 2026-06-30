@@ -4,7 +4,8 @@ import { getIronSession } from "iron-session";
 import Image from "next/image";
 import Link from "next/link";
 import { sessionOptions, SESSION_COOKIE, type PortalSessionData } from "@/lib/portalSession";
-import { getMainAccountByName, getCustomerByPortalCode } from "@/lib/googleSheets";
+import { getMainAccountByName, getCustomerByPortalCode, getVisitsByAccountName } from "@/lib/googleSheets";
+import PortalVisitCalendar from "./portal-visit-calendar";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -59,21 +60,34 @@ function StatusBadge({ status }: { status: string }) {
 
 export default async function PortalDashboardPage() {
   const cookieStore = await cookies();
+  const allCookies = cookieStore.getAll();
+  console.log("[dashboard] cookies received →", allCookies.map(c => c.name));
+
   const session = await getIronSession<PortalSessionData>(cookieStore, sessionOptions());
+  console.log("[dashboard] session →", {
+    accountId:   session.accountId,
+    accountName: session.accountName,
+    portalCode:  session.portalCode,
+  });
 
   if (!session.accountId || !session.portalCode || !session.accountName) {
+    console.log("[dashboard] REDIRECT — session missing fields");
     redirect("/portal/login");
   }
 
-  // Fetch main account data + portal billing data in parallel
-  const [account, portalData] = await Promise.all([
+  // Fetch main account data, portal billing data, and scheduled visits in parallel
+  const [account, portalData, visits] = await Promise.all([
     getMainAccountByName(session.accountName).catch(() => null),
     getCustomerByPortalCode(session.portalCode).catch(() => null),
+    getVisitsByAccountName(session.accountName).catch(() => []),
   ]);
 
-  if (!account) {
-    redirect("/portal/login");
-  }
+  console.log("[dashboard] account lookup →", account
+    ? { name: account.accountName, status: account.status }
+    : "NOT FOUND in main sheet");
+  console.log("[dashboard] portalData →", portalData
+    ? { nextScheduled: portalData.nextScheduledService, estimated: portalData.estimatedMonthlyTotal }
+    : "NOT FOUND in portal tab");
 
   async function logout() {
     "use server";
@@ -106,7 +120,7 @@ export default async function PortalDashboardPage() {
                 Cleaning World
               </p>
               <h1 className="text-base font-bold leading-tight text-white">
-                Welcome, {account.accountName}
+                Welcome, {account?.accountName ?? session.accountName}
               </h1>
             </div>
           </div>
@@ -124,22 +138,25 @@ export default async function PortalDashboardPage() {
         {/* ── Status ── */}
         <div className="flex items-center justify-between rounded-2xl bg-white px-5 py-4 shadow-sm">
           <span className="text-sm font-semibold text-slate-700">Account Status</span>
-          <StatusBadge status={account.status} />
+          <StatusBadge status={account?.status ?? ""} />
         </div>
 
         {/* ── Service Details ── */}
         <Section title="Service Details">
-          <Row label="Service Type" value={val(account.serviceType)} />
-          <Row label="Frequency" value={val(account.frequency)} />
-          <Row label="Cleaning Days" value={val(account.cleaningDays)} />
-          <Row label="Start Date" value={val(account.startDate)} />
+          <Row label="Service Type"  value={val(account?.serviceType)} />
+          <Row label="Frequency"     value={val(account?.frequency)} />
+          <Row label="Cleaning Days" value={val(account?.cleaningDays)} />
+          <Row label="Start Date"    value={val(account?.startDate)} />
         </Section>
 
         {/* ── Schedule ── */}
         <Section title="Schedule">
           <Row label="Next Scheduled Service" value={val(portalData?.nextScheduledService)} />
-          <Row label="Last Visit Date" value={val(account.lastVisitDate)} />
+          <Row label="Last Visit Date"        value={val(account?.lastVisitDate)} />
         </Section>
+
+        {/* ── Visit Calendar ── */}
+        <PortalVisitCalendar visits={visits} />
 
         {/* ── Scope of Work ── */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">
@@ -147,13 +164,13 @@ export default async function PortalDashboardPage() {
             Scope of Work
           </p>
           <p className="text-sm leading-relaxed text-slate-700 whitespace-pre-line">
-            {val(account.scopeOfWork)}
+            {val(account?.scopeOfWork)}
           </p>
         </div>
 
         {/* ── Address ── */}
         <Section title="Service Address">
-          <Row label="Address" value={val(account.address)} />
+          <Row label="Address" value={val(account?.address)} />
         </Section>
 
         {/* ── Billing ── */}

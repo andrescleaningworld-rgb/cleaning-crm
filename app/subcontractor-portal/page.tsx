@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import VisitCalendar from "./visit-calendar";
+import ScheduleVisit from "./schedule-visit";
 
 type Account = {
   id?: string;
@@ -1319,9 +1320,14 @@ export default function SubcontractorPortalPage() {
                 <button
                   type="button"
                   onClick={() => setActivePortalView("complaints")}
-                  className={getPortalButtonClass("complaints")}
+                  className={`relative ${getPortalButtonClass("complaints")}`}
                 >
                   Complaints
+                  {openComplaints.length > 0 && (
+                    <span className="absolute -right-1.5 -top-1.5 rounded-full bg-orange-500 px-1.5 py-0.5 text-xs font-black leading-none text-white">
+                      {openComplaints.length}
+                    </span>
+                  )}
                 </button>
 
                 <button
@@ -1347,6 +1353,7 @@ export default function SubcontractorPortalPage() {
                 activePortalView === "accounts" ? "block" : "hidden"
               } mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm`}
             >
+
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="text-xl font-black text-slate-900">
@@ -1556,7 +1563,17 @@ export default function SubcontractorPortalPage() {
                 frequency={selectedAccount.frequency ?? ""}
                 cleaningDays={selectedAccount.cleaningDays ?? ""}
                 subEmail={subcontractor.email ?? email}
+              />
+            ) : null}
+
+            {selectedAccount && subcontractor ? (
+              <ScheduleVisit
+                accountName={getAccountName(selectedAccount)}
+                accountId={getAccountId(selectedAccount)}
+                subEmail={subcontractor.email ?? email}
                 subName={getSubcontractorDisplayName(subcontractor)}
+                frequency={selectedAccount.frequency ?? ""}
+                cleaningDays={selectedAccount.cleaningDays ?? ""}
               />
             ) : null}
 
@@ -1565,6 +1582,7 @@ export default function SubcontractorPortalPage() {
                 activePortalView === "complaints" ? "block" : "hidden"
               } mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm`}
             >
+
 
               <h2 className="text-xl font-black text-slate-900">
                 My Open Complaints
