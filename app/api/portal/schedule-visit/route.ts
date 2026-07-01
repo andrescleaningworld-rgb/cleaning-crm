@@ -105,16 +105,25 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Update Next Scheduled Service on the customer-portal sheet (first/earliest date)
-    const portalAccounts = await listPortalAccounts();
-    const match = portalAccounts.find(
-      (a) => a.accountName.trim().toLowerCase() === accountName.toLowerCase(),
-    );
+    // Update Next Scheduled Service on the customer-portal sheet (first/earliest date).
+    // Best-effort: the visits above are already saved, so a failure here shouldn't
+    // fail the whole request.
+    try {
+      const portalAccounts = await listPortalAccounts();
+      const match = portalAccounts.find(
+        (a) => a.accountName.trim().toLowerCase() === accountName.toLowerCase(),
+      );
 
-    if (match) {
-      await updatePortalAccountFields(match.sheetRow, {
-        nextScheduledService: scheduleLabel,
-      });
+      if (match) {
+        await updatePortalAccountFields(match.sheetRow, {
+          nextScheduledService: scheduleLabel,
+        });
+      }
+    } catch (sideEffectErr) {
+      console.error(
+        "[portal/schedule-visit] Failed to update Next Scheduled Service (non-fatal):",
+        sideEffectErr,
+      );
     }
 
     return NextResponse.json({ success: true, scheduleLabel, count: sortedDates.length });
