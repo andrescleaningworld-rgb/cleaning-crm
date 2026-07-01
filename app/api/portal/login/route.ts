@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { getCustomerByPortalCode, getCustomerByPhone } from "@/lib/googleSheets";
+import { getCustomerByPortalCode, getCustomerByPhone, normalizePhone } from "@/lib/googleSheets";
 
 const INVALID = NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 
@@ -21,6 +21,10 @@ export async function POST(request: NextRequest) {
   if (!phone || !portalCode) {
     console.log("[portal/login] missing phone or portalCode");
     return INVALID;
+  }
+
+  if (normalizePhone(phone).length !== 10) {
+    return NextResponse.json({ error: "Please enter a valid 10-digit phone number" }, { status: 400 });
   }
 
   try {

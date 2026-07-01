@@ -470,12 +470,20 @@ export async function updateSubmissionStatus(tab: PortalTabName, sheetRow: numbe
 
 // ─── Portal auth lookups ─────────────────────────────────────────────────────
 
-export async function getCustomerByPhone(phone: string) {
+export function normalizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
+export async function getCustomerByPhone(phone: string) {
+  const digits = normalizePhone(phone);
   const rows = await fetchAllRows();
   const row = rows.find(
     (r) =>
-      r[COL.PHONE]?.replace(/\D/g, "") === digits &&
+      normalizePhone(r[COL.PHONE] ?? "") === digits &&
       r[COL.PORTAL_ACCESS]?.trim().toUpperCase() === "YES"
   );
   if (!row) return null;
