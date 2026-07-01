@@ -70,6 +70,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "All dates must be in the future" }, { status: 400 });
     }
 
+    console.log("[portal/schedule-visit] DIAGNOSTIC env check:", {
+      hasServiceAccountEmail: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL),
+      serviceAccountEmailLength: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.length ?? 0,
+      hasPrivateKey: Boolean(process.env.GOOGLE_PRIVATE_KEY),
+      privateKeyLength: process.env.GOOGLE_PRIVATE_KEY?.length ?? 0,
+    });
+
     const auth = getAuth();
     const sheets = google.sheets({ version: "v4", auth });
     const submittedAt = new Date().toISOString();
