@@ -30,46 +30,46 @@ function getAuth() {
 }
 
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown>;
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
-  }
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
 
-  const accountName = typeof body.accountName === "string" ? body.accountName.trim() : "";
-  const accountId   = typeof body.accountId   === "string" ? body.accountId.trim()   : "";
-  const subEmail    = typeof body.subEmail    === "string" ? body.subEmail.trim()    : "";
-  const subName     = typeof body.subName     === "string" ? body.subName.trim()     : "";
-  const timeWindow  = typeof body.timeWindow  === "string" ? body.timeWindow.trim()  : "";
+    const accountName = typeof body.accountName === "string" ? body.accountName.trim() : "";
+    const accountId   = typeof body.accountId   === "string" ? body.accountId.trim()   : "";
+    const subEmail    = typeof body.subEmail    === "string" ? body.subEmail.trim()    : "";
+    const subName     = typeof body.subName     === "string" ? body.subName.trim()     : "";
+    const timeWindow  = typeof body.timeWindow  === "string" ? body.timeWindow.trim()  : "";
 
-  // Accept either visitDates[] (new) or visitDate (legacy single)
-  let visitDates: string[];
-  if (Array.isArray(body.visitDates)) {
-    visitDates = (body.visitDates as unknown[])
-      .filter((d): d is string => typeof d === "string" && d.trim().length > 0)
-      .map((d) => d.trim());
-  } else if (typeof body.visitDate === "string" && body.visitDate.trim()) {
-    visitDates = [body.visitDate.trim()];
-  } else {
-    visitDates = [];
-  }
+    // Accept either visitDates[] (new) or visitDate (legacy single)
+    let visitDates: string[];
+    if (Array.isArray(body.visitDates)) {
+      visitDates = (body.visitDates as unknown[])
+        .filter((d): d is string => typeof d === "string" && d.trim().length > 0)
+        .map((d) => d.trim());
+    } else if (typeof body.visitDate === "string" && body.visitDate.trim()) {
+      visitDates = [body.visitDate.trim()];
+    } else {
+      visitDates = [];
+    }
 
-  if (!accountName || !subEmail || !timeWindow || visitDates.length === 0) {
-    return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-  }
+    if (!accountName || !subEmail || !timeWindow || visitDates.length === 0) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
 
-  if (!(VALID_WINDOWS as readonly string[]).includes(timeWindow)) {
-    return NextResponse.json({ error: "Invalid time window" }, { status: 400 });
-  }
+    if (!(VALID_WINDOWS as readonly string[]).includes(timeWindow)) {
+      return NextResponse.json({ error: "Invalid time window" }, { status: 400 });
+    }
 
-  const today = new Date().toISOString().slice(0, 10);
-  const invalidDate = visitDates.find((d) => d <= today);
-  if (invalidDate) {
-    return NextResponse.json({ error: "All dates must be in the future" }, { status: 400 });
-  }
+    const today = new Date().toISOString().slice(0, 10);
+    const invalidDate = visitDates.find((d) => d <= today);
+    if (invalidDate) {
+      return NextResponse.json({ error: "All dates must be in the future" }, { status: 400 });
+    }
 
-  try {
     const auth = getAuth();
     const sheets = google.sheets({ version: "v4", auth });
     const submittedAt = new Date().toISOString();
@@ -112,7 +112,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, scheduleLabel, count: sortedDates.length });
   } catch (err) {
-    console.error("[portal/schedule-visit]", err);
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[portal/schedule-visit] Unhandled error:", { message, stack, raw: err });
     return NextResponse.json({ error: "Failed to save schedule" }, { status: 500 });
   }
 }
