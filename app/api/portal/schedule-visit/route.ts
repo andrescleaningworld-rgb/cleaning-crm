@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
-import { listPortalAccounts, updatePortalAccountFields } from "@/lib/googleSheets";
-
-const VISITS_SHEET_ID = "10MDGlN8pVKVcthd2MA5ygsBLVI3nN3DF98i_cF-Pqjs";
-const VISITS_TAB = "Visits";
+import { appendSubSchedule, listPortalAccounts, updatePortalAccountFields } from "@/lib/googleSheets";
 
 const VALID_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"] as const;
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
+];
+
+const DAY_NAMES = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
 ];
 
 function formatLabel(date: string, timeWindow: string): string {
@@ -19,14 +19,9 @@ function formatLabel(date: string, timeWindow: string): string {
   return `${MONTH_NAMES[month]} ${day} - ${timeWindow}`;
 }
 
-function getAuth() {
-  return new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
+function dayOfWeekFromDate(date: string): string {
+  const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
+  return DAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
 }
 
 export async function POST(request: NextRequest) {
@@ -56,7 +51,7 @@ export async function POST(request: NextRequest) {
       visitDates = [];
     }
 
-    if (!accountName || !subEmail || !timeWindow || visitDates.length === 0) {
+    if (!accountName || !accountId || !subEmail || !timeWindow || visitDates.length === 0) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
@@ -70,44 +65,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "All dates must be in the future" }, { status: 400 });
     }
 
-    console.log("[portal/schedule-visit] DIAGNOSTIC env check:", {
-      hasServiceAccountEmail: Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL),
-      serviceAccountEmailLength: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.length ?? 0,
-      hasPrivateKey: Boolean(process.env.GOOGLE_PRIVATE_KEY),
-      privateKeyLength: process.env.GOOGLE_PRIVATE_KEY?.length ?? 0,
-    });
-
-    const auth = getAuth();
-    const sheets = google.sheets({ version: "v4", auth });
-    const submittedAt = new Date().toISOString();
-
-    // Sort dates so the first one is earliest (for the label)
+    // Sort dates so the first one is earliest (for the label and effective range)
     const sortedDates = [...visitDates].sort();
-    const scheduleLabel = formatLabel(sortedDates[0], timeWindow);
+    const effectiveStart = sortedDates[0];
+    const effectiveEnd = sortedDates[sortedDates.length - 1];
+    const scheduleLabel = formatLabel(effectiveStart, timeWindow);
+    const submittedBy = subName || subEmail;
 
-    // Batch-append all visit dates in one API call
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: VISITS_SHEET_ID,
-      range: `${VISITS_TAB}!A:A`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: sortedDates.map((date) => [
-          submittedAt,
-          accountName,
-          accountId,
-          subName,
-          subEmail,
-          date,
-          timeWindow,
-          "Scheduled",
-          "Portal",
-        ]),
-      },
-    });
+    // Write one recurring SubSchedules pattern row per distinct weekday implied
+    // by the chosen dates (e.g. weekly = 1 row, twice-weekly = 2 rows).
+    const distinctDays = Array.from(new Set(sortedDates.map(dayOfWeekFromDate)));
+
+    const scheduleIds: string[] = [];
+    for (const dayOfWeek of distinctDays) {
+      const scheduleId = await appendSubSchedule({
+        accountId,
+        subId: subEmail,
+        dayOfWeek,
+        timeWindow,
+        recurring: "Y",
+        effectiveStart,
+        effectiveEnd,
+        status: "Active",
+        submittedBy,
+      });
+      scheduleIds.push(scheduleId);
+    }
 
     // Update Next Scheduled Service on the customer-portal sheet (first/earliest date).
-    // Best-effort: the visits above are already saved, so a failure here shouldn't
-    // fail the whole request.
+    // Best-effort: the schedule rows above are already saved, so a failure here
+    // shouldn't fail the whole request.
     try {
       const portalAccounts = await listPortalAccounts();
       const match = portalAccounts.find(
@@ -126,7 +113,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, scheduleLabel, count: sortedDates.length });
+    return NextResponse.json({ success: true, scheduleLabel, count: sortedDates.length, scheduleIds });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
