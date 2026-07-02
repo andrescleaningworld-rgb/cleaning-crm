@@ -6,6 +6,8 @@ const PUBLIC_PATHS = [
   "/login",
   "/portal",
   "/api/portal",
+  "/customer-portal",
+  "/api/customer-portal",
   "/subcontractor-portal",
   "/subcontractor-page",
   "/api/login",
@@ -14,6 +16,8 @@ const PUBLIC_PATHS = [
   "/api/subcontractor-visits",
   "/favicon.ico",
   "/cw-logo.jpg",
+  "/manifest.json",
+  "/manifest.webmanifest",
 ];
 
 function isPublicPath(pathname: string) {
