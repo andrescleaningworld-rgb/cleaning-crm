@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCustomerByPhone } from "@/lib/googleSheets";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -30,6 +31,25 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+
+    // Phone-based login lookup: check directly against the sheet instead of
+    // forwarding to the Apps Script, which does an exact/formatted string
+    // match and rejects our digits-only phone input.
+    if (
+      body.action === "getAccount" &&
+      typeof body.phone === "string" &&
+      body.phone.trim()
+    ) {
+      const customer = await getCustomerByPhone(body.phone);
+      if (!customer) {
+        return NextResponse.json(
+          { success: false, error: "No account found with that phone number.", account: null, accounts: [] },
+          { status: 404 }
+        );
+      }
+      return NextResponse.json({ success: true, account: customer, accounts: [customer] });
+    }
+
     const customerId = body.customerId || body.email || "demo-customer";
 
     // Forward to script with customer context
