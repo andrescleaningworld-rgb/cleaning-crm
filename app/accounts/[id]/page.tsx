@@ -70,6 +70,19 @@ type ApiResponse = {
   accounts?: Account[];
 };
 
+type PortalAccountRecord = {
+  accountName?: string;
+  portalSheetRow?: number | null;
+  portalAccess?: string;
+};
+
+type PortalAccountActionResponse = {
+  success?: boolean;
+  error?: string;
+  portalAccess?: string;
+  portalCode?: string;
+};
+
 type SubcontractorsApiResponse = {
   success?: boolean;
   error?: string;
@@ -237,6 +250,39 @@ async function readSubcontractorsApiResponse(
   }
 }
 
+async function readPortalAccountsResponse(
+  response: Response
+): Promise<PortalAccountRecord[]> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? (parsed as PortalAccountRecord[]) : [];
+  } catch {
+    throw new Error("The portal accounts server did not return valid JSON.");
+  }
+}
+
+async function readPortalActionResponse(
+  response: Response
+): Promise<PortalAccountActionResponse> {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text) as PortalAccountActionResponse;
+  } catch {
+    throw new Error("The portal accounts server did not return valid JSON.");
+  }
+}
+
 export default function AccountDetailPage() {
   const params = useParams();
   const rawAccountIdFromUrl = String(params?.id || "");
@@ -258,6 +304,31 @@ export default function AccountDetailPage() {
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+
+  const [portalSheetRow, setPortalSheetRow] = useState<number | null>(null);
+  const [portalAccess, setPortalAccess] = useState<"YES" | "NO">("NO");
+  const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
+  const [portalAccessError, setPortalAccessError] = useState("");
+
+  async function fetchPortalAccountMatch(
+    accountName: string
+  ): Promise<{ sheetRow: number | null; access: "YES" | "NO" }> {
+    const response = await fetch("/api/admin/portal-accounts", {
+      cache: "no-store",
+    });
+
+    const records = await readPortalAccountsResponse(response);
+    const normalizedName = normalizeValue(accountName);
+
+    const match = records.find(
+      (record) => normalizeValue(record.accountName) === normalizedName
+    );
+
+    return {
+      sheetRow: match?.portalSheetRow ?? null,
+      access: match?.portalAccess?.toUpperCase() === "YES" ? "YES" : "NO",
+    };
+  }
 
   useEffect(() => {
     async function loadAccount() {
@@ -326,6 +397,16 @@ export default function AccountDetailPage() {
         }
 
         setAccount(foundAccount);
+
+        try {
+          const { sheetRow, access } = await fetchPortalAccountMatch(
+            foundAccount.accountName || ""
+          );
+          setPortalSheetRow(sheetRow);
+          setPortalAccess(access);
+        } catch {
+          // Do not block the page if portal access info fails to load.
+        }
       } catch (err) {
         setError(
           err instanceof Error
@@ -503,6 +584,73 @@ export default function AccountDetailPage() {
     }
   }
 
+  async function handleTogglePortalAccess() {
+    if (!account) return;
+
+    const accountName = cleanText(account.accountName);
+    if (!accountName) return;
+
+    try {
+      setTogglingPortalAccess(true);
+      setPortalAccessError("");
+
+      if (portalSheetRow == null) {
+        const response = await fetch("/api/admin/portal-accounts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            accountName,
+            phone: contactPhone !== "N/A" ? contactPhone : "",
+            accountId: getAccountId(account, rawAccountIdFromUrl),
+          }),
+        });
+
+        const data = await readPortalActionResponse(response);
+
+        if (!response.ok || data.success === false) {
+          throw new Error(data.error || "Could not enable portal access.");
+        }
+
+        const { sheetRow, access } = await fetchPortalAccountMatch(
+          accountName
+        );
+        setPortalSheetRow(sheetRow);
+        setPortalAccess(access);
+        return;
+      }
+
+      const response = await fetch("/api/admin/portal-accounts", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sheetRow: portalSheetRow,
+          action: "toggleAccess",
+          currentAccess: portalAccess,
+        }),
+      });
+
+      const data = await readPortalActionResponse(response);
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Could not update portal access.");
+      }
+
+      setPortalAccess(data.portalAccess === "YES" ? "YES" : "NO");
+    } catch (err) {
+      setPortalAccessError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong updating portal access."
+      );
+    } finally {
+      setTogglingPortalAccess(false);
+    }
+  }
+
   function openStatusModal() {
     if (!account) return;
 
@@ -612,6 +760,40 @@ export default function AccountDetailPage() {
           : current
       );
 
+      if (newStatus === "Cancelled") {
+        try {
+          let targetSheetRow = portalSheetRow;
+
+          if (targetSheetRow == null) {
+            const match = await fetchPortalAccountMatch(accountName);
+            targetSheetRow = match.sheetRow;
+          }
+
+          if (targetSheetRow != null) {
+            const portalResponse = await fetch("/api/admin/portal-accounts", {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                sheetRow: targetSheetRow,
+                action: "toggleAccess",
+                currentAccess: "YES",
+              }),
+            });
+
+            const portalData = await readPortalActionResponse(portalResponse);
+
+            if (portalResponse.ok && portalData.success !== false) {
+              setPortalSheetRow(targetSheetRow);
+              setPortalAccess("NO");
+            }
+          }
+        } catch {
+          // Do not block the status change if portal access could not be updated.
+        }
+      }
+
       setStatusMessage("Status changed and history note saved.");
       setShowStatusModal(false);
     } catch (err) {
@@ -653,8 +835,8 @@ export default function AccountDetailPage() {
   }
 
   return (
-    <div>
-      <div className="mb-4">
+    <div className="account-detail-print">
+      <div className="mb-4 account-detail-print-hide">
         <Link
           href="/accounts"
           className="text-sm font-bold text-blue-800 hover:underline"
@@ -705,7 +887,7 @@ export default function AccountDetailPage() {
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[420px]">
+            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[420px] account-detail-print-hide">
               <button
                 onClick={handleSendNewAccountPacket}
                 disabled={sendingPacket}
@@ -727,6 +909,29 @@ export default function AccountDetailPage() {
                 className="rounded-2xl bg-purple-200 px-4 py-3 text-center text-sm font-black text-purple-950 shadow-sm hover:bg-purple-100"
               >
                 Change Status
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTogglePortalAccess}
+                disabled={togglingPortalAccess}
+                className={`rounded-2xl px-4 py-3 text-center text-sm font-black shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${
+                  portalAccess === "YES"
+                    ? "bg-emerald-200 text-emerald-950 hover:bg-emerald-100"
+                    : "bg-slate-200 text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                {togglingPortalAccess
+                  ? "Updating Portal Access..."
+                  : `Portal Access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50"
+              >
+                Print
               </button>
 
               <Link
@@ -782,6 +987,12 @@ export default function AccountDetailPage() {
           {statusMessage ? (
             <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
               {statusMessage}
+            </div>
+          ) : null}
+
+          {portalAccessError ? (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
+              {portalAccessError}
             </div>
           ) : null}
         </div>
@@ -976,7 +1187,7 @@ export default function AccountDetailPage() {
       </section>
 
       {showFullAccountInfo ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -1178,7 +1389,7 @@ export default function AccountDetailPage() {
       ) : null}
 
       {showStatusModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
           <div className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>

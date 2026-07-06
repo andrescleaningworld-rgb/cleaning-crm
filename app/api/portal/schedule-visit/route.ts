@@ -24,6 +24,19 @@ function dayOfWeekFromDate(date: string): string {
   return DAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
 }
 
+// The server runs in UTC, but visitDates are plain YYYY-MM-DD calendar dates
+// picked against the sub's local (US Eastern) clock — comparing against a
+// UTC "today" would reject valid dates in the evening once UTC has already
+// rolled over to the next calendar day.
+function getEasternToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export async function POST(request: NextRequest) {
   try {
     let body: Record<string, unknown>;
@@ -59,7 +72,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid time window" }, { status: 400 });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getEasternToday();
     const invalidDate = visitDates.find((d) => d <= today);
     if (invalidDate) {
       return NextResponse.json({ error: "All dates must be in the future" }, { status: 400 });

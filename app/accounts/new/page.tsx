@@ -73,6 +73,7 @@ type SaveAccountResponse = {
   success?: boolean;
   error?: string;
   message?: string;
+  accountId?: string;
 };
 
 const emptyForm: AccountForm = {
@@ -147,6 +148,7 @@ export default function NewAccountPage() {
   const router = useRouter();
 
   const [form, setForm] = useState<AccountForm>(emptyForm);
+  const [portalAccess, setPortalAccess] = useState<"Yes" | "No">("Yes");
   const [existingAccounts, setExistingAccounts] = useState<ExistingAccount[]>(
     []
   );
@@ -280,6 +282,24 @@ export default function NewAccountPage() {
         throw new Error(data.error || "Could not save account.");
       }
 
+      if (portalAccess === "Yes") {
+        try {
+          await fetch("/api/admin/portal-accounts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              accountName: accountPayload.accountName,
+              phone: accountPayload.phone,
+              accountId: data.accountId || "",
+            }),
+          });
+        } catch {
+          // Do not block account creation if the portal access row could not be created.
+        }
+      }
+
       setMessage("Account saved successfully.");
 
       setTimeout(() => {
@@ -400,6 +420,22 @@ export default function NewAccountPage() {
                   <option>Stable</option>
                   <option>Needs Attention</option>
                   <option>High Risk</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-black text-slate-700">
+                  Portal Access
+                </span>
+                <select
+                  value={portalAccess}
+                  onChange={(event) =>
+                    setPortalAccess(event.target.value as "Yes" | "No")
+                  }
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
+                >
+                  <option>Yes</option>
+                  <option>No</option>
                 </select>
               </label>
 

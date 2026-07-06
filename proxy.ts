@@ -14,6 +14,8 @@ const PUBLIC_PATHS = [
   "/api/logout",
   "/api/subcontractor-portal",
   "/api/subcontractor-visits",
+  "/api/subcontractor-schedules",
+  "/api/subcontractor-schedule-exceptions",
   "/favicon.ico",
   "/cw-logo.jpg",
   "/manifest.json",

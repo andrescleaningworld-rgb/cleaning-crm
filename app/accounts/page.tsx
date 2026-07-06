@@ -673,6 +673,7 @@ function useFocusTrap(active: boolean) {
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [allSubcontractors, setAllSubcontractors] = useState<Subcontractor[]>([]);
+  const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -707,6 +708,9 @@ export default function AccountsPage() {
   const [storedTransferProposals, setStoredTransferProposals] = useState<StoredTransferProposal[]>([]);
   const [transferProposalsLoading, setTransferProposalsLoading] = useState(false);
   const [transferProposalsError, setTransferProposalsError] = useState("");
+  const [transferAllAccounts, setTransferAllAccounts] = useState<Account[]>([]);
+  const [loadingTransferAccounts, setLoadingTransferAccounts] = useState(false);
+  const [transferAccountsError, setTransferAccountsError] = useState("");
   const [viewedStoredProposal, setViewedStoredProposal] =
   useState<StoredTransferProposal | null>(null);
 
@@ -725,38 +729,44 @@ export default function AccountsPage() {
   // -------------------------------------------------------------------------
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subcontractorsRef = useRef<Subcontractor[]>([]);
+
+  // Subcontractor data (used by the New Subcontractor dropdown in the
+  // Transfer panel) loads independently on mount — it must not depend on
+  // whether a main account search has been performed.
+  const fetchSubcontractors = useCallback(async () => {
+    setLoadingSubcontractors(true);
+    try {
+      const response = await fetch("/api/subcontractors");
+      const data = await readJson<SubcontractorsApiResponse>(response);
+      if (!response.ok || data.success === false) {
+        setSubcontractorWarning("Subcontractor names may not display correctly — check the subcontractors API.");
+        return;
+      }
+      const subcontractors = data.subcontractors ?? data.subs ?? data.data ?? [];
+      subcontractorsRef.current = subcontractors;
+      setAllSubcontractors(subcontractors);
+    } catch {
+      setSubcontractorWarning("Subcontractor names may not display correctly — the subcontractors API returned an unexpected response.");
+    } finally {
+      setLoadingSubcontractors(false);
+    }
+  }, []);
 
   const fetchAccounts = useCallback(async (q: string) => {
     setLoading(true);
     setError("");
-    setSubcontractorWarning("");
     setHasSearched(true);
     try {
-      const [accountsResponse, subcontractorsResponse] = await Promise.all([
-        fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" }),
-        fetch("/api/subcontractors"),
-      ]);
+      const accountsResponse = await fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" });
 
       const accountsData = await readJson<ApiResponse>(accountsResponse);
       if (!accountsResponse.ok || accountsData.success === false) {
         throw new Error(accountsData.error ?? "Could not load accounts.");
       }
 
-      let subcontractors: Subcontractor[] = [];
-      try {
-        const subData = await readJson<SubcontractorsApiResponse>(subcontractorsResponse);
-        if (subcontractorsResponse.ok && subData.success !== false) {
-          subcontractors = subData.subcontractors ?? subData.subs ?? subData.data ?? [];
-          setAllSubcontractors(subcontractors);
-        } else {
-          setSubcontractorWarning("Subcontractor names may not display correctly — check the subcontractors API.");
-        }
-      } catch {
-        setSubcontractorWarning("Subcontractor names may not display correctly — the subcontractors API returned an unexpected response.");
-      }
-
       const rawAccounts: Account[] = accountsData.accounts ?? accountsData.data ?? [];
-      setAccounts(enrichAccounts(rawAccounts, subcontractors));
+      setAccounts(enrichAccounts(rawAccounts, subcontractorsRef.current));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong loading accounts.");
       setAccounts([]);
@@ -805,6 +815,38 @@ export default function AccountsPage() {
     }
   }
 
+  // The Transfer panel's own account picker (Search Accounts / Current
+  // Subcontractor) needs its own full account list — it must not depend on
+  // whether the main top-of-page search has been used.
+  async function fetchTransferAccounts() {
+    setLoadingTransferAccounts(true);
+    setTransferAccountsError("");
+
+    try {
+      const response = await fetch("/api/accounts", { cache: "no-store" });
+      const data = await readJson<ApiResponse>(response);
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error ?? "Could not load accounts for transfer.");
+      }
+
+      const rawAccounts: Account[] = data.accounts ?? data.data ?? [];
+      setTransferAllAccounts(enrichAccounts(rawAccounts, subcontractorsRef.current));
+    } catch (err) {
+      setTransferAccountsError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong loading accounts for transfer."
+      );
+    } finally {
+      setLoadingTransferAccounts(false);
+    }
+  }
+
+  useEffect(() => {
+    void fetchSubcontractors();
+  }, [fetchSubcontractors]);
+
   useEffect(() => {
     const q = searchText.trim();
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -826,6 +868,7 @@ export default function AccountsPage() {
   useEffect(() => {
     if (transferMode) {
       loadTransferProposals();
+      fetchTransferAccounts();
     }
   }, [transferMode]);
 
@@ -1044,8 +1087,30 @@ export default function AccountsPage() {
 
   const selectedTransferAccounts = useMemo(() => {
     const selected = new Set(selectedTransferAccountIds);
-    return accounts.filter((account) => selected.has(getAccountId(account)));
-  }, [accounts, selectedTransferAccountIds]);
+    return transferAllAccounts.filter((account) => selected.has(getAccountId(account)));
+  }, [transferAllAccounts, selectedTransferAccountIds]);
+
+  const transferSourceSubcontractorOptions = useMemo<SubcontractorFilterOption[]>(() => {
+    const unique = Array.from(
+      new Set(transferAllAccounts.map((a) => normalizeText(a.subcontractor)).filter(Boolean))
+    );
+
+    const options = unique.map((storedSub) => {
+      const matchingAccount = transferAllAccounts.find(
+        (a) => normalizeText(a.subcontractor) === storedSub
+      );
+
+      return {
+        value: storedSub,
+        label: getSubDisplayLabel(matchingAccount?._subDisplay),
+      };
+    });
+
+    return [
+      { value: "All", label: "All Subcontractors" },
+      ...options.sort((a, b) => a.label.localeCompare(b.label)),
+    ];
+  }, [transferAllAccounts]);
 
   const transferCandidateAccounts = useMemo(() => {
     const cleanSearch = transferAccountSearch.toLowerCase().trim();
@@ -1054,7 +1119,7 @@ export default function AccountsPage() {
 
     if (!hasSearchOrSubFilter) return [];
 
-    return accounts
+    return transferAllAccounts
       .filter((account) => {
         const isActive = account._statusCategory === "Active";
         const matchesSourceSub =
@@ -1079,7 +1144,7 @@ export default function AccountsPage() {
         return isActive && matchesSourceSub && matchesSearch;
       })
       .sort((a, b) => normalizeText(a.accountName).localeCompare(normalizeText(b.accountName)));
-  }, [accounts, transferAccountSearch, transferSourceSubcontractorFilter]);
+  }, [transferAllAccounts, transferAccountSearch, transferSourceSubcontractorFilter]);
 
   const transferTotalProposedPay = useMemo(() => {
     return selectedTransferAccounts.reduce((sum, account) => {
@@ -1234,7 +1299,7 @@ export default function AccountsPage() {
     .filter(Boolean);
 
   const matchingIds = proposalIds.filter((id) =>
-    accounts.some((account) => getAccountId(account) === id)
+    transferAllAccounts.some((account) => getAccountId(account) === id)
   );
 
   const payById: Record<string, string> = {};
@@ -2175,8 +2240,10 @@ async function handleSaveTransferProposal() {
                       onChange={(e) => setTransferSourceSubcontractorFilter(e.target.value)}
                       className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
                     >
-                      <option value="All">All Subcontractors</option>
-                      {subcontractors
+                      <option value="All">
+                        {loadingTransferAccounts ? "Loading subcontractors..." : "All Subcontractors"}
+                      </option>
+                      {transferSourceSubcontractorOptions
                         .filter((sub) => sub.value !== "All")
                         .map((sub) => (
                           <option key={`source-${sub.value}`} value={sub.value}>
@@ -2208,10 +2275,18 @@ async function handleSaveTransferProposal() {
                   </p>
                 </div>
 
+                {transferAccountsError ? (
+                  <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-black text-amber-800">
+                    {transferAccountsError}
+                  </div>
+                ) : null}
+
                 <div className="mt-3 max-h-[560px] space-y-2 overflow-y-auto pr-1">
                   {transferCandidateAccounts.length === 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-bold text-slate-500">
-                      Search for an account or choose a current subcontractor to show matching active accounts.
+                      {loadingTransferAccounts
+                        ? "Loading accounts..."
+                        : "Search for an account or choose a current subcontractor to show matching active accounts."}
                     </div>
                   ) : (
                     transferCandidateAccounts.slice(0, 25).map((account) => {
@@ -2297,7 +2372,9 @@ async function handleSaveTransferProposal() {
                       }}
                       className="mt-2 min-h-[48px] w-full rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500 sm:text-sm"
                     >
-                      <option value="">Choose existing subcontractor...</option>
+                      <option value="">
+                        {loadingSubcontractors ? "Loading subcontractors..." : "Choose existing subcontractor..."}
+                      </option>
                       <option value="__ADD_NEW__">+ Add New Subcontractor</option>
                       {activeSubcontractors.map((sub) => {
                         const email = normalizeText(sub.email);

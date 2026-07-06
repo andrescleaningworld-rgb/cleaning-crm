@@ -6,6 +6,7 @@ import Link from "next/link";
 import { sessionOptions, SESSION_COOKIE, type PortalSessionData } from "@/lib/portalSession";
 import { getMainAccountByName, getCustomerByPortalCode, getVisitsByAccountName } from "@/lib/googleSheets";
 import PortalVisitCalendar from "./portal-visit-calendar";
+import ServiceScheduleSection from "./service-schedule-section";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -157,6 +158,9 @@ export default async function PortalDashboardPage() {
 
         {/* ── Visit Calendar ── */}
         <PortalVisitCalendar visits={visits} />
+
+        {/* ── Service Schedule ── */}
+        <ServiceScheduleSection />
 
         {/* ── Scope of Work ── */}
         <div className="rounded-2xl bg-white p-5 shadow-sm">

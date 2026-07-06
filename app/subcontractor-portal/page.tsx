@@ -4,6 +4,8 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
+import SubScheduleTab from "./sub-schedule-tab";
+import ScheduleCalendarTab from "./schedule-calendar-tab";
 
 type Account = {
   id?: string;
@@ -128,7 +130,7 @@ type SelectedIssuePhoto = {
   previewUrl: string;
 };
 
-type PortalView = "accounts" | "complaints" | "issue" | "supplies";
+type PortalView = "accounts" | "complaints" | "issue" | "supplies" | "schedule" | "calendar";
 
 const MAX_SUB_ISSUE_PHOTOS = 5;
 const MAX_SUB_ISSUE_PHOTO_SIZE_MB = 25;
@@ -499,6 +501,12 @@ export default function SubcontractorPortalPage() {
       supplies: isActive
         ? "bg-green-700 text-white ring-2 ring-green-200"
         : "border border-green-200 bg-green-50 text-green-800 hover:border-green-400 hover:bg-green-100",
+      schedule: isActive
+        ? "bg-indigo-700 text-white ring-2 ring-indigo-200"
+        : "border border-indigo-200 bg-indigo-50 text-indigo-800 hover:border-indigo-400 hover:bg-indigo-100",
+      calendar: isActive
+        ? "bg-teal-700 text-white ring-2 ring-teal-200"
+        : "border border-teal-200 bg-teal-50 text-teal-800 hover:border-teal-400 hover:bg-teal-100",
     };
 
     return `rounded-2xl px-3 py-3 text-center text-sm font-black shadow-sm transition ${colorClasses[view]}`;
@@ -1240,75 +1248,43 @@ export default function SubcontractorPortalPage() {
 
         {subcontractor ? (
           <>
-            <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            {/* Account-info bar + tab nav are combined into a single sticky
+                block pinned to the very top of the viewport, so both stay
+                reachable without scrolling once the sub is logged in. */}
+            <div className="sticky top-0 z-30 -mx-4 mt-4 bg-slate-100/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white/95 sm:px-3 sm:shadow-sm">
+              <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                     Logged in as
                   </p>
-                  <h2 className="mt-1 text-xl font-black text-slate-900">
+                  <p className="text-base font-black leading-tight text-slate-900">
                     {getSubcontractorDisplayName(subcontractor)}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-600">
+                  </p>
+                  <p className="text-xs text-slate-600">
                     {subcontractor.email}
                   </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 lg:min-w-[620px]">
-                  <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-center">
-                    <p className="text-xs font-black uppercase text-blue-700">
-                      Accounts
-                    </p>
-                    <p className="mt-1 text-2xl font-black text-blue-950">
-                      {activeAccounts.length}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-orange-100 bg-orange-50 p-3 text-center">
-                    <p className="text-xs font-black uppercase text-orange-700">
-                      Complaints
-                    </p>
-                    <p className="mt-1 text-2xl font-black text-orange-900">
-                      {openComplaints.length}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-center">
-                    <p className="text-xs font-black uppercase text-emerald-700">
-                      Total Sub Pay
-                    </p>
-                    <p className="mt-1 text-xl font-black text-emerald-950">
-                      {formatMoney(totalSubPay)}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-purple-100 bg-purple-50 p-3 text-center">
-                    <p className="text-xs font-black uppercase text-purple-700">
-                      Score
-                    </p>
-                    <p className="mt-1 text-xl font-black text-purple-950">
-                      {subcontractorScore}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-green-100 bg-green-50 p-3 text-center">
-                    <p className="text-xs font-black uppercase text-green-700">
-                      Status
-                    </p>
-                    <p className="mt-2 text-sm font-black text-green-900">
-                      {cleanText(subcontractor.status) || "Active"}
-                    </p>
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                    {activeAccounts.length} Accounts
+                  </span>
+                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">
+                    {openComplaints.length} Complaints
+                  </span>
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                    {formatMoney(totalSubPay)}
+                  </span>
+                  <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-black text-purple-700">
+                    Score {subcontractorScore}
+                  </span>
+                  <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-700">
+                    {cleanText(subcontractor.status) || "Active"}
+                  </span>
                 </div>
               </div>
-            </section>
 
-            <section className="sticky top-2 z-30 mt-4 rounded-3xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
-              <p className="mb-3 text-sm font-black uppercase tracking-wide text-slate-500">
-                What do you need to do?
-              </p>
-
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6">
                 <button
                   type="button"
                   onClick={() => setActivePortalView("accounts")}
@@ -1345,8 +1321,24 @@ export default function SubcontractorPortalPage() {
                 >
                   Supply Order
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActivePortalView("schedule")}
+                  className={getPortalButtonClass("schedule")}
+                >
+                  My Schedule
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActivePortalView("calendar")}
+                  className={getPortalButtonClass("calendar")}
+                >
+                  My Calendar
+                </button>
               </div>
-            </section>
+            </div>
 
             <section
               className={`${
@@ -1557,25 +1549,30 @@ export default function SubcontractorPortalPage() {
               ) : null}
             </section>
 
-            {selectedAccount && subcontractor ? (
-              <VisitCalendar
-                accountName={getAccountName(selectedAccount)}
-                frequency={selectedAccount.frequency ?? ""}
-                cleaningDays={selectedAccount.cleaningDays ?? ""}
-                subEmail={subcontractor.email ?? email}
-              />
-            ) : null}
+            {/* Tied to the account selected in the My Accounts tab above, so
+                these stay scoped to that tab instead of leaking into every
+                other tab whenever an account is selected. */}
+            <div className={activePortalView === "accounts" ? "block" : "hidden"}>
+              {selectedAccount && subcontractor ? (
+                <VisitCalendar
+                  accountName={getAccountName(selectedAccount)}
+                  frequency={selectedAccount.frequency ?? ""}
+                  cleaningDays={selectedAccount.cleaningDays ?? ""}
+                  subEmail={subcontractor.email ?? email}
+                />
+              ) : null}
 
-            {selectedAccount && subcontractor ? (
-              <ScheduleVisit
-                accountName={getAccountName(selectedAccount)}
-                accountId={getAccountId(selectedAccount)}
-                subEmail={subcontractor.email ?? email}
-                subName={getSubcontractorDisplayName(subcontractor)}
-                frequency={selectedAccount.frequency ?? ""}
-                cleaningDays={selectedAccount.cleaningDays ?? ""}
-              />
-            ) : null}
+              {selectedAccount && subcontractor ? (
+                <ScheduleVisit
+                  accountName={getAccountName(selectedAccount)}
+                  accountId={getAccountId(selectedAccount)}
+                  subEmail={subcontractor.email ?? email}
+                  subName={getSubcontractorDisplayName(subcontractor)}
+                  frequency={selectedAccount.frequency ?? ""}
+                  cleaningDays={selectedAccount.cleaningDays ?? ""}
+                />
+              ) : null}
+            </div>
 
             <section
               className={`${
@@ -2210,6 +2207,14 @@ export default function SubcontractorPortalPage() {
                 </button>
               </form>
             </section>
+
+            <div className={activePortalView === "schedule" ? "block" : "hidden"}>
+              <SubScheduleTab accounts={activeAccounts} subcontractor={subcontractor} />
+            </div>
+
+            <div className={activePortalView === "calendar" ? "block" : "hidden"}>
+              <ScheduleCalendarTab accounts={activeAccounts} subcontractor={subcontractor} />
+            </div>
           </>
         ) : null}
       </div>

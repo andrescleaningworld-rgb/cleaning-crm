@@ -312,4 +312,14 @@ img {
     border: none;
     padding: 0;
   }
+
+  .account-detail-print .account-detail-print-hide {
+    display: none !important;
+  }
+
+  .account-detail-print * {
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
 }
