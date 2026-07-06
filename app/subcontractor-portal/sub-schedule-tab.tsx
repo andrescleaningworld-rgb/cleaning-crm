@@ -84,12 +84,27 @@ function getSubId(sub: ScheduleSubcontractor | null): string {
   return cleanText(sub.email || sub.id || sub.subcontractorId);
 }
 
+// This runs in the browser, but Date#toISOString() always returns the UTC
+// calendar date — in the evening (US Eastern), UTC has already rolled to the
+// next day, which would save effectiveStart as tomorrow and hide the
+// schedule from the calendar's "todayISO >= effectiveStart" gate check.
+// Matches the same Intl.DateTimeFormat approach used server-side in
+// app/api/portal/schedule-visit/route.ts's getEasternToday().
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function yearEndISO(): string {
-  return `${new Date().getFullYear()}-12-31`;
+  // Derived from the same Eastern-time reference as todayISO() (rather than
+  // new Date().getFullYear(), which reads the browser's local system
+  // timezone) so the two can never disagree at a year boundary.
+  const year = todayISO().slice(0, 4);
+  return `${year}-12-31`;
 }
 
 function AccountScheduleForm({
