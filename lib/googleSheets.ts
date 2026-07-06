@@ -975,3 +975,105 @@ export async function deleteScheduleException(sheetRow: number): Promise<void> {
     range: `${SCHEDULE_EXCEPTIONS_TAB}!A${sheetRow}:I${sheetRow}`,
   });
 }
+
+// ─── Managers ──────────────────────────────────────────────────────────────
+
+const MANAGERS_TAB = "Managers";
+
+// Matches the Managers tab's existing header row (Manager ID, Manager Name,
+// Email, Phone, Status, Notes) — Email/Notes aren't used by this pass.
+const MANAGER_COL = {
+  MANAGER_ID: 0, // A
+  NAME:       1, // B
+  EMAIL:      2, // C (unused for now)
+  PHONE:      3, // D
+  STATUS:     4, // E
+  NOTES:      5, // F (unused for now)
+} as const;
+
+export type Manager = {
+  sheetRow: number;
+  managerId: string;
+  name: string;
+  phone: string;
+  status: string;
+};
+
+async function fetchManagerRows(): Promise<string[][]> {
+  const cacheKey = `tab-${MANAGERS_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${MANAGERS_TAB}!A:F`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchManagers(): Promise<Manager[]> {
+  const rows = await fetchManagerRows();
+  return rows.map((r, i) => ({
+    sheetRow:  i + 2,
+    managerId: r[MANAGER_COL.MANAGER_ID] ?? "",
+    name:      r[MANAGER_COL.NAME]       ?? "",
+    phone:     r[MANAGER_COL.PHONE]      ?? "",
+    status:    r[MANAGER_COL.STATUS]     ?? "",
+  }));
+}
+
+export async function appendManager(data: {
+  name: string;
+  phone: string;
+  status: string;
+}): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 6);
+  const managerId = `MGR-${stamp.slice(-8)}-${rand}`;
+  const row = Array(6).fill("");
+  row[MANAGER_COL.MANAGER_ID] = managerId;
+  row[MANAGER_COL.NAME] = data.name;
+  row[MANAGER_COL.PHONE] = data.phone;
+  row[MANAGER_COL.STATUS] = data.status;
+  await appendToMainSheet(MANAGERS_TAB, row);
+  return managerId;
+}
+
+export async function updateManager(
+  sheetRow: number,
+  fields: Partial<{
+    name: string;
+    phone: string;
+    status: string;
+  }>
+): Promise<void> {
+  invalidateCache(`tab-${MANAGERS_TAB}`);
+  const colLetters: Record<string, string> = {
+    name: "B",
+    phone: "D",
+    status: "E",
+  };
+
+  const data = Object.entries(fields)
+    .filter(([, v]) => v !== undefined)
+    .map(([key, value]) => ({
+      range: `${MANAGERS_TAB}!${colLetters[key]}${sheetRow}`,
+      values: [[value]],
+    }));
+
+  if (data.length === 0) return;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}

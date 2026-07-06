@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 type SettingItem = {
   id: string;
@@ -9,13 +14,13 @@ type SettingItem = {
   status: "Active" | "Inactive";
 };
 
-const startingManagers: SettingItem[] = [
-  { id: "manager-andres", name: "Andrés", status: "Active" },
-  { id: "manager-greg", name: "Greg", status: "Active" },
-  { id: "manager-drew", name: "Drew", status: "Active" },
-  { id: "manager-ryan", name: "Ryan", status: "Active" },
-  { id: "manager-cw", name: "CW", status: "Active" },
-];
+type Manager = {
+  sheetRow: number;
+  managerId: string;
+  name: string;
+  phone: string;
+  status: "Active" | "Inactive";
+};
 
 const startingVisitTypes: SettingItem[] = [
   { id: "visit-routine", name: "Routine Visit", status: "Active" },
@@ -152,6 +157,268 @@ function SettingsSection({
   );
 }
 
+function ManagersSettingsSection({
+  managers,
+  setManagers,
+  loading,
+  loadError,
+}: {
+  managers: Manager[];
+  setManagers: Dispatch<SetStateAction<Manager[]>>;
+  loading: boolean;
+  loadError: string;
+}) {
+  const [newManagerName, setNewManagerName] = useState("");
+  const [newManagerPhone, setNewManagerPhone] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [phoneDrafts, setPhoneDrafts] = useState<Record<number, string>>({});
+  const [savingRow, setSavingRow] = useState<number | null>(null);
+
+  async function handleAdd() {
+    const name = newManagerName.trim();
+
+    if (!name) {
+      alert("Please enter a name first.");
+      return;
+    }
+
+    setAdding(true);
+    setActionError("");
+
+    try {
+      const response = await fetch("/api/admin/managers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, phone: newManagerPhone.trim() }),
+      });
+      const data = (await response.json()) as {
+        success?: boolean;
+        managerId?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !data.success) {
+        setActionError(data.error ?? "Failed to add manager.");
+        return;
+      }
+
+      const refreshed = await fetch("/api/admin/managers");
+      const refreshedData = (await refreshed.json()) as Manager[];
+      if (refreshed.ok && Array.isArray(refreshedData)) {
+        setManagers(refreshedData);
+      }
+
+      setNewManagerName("");
+      setNewManagerPhone("");
+    } catch {
+      setActionError("Network error adding manager.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  function getPhoneDraft(manager: Manager): string {
+    return phoneDrafts[manager.sheetRow] ?? manager.phone;
+  }
+
+  async function savePhone(manager: Manager) {
+    const draft = (phoneDrafts[manager.sheetRow] ?? manager.phone).trim();
+    if (draft === manager.phone) return;
+
+    setSavingRow(manager.sheetRow);
+    setActionError("");
+
+    try {
+      const response = await fetch("/api/admin/managers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetRow: manager.sheetRow,
+          fields: { phone: draft },
+        }),
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+
+      if (!response.ok || !data.success) {
+        setActionError(data.error ?? "Failed to save phone number.");
+        return;
+      }
+
+      setManagers((current) =>
+        current.map((item) =>
+          item.sheetRow === manager.sheetRow ? { ...item, phone: draft } : item
+        )
+      );
+    } catch {
+      setActionError("Network error saving phone number.");
+    } finally {
+      setSavingRow(null);
+    }
+  }
+
+  async function toggleStatus(manager: Manager) {
+    const newStatus: Manager["status"] =
+      manager.status === "Active" ? "Inactive" : "Active";
+
+    setSavingRow(manager.sheetRow);
+    setActionError("");
+
+    try {
+      const response = await fetch("/api/admin/managers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetRow: manager.sheetRow,
+          fields: { status: newStatus },
+        }),
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+
+      if (!response.ok || !data.success) {
+        setActionError(data.error ?? "Failed to update status.");
+        return;
+      }
+
+      setManagers((current) =>
+        current.map((item) =>
+          item.sheetRow === manager.sheetRow
+            ? { ...item, status: newStatus }
+            : item
+        )
+      );
+    } catch {
+      setActionError("Network error updating status.");
+    } finally {
+      setSavingRow(null);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="mb-4">
+        <h2 className="text-xl font-bold text-gray-900">Managers</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          People responsible for visits, complaints, follow-ups, and account
+          management.
+        </p>
+      </div>
+
+      <div className="mb-4 flex flex-col gap-3 md:flex-row">
+        <input
+          type="text"
+          value={newManagerName}
+          onChange={(event) => setNewManagerName(event.target.value)}
+          placeholder="Manager name..."
+          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 md:max-w-xs"
+        />
+
+        <input
+          type="tel"
+          value={newManagerPhone}
+          onChange={(event) => setNewManagerPhone(event.target.value)}
+          placeholder="Phone number..."
+          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 md:max-w-xs"
+        />
+
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={adding}
+          className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
+        >
+          {adding ? "Adding..." : "Add"}
+        </button>
+      </div>
+
+      {loadError ? (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          {loadError}
+        </div>
+      ) : null}
+
+      {actionError ? (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          {actionError}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="p-6 text-center text-gray-600">
+          Loading managers...
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-600">
+                <th className="px-4 py-3 font-semibold">Name</th>
+                <th className="px-4 py-3 font-semibold">Phone</th>
+                <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {managers.map((manager) => (
+                <tr key={manager.sheetRow} className="border-b">
+                  <td className="px-4 py-3 font-semibold text-gray-900">
+                    {manager.name}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <input
+                      type="tel"
+                      value={getPhoneDraft(manager)}
+                      onChange={(event) =>
+                        setPhoneDrafts((current) => ({
+                          ...current,
+                          [manager.sheetRow]: event.target.value,
+                        }))
+                      }
+                      onBlur={() => savePhone(manager)}
+                      disabled={savingRow === manager.sheetRow}
+                      placeholder="Add phone..."
+                      className="w-full min-w-[160px] rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                    />
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${getStatusClass(
+                        manager.status
+                      )}`}
+                    >
+                      {manager.status}
+                    </span>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleStatus(manager)}
+                      disabled={savingRow === manager.sheetRow}
+                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {manager.status === "Active" ? "Deactivate" : "Activate"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {managers.length === 0 && (
+            <div className="p-6 text-center text-gray-600">
+              No managers found.
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SupplySettingsSection() {
   return (
     <section className="rounded-xl border border-green-200 bg-white p-5 shadow-sm">
@@ -219,7 +486,9 @@ function SupplySettingsSection() {
 }
 
 export default function SettingsPage() {
-  const [managers, setManagers] = useState<SettingItem[]>(startingManagers);
+  const [managers, setManagers] = useState<Manager[]>([]);
+  const [managersLoading, setManagersLoading] = useState(true);
+  const [managersError, setManagersError] = useState("");
   const [visitTypes, setVisitTypes] =
     useState<SettingItem[]>(startingVisitTypes);
   const [accountUpdateTypes, setAccountUpdateTypes] = useState<SettingItem[]>(
@@ -234,7 +503,37 @@ export default function SettingsPage() {
   const [complaintValidityOptions, setComplaintValidityOptions] =
     useState<SettingItem[]>(startingComplaintValidityOptions);
 
-  const [newManager, setNewManager] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadManagers() {
+      setManagersLoading(true);
+      setManagersError("");
+      try {
+        const response = await fetch("/api/admin/managers");
+        const data = (await response.json()) as Manager[] | { error?: string };
+        if (!response.ok || !Array.isArray(data)) {
+          if (!cancelled) {
+            setManagersError(
+              (!Array.isArray(data) && data.error) || "Failed to load managers."
+            );
+          }
+          return;
+        }
+        if (!cancelled) setManagers(data);
+      } catch {
+        if (!cancelled) setManagersError("Network error loading managers.");
+      } finally {
+        if (!cancelled) setManagersLoading(false);
+      }
+    }
+
+    loadManagers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [newVisitType, setNewVisitType] = useState("");
   const [newAccountUpdateType, setNewAccountUpdateType] = useState("");
   const [newAccountStatus, setNewAccountStatus] = useState("");
@@ -361,15 +660,11 @@ export default function SettingsPage() {
         <div className="grid gap-6">
           <SupplySettingsSection />
 
-          <SettingsSection
-            title="Managers"
-            description="People responsible for visits, complaints, follow-ups, and account management."
-            items={managers}
-            inputValue={newManager}
-            onInputChange={setNewManager}
-            onAdd={() => addItem(newManager, setNewManager, setManagers)}
-            onToggleStatus={(id) => toggleStatus(id, setManagers)}
-            placeholder="Add manager name..."
+          <ManagersSettingsSection
+            managers={managers}
+            setManagers={setManagers}
+            loading={managersLoading}
+            loadError={managersError}
           />
 
           <SettingsSection
