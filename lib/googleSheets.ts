@@ -212,6 +212,21 @@ export async function appendToSheet(tab: string, values: string[]): Promise<void
   if (tab === SHEET_TAB) invalidateCache(`portal-main`);
 }
 
+// SubSchedules/ScheduleExceptions live in the main Accounts spreadsheet
+// (GOOGLE_MAIN_SHEET_ID), not the customer-portal one (GOOGLE_SHEET_ID) —
+// this writes to that spreadsheet instead of appendToSheet's SHEET_ID.
+async function appendToMainSheet(tab: string, values: string[]): Promise<void> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${tab}!A:Z`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [values] },
+  });
+  invalidateCache(`tab-${tab}`);
+}
+
 export async function getCustomerByPortalCode(portalCode: string) {
   const rows = await fetchAllRows();
   const row = rows.find(
@@ -716,7 +731,7 @@ async function fetchSubScheduleRows(): Promise<string[][]> {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
       range: `${SUB_SCHEDULES_TAB}!A:M`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
@@ -761,7 +776,7 @@ export async function appendSubSchedule(data: {
   const rand = Math.random().toString(36).slice(2, 6);
   const scheduleId = `SCH-${data.accountId}-${stamp.slice(-8)}-${rand}`;
   const today = new Date().toISOString().slice(0, 10);
-  await appendToSheet(SUB_SCHEDULES_TAB, [
+  await appendToMainSheet(SUB_SCHEDULES_TAB, [
     scheduleId,
     data.accountId,
     data.subId,
@@ -818,7 +833,7 @@ export async function updateSubSchedule(
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
     requestBody: { valueInputOption: "USER_ENTERED", data },
   });
 }
@@ -861,7 +876,7 @@ async function fetchScheduleExceptionRows(): Promise<string[][]> {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
       range: `${SCHEDULE_EXCEPTIONS_TAB}!A:I`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
@@ -899,7 +914,7 @@ export async function appendScheduleException(data: {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const exceptionId = `EXC-${data.accountId}-${stamp.slice(-8)}`;
   const today = new Date().toISOString().slice(0, 10);
-  await appendToSheet(SCHEDULE_EXCEPTIONS_TAB, [
+  await appendToMainSheet(SCHEDULE_EXCEPTIONS_TAB, [
     exceptionId,
     data.accountId,
     data.originalDate,
@@ -946,7 +961,7 @@ export async function updateScheduleException(
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
     requestBody: { valueInputOption: "USER_ENTERED", data },
   });
 }
@@ -956,7 +971,7 @@ export async function deleteScheduleException(sheetRow: number): Promise<void> {
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.clear({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
     range: `${SCHEDULE_EXCEPTIONS_TAB}!A${sheetRow}:I${sheetRow}`,
   });
 }
