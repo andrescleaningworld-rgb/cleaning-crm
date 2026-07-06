@@ -147,10 +147,14 @@ async function main() {
     existingNames.add(name.toLowerCase());
   });
 
-  // 4. Create a customer-portal row for every account with no existing match.
+  // 4. Build one row per account with no existing match, then write them all
+  // in a single append call — writing one row at a time as separate API
+  // calls blows through the Sheets API's per-minute write quota well before
+  // a few hundred accounts are done.
   const created = [];
   const skipped = [];
   const failed = [];
+  const rowsToAppend = [];
 
   for (const account of accounts) {
     const nameKey = account.accountName.toLowerCase();
@@ -168,31 +172,36 @@ async function main() {
     // Everyone gets a row (so no second backfill is needed later), but only
     // currently-active accounts get login access enabled immediately.
     const portalAccess = account.status.toLowerCase() === "active" ? "YES" : "NO";
+    const code = account.accountId || generatePortalCode();
+    const row = Array(19).fill("");
+    row[PORTAL_COL.ACCOUNT_ID] = account.accountId;
+    row[PORTAL_COL.ACCOUNT_NAME] = account.accountName;
+    row[PORTAL_COL.PHONE] = account.phone;
+    row[PORTAL_COL.PORTAL_CODE] = code;
+    row[PORTAL_COL.PORTAL_ACCESS] = portalAccess;
 
+    rowsToAppend.push(row);
+
+    // Prevent duplicate rows for accounts sharing the same name within this
+    // same run (in addition to across separate runs).
+    existingNames.add(nameKey);
+    created.push({ accountName: account.accountName, portalAccess });
+  }
+
+  if (!dryRun && rowsToAppend.length > 0) {
     try {
-      if (!dryRun) {
-        const code = account.accountId || generatePortalCode();
-        const row = Array(19).fill("");
-        row[PORTAL_COL.ACCOUNT_ID] = account.accountId;
-        row[PORTAL_COL.ACCOUNT_NAME] = account.accountName;
-        row[PORTAL_COL.PHONE] = account.phone;
-        row[PORTAL_COL.PORTAL_CODE] = code;
-        row[PORTAL_COL.PORTAL_ACCESS] = portalAccess;
-
-        await sheetsReadWrite.spreadsheets.values.append({
-          spreadsheetId: portalSheetId,
-          range: `${PORTAL_TAB}!A:S`,
-          valueInputOption: "USER_ENTERED",
-          requestBody: { values: [row] },
-        });
-      }
-
-      // Prevent duplicate rows for accounts sharing the same name within
-      // this same run (in addition to across separate runs).
-      existingNames.add(nameKey);
-      created.push({ accountName: account.accountName, portalAccess });
+      await sheetsReadWrite.spreadsheets.values.append({
+        spreadsheetId: portalSheetId,
+        range: `${PORTAL_TAB}!A:S`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: rowsToAppend },
+      });
     } catch (err) {
-      failed.push({ accountName: account.accountName, reason: err instanceof Error ? err.message : String(err) });
+      // The whole batch failed together — move everything back out of
+      // "created" and into "failed" rather than reporting false successes.
+      const reason = err instanceof Error ? err.message : String(err);
+      created.forEach(({ accountName }) => failed.push({ accountName, reason }));
+      created.length = 0;
     }
   }
 
