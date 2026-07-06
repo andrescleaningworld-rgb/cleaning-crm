@@ -34,7 +34,11 @@ export async function getAccountsForCustomer(customerIdentifier: string): Promis
     const res = await fetch("/api/customer-portal", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "getAccount", customerId: customerIdentifier }),
+      body: JSON.stringify({
+        action: "getAccount",
+        customerId: customerIdentifier,
+        phone: customerIdentifier,
+      }),
     });
     const data = await res.json();
     return data.account ? [data.account] : data.accounts || [];

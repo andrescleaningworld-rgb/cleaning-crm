@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCustomerByPhone } from "@/lib/googleSheets";
+import { getCustomerByPhone, getMainAccountByName, fetchManagers } from "@/lib/googleSheets";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -47,7 +47,32 @@ export async function POST(request: Request) {
           { status: 404 }
         );
       }
-      return NextResponse.json({ success: true, account: customer, accounts: [customer] });
+
+      // Best-effort manager lookup — the customer-portal tab has no manager
+      // field of its own, so cross-reference the main Accounts sheet by name,
+      // then the Managers tab by name, for just the name + phone. Never lets
+      // a lookup miss block the account response.
+      let managerName = "";
+      let managerPhone = "";
+      try {
+        const mainAccount = await getMainAccountByName(customer.accountName);
+        managerName = mainAccount?.managerName?.trim() ?? "";
+
+        if (managerName) {
+          const managers = await fetchManagers();
+          const normalizedManagerName = managerName.toLowerCase();
+          const matchedManager = managers.find(
+            (m) => m.name.trim().toLowerCase() === normalizedManagerName
+          );
+          managerPhone = matchedManager?.phone ?? "";
+        }
+      } catch {
+        // Fail soft — manager info is a nice-to-have, not required for login.
+      }
+
+      const accountWithManager = { ...customer, managerName, managerPhone };
+
+      return NextResponse.json({ success: true, account: accountWithManager, accounts: [accountWithManager] });
     }
 
     const customerId = body.customerId || body.email || "demo-customer";

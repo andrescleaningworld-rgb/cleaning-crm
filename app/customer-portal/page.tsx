@@ -15,7 +15,18 @@ type AccountInfo = {
   serviceFrequency: string;
   status: string;
   manager: string;
+  estimatedMonthlyTotal: string;
+  lastInvoiceDate: string;
+  managerName: string;
+  managerPhone: string;
 };
+
+function formatCurrency(raw: string): string {
+  if (!raw) return "—";
+  const num = parseFloat(raw.replace(/[$,\s]/g, ""));
+  if (isNaN(num)) return raw;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(num);
+}
 
 type Visit = {
   date?: string;
@@ -97,6 +108,10 @@ export default function CustomerPortalPage() {
             ),
             status: String(acc.status || acc.accountStatus || "Active"),
             manager: String(acc.manager || acc.accountManager || ""),
+            estimatedMonthlyTotal: String(acc.estimatedMonthlyTotal || ""),
+            lastInvoiceDate: String(acc.lastInvoiceDate || ""),
+            managerName: String(acc.managerName || ""),
+            managerPhone: String(acc.managerPhone || ""),
           });
         }
 
@@ -296,6 +311,75 @@ export default function CustomerPortalPage() {
         ) : (
           <p className="text-sm text-slate-400">No service visits on record yet.</p>
         )}
+      </div>
+
+      {/* Financials & Contact */}
+      <div className="mb-4 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+          <h2 className="mb-3 text-lg font-black text-slate-950">
+            Financials
+          </h2>
+          <p className="text-2xl font-black text-slate-950">
+            {formatCurrency(account?.estimatedMonthlyTotal || "")}
+            <span className="ml-1 text-sm font-semibold text-slate-500">
+              / month
+            </span>
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Includes 6.625% NJ Sales Tax
+          </p>
+          {account?.lastInvoiceDate ? (
+            <p className="mt-3 text-sm text-slate-600">
+              <span className="font-bold text-slate-900">Last Invoice:</span>{" "}
+              {account.lastInvoiceDate}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+          <h2 className="mb-3 text-lg font-black text-slate-950">Contact</h2>
+
+          {account?.managerName ? (
+            <div className="mb-3">
+              <p className="text-sm font-bold text-slate-900">
+                {account.managerName}
+              </p>
+              {account.managerPhone ? (
+                <a
+                  href={`tel:${account.managerPhone}`}
+                  className="text-sm text-purple-700 hover:underline"
+                >
+                  {account.managerPhone}
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="space-y-1 text-sm">
+            <p className="text-slate-600">
+              <span className="font-bold text-slate-900">
+                General Inquiries:
+              </span>{" "}
+              <a
+                href="mailto:info@cleaningworldinc.com"
+                className="text-purple-700 hover:underline"
+              >
+                info@cleaningworldinc.com
+              </a>
+            </p>
+            <p className="text-slate-600">
+              <span className="font-bold text-slate-900">
+                Account Services:
+              </span>{" "}
+              <a
+                href="mailto:crm@cleaningworldinc.com"
+                className="text-purple-700 hover:underline"
+              >
+                crm@cleaningworldinc.com
+              </a>
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Open complaints */}

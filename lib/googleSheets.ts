@@ -121,7 +121,7 @@ const MAIN_COL = {
   // G=6  Key/Alarm — NEVER expose
   // H=7  Monthly Revenue — NEVER expose
   // I=8  Subcontractor — staff only
-  // J=9  Manager — staff only
+  MANAGER: 9,         // J — name only is safe to expose to customers
   // K=10 Monthly Sub Pay — NEVER expose
   ADDRESS: 11,        // L
   CONTACT_NAME: 12,   // M
@@ -177,6 +177,7 @@ function rowToMainAccount(row: string[]) {
     address:       row[MAIN_COL.ADDRESS]        ?? "",
     contactName:   row[MAIN_COL.CONTACT_NAME]   ?? "",
     phone:         row[MAIN_COL.PHONE]          ?? "",
+    managerName:   row[MAIN_COL.MANAGER]        ?? "",
     scopeOfWork:   row[MAIN_COL.SCOPE_OF_WORK]  ?? "",
     status:        row[MAIN_COL.STATUS]         ?? "",
     lastVisitDate: row[MAIN_COL.LAST_VISIT_DATE] ?? "",
