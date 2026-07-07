@@ -147,6 +147,28 @@ export default function SubSchedulesPage() {
     return accountNamesById[accountId] || accountId;
   }
 
+  function formatTeamLeaderLabel(record: TeamLeaderRecord): string {
+    return record.contactName && record.companyName
+      ? `${record.contactName} — ${record.companyName}`
+      : record.contactName || record.companyName;
+  }
+
+  // SubID -> "Contact — Company", same format the dropdown uses, so the
+  // table and the search field are visually consistent. Keyed by normalized
+  // id since SubID matching elsewhere on this page is also normalized
+  // (trim + lowercase) to tolerate case/whitespace differences in the sheet.
+  const teamLeaderNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const record of allTeamLeaders) {
+      map[normalizeForMatch(record.id)] = formatTeamLeaderLabel(record);
+    }
+    return map;
+  }, [allTeamLeaders]);
+
+  function resolveTeamLeaderName(subId: string): string {
+    return teamLeaderNamesById[normalizeForMatch(subId)] || subId;
+  }
+
   // Team Leader search — client-side filter of the already-loaded list,
   // matching either the company name or the contact/personal name (staff
   // often know a sub by first name rather than company name). When a record
@@ -162,13 +184,7 @@ export default function SubSchedulesPage() {
           record.companyName.toLowerCase().includes(q) || record.contactName.toLowerCase().includes(q)
       )
       .slice(0, 8)
-      .map((record) => ({
-        id: record.id,
-        label:
-          record.contactName && record.companyName
-            ? `${record.contactName} — ${record.companyName}`
-            : record.contactName || record.companyName,
-      }));
+      .map((record) => ({ id: record.id, label: formatTeamLeaderLabel(record) }));
   }, [allTeamLeaders, debouncedTeamLeaderQuery, selectedTeamLeader]);
 
   const hasSearch = !!(customer.selected || selectedTeamLeader);
@@ -297,11 +313,16 @@ export default function SubSchedulesPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
+    <main className="min-h-screen bg-gray-50 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Sub Schedules</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
+            Cleaning World
+          </p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+            Sub Schedules
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
             Manage recurring subcontractor schedules and one-off schedule exceptions.
           </p>
         </div>
@@ -421,8 +442,8 @@ export default function SubSchedulesPage() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b bg-slate-50 text-slate-700">
-                      <th className="px-4 py-3 font-semibold">AccountID</th>
-                      <th className="px-4 py-3 font-semibold">SubID</th>
+                      <th className="px-4 py-3 font-semibold">Customer</th>
+                      <th className="px-4 py-3 font-semibold">Team Leader</th>
                       <th className="px-4 py-3 font-semibold">Day</th>
                       <th className="px-4 py-3 font-semibold">Window</th>
                       <th className="px-4 py-3 font-semibold">Recurring</th>
@@ -435,8 +456,8 @@ export default function SubSchedulesPage() {
                   <tbody>
                     {filteredSchedules.map((s) => (
                       <tr key={s.sheetRow} className="border-b last:border-0 hover:bg-slate-50">
-                        <td className="px-4 py-3">{s.accountId}</td>
-                        <td className="px-4 py-3">{s.subId}</td>
+                        <td className="px-4 py-3">{resolveAccountName(s.accountId)}</td>
+                        <td className="px-4 py-3">{resolveTeamLeaderName(s.subId)}</td>
                         <td className="px-4 py-3">{s.dayOfWeek}</td>
                         <td className="px-4 py-3">{s.timeWindow}</td>
                         <td className="px-4 py-3">{s.recurring === "Y" ? "Weekly" : "One-time"}</td>
@@ -455,9 +476,11 @@ export default function SubSchedulesPage() {
                             {s.status || "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">
-                          {s.submittedBy || "—"}
-                          {s.submittedDate ? ` · ${s.submittedDate}` : ""}
+                        <td className="px-4 py-3">
+                          <div className="text-xs font-semibold text-slate-700">{s.submittedBy || "—"}</div>
+                          {s.submittedDate && (
+                            <div className="text-[11px] text-slate-400">{s.submittedDate}</div>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-3">
@@ -509,9 +532,11 @@ export default function SubSchedulesPage() {
                       <td className="px-4 py-3">{ex.newDate || "—"}</td>
                       <td className="px-4 py-3">{ex.newTimeWindow || "—"}</td>
                       <td className="px-4 py-3">{ex.reason}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
-                        {ex.createdBy || "—"}
-                        {ex.createdDate ? ` · ${ex.createdDate}` : ""}
+                      <td className="px-4 py-3">
+                        <div className="text-xs font-semibold text-slate-700">{ex.createdBy || "—"}</div>
+                        {ex.createdDate && (
+                          <div className="text-[11px] text-slate-400">{ex.createdDate}</div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-3">
