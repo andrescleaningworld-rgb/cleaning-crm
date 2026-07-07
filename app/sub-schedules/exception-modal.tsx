@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { AutocompleteField, useCustomerSearch } from "./autocomplete";
 
 export type ScheduleException = {
   sheetRow: number;
@@ -20,14 +21,17 @@ const TIME_WINDOWS = ["", "Morning", "Midday", "Afternoon", "Evening"];
 type Props = {
   target: "new" | ScheduleException;
   adminName: string;
+  // Resolved display name for target.accountId when editing an existing
+  // exception (the modal has no way to look this up itself).
+  accountName?: string;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function ExceptionModal({ target, adminName, onClose, onSaved }: Props) {
+export default function ExceptionModal({ target, adminName, accountName, onClose, onSaved }: Props) {
   const isNew = target === "new";
 
-  const [accountId, setAccountId] = useState(isNew ? "" : target.accountId);
+  const customer = useCustomerSearch();
   const [originalDate, setOriginalDate] = useState(isNew ? "" : target.originalDate);
   const [type, setType] = useState(isNew ? "Skip" : target.type || "Skip");
   const [newDate, setNewDate] = useState(isNew ? "" : target.newDate);
@@ -39,8 +43,9 @@ export default function ExceptionModal({ target, adminName, onClose, onSaved }: 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!accountId.trim() || !originalDate || !reason.trim()) {
-      setError("AccountID, original date, and reason are required.");
+    const accountId = isNew ? customer.selected?.id ?? "" : target.accountId;
+    if (!accountId || !originalDate || !reason.trim()) {
+      setError("Customer, original date, and reason are required.");
       return;
     }
     if (type === "Reschedule" && !newDate) {
@@ -61,7 +66,7 @@ export default function ExceptionModal({ target, adminName, onClose, onSaved }: 
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            accountId: accountId.trim(),
+            accountId,
             originalDate,
             type,
             newDate: type === "Reschedule" ? newDate : "",
@@ -120,17 +125,27 @@ export default function ExceptionModal({ target, adminName, onClose, onSaved }: 
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500">AccountID</label>
-              <input
-                type="text"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                disabled={!isNew}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 disabled:bg-slate-100"
-                required
+            {isNew ? (
+              <AutocompleteField
+                label="Customer"
+                placeholder="Search customer name..."
+                query={customer.query}
+                onQueryChange={customer.setQuery}
+                options={customer.options}
+                loading={customer.loading}
+                selected={customer.selected}
+                onSelect={customer.select}
+                onClear={customer.clear}
+                className="sm:w-full"
               />
-            </div>
+            ) : (
+              <div>
+                <label className="text-xs font-bold uppercase text-slate-500">Customer</label>
+                <p className="mt-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                  {accountName || target.accountId}
+                </p>
+              </div>
+            )}
             <div>
               <label className="text-xs font-bold uppercase text-slate-500">Original Date</label>
               <input
@@ -152,6 +167,7 @@ export default function ExceptionModal({ target, adminName, onClose, onSaved }: 
             >
               <option value="Skip">Skip this date</option>
               <option value="Reschedule">Reschedule this date</option>
+              <option value="Other">Other</option>
             </select>
           </div>
 

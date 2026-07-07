@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
+import { AutocompleteField, useCustomerSearch, useDebounce, type SearchOption } from "./autocomplete";
 
 type AdminTab = "schedules" | "exceptions";
-
-type SearchOption = { id: string; label: string };
 
 type AccountsApiResponse = {
   success?: boolean;
@@ -29,101 +28,9 @@ type SubcontractorsApiResponse = {
   }>;
 };
 
-const SEARCH_DEBOUNCE_MS = 200;
-
 function getStoredAdminName(): string {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem("cwAdminName") ?? "";
-}
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
-// ---------------------------------------------------------------------------
-// Name-search autocomplete — shared by the Customer and Team Leader fields
-// ---------------------------------------------------------------------------
-
-type AutocompleteFieldProps = {
-  label: string;
-  placeholder: string;
-  query: string;
-  onQueryChange: (value: string) => void;
-  options: SearchOption[];
-  loading: boolean;
-  selected: SearchOption | null;
-  onSelect: (option: SearchOption) => void;
-  onClear: () => void;
-};
-
-function AutocompleteField({
-  label,
-  placeholder,
-  query,
-  onQueryChange,
-  options,
-  loading,
-  selected,
-  onSelect,
-  onClear,
-}: AutocompleteFieldProps) {
-  const [focused, setFocused] = useState(false);
-  const showDropdown = focused && !selected && query.trim().length >= 2;
-
-  return (
-    <div className="relative">
-      <label className="text-xs font-bold uppercase text-slate-500">{label}</label>
-      {selected ? (
-        <div className="mt-1 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900 sm:w-64">
-          <span className="truncate">{selected.label}</span>
-          <button
-            type="button"
-            onClick={onClear}
-            className="ml-2 shrink-0 text-blue-700 hover:text-blue-900"
-            aria-label={`Clear ${label}`}
-          >
-            ×
-          </button>
-        </div>
-      ) : (
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={placeholder}
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 sm:w-64"
-        />
-      )}
-
-      {showDropdown && (
-        <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg sm:w-64">
-          {loading ? (
-            <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
-          ) : options.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-slate-500">No matches.</p>
-          ) : (
-            options.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onMouseDown={() => onSelect(option)}
-                className="block w-full truncate px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-50"
-              >
-                {option.label}
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function SubSchedulesPage() {
@@ -136,24 +43,24 @@ export default function SubSchedulesPage() {
   const [error, setError] = useState("");
 
   // Customer autocomplete (resolves to AccountID)
-  const [customerQuery, setCustomerQuery] = useState("");
-  const debouncedCustomerQuery = useDebounce(customerQuery, SEARCH_DEBOUNCE_MS);
-  const [customerOptions, setCustomerOptions] = useState<SearchOption[]>([]);
-  const [customerSearching, setCustomerSearching] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<SearchOption | null>(null);
+  const customer = useCustomerSearch();
 
   // Team Leader autocomplete (resolves to SubID) — full subcontractor list is
   // small, so it's loaded once and filtered client-side, same as the
   // subcontractor dropdown already used on the Accounts page.
   const [allTeamLeaders, setAllTeamLeaders] = useState<SearchOption[]>([]);
   const [teamLeaderQuery, setTeamLeaderQuery] = useState("");
-  const debouncedTeamLeaderQuery = useDebounce(teamLeaderQuery, SEARCH_DEBOUNCE_MS);
+  const debouncedTeamLeaderQuery = useDebounce(teamLeaderQuery, 200);
   const [selectedTeamLeader, setSelectedTeamLeader] = useState<SearchOption | null>(null);
+
+  // AccountID -> display name, for the Exceptions table (which otherwise only
+  // has raw AccountIDs). Filled in from search results as they arrive, plus a
+  // one-time full-account fetch so names resolve even for accounts that
+  // weren't directly searched (e.g. all accounts under a Team Leader search).
+  const [accountNamesById, setAccountNamesById] = useState<Record<string, string>>({});
 
   const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
-
-  const requestIdRef = useRef(0);
 
   useEffect(() => {
     setAdminName(getStoredAdminName());
@@ -189,41 +96,50 @@ export default function SubSchedulesPage() {
     }
   }
 
-  // Customer search — debounced network lookup, gated at 2+ characters.
   useEffect(() => {
-    const q = debouncedCustomerQuery.trim();
-    if (selectedCustomer) return;
-    if (q.length < 2) {
-      setCustomerOptions([]);
-      setCustomerSearching(false);
-      return;
-    }
-    const requestId = ++requestIdRef.current;
-    setCustomerSearching(true);
+    if (customer.options.length === 0 && !customer.selected) return;
+    setAccountNamesById((current) => {
+      const next = { ...current };
+      for (const option of customer.options) next[option.id] = option.label;
+      if (customer.selected) next[customer.selected.id] = customer.selected.label;
+      return next;
+    });
+  }, [customer.options, customer.selected]);
+
+  // Resolves any AccountID (even ones the user hasn't directly searched for
+  // by name — e.g. every account under a Team-Leader search) once the
+  // Exceptions tab actually needs to display one.
+  useEffect(() => {
+    if (adminTab !== "exceptions" || exceptions.length === 0) return;
+    const unresolved = exceptions.some((ex) => !accountNamesById[ex.accountId]);
+    if (!unresolved) return;
+    let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        const res = await fetch("/api/accounts", { cache: "no-store" });
         const data = (await res.json()) as AccountsApiResponse;
-        if (requestId !== requestIdRef.current) return;
-        if (!res.ok || data.success === false) {
-          setCustomerOptions([]);
-          return;
-        }
-        const options = (data.accounts ?? [])
-          .map((account) => ({
-            id: account.accountId || account.id || "",
-            label: account.accountName || "Unnamed Account",
-          }))
-          .filter((option) => option.id)
-          .slice(0, 8);
-        setCustomerOptions(options);
+        if (cancelled || !res.ok || data.success === false) return;
+        setAccountNamesById((current) => {
+          const next = { ...current };
+          for (const account of data.accounts ?? []) {
+            const id = account.accountId || account.id;
+            if (id && !next[id]) next[id] = account.accountName || "Unnamed Account";
+          }
+          return next;
+        });
       } catch {
-        if (requestId === requestIdRef.current) setCustomerOptions([]);
-      } finally {
-        if (requestId === requestIdRef.current) setCustomerSearching(false);
+        // Table falls back to raw AccountID; not fatal.
       }
     })();
-  }, [debouncedCustomerQuery, selectedCustomer]);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminTab, exceptions]);
+
+  function resolveAccountName(accountId: string): string {
+    return accountNamesById[accountId] || accountId;
+  }
 
   // Team Leader search — client-side filter of the already-loaded list.
   const teamLeaderOptions = useMemo(() => {
@@ -233,7 +149,7 @@ export default function SubSchedulesPage() {
     return allTeamLeaders.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 8);
   }, [allTeamLeaders, debouncedTeamLeaderQuery, selectedTeamLeader]);
 
-  const hasSearch = !!(selectedCustomer || selectedTeamLeader);
+  const hasSearch = !!(customer.selected || selectedTeamLeader);
 
   async function loadSchedules() {
     setLoading(true);
@@ -285,15 +201,15 @@ export default function SubSchedulesPage() {
     loadSchedules();
     if (adminTab === "exceptions") loadExceptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminTab, selectedCustomer, selectedTeamLeader]);
+  }, [adminTab, customer.selected, selectedTeamLeader]);
 
   const filteredSchedules = useMemo(() => {
     return schedules.filter((s) => {
-      const matchesAccount = !selectedCustomer || s.accountId === selectedCustomer.id;
+      const matchesAccount = !customer.selected || s.accountId === customer.selected.id;
       const matchesSub = !selectedTeamLeader || s.subId === selectedTeamLeader.id;
       return matchesAccount && matchesSub;
     });
-  }, [schedules, selectedCustomer, selectedTeamLeader]);
+  }, [schedules, customer.selected, selectedTeamLeader]);
 
   const accountIdsForTeamLeader = useMemo(() => {
     if (!selectedTeamLeader) return null;
@@ -302,11 +218,11 @@ export default function SubSchedulesPage() {
 
   const filteredExceptions = useMemo(() => {
     return exceptions.filter((ex) => {
-      const matchesAccount = !selectedCustomer || ex.accountId === selectedCustomer.id;
+      const matchesAccount = !customer.selected || ex.accountId === customer.selected.id;
       const matchesSub = !accountIdsForTeamLeader || accountIdsForTeamLeader.has(ex.accountId);
       return matchesAccount && matchesSub;
     });
-  }, [exceptions, selectedCustomer, accountIdsForTeamLeader]);
+  }, [exceptions, customer.selected, accountIdsForTeamLeader]);
 
   async function toggleScheduleStatus(schedule: SubSchedule) {
     if (!adminName.trim()) {
@@ -409,22 +325,13 @@ export default function SubSchedulesPage() {
               <AutocompleteField
                 label="Customer"
                 placeholder="Search customer name..."
-                query={customerQuery}
-                onQueryChange={(value) => {
-                  setCustomerQuery(value);
-                  if (selectedCustomer) setSelectedCustomer(null);
-                }}
-                options={customerOptions}
-                loading={customerSearching}
-                selected={selectedCustomer}
-                onSelect={(option) => {
-                  setSelectedCustomer(option);
-                  setCustomerQuery(option.label);
-                }}
-                onClear={() => {
-                  setSelectedCustomer(null);
-                  setCustomerQuery("");
-                }}
+                query={customer.query}
+                onQueryChange={customer.setQuery}
+                options={customer.options}
+                loading={customer.loading}
+                selected={customer.selected}
+                onSelect={customer.select}
+                onClear={customer.clear}
               />
 
               <AutocompleteField
@@ -543,7 +450,7 @@ export default function SubSchedulesPage() {
               <table className="w-full border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b bg-slate-50 text-slate-700">
-                    <th className="px-4 py-3 font-semibold">AccountID</th>
+                    <th className="px-4 py-3 font-semibold">Customer</th>
                     <th className="px-4 py-3 font-semibold">Original Date</th>
                     <th className="px-4 py-3 font-semibold">Type</th>
                     <th className="px-4 py-3 font-semibold">New Date</th>
@@ -556,7 +463,7 @@ export default function SubSchedulesPage() {
                 <tbody>
                   {filteredExceptions.map((ex) => (
                     <tr key={ex.sheetRow} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="px-4 py-3">{ex.accountId}</td>
+                      <td className="px-4 py-3">{resolveAccountName(ex.accountId)}</td>
                       <td className="px-4 py-3">{ex.originalDate}</td>
                       <td className="px-4 py-3">{ex.type}</td>
                       <td className="px-4 py-3">{ex.newDate || "—"}</td>
@@ -606,6 +513,7 @@ export default function SubSchedulesPage() {
         <ExceptionModal
           target={exceptionModal}
           adminName={adminName}
+          accountName={exceptionModal !== "new" ? resolveAccountName(exceptionModal.accountId) : undefined}
           onClose={() => setExceptionModal(null)}
           onSaved={loadExceptions}
         />
