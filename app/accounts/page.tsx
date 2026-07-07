@@ -1959,6 +1959,21 @@ async function handleSaveTransferProposal() {
           </div>
         </div>
 
+        {/* Mobile-only search — on small screens the stat cards and money
+            tiles below push the real search box (in the Filters grid
+            further down) below the fold. This duplicate, bound to the same
+            searchText state, keeps search reachable without scrolling;
+            hidden from lg: up where the original is already visible in place. */}
+        <div className="mt-4 lg:hidden">
+          <input
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder="Type to search accounts (min. 2 characters)..."
+            aria-label="Search accounts"
+            className="min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500"
+          />
+        </div>
+
         {/* Summary stats */}
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
@@ -2038,7 +2053,7 @@ async function handleSaveTransferProposal() {
             placeholder="Type to search accounts (min. 2 characters)..."
             aria-label="Search accounts"
             autoFocus
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+            className="hidden min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm lg:block"
           />
 
           <select
