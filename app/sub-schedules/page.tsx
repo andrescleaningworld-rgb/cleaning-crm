@@ -20,6 +20,8 @@ type SubcontractorsApiResponse = {
     id?: string;
     ID?: string;
     subcontractorId?: string;
+    email?: string;
+    Email?: string;
     companyName?: string;
     CompanyName?: string;
     company?: string;
@@ -77,9 +79,16 @@ export default function SubSchedulesPage() {
         const res = await fetch("/api/subcontractors");
         const data = (await res.json()) as SubcontractorsApiResponse;
         if (cancelled || !res.ok || data.success === false) return;
+        // SubID in the SubSchedules sheet is the subcontractor's email — the
+        // subcontractor portal's own schedule submission (sub-schedule-tab.tsx)
+        // writes sub.email as SubID, falling back to id/subcontractorId only
+        // if email is missing. Most subcontractor records have no generic
+        // id/ID/subcontractorId at all (the Subcontractors admin page has a
+        // dedicated "Missing ID" state for this), so matching that priority
+        // order here is required for the resolved SubID to ever match real data.
         const options = (data.subcontractors ?? [])
           .map((sub) => ({
-            id: sub.id || sub.ID || sub.subcontractorId || "",
+            id: sub.email || sub.Email || sub.id || sub.ID || sub.subcontractorId || "",
             label: sub.companyName || sub.CompanyName || sub.company || sub.contactName || sub.ContactName || "",
           }))
           .filter((option) => option.id && option.label);
