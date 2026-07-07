@@ -1,14 +1,129 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
 
 type AdminTab = "schedules" | "exceptions";
 
+type SearchOption = { id: string; label: string };
+
+type AccountsApiResponse = {
+  success?: boolean;
+  error?: string;
+  accounts?: Array<{ accountId?: string; id?: string; accountName?: string }>;
+};
+
+type SubcontractorsApiResponse = {
+  success?: boolean;
+  error?: string;
+  subcontractors?: Array<{
+    id?: string;
+    ID?: string;
+    subcontractorId?: string;
+    companyName?: string;
+    CompanyName?: string;
+    company?: string;
+    contactName?: string;
+    ContactName?: string;
+  }>;
+};
+
+const SEARCH_DEBOUNCE_MS = 200;
+
 function getStoredAdminName(): string {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem("cwAdminName") ?? "";
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ---------------------------------------------------------------------------
+// Name-search autocomplete — shared by the Customer and Team Leader fields
+// ---------------------------------------------------------------------------
+
+type AutocompleteFieldProps = {
+  label: string;
+  placeholder: string;
+  query: string;
+  onQueryChange: (value: string) => void;
+  options: SearchOption[];
+  loading: boolean;
+  selected: SearchOption | null;
+  onSelect: (option: SearchOption) => void;
+  onClear: () => void;
+};
+
+function AutocompleteField({
+  label,
+  placeholder,
+  query,
+  onQueryChange,
+  options,
+  loading,
+  selected,
+  onSelect,
+  onClear,
+}: AutocompleteFieldProps) {
+  const [focused, setFocused] = useState(false);
+  const showDropdown = focused && !selected && query.trim().length >= 2;
+
+  return (
+    <div className="relative">
+      <label className="text-xs font-bold uppercase text-slate-500">{label}</label>
+      {selected ? (
+        <div className="mt-1 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900 sm:w-64">
+          <span className="truncate">{selected.label}</span>
+          <button
+            type="button"
+            onClick={onClear}
+            className="ml-2 shrink-0 text-blue-700 hover:text-blue-900"
+            aria-label={`Clear ${label}`}
+          >
+            ×
+          </button>
+        </div>
+      ) : (
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 sm:w-64"
+        />
+      )}
+
+      {showDropdown && (
+        <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg sm:w-64">
+          {loading ? (
+            <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
+          ) : options.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-slate-500">No matches.</p>
+          ) : (
+            options.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onMouseDown={() => onSelect(option)}
+                className="block w-full truncate px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-50"
+              >
+                {option.label}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function SubSchedulesPage() {
@@ -20,14 +135,51 @@ export default function SubSchedulesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [filterAccountId, setFilterAccountId] = useState("");
-  const [filterSubId, setFilterSubId] = useState("");
+  // Customer autocomplete (resolves to AccountID)
+  const [customerQuery, setCustomerQuery] = useState("");
+  const debouncedCustomerQuery = useDebounce(customerQuery, SEARCH_DEBOUNCE_MS);
+  const [customerOptions, setCustomerOptions] = useState<SearchOption[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<SearchOption | null>(null);
 
-  const [scheduleModal, setScheduleModal] = useState<"new" | SubSchedule | null>(null);
+  // Team Leader autocomplete (resolves to SubID) — full subcontractor list is
+  // small, so it's loaded once and filtered client-side, same as the
+  // subcontractor dropdown already used on the Accounts page.
+  const [allTeamLeaders, setAllTeamLeaders] = useState<SearchOption[]>([]);
+  const [teamLeaderQuery, setTeamLeaderQuery] = useState("");
+  const debouncedTeamLeaderQuery = useDebounce(teamLeaderQuery, SEARCH_DEBOUNCE_MS);
+  const [selectedTeamLeader, setSelectedTeamLeader] = useState<SearchOption | null>(null);
+
+  const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
+
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     setAdminName(getStoredAdminName());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/subcontractors");
+        const data = (await res.json()) as SubcontractorsApiResponse;
+        if (cancelled || !res.ok || data.success === false) return;
+        const options = (data.subcontractors ?? [])
+          .map((sub) => ({
+            id: sub.id || sub.ID || sub.subcontractorId || "",
+            label: sub.companyName || sub.CompanyName || sub.company || sub.contactName || sub.ContactName || "",
+          }))
+          .filter((option) => option.id && option.label);
+        setAllTeamLeaders(options);
+      } catch {
+        // Team Leader autocomplete just won't have suggestions; not fatal.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function handleAdminNameChange(value: string) {
@@ -36,6 +188,52 @@ export default function SubSchedulesPage() {
       window.localStorage.setItem("cwAdminName", value);
     }
   }
+
+  // Customer search — debounced network lookup, gated at 2+ characters.
+  useEffect(() => {
+    const q = debouncedCustomerQuery.trim();
+    if (selectedCustomer) return;
+    if (q.length < 2) {
+      setCustomerOptions([]);
+      setCustomerSearching(false);
+      return;
+    }
+    const requestId = ++requestIdRef.current;
+    setCustomerSearching(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" });
+        const data = (await res.json()) as AccountsApiResponse;
+        if (requestId !== requestIdRef.current) return;
+        if (!res.ok || data.success === false) {
+          setCustomerOptions([]);
+          return;
+        }
+        const options = (data.accounts ?? [])
+          .map((account) => ({
+            id: account.accountId || account.id || "",
+            label: account.accountName || "Unnamed Account",
+          }))
+          .filter((option) => option.id)
+          .slice(0, 8);
+        setCustomerOptions(options);
+      } catch {
+        if (requestId === requestIdRef.current) setCustomerOptions([]);
+      } finally {
+        if (requestId === requestIdRef.current) setCustomerSearching(false);
+      }
+    })();
+  }, [debouncedCustomerQuery, selectedCustomer]);
+
+  // Team Leader search — client-side filter of the already-loaded list.
+  const teamLeaderOptions = useMemo(() => {
+    if (selectedTeamLeader) return [];
+    const q = debouncedTeamLeaderQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return allTeamLeaders.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [allTeamLeaders, debouncedTeamLeaderQuery, selectedTeamLeader]);
+
+  const hasSearch = !!(selectedCustomer || selectedTeamLeader);
 
   async function loadSchedules() {
     setLoading(true);
@@ -73,25 +271,42 @@ export default function SubSchedulesPage() {
     }
   }
 
+  // Search-first: nothing loads until a customer or Team Leader is selected.
+  // Schedules are always fetched once a search is active (even on the
+  // Exceptions tab) because a Team-Leader search on exceptions needs to
+  // cross-reference which AccountIDs that sub is scheduled for — the
+  // ScheduleExceptions tab has no SubID column of its own.
   useEffect(() => {
-    if (adminTab === "schedules") loadSchedules();
-    else loadExceptions();
-  }, [adminTab]);
+    if (!hasSearch) {
+      setSchedules([]);
+      setExceptions([]);
+      return;
+    }
+    loadSchedules();
+    if (adminTab === "exceptions") loadExceptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminTab, selectedCustomer, selectedTeamLeader]);
 
   const filteredSchedules = useMemo(() => {
-    const accountQuery = filterAccountId.trim().toLowerCase();
-    const subQuery = filterSubId.trim().toLowerCase();
     return schedules.filter((s) => {
-      const matchesAccount = !accountQuery || s.accountId.toLowerCase().includes(accountQuery);
-      const matchesSub = !subQuery || s.subId.toLowerCase().includes(subQuery);
+      const matchesAccount = !selectedCustomer || s.accountId === selectedCustomer.id;
+      const matchesSub = !selectedTeamLeader || s.subId === selectedTeamLeader.id;
       return matchesAccount && matchesSub;
     });
-  }, [schedules, filterAccountId, filterSubId]);
+  }, [schedules, selectedCustomer, selectedTeamLeader]);
+
+  const accountIdsForTeamLeader = useMemo(() => {
+    if (!selectedTeamLeader) return null;
+    return new Set(schedules.filter((s) => s.subId === selectedTeamLeader.id).map((s) => s.accountId));
+  }, [schedules, selectedTeamLeader]);
 
   const filteredExceptions = useMemo(() => {
-    const accountQuery = filterAccountId.trim().toLowerCase();
-    return exceptions.filter((ex) => !accountQuery || ex.accountId.toLowerCase().includes(accountQuery));
-  }, [exceptions, filterAccountId]);
+    return exceptions.filter((ex) => {
+      const matchesAccount = !selectedCustomer || ex.accountId === selectedCustomer.id;
+      const matchesSub = !accountIdsForTeamLeader || accountIdsForTeamLeader.has(ex.accountId);
+      return matchesAccount && matchesSub;
+    });
+  }, [exceptions, selectedCustomer, accountIdsForTeamLeader]);
 
   async function toggleScheduleStatus(schedule: SubSchedule) {
     if (!adminName.trim()) {
@@ -150,7 +365,7 @@ export default function SubSchedulesPage() {
         </div>
 
         <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <label className="text-xs font-bold uppercase text-slate-500">Your Name (for edit tracking)</label>
+          <label className="text-xs font-bold uppercase text-slate-500">Your Name (for edits)</label>
           <input
             type="text"
             value={adminName}
@@ -158,6 +373,10 @@ export default function SubSchedulesPage() {
             placeholder="Enter your name"
             className="mt-1 w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
           />
+          <p className="mt-1 text-xs text-slate-500">
+            Used when editing an existing schedule or creating a schedule exception. New schedules can
+            only be submitted by subcontractors from their own portal.
+          </p>
         </div>
 
         <div className="flex gap-2">
@@ -187,39 +406,66 @@ export default function SubSchedulesPage() {
         <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-1 flex-col gap-3 sm:flex-row">
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Filter by AccountID</label>
-                <input
-                  type="text"
-                  value={filterAccountId}
-                  onChange={(e) => setFilterAccountId(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 sm:w-56"
-                />
-              </div>
-              {adminTab === "schedules" && (
-                <div>
-                  <label className="text-xs font-bold uppercase text-slate-500">Filter by SubID</label>
-                  <input
-                    type="text"
-                    value={filterSubId}
-                    onChange={(e) => setFilterSubId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 sm:w-56"
-                  />
-                </div>
-              )}
+              <AutocompleteField
+                label="Customer"
+                placeholder="Search customer name..."
+                query={customerQuery}
+                onQueryChange={(value) => {
+                  setCustomerQuery(value);
+                  if (selectedCustomer) setSelectedCustomer(null);
+                }}
+                options={customerOptions}
+                loading={customerSearching}
+                selected={selectedCustomer}
+                onSelect={(option) => {
+                  setSelectedCustomer(option);
+                  setCustomerQuery(option.label);
+                }}
+                onClear={() => {
+                  setSelectedCustomer(null);
+                  setCustomerQuery("");
+                }}
+              />
+
+              <AutocompleteField
+                label="Team Leader"
+                placeholder="Search team leader name..."
+                query={teamLeaderQuery}
+                onQueryChange={(value) => {
+                  setTeamLeaderQuery(value);
+                  if (selectedTeamLeader) setSelectedTeamLeader(null);
+                }}
+                options={teamLeaderOptions}
+                loading={false}
+                selected={selectedTeamLeader}
+                onSelect={(option) => {
+                  setSelectedTeamLeader(option);
+                  setTeamLeaderQuery(option.label);
+                }}
+                onClear={() => {
+                  setSelectedTeamLeader(null);
+                  setTeamLeaderQuery("");
+                }}
+              />
             </div>
 
-            <button
-              type="button"
-              onClick={() => (adminTab === "schedules" ? setScheduleModal("new") : setExceptionModal("new"))}
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-            >
-              {adminTab === "schedules" ? "+ New Schedule" : "+ New Exception"}
-            </button>
+            {adminTab === "exceptions" && (
+              <button
+                type="button"
+                onClick={() => setExceptionModal("new")}
+                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                + New Exception
+              </button>
+            )}
           </div>
 
           <div className="mt-5 overflow-x-auto">
-            {loading ? (
+            {!hasSearch ? (
+              <p className="text-sm text-slate-600">
+                Search by customer name or Team Leader name above to see results.
+              </p>
+            ) : loading ? (
               <p className="text-sm text-slate-600">Loading...</p>
             ) : adminTab === "schedules" ? (
               filteredSchedules.length === 0 ? (

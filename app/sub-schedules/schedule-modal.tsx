@@ -23,23 +23,19 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 const TIME_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"];
 
 type Props = {
-  target: "new" | SubSchedule;
+  target: SubSchedule;
   adminName: string;
   onClose: () => void;
   onSaved: () => void;
 };
 
 export default function ScheduleModal({ target, adminName, onClose, onSaved }: Props) {
-  const isNew = target === "new";
-
-  const [accountId, setAccountId] = useState(isNew ? "" : target.accountId);
-  const [subId, setSubId] = useState(isNew ? "" : target.subId);
-  const [dayOfWeek, setDayOfWeek] = useState(isNew ? DAYS[1] : target.dayOfWeek);
-  const [timeWindow, setTimeWindow] = useState(isNew ? TIME_WINDOWS[0] : target.timeWindow);
-  const [recurring, setRecurring] = useState(isNew ? "Y" : target.recurring || "Y");
-  const [effectiveStart, setEffectiveStart] = useState(isNew ? "" : target.effectiveStart);
-  const [effectiveEnd, setEffectiveEnd] = useState(isNew ? "" : target.effectiveEnd);
-  const [status, setStatus] = useState(isNew ? "Active" : target.status || "Active");
+  const [dayOfWeek, setDayOfWeek] = useState(target.dayOfWeek);
+  const [timeWindow, setTimeWindow] = useState(target.timeWindow);
+  const [recurring, setRecurring] = useState(target.recurring || "Y");
+  const [effectiveStart, setEffectiveStart] = useState(target.effectiveStart);
+  const [effectiveEnd, setEffectiveEnd] = useState(target.effectiveEnd);
+  const [status, setStatus] = useState(target.status || "Active");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,47 +49,19 @@ export default function ScheduleModal({ target, adminName, onClose, onSaved }: P
     setError("");
 
     try {
-      if (isNew) {
-        if (!accountId.trim() || !subId.trim()) {
-          setError("AccountID and SubID are required.");
-          setSubmitting(false);
-          return;
-        }
-        const res = await fetch("/api/admin/sub-schedules", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            accountId: accountId.trim(),
-            subId: subId.trim(),
-            dayOfWeek,
-            timeWindow,
-            recurring,
-            effectiveStart,
-            effectiveEnd,
-            status,
-            submittedBy: adminName.trim(),
-          }),
-        });
-        const data = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || !data.success) {
-          setError(data.error ?? "Failed to create schedule.");
-          return;
-        }
-      } else {
-        const res = await fetch("/api/admin/sub-schedules", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sheetRow: target.sheetRow,
-            lastEditedBy: adminName.trim(),
-            fields: { dayOfWeek, timeWindow, recurring, effectiveStart, effectiveEnd, status },
-          }),
-        });
-        const data = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || !data.success) {
-          setError(data.error ?? "Failed to update schedule.");
-          return;
-        }
+      const res = await fetch("/api/admin/sub-schedules", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetRow: target.sheetRow,
+          lastEditedBy: adminName.trim(),
+          fields: { dayOfWeek, timeWindow, recurring, effectiveStart, effectiveEnd, status },
+        }),
+      });
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok || !data.success) {
+        setError(data.error ?? "Failed to update schedule.");
+        return;
       }
       onSaved();
       onClose();
@@ -113,33 +81,21 @@ export default function ScheduleModal({ target, adminName, onClose, onSaved }: P
       }}
     >
       <div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
-        <h2 className="text-lg font-black text-slate-900">
-          {isNew ? "New Sub Schedule" : `Edit Schedule ${target.scheduleId}`}
-        </h2>
+        <h2 className="text-lg font-black text-slate-900">Edit Schedule {target.scheduleId}</h2>
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-bold uppercase text-slate-500">AccountID</label>
-              <input
-                type="text"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                disabled={!isNew}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 disabled:bg-slate-100"
-                required
-              />
+              <p className="mt-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                {target.accountId}
+              </p>
             </div>
             <div>
               <label className="text-xs font-bold uppercase text-slate-500">SubID</label>
-              <input
-                type="text"
-                value={subId}
-                onChange={(e) => setSubId(e.target.value)}
-                disabled={!isNew}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 disabled:bg-slate-100"
-                required
-              />
+              <p className="mt-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
+                {target.subId}
+              </p>
             </div>
           </div>
 
@@ -216,12 +172,10 @@ export default function ScheduleModal({ target, adminName, onClose, onSaved }: P
             </div>
           </div>
 
-          {!isNew && (
-            <p className="text-xs text-slate-500">
-              Submitted by {target.submittedBy || "—"} on {target.submittedDate || "—"}
-              {target.lastEditedBy ? ` · last edited by ${target.lastEditedBy} on ${target.lastEditedDate}` : ""}
-            </p>
-          )}
+          <p className="text-xs text-slate-500">
+            Submitted by {target.submittedBy || "—"} on {target.submittedDate || "—"}
+            {target.lastEditedBy ? ` · last edited by ${target.lastEditedBy} on ${target.lastEditedDate}` : ""}
+          </p>
 
           {error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
