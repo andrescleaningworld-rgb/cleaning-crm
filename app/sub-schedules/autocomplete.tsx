@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export type SearchOption = { id: string; label: string };
 
@@ -21,51 +21,77 @@ type AccountsApiResponse = {
   accounts?: Array<{ accountId?: string; id?: string; accountName?: string }>;
 };
 
-// Debounced customer-name search against /api/accounts?q=, gated at 2+
-// characters — the same pattern already used for the Accounts page's own
-// search box (200ms debounce there, not the 300ms sometimes assumed).
+const ACCOUNTS_CACHE_TTL_MS = 60_000;
+
+// Module-level cache shared by every consumer in the browser (the page's
+// Customer field, the Exceptions tab's name resolution, and the New
+// Exception modal's own Customer field) so a full account list is fetched
+// at most once per TTL window instead of once per component instance —
+// this redundancy across independent fetches was part of what overwhelmed
+// the shared Apps Script backend in production.
+let accountsCache: { options: SearchOption[]; expiresAt: number } | null = null;
+let accountsFetchPromise: Promise<SearchOption[]> | null = null;
+
+async function fetchAllAccountOptions(): Promise<SearchOption[]> {
+  if (accountsCache && Date.now() <= accountsCache.expiresAt) return accountsCache.options;
+  if (accountsFetchPromise) return accountsFetchPromise;
+
+  accountsFetchPromise = (async () => {
+    try {
+      const res = await fetch("/api/accounts");
+      const data = (await res.json()) as AccountsApiResponse;
+      if (!res.ok || data.success === false) return accountsCache?.options ?? [];
+      const options = (data.accounts ?? [])
+        .map((account) => ({
+          id: account.accountId || account.id || "",
+          label: account.accountName || "Unnamed Account",
+        }))
+        .filter((option) => option.id);
+      accountsCache = { options, expiresAt: Date.now() + ACCOUNTS_CACHE_TTL_MS };
+      return options;
+    } finally {
+      accountsFetchPromise = null;
+    }
+  })();
+
+  return accountsFetchPromise;
+}
+
+// Read-only access to the same shared account list, for consumers that just
+// need to resolve AccountID -> name (e.g. the Exceptions table) rather than
+// drive a search field.
+export function useAllAccountOptions(): { options: SearchOption[]; loading: boolean } {
+  const [options, setOptions] = useState<SearchOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    fetchAllAccountOptions().then((result) => {
+      if (cancelled) return;
+      setOptions(result);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { options, loading };
+}
+
+// Customer-name search, gated at 2+ characters — filters the shared,
+// cached account list client-side (same approach as the Team Leader field)
+// instead of each instance independently querying /api/accounts?q=.
 export function useCustomerSearch() {
+  const { options: allAccounts, loading } = useAllAccountOptions();
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, SEARCH_DEBOUNCE_MS);
-  const [options, setOptions] = useState<SearchOption[]>([]);
-  const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<SearchOption | null>(null);
-  const requestIdRef = useRef(0);
 
-  useEffect(() => {
-    const q = debouncedQuery.trim();
-    if (selected) return;
-    if (q.length < 2) {
-      setOptions([]);
-      setLoading(false);
-      return;
-    }
-    const requestId = ++requestIdRef.current;
-    setLoading(true);
-    (async () => {
-      try {
-        const res = await fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" });
-        const data = (await res.json()) as AccountsApiResponse;
-        if (requestId !== requestIdRef.current) return;
-        if (!res.ok || data.success === false) {
-          setOptions([]);
-          return;
-        }
-        const results = (data.accounts ?? [])
-          .map((account) => ({
-            id: account.accountId || account.id || "",
-            label: account.accountName || "Unnamed Account",
-          }))
-          .filter((option) => option.id)
-          .slice(0, 8);
-        setOptions(results);
-      } catch {
-        if (requestId === requestIdRef.current) setOptions([]);
-      } finally {
-        if (requestId === requestIdRef.current) setLoading(false);
-      }
-    })();
-  }, [debouncedQuery, selected]);
+  const options = useMemo(() => {
+    if (selected) return [];
+    const q = debouncedQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return allAccounts.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 8);
+  }, [allAccounts, debouncedQuery, selected]);
 
   function select(option: SearchOption) {
     setSelected(option);
@@ -77,7 +103,7 @@ export function useCustomerSearch() {
     setQuery("");
   }
 
-  return { query, setQuery, options, loading, selected, select, clear };
+  return { query, setQuery, options, loading: loading && !selected, selected, select, clear };
 }
 
 type AutocompleteFieldProps = {

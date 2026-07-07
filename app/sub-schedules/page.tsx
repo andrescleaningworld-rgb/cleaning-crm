@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
-import { AutocompleteField, useCustomerSearch, useDebounce, type SearchOption } from "./autocomplete";
+import {
+  AutocompleteField,
+  useAllAccountOptions,
+  useCustomerSearch,
+  useDebounce,
+  type SearchOption,
+} from "./autocomplete";
 
 type AdminTab = "schedules" | "exceptions";
-
-type AccountsApiResponse = {
-  success?: boolean;
-  error?: string;
-  accounts?: Array<{ accountId?: string; id?: string; accountName?: string }>;
-};
 
 type SubcontractorsApiResponse = {
   success?: boolean;
@@ -54,10 +54,14 @@ export default function SubSchedulesPage() {
   const [selectedTeamLeader, setSelectedTeamLeader] = useState<SearchOption | null>(null);
 
   // AccountID -> display name, for the Exceptions table (which otherwise only
-  // has raw AccountIDs). Filled in from search results as they arrive, plus a
-  // one-time full-account fetch so names resolve even for accounts that
-  // weren't directly searched (e.g. all accounts under a Team Leader search).
-  const [accountNamesById, setAccountNamesById] = useState<Record<string, string>>({});
+  // has raw AccountIDs). Backed by the same shared, cached account list the
+  // Customer autocomplete uses, so this doesn't add its own separate fetch.
+  const { options: allAccountOptions } = useAllAccountOptions();
+  const accountNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const option of allAccountOptions) map[option.id] = option.label;
+    return map;
+  }, [allAccountOptions]);
 
   const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
@@ -95,47 +99,6 @@ export default function SubSchedulesPage() {
       window.localStorage.setItem("cwAdminName", value);
     }
   }
-
-  useEffect(() => {
-    if (customer.options.length === 0 && !customer.selected) return;
-    setAccountNamesById((current) => {
-      const next = { ...current };
-      for (const option of customer.options) next[option.id] = option.label;
-      if (customer.selected) next[customer.selected.id] = customer.selected.label;
-      return next;
-    });
-  }, [customer.options, customer.selected]);
-
-  // Resolves any AccountID (even ones the user hasn't directly searched for
-  // by name — e.g. every account under a Team-Leader search) once the
-  // Exceptions tab actually needs to display one.
-  useEffect(() => {
-    if (adminTab !== "exceptions" || exceptions.length === 0) return;
-    const unresolved = exceptions.some((ex) => !accountNamesById[ex.accountId]);
-    if (!unresolved) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/accounts", { cache: "no-store" });
-        const data = (await res.json()) as AccountsApiResponse;
-        if (cancelled || !res.ok || data.success === false) return;
-        setAccountNamesById((current) => {
-          const next = { ...current };
-          for (const account of data.accounts ?? []) {
-            const id = account.accountId || account.id;
-            if (id && !next[id]) next[id] = account.accountName || "Unnamed Account";
-          }
-          return next;
-        });
-      } catch {
-        // Table falls back to raw AccountID; not fatal.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminTab, exceptions]);
 
   function resolveAccountName(accountId: string): string {
     return accountNamesById[accountId] || accountId;
