@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrFetch } from "@/lib/serverCache";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run.
+export const maxDuration = 45;
 
 const ALLOWED_GET_ACTIONS = new Set([
   "getAccounts",
@@ -27,55 +34,45 @@ class AccountsFetchError extends Error {
 // action is only fetched from Apps Script once per 60s, no matter how many
 // different "q" searches hit this route in that window.
 async function fetchAccountsForAction(action: string): Promise<unknown[]> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9000);
-
+  let response: Response;
   try {
-    const response = await fetch(
-      `${SCRIPT_URL}?action=${encodeURIComponent(action)}`,
-      {
-        method: "GET",
-        cache: "no-store",
-        signal: controller.signal,
-      }
-    );
-    const text = await response.text();
-
-    let data: { success?: boolean; error?: string; message?: string; accounts?: unknown[]; data?: unknown[] };
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new AccountsFetchError(
-        "Google Script did not return valid JSON while loading accounts.",
-        500,
-        { rawResponse: text, requestedAction: action }
-      );
-    }
-
-    if (!response.ok || data.success === false) {
-      throw new AccountsFetchError(
-        data.error || data.message || "Failed to load accounts from Google Script.",
-        500,
-        { googleScriptResponse: data, googleScriptStatus: response.status, requestedAction: action }
-      );
-    }
-
-    return (data.accounts ?? data.data ?? []) as unknown[];
+    response = await fetchAppsScript(`${SCRIPT_URL}?action=${encodeURIComponent(action)}`, {
+      method: "GET",
+      cache: "no-store",
+    });
   } catch (err) {
-    if (err instanceof AccountsFetchError) throw err;
-    const isTimeout = err instanceof Error && err.name === "AbortError";
+    if (err instanceof AppsScriptFetchError) {
+      throw new AccountsFetchError(err.message, err.status, { requestedAction: action });
+    }
     throw new AccountsFetchError(
-      isTimeout
-        ? "Request timed out, please retry."
-        : err instanceof Error
-          ? err.message
-          : "Unknown error loading accounts.",
-      isTimeout ? 504 : 500,
+      err instanceof Error ? err.message : "Unknown error loading accounts.",
+      500,
       { requestedAction: action }
     );
-  } finally {
-    clearTimeout(timeout);
   }
+
+  const text = await response.text();
+
+  let data: { success?: boolean; error?: string; message?: string; accounts?: unknown[]; data?: unknown[] };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new AccountsFetchError(
+      "Google Script did not return valid JSON while loading accounts.",
+      500,
+      { rawResponse: text, requestedAction: action }
+    );
+  }
+
+  if (!response.ok || data.success === false) {
+    throw new AccountsFetchError(
+      data.error || data.message || "Failed to load accounts from Google Script.",
+      500,
+      { googleScriptResponse: data, googleScriptStatus: response.status, requestedAction: action }
+    );
+  }
+
+  return (data.accounts ?? data.data ?? []) as unknown[];
 }
 
 export async function GET(request: NextRequest) {
