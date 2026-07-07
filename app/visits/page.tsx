@@ -228,12 +228,6 @@ export default function VisitsPage() {
             >
               + Add Visit
             </Link>
-            <Link
-              href="/schedule"
-              className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center text-sm font-bold text-gray-700 no-underline hover:bg-gray-50"
-            >
-              Calendar View →
-            </Link>
             <button
               type="button"
               onClick={() => window.print()}
