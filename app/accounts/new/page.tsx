@@ -220,14 +220,22 @@ export default function NewAccountPage() {
   const subcontractorOptions = useMemo<SubcontractorOption[]>(() => {
     return subcontractors
       .map((subcontractor) => {
-        const companyName = cleanText(
-          subcontractor.companyName || subcontractor.subcontractor
-        );
-
         const label = getSubcontractorDisplayName(subcontractor);
 
+        // Company name alone isn't unique (multiple subs can share one, e.g.
+        // "Cleaning World"), which caused duplicate React keys and ambiguous
+        // selections. Email is the canonical unique identifier for a
+        // subcontractor elsewhere in the app (see app/sub-schedules/page.tsx),
+        // so use the same priority order here: email, then id, then label.
+        const value = cleanText(
+          subcontractor.email ||
+            subcontractor.id ||
+            subcontractor.subcontractorId ||
+            label
+        );
+
         return {
-          value: companyName || label,
+          value,
           label,
         };
       })
