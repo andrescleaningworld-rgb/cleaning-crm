@@ -11,6 +11,10 @@ type ScriptResponse = {
   status?: string;
   complaints?: unknown[];
   data?: unknown[];
+  notification?: {
+    sent?: boolean;
+    reason?: string;
+  };
 };
 
 type ComplaintPayload = {
@@ -411,6 +415,10 @@ export async function POST(request: Request) {
       id: data.id || "",
       rowNumber: data.rowNumber || "",
       message: data.message || "Complaint saved successfully.",
+      // Forwarded as a top-level key (not just nested in scriptResponse)
+      // because app/complaints/new/page.tsx checks data.notification?.sent
+      // directly on the response.
+      notification: data.notification || undefined,
       scriptResponse: data,
     });
   } catch (error) {
