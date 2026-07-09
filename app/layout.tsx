@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
+import OneSignalInit from "./components/OneSignalInit";
 import CWHeader from "./components/CWHeader";
 import { getPortalNewCount } from "@/lib/googleSheets";
 import "./globals.css";
@@ -34,6 +35,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html lang="en">
       <body>
         <ServiceWorkerRegister />
+        <OneSignalInit />
 
         <div className="cw-app-shell">
           <div className="cw-app-container">

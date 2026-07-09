@@ -1013,7 +1013,7 @@ export default function AccountDetailPage() {
           ) : null}
         </div>
 
-        <div className="grid gap-4 border-b border-blue-100 bg-blue-50/70 p-5 md:grid-cols-4">
+        <div className="grid gap-4 border-b border-blue-100 bg-blue-50/70 p-5 md:grid-cols-5">
           <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wide text-blue-700">
               Manager
@@ -1049,6 +1049,15 @@ export default function AccountDetailPage() {
 
           <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+              Sub Pay
+            </p>
+            <p className="mt-2 text-xl font-black text-slate-950">
+              {formatMoney(subcontractorPay)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
               Est. Gross Margin
             </p>
             <p className="mt-2 text-xl font-black text-slate-950">
@@ -1059,7 +1068,7 @@ export default function AccountDetailPage() {
 
             {account.grossMarginPercent ? (
               <p className="mt-1 text-xs font-bold text-slate-500">
-                {account.grossMarginPercent}
+                ({account.grossMarginPercent.replace(/%$/, "")}%)
               </p>
             ) : null}
           </div>
