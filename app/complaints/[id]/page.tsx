@@ -55,6 +55,10 @@ type SaveResponse = {
   success?: boolean;
   error?: string;
   message?: string;
+  notification?: {
+    sent?: boolean;
+    reason?: string;
+  };
 };
 
 function clean(value: unknown): string {
@@ -227,6 +231,7 @@ export default function ComplaintDetailPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const [isEditing, setIsEditing] = useState(false);
+  const [resending, setResending] = useState(false);
   const [editForm, setEditForm] = useState({
     date: "",
     accountName: "",
@@ -397,6 +402,66 @@ export default function ComplaintDetailPage() {
     }
   }
 
+  async function resendSubcontractorEmail() {
+    if (!complaint) return;
+
+    try {
+      setResending(true);
+      setError("");
+      setSuccessMessage("");
+
+      const response = await fetch("/api/complaints", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "resendComplaintNotification",
+          complaint: {
+            rowNumber: complaint.rowNumber || "",
+            id: complaint.id || "",
+          },
+        }),
+      });
+
+      const text = await response.text();
+
+      let data: SaveResponse;
+
+      try {
+        data = JSON.parse(text) as SaveResponse;
+      } catch {
+        throw new Error(
+          "Complaints API did not return valid JSON while resending the email."
+        );
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Failed to resend subcontractor email.");
+      }
+
+      if (data.notification?.sent) {
+        setSuccessMessage(
+          `Email sent to ${clean(complaint.subcontractor) || "the subcontractor"}.`
+        );
+      } else {
+        setError(
+          data.notification?.reason
+            ? `Not sent: ${data.notification.reason}`
+            : "Not sent: unknown reason."
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unknown error resending subcontractor email."
+      );
+    } finally {
+      setResending(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gray-50 p-4 text-gray-900 md:p-6">
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between print:hidden">
@@ -426,6 +491,17 @@ export default function ComplaintDetailPage() {
               className="rounded-xl bg-yellow-500 px-4 py-3 font-bold text-white shadow-sm hover:bg-yellow-600"
             >
               Edit
+            </button>
+          ) : null}
+
+          {complaint ? (
+            <button
+              type="button"
+              onClick={resendSubcontractorEmail}
+              disabled={resending || saving}
+              className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
+            >
+              {resending ? "Resending..." : "Resend Subcontractor Email"}
             </button>
           ) : null}
 

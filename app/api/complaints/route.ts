@@ -250,6 +250,63 @@ export async function POST(request: Request) {
       });
     }
 
+    if (requestedAction === "resendComplaintNotification") {
+      const payload = {
+        action: "resendComplaintNotification",
+        complaint: {
+          rowNumber: complaint.rowNumber || body.rowNumber || "",
+          id: clean(complaint.id || complaint.complaintId || body.id),
+        },
+      };
+
+      const response = await fetch(SCRIPT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      });
+
+      const text = await response.text();
+
+      let data: ScriptResponse;
+
+      try {
+        data = JSON.parse(text) as ScriptResponse;
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Google Script did not return valid JSON while resending the subcontractor email.",
+            sentPayload: payload,
+            rawResponse: text,
+          },
+          { status: 500 }
+        );
+      }
+
+      if (!response.ok || data.success === false) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: data.error || "Failed to resend subcontractor email.",
+            sentPayload: payload,
+            rawResponse: data,
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        notification: data.notification || undefined,
+        message: data.message || "Resend attempted.",
+        scriptResponse: data,
+      });
+    }
+
     const payload = {
       action: "addComplaint",
       complaint: {
