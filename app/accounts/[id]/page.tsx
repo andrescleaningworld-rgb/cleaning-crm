@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
+import { AccountPacketPrintView } from "./account-packet-print-view";
 
 type Account = {
   id?: string;
@@ -34,6 +35,7 @@ type Account = {
   frequency?: string;
   cleaningDays?: string;
   scope?: string;
+  scopeOfWork?: string;
   notes?: string;
 
   contactPerson?: string;
@@ -835,7 +837,21 @@ export default function AccountDetailPage() {
   }
 
   return (
-    <div className="account-detail-print">
+    <>
+      <AccountPacketPrintView
+        accountName={account.accountName || ""}
+        address={accountAddress}
+        startDate={startDate}
+        cleaningSchedule={cleaningDays}
+        subcontractor={subcontractorContactDisplay}
+        monthlySubcontractorPay={formatMoney(subcontractorPay)}
+        hasKey={account.hasKey || ""}
+        alarmInfo={alarmInfo}
+        scope={account.scope || account.scopeOfWork || ""}
+        manager={account.manager || ""}
+      />
+
+      <div className="account-detail-print">
       <div className="mb-4 account-detail-print-hide">
         <Link
           href="/accounts"
@@ -1485,5 +1501,6 @@ export default function AccountDetailPage() {
         </div>
       ) : null}
     </div>
+    </>
   );
 }
