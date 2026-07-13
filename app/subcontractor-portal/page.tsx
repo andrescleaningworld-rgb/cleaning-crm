@@ -132,6 +132,15 @@ type SelectedIssuePhoto = {
 
 type PortalView = "accounts" | "complaints" | "issue" | "supplies" | "schedule" | "calendar";
 
+const PORTAL_VIEW_LABELS: Record<PortalView, string> = {
+  accounts: "Accounts",
+  complaints: "Complaints",
+  issue: "Report Issue",
+  supplies: "Order Supplies",
+  schedule: "Schedule",
+  calendar: "Calendar",
+};
+
 const MAX_SUB_ISSUE_PHOTOS = 5;
 const MAX_SUB_ISSUE_PHOTO_SIZE_MB = 25;
 
@@ -324,6 +333,34 @@ function getSubcontractorDisplayName(subcontractor: Subcontractor) {
     subcontractor.name ||
     "Subcontractor"
   );
+}
+
+// Fire-and-forget activity logging — never awaited by callers, never surfaces
+// errors to the user, and must not block whatever real action triggered it.
+function logSubcontractorActivity(
+  subcontractor: Subcontractor | null,
+  emailFallback: string,
+  actionType: string,
+  details: string
+) {
+  const subcontractorEmail = subcontractor?.email || emailFallback || "";
+  const subcontractorName = subcontractor
+    ? getSubcontractorDisplayName(subcontractor)
+    : "";
+
+  fetch("/api/subcontractor-portal", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "logSubcontractorActivity",
+      subcontractorEmail,
+      subcontractorName,
+      actionType,
+      details,
+    }),
+  }).catch(() => {
+    // Logging must never surface an error to the user or block their action.
+  });
 }
 
 function getComplaintId(complaint: Complaint) {
@@ -695,6 +732,8 @@ export default function SubcontractorPortalPage() {
 
       saveSubcontractorSession(emailToLoad);
 
+      logSubcontractorActivity(data.subcontractor, emailToLoad, "Login", "");
+
       if (showSuccess) {
         setSuccessMessage("Portal loaded successfully.");
       }
@@ -726,6 +765,16 @@ export default function SubcontractorPortalPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function handleTabChange(view: PortalView) {
+    setActivePortalView(view);
+    logSubcontractorActivity(
+      subcontractor,
+      email,
+      `Viewed ${PORTAL_VIEW_LABELS[view]}`,
+      ""
+    );
+  }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -931,6 +980,13 @@ export default function SubcontractorPortalPage() {
 
       issuePhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
 
+      logSubcontractorActivity(
+        subcontractor,
+        email,
+        "Issue Reported",
+        issueAccountName
+      );
+
       setSuccessMessage(
         `Issue submitted successfully. ${
           issuePhotos.length > 0
@@ -1077,6 +1133,20 @@ export default function SubcontractorPortalPage() {
           submittedOrderIds.push(data.orderId);
         }
       }
+
+      logSubcontractorActivity(
+        subcontractor,
+        email,
+        "Supply Order Submitted",
+        `${selectedAccountName} — ${orderItems
+          .map((item) =>
+            item.supplyItem === OTHER_ITEM_VALUE
+              ? item.customItemName.trim()
+              : item.supplyItem
+          )
+          .filter(Boolean)
+          .join(", ")}`
+      );
 
       setSuccessMessage(
         submittedOrderIds.length > 0
@@ -1287,7 +1357,7 @@ export default function SubcontractorPortalPage() {
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6">
                 <button
                   type="button"
-                  onClick={() => setActivePortalView("accounts")}
+                  onClick={() => handleTabChange("accounts")}
                   className={getPortalButtonClass("accounts")}
                 >
                   My Accounts
@@ -1295,7 +1365,7 @@ export default function SubcontractorPortalPage() {
 
                 <button
                   type="button"
-                  onClick={() => setActivePortalView("complaints")}
+                  onClick={() => handleTabChange("complaints")}
                   className={`relative ${getPortalButtonClass("complaints")}`}
                 >
                   Complaints
@@ -1308,7 +1378,7 @@ export default function SubcontractorPortalPage() {
 
                 <button
                   type="button"
-                  onClick={() => setActivePortalView("issue")}
+                  onClick={() => handleTabChange("issue")}
                   className={getPortalButtonClass("issue")}
                 >
                   Report Issue
@@ -1316,7 +1386,7 @@ export default function SubcontractorPortalPage() {
 
                 <button
                   type="button"
-                  onClick={() => setActivePortalView("supplies")}
+                  onClick={() => handleTabChange("supplies")}
                   className={getPortalButtonClass("supplies")}
                 >
                   Supply Order
@@ -1324,7 +1394,7 @@ export default function SubcontractorPortalPage() {
 
                 <button
                   type="button"
-                  onClick={() => setActivePortalView("schedule")}
+                  onClick={() => handleTabChange("schedule")}
                   className={getPortalButtonClass("schedule")}
                 >
                   My Schedule
@@ -1332,7 +1402,7 @@ export default function SubcontractorPortalPage() {
 
                 <button
                   type="button"
-                  onClick={() => setActivePortalView("calendar")}
+                  onClick={() => handleTabChange("calendar")}
                   className={getPortalButtonClass("calendar")}
                 >
                   My Calendar
@@ -1526,7 +1596,7 @@ export default function SubcontractorPortalPage() {
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
                     <button
                       type="button"
-                      onClick={() => setActivePortalView("issue")}
+                      onClick={() => handleTabChange("issue")}
                       className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white hover:bg-red-700"
                     >
                       Report Issue for This Account
@@ -1534,7 +1604,7 @@ export default function SubcontractorPortalPage() {
 
                     <button
                       type="button"
-                      onClick={() => setActivePortalView("supplies")}
+                      onClick={() => handleTabChange("supplies")}
                       className="rounded-2xl bg-green-700 px-4 py-3 text-sm font-black text-white hover:bg-green-800"
                     >
                       Order Supplies for This Account
