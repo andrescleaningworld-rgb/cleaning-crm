@@ -903,6 +903,53 @@ export async function fetchScheduleExceptions(): Promise<ScheduleException[]> {
   }));
 }
 
+const ACTIVITY_LOG_TAB = "Subcontractor Activity Log";
+
+export type SubcontractorActivityLogEntry = {
+  timestamp: string;
+  subcontractorEmail: string;
+  subcontractorName: string;
+  actionType: string;
+  details: string;
+};
+
+// The Apps Script's getSubcontractorActivityLog action serializes this
+// column as a date-only string ("2026-07-13"), which JS parses as UTC
+// midnight and then renders as the wrong local time — every row from the
+// same day collapses to the same displayed instant. Reading the tab
+// directly avoids that lossy round trip and keeps the real time-of-day.
+function parseSheetDateTime(text: string): string {
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/.exec(text.trim());
+  if (!match) return text;
+  const [, m, d, y, h, min, s] = match;
+  // No trailing "Z" — a bare "YYYY-MM-DDTHH:mm:ss" string parses as local
+  // time in JS, matching the wall-clock time the sheet already displays.
+  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}T${h.padStart(2, "0")}:${min}:${s}`;
+}
+
+export async function getSubcontractorActivityLog(): Promise<SubcontractorActivityLogEntry[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${ACTIVITY_LOG_TAB}!A2:E`,
+    valueRenderOption: "UNFORMATTED_VALUE",
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
+
+  const rows = (res.data.values ?? []) as string[][];
+
+  return rows
+    .filter((r) => r.some((cell) => String(cell ?? "").trim()))
+    .map((r) => ({
+      timestamp: parseSheetDateTime(String(r[0] ?? "")),
+      subcontractorEmail: String(r[1] ?? "").trim(),
+      subcontractorName: String(r[2] ?? "").trim(),
+      actionType: String(r[3] ?? "").trim(),
+      details: String(r[4] ?? "").trim(),
+    }));
+}
+
 export async function appendScheduleException(data: {
   accountId: string;
   originalDate: string;
