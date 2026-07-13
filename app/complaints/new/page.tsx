@@ -17,9 +17,20 @@ type ComplaintForm = {
   complaintValidity: string;
   reportedBy: string;
   assignedTo: string;
+  subcontractor: string;
   lastFollowUp: string;
   notes: string;
+  todoDueDate: string;
 };
+
+type Manager = {
+  name?: string;
+  status?: string;
+};
+
+type ManagersApiResponse =
+  | Manager[]
+  | { managers?: Manager[]; data?: Manager[] };
 
 type AccountsApiResponse = {
   success?: boolean;
@@ -35,6 +46,7 @@ type SaveComplaintResponse = {
   error?: string;
   message?: string;
   id?: string;
+  rowNumber?: string | number;
   complaintId?: string;
   data?: {
     id?: string;
@@ -76,8 +88,39 @@ function normalize(value: unknown): string {
   return cleanText(value).toLowerCase();
 }
 
+// Strips diacritics (e.g. "Andrés" -> "andres") so account records that spell
+// a manager's name without accents still fuzzy-match the canonical roster.
+function normalizeManagerName(value: unknown): string {
+  return cleanText(value)
+    .normalize("NFD")
+    .replace(/\p{Mn}/gu, "")
+    .toLowerCase();
+}
+
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function addDays(dateStr: string, days: number): string {
+  if (!dateStr) return "";
+
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "";
+
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+// Fuzzy-matches raw account manager text against the canonical, active
+// Managers roster and returns the canonical-cased name, or "" if no match
+// (e.g. combined free-text like "Andres , Greg", or an inactive/unknown
+// manager) — the Manager field is now a dropdown, so it must never be
+// prefilled with a value that isn't one of its own options.
+function findCanonicalManager(managers: string[], rawManagerText: string): string {
+  const target = normalizeManagerName(rawManagerText);
+  if (!target) return "";
+
+  return managers.find((name) => normalizeManagerName(name) === target) || "";
 }
 
 function getAccountName(account: AnyRow) {
@@ -106,6 +149,21 @@ function getAccountManager(account: AnyRow) {
       "manager",
       "Account Manager",
       "accountManager",
+    ])
+  );
+}
+
+function getAccountSubcontractor(account: AnyRow) {
+  return cleanText(
+    getValue(account, [
+      "Subcontractor",
+      "subcontractor",
+      "Sub Contractor",
+      "subContractor",
+      "Cleaner",
+      "cleaner",
+      "Sub",
+      "sub",
     ])
   );
 }
@@ -164,19 +222,27 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-const emptyForm: ComplaintForm = {
-  accountId: "",
-  accountName: "",
-  complaintDate: todayDate(),
-  issue: "",
-  priority: "Medium",
-  status: "Open",
-  complaintValidity: "Needs Review",
-  reportedBy: "",
-  assignedTo: "",
-  lastFollowUp: "",
-  notes: "",
-};
+function makeEmptyForm(): ComplaintForm {
+  const complaintDate = todayDate();
+
+  return {
+    accountId: "",
+    accountName: "",
+    complaintDate,
+    issue: "",
+    priority: "Medium",
+    status: "Open",
+    complaintValidity: "Needs Review",
+    reportedBy: "",
+    assignedTo: "",
+    subcontractor: "",
+    lastFollowUp: "",
+    notes: "",
+    todoDueDate: addDays(complaintDate, 2),
+  };
+}
+
+const emptyForm: ComplaintForm = makeEmptyForm();
 
 function NewComplaintPageContent() {
   const searchParams = useSearchParams();
@@ -187,6 +253,8 @@ function NewComplaintPageContent() {
     cleanText(searchParams.get("account"));
 
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
+  const [managers, setManagers] = useState<string[]>([]);
+  const [loadingManagers, setLoadingManagers] = useState(true);
   const [form, setForm] = useState<ComplaintForm>(emptyForm);
   const [accountSearch, setAccountSearch] = useState("");
   const [showAccountResults, setShowAccountResults] = useState(false);
@@ -194,6 +262,39 @@ function NewComplaintPageContent() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedPhotos, setSelectedPhotos] = useState<SelectedPhoto[]>([]);
+  const [todoDueDateTouched, setTodoDueDateTouched] = useState(false);
+
+  async function loadManagers() {
+    try {
+      setLoadingManagers(true);
+
+      const response = await fetch("/api/admin/managers", {
+        cache: "no-store",
+      });
+
+      const data = (await response.json()) as ManagersApiResponse;
+
+      const rows: Manager[] = Array.isArray(data)
+        ? data
+        : data.managers || data.data || [];
+
+      const activeNames = Array.from(
+        new Set(
+          rows
+            .filter((row) => !row.status || row.status === "Active")
+            .map((row) => cleanText(row.name))
+            .filter(Boolean)
+        )
+      ).sort();
+
+      setManagers(activeNames);
+    } catch (error) {
+      console.error("Load managers error:", error);
+      setManagers([]);
+    } finally {
+      setLoadingManagers(false);
+    }
+  }
 
   async function loadAccounts() {
     try {
@@ -216,6 +317,7 @@ function NewComplaintPageContent() {
 
   useEffect(() => {
     loadAccounts();
+    loadManagers();
   }, []);
 
   useEffect(() => {
@@ -250,20 +352,25 @@ function NewComplaintPageContent() {
 
     const matchedAccountId = getAccountId(matchingAccount);
     const matchedAccountName = getAccountName(matchingAccount);
-    const matchedManager = getAccountManager(matchingAccount);
+    const matchedManager = findCanonicalManager(
+      managers,
+      getAccountManager(matchingAccount)
+    );
+    const matchedSubcontractor = getAccountSubcontractor(matchingAccount);
 
     setForm((current) => ({
       ...current,
       accountId: matchedAccountId || current.accountId,
       accountName: matchedAccountName || current.accountName,
       assignedTo: current.assignedTo || matchedManager,
+      subcontractor: current.subcontractor || matchedSubcontractor,
     }));
 
     if (matchedAccountName) {
       setAccountSearch(matchedAccountName);
       setShowAccountResults(false);
     }
-  }, [accounts, urlAccountId, urlAccountName]);
+  }, [accounts, managers, urlAccountId, urlAccountName]);
 
   useEffect(() => {
     return () => {
@@ -309,13 +416,15 @@ function NewComplaintPageContent() {
   function selectAccount(account: AnyRow) {
     const accountName = getAccountName(account);
     const accountId = getAccountId(account);
-    const manager = getAccountManager(account);
+    const manager = findCanonicalManager(managers, getAccountManager(account));
+    const subcontractor = getAccountSubcontractor(account);
 
     setForm((current) => ({
       ...current,
       accountId,
       accountName,
       assignedTo: current.assignedTo || manager,
+      subcontractor: current.subcontractor || subcontractor,
     }));
 
     setAccountSearch(accountName);
@@ -473,6 +582,7 @@ function NewComplaintPageContent() {
             reportedBy: form.reportedBy,
             manager: form.assignedTo,
             assignedTo: form.assignedTo,
+            subcontractor: form.subcontractor,
             lastFollowUp: form.lastFollowUp,
             followUpDate: form.lastFollowUp,
             notes: form.notes,
@@ -512,13 +622,14 @@ function NewComplaintPageContent() {
         );
       }
 
+      // Matches what /api/complaints actually returns today (data.id /
+      // data.rowNumber, both top-level) — the previous version of this
+      // resolution guessed at data.complaint?.id / data.data?.id shapes that
+      // the route never produces, so it always fell through to the
+      // synthetic COMP-<timestamp> fallback.
       const complaintSourceId =
-        data.complaintId ||
         data.id ||
-        data.complaint?.complaintId ||
-        data.complaint?.id ||
-        data.data?.complaintId ||
-        data.data?.id ||
+        (data.rowNumber ? String(data.rowNumber) : "") ||
         `COMP-${Date.now()}`;
 
       let successMessage = "Complaint saved successfully.";
@@ -536,10 +647,46 @@ function NewComplaintPageContent() {
         successMessage += ` Notification not sent: ${data.notification.reason}`;
       }
 
+      // Auto-create the follow-up to-do. Fault-isolated: the complaint has
+      // already saved successfully at this point, so a failure here must
+      // not make the submission look like it failed — just note it.
+      try {
+        const todoResponse = await fetch("/api/to-do", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "addToDo",
+            dueDate: form.todoDueDate,
+            assignedTo: form.assignedTo,
+            accountName: form.accountName,
+            taskType: "Complaint Follow-Up",
+            status: "Open",
+            why: form.issue,
+            notes: form.notes,
+            complaintId: complaintSourceId,
+          }),
+        });
+
+        const todoData = await todoResponse.json();
+
+        if (!todoResponse.ok || todoData.success === false) {
+          throw new Error(todoData.message || "Could not create follow-up to-do.");
+        }
+
+        successMessage += " Follow-up to-do created.";
+      } catch (todoError) {
+        console.error("Auto-create to-do error:", todoError);
+        successMessage +=
+          " Could not create the follow-up to-do automatically — add one manually from the To-Do page if needed.";
+      }
+
       selectedPhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
 
       setMessage(successMessage);
-      setForm(emptyForm);
+      setForm(makeEmptyForm());
+      setTodoDueDateTouched(false);
       setSelectedPhotos([]);
       setAccountSearch("");
       setShowAccountResults(false);
@@ -685,9 +832,17 @@ function NewComplaintPageContent() {
                 <input
                   type="date"
                   value={form.complaintDate}
-                  onChange={(event) =>
-                    updateForm("complaintDate", event.target.value)
-                  }
+                  onChange={(event) => {
+                    const value = event.target.value;
+
+                    setForm((current) => ({
+                      ...current,
+                      complaintDate: value,
+                      todoDueDate: todoDueDateTouched
+                        ? current.todoDueDate
+                        : addDays(value, 2),
+                    }));
+                  }}
                   required
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />
@@ -781,33 +936,72 @@ function NewComplaintPageContent() {
 
               <div>
                 <label className="mb-1 block text-sm font-semibold text-gray-700">
-                  Assigned To
+                  Manager
                 </label>
 
-                <input
+                <select
                   value={form.assignedTo}
                   onChange={(event) =>
                     updateForm("assignedTo", event.target.value)
                   }
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  placeholder="Manager or person responsible"
-                />
+                  required
+                  disabled={loadingManagers}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 disabled:cursor-not-allowed disabled:bg-gray-100"
+                >
+                  <option value="">
+                    {loadingManagers ? "Loading managers..." : "Select manager"}
+                  </option>
+
+                  {managers.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Responsible for following up — also assigned the
+                  auto-created To-Do below.
+                </p>
               </div>
             </div>
 
-            <div>
-              <label className="mb-1 block text-sm font-semibold text-gray-700">
-                Last Follow-Up / Follow-Up Date
-              </label>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">
+                  Last Follow-Up / Follow-Up Date
+                </label>
 
-              <input
-                type="date"
-                value={form.lastFollowUp}
-                onChange={(event) =>
-                  updateForm("lastFollowUp", event.target.value)
-                }
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              />
+                <input
+                  type="date"
+                  value={form.lastFollowUp}
+                  onChange={(event) =>
+                    updateForm("lastFollowUp", event.target.value)
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-gray-700">
+                  Follow-Up To-Do Due Date
+                </label>
+
+                <input
+                  type="date"
+                  value={form.todoDueDate}
+                  onChange={(event) => {
+                    setTodoDueDateTouched(true);
+                    updateForm("todoDueDate", event.target.value);
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Due date for the &quot;Complaint Follow-Up&quot; To-Do created
+                  when you save. Defaults to 2 days after the complaint date.
+                </p>
+              </div>
             </div>
 
             <div>

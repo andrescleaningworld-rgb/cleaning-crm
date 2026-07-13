@@ -32,6 +32,23 @@ const SELECT_OPTION_LIMIT = 250;
 const NEARBY_MILES = 100; // Load all pins within this radius when user location is available
 const GEOCACHE_KEY = "cw-geocache-v1"; // localStorage key for persisted geocode results
 
+// Roughly NJ / NYC / nearby service area. Accounts with coordinates outside this
+// box are almost always bad geocodes (ambiguous address, wrong country, etc.)
+// rather than real out-of-territory accounts.
+const SERVICE_AREA_LAT_MIN = 38.5;
+const SERVICE_AREA_LAT_MAX = 42.5;
+const SERVICE_AREA_LNG_MIN = -76.5;
+const SERVICE_AREA_LNG_MAX = -72.5;
+
+function isInServiceArea(latitude: number, longitude: number) {
+  return (
+    latitude >= SERVICE_AREA_LAT_MIN &&
+    latitude <= SERVICE_AREA_LAT_MAX &&
+    longitude >= SERVICE_AREA_LNG_MIN &&
+    longitude <= SERVICE_AREA_LNG_MAX
+  );
+}
+
 type AnyRow = Record<string, unknown>;
 
 type AccountLocation = {
@@ -677,15 +694,9 @@ export default function MapPage() {
         return false;
       }
 
-      // Keep only accounts roughly in NJ / NYC / nearby service area.
-      // This prevents bad Google geocodes from throwing the map across the world.
-      const isNearbyServiceArea =
-        account.latitude >= 38.5 &&
-        account.latitude <= 42.5 &&
-        account.longitude >= -76.5 &&
-        account.longitude <= -72.5;
-
-      if (!isNearbyServiceArea) return false;
+      if (!isInServiceArea(account.latitude, account.longitude)) {
+        return false;
+      }
 
       // When user location is known, only include pins near the user
       if (currentCoords && account.distance !== null) {
@@ -695,6 +706,16 @@ export default function MapPage() {
       return true;
     });
   }, [filteredAccounts, currentCoords]);
+
+  // Accounts that were geocoded but landed outside the service area box above —
+  // surfaced separately so staff can see and fix them instead of the account
+  // just silently having no pin.
+  const outOfServiceAreaAccounts = useMemo(() => {
+    return filteredAccounts.filter((account) => {
+      if (account.latitude === null || account.longitude === null) return false;
+      return !isInServiceArea(account.latitude, account.longitude);
+    });
+  }, [filteredAccounts]);
 
   const visibleAccountsWithPins = useMemo(() => {
     const limitedPins = accountsWithPins.slice(0, pinLimit);
@@ -734,7 +755,12 @@ export default function MapPage() {
       ? buildGoogleMapsSearchUrl(currentLocation)
       : "";
 
-  const accountsMissingPins = filteredAccounts.length - accountsWithPins.length;
+  // Only counts accounts with no coordinates at all — accounts with bad/out-of-area
+  // coordinates are geocoded, just wrong, so they're surfaced separately below
+  // instead of being folded into this "could not be geocoded" count.
+  const accountsMissingPins = filteredAccounts.filter(
+    (account) => account.latitude === null || account.longitude === null
+  ).length;
   const hiddenPinCount = Math.max(accountsWithPins.length - pinLimit, 0);
 
   function clearFilters() {
@@ -908,6 +934,23 @@ export default function MapPage() {
                 {accountsMissingPins} account
                 {accountsMissingPins === 1 ? "" : "s"} could not be geocoded and cannot show as pins. Check that addresses are complete (street, city, state).
               </div>
+            ) : null}
+
+            {!isLoading && outOfServiceAreaAccounts.length > 0 ? (
+              <details className="mt-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs font-bold text-orange-800">
+                <summary className="cursor-pointer select-none">
+                  {outOfServiceAreaAccounts.length} account
+                  {outOfServiceAreaAccounts.length === 1 ? "" : "s"} have coordinates outside the expected NJ / NYC service area and are hidden from the map. Their address likely needs correcting — click to view.
+                </summary>
+                <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold">
+                  {outOfServiceAreaAccounts.map((account) => (
+                    <li key={account.id}>
+                      {account.name}
+                      {account.address ? ` — ${account.address}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </details>
             ) : null}
 
             {!isLoading && hiddenPinCount > 0 ? (

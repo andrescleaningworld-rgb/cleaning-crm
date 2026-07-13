@@ -3,15 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
-import { AutocompleteField, useCustomerSearch, useDebounce, type SearchOption } from "./autocomplete";
+import {
+  AutocompleteField,
+  useAllAccountOptions,
+  useCustomerSearch,
+  useDebounce,
+  type SearchOption,
+} from "./autocomplete";
 
 type AdminTab = "schedules" | "exceptions";
-
-type AccountsApiResponse = {
-  success?: boolean;
-  error?: string;
-  accounts?: Array<{ accountId?: string; id?: string; accountName?: string }>;
-};
 
 type SubcontractorsApiResponse = {
   success?: boolean;
@@ -20,13 +20,30 @@ type SubcontractorsApiResponse = {
     id?: string;
     ID?: string;
     subcontractorId?: string;
+    email?: string;
+    Email?: string;
+    "Email Address"?: string;
+    emailAddress?: string;
     companyName?: string;
     CompanyName?: string;
+    "Company Name"?: string;
     company?: string;
     contactName?: string;
     ContactName?: string;
+    "Contact Name"?: string;
+    name?: string;
   }>;
 };
+
+// Company name and contact/personal name, tracked separately so Team Leader
+// search can match either one (staff often know a sub by first name rather
+// than company name), with id resolved the same way as before (SubID in the
+// SubSchedules sheet is the subcontractor's email).
+type TeamLeaderRecord = { id: string; companyName: string; contactName: string };
+
+function normalizeForMatch(value: string): string {
+  return value.trim().toLowerCase();
+}
 
 function getStoredAdminName(): string {
   if (typeof window === "undefined") return "";
@@ -48,16 +65,22 @@ export default function SubSchedulesPage() {
   // Team Leader autocomplete (resolves to SubID) — full subcontractor list is
   // small, so it's loaded once and filtered client-side, same as the
   // subcontractor dropdown already used on the Accounts page.
-  const [allTeamLeaders, setAllTeamLeaders] = useState<SearchOption[]>([]);
+  const [allTeamLeaders, setAllTeamLeaders] = useState<TeamLeaderRecord[]>([]);
+  const [teamLeaderLoadFailed, setTeamLeaderLoadFailed] = useState(false);
+  const [teamLeaderLoading, setTeamLeaderLoading] = useState(true);
   const [teamLeaderQuery, setTeamLeaderQuery] = useState("");
   const debouncedTeamLeaderQuery = useDebounce(teamLeaderQuery, 200);
   const [selectedTeamLeader, setSelectedTeamLeader] = useState<SearchOption | null>(null);
 
   // AccountID -> display name, for the Exceptions table (which otherwise only
-  // has raw AccountIDs). Filled in from search results as they arrive, plus a
-  // one-time full-account fetch so names resolve even for accounts that
-  // weren't directly searched (e.g. all accounts under a Team Leader search).
-  const [accountNamesById, setAccountNamesById] = useState<Record<string, string>>({});
+  // has raw AccountIDs). Backed by the same shared, cached account list the
+  // Customer autocomplete uses, so this doesn't add its own separate fetch.
+  const { options: allAccountOptions } = useAllAccountOptions();
+  const accountNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const option of allAccountOptions) map[option.id] = option.label;
+    return map;
+  }, [allAccountOptions]);
 
   const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
@@ -66,28 +89,52 @@ export default function SubSchedulesPage() {
     setAdminName(getStoredAdminName());
   }, []);
 
+  const [teamLeaderReloadToken, setTeamLeaderReloadToken] = useState(0);
+
   useEffect(() => {
     let cancelled = false;
+    setTeamLeaderLoading(true);
+    setTeamLeaderLoadFailed(false);
     (async () => {
       try {
         const res = await fetch("/api/subcontractors");
         const data = (await res.json()) as SubcontractorsApiResponse;
-        if (cancelled || !res.ok || data.success === false) return;
+        if (cancelled) return;
+        if (!res.ok || data.success === false) {
+          // Distinguish "the fetch itself failed" (e.g. the Apps Script
+          // timeout this page has already hit) from "genuinely no
+          // subcontractors" — silently leaving this empty reads as a data
+          // bug rather than a transient backend failure.
+          setTeamLeaderLoadFailed(true);
+          return;
+        }
+        // SubID in the SubSchedules sheet is the subcontractor's email — the
+        // subcontractor portal's own schedule submission (sub-schedule-tab.tsx)
+        // writes sub.email as SubID, falling back to id/subcontractorId only
+        // if email is missing. Most subcontractor records have no generic
+        // id/ID/subcontractorId at all (the Subcontractors admin page has a
+        // dedicated "Missing ID" state for this), so matching that priority
+        // order here is required for the resolved SubID to ever match real data.
         const options = (data.subcontractors ?? [])
           .map((sub) => ({
-            id: sub.id || sub.ID || sub.subcontractorId || "",
-            label: sub.companyName || sub.CompanyName || sub.company || sub.contactName || sub.ContactName || "",
+            id:
+              sub.email || sub.Email || sub["Email Address"] || sub.emailAddress ||
+              sub.id || sub.ID || sub.subcontractorId || "",
+            companyName: sub.companyName || sub.CompanyName || sub["Company Name"] || sub.company || "",
+            contactName: sub.contactName || sub.ContactName || sub["Contact Name"] || sub.name || "",
           }))
-          .filter((option) => option.id && option.label);
+          .filter((option) => option.id && (option.companyName || option.contactName));
         setAllTeamLeaders(options);
       } catch {
-        // Team Leader autocomplete just won't have suggestions; not fatal.
+        if (!cancelled) setTeamLeaderLoadFailed(true);
+      } finally {
+        if (!cancelled) setTeamLeaderLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [teamLeaderReloadToken]);
 
   function handleAdminNameChange(value: string) {
     setAdminName(value);
@@ -96,57 +143,48 @@ export default function SubSchedulesPage() {
     }
   }
 
-  useEffect(() => {
-    if (customer.options.length === 0 && !customer.selected) return;
-    setAccountNamesById((current) => {
-      const next = { ...current };
-      for (const option of customer.options) next[option.id] = option.label;
-      if (customer.selected) next[customer.selected.id] = customer.selected.label;
-      return next;
-    });
-  }, [customer.options, customer.selected]);
-
-  // Resolves any AccountID (even ones the user hasn't directly searched for
-  // by name — e.g. every account under a Team-Leader search) once the
-  // Exceptions tab actually needs to display one.
-  useEffect(() => {
-    if (adminTab !== "exceptions" || exceptions.length === 0) return;
-    const unresolved = exceptions.some((ex) => !accountNamesById[ex.accountId]);
-    if (!unresolved) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/accounts", { cache: "no-store" });
-        const data = (await res.json()) as AccountsApiResponse;
-        if (cancelled || !res.ok || data.success === false) return;
-        setAccountNamesById((current) => {
-          const next = { ...current };
-          for (const account of data.accounts ?? []) {
-            const id = account.accountId || account.id;
-            if (id && !next[id]) next[id] = account.accountName || "Unnamed Account";
-          }
-          return next;
-        });
-      } catch {
-        // Table falls back to raw AccountID; not fatal.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adminTab, exceptions]);
-
   function resolveAccountName(accountId: string): string {
     return accountNamesById[accountId] || accountId;
   }
 
-  // Team Leader search — client-side filter of the already-loaded list.
+  function formatTeamLeaderLabel(record: TeamLeaderRecord): string {
+    return record.contactName && record.companyName
+      ? `${record.contactName} — ${record.companyName}`
+      : record.contactName || record.companyName;
+  }
+
+  // SubID -> "Contact — Company", same format the dropdown uses, so the
+  // table and the search field are visually consistent. Keyed by normalized
+  // id since SubID matching elsewhere on this page is also normalized
+  // (trim + lowercase) to tolerate case/whitespace differences in the sheet.
+  const teamLeaderNamesById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const record of allTeamLeaders) {
+      map[normalizeForMatch(record.id)] = formatTeamLeaderLabel(record);
+    }
+    return map;
+  }, [allTeamLeaders]);
+
+  function resolveTeamLeaderName(subId: string): string {
+    return teamLeaderNamesById[normalizeForMatch(subId)] || subId;
+  }
+
+  // Team Leader search — client-side filter of the already-loaded list,
+  // matching either the company name or the contact/personal name (staff
+  // often know a sub by first name rather than company name). When a record
+  // has both, the dropdown shows "Contact — Company" so staff can visually
+  // confirm they picked the right person when a first name is ambiguous.
   const teamLeaderOptions = useMemo(() => {
     if (selectedTeamLeader) return [];
     const q = debouncedTeamLeaderQuery.trim().toLowerCase();
     if (q.length < 2) return [];
-    return allTeamLeaders.filter((option) => option.label.toLowerCase().includes(q)).slice(0, 8);
+    return allTeamLeaders
+      .filter(
+        (record) =>
+          record.companyName.toLowerCase().includes(q) || record.contactName.toLowerCase().includes(q)
+      )
+      .slice(0, 8)
+      .map((record) => ({ id: record.id, label: formatTeamLeaderLabel(record) }));
   }, [allTeamLeaders, debouncedTeamLeaderQuery, selectedTeamLeader]);
 
   const hasSearch = !!(customer.selected || selectedTeamLeader);
@@ -206,14 +244,18 @@ export default function SubSchedulesPage() {
   const filteredSchedules = useMemo(() => {
     return schedules.filter((s) => {
       const matchesAccount = !customer.selected || s.accountId === customer.selected.id;
-      const matchesSub = !selectedTeamLeader || s.subId === selectedTeamLeader.id;
+      const matchesSub =
+        !selectedTeamLeader || normalizeForMatch(s.subId) === normalizeForMatch(selectedTeamLeader.id);
       return matchesAccount && matchesSub;
     });
   }, [schedules, customer.selected, selectedTeamLeader]);
 
   const accountIdsForTeamLeader = useMemo(() => {
     if (!selectedTeamLeader) return null;
-    return new Set(schedules.filter((s) => s.subId === selectedTeamLeader.id).map((s) => s.accountId));
+    const targetId = normalizeForMatch(selectedTeamLeader.id);
+    return new Set(
+      schedules.filter((s) => normalizeForMatch(s.subId) === targetId).map((s) => s.accountId)
+    );
   }, [schedules, selectedTeamLeader]);
 
   const filteredExceptions = useMemo(() => {
@@ -271,11 +313,16 @@ export default function SubSchedulesPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
+    <main className="min-h-screen bg-gray-50 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Sub Schedules</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
+            Cleaning World
+          </p>
+          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+            Sub Schedules
+          </h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
             Manage recurring subcontractor schedules and one-off schedule exceptions.
           </p>
         </div>
@@ -334,26 +381,40 @@ export default function SubSchedulesPage() {
                 onClear={customer.clear}
               />
 
-              <AutocompleteField
-                label="Team Leader"
-                placeholder="Search team leader name..."
-                query={teamLeaderQuery}
-                onQueryChange={(value) => {
-                  setTeamLeaderQuery(value);
-                  if (selectedTeamLeader) setSelectedTeamLeader(null);
-                }}
-                options={teamLeaderOptions}
-                loading={false}
-                selected={selectedTeamLeader}
-                onSelect={(option) => {
-                  setSelectedTeamLeader(option);
-                  setTeamLeaderQuery(option.label);
-                }}
-                onClear={() => {
-                  setSelectedTeamLeader(null);
-                  setTeamLeaderQuery("");
-                }}
-              />
+              <div>
+                <AutocompleteField
+                  label="Team Leader"
+                  placeholder="Search team leader name..."
+                  query={teamLeaderQuery}
+                  onQueryChange={(value) => {
+                    setTeamLeaderQuery(value);
+                    if (selectedTeamLeader) setSelectedTeamLeader(null);
+                  }}
+                  options={teamLeaderOptions}
+                  loading={teamLeaderLoading && !selectedTeamLeader}
+                  selected={selectedTeamLeader}
+                  onSelect={(option) => {
+                    setSelectedTeamLeader(option);
+                    setTeamLeaderQuery(option.label);
+                  }}
+                  onClear={() => {
+                    setSelectedTeamLeader(null);
+                    setTeamLeaderQuery("");
+                  }}
+                />
+                {teamLeaderLoadFailed && (
+                  <p className="mt-1 text-xs font-semibold text-red-600">
+                    Couldn&apos;t load Team Leaders — the backend may be slow right now.{" "}
+                    <button
+                      type="button"
+                      onClick={() => setTeamLeaderReloadToken((n) => n + 1)}
+                      className="underline hover:text-red-800"
+                    >
+                      Retry
+                    </button>
+                  </p>
+                )}
+              </div>
             </div>
 
             {adminTab === "exceptions" && (
@@ -381,8 +442,8 @@ export default function SubSchedulesPage() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b bg-slate-50 text-slate-700">
-                      <th className="px-4 py-3 font-semibold">AccountID</th>
-                      <th className="px-4 py-3 font-semibold">SubID</th>
+                      <th className="px-4 py-3 font-semibold">Customer</th>
+                      <th className="px-4 py-3 font-semibold">Team Leader</th>
                       <th className="px-4 py-3 font-semibold">Day</th>
                       <th className="px-4 py-3 font-semibold">Window</th>
                       <th className="px-4 py-3 font-semibold">Recurring</th>
@@ -395,8 +456,8 @@ export default function SubSchedulesPage() {
                   <tbody>
                     {filteredSchedules.map((s) => (
                       <tr key={s.sheetRow} className="border-b last:border-0 hover:bg-slate-50">
-                        <td className="px-4 py-3">{s.accountId}</td>
-                        <td className="px-4 py-3">{s.subId}</td>
+                        <td className="px-4 py-3">{resolveAccountName(s.accountId)}</td>
+                        <td className="px-4 py-3">{resolveTeamLeaderName(s.subId)}</td>
                         <td className="px-4 py-3">{s.dayOfWeek}</td>
                         <td className="px-4 py-3">{s.timeWindow}</td>
                         <td className="px-4 py-3">{s.recurring === "Y" ? "Weekly" : "One-time"}</td>
@@ -415,9 +476,11 @@ export default function SubSchedulesPage() {
                             {s.status || "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">
-                          {s.submittedBy || "—"}
-                          {s.submittedDate ? ` · ${s.submittedDate}` : ""}
+                        <td className="px-4 py-3">
+                          <div className="text-xs font-semibold text-slate-700">{s.submittedBy || "—"}</div>
+                          {s.submittedDate && (
+                            <div className="text-[11px] text-slate-400">{s.submittedDate}</div>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-3">
@@ -469,9 +532,11 @@ export default function SubSchedulesPage() {
                       <td className="px-4 py-3">{ex.newDate || "—"}</td>
                       <td className="px-4 py-3">{ex.newTimeWindow || "—"}</td>
                       <td className="px-4 py-3">{ex.reason}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
-                        {ex.createdBy || "—"}
-                        {ex.createdDate ? ` · ${ex.createdDate}` : ""}
+                      <td className="px-4 py-3">
+                        <div className="text-xs font-semibold text-slate-700">{ex.createdBy || "—"}</div>
+                        {ex.createdDate && (
+                          <div className="text-[11px] text-slate-400">{ex.createdDate}</div>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-3">

@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getOrFetch } from "@/lib/serverCache";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run.
+export const maxDuration = 45;
 
 const ALLOWED_GET_ACTIONS = new Set([
   "getAccounts",
@@ -11,10 +19,63 @@ const ALLOWED_GET_ACTIONS = new Set([
   "mapAccounts",
 ]);
 
-export async function GET(request: NextRequest) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 9000);
+class AccountsFetchError extends Error {
+  status: number;
+  details: Record<string, unknown>;
+  constructor(message: string, status: number, details: Record<string, unknown> = {}) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
 
+// Fetches the raw (unfiltered) account list for a given action from the
+// shared Apps Script backend. Wrapped in getOrFetch below so every distinct
+// action is only fetched from Apps Script once per 60s, no matter how many
+// different "q" searches hit this route in that window.
+async function fetchAccountsForAction(action: string): Promise<unknown[]> {
+  let response: Response;
+  try {
+    response = await fetchAppsScript(`${SCRIPT_URL}?action=${encodeURIComponent(action)}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+  } catch (err) {
+    if (err instanceof AppsScriptFetchError) {
+      throw new AccountsFetchError(err.message, err.status, { requestedAction: action });
+    }
+    throw new AccountsFetchError(
+      err instanceof Error ? err.message : "Unknown error loading accounts.",
+      500,
+      { requestedAction: action }
+    );
+  }
+
+  const text = await response.text();
+
+  let data: { success?: boolean; error?: string; message?: string; accounts?: unknown[]; data?: unknown[] };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new AccountsFetchError(
+      "Google Script did not return valid JSON while loading accounts.",
+      500,
+      { rawResponse: text, requestedAction: action }
+    );
+  }
+
+  if (!response.ok || data.success === false) {
+    throw new AccountsFetchError(
+      data.error || data.message || "Failed to load accounts from Google Script.",
+      500,
+      { googleScriptResponse: data, googleScriptStatus: response.status, requestedAction: action }
+    );
+  }
+
+  return (data.accounts ?? data.data ?? []) as unknown[];
+}
+
+export async function GET(request: NextRequest) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -30,62 +91,21 @@ export async function GET(request: NextRequest) {
       : "getAllAccounts";
     const q = searchParams.get("q")?.toLowerCase().trim() ?? "";
 
-    let data: { success?: boolean; error?: string; message?: string; accounts?: unknown[]; data?: unknown[] };
-
+    let accounts: unknown[];
     try {
-      const response = await fetch(
-        `${SCRIPT_URL}?action=${encodeURIComponent(action)}`,
-        {
-          method: "GET",
-          cache: "no-store",
-          signal: controller.signal,
-        }
-      );
-      const text = await response.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Google Script did not return valid JSON while loading accounts.",
-            rawResponse: text,
-            requestedAction: action,
-          },
-          { status: 500 }
-        );
-      }
-      if (!response.ok || data.success === false) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: data.error || data.message || "Failed to load accounts from Google Script.",
-            googleScriptResponse: data,
-            googleScriptStatus: response.status,
-            requestedAction: action,
-          },
-          { status: 500 }
-        );
-      }
+      accounts = await getOrFetch(`accounts:${action}`, () => fetchAccountsForAction(action));
     } catch (err) {
-      const isTimeout = err instanceof Error && err.name === "AbortError";
+      if (err instanceof AccountsFetchError) {
+        return NextResponse.json(
+          { success: false, error: err.message, ...err.details },
+          { status: err.status }
+        );
+      }
       return NextResponse.json(
-        {
-          success: false,
-          error: isTimeout
-            ? "Request timed out, please retry."
-            : err instanceof Error
-              ? err.message
-              : "Unknown error loading accounts.",
-          requestedAction: action,
-        },
-        { status: isTimeout ? 504 : 500 }
+        { success: false, error: err instanceof Error ? err.message : "Unknown error loading accounts." },
+        { status: 500 }
       );
-    } finally {
-      clearTimeout(timeout);
     }
-
-    let accounts: unknown[] = (data.accounts ?? data.data ?? []) as unknown[];
 
     if (q) {
       accounts = accounts.filter((account) => {
@@ -108,7 +128,6 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
-    clearTimeout(timeout);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Unknown error loading accounts." },
       { status: 500 }

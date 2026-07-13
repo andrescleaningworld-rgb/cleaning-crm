@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
+import { AccountPacketPrintView } from "./account-packet-print-view";
 
 type Account = {
   id?: string;
@@ -34,6 +35,7 @@ type Account = {
   frequency?: string;
   cleaningDays?: string;
   scope?: string;
+  scopeOfWork?: string;
   notes?: string;
 
   contactPerson?: string;
@@ -835,7 +837,21 @@ export default function AccountDetailPage() {
   }
 
   return (
-    <div className="account-detail-print">
+    <>
+      <AccountPacketPrintView
+        accountName={account.accountName || ""}
+        address={accountAddress}
+        startDate={startDate}
+        cleaningSchedule={cleaningDays}
+        subcontractor={subcontractorContactDisplay}
+        monthlySubcontractorPay={formatMoney(subcontractorPay)}
+        hasKey={account.hasKey || ""}
+        alarmInfo={alarmInfo}
+        scope={account.scope || account.scopeOfWork || ""}
+        manager={account.manager || ""}
+      />
+
+      <div className="account-detail-print">
       <div className="mb-4 account-detail-print-hide">
         <Link
           href="/accounts"
@@ -997,7 +1013,7 @@ export default function AccountDetailPage() {
           ) : null}
         </div>
 
-        <div className="grid gap-4 border-b border-blue-100 bg-blue-50/70 p-5 md:grid-cols-4">
+        <div className="grid gap-4 border-b border-blue-100 bg-blue-50/70 p-5 md:grid-cols-5">
           <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wide text-blue-700">
               Manager
@@ -1033,6 +1049,15 @@ export default function AccountDetailPage() {
 
           <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+              Sub Pay
+            </p>
+            <p className="mt-2 text-xl font-black text-slate-950">
+              {formatMoney(subcontractorPay)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
               Est. Gross Margin
             </p>
             <p className="mt-2 text-xl font-black text-slate-950">
@@ -1043,7 +1068,7 @@ export default function AccountDetailPage() {
 
             {account.grossMarginPercent ? (
               <p className="mt-1 text-xs font-bold text-slate-500">
-                {account.grossMarginPercent}
+                ({account.grossMarginPercent.replace(/%$/, "")}%)
               </p>
             ) : null}
           </div>
@@ -1485,5 +1510,6 @@ export default function AccountDetailPage() {
         </div>
       ) : null}
     </div>
+    </>
   );
 }

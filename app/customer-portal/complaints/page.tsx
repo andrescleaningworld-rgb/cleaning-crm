@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { submitCustomerComplaint, getCustomerRequests } from "../../lib/backend";
 
 export default function CustomerComplaintsPage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [customerId, setCustomerId] = useState("");
   const [form, setForm] = useState({
     issue: "",
@@ -181,18 +182,21 @@ export default function CustomerComplaintsPage() {
             Attach a photo (optional)
           </label>
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/*"
             onChange={(e) =>
               setForm({ ...form, photo: e.target.files?.[0] || null })
             }
-            className="mt-2 w-full text-sm text-slate-600"
+            className="hidden"
           />
-          {form.photo && (
-            <p className="mt-1 text-xs text-slate-500">
-              Selected: {form.photo.name}
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="mt-2 min-h-[48px] w-full rounded-xl border-2 border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 hover:border-purple-500 hover:text-purple-700"
+          >
+            {form.photo ? `Selected: ${form.photo.name} — tap to change` : "Tap to attach a photo"}
+          </button>
         </div>
 
         {error && (

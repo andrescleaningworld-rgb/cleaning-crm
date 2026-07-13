@@ -18,8 +18,13 @@ const PUBLIC_PATHS = [
   "/api/subcontractor-schedule-exceptions",
   "/favicon.ico",
   "/cw-logo.jpg",
+  "/sw.js",
   "/manifest.json",
   "/manifest.webmanifest",
+  // OneSignal's service worker file must be fetchable pre-login (it's
+  // requested directly by the browser during OneSignal.init(), not via an
+  // authenticated page navigation) — same reasoning as manifest.json above.
+  "/push/onesignal",
 ];
 
 function isPublicPath(pathname: string) {

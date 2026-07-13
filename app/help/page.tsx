@@ -193,58 +193,68 @@ const content: Record<
     ],
     subSections: [
       {
-        title: "Home Button",
+        title: "Logging In",
         description:
-          "Use the Home button at the top of the app to return to your subcontractor dashboard.",
+          "Access the subcontractor portal using your registered email — no password required.",
         items: [
-          "If you are already logged in, Home will bring you back to your subcontractor dashboard.",
-          "You do not need to log in again unless you logged out, cleared your browser, or are using a different phone.",
-          "Use Home instead of using the browser back button when you want to return to your main subcontractor page.",
+          "Go to the subcontractor portal link provided by Cleaning World.",
+          "Enter the email address Cleaning World has on file for you.",
+          "You're in — no password needed, just your registered email.",
         ],
       },
       {
-        title: "My Accounts",
-        description:
-          "Use My Accounts to see the accounts currently assigned to you.",
+        title: "Your Accounts",
+        description: "See every account currently assigned to you.",
         items: [
-          "Review account name, address, schedule, and important details.",
-          "Open an account when you need more information.",
-          "Contact the office if account information looks incorrect.",
+          "The Accounts tab shows every account currently assigned to you.",
+          "Each account shows the address, cleaning days, and scope of work.",
+          "Tap an account to see full details.",
         ],
       },
       {
-        title: "Report Issue",
+        title: "Reporting an Issue",
         description:
-          "Use Report Issue when something is wrong at an account.",
+          "Let the office know right away when something is wrong at an account.",
         items: [
-          "Choose the account.",
-          "Describe the issue clearly.",
-          "Add photos when requested or when they help explain the problem.",
-          "Submit the issue so the office can review it.",
+          "Go to the Report Issue tab.",
+          "Select the account the issue relates to.",
+          "Choose an issue type and urgency (Normal or Urgent).",
+          "Describe the issue and attach photos if you have them.",
+          "Submit — Cleaning World is notified immediately.",
         ],
       },
       {
-        title: "Supply Orders",
-        description:
-          "Use Supply Orders to request cleaning supplies.",
+        title: "Ordering Supplies",
+        description: "Request cleaning supplies for pickup or delivery.",
         items: [
-          "Choose the account that needs supplies.",
-          "Select the supply item and quantity.",
-          "Choose pickup or delivery.",
-          "Use Other / Not Listed if the supply is not in the list.",
+          "Go to the Order Supplies tab.",
+          "Select the account, then the supply item you need.",
+          "Enter the quantity and choose Pick Up or Delivery.",
+          "Submit your order — you'll see the status update as Cleaning World processes it (New → Approved → Completed).",
         ],
       },
       {
-        title: "Photos",
-        description:
-          "Use photos to document issues, completed work, or account conditions.",
+        title: "Complaints",
+        description: "Track customer complaints tied to your accounts.",
         items: [
-          "Take clear photos with good lighting.",
-          "Do not upload unnecessary photos.",
-          "Use photos when reporting complaints, damages, or unusual conditions.",
-          "Photos should open as photo previews or image view inside the Cleaning World app.",
-          "Photos should not be used to browse Cleaning World Google Drive folders.",
+          "If a customer complaint comes in for one of your accounts, you'll get an email with the details.",
+          "The Complaints tab in the portal shows any open complaints tied to your accounts so you can follow up.",
         ],
+      },
+      {
+        title: "Account Transfer Proposals",
+        description:
+          "Review and respond to accounts Cleaning World proposes transferring to you.",
+        items: [
+          "If Cleaning World proposes transferring an account to you, you'll receive an email with the account details and proposed monthly pay.",
+          "Each account in the proposal has its own Accept and Decline button — review the details and respond to each one individually.",
+          "Your response is recorded immediately; Cleaning World will follow up to finalize anything you accept.",
+        ],
+      },
+      {
+        title: "Need Help?",
+        description: "Contact Cleaning World directly with any questions.",
+        items: ["Phone: 201-487-1313", "Email: info@cleaningworldinc.com"],
       },
     ],
   },
@@ -396,58 +406,69 @@ const content: Record<
     ],
     subSections: [
       {
-        title: "Botón Home",
+        title: "Iniciar Sesión",
         description:
-          "Use el botón Home en la parte superior de la aplicación para regresar a su panel principal de subcontratista.",
+          "Accede al portal de subcontratistas usando tu correo registrado — no se necesita contraseña.",
         items: [
-          "Si ya inició sesión, Home lo llevará de regreso a su panel de subcontratista.",
-          "No necesita iniciar sesión otra vez a menos que haya cerrado sesión, borrado el navegador, o esté usando otro teléfono.",
-          "Use Home en vez del botón de regresar del navegador cuando quiera volver a su página principal.",
+          "Ve al enlace del portal de subcontratistas proporcionado por Cleaning World.",
+          "Ingresa el correo electrónico que Cleaning World tiene registrado para ti.",
+          "Listo — no necesitas contraseña, solo tu correo registrado.",
         ],
       },
       {
-        title: "Mis Cuentas",
-        description:
-          "Use Mis Cuentas para ver las cuentas asignadas a usted.",
+        title: "Tus Cuentas",
+        description: "Consulta todas las cuentas asignadas a ti actualmente.",
         items: [
-          "Revise nombre de cuenta, dirección, horario y detalles importantes.",
-          "Abra una cuenta cuando necesite más información.",
-          "Contacte a la oficina si la información no está correcta.",
+          "La pestaña Cuentas muestra todas las cuentas asignadas a ti actualmente.",
+          "Cada cuenta muestra la dirección, los días de limpieza y el alcance del trabajo.",
+          "Toca una cuenta para ver todos los detalles.",
         ],
       },
       {
-        title: "Reportar Problema",
+        title: "Reportar un Problema",
         description:
-          "Use Reportar Problema cuando algo esté mal en una cuenta.",
+          "Avisa a la oficina de inmediato cuando algo esté mal en una cuenta.",
         items: [
-          "Seleccione la cuenta.",
-          "Describa el problema claramente.",
-          "Agregue fotos cuando se soliciten o ayuden a explicar el problema.",
-          "Envíe el reporte para que la oficina lo revise.",
+          "Ve a la pestaña Reportar Problema.",
+          "Selecciona la cuenta relacionada con el problema.",
+          "Elige el tipo de problema y la urgencia (Normal o Urgente).",
+          "Describe el problema y adjunta fotos si las tienes.",
+          "Envía — Cleaning World recibe la notificación de inmediato.",
         ],
       },
       {
-        title: "Pedidos de Suministros",
-        description:
-          "Use Pedidos de Suministros para pedir productos de limpieza.",
+        title: "Ordenar Suministros",
+        description: "Solicita productos de limpieza para recoger o entrega.",
         items: [
-          "Seleccione la cuenta que necesita suministros.",
-          "Seleccione el producto y la cantidad.",
-          "Seleccione recoger o entregar.",
-          "Use Otro / No está en la lista si no encuentra el producto.",
+          "Ve a la pestaña Ordenar Suministros.",
+          "Selecciona la cuenta y luego el artículo que necesitas.",
+          "Ingresa la cantidad y elige Recoger o Entrega.",
+          "Envía tu pedido — verás el estado actualizarse a medida que Cleaning World lo procesa (Nuevo → Aprobado → Completado).",
         ],
       },
       {
-        title: "Fotos",
+        title: "Quejas",
         description:
-          "Use fotos para documentar problemas, trabajo terminado o condiciones de la cuenta.",
+          "Da seguimiento a las quejas de clientes relacionadas con tus cuentas.",
         items: [
-          "Tome fotos claras y con buena luz.",
-          "No suba fotos innecesarias.",
-          "Use fotos para quejas, daños o condiciones inusuales.",
-          "Las fotos deben abrir como vista previa o imagen dentro de la aplicación de Cleaning World.",
-          "Las fotos no deben usarse para navegar carpetas de Google Drive de Cleaning World.",
+          "Si llega una queja de un cliente sobre una de tus cuentas, recibirás un correo con los detalles.",
+          "La pestaña Quejas en el portal muestra las quejas abiertas relacionadas con tus cuentas para que puedas darles seguimiento.",
         ],
+      },
+      {
+        title: "Propuestas de Transferencia de Cuentas",
+        description:
+          "Revisa y responde a las cuentas que Cleaning World te proponga transferir.",
+        items: [
+          "Si Cleaning World te propone transferirte una cuenta, recibirás un correo con los detalles de la cuenta y el pago mensual propuesto.",
+          "Cada cuenta en la propuesta tiene sus propios botones de Aceptar y Rechazar — revisa los detalles y responde a cada una individualmente.",
+          "Tu respuesta se registra de inmediato; Cleaning World se pondrá en contacto para finalizar lo que aceptes.",
+        ],
+      },
+      {
+        title: "¿Necesitas Ayuda?",
+        description: "Comunícate directamente con Cleaning World con cualquier pregunta.",
+        items: ["Teléfono: 201-487-1313", "Correo: info@cleaningworldinc.com"],
       },
     ],
   },
@@ -599,58 +620,68 @@ const content: Record<
     ],
     subSections: [
       {
-        title: "Botão Home",
+        title: "Fazer Login",
         description:
-          "Use o botão Home no topo do aplicativo para voltar ao painel principal do subcontratado.",
+          "Acesse o portal de subcontratados usando seu e-mail registrado — sem necessidade de senha.",
         items: [
-          "Se você já fez login, Home levará você de volta ao painel do subcontratado.",
-          "Você não precisa fazer login novamente, a menos que tenha saído, limpado o navegador, ou esteja usando outro telefone.",
-          "Use Home em vez do botão voltar do navegador quando quiser retornar à página principal.",
+          "Acesse o link do portal de subcontratados fornecido pela Cleaning World.",
+          "Digite o e-mail que a Cleaning World tem registrado para você.",
+          "Pronto — não é necessária senha, apenas o seu e-mail registrado.",
         ],
       },
       {
-        title: "Minhas Contas",
-        description:
-          "Use Minhas Contas para ver as contas atribuídas a você.",
+        title: "Suas Contas",
+        description: "Veja todas as contas atualmente atribuídas a você.",
         items: [
-          "Revise nome da conta, endereço, agenda e detalhes importantes.",
-          "Abra uma conta quando precisar de mais informações.",
-          "Contate o escritório se alguma informação estiver incorreta.",
+          "A aba Contas mostra todas as contas atualmente atribuídas a você.",
+          "Cada conta mostra o endereço, os dias de limpeza e o escopo do trabalho.",
+          "Toque em uma conta para ver todos os detalhes.",
         ],
       },
       {
-        title: "Reportar Problema",
+        title: "Relatar um Problema",
         description:
-          "Use Reportar Problema quando algo estiver errado em uma conta.",
+          "Avise o escritório imediatamente quando algo estiver errado em uma conta.",
         items: [
-          "Escolha a conta.",
-          "Descreva o problema claramente.",
-          "Adicione fotos quando solicitado ou quando ajudar a explicar o problema.",
-          "Envie o problema para o escritório revisar.",
+          "Vá até a aba Relatar Problema.",
+          "Selecione a conta relacionada ao problema.",
+          "Escolha o tipo de problema e a urgência (Normal ou Urgente).",
+          "Descreva o problema e anexe fotos, se tiver.",
+          "Envie — a Cleaning World é notificada imediatamente.",
         ],
       },
       {
-        title: "Pedidos de Suprimentos",
-        description:
-          "Use Pedidos de Suprimentos para solicitar produtos de limpeza.",
+        title: "Pedir Suprimentos",
+        description: "Solicite produtos de limpeza para retirada ou entrega.",
         items: [
-          "Escolha a conta que precisa de suprimentos.",
-          "Selecione o item e a quantidade.",
-          "Escolha retirada ou entrega.",
-          "Use Outro / Não listado se o item não estiver na lista.",
+          "Vá até a aba Pedir Suprimentos.",
+          "Selecione a conta e depois o item que você precisa.",
+          "Digite a quantidade e escolha Retirada ou Entrega.",
+          "Envie seu pedido — você verá o status atualizar conforme a Cleaning World processa (Novo → Aprovado → Concluído).",
         ],
       },
       {
-        title: "Fotos",
-        description:
-          "Use fotos para documentar problemas, trabalho concluído ou condições da conta.",
+        title: "Reclamações",
+        description: "Acompanhe reclamações de clientes ligadas às suas contas.",
         items: [
-          "Tire fotos claras e com boa iluminação.",
-          "Não envie fotos desnecessárias.",
-          "Use fotos para reclamações, danos ou condições incomuns.",
-          "As fotos devem abrir como pré-visualização ou imagem dentro do aplicativo da Cleaning World.",
-          "As fotos não devem ser usadas para navegar nas pastas do Google Drive da Cleaning World.",
+          "Se uma reclamação de cliente chegar sobre uma de suas contas, você receberá um e-mail com os detalhes.",
+          "A aba Reclamações no portal mostra as reclamações em aberto relacionadas às suas contas para que você possa acompanhar.",
         ],
+      },
+      {
+        title: "Propostas de Transferência de Conta",
+        description:
+          "Revise e responda às contas que a Cleaning World propuser transferir para você.",
+        items: [
+          "Se a Cleaning World propuser transferir uma conta para você, você receberá um e-mail com os detalhes da conta e o pagamento mensal proposto.",
+          "Cada conta na proposta tem seus próprios botões de Aceitar e Recusar — revise os detalhes e responda a cada uma individualmente.",
+          "Sua resposta é registrada imediatamente; a Cleaning World entrará em contato para finalizar o que você aceitar.",
+        ],
+      },
+      {
+        title: "Precisa de Ajuda?",
+        description: "Entre em contato diretamente com a Cleaning World com qualquer dúvida.",
+        items: ["Telefone: 201-487-1313", "E-mail: info@cleaningworldinc.com"],
       },
     ],
   },

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
+import { getOrFetch } from "@/lib/serverCache";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run.
+export const maxDuration = 45;
 
 type SheetRow = Record<string, string | number | boolean | null | undefined>;
 
@@ -226,10 +234,16 @@ async function fetchGoogleScriptData(action: string) {
     throw new Error("Missing GOOGLE_SCRIPT_URL in .env.local");
   }
 
-  const response = await fetch(`${SCRIPT_URL}?action=${action}`, {
-    method: "GET",
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetchAppsScript(`${SCRIPT_URL}?action=${action}`, {
+      method: "GET",
+      cache: "no-store",
+    });
+  } catch (err) {
+    if (err instanceof AppsScriptFetchError) throw new Error(err.message);
+    throw err;
+  }
 
   const text = await response.text();
 
@@ -335,8 +349,15 @@ export async function GET() {
       );
     }
 
-    const subcontractorData = await fetchGoogleScriptData("getSubcontractors");
-    const accountData = await fetchGoogleScriptData("getAccounts");
+    // Cached 60s per action — this route's own upstream calls, plus the
+    // "getAccounts" action /api/accounts also makes, were part of the load
+    // that overwhelmed the shared Apps Script backend during the incident.
+    const subcontractorData = await getOrFetch("subcontractors:getSubcontractors", () =>
+      fetchGoogleScriptData("getSubcontractors")
+    );
+    const accountData = await getOrFetch("subcontractors:getAccounts", () =>
+      fetchGoogleScriptData("getAccounts")
+    );
 
     const subcontractors = getLoadedSubcontractors(subcontractorData);
     const accounts = getLoadedAccounts(accountData);

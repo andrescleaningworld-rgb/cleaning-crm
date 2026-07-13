@@ -323,3 +323,150 @@ img {
     box-shadow: none !important;
   }
 }
+
+/* Account Packet print view — hidden on screen; the ONLY thing visible when
+   printed via the "Print" button on the account detail page. Uses the
+   visibility + absolute-position trick (not display:none/block) because the
+   nav bar (CWHeader) is rendered by the root layout, outside this page's own
+   DOM subtree, so a nesting-scoped rule like .account-detail-print-hide
+   can't reach it — this instead hides literally everything on the page,
+   then re-shows only .account-packet-print-view and its descendants. */
+.account-packet-print-view {
+  display: none;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .account-packet-print-view,
+  .account-packet-print-view * {
+    visibility: visible;
+  }
+
+  .account-packet-print-view {
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: white;
+  }
+
+  .account-packet-print-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--cw-blue-dark);
+    color: white;
+    padding: 20px 28px;
+  }
+
+  .account-packet-print-logo-box {
+    background: white;
+    border-radius: 10px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+  }
+
+  .account-packet-print-logo-box img {
+    height: 34px;
+    width: auto;
+    display: block;
+  }
+
+  .account-packet-print-title {
+    text-align: right;
+  }
+
+  .account-packet-print-title h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .account-packet-print-title p {
+    margin: 3px 0 0;
+    font-size: 10px;
+    font-weight: 600;
+    opacity: 0.9;
+  }
+
+  .account-packet-print-body {
+    padding: 18px 28px 0;
+  }
+
+  .account-packet-print-body section {
+    margin-top: 14px;
+  }
+
+  .account-packet-print-body h2 {
+    margin: 0 0 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--cw-blue-dark);
+    border-bottom: 1px solid var(--cw-border);
+    padding-bottom: 4px;
+  }
+
+  .account-packet-print-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 24px;
+  }
+
+  .account-packet-print-field {
+    display: flex;
+    flex-direction: column;
+    width: 45%;
+    margin-top: 6px;
+  }
+
+  .account-packet-print-label {
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #475569;
+  }
+
+  .account-packet-print-value {
+    font-size: 11px;
+    color: #0f172a;
+  }
+
+  .account-packet-print-scope {
+    margin: 0;
+    font-size: 11px;
+    color: #0f172a;
+    white-space: pre-wrap;
+  }
+
+  .account-packet-print-footer {
+    margin-top: 20px;
+    border-top: 1px solid var(--cw-border);
+    padding: 10px 28px 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+  }
+
+  .account-packet-print-footer p {
+    margin: 1px 0;
+    font-size: 8.5px;
+    color: #475569;
+  }
+
+  .account-packet-print-company {
+    font-weight: 700 !important;
+  }
+
+  .account-packet-print-note {
+    text-align: right;
+  }
+}

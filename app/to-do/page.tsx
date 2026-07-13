@@ -14,6 +14,10 @@ type ToDo = {
   why: string;
   status: string;
   notes: string;
+  // Links a "Complaint Follow-Up" to-do back to the complaint that created
+  // it (see app/complaints/new/page.tsx). Optional: only set on to-dos
+  // auto-created from a complaint, not on manually-created ones.
+  complaintId?: string;
 };
 
 type Account = {
