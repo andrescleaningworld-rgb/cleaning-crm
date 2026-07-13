@@ -1,4 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getIronSession } from "iron-session";
+import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -59,7 +61,23 @@ function stripFinancialFields(accounts: unknown[]): unknown[] {
   });
 }
 
-export async function POST(request: Request) {
+function getSubIdentity(sub: NonNullable<ScriptResponse["subcontractor"]>) {
+  const id = String(
+    sub.id ?? sub.subcontractorId ?? sub["Subcontractor ID"] ?? ""
+  ).trim();
+  const email = String(sub.email ?? sub["Email"] ?? "").trim();
+  const name = String(
+    sub.subcontractorName ??
+      sub.companyName ??
+      sub.contactName ??
+      sub.name ??
+      "Subcontractor"
+  ).trim();
+
+  return { id, email, name };
+}
+
+export async function POST(request: NextRequest) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -73,9 +91,61 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
+    const action = body?.action;
+
+    // Logout clears the session locally — no backend call needed.
+    if (action === "logout") {
+      const response = NextResponse.json({ success: true });
+      const session = await getIronSession<SubSessionData>(
+        request,
+        response,
+        subSessionOptions()
+      );
+      session.destroy();
+      return response;
+    }
+
+    const isLoginAction = action === "getSubcontractorPortalByEmail";
+
+    // Every action other than login must come from an already-logged-in
+    // subcontractor. Identity is taken from the session, never trusted from
+    // the request body, so a sub can no longer act as (or view) another sub
+    // by passing a different email/name in the payload.
+    let sessionIdentity: {
+      subcontractorId: string;
+      subcontractorEmail: string;
+      subcontractorName: string;
+    } | null = null;
+
+    if (!isLoginAction) {
+      const readResponse = NextResponse.json({});
+      const session = await getIronSession<SubSessionData>(
+        request,
+        readResponse,
+        subSessionOptions()
+      );
+
+      if (!session.subcontractorEmail) {
+        return NextResponse.json(
+          { success: false, error: "Not logged in." },
+          { status: 401 }
+        );
+      }
+
+      sessionIdentity = {
+        subcontractorId: session.subcontractorId ?? "",
+        subcontractorEmail: session.subcontractorEmail,
+        subcontractorName: session.subcontractorName ?? "",
+      };
+    }
 
     const finalBody =
-      body?.action === "resolveComplaintBySubcontractor"
+      action === "getSubcontractorPortalBySession"
+        ? {
+            action: "getSubcontractorPortalByEmail",
+            email: sessionIdentity?.subcontractorEmail,
+          }
+        : action === "resolveComplaintBySubcontractor"
         ? {
             action: "resolveComplaint",
             complaint: {
@@ -96,7 +166,23 @@ export async function POST(request: Request) {
                 body.complaint?.followUpDate ||
                 new Date().toISOString().slice(0, 10),
               closedDate: "",
+              subcontractor: sessionIdentity?.subcontractorName || "",
             },
+          }
+        : action === "submitSubPortalIssue"
+        ? {
+            ...body,
+            issue: {
+              ...(body.issue || {}),
+              subcontractorEmail: sessionIdentity?.subcontractorEmail,
+              subcontractorName: sessionIdentity?.subcontractorName,
+            },
+          }
+        : action === "submitSupplyOrder" || action === "logSubcontractorActivity"
+        ? {
+            ...body,
+            subcontractorEmail: sessionIdentity?.subcontractorEmail,
+            subcontractorName: sessionIdentity?.subcontractorName,
           }
         : body;
 
@@ -122,7 +208,6 @@ export async function POST(request: Request) {
           error:
             "Google Script did not return valid JSON for subcontractor portal.",
           sentPayload: finalBody,
-          rawResponse: text,
         },
         { status: 500 }
       );
@@ -161,7 +246,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({
+    const finalResponse = NextResponse.json({
       success: true,
       message: data.message || "Request completed successfully.",
       subcontractor: data.subcontractor || null,
@@ -172,6 +257,25 @@ export async function POST(request: Request) {
       rowNumber: data.rowNumber || "",
       status: data.status || "",
     });
+
+    // Successful login establishes the real session. Every later request is
+    // then scoped to this cookie instead of a client-supplied email — this is
+    // what closes the IDOR (one sub reading another sub's data by email).
+    if (isLoginAction && data.subcontractor) {
+      const identity = getSubIdentity(data.subcontractor);
+      const session = await getIronSession<SubSessionData>(
+        request,
+        finalResponse,
+        subSessionOptions()
+      );
+      session.subcontractorId = identity.id;
+      session.subcontractorEmail =
+        identity.email || String(body.email ?? "").trim();
+      session.subcontractorName = identity.name;
+      await session.save();
+    }
+
+    return finalResponse;
   } catch (error) {
     return NextResponse.json(
       {

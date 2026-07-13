@@ -337,24 +337,12 @@ function getSubcontractorDisplayName(subcontractor: Subcontractor) {
 
 // Fire-and-forget activity logging — never awaited by callers, never surfaces
 // errors to the user, and must not block whatever real action triggered it.
-function logSubcontractorActivity(
-  subcontractor: Subcontractor | null,
-  emailFallback: string,
-  actionType: string,
-  details: string
-) {
-  const subcontractorEmail = subcontractor?.email || emailFallback || "";
-  const subcontractorName = subcontractor
-    ? getSubcontractorDisplayName(subcontractor)
-    : "";
-
+function logSubcontractorActivity(actionType: string, details: string) {
   fetch("/api/subcontractor-portal", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "logSubcontractorActivity",
-      subcontractorEmail,
-      subcontractorName,
       actionType,
       details,
     }),
@@ -408,17 +396,10 @@ function getComplaintFollowUp(complaint: Complaint) {
   return cleanText(complaint.followUpDate || complaint.lastFollowUp);
 }
 
-function getStoredSubcontractorEmail(): string {
-  if (typeof window === "undefined") return "";
-
-  return cleanText(window.localStorage.getItem("cwSubcontractorEmail"));
-}
-
-function saveSubcontractorSession(emailToSave: string) {
+function saveSubcontractorSession() {
   if (typeof window === "undefined") return;
 
   window.localStorage.setItem("cwRole", "subcontractor");
-  window.localStorage.setItem("cwSubcontractorEmail", emailToSave.trim());
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -692,6 +673,29 @@ export default function SubcontractorPortalPage() {
     return getSupplyItemsFromResponse(data);
   }
 
+  function applyPortalData(data: PortalResponse, loadedSupplyItems: SupplyItem[]) {
+    setSubcontractor(data.subcontractor || null);
+    setAccounts(data.accounts || []);
+    setComplaints(data.complaints || []);
+    setSupplyItems(
+      loadedSupplyItems.length > 0
+        ? loadedSupplyItems
+        : data.supplyItems || []
+    );
+    setSelectedAccountName("");
+    setDeliveryMode("");
+    setNotes("");
+    setOrderItems([makeLineItem()]);
+    setResolutionNotes({});
+    setIssueAccountName("");
+    setIssueType("");
+    setIssueUrgency("Normal");
+    setIssueDescription("");
+    issuePhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+    setIssuePhotos([]);
+    setActivePortalView("accounts");
+  }
+
   async function loadAndSetPortal(emailToLoad: string, showSuccess: boolean) {
     setError("");
     setSuccessMessage("");
@@ -704,35 +708,16 @@ export default function SubcontractorPortalPage() {
       });
 
       setEmail(emailToLoad.trim());
-      setSubcontractor(data.subcontractor || null);
-      setAccounts(data.accounts || []);
-      setComplaints(data.complaints || []);
-      setSupplyItems(
-        loadedSupplyItems.length > 0
-          ? loadedSupplyItems
-          : data.supplyItems || []
-      );
-      setSelectedAccountName("");
-      setDeliveryMode("");
-      setNotes("");
-      setOrderItems([makeLineItem()]);
-      setResolutionNotes({});
-      setIssueAccountName("");
-      setIssueType("");
-      setIssueUrgency("Normal");
-      setIssueDescription("");
-      issuePhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
-      setIssuePhotos([]);
-      setActivePortalView("accounts");
+      applyPortalData(data, loadedSupplyItems);
 
       if (!data.subcontractor) {
         setError("We could not find that email on file.");
         return;
       }
 
-      saveSubcontractorSession(emailToLoad);
+      saveSubcontractorSession();
 
-      logSubcontractorActivity(data.subcontractor, emailToLoad, "Login", "");
+      logSubcontractorActivity("Login", "");
 
       if (showSuccess) {
         setSuccessMessage("Portal loaded successfully.");
@@ -752,13 +737,42 @@ export default function SubcontractorPortalPage() {
     }
   }
 
-  useEffect(() => {
-    const storedEmail = getStoredSubcontractorEmail();
+  // Restores the portal from the sub_session cookie on mount, instead of
+  // trusting an email cached in localStorage. A 401 here just means no one
+  // is logged in yet — stay on the login form silently, same as before.
+  async function restorePortalFromSession() {
+    setLoading(true);
 
-    if (storedEmail) {
-      setEmail(storedEmail);
-      loadAndSetPortal(storedEmail, false);
+    try {
+      const response = await fetch("/api/subcontractor-portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "getSubcontractorPortalBySession" }),
+      });
+
+      if (response.status === 401) return;
+
+      const data = (await response.json()) as PortalResponse;
+
+      if (!response.ok || !data.success || !data.subcontractor) return;
+
+      const loadedSupplyItems = await loadSupplyItems().catch(() => {
+        return data.supplyItems || [];
+      });
+
+      setEmail(data.subcontractor.email || "");
+      applyPortalData(data, loadedSupplyItems);
+      saveSubcontractorSession();
+      logSubcontractorActivity("Login", "");
+    } catch {
+      // No valid session — stay on the login form.
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
+    restorePortalFromSession();
 
     return () => {
       issuePhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
@@ -768,18 +782,31 @@ export default function SubcontractorPortalPage() {
 
   function handleTabChange(view: PortalView) {
     setActivePortalView(view);
-    logSubcontractorActivity(
-      subcontractor,
-      email,
-      `Viewed ${PORTAL_VIEW_LABELS[view]}`,
-      ""
-    );
+    logSubcontractorActivity(`Viewed ${PORTAL_VIEW_LABELS[view]}`, "");
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     await loadAndSetPortal(email, true);
+  }
+
+  async function handleLogout() {
+    await fetch("/api/subcontractor-portal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "logout" }),
+    }).catch(() => {
+      // Even if the request fails, clear local state so the UI reflects
+      // being logged out — the session cookie will simply expire on its own.
+    });
+
+    window.localStorage.removeItem("cwRole");
+    setEmail("");
+    setSubcontractor(null);
+    setAccounts([]);
+    setComplaints([]);
+    setSupplyItems([]);
   }
 
   function handleIssuePhotoSelect(event: ChangeEvent<HTMLInputElement>) {
@@ -937,8 +964,6 @@ export default function SubcontractorPortalPage() {
         body: JSON.stringify({
           action: "submitSubPortalIssue",
           issue: {
-            subcontractorEmail: subcontractor.email || email.trim(),
-            subcontractorName: getSubcontractorDisplayName(subcontractor),
             accountId:
               selectedIssueAccount?.accountId || selectedIssueAccount?.id || "",
             accountName: issueAccountName,
@@ -980,12 +1005,7 @@ export default function SubcontractorPortalPage() {
 
       issuePhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
 
-      logSubcontractorActivity(
-        subcontractor,
-        email,
-        "Issue Reported",
-        issueAccountName
-      );
+      logSubcontractorActivity("Issue Reported", issueAccountName);
 
       setSuccessMessage(
         `Issue submitted successfully. ${
@@ -1103,8 +1123,6 @@ export default function SubcontractorPortalPage() {
           body: JSON.stringify({
             action: "submitSupplyOrder",
             orderGroupId,
-            subcontractorEmail: subcontractor.email || email.trim(),
-            subcontractorName: getSubcontractorDisplayName(subcontractor),
             accountId: selectedAccount?.accountId || selectedAccount?.id || "",
             accountName: selectedAccountName,
             supplyItem: supplyItemName,
@@ -1135,8 +1153,6 @@ export default function SubcontractorPortalPage() {
       }
 
       logSubcontractorActivity(
-        subcontractor,
-        email,
         "Supply Order Submitted",
         `${selectedAccountName} — ${orderItems
           .map((item) =>
@@ -1206,9 +1222,6 @@ export default function SubcontractorPortalPage() {
             description: getComplaintDescription(complaint),
             priority: getComplaintPriority(complaint),
             status: "Resolved by Sub",
-            subcontractor:
-              complaint.subcontractor ||
-              getSubcontractorDisplayName(subcontractor),
             resolution: resolutionNote,
             resolutionNotes: resolutionNote,
             notes: `Resolved by ${getSubcontractorDisplayName(
@@ -1333,6 +1346,13 @@ export default function SubcontractorPortalPage() {
                   <p className="text-xs text-slate-600">
                     {subcontractor.email}
                   </p>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="mt-1 text-xs font-bold text-red-600 hover:underline"
+                  >
+                    Logout
+                  </button>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
