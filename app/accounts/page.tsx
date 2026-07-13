@@ -1415,12 +1415,46 @@ async function handleSaveTransferProposal() {
       setTransferError("");
       setTransferMessage("");
 
+      let proposalId = transferProposalId;
+
+      if (!proposalId) {
+        const createResponse = await fetch("/api/sub-transfer-proposals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "createSubTransferProposal",
+            proposal: buildTransferProposalPayload(),
+          }),
+        });
+
+        const createData = await readJson<{
+          success?: boolean;
+          error?: string;
+          message?: string;
+          proposalId?: string;
+          id?: string;
+          data?: { proposalId?: string };
+        }>(createResponse);
+
+        if (!createResponse.ok || createData.success === false) {
+          throw new Error(
+            createData.error ?? createData.message ?? "Could not save transfer proposal before sending."
+          );
+        }
+
+        proposalId = createData.proposalId ?? createData.id ?? createData.data?.proposalId ?? "";
+
+        if (proposalId) {
+          setTransferProposalId(proposalId);
+        }
+      }
+
       const response = await fetch("/api/sub-transfer-proposals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "sendSubTransferProposalEmail",
-          proposal: buildTransferProposalPayload(),
+          proposal: { ...buildTransferProposalPayload(), proposalId },
         }),
       });
 
