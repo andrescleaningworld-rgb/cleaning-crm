@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type Language = "en" | "es" | "pt";
-type UserRole = "admin" | "subcontractor" | null;
+type UserRole = "admin" | "subcontractor" | "customer" | null;
 
 type HelpSection = {
   title: string;
@@ -19,6 +19,7 @@ function getStoredRole(): UserRole {
 
   if (role === "admin") return "admin";
   if (role === "subcontractor") return "subcontractor";
+  if (role === "customer") return "customer";
 
   return null;
 }
@@ -35,15 +36,19 @@ const content: Record<
     aboutAdminText: string;
     aboutSubTitle: string;
     aboutSubText: string;
+    aboutCustomerTitle: string;
+    aboutCustomerText: string;
     aboutImportantTitle: string;
     aboutImportantText: string;
     quickStartTitle: string;
     quickStartItems: string[];
     adminTitle: string;
     subTitle: string;
+    customerTitle: string;
     footerNote: string;
     adminSections: HelpSection[];
     subSections: HelpSection[];
+    customerSections: HelpSection[];
   }
 > = {
   en: {
@@ -60,6 +65,9 @@ const content: Record<
     aboutSubTitle: "For Subcontractors",
     aboutSubText:
       "The subcontractor side is for viewing assigned accounts, reporting issues, uploading photos, requesting supplies, and communicating important account problems to the office.",
+    aboutCustomerTitle: "For Customers",
+    aboutCustomerText:
+      "The customer portal lets you view your account status, service details, schedule, and billing, and submit requests like reporting an issue, requesting extra service, changing a visit date, or asking about your bill.",
     aboutImportantTitle: "Important",
     aboutImportantText:
       "This app is for Cleaning World work use only. Do not share login information. Only enter accurate information related to accounts, visits, complaints, supplies, photos, or assigned work.",
@@ -73,6 +81,7 @@ const content: Record<
     ],
     adminTitle: "Admin Instructions",
     subTitle: "Subcontractor Instructions",
+    customerTitle: "Customer Instructions",
     footerNote:
       "Need something added to this help page? Tell the office what instruction is missing.",
     adminSections: [
@@ -257,6 +266,57 @@ const content: Record<
         items: ["Phone: 201-487-1313", "Email: info@cleaningworldinc.com"],
       },
     ],
+    customerSections: [
+      {
+        title: "Logging In",
+        description: "Access the customer portal with your phone number and portal code.",
+        items: [
+          "Go to the customer portal login page.",
+          "Enter the phone number Cleaning World has on file for your account.",
+          "Enter your portal code (provided by Cleaning World).",
+          "You're in — no separate password needed.",
+        ],
+      },
+      {
+        title: "Your Account",
+        description: "See your account status and service details at a glance.",
+        items: [
+          "The dashboard shows your account status, service type, frequency, cleaning days, and start date.",
+          "Your service address and full scope of work are listed for reference.",
+        ],
+      },
+      {
+        title: "Schedule & Visits",
+        description: "Check upcoming and past service visits.",
+        items: [
+          "See your next scheduled service and last visit date at a glance.",
+          "The visit calendar shows upcoming and completed visits.",
+        ],
+      },
+      {
+        title: "Billing",
+        description: "View your estimated monthly total.",
+        items: [
+          "View your estimated monthly total, including NJ sales tax.",
+          "The amount assumes no service changes or missed cleanings.",
+        ],
+      },
+      {
+        title: "Submitting Portal Requests",
+        description: "Send a request directly to Cleaning World from your dashboard.",
+        items: [
+          "Report an Issue — let Cleaning World know about a problem with your service.",
+          "Request Service — ask for an additional or one-time cleaning.",
+          "Change Date — request a change to an upcoming scheduled visit.",
+          "Billing Request — ask a question or raise an issue about your bill.",
+        ],
+      },
+      {
+        title: "Need Help?",
+        description: "Contact Cleaning World directly with any questions.",
+        items: ["Phone: 201-487-1313", "Email: info@cleaningworldinc.com"],
+      },
+    ],
   },
 
   es: {
@@ -273,6 +333,9 @@ const content: Record<
     aboutSubTitle: "Para Subcontratistas",
     aboutSubText:
       "El lado de subcontratistas es para ver cuentas asignadas, reportar problemas, subir fotos, pedir suministros y comunicar problemas importantes de las cuentas a la oficina.",
+    aboutCustomerTitle: "Para Clientes",
+    aboutCustomerText:
+      "El portal de clientes te permite ver el estado de tu cuenta, detalles del servicio, horario y facturación, además de enviar solicitudes como reportar un problema, pedir servicio adicional, cambiar la fecha de una visita, o preguntar sobre tu factura.",
     aboutImportantTitle: "Importante",
     aboutImportantText:
       "Esta aplicación es solamente para uso de trabajo de Cleaning World. No comparta información de acceso. Ingrese solamente información correcta relacionada con cuentas, visitas, quejas, suministros, fotos o trabajo asignado.",
@@ -286,6 +349,7 @@ const content: Record<
     ],
     adminTitle: "Instrucciones para Administración",
     subTitle: "Instrucciones para Subcontratistas",
+    customerTitle: "Instrucciones para Clientes",
     footerNote:
       "¿Falta alguna instrucción? Avise a la oficina para agregarla a esta página.",
     adminSections: [
@@ -471,6 +535,57 @@ const content: Record<
         items: ["Teléfono: 201-487-1313", "Correo: info@cleaningworldinc.com"],
       },
     ],
+    customerSections: [
+      {
+        title: "Iniciar Sesión",
+        description: "Accede al portal de clientes con tu número de teléfono y código de portal.",
+        items: [
+          "Ve a la página de inicio de sesión del portal de clientes.",
+          "Ingresa el número de teléfono que Cleaning World tiene registrado para tu cuenta.",
+          "Ingresa tu código de portal (proporcionado por Cleaning World).",
+          "Listo — no necesitas una contraseña separada.",
+        ],
+      },
+      {
+        title: "Tu Cuenta",
+        description: "Consulta el estado y los detalles de tu cuenta de un vistazo.",
+        items: [
+          "El panel muestra el estado de tu cuenta, tipo de servicio, frecuencia, días de limpieza y fecha de inicio.",
+          "Tu dirección de servicio y el alcance completo del trabajo están disponibles para consulta.",
+        ],
+      },
+      {
+        title: "Horario y Visitas",
+        description: "Consulta tus visitas próximas y pasadas.",
+        items: [
+          "Consulta tu próximo servicio programado y la fecha de tu última visita de un vistazo.",
+          "El calendario de visitas muestra las visitas próximas y completadas.",
+        ],
+      },
+      {
+        title: "Facturación",
+        description: "Consulta tu total mensual estimado.",
+        items: [
+          "Consulta tu total mensual estimado, incluyendo el impuesto de ventas de NJ.",
+          "El monto asume que no hay cambios de servicio ni limpiezas perdidas.",
+        ],
+      },
+      {
+        title: "Enviar Solicitudes al Portal",
+        description: "Envía una solicitud directamente a Cleaning World desde tu panel.",
+        items: [
+          "Reportar un Problema — avisa a Cleaning World sobre un problema con tu servicio.",
+          "Solicitar Servicio — pide una limpieza adicional o única.",
+          "Cambiar Fecha — solicita un cambio en una visita programada próxima.",
+          "Solicitud de Facturación — haz una pregunta o reporta un problema sobre tu factura.",
+        ],
+      },
+      {
+        title: "¿Necesitas Ayuda?",
+        description: "Comunícate directamente con Cleaning World con cualquier pregunta.",
+        items: ["Teléfono: 201-487-1313", "Correo: info@cleaningworldinc.com"],
+      },
+    ],
   },
 
   pt: {
@@ -487,6 +602,9 @@ const content: Record<
     aboutSubTitle: "Para Subcontratados",
     aboutSubText:
       "O lado dos subcontratados é para ver contas atribuídas, reportar problemas, enviar fotos, pedir suprimentos e comunicar problemas importantes das contas ao escritório.",
+    aboutCustomerTitle: "Para Clientes",
+    aboutCustomerText:
+      "O portal do cliente permite que você veja o status da sua conta, detalhes do serviço, agenda e faturamento, além de enviar solicitações como relatar um problema, pedir um serviço extra, mudar a data de uma visita, ou perguntar sobre sua fatura.",
     aboutImportantTitle: "Importante",
     aboutImportantText:
       "Este aplicativo é somente para uso de trabalho da Cleaning World. Não compartilhe informações de login. Insira somente informações corretas relacionadas a contas, visitas, reclamações, suprimentos, fotos ou trabalho atribuído.",
@@ -500,6 +618,7 @@ const content: Record<
     ],
     adminTitle: "Instruções para Administração",
     subTitle: "Instruções para Subcontratados",
+    customerTitle: "Instruções para Clientes",
     footerNote:
       "Precisa adicionar alguma instrução? Avise o escritório sobre o que está faltando.",
     adminSections: [
@@ -684,6 +803,57 @@ const content: Record<
         items: ["Telefone: 201-487-1313", "E-mail: info@cleaningworldinc.com"],
       },
     ],
+    customerSections: [
+      {
+        title: "Fazer Login",
+        description: "Acesse o portal do cliente com seu número de telefone e código de portal.",
+        items: [
+          "Acesse a página de login do portal de clientes.",
+          "Digite o número de telefone que a Cleaning World tem registrado para sua conta.",
+          "Digite seu código de portal (fornecido pela Cleaning World).",
+          "Pronto — não é necessária uma senha separada.",
+        ],
+      },
+      {
+        title: "Sua Conta",
+        description: "Veja o status e os detalhes da sua conta rapidamente.",
+        items: [
+          "O painel mostra o status da sua conta, tipo de serviço, frequência, dias de limpeza e data de início.",
+          "Seu endereço de serviço e o escopo completo do trabalho estão disponíveis para consulta.",
+        ],
+      },
+      {
+        title: "Agenda e Visitas",
+        description: "Veja suas visitas futuras e concluídas.",
+        items: [
+          "Veja seu próximo serviço agendado e a data da última visita rapidamente.",
+          "O calendário de visitas mostra as visitas futuras e concluídas.",
+        ],
+      },
+      {
+        title: "Faturamento",
+        description: "Veja seu total mensal estimado.",
+        items: [
+          "Veja seu total mensal estimado, incluindo o imposto sobre vendas de NJ.",
+          "O valor assume que não há mudanças de serviço nem limpezas perdidas.",
+        ],
+      },
+      {
+        title: "Enviar Solicitações pelo Portal",
+        description: "Envie uma solicitação diretamente à Cleaning World pelo seu painel.",
+        items: [
+          "Relatar um Problema — avise a Cleaning World sobre um problema com seu serviço.",
+          "Solicitar Serviço — peça uma limpeza extra ou avulsa.",
+          "Mudar Data — solicite uma mudança em uma visita agendada futura.",
+          "Solicitação de Faturamento — faça uma pergunta ou relate um problema sobre sua fatura.",
+        ],
+      },
+      {
+        title: "Precisa de Ajuda?",
+        description: "Entre em contato diretamente com a Cleaning World com qualquer dúvida.",
+        items: ["Telefone: 201-487-1313", "E-mail: info@cleaningworldinc.com"],
+      },
+    ],
   },
 };
 
@@ -695,13 +865,71 @@ const languageButtons: { value: Language; label: string }[] = [
 
 export default function HelpPage() {
   const [language, setLanguage] = useState<Language>("en");
-  const role = getStoredRole();
+  const [role, setRole] = useState<UserRole>(null);
+  const [roleChecked, setRoleChecked] = useState(false);
+
+  // Instant client-side guess (covers subcontractor, which has no server
+  // session), then reconcile with the authoritative server-side check below.
+  useEffect(() => {
+    setRole(getStoredRole());
+
+    let cancelled = false;
+
+    async function resolveRole() {
+      try {
+        const response = await fetch("/api/session-role", { cache: "no-store" });
+        const data = (await response.json()) as { isAdmin?: boolean; isCustomer?: boolean };
+
+        if (cancelled) return;
+
+        if (data.isAdmin) {
+          setRole("admin");
+        } else if (data.isCustomer) {
+          setRole("customer");
+        } else {
+          setRole(getStoredRole());
+        }
+      } catch {
+        if (!cancelled) setRole(getStoredRole());
+      } finally {
+        if (!cancelled) setRoleChecked(true);
+      }
+    }
+
+    resolveRole();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Admin content isn't translated for a PT toggle per the current spec —
+  // reset off it if role resolves to admin after PT was already selected.
+  useEffect(() => {
+    if (role === "admin" && language === "pt") {
+      setLanguage("en");
+    }
+  }, [role, language]);
+
+  const availableLanguageButtons =
+    role === "admin"
+      ? languageButtons.filter((button) => button.value !== "pt")
+      : languageButtons;
 
   const selectedContent = useMemo(() => content[language], [language]);
 
-  const backHref = role === "subcontractor" ? "/subcontractor-portal" : "/";
+  const backHref =
+    role === "subcontractor"
+      ? "/subcontractor-portal"
+      : role === "customer"
+        ? "/portal/dashboard"
+        : "/";
   const backLabel =
-    role === "subcontractor" ? "Back to Home" : "Back to Dashboard";
+    role === "subcontractor"
+      ? "Back to Home"
+      : role === "customer"
+        ? "Back to My Account"
+        : "Back to Dashboard";
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
@@ -736,24 +964,25 @@ export default function HelpPage() {
             {selectedContent.aboutDescription}
           </p>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-blue-100 bg-white p-4">
-              <h2 className="text-base font-black text-slate-950">
-                {selectedContent.aboutAdminTitle}
-              </h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                {selectedContent.aboutAdminText}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-100 bg-white p-4">
-              <h2 className="text-base font-black text-slate-950">
-                {selectedContent.aboutSubTitle}
-              </h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
-                {selectedContent.aboutSubText}
-              </p>
-            </div>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {role ? (
+              <div className="rounded-2xl border border-blue-100 bg-white p-4">
+                <h2 className="text-base font-black text-slate-950">
+                  {role === "admin"
+                    ? selectedContent.aboutAdminTitle
+                    : role === "customer"
+                      ? selectedContent.aboutCustomerTitle
+                      : selectedContent.aboutSubTitle}
+                </h2>
+                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                  {role === "admin"
+                    ? selectedContent.aboutAdminText
+                    : role === "customer"
+                      ? selectedContent.aboutCustomerText
+                      : selectedContent.aboutSubText}
+                </p>
+              </div>
+            ) : null}
 
             <div className="rounded-2xl border border-amber-100 bg-white p-4">
               <h2 className="text-base font-black text-slate-950">
@@ -767,7 +996,7 @@ export default function HelpPage() {
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          {languageButtons.map((button) => (
+          {availableLanguageButtons.map((button) => (
             <button
               key={button.value}
               type="button"
@@ -783,34 +1012,55 @@ export default function HelpPage() {
           ))}
         </div>
 
-        <div className="mt-6 rounded-3xl border border-blue-100 bg-blue-50 p-5">
-          <h2 className="text-xl font-black text-slate-950">
-            {selectedContent.quickStartTitle}
-          </h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {selectedContent.quickStartItems.map((item, index) => (
-              <div
-                key={`${language}-quick-${index}`}
-                className="rounded-2xl border border-blue-100 bg-white p-4 text-sm font-bold leading-6 text-slate-700"
-              >
-                <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-700 text-xs font-black text-white">
-                  {index + 1}
-                </span>
-                {item}
-              </div>
-            ))}
+        {role === "admin" ? (
+          <div className="mt-6 rounded-3xl border border-blue-100 bg-blue-50 p-5">
+            <h2 className="text-xl font-black text-slate-950">
+              {selectedContent.quickStartTitle}
+            </h2>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {selectedContent.quickStartItems.map((item, index) => (
+                <div
+                  key={`${language}-quick-${index}`}
+                  className="rounded-2xl border border-blue-100 bg-white p-4 text-sm font-bold leading-6 text-slate-700"
+                >
+                  <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-700 text-xs font-black text-white">
+                    {index + 1}
+                  </span>
+                  {item}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
 
-        <HelpGroup
-          title={selectedContent.adminTitle}
-          sections={selectedContent.adminSections}
-        />
+        {role === "admin" ? (
+          <HelpGroup
+            title={selectedContent.adminTitle}
+            sections={selectedContent.adminSections}
+          />
+        ) : null}
 
-        <HelpGroup
-          title={selectedContent.subTitle}
-          sections={selectedContent.subSections}
-        />
+        {role === "subcontractor" ? (
+          <HelpGroup
+            title={selectedContent.subTitle}
+            sections={selectedContent.subSections}
+          />
+        ) : null}
+
+        {role === "customer" ? (
+          <HelpGroup
+            title={selectedContent.customerTitle}
+            sections={selectedContent.customerSections}
+          />
+        ) : null}
+
+        {!role && roleChecked ? (
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-600">
+            We couldn&apos;t detect an active session for your account type. Please log in
+            through the correct portal — Admin, Subcontractor, or Customer — to see
+            instructions for your account.
+          </div>
+        ) : null}
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-600">
           {selectedContent.footerNote}

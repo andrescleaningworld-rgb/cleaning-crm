@@ -25,6 +25,11 @@ const PUBLIC_PATHS = [
   // requested directly by the browser during OneSignal.init(), not via an
   // authenticated page navigation) — same reasoning as manifest.json above.
   "/push/onesignal",
+  // /help must be reachable by subcontractors and customers too, not just
+  // admins — it now reads the session itself (via /api/session-role) to
+  // decide which content to show, rather than gating access to the page.
+  "/help",
+  "/api/session-role",
 ];
 
 function isPublicPath(pathname: string) {
