@@ -22,6 +22,7 @@ const adminNavItems = [
   { href: "/account-updates", label: "Updates" },
   { href: "/subcontractors", label: "Subs" },
   { href: "/sub-schedules", label: "Sub Schedules" },
+  { href: "/activity-log", label: "Activity Log" },
   { href: "/sales", label: "Sales" },
   { href: "/reports", label: "Reports" },
   { href: "/settings", label: "Settings" },
