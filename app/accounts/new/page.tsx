@@ -135,27 +135,32 @@ function getSubcontractorDisplayName(subcontractor: Subcontractor) {
 
 // Company name alone isn't unique (multiple subs can share one, e.g.
 // "Cleaning World"), which caused duplicate React keys and ambiguous
-// dropdown selections. Email is the canonical unique identifier for a
-// subcontractor elsewhere in the app (see app/sub-schedules/page.tsx), so
-// it's used here purely to key/select the dropdown option — NOT as what
-// gets written to the sheet. See getSubcontractorSubmitName for that.
+// dropdown selections. Subcontractor ID (column A of the Subcontractors
+// tab) is the true unique identifier — email isn't safe to lead with here
+// since two different subs can share a contact inbox (e.g. two companies
+// both using "contact.clcleaning@gmail.com"), which caused both the
+// duplicate-key warning and a silent mismatch in resolveSubcontractorForSubmit
+// below. This is used purely to key/select the dropdown option — NOT as
+// what gets written to the sheet. See getSubcontractorSubmitName for that.
 function getSubcontractorDropdownValue(subcontractor: Subcontractor) {
   return cleanText(
-    subcontractor.email ||
-      subcontractor.id ||
+    subcontractor.id ||
       subcontractor.subcontractorId ||
+      subcontractor.email ||
       getSubcontractorDisplayName(subcontractor)
   );
 }
 
 // What actually gets saved to the Accounts sheet's Subcontractor column —
-// a human-readable name, matching pre-existing sheet data, rather than the
-// email used above to key the dropdown.
+// column B (Contact Name) of the Subcontractors tab, rather than the email
+// used above to key the dropdown.
 function getSubcontractorSubmitName(subcontractor: Subcontractor) {
-  const companyName = cleanText(
-    subcontractor.companyName || subcontractor.subcontractor
+  const contactName = cleanText(
+    subcontractor.contactName ||
+      subcontractor.name ||
+      subcontractor.subcontractorName
   );
-  return companyName || getSubcontractorDisplayName(subcontractor);
+  return contactName || getSubcontractorDisplayName(subcontractor);
 }
 
 function resolveSubcontractorForSubmit(
