@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import GoogleAddressAutocompleteInput, {
+  type PlaceAddressDetails,
+} from "@/app/components/GoogleAddressAutocompleteInput";
 
 type Account = {
   id?: string;
@@ -13,6 +16,8 @@ type Account = {
   city?: string;
   state?: string;
   zip?: string;
+  latitude?: string;
+  longitude?: string;
   manager?: string;
   subcontractor?: string;
   status?: string;
@@ -321,6 +326,25 @@ export default function EditAccountPage() {
     setSaveError("");
   }
 
+  function handlePlaceSelected(details: PlaceAddressDetails) {
+    setFormData((current) => {
+      if (!current) return current;
+
+      return {
+        ...current,
+        address: details.address,
+        city: details.city,
+        state: details.state,
+        zip: details.zip,
+        latitude: details.latitude,
+        longitude: details.longitude,
+      };
+    });
+
+    setSavedMessage("");
+    setSaveError("");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -589,52 +613,21 @@ export default function EditAccountPage() {
                 </select>
               </div>
 
-              <div>
+              <div className="md:col-span-2">
                 <label className="text-sm font-medium text-gray-700">
                   Address
                 </label>
-                <input
-                  type="text"
+                <GoogleAddressAutocompleteInput
                   value={formData.address || ""}
-                  onChange={(event) =>
-                    updateField("address", event.target.value)
-                  }
+                  onChange={(value) => updateField("address", value)}
+                  onPlaceSelected={handlePlaceSelected}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  City
-                </label>
-                <input
-                  type="text"
-                  value={formData.city || ""}
-                  onChange={(event) => updateField("city", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  State
-                </label>
-                <input
-                  type="text"
-                  value={formData.state || ""}
-                  onChange={(event) => updateField("state", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">Zip</label>
-                <input
-                  type="text"
-                  value={formData.zip || ""}
-                  onChange={(event) => updateField("zip", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
+                <p className="mt-2 text-xs font-semibold text-gray-500">
+                  Start typing and pick a suggestion. City, state, and zip are
+                  filled in automatically and do not need to be entered
+                  separately.
+                </p>
               </div>
             </div>
           </section>

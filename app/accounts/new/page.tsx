@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import GoogleAddressAutocompleteInput, {
+  type PlaceAddressDetails,
+} from "@/app/components/GoogleAddressAutocompleteInput";
 
 type AccountForm = {
   accountName: string;
@@ -10,6 +13,8 @@ type AccountForm = {
   city: string;
   state: string;
   zip: string;
+  latitude: string;
+  longitude: string;
   manager: string;
   subcontractor: string;
   status: string;
@@ -78,6 +83,8 @@ const emptyForm: AccountForm = {
   city: "",
   state: "",
   zip: "",
+  latitude: "",
+  longitude: "",
   manager: "",
   subcontractor: "",
   status: "Active",
@@ -260,6 +267,18 @@ export default function NewAccountPage() {
     }));
   }
 
+  function handlePlaceSelected(details: PlaceAddressDetails) {
+    setForm((current) => ({
+      ...current,
+      address: details.address,
+      city: details.city,
+      state: details.state,
+      zip: details.zip,
+      latitude: details.latitude,
+      longitude: details.longitude,
+    }));
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -278,9 +297,6 @@ export default function NewAccountPage() {
         address: form.address.trim(),
         manager: form.manager.trim(),
         subcontractor: form.subcontractor.trim(),
-        city: "",
-        state: "",
-        zip: "",
       };
 
       const response = await fetch("/api/accounts", {
@@ -461,17 +477,17 @@ export default function NewAccountPage() {
                 <span className="text-sm font-black text-slate-700">
                   Full Address
                 </span>
-                <input
+                <GoogleAddressAutocompleteInput
                   value={form.address}
-                  onChange={(event) =>
-                    updateField("address", event.target.value)
-                  }
+                  onChange={(value) => updateField("address", value)}
+                  onPlaceSelected={handlePlaceSelected}
                   placeholder="Example: 1010 Kendal Way, Tarrytown, NY 10591, USA"
                   className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
                 />
                 <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                  Paste the full address from Google Maps. City, state, and zip
-                  do not need to be entered separately.
+                  Start typing and pick a suggestion, or paste the full address
+                  from Google Maps. City, state, and zip do not need to be
+                  entered separately.
                 </p>
               </label>
             </div>
