@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getIronSession } from "iron-session";
+import { cookies } from "next/headers";
+import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { logSubcontractorVisit, getSubcontractorVisits } from "@/lib/googleSheets";
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const email = searchParams.get("email")?.trim();
-  const account = searchParams.get("account")?.trim();
-
-  if (!email) {
-    return NextResponse.json({ error: "email required" }, { status: 400 });
+  const session = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());
+  if (!session.subcontractorEmail) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  const account = searchParams.get("account")?.trim();
+
   try {
-    const visits = await getSubcontractorVisits(email, account ?? undefined);
+    const visits = await getSubcontractorVisits(session.subcontractorEmail, account ?? undefined);
     return NextResponse.json({ visits });
   } catch (err) {
     console.error("[subcontractor-visits GET]", err);
@@ -20,10 +23,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const session = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());
+  if (!session.subcontractorEmail) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body: {
     accountName?: string;
-    subEmail?: string;
-    subName?: string;
     visitDate?: string;
     arrivalTime?: string;
     notes?: string;
@@ -35,10 +41,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { accountName, subEmail, subName, visitDate, arrivalTime, notes } = body;
+  const { accountName, visitDate, arrivalTime, notes } = body;
 
-  if (!accountName?.trim() || !subEmail?.trim() || !visitDate?.trim() || !arrivalTime?.trim()) {
-    return NextResponse.json({ error: "accountName, subEmail, visitDate, and arrivalTime are required" }, { status: 400 });
+  if (!accountName?.trim() || !visitDate?.trim() || !arrivalTime?.trim()) {
+    return NextResponse.json({ error: "accountName, visitDate, and arrivalTime are required" }, { status: 400 });
   }
 
   // Reject future dates
@@ -50,8 +56,8 @@ export async function POST(request: NextRequest) {
   try {
     const visitId = await logSubcontractorVisit({
       accountName: accountName.trim(),
-      subEmail: subEmail.trim(),
-      subName: subName?.trim() ?? "",
+      subEmail: session.subcontractorEmail,
+      subName: session.subcontractorName?.trim() ?? "",
       visitDate: visitDate.trim(),
       arrivalTime: arrivalTime.trim(),
       notes: notes?.trim() ?? "",
