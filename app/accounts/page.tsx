@@ -672,6 +672,11 @@ function useFocusTrap(active: boolean) {
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // Full account list used only to build the Manager/Subcontractor/Frequency
+  // filter dropdown options — kept separate from `accounts` (which is
+  // search-scoped and starts empty) so those dropdowns aren't empty until
+  // the user has already searched. See fetchFilterOptionAccounts below.
+  const [filterOptionAccounts, setFilterOptionAccounts] = useState<Account[]>([]);
   const [allSubcontractors, setAllSubcontractors] = useState<Subcontractor[]>([]);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
@@ -728,7 +733,6 @@ export default function AccountsPage() {
   // Data loading
   // -------------------------------------------------------------------------
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subcontractorsRef = useRef<Subcontractor[]>([]);
 
   // Subcontractor data (used by the New Subcontractor dropdown in the
@@ -750,6 +754,23 @@ export default function AccountsPage() {
       setSubcontractorWarning("Subcontractor names may not display correctly — the subcontractors API returned an unexpected response.");
     } finally {
       setLoadingSubcontractors(false);
+    }
+  }, []);
+
+  // Same "load independently on mount" pattern as fetchSubcontractors above —
+  // populates the Manager/Subcontractor/Frequency filter dropdowns from the
+  // full account list, decoupled from the search-scoped `accounts` state.
+  // Best-effort only: if it fails, those dropdowns just show fewer options
+  // rather than surfacing an error banner for a secondary data source.
+  const fetchFilterOptionAccounts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/accounts", { cache: "no-store" });
+      const data = await readJson<ApiResponse>(response);
+      if (!response.ok || data.success === false) return;
+      const rawAccounts: Account[] = data.accounts ?? data.data ?? [];
+      setFilterOptionAccounts(enrichAccounts(rawAccounts, subcontractorsRef.current));
+    } catch {
+      // Filter dropdowns fall back to whatever options are already loaded.
     }
   }, []);
 
@@ -845,24 +866,16 @@ export default function AccountsPage() {
 
   useEffect(() => {
     void fetchSubcontractors();
-  }, [fetchSubcontractors]);
+    void fetchFilterOptionAccounts();
+  }, [fetchSubcontractors, fetchFilterOptionAccounts]);
 
-  useEffect(() => {
-    const q = searchText.trim();
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (q.length < 2) {
-      setAccounts([]);
-      setHasSearched(false);
-      setError("");
-      return;
-    }
-    debounceRef.current = setTimeout(() => {
-      void fetchAccounts(q);
-    }, 300);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [searchText, fetchAccounts]);
+  // Search only runs when the user explicitly asks for it (Search button or
+  // Enter key) — not on every keystroke or filter-dropdown change. An empty
+  // search box still works: /api/accounts treats a blank "q" as "return
+  // everything," so clicking Search with no text browses the full list.
+  function handleSearch() {
+    void fetchAccounts(searchText.trim());
+  }
 
 
   useEffect(() => {
@@ -894,18 +907,18 @@ export default function AccountsPage() {
 
   const managers = useMemo(() => {
     const unique = Array.from(
-      new Set(accounts.map((a) => normalizeText(a.manager)).filter(Boolean))
+      new Set(filterOptionAccounts.map((a) => normalizeText(a.manager)).filter(Boolean))
     );
     return ["All", ...unique.sort()];
-  }, [accounts]);
+  }, [filterOptionAccounts]);
 
   const subcontractors = useMemo<SubcontractorFilterOption[]>(() => {
     const unique = Array.from(
-      new Set(accounts.map((a) => normalizeText(a.subcontractor)).filter(Boolean))
+      new Set(filterOptionAccounts.map((a) => normalizeText(a.subcontractor)).filter(Boolean))
     );
 
     const options = unique.map((storedSub) => {
-      const matchingAccount = accounts.find(
+      const matchingAccount = filterOptionAccounts.find(
         (a) => normalizeText(a.subcontractor) === storedSub
       );
 
@@ -919,19 +932,19 @@ export default function AccountsPage() {
       { value: "All", label: "All Subcontractors" },
       ...options.sort((a, b) => a.label.localeCompare(b.label)),
     ];
-  }, [accounts]);
+  }, [filterOptionAccounts]);
 
   const frequencies = useMemo(() => {
     const unique = Array.from(
       new Set(
-        accounts
+        filterOptionAccounts
           .map((account) => normalizeText(account._frequencyText))
           .filter(Boolean)
       )
     );
 
     return ["All", ...unique.sort((a, b) => a.localeCompare(b))];
-  }, [accounts]);
+  }, [filterOptionAccounts]);
 
   // -------------------------------------------------------------------------
   // Filtering + sorting — uses pre-normalized fields for speed
@@ -1998,14 +2011,25 @@ async function handleSaveTransferProposal() {
             further down) below the fold. This duplicate, bound to the same
             searchText state, keeps search reachable without scrolling;
             hidden from lg: up where the original is already visible in place. */}
-        <div className="mt-4 lg:hidden">
+        <div className="mt-4 flex gap-2 lg:hidden">
           <input
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Type to search accounts (min. 2 characters)..."
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleSearch();
+            }}
+            placeholder="Search accounts, or leave blank to see all..."
             aria-label="Search accounts"
             className="min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500"
           />
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={loading}
+            className="min-h-[48px] shrink-0 rounded-2xl bg-blue-700 px-5 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {loading ? "..." : "Search"}
+          </button>
         </div>
 
         {/* Summary stats */}
@@ -2080,11 +2104,14 @@ async function handleSaveTransferProposal() {
         </div>
 
         {/* Filters */}
-        <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-5">
+        <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-6">
           <input
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
-            placeholder="Type to search accounts (min. 2 characters)..."
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleSearch();
+            }}
+            placeholder="Search accounts, or leave blank to see all..."
             aria-label="Search accounts"
             autoFocus
             className="hidden min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm lg:block"
@@ -2141,6 +2168,15 @@ async function handleSaveTransferProposal() {
               </option>
             ))}
           </select>
+
+          <button
+            type="button"
+            onClick={handleSearch}
+            disabled={loading}
+            className="min-h-[48px] rounded-2xl bg-blue-700 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+          >
+            {loading ? "Searching..." : "Search"}
+          </button>
         </div>
 
         <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -2895,10 +2931,10 @@ async function handleSaveTransferProposal() {
             <div className="bg-white px-4 py-10 text-center">
               <p className="text-2xl font-black text-slate-300">&#x1F50D;</p>
               <p className="mt-2 text-sm font-semibold text-slate-500">
-                Search for an account to get started.
+                Click Search to get started.
               </p>
               <p className="mt-1 text-xs font-medium text-slate-400">
-                Type at least 2 characters in the search box above.
+                Type a search term first, or leave it blank to browse all accounts.
               </p>
             </div>
           ) : visibleAccounts.length === 0 ? (
