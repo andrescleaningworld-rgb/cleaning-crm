@@ -809,10 +809,56 @@ export default function EditAccountPage() {
 
           <section className="rounded-xl bg-white p-6 shadow">
             <h2 className="text-xl font-bold text-gray-900">
-              Access Information
+              Customer Contact
             </h2>
 
             <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Contact Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.contactName || ""}
+                  onChange={(event) =>
+                    updateField("contactName", event.target.value)
+                  }
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Phone
+                </label>
+                <input
+                  type="text"
+                  value={formData.phone || ""}
+                  onChange={(event) => updateField("phone", event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Email
+                </label>
+                <input
+                  type="text"
+                  value={formData.email || ""}
+                  onChange={(event) => updateField("email", event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-xl bg-white p-6 shadow">
+            <h2 className="text-xl font-bold text-gray-900">
+              Access Information
+            </h2>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div>
                 <label className="text-sm font-medium text-gray-700">
                   Has Key?
@@ -843,21 +889,7 @@ export default function EditAccountPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Contact Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.contactName || ""}
-                  onChange={(event) =>
-                    updateField("contactName", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="md:col-span-3">
+              <div className="md:col-span-2">
                 <label className="text-sm font-medium text-gray-700">
                   Key / Alarm / Access Info
                 </label>
@@ -867,30 +899,6 @@ export default function EditAccountPage() {
                     updateField("keyAlarmAccessInfo", event.target.value)
                   }
                   rows={3}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Phone
-                </label>
-                <input
-                  type="text"
-                  value={formData.phone || ""}
-                  onChange={(event) => updateField("phone", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Email
-                </label>
-                <input
-                  type="text"
-                  value={formData.email || ""}
-                  onChange={(event) => updateField("email", event.target.value)}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
               </div>
