@@ -265,15 +265,30 @@ export async function POST(request: NextRequest) {
 
     const action = body.action || "saveSupplyItem";
 
+    // The Apps Script's updateSupplyItem and deactivateSupplyItem handlers
+    // both expect the supply's fields nested under an "item" key. Every
+    // other action on this route sends its fields flat, and that's what
+    // these two were doing as well — their row lookup then failed every
+    // time with "Could not find supply item to update/remove," even with a
+    // correct rowNumber/supplyId, because the handler never finds any of
+    // the flat fields it's looking for. Confirmed directly against the
+    // live backend: identical flat payload fails, wrapping it under `item`
+    // succeeds, for both actions.
+    const NESTED_ITEM_ACTIONS = new Set([
+      "updateSupplyItem",
+      "deactivateSupplyItem",
+    ]);
+    const { action: _omit, ...itemFields } = body;
+    const payload = NESTED_ITEM_ACTIONS.has(action)
+      ? { action, item: itemFields }
+      : { ...body, action };
+
     const response = await fetch(scriptUrl, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8",
       },
-      body: JSON.stringify({
-        ...body,
-        action,
-      }),
+      body: JSON.stringify(payload),
       cache: "no-store",
     });
 
