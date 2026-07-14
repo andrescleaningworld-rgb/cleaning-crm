@@ -98,6 +98,45 @@ function getSubcontractorDisplayName(subcontractor: Subcontractor) {
   );
 }
 
+// Company name alone isn't unique (multiple subs can share one, e.g.
+// "Cleaning World"), which caused duplicate React keys and ambiguous
+// dropdown selections. Email is the canonical unique identifier for a
+// subcontractor elsewhere in the app (see app/sub-schedules/page.tsx), so
+// it's used here purely to key/select the dropdown option — NOT as what
+// gets written to the sheet. See getSubcontractorSubmitName for that.
+function getSubcontractorDropdownValue(subcontractor: Subcontractor) {
+  return cleanText(
+    subcontractor.email ||
+      subcontractor.id ||
+      subcontractor.subcontractorId ||
+      getSubcontractorDisplayName(subcontractor)
+  );
+}
+
+// What actually gets saved to the Accounts sheet's Subcontractor column —
+// a human-readable name, matching pre-existing sheet data, rather than the
+// email used above to key the dropdown.
+function getSubcontractorSubmitName(subcontractor: Subcontractor) {
+  const companyName = cleanText(
+    subcontractor.companyName || subcontractor.subcontractor
+  );
+  return companyName || getSubcontractorDisplayName(subcontractor);
+}
+
+function resolveSubcontractorForSubmit(
+  selectedValue: unknown,
+  subcontractors: Subcontractor[]
+) {
+  const trimmed = cleanText(selectedValue);
+  if (!trimmed) return trimmed;
+
+  const match = subcontractors.find(
+    (subcontractor) => getSubcontractorDropdownValue(subcontractor) === trimmed
+  );
+
+  return match ? getSubcontractorSubmitName(match) : trimmed;
+}
+
 function normalizeValue(value: string | number | undefined | null) {
   return String(value || "")
     .toLowerCase()
@@ -249,26 +288,10 @@ export default function EditAccountPage() {
     const currentValue = cleanText(formData?.subcontractor);
 
     const options = subcontractors
-      .map((subcontractor) => {
-        const label = getSubcontractorDisplayName(subcontractor);
-
-        // Company name alone isn't unique (multiple subs can share one, e.g.
-        // "Cleaning World"), which caused duplicate React keys and ambiguous
-        // selections. Email is the canonical unique identifier for a
-        // subcontractor elsewhere in the app (see app/sub-schedules/page.tsx),
-        // so use the same priority order here: email, then id, then label.
-        const value = cleanText(
-          subcontractor.email ||
-            subcontractor.id ||
-            subcontractor.subcontractorId ||
-            label
-        );
-
-        return {
-          value,
-          label,
-        };
-      })
+      .map((subcontractor) => ({
+        value: getSubcontractorDropdownValue(subcontractor),
+        label: getSubcontractorDisplayName(subcontractor),
+      }))
       .filter((option) => option.value && option.label);
 
     const alreadyHasCurrentValue = options.some(
@@ -376,7 +399,10 @@ export default function EditAccountPage() {
             rowNumber: formData.rowNumber,
             startDate: cleanStartDate,
             serviceStartDate: cleanStartDate,
-            subcontractor: cleanText(formData.subcontractor),
+            subcontractor: resolveSubcontractorForSubmit(
+              formData.subcontractor,
+              subcontractors
+            ),
             grossMargin: String(grossMargin),
             grossMarginPercent: grossMarginPercent.toFixed(1),
           },
