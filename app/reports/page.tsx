@@ -412,6 +412,8 @@ export default function ReportsPage() {
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
   const [salespersonFilter, setSalespersonFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [minRevenueFilter, setMinRevenueFilter] = useState("");
+  const [maxRevenueFilter, setMaxRevenueFilter] = useState("");
   const [search, setSearch] = useState("");
 
   async function loadAllReportsData() {
@@ -542,20 +544,34 @@ export default function ReportsPage() {
   }, [accounts]);
 
   const filteredAccounts = useMemo(() => {
+    const minRevenue = numberValue(minRevenueFilter);
+    const maxRevenue = numberValue(maxRevenueFilter);
+
     return accounts.filter((account) => {
       const manager = getAccountManager(account);
       const subcontractor = getSubcontractor(account);
       const status = getStatus(account);
+      const revenue = getMonthlyRevenue(account);
 
       return (
         (managerFilter === "All" || manager === managerFilter) &&
         (subcontractorFilter === "All" ||
           subcontractor === subcontractorFilter) &&
         (statusFilter === "All" || status === statusFilter) &&
+        (!minRevenueFilter.trim() || revenue >= minRevenue) &&
+        (!maxRevenueFilter.trim() || revenue <= maxRevenue) &&
         rowMatchesSearch(account, search)
       );
     });
-  }, [accounts, managerFilter, subcontractorFilter, statusFilter, search]);
+  }, [
+    accounts,
+    managerFilter,
+    subcontractorFilter,
+    statusFilter,
+    minRevenueFilter,
+    maxRevenueFilter,
+    search,
+  ]);
 
   const activeAccounts = useMemo(() => {
     return filteredAccounts.filter((account) => {
@@ -1086,6 +1102,34 @@ export default function ReportsPage() {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Min Revenue
+              </label>
+              <input
+                value={minRevenueFilter}
+                onChange={(event) => setMinRevenueFilter(event.target.value)}
+                inputMode="decimal"
+                placeholder="$500"
+                aria-label="Minimum monthly revenue"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                Max Revenue
+              </label>
+              <input
+                value={maxRevenueFilter}
+                onChange={(event) => setMaxRevenueFilter(event.target.value)}
+                inputMode="decimal"
+                placeholder="$2000"
+                aria-label="Maximum monthly revenue"
+                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+              />
             </div>
           </div>
         </section>
