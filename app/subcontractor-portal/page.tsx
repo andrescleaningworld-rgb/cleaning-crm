@@ -430,6 +430,9 @@ export default function SubcontractorPortalPage() {
   const [supplyItems, setSupplyItems] = useState<SupplyItem[]>([]);
 
   const [selectedAccountName, setSelectedAccountName] = useState("");
+  const [accountSortOrder, setAccountSortOrder] = useState<"asc" | "desc">(
+    "asc"
+  );
   const [deliveryMode, setDeliveryMode] = useState("");
   const [notes, setNotes] = useState("");
   const [orderItems, setOrderItems] = useState<OrderLineItem[]>([
@@ -459,6 +462,16 @@ export default function SubcontractorPortalPage() {
   const activeAccounts = useMemo(() => {
     return accounts.filter(isActiveAccount);
   }, [accounts]);
+
+  // Sorted view of activeAccounts for the account-card grid only — every
+  // other use of activeAccounts (dropdowns, schedule tabs, totals) is
+  // intentionally left in its existing order.
+  const sortedActiveAccounts = useMemo(() => {
+    const sorted = [...activeAccounts].sort((a, b) =>
+      getAccountName(a).localeCompare(getAccountName(b))
+    );
+    return accountSortOrder === "asc" ? sorted : sorted.reverse();
+  }, [activeAccounts, accountSortOrder]);
 
   const totalSubPay = useMemo(() => {
     return activeAccounts.reduce((total, account) => {
@@ -1447,9 +1460,23 @@ export default function SubcontractorPortalPage() {
                   </p>
                 </div>
 
-                <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
-                  {activeAccounts.length} active
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+                    {activeAccounts.length} active
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAccountSortOrder((current) =>
+                        current === "asc" ? "desc" : "asc"
+                      )
+                    }
+                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+                  >
+                    Name {accountSortOrder === "asc" ? "A→Z" : "Z→A"}
+                  </button>
+                </div>
               </div>
 
               {activeAccounts.length === 0 ? (
@@ -1458,7 +1485,7 @@ export default function SubcontractorPortalPage() {
                 </p>
               ) : (
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  {activeAccounts.map((account) => {
+                  {sortedActiveAccounts.map((account) => {
                     const accountName = getAccountName(account);
                     const accountId = getAccountId(account);
                     const isSelected = accountName === selectedAccountName;
