@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
+import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
 import {
   AutocompleteField,
   useAllAccountOptions,
@@ -48,6 +49,27 @@ function normalizeForMatch(value: string): string {
 function getStoredAdminName(): string {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem("cwAdminName") ?? "";
+}
+
+const FREQUENCY_LABELS: Record<string, string> = {
+  WEEKLY: "Weekly",
+  BIWEEKLY: "Every Other Week",
+  MONTHLY_1X: "1x per Month",
+  MONTHLY_2X: "2x per Month",
+  AS_NEEDED: "As Needed",
+};
+
+function describeFrequency(schedule: SubSchedule): string {
+  return FREQUENCY_LABELS[schedule.frequency] || (schedule.recurring === "Y" ? "Weekly" : "One-time");
+}
+
+function describeDayOrOccurrence(schedule: SubSchedule): string {
+  if (schedule.frequency === "MONTHLY_1X" || schedule.frequency === "MONTHLY_2X") {
+    const occurrence = parseMonthlyOccurrence(schedule.monthlyOccurrence);
+    return occurrence ? `${occurrence.position} ${occurrence.weekday}` : "—";
+  }
+  if (schedule.frequency === "AS_NEEDED") return "—";
+  return schedule.dayOfWeek || "—";
 }
 
 export default function SubSchedulesPage() {
@@ -444,9 +466,9 @@ export default function SubSchedulesPage() {
                     <tr className="border-b bg-slate-50 text-slate-700">
                       <th className="px-4 py-3 font-semibold">Customer</th>
                       <th className="px-4 py-3 font-semibold">Team Leader</th>
-                      <th className="px-4 py-3 font-semibold">Day</th>
+                      <th className="px-4 py-3 font-semibold">Day / Occurrence</th>
                       <th className="px-4 py-3 font-semibold">Window</th>
-                      <th className="px-4 py-3 font-semibold">Recurring</th>
+                      <th className="px-4 py-3 font-semibold">Frequency</th>
                       <th className="px-4 py-3 font-semibold">Effective</th>
                       <th className="px-4 py-3 font-semibold">Status</th>
                       <th className="px-4 py-3 font-semibold">Submitted</th>
@@ -458,9 +480,9 @@ export default function SubSchedulesPage() {
                       <tr key={s.sheetRow} className="border-b last:border-0 hover:bg-slate-50">
                         <td className="px-4 py-3">{resolveAccountName(s.accountId)}</td>
                         <td className="px-4 py-3">{resolveTeamLeaderName(s.subId)}</td>
-                        <td className="px-4 py-3">{s.dayOfWeek}</td>
-                        <td className="px-4 py-3">{s.timeWindow}</td>
-                        <td className="px-4 py-3">{s.recurring === "Y" ? "Weekly" : "One-time"}</td>
+                        <td className="px-4 py-3">{describeDayOrOccurrence(s)}</td>
+                        <td className="px-4 py-3">{s.timeWindow || "—"}</td>
+                        <td className="px-4 py-3">{describeFrequency(s)}</td>
                         <td className="px-4 py-3">
                           {s.effectiveStart || "—"}
                           {s.effectiveEnd ? ` to ${s.effectiveEnd}` : ""}

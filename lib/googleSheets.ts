@@ -856,6 +856,66 @@ export async function updateSubSchedule(
   });
 }
 
+// Pattern-affecting edits (Frequency, DayOfWeek/Weekdays, MonthlyOccurrence,
+// TimeWindow) are versioned rather than patched in place: the existing row
+// is closed out with EffectiveEnd = effectiveDate - 1 day, and a new row is
+// appended starting at EffectiveStart = effectiveDate. Dates before
+// effectiveDate keep generating from the closed-out row exactly as they did
+// before the edit — nothing before the change is rewritten. Non-pattern
+// edits (Status, a manual EffectiveStart/EffectiveEnd adjustment) should
+// keep using updateSubSchedule instead, which patches the row in place.
+export async function applySchedulePatternChange(
+  scheduleId: string,
+  newPattern: {
+    dayOfWeek: string;
+    timeWindow: string;
+    frequency: string;
+    monthlyOccurrence: string;
+    status?: string;
+  },
+  effectiveDate: string,
+  editedBy: string
+): Promise<string> {
+  const schedules = await fetchSubSchedules();
+  const current = schedules.find((s) => s.scheduleId === scheduleId);
+  if (!current) {
+    throw new Error(`SubSchedule ${scheduleId} not found`);
+  }
+  if (current.effectiveStart && effectiveDate <= current.effectiveStart) {
+    throw new Error(
+      `effectiveDate (${effectiveDate}) must be after this schedule's current EffectiveStart (${current.effectiveStart})`
+    );
+  }
+
+  const dayBefore = new Date(`${effectiveDate}T00:00:00`);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const effectiveEnd = `${dayBefore.getFullYear()}-${pad(dayBefore.getMonth() + 1)}-${pad(dayBefore.getDate())}`;
+
+  await updateSubSchedule(current.sheetRow, {
+    effectiveEnd,
+    lastEditedBy: editedBy,
+    lastEditedDate: new Date().toISOString(),
+  });
+
+  const recurring = newPattern.frequency === "AS_NEEDED" ? "N" : "Y";
+  const newScheduleId = await appendSubSchedule({
+    accountId: current.accountId,
+    subId: current.subId,
+    dayOfWeek: newPattern.dayOfWeek,
+    timeWindow: newPattern.timeWindow,
+    recurring,
+    effectiveStart: effectiveDate,
+    effectiveEnd: current.effectiveEnd, // carries the account's original end date forward unchanged
+    status: newPattern.status ?? current.status,
+    submittedBy: current.submittedBy,
+    frequency: newPattern.frequency,
+    monthlyOccurrence: newPattern.monthlyOccurrence,
+  });
+
+  return newScheduleId;
+}
+
 // ─── Schedule exceptions ───────────────────────────────────────────────────────
 
 const SCHEDULE_EXCEPTIONS_TAB = "ScheduleExceptions";
