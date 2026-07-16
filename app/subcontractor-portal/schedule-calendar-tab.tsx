@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { generateScheduleDates } from "@/lib/scheduleRecurrence";
 
 type ScheduleAccount = {
   id?: string;
@@ -29,6 +30,8 @@ type SubSchedule = {
   effectiveStart: string;
   effectiveEnd: string;
   status: string;
+  frequency: string;
+  monthlyOccurrence: string;
 };
 
 type ScheduleException = {
@@ -209,21 +212,34 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
       }
     }
 
-    mySchedules
-      .filter((s) => s.recurring === "Y")
-      .forEach((s) => {
-        const gateOk =
-          (!s.effectiveStart || todayISO >= s.effectiveStart) && (!s.effectiveEnd || todayISO <= s.effectiveEnd);
-        if (!gateOk) return;
-        weekDates.forEach((d) => {
-          if (dayName(d) !== s.dayOfWeek) return;
-          handleCandidate(s, toISO(d), "recurring");
-        });
-      });
+    const rangeStart = weekDates[0];
+    const rangeEnd = weekDates[weekDates.length - 1];
 
+    mySchedules.forEach((s) => {
+      const dates = generateScheduleDates(
+        {
+          frequency: s.frequency,
+          dayOfWeek: s.dayOfWeek,
+          monthlyOccurrence: s.monthlyOccurrence,
+          effectiveStart: s.effectiveStart,
+          effectiveEnd: s.effectiveEnd,
+        },
+        rangeStart,
+        rangeEnd
+      );
+      dates.forEach((iso) => handleCandidate(s, iso, "recurring"));
+    });
+
+    // Backward-compat: rows migrated from the old "One Time" option
+    // (Frequency=AS_NEEDED but still carrying a legacy DayOfWeek from
+    // before ScheduleExceptions existed for that account) show as an
+    // informational one-off badge for the current week only, same as
+    // before this migration. New AS_NEEDED submissions never set
+    // DayOfWeek, so this fades out naturally as those rows get replaced
+    // by real exceptions.
     if (weekOffset === 0) {
       mySchedules
-        .filter((s) => s.recurring !== "Y")
+        .filter((s) => s.frequency === "AS_NEEDED" && s.dayOfWeek)
         .forEach((s) => {
           weekDates.forEach((d) => {
             if (dayName(d) !== s.dayOfWeek) return;

@@ -37,7 +37,42 @@ type SubScheduleRecord = {
   submittedDate: string;
   lastEditedBy: string;
   lastEditedDate: string;
+  frequency: string;
+  monthlyOccurrence: string;
 };
+
+type Occurrence = { position: string; weekday: string; timeWindow: string };
+
+const EMPTY_OCCURRENCE: Occurrence = { position: "", weekday: "", timeWindow: "" };
+
+const POSITIONS = ["1st", "2nd", "3rd", "4th", "Last"];
+
+const FREQUENCIES: { id: string; label: string }[] = [
+  { id: "WEEKLY", label: "Weekly" },
+  { id: "BIWEEKLY", label: "Every Other Week" },
+  { id: "MONTHLY_1X", label: "1x per Month" },
+  { id: "MONTHLY_2X", label: "2x per Month" },
+  { id: "AS_NEEDED", label: "As Needed" },
+];
+
+function describeScheduleRecord(record: SubScheduleRecord): string {
+  switch (record.frequency) {
+    case "WEEKLY":
+      return `${record.dayOfWeek} — ${record.timeWindow} (weekly)`;
+    case "BIWEEKLY":
+      return `${record.dayOfWeek} — ${record.timeWindow} (every other week)`;
+    case "MONTHLY_1X":
+      return `${record.monthlyOccurrence.replace(":", " ")} — ${record.timeWindow} (1x per month)`;
+    case "MONTHLY_2X":
+      return `${record.monthlyOccurrence.replace(":", " ")} — ${record.timeWindow} (2x per month)`;
+    case "AS_NEEDED":
+      return "As needed — visits added manually";
+    default:
+      // Pre-migration rows without a Frequency value shouldn't exist after
+      // the SubSchedules backfill, but keep them readable just in case.
+      return `${record.dayOfWeek} — ${record.timeWindow}${record.recurring === "Y" ? " (every week)" : " (one-time)"}`;
+  }
+}
 
 type Props = {
   accounts: ScheduleAccount[];
@@ -107,6 +142,61 @@ function yearEndISO(): string {
   return `${year}-12-31`;
 }
 
+function OccurrencePicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: Occurrence;
+  onChange: (next: Occurrence) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+      <p className="text-sm font-bold text-slate-700">{label}</p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <select
+          value={value.position}
+          onChange={(e) => onChange({ ...value, position: e.target.value })}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600"
+        >
+          <option value="">Which week...</option>
+          {POSITIONS.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          value={value.weekday}
+          onChange={(e) => onChange({ ...value, weekday: e.target.value })}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600"
+        >
+          <option value="">Weekday...</option>
+          {DAYS.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {TIME_WINDOWS.map((w) => (
+          <button
+            key={w.id}
+            type="button"
+            onClick={() => onChange({ ...value, timeWindow: w.id })}
+            className={`rounded-2xl border px-3 py-2 text-left transition ${
+              value.timeWindow === w.id
+                ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
+                : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
+            }`}
+          >
+            <p className="text-sm font-black text-slate-900">{w.label}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AccountScheduleForm({
   account,
   subId,
@@ -118,11 +208,22 @@ function AccountScheduleForm({
   submittedBy: string;
   onSaved: (accountId: string, records: SubScheduleRecord[]) => void;
 }) {
+  const [frequency, setFrequency] = useState("");
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [dayWindows, setDayWindows] = useState<Record<string, string>>({});
-  const [recurringChoice, setRecurringChoice] = useState<"Y" | "N" | "">("");
+  const [occurrence1, setOccurrence1] = useState<Occurrence>(EMPTY_OCCURRENCE);
+  const [occurrence2, setOccurrence2] = useState<Occurrence>(EMPTY_OCCURRENCE);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  function handleFrequencyChange(next: string) {
+    setFrequency(next);
+    setSelectedDays([]);
+    setDayWindows({});
+    setOccurrence1(EMPTY_OCCURRENCE);
+    setOccurrence2(EMPTY_OCCURRENCE);
+    setError("");
+  }
 
   function toggleDay(day: string) {
     setSelectedDays((prev) => {
@@ -136,7 +237,6 @@ function AccountScheduleForm({
       }
       return [...prev, day];
     });
-    setRecurringChoice("");
   }
 
   function setWindowForDay(day: string, windowId: string) {
@@ -145,8 +245,18 @@ function AccountScheduleForm({
 
   const allDaysHaveWindows =
     selectedDays.length > 0 && selectedDays.every((day) => Boolean(dayWindows[day]));
+  const occurrence1Complete = Boolean(occurrence1.position && occurrence1.weekday && occurrence1.timeWindow);
+  const occurrence2Complete = Boolean(occurrence2.position && occurrence2.weekday && occurrence2.timeWindow);
 
-  const canSubmit = allDaysHaveWindows && recurringChoice !== "" && !submitting;
+  function computeCanSubmit(): boolean {
+    if (submitting) return false;
+    if (frequency === "WEEKLY" || frequency === "BIWEEKLY") return allDaysHaveWindows;
+    if (frequency === "MONTHLY_1X") return occurrence1Complete;
+    if (frequency === "MONTHLY_2X") return occurrence1Complete && occurrence2Complete;
+    if (frequency === "AS_NEEDED") return true;
+    return false;
+  }
+  const canSubmit = computeCanSubmit();
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -154,8 +264,24 @@ function AccountScheduleForm({
     setError("");
 
     const accountId = getAccountId(account);
-    const effectiveStart = recurringChoice === "Y" ? todayISO() : "";
-    const effectiveEnd = recurringChoice === "Y" ? yearEndISO() : "";
+    const recurring = frequency === "AS_NEEDED" ? "N" : "Y";
+    const effectiveStart = frequency === "AS_NEEDED" ? "" : todayISO();
+    const effectiveEnd = frequency === "AS_NEEDED" ? "" : yearEndISO();
+
+    type SubmitEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
+    let entries: SubmitEntry[];
+    if (frequency === "WEEKLY" || frequency === "BIWEEKLY") {
+      entries = selectedDays.map((day) => ({ dayOfWeek: day, timeWindow: dayWindows[day] }));
+    } else if (frequency === "MONTHLY_1X") {
+      entries = [{ monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, timeWindow: occurrence1.timeWindow }];
+    } else if (frequency === "MONTHLY_2X") {
+      entries = [
+        { monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, timeWindow: occurrence1.timeWindow },
+        { monthlyOccurrence: `${occurrence2.position}:${occurrence2.weekday}`, timeWindow: occurrence2.timeWindow },
+      ];
+    } else {
+      entries = [];
+    }
 
     try {
       const res = await fetch("/api/subcontractor-schedules", {
@@ -165,10 +291,10 @@ function AccountScheduleForm({
           accountId,
           subId,
           submittedBy,
-          recurring: recurringChoice,
+          frequency,
           effectiveStart,
           effectiveEnd,
-          entries: selectedDays.map((day) => ({ dayOfWeek: day, timeWindow: dayWindows[day] })),
+          entries,
         }),
       });
       const data = (await res.json()) as { success?: boolean; scheduleIds?: string[]; error?: string };
@@ -178,14 +304,10 @@ function AccountScheduleForm({
       }
 
       const now = new Date().toISOString();
-      const records: SubScheduleRecord[] = selectedDays.map((day, i) => ({
-        sheetRow: -1,
-        scheduleId: data.scheduleIds?.[i] ?? "",
+      const baseRecord = {
         accountId,
         subId,
-        dayOfWeek: day,
-        timeWindow: dayWindows[day],
-        recurring: recurringChoice,
+        recurring,
         effectiveStart,
         effectiveEnd,
         status: "Active",
@@ -193,7 +315,28 @@ function AccountScheduleForm({
         submittedDate: now,
         lastEditedBy: "",
         lastEditedDate: "",
-      }));
+        frequency,
+      };
+      const records: SubScheduleRecord[] =
+        frequency === "AS_NEEDED"
+          ? [
+              {
+                ...baseRecord,
+                sheetRow: -1,
+                scheduleId: data.scheduleIds?.[0] ?? "",
+                dayOfWeek: "",
+                timeWindow: "",
+                monthlyOccurrence: "",
+              },
+            ]
+          : entries.map((entry, i) => ({
+              ...baseRecord,
+              sheetRow: -1,
+              scheduleId: data.scheduleIds?.[i] ?? "",
+              dayOfWeek: entry.dayOfWeek ?? "",
+              timeWindow: entry.timeWindow ?? "",
+              monthlyOccurrence: entry.monthlyOccurrence ?? "",
+            }));
       onSaved(accountId, records);
     } catch {
       setError("Network error. Please try again.");
@@ -205,83 +348,88 @@ function AccountScheduleForm({
   return (
     <div className="mt-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
       <div>
-        <p className="text-sm font-bold text-slate-700">
-          Which day(s) do you service this account?
-        </p>
-        <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-7">
-          {DAYS.map((day) => (
-            <button
-              key={day}
-              type="button"
-              onClick={() => toggleDay(day)}
-              className={`rounded-2xl border px-2 py-3 text-center text-xs font-black transition ${
-                selectedDays.includes(day)
-                  ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
-              }`}
-            >
-              {day.slice(0, 3)}
-            </button>
+        <p className="text-sm font-bold text-slate-700">How often do you service this account?</p>
+        <select
+          value={frequency}
+          onChange={(e) => handleFrequencyChange(e.target.value)}
+          className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-600"
+        >
+          <option value="">Select a frequency...</option>
+          {FREQUENCIES.map((f) => (
+            <option key={f.id} value={f.id}>{f.label}</option>
           ))}
-        </div>
+        </select>
       </div>
 
-      {selectedDays.length > 0 && (
-        <div className="mt-4 space-y-3">
-          {selectedDays.map((day) => (
-            <div key={day}>
-              <p className="text-sm font-bold text-slate-700">Time window for {day}</p>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {TIME_WINDOWS.map((w) => (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => setWindowForDay(day, w.id)}
-                    className={`rounded-2xl border px-3 py-2 text-left transition ${
-                      dayWindows[day] === w.id
-                        ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
-                        : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
-                    }`}
-                  >
-                    <p className="text-sm font-black text-slate-900">{w.label}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
-                  </button>
-                ))}
-              </div>
+      {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
+        <>
+          <div className="mt-4">
+            <p className="text-sm font-bold text-slate-700">
+              Which day(s) do you service this account?
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-7">
+              {DAYS.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleDay(day)}
+                  className={`rounded-2xl border px-2 py-3 text-center text-xs font-black transition ${
+                    selectedDays.includes(day)
+                      ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
+                  }`}
+                >
+                  {day.slice(0, 3)}
+                </button>
+              ))}
             </div>
-          ))}
+          </div>
+
+          {selectedDays.length > 0 && (
+            <div className="mt-4 space-y-3">
+              {selectedDays.map((day) => (
+                <div key={day}>
+                  <p className="text-sm font-bold text-slate-700">Time window for {day}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {TIME_WINDOWS.map((w) => (
+                      <button
+                        key={w.id}
+                        type="button"
+                        onClick={() => setWindowForDay(day, w.id)}
+                        className={`rounded-2xl border px-3 py-2 text-left transition ${
+                          dayWindows[day] === w.id
+                            ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
+                            : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
+                        }`}
+                      >
+                        <p className="text-sm font-black text-slate-900">{w.label}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {frequency === "MONTHLY_1X" && (
+        <div className="mt-4">
+          <OccurrencePicker label="Which week and day?" value={occurrence1} onChange={setOccurrence1} />
         </div>
       )}
 
-      {allDaysHaveWindows && (
-        <div className="mt-4">
-          <p className="text-sm font-bold text-slate-700">
-            Do you service this account on these days every week?
-          </p>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setRecurringChoice("Y")}
-              className={`rounded-2xl border px-4 py-3 text-center text-sm font-black transition ${
-                recurringChoice === "Y"
-                  ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
-              }`}
-            >
-              Yes, every week
-            </button>
-            <button
-              type="button"
-              onClick={() => setRecurringChoice("N")}
-              className={`rounded-2xl border px-4 py-3 text-center text-sm font-black transition ${
-                recurringChoice === "N"
-                  ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
-              }`}
-            >
-              No, just this time
-            </button>
-          </div>
+      {frequency === "MONTHLY_2X" && (
+        <div className="mt-4 space-y-3">
+          <OccurrencePicker label="First visit" value={occurrence1} onChange={setOccurrence1} />
+          <OccurrencePicker label="Second visit" value={occurrence2} onChange={setOccurrence2} />
+        </div>
+      )}
+
+      {frequency === "AS_NEEDED" && (
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
+          No recurring days needed — the office will add visits for this account one at a time as they come up.
         </div>
       )}
 
@@ -291,14 +439,16 @@ function AccountScheduleForm({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={!canSubmit}
-        className="mt-4 w-full rounded-2xl bg-indigo-700 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {submitting ? "Saving..." : "Submit Schedule"}
-      </button>
+      {frequency ? (
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          className="mt-4 w-full rounded-2xl bg-indigo-700 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {submitting ? "Saving..." : "Submit Schedule"}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -412,8 +562,7 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                   <div className="mt-2 space-y-1">
                     {existing!.map((record, i) => (
                       <p key={i} className="text-sm text-slate-700">
-                        <span className="font-bold">{record.dayOfWeek}</span> — {record.timeWindow}
-                        {record.recurring === "Y" ? " (every week)" : " (one-time)"}
+                        {describeScheduleRecord(record)}
                       </p>
                     ))}
                   </div>

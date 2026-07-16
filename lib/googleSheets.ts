@@ -691,21 +691,26 @@ export async function getSubcontractorVisits(
 const SUB_SCHEDULES_TAB = "SubSchedules";
 
 const SUB_SCHEDULE_COL = {
-  SCHEDULE_ID:       0, // A
-  ACCOUNT_ID:        1, // B
-  SUB_ID:            2, // C
-  DAY_OF_WEEK:       3, // D
-  TIME_WINDOW:       4, // E
-  RECURRING:         5, // F
-  EFFECTIVE_START:   6, // G
-  EFFECTIVE_END:     7, // H
-  STATUS:            8, // I
-  SUBMITTED_BY:      9, // J
-  SUBMITTED_DATE:    10, // K
-  LAST_EDITED_BY:    11, // L
-  LAST_EDITED_DATE:  12, // M
+  SCHEDULE_ID:         0, // A
+  ACCOUNT_ID:          1, // B
+  SUB_ID:              2, // C
+  DAY_OF_WEEK:         3, // D
+  TIME_WINDOW:         4, // E
+  RECURRING:           5, // F
+  EFFECTIVE_START:     6, // G
+  EFFECTIVE_END:       7, // H
+  STATUS:              8, // I
+  SUBMITTED_BY:        9, // J
+  SUBMITTED_DATE:      10, // K
+  LAST_EDITED_BY:      11, // L
+  LAST_EDITED_DATE:    12, // M
+  FREQUENCY:           13, // N
+  MONTHLY_OCCURRENCE:  14, // O
 } as const;
 
+// Recurring ("Y"/"N") is kept as a legacy field for historical rows and is
+// no longer written by new code — Frequency is the source of truth for
+// recurrence generation (see lib/scheduleRecurrence.ts).
 export type SubSchedule = {
   sheetRow: number;
   scheduleId: string;
@@ -721,6 +726,8 @@ export type SubSchedule = {
   submittedDate: string;
   lastEditedBy: string;
   lastEditedDate: string;
+  frequency: string;
+  monthlyOccurrence: string;
 };
 
 async function fetchSubScheduleRows(): Promise<string[][]> {
@@ -733,7 +740,7 @@ async function fetchSubScheduleRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${SUB_SCHEDULES_TAB}!A:M`,
+      range: `${SUB_SCHEDULES_TAB}!A:O`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -759,6 +766,8 @@ export async function fetchSubSchedules(): Promise<SubSchedule[]> {
     submittedDate:  r[SUB_SCHEDULE_COL.SUBMITTED_DATE]   ?? "",
     lastEditedBy:   r[SUB_SCHEDULE_COL.LAST_EDITED_BY]   ?? "",
     lastEditedDate: r[SUB_SCHEDULE_COL.LAST_EDITED_DATE] ?? "",
+    frequency:         r[SUB_SCHEDULE_COL.FREQUENCY]           ?? "",
+    monthlyOccurrence: r[SUB_SCHEDULE_COL.MONTHLY_OCCURRENCE] ?? "",
   }));
 }
 
@@ -772,6 +781,8 @@ export async function appendSubSchedule(data: {
   effectiveEnd: string;
   status: string;
   submittedBy: string;
+  frequency?: string;
+  monthlyOccurrence?: string;
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const rand = Math.random().toString(36).slice(2, 6);
@@ -791,6 +802,8 @@ export async function appendSubSchedule(data: {
     today,
     "",
     "",
+    data.frequency ?? "",
+    data.monthlyOccurrence ?? "",
   ]);
   return scheduleId;
 }
@@ -808,6 +821,8 @@ export async function updateSubSchedule(
     status: string;
     lastEditedBy: string;
     lastEditedDate: string;
+    frequency: string;
+    monthlyOccurrence: string;
   }>
 ): Promise<void> {
   invalidateCache(`tab-${SUB_SCHEDULES_TAB}`);
@@ -820,6 +835,8 @@ export async function updateSubSchedule(
     status: "I",
     lastEditedBy: "L",
     lastEditedDate: "M",
+    frequency: "N",
+    monthlyOccurrence: "O",
   };
 
   const data = Object.entries(fields)
