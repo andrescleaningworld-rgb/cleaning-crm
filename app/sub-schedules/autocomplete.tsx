@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export type SearchOption = { id: string; label: string };
+export type SearchOption = { id: string; label: string; manager?: string };
 
 export const SEARCH_DEBOUNCE_MS = 200;
 
@@ -18,7 +18,7 @@ export function useDebounce<T>(value: T, delay: number): T {
 type AccountsApiResponse = {
   success?: boolean;
   error?: string;
-  accounts?: Array<{ accountId?: string; id?: string; accountName?: string }>;
+  accounts?: Array<{ accountId?: string; id?: string; accountName?: string; manager?: string }>;
 };
 
 const ACCOUNTS_CACHE_TTL_MS = 60_000;
@@ -45,6 +45,7 @@ async function fetchAllAccountOptions(): Promise<SearchOption[]> {
         .map((account) => ({
           id: account.accountId || account.id || "",
           label: account.accountName || "Unnamed Account",
+          manager: (account.manager || "").trim(),
         }))
         .filter((option) => option.id);
       accountsCache = { options, expiresAt: Date.now() + ACCOUNTS_CACHE_TTL_MS };

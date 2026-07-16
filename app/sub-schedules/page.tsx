@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
+import FullCalendar from "./full-calendar";
 import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
 import {
   AutocompleteField,
@@ -12,7 +13,7 @@ import {
   type SearchOption,
 } from "./autocomplete";
 
-type AdminTab = "schedules" | "exceptions";
+type AdminTab = "schedules" | "exceptions" | "calendar";
 
 type SubcontractorsApiResponse = {
   success?: boolean;
@@ -368,6 +369,7 @@ export default function SubSchedulesPage() {
           {([
             { id: "schedules" as const, label: "Sub Schedules" },
             { id: "exceptions" as const, label: "Schedule Exceptions" },
+            { id: "calendar" as const, label: "Full Calendar" },
           ]).map(({ id, label }) => (
             <button
               key={id}
@@ -388,6 +390,20 @@ export default function SubSchedulesPage() {
           </div>
         ) : null}
 
+        {adminTab === "calendar" ? (
+          <FullCalendar
+            accountOptions={allAccountOptions}
+            resolveAccountName={resolveAccountName}
+            teamLeaderNamesById={teamLeaderNamesById}
+            resolveTeamLeaderName={resolveTeamLeaderName}
+            onJumpToAccount={(accountId, accountLabel) => {
+              customer.select({ id: accountId, label: accountLabel });
+              setSelectedTeamLeader(null);
+              setTeamLeaderQuery("");
+              setAdminTab("schedules");
+            }}
+          />
+        ) : (
         <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex flex-1 flex-col gap-3 sm:flex-row">
@@ -585,6 +601,7 @@ export default function SubSchedulesPage() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {scheduleModal ? (
