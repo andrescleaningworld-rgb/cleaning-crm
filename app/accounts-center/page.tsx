@@ -5,6 +5,7 @@ import AccountsPage from "../accounts/page";
 import VisitsPage from "../visits/page";
 import ComplaintsPage from "../complaints/page";
 import AccountUpdatesPage from "../account-updates/page";
+import RecentActivitySummary from "./recent-activity";
 
 type CenterTab = "all" | "visits" | "complaints" | "updates";
 
@@ -61,7 +62,12 @@ export default function AccountsCenterPage() {
         </div>
       </div>
 
-      {activeTab === "all" && <AccountsPage />}
+      {activeTab === "all" && (
+        <>
+          <RecentActivitySummary />
+          <AccountsPage />
+        </>
+      )}
       {activeTab === "visits" && <VisitsPage />}
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "updates" && <AccountUpdatesPage />}
