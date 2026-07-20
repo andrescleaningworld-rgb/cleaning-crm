@@ -6,8 +6,9 @@ import VisitsPage from "../visits/page";
 import ComplaintsPage from "../complaints/page";
 import AccountUpdatesPage from "../account-updates/page";
 import RecentActivitySummary from "./recent-activity";
+import AccountsCenterKeys from "./keys";
 
-type CenterTab = "all" | "visits" | "complaints" | "updates";
+type CenterTab = "all" | "visits" | "complaints" | "updates" | "keys";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
@@ -16,12 +17,17 @@ const TABS: { id: CenterTab; label: string }[] = [
   { id: "visits", label: "Visits" },
   { id: "complaints", label: "Complaints" },
   { id: "updates", label: "Updates" },
+  { id: "keys", label: "Keys" },
 ];
 
 function getStoredTab(): CenterTab {
   if (typeof window === "undefined") return "all";
   const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
-  return stored === "all" || stored === "visits" || stored === "complaints" || stored === "updates"
+  return stored === "all" ||
+    stored === "visits" ||
+    stored === "complaints" ||
+    stored === "updates" ||
+    stored === "keys"
     ? stored
     : "all";
 }
@@ -71,6 +77,7 @@ export default function AccountsCenterPage() {
       {activeTab === "visits" && <VisitsPage />}
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "updates" && <AccountUpdatesPage />}
+      {activeTab === "keys" && <AccountsCenterKeys />}
     </div>
   );
 }
