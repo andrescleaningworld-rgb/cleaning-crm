@@ -16,10 +16,7 @@ type NotificationsResponse = {
 
 const adminNavItems = [
   { href: "/", label: "Dashboard" },
-  { href: "/accounts", label: "Accounts" },
-  { href: "/visits", label: "Visits" },
-  { href: "/complaints", label: "Complaints" },
-  { href: "/account-updates", label: "Updates" },
+  { href: "/accounts-center", label: "Accounts center" },
   { href: "/subcontractors", label: "Subs" },
   { href: "/sub-schedules", label: "Sub Schedules" },
   { href: "/activity-log", label: "Activity Log" },
@@ -60,6 +57,9 @@ export default function CWHeader({ portalCount = 0 }: { portalCount?: number }) 
   const [newNotificationCount, setNewNotificationCount] = useState(0);
 
   useEffect(() => {
+    // Deferred read: localStorage isn't available during SSR, so reading it
+    // eagerly (lazy initializer) would mismatch the server-rendered nav.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
     setRole(getStoredRole());
 
