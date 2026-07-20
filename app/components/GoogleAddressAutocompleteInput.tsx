@@ -29,6 +29,35 @@ export type PlaceAddressDetails = {
 // so late-mounting instances of this component still get notified.
 let googleMapsScriptReady = false;
 
+const IMPORT_LIBRARY_POLL_MS = 100;
+const IMPORT_LIBRARY_MAX_ATTEMPTS = 50; // ~5s total
+
+// next/script's onReady (the <script> tag's native `load` event) fires once
+// the bootstrap loader itself has downloaded — but with loading=async that
+// loader still attaches google.maps.importLibrary asynchronously after that,
+// so onReady alone isn't proof it's ready yet (confirmed live: the very same
+// window.google.maps.importLibrary check that failed here existed and
+// worked moments later). Poll instead of trusting the single event.
+function waitForImportLibrary(): Promise<typeof google.maps.importLibrary | null> {
+  return new Promise((resolve) => {
+    let attempts = 0;
+    const check = () => {
+      const importLibrary = window.google?.maps?.importLibrary;
+      if (importLibrary) {
+        resolve(importLibrary);
+        return;
+      }
+      attempts += 1;
+      if (attempts >= IMPORT_LIBRARY_MAX_ATTEMPTS) {
+        resolve(null);
+        return;
+      }
+      setTimeout(check, IMPORT_LIBRARY_POLL_MS);
+    };
+    check();
+  });
+}
+
 function getAddressComponent(
   components: google.maps.GeocoderAddressComponent[] | undefined,
   types: string[],
@@ -79,83 +108,84 @@ export default function GoogleAddressAutocompleteInput({
   useEffect(() => {
     if (!scriptReady || !inputRef.current || autocompleteRef.current) return;
 
-    // With loading=async, the base <script> firing onload only guarantees
-    // window.google.maps exists — google.maps.places loads as a separate
-    // async chunk that may not be populated yet at that moment. A
-    // synchronous window.google?.maps?.places?.Autocomplete check here
-    // races that chunk. importLibrary() actually awaits it.
-    const importLibrary = window.google?.maps?.importLibrary;
-    if (!importLibrary) {
-      console.error(
-        "google.maps.importLibrary unavailable — falling back to a plain address input."
-      );
-      return;
-    }
-
     let cancelled = false;
     let listener: google.maps.MapsEventListener | undefined;
 
-    importLibrary("places")
-      .then((library) => {
-        // Effect may have been cleaned up (unmount/remount) while the
-        // import was in flight, or another mount already won the race.
-        if (cancelled || !inputRef.current || autocompleteRef.current) return;
+    waitForImportLibrary().then((importLibrary) => {
+      // Effect may have been cleaned up (unmount/remount) while polling.
+      if (cancelled) return;
 
-        const { Autocomplete } = library as google.maps.PlacesLibrary;
+      if (!importLibrary) {
+        console.error(
+          `google.maps.importLibrary still unavailable after polling for ~${
+            (IMPORT_LIBRARY_MAX_ATTEMPTS * IMPORT_LIBRARY_POLL_MS) / 1000
+          }s — falling back to a plain address input.`
+        );
+        return;
+      }
 
-        let autocomplete: google.maps.places.Autocomplete;
-        try {
-          autocomplete = new Autocomplete(inputRef.current, {
-            componentRestrictions: { country: "us" },
-            fields: ["address_components", "formatted_address", "geometry"],
-            bounds: SERVICE_AREA_BOUNDS,
-          });
-        } catch (error) {
-          console.error("Failed to initialize Google Places Autocomplete:", error);
-          return;
-        }
+      importLibrary("places")
+        .then((library) => {
+          // Effect may have been cleaned up (unmount/remount) while the
+          // import was in flight, or another mount already won the race.
+          if (cancelled || !inputRef.current || autocompleteRef.current) return;
 
-        autocompleteRef.current = autocomplete;
+          const { Autocomplete } = library as google.maps.PlacesLibrary;
 
-        listener = autocomplete.addListener("place_changed", () => {
+          let autocomplete: google.maps.places.Autocomplete;
           try {
-            const place = autocomplete.getPlace();
-            const components = place.address_components;
-
-            const address =
-              place.formatted_address || inputRef.current?.value || "";
-            const city = getAddressComponent(components, [
-              "locality",
-              "sublocality",
-              "postal_town",
-              "administrative_area_level_3",
-            ]);
-            const state = getAddressComponent(
-              components,
-              ["administrative_area_level_1"],
-              true
-            );
-            const zip = getAddressComponent(components, ["postal_code"]);
-            const latitude = place.geometry?.location?.lat();
-            const longitude = place.geometry?.location?.lng();
-
-            onChangeRef.current(address);
-            onPlaceSelectedRef.current({
-              address,
-              city,
-              state,
-              zip,
-              latitude: latitude !== undefined ? String(latitude) : "",
-              longitude: longitude !== undefined ? String(longitude) : "",
+            autocomplete = new Autocomplete(inputRef.current, {
+              componentRestrictions: { country: "us" },
+              fields: ["address_components", "formatted_address", "geometry"],
+              bounds: SERVICE_AREA_BOUNDS,
             });
           } catch (error) {
-            console.error("Error handling Google Places selection:", error);
+            console.error("Failed to initialize Google Places Autocomplete:", error);
+            return;
           }
+
+          autocompleteRef.current = autocomplete;
+
+          listener = autocomplete.addListener("place_changed", () => {
+            try {
+              const place = autocomplete.getPlace();
+              const components = place.address_components;
+
+              const address =
+                place.formatted_address || inputRef.current?.value || "";
+              const city = getAddressComponent(components, [
+                "locality",
+                "sublocality",
+                "postal_town",
+                "administrative_area_level_3",
+              ]);
+              const state = getAddressComponent(
+                components,
+                ["administrative_area_level_1"],
+                true
+              );
+              const zip = getAddressComponent(components, ["postal_code"]);
+              const latitude = place.geometry?.location?.lat();
+              const longitude = place.geometry?.location?.lng();
+
+              onChangeRef.current(address);
+              onPlaceSelectedRef.current({
+                address,
+                city,
+                state,
+                zip,
+                latitude: latitude !== undefined ? String(latitude) : "",
+                longitude: longitude !== undefined ? String(longitude) : "",
+              });
+            } catch (error) {
+              console.error("Error handling Google Places selection:", error);
+            }
+          });
+        })
+        .catch((error) => {
+          console.error("Failed to load Google Places library:", error);
         });
-      })
-      .catch((error) => {
-        console.error("Failed to load Google Places library:", error);
-      });
+    });
 
     return () => {
       cancelled = true;
