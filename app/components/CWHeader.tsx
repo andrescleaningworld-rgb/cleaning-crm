@@ -17,8 +17,7 @@ type NotificationsResponse = {
 const adminNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts-center", label: "Accounts center" },
-  { href: "/subcontractors", label: "Subs" },
-  { href: "/sub-schedules", label: "Sub Schedules" },
+  { href: "/sub-center", label: "Sub Center" },
   { href: "/activity-log", label: "Activity Log" },
   { href: "/sales", label: "Sales" },
   { href: "/reports", label: "Reports" },
