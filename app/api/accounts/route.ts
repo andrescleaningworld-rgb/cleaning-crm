@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOrFetch } from "@/lib/serverCache";
+import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
@@ -249,6 +249,13 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    // A successful add/update means every cached GET action key is now
+    // stale — without this, the accounts list/detail/edit pages keep
+    // serving the pre-write data for up to the getOrFetch TTL (60s).
+    for (const cachedAction of ALLOWED_GET_ACTIONS) {
+      invalidateCached(`accounts:${cachedAction}`);
     }
 
     return NextResponse.json({
