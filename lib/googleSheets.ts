@@ -1202,3 +1202,73 @@ export async function updateManager(
     requestBody: { valueInputOption: "USER_ENTERED", data },
   });
 }
+
+// ─── Geocode cache ───────────────────────────────────────────────────────────
+// Shared by the Map page (Leaflet -> Google Maps migration) and the Coverage
+// page's "nearby subcontractor" matching — both turn addresses/towns into
+// lat/lng via the Google Geocoding API and should share one cache instead of
+// each re-geocoding (and re-billing) the same strings. Lives in the same
+// spreadsheet as Managers/SubSchedules/ScheduleExceptions (GOOGLE_MAIN_SHEET_ID).
+
+const GEOCODE_CACHE_TAB = "GeocodeCache";
+
+const GEOCODE_CACHE_COL = {
+  ADDRESS: 0,     // A — exact string that was geocoded
+  LATITUDE: 1,    // B
+  LONGITUDE: 2,   // C
+  GEOCODED_AT: 3, // D — ISO timestamp
+} as const;
+
+export type GeocodeCacheEntry = {
+  latitude: number;
+  longitude: number;
+};
+
+async function fetchGeocodeCacheRows(): Promise<string[][]> {
+  const cacheKey = `tab-${GEOCODE_CACHE_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${GEOCODE_CACHE_TAB}!A:D`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+// Exact-match lookup — the cache key is the literal address string that was
+// geocoded (trimmed only, no normalization), matching how it will be written.
+export async function getGeocodeCacheEntry(address: string): Promise<GeocodeCacheEntry | null> {
+  const normalized = address.trim();
+  if (!normalized) return null;
+
+  const rows = await fetchGeocodeCacheRows();
+  const row = rows.find((r) => (r[GEOCODE_CACHE_COL.ADDRESS] ?? "").trim() === normalized);
+  if (!row) return null;
+
+  const latitude = Number(row[GEOCODE_CACHE_COL.LATITUDE]);
+  const longitude = Number(row[GEOCODE_CACHE_COL.LONGITUDE]);
+  if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
+
+  return { latitude, longitude };
+}
+
+export async function appendGeocodeCacheEntry(
+  address: string,
+  latitude: number,
+  longitude: number
+): Promise<void> {
+  await appendToMainSheet(GEOCODE_CACHE_TAB, [
+    address.trim(),
+    String(latitude),
+    String(longitude),
+    new Date().toISOString(),
+  ]);
+}
