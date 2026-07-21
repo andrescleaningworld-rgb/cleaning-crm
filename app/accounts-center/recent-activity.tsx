@@ -1,23 +1,30 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type RecentItem = {
   name: string;
   date: string;
+  accountId: string;
 };
 
 type RawAccount = {
+  accountId?: string;
+  id?: string;
+  rowNumber?: string | number;
   accountName?: string;
   accountStartDate?: string;
 };
 
 type RawVisit = {
+  accountId?: string;
   accountName?: string;
   date?: string;
 };
 
 type RawComplaint = {
+  accountId?: string;
   accountName?: string;
   date?: string;
 };
@@ -65,7 +72,11 @@ async function fetchRecentAccounts(): Promise<RecentItem[]> {
   if (!response.ok || data.success === false) return [];
   const accounts = data.accounts ?? data.data ?? [];
   return mostRecentFive(
-    accounts.map((a) => ({ name: clean(a.accountName) || "Unnamed Account", date: clean(a.accountStartDate) }))
+    accounts.map((a) => ({
+      name: clean(a.accountName) || "Unnamed Account",
+      date: clean(a.accountStartDate),
+      accountId: clean(a.accountId) || clean(a.id) || clean(a.rowNumber) || clean(a.accountName),
+    }))
   );
 }
 
@@ -74,7 +85,13 @@ async function fetchRecentVisits(): Promise<RecentItem[]> {
   const data = await readJson<{ success?: boolean; visits?: RawVisit[]; data?: RawVisit[] }>(response);
   if (!response.ok || data.success === false) return [];
   const visits = data.visits ?? data.data ?? [];
-  return mostRecentFive(visits.map((v) => ({ name: clean(v.accountName) || "Unnamed Account", date: clean(v.date) })));
+  return mostRecentFive(
+    visits.map((v) => ({
+      name: clean(v.accountName) || "Unnamed Account",
+      date: clean(v.date),
+      accountId: clean(v.accountId),
+    }))
+  );
 }
 
 async function fetchRecentComplaints(): Promise<RecentItem[]> {
@@ -83,7 +100,11 @@ async function fetchRecentComplaints(): Promise<RecentItem[]> {
   if (!response.ok || data.success === false) return [];
   const complaints = data.complaints ?? data.data ?? [];
   return mostRecentFive(
-    complaints.map((c) => ({ name: clean(c.accountName) || "Unnamed Account", date: clean(c.date) }))
+    complaints.map((c) => ({
+      name: clean(c.accountName) || "Unnamed Account",
+      date: clean(c.date),
+      accountId: clean(c.accountId),
+    }))
   );
 }
 
@@ -107,12 +128,26 @@ function RecentList({
         <p className="mt-3 text-sm text-gray-500">{emptyLabel}</p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {items.map((item, index) => (
-            <li key={`${index}-${item.name}`} className="flex items-center justify-between gap-3 text-sm">
-              <span className="truncate font-semibold text-gray-900">{item.name}</span>
-              <span className="shrink-0 text-xs text-gray-500">{formatDate(item.date)}</span>
-            </li>
-          ))}
+          {items.map((item, index) =>
+            item.accountId ? (
+              <li key={`${index}-${item.name}`}>
+                <Link
+                  href={`/accounts/${encodeURIComponent(item.accountId)}`}
+                  className="group flex items-center justify-between gap-3 rounded-lg text-sm no-underline transition hover:bg-blue-50"
+                >
+                  <span className="truncate font-semibold text-gray-900 group-hover:text-blue-700">
+                    {item.name}
+                  </span>
+                  <span className="shrink-0 text-xs text-gray-500">{formatDate(item.date)}</span>
+                </Link>
+              </li>
+            ) : (
+              <li key={`${index}-${item.name}`} className="flex items-center justify-between gap-3 text-sm">
+                <span className="truncate font-semibold text-gray-900">{item.name}</span>
+                <span className="shrink-0 text-xs text-gray-500">{formatDate(item.date)}</span>
+              </li>
+            )
+          )}
         </ul>
       )}
     </div>
