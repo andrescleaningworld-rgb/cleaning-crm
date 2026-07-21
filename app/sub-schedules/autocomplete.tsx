@@ -79,7 +79,7 @@ export function useAllAccountOptions(): { options: SearchOption[]; loading: bool
 }
 
 // Customer-name search, gated at 2+ characters — filters the shared,
-// cached account list client-side (same approach as the Team Leader field)
+// cached account list client-side (same approach as the Subcontractor field)
 // instead of each instance independently querying /api/accounts?q=.
 export function useCustomerSearch() {
   const { options: allAccounts, loading } = useAllAccountOptions();

@@ -37,7 +37,7 @@ type SubcontractorsApiResponse = {
   }>;
 };
 
-// Company name and contact/personal name, tracked separately so Team Leader
+// Company name and contact/personal name, tracked separately so Subcontractor
 // search can match either one (staff often know a sub by first name rather
 // than company name), with id resolved the same way as before (SubID in the
 // SubSchedules sheet is the subcontractor's email).
@@ -85,7 +85,7 @@ export default function SubSchedulesPage() {
   // Customer autocomplete (resolves to AccountID)
   const customer = useCustomerSearch();
 
-  // Team Leader autocomplete (resolves to SubID) — full subcontractor list is
+  // Subcontractor autocomplete (resolves to SubID) — full subcontractor list is
   // small, so it's loaded once and filtered client-side, same as the
   // subcontractor dropdown already used on the Accounts page.
   const [allTeamLeaders, setAllTeamLeaders] = useState<TeamLeaderRecord[]>([]);
@@ -192,7 +192,7 @@ export default function SubSchedulesPage() {
     return teamLeaderNamesById[normalizeForMatch(subId)] || subId;
   }
 
-  // Team Leader search — client-side filter of the already-loaded list,
+  // Subcontractor search — client-side filter of the already-loaded list,
   // matching either the company name or the contact/personal name (staff
   // often know a sub by first name rather than company name). When a record
   // has both, the dropdown shows "Contact — Company" so staff can visually
@@ -248,9 +248,9 @@ export default function SubSchedulesPage() {
     }
   }
 
-  // Search-first: nothing loads until a customer or Team Leader is selected.
+  // Search-first: nothing loads until a customer or Subcontractor is selected.
   // Schedules are always fetched once a search is active (even on the
-  // Exceptions tab) because a Team-Leader search on exceptions needs to
+  // Exceptions tab) because a Subcontractor search on exceptions needs to
   // cross-reference which AccountIDs that sub is scheduled for — the
   // ScheduleExceptions tab has no SubID column of its own.
   useEffect(() => {
@@ -421,8 +421,8 @@ export default function SubSchedulesPage() {
 
               <div>
                 <AutocompleteField
-                  label="Team Leader"
-                  placeholder="Search team leader name..."
+                  label="Subcontractor"
+                  placeholder="Search subcontractor name..."
                   query={teamLeaderQuery}
                   onQueryChange={(value) => {
                     setTeamLeaderQuery(value);
@@ -442,7 +442,7 @@ export default function SubSchedulesPage() {
                 />
                 {teamLeaderLoadFailed && (
                   <p className="mt-1 text-xs font-semibold text-red-600">
-                    Couldn&apos;t load Team Leaders — the backend may be slow right now.{" "}
+                    Couldn&apos;t load Subcontractors — the backend may be slow right now.{" "}
                     <button
                       type="button"
                       onClick={() => setTeamLeaderReloadToken((n) => n + 1)}
@@ -469,7 +469,7 @@ export default function SubSchedulesPage() {
           <div className="mt-5 overflow-x-auto">
             {!hasSearch ? (
               <p className="text-sm text-slate-600">
-                Search by customer name or Team Leader name above to see results.
+                Search by customer name or Subcontractor name above to see results.
               </p>
             ) : loading ? (
               <p className="text-sm text-slate-600">Loading...</p>
@@ -481,7 +481,7 @@ export default function SubSchedulesPage() {
                   <thead>
                     <tr className="border-b bg-slate-50 text-slate-700">
                       <th className="px-4 py-3 font-semibold">Customer</th>
-                      <th className="px-4 py-3 font-semibold">Team Leader</th>
+                      <th className="px-4 py-3 font-semibold">Subcontractor</th>
                       <th className="px-4 py-3 font-semibold">Day / Occurrence</th>
                       <th className="px-4 py-3 font-semibold">Window</th>
                       <th className="px-4 py-3 font-semibold">Frequency</th>
