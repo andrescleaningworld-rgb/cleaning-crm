@@ -28,6 +28,7 @@ type Account = {
   hasKey?: string;
   alarmCode?: string;
   alarmInfo?: string;
+  accountStartDate?: string;
   startDate?: string;
   serviceStartDate?: string;
   cleaningSchedule?: string;
@@ -451,7 +452,10 @@ export default function AccountDetailPage() {
   const accountComplaintLink = `/complaints/new?accountId=${accountIdForUrl}&accountName=${accountNameForUrl}&account=${accountNameForUrl}`;
 
   const startDate =
-    account?.startDate || account?.serviceStartDate || "Not provided";
+    account?.accountStartDate ||
+    account?.startDate ||
+    account?.serviceStartDate ||
+    "Not provided";
 
   const cleaningDays =
     account?.cleaningDays ||

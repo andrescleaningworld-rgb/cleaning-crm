@@ -21,6 +21,7 @@ type Account = {
   manager?: string;
   subcontractor?: string;
   status?: string;
+  accountStartDate?: string;
   startDate?: string;
   serviceStartDate?: string;
   cancelledDate?: string;
@@ -382,7 +383,7 @@ export default function EditAccountPage() {
     }
 
     const cleanStartDate = cleanText(
-      formData.startDate || formData.serviceStartDate
+      formData.accountStartDate || formData.startDate || formData.serviceStartDate
     );
 
     try {
@@ -402,6 +403,7 @@ export default function EditAccountPage() {
             id: formData.id || formData.accountId,
             accountId: formData.accountId || formData.id,
             rowNumber: formData.rowNumber,
+            accountStartDate: cleanStartDate,
             startDate: cleanStartDate,
             serviceStartDate: cleanStartDate,
             subcontractor: resolveSubcontractorForSubmit(
@@ -602,7 +604,12 @@ export default function EditAccountPage() {
                 </label>
                 <input
                   type="text"
-                  value={formData.startDate || formData.serviceStartDate || ""}
+                  value={
+                    formData.accountStartDate ||
+                    formData.startDate ||
+                    formData.serviceStartDate ||
+                    ""
+                  }
                   onChange={(event) =>
                     updateField("startDate", event.target.value)
                   }
