@@ -235,13 +235,21 @@ export default function AccountUpdateDetailPage() {
             <p className="mt-1 text-gray-600">{update.accountName}</p>
           </div>
 
-          <div className="flex flex-col gap-3 md:flex-row">
+          <div className="no-print flex flex-col gap-3 md:flex-row">
             <Link
               href="/account-updates"
               className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
             >
               Back to Updates
             </Link>
+
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+            >
+              Print
+            </button>
 
             <Link
               href={accountLink}

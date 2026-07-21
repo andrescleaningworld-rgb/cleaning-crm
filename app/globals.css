@@ -299,8 +299,16 @@ img {
 
 /* Print cleanup */
 @media print {
+  .no-print {
+    display: none !important;
+  }
+
   .cw-header {
     display: none;
+  }
+
+  body {
+    background: #fff;
   }
 
   .cw-app-shell {

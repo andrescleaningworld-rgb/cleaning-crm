@@ -111,7 +111,7 @@ export default function CWHeader({ portalCount = 0 }: { portalCount?: number }) 
   const showNav = !isLoginPage && navItems.length > 0;
 
   return (
-    <header className="w-full bg-slate-50 px-4 py-8 sm:py-6">
+    <header className="no-print w-full bg-slate-50 px-4 py-8 sm:py-6">
       <div className="mx-auto max-w-7xl">
         <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-blue-900 via-blue-700 to-sky-500 px-6 py-6 sm:py-4 shadow-xl">
           {!isLoginPage && (
