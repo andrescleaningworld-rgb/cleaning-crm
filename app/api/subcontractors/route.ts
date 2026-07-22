@@ -352,12 +352,17 @@ export async function GET() {
     // Cached 60s per action — this route's own upstream calls, plus the
     // "getAccounts" action /api/accounts also makes, were part of the load
     // that overwhelmed the shared Apps Script backend during the incident.
-    const subcontractorData = await getOrFetch("subcontractors:getSubcontractors", () =>
-      fetchGoogleScriptData("getSubcontractors")
-    );
-    const accountData = await getOrFetch("subcontractors:getAccounts", () =>
-      fetchGoogleScriptData("getAccounts")
-    );
+    // Run in parallel: sequential awaits let two independent ~18s-worst-case
+    // calls add up past this route's 45s maxDuration, which is exactly what
+    // was timing out /sub-schedules and /subcontractors in production.
+    const [subcontractorData, accountData] = await Promise.all([
+      getOrFetch("subcontractors:getSubcontractors", () =>
+        fetchGoogleScriptData("getSubcontractors")
+      ),
+      getOrFetch("subcontractors:getAccounts", () =>
+        fetchGoogleScriptData("getAccounts")
+      ),
+    ]);
 
     const subcontractors = getLoadedSubcontractors(subcontractorData);
     const accounts = getLoadedAccounts(accountData);
