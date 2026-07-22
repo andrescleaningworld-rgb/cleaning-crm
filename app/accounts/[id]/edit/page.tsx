@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
@@ -197,6 +197,10 @@ export default function EditAccountPage() {
   const normalizedUrlValue = normalizeValue(decodedAccountIdFromUrl);
 
   const [formData, setFormData] = useState<Account | null>(null);
+  // Snapshot of the account as loaded, kept separate from formData so a
+  // submit can tell which fields the user actually changed in this form
+  // vs. which were merely carried along from a possibly-stale page load.
+  const originalDataRef = useRef<Account | null>(null);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
@@ -251,6 +255,7 @@ export default function EditAccountPage() {
         }
 
         setFormData(foundAccount);
+        originalDataRef.current = foundAccount;
       } catch (err) {
         setError(
           err instanceof Error
@@ -391,28 +396,43 @@ export default function EditAccountPage() {
       setSaveError("");
       setSavedMessage("Saving changes...");
 
+      const original = originalDataRef.current;
+
+      // Only send fields this form actually changed, merged server-side onto
+      // a fresh account read — not everything this page happened to load
+      // when it was first opened. Otherwise a tab left open for a while
+      // silently reverts someone else's more recent edit to a field this
+      // form never touched (a "lost update" — the edits looked saved but a
+      // later stale submit quietly wiped them).
+      const fields: Partial<Account> = {};
+      (Object.keys(formData) as (keyof Account)[]).forEach((key) => {
+        if (key === "id" || key === "accountId" || key === "rowNumber") return;
+        if (formData[key] !== original?.[key]) {
+          fields[key] = formData[key];
+        }
+      });
+
+      // These are always derived/normalized from the form's own inputs, so
+      // always resend them rather than relying on the plain diff above.
+      fields.accountStartDate = cleanStartDate;
+      fields.startDate = cleanStartDate;
+      fields.serviceStartDate = cleanStartDate;
+      fields.subcontractor = resolveSubcontractorForSubmit(
+        formData.subcontractor,
+        subcontractors
+      );
+      fields.grossMargin = String(grossMargin);
+      fields.grossMarginPercent = grossMarginPercent.toFixed(1);
+
       const response = await fetch("/api/accounts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "updateAccount",
-          account: {
-            ...formData,
-            id: formData.id || formData.accountId,
-            accountId: formData.accountId || formData.id,
-            rowNumber: formData.rowNumber,
-            accountStartDate: cleanStartDate,
-            startDate: cleanStartDate,
-            serviceStartDate: cleanStartDate,
-            subcontractor: resolveSubcontractorForSubmit(
-              formData.subcontractor,
-              subcontractors
-            ),
-            grossMargin: String(grossMargin),
-            grossMarginPercent: grossMarginPercent.toFixed(1),
-          },
+          action: "updateAccountFields",
+          accountId: formData.id || formData.accountId,
+          fields,
         }),
       });
 
@@ -425,6 +445,7 @@ export default function EditAccountPage() {
         throw new Error(data.error || "Could not update account.");
       }
 
+      originalDataRef.current = { ...original, ...fields };
       setSavedMessage("Account updated successfully.");
       setSaveError("");
     } catch (err) {

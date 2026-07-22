@@ -166,14 +166,9 @@ export default function AccountsCenterKeys() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "updateAccount",
-          account: {
-            ...account,
-            id: account.id || account.accountId,
-            accountId: account.accountId || account.id,
-            rowNumber: account.rowNumber,
-            ...fields,
-          },
+          action: "updateAccountFields",
+          accountId,
+          fields,
         }),
       });
       const data = await readJson<{ success?: boolean; error?: string }>(response);

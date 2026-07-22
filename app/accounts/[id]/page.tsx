@@ -700,21 +700,15 @@ export default function AccountDetailPage() {
       setStatusError("");
       setStatusMessage("");
 
-      const updatedAccount: Account = {
-        ...account,
-        id: account.id || accountId,
-        accountId: account.accountId || accountId,
-        status: newStatus,
-      };
-
       const accountResponse = await fetch("/api/accounts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "updateAccount",
-          account: updatedAccount,
+          action: "updateAccountFields",
+          accountId,
+          fields: { status: newStatus },
         }),
       });
 

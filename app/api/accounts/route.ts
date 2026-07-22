@@ -145,7 +145,58 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const action = String(body.action || "").trim();
+    let action = String(body.action || "").trim();
+
+    // Partial field update: merge the caller's changed fields onto a fresh
+    // account record fetched right now, instead of trusting whatever full
+    // record the caller's page loaded (possibly minutes or hours ago).
+    // Without this, a stale tab submitting a full-record overwrite silently
+    // reverts any other field someone else changed more recently — the
+    // "lost update" bug where edits appear to save but don't persist.
+    if (action === "updateAccountFields") {
+      const accountId = String(body.accountId ?? "").trim();
+      const fields =
+        body.fields && typeof body.fields === "object" ? body.fields : {};
+
+      if (!accountId) {
+        return NextResponse.json(
+          { success: false, error: "accountId is required." },
+          { status: 400 }
+        );
+      }
+
+      let freshAccounts: Record<string, unknown>[];
+      try {
+        freshAccounts = (await getOrFetch("accounts:getAllAccounts", () =>
+          fetchAccountsForAction("getAllAccounts")
+        )) as Record<string, unknown>[];
+      } catch (err) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              err instanceof Error
+                ? err.message
+                : "Failed to load current account data.",
+          },
+          { status: 500 }
+        );
+      }
+
+      const freshAccount = freshAccounts.find(
+        (a) => a.id === accountId || a.accountId === accountId
+      );
+
+      if (!freshAccount) {
+        return NextResponse.json(
+          { success: false, error: "Account not found." },
+          { status: 404 }
+        );
+      }
+
+      body.account = { ...freshAccount, ...fields };
+      action = "updateAccount";
+    }
 
     // === NEW: Handle Send New Account Packet ===
     if (action === "sendNewAccountPacket") {

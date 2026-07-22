@@ -1878,17 +1878,14 @@ async function handleSaveTransferProposal() {
       setSavingStatus(true);
       setStatusError("");
 
-      const updatedAccount: Account = {
-        ...statusModalAccount,
-        id: statusModalAccount.id ?? accountId,
-        accountId: statusModalAccount.accountId ?? accountId,
-        status: newStatus,
-      };
-
       const accountResponse = await fetch("/api/accounts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "updateAccount", account: updatedAccount }),
+        body: JSON.stringify({
+          action: "updateAccountFields",
+          accountId,
+          fields: { status: newStatus },
+        }),
       });
 
       const accountData = await readJson<ApiResponse>(accountResponse);
