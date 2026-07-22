@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
+import "leaflet/dist/leaflet.css";
 import type { DivIcon } from "leaflet";
 
 const MapContainer = dynamic(
@@ -30,7 +31,7 @@ const INITIAL_PIN_LIMIT = 25;
 const PIN_BATCH_SIZE = 50;
 const SELECT_OPTION_LIMIT = 250;
 const NEARBY_MILES = 100; // Load all pins within this radius when user location is available
-const GEOCACHE_KEY = "cw-geocache-v1"; // localStorage key for persisted geocode results
+const GEOCODE_BATCH_SIZE = 25; // addresses per /api/geocode/batch call
 
 // Roughly NJ / NYC / nearby service area. Accounts with coordinates outside this
 // box are almost always bad geocodes (ambiguous address, wrong country, etc.)
@@ -367,7 +368,7 @@ export default function MapPage() {
   const [selectedPinIcon, setSelectedPinIcon] = useState<DivIcon | null>(null);
   const [myLocationIcon, setMyLocationIcon] = useState<DivIcon | null>(null);
 
-  // geocodedCoords keyed by fullAddress — filled from localStorage cache + live Nominatim calls
+  // geocodedCoords keyed by fullAddress — filled from the shared server-side geocode cache
   const [geocodedCoords, setGeocodedCoords] = useState<
     Record<string, { lat: number; lng: number } | null>
   >({});
@@ -440,23 +441,6 @@ export default function MapPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
-
-    const existingLink = document.getElementById("leaflet-css");
-
-    if (existingLink) return;
-
-    const link = document.createElement("link");
-    link.id = "leaflet-css";
-    link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-    link.integrity = "sha256-p4NxAoJBhIINfQdX1tYtk0qfd9stS4d/6fduG3wyy0=";
-    link.crossOrigin = "";
-
-    document.head.appendChild(link);
-  }, []);
-
-  useEffect(() => {
     async function loadAccounts() {
       try {
         setIsLoading(true);
@@ -507,96 +491,72 @@ export default function MapPage() {
     loadAccounts();
   }, []);
 
-  // Geocode accounts that have an address but no lat/lng.
-  // Results are cached in localStorage so subsequent page loads are instant.
+  // Geocode accounts that have an address but no lat/lng, via the shared
+  // server-side geocode cache (/api/geocode/batch) backed by the GeocodeCache
+  // sheet — results are shared across all users/sessions, not just this browser.
   useEffect(() => {
     if (accounts.length === 0) return;
 
-    let cache: Record<string, { lat: number; lng: number } | null> = {};
-    try {
-      const raw = localStorage.getItem(GEOCACHE_KEY);
-      if (raw) cache = JSON.parse(raw) as typeof cache;
-    } catch {
-      cache = {};
-    }
-
-    const noCoords = accounts.filter(
-      (a) => a.latitude === null && a.longitude === null && a.fullAddress
+    const toFetch = Array.from(
+      new Set(
+        accounts
+          .filter((a) => a.latitude === null && a.longitude === null && a.fullAddress)
+          .map((a) => a.fullAddress)
+      )
     );
-
-    // Apply cached results immediately so pins appear without waiting
-    const cachedUpdates: Record<string, { lat: number; lng: number } | null> = {};
-    const toFetch: AccountLocation[] = [];
-
-    for (const acc of noCoords) {
-      if (acc.fullAddress in cache) {
-        cachedUpdates[acc.fullAddress] = cache[acc.fullAddress];
-      } else {
-        toFetch.push(acc);
-      }
-    }
-
-    if (Object.keys(cachedUpdates).length > 0) {
-      setGeocodedCoords((prev) => ({ ...prev, ...cachedUpdates }));
-    }
 
     if (toFetch.length === 0) return;
 
-    setGeocodingProgress({ total: toFetch.length, done: 0 });
-
     let cancelled = false;
-    let i = 0;
 
-    async function processNext() {
-      if (cancelled || i >= toFetch.length) {
-        if (!cancelled) setGeocodingProgress(null);
-        return;
-      }
+    async function runBatches() {
+      setGeocodingProgress({ total: toFetch.length, done: 0 });
 
-      const acc = toFetch[i];
-      i += 1;
+      for (let i = 0; i < toFetch.length; i += GEOCODE_BATCH_SIZE) {
+        if (cancelled) return;
+        const chunk = toFetch.slice(i, i + GEOCODE_BATCH_SIZE);
 
-      try {
-        const url =
-          `https://nominatim.openstreetmap.org/search?q=` +
-          `${encodeURIComponent(acc.fullAddress)}&format=json&limit=1&countrycodes=us`;
+        try {
+          const res = await fetch("/api/geocode/batch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ addresses: chunk }),
+          });
 
-        const res = await fetch(url, {
-          headers: { "User-Agent": "CleaningWorldCRM/1.0 (cleaning-operations-app)" },
-        });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              results: Array<{ address: string; latitude: number | null; longitude: number | null }>;
+            };
 
-        if (res.ok) {
-          const data = (await res.json()) as Array<{ lat: string; lon: string }>;
-          const coords =
-            data.length > 0
-              ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) }
-              : null;
-
-          cache[acc.fullAddress] = coords;
-          try {
-            localStorage.setItem(GEOCACHE_KEY, JSON.stringify(cache));
-          } catch {
-            // storage full — skip persisting
-          }
-
-          if (!cancelled) {
-            if (coords) {
-              setGeocodedCoords((prev) => ({ ...prev, [acc.fullAddress]: coords }));
+            if (!cancelled) {
+              setGeocodedCoords((prev) => {
+                const next = { ...prev };
+                for (const r of data.results) {
+                  next[r.address] =
+                    r.latitude !== null && r.longitude !== null
+                      ? { lat: r.latitude, lng: r.longitude }
+                      : null;
+                }
+                return next;
+              });
             }
-            setGeocodingProgress({ total: toFetch.length, done: i });
           }
+        } catch {
+          // Network error — skip this chunk; will retry next page load
         }
-      } catch {
-        // Network error — skip this address; will retry next session
+
+        if (!cancelled) {
+          setGeocodingProgress({
+            total: toFetch.length,
+            done: Math.min(i + GEOCODE_BATCH_SIZE, toFetch.length),
+          });
+        }
       }
 
-      if (!cancelled) {
-        // Nominatim usage policy: max 1 request per second
-        setTimeout(processNext, 1100);
-      }
+      if (!cancelled) setGeocodingProgress(null);
     }
 
-    processNext();
+    runBatches();
 
     return () => {
       cancelled = true;
