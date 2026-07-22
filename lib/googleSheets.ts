@@ -509,6 +509,7 @@ export async function getCustomerByPhone(phone: string) {
 // ─── Subcontractor visit log ──────────────────────────────────────────────────
 
 const VISITS_TAB = "subcontractor-visits";
+const VISITS_RANGE = `'${VISITS_TAB}'`; // hyphenated tab names must be quoted in A1 notation
 
 const VISIT_COL = {
   VISIT_ID:     0, // A
@@ -537,7 +538,7 @@ export async function getAllSubcontractorVisits(): Promise<SubcontractorVisitWit
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${VISITS_TAB}!A:G`,
+    range: `${VISITS_RANGE}!A:G`,
   });
   const rows = ((res.data.values ?? []) as string[][]).slice(1);
   return rows
@@ -577,7 +578,7 @@ export async function updateSubcontractorVisit(
   const data = Object.entries(fields)
     .filter(([, v]) => v !== undefined)
     .map(([key, value]) => ({
-      range: `${VISITS_TAB}!${colLetters[key]}${sheetRow}`,
+      range: `${VISITS_RANGE}!${colLetters[key]}${sheetRow}`,
       values: [[value]],
     }));
   if (data.length === 0) return;
@@ -593,7 +594,7 @@ export async function deleteSubcontractorVisit(sheetRow: number): Promise<void> 
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.clear({
     spreadsheetId: SHEET_ID,
-    range: `${VISITS_TAB}!A${sheetRow}:G${sheetRow}`,
+    range: `${VISITS_RANGE}!A${sheetRow}:G${sheetRow}`,
   });
 }
 
@@ -607,7 +608,10 @@ export async function logSubcontractorVisit(data: {
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const visitId = `VIS-${data.visitDate.replace(/-/g, "")}-${stamp.slice(-8)}`;
-  await appendToSheet(VISITS_TAB, [
+  // appendToSheet builds its range as `${tab}!A:Z`, so the tab name passed in
+  // must already be quoted here (unlike the other call sites, which build
+  // their own range string around VISITS_RANGE directly).
+  await appendToSheet(VISITS_RANGE, [
     visitId,
     data.accountName,
     data.subEmail,
@@ -666,7 +670,7 @@ export async function getSubcontractorVisits(
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: SHEET_ID,
-    range: `${VISITS_TAB}!A:G`,
+    range: `${VISITS_RANGE}!A:G`,
   });
   const rows = ((res.data.values ?? []) as string[][]).slice(1);
   const emailLower = subEmail.trim().toLowerCase();
