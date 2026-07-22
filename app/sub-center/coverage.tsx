@@ -102,7 +102,17 @@ async function fetchCoverage(): Promise<SubcontractorCoverage[]> {
     });
 }
 
-function AreaList({ title, areas, emptyLabel }: { title: string; areas: AreaCount[]; emptyLabel: string }) {
+function AreaList({
+  title,
+  areas,
+  emptyLabel,
+  searchQuery,
+}: {
+  title: string;
+  areas: AreaCount[];
+  emptyLabel: string;
+  searchQuery: string;
+}) {
   return (
     <div>
       <p className="text-xs font-black uppercase tracking-wide text-slate-500">{title}</p>
@@ -110,14 +120,21 @@ function AreaList({ title, areas, emptyLabel }: { title: string; areas: AreaCoun
         <p className="mt-2 text-sm text-slate-500">{emptyLabel}</p>
       ) : (
         <ul className="mt-2 flex flex-wrap gap-2">
-          {areas.map((area) => (
-            <li
-              key={area.name}
-              className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
-            >
-              {area.name} ({area.count} account{area.count === 1 ? "" : "s"})
-            </li>
-          ))}
+          {areas.map((area) => {
+            const isMatch = searchQuery.length > 0 && normalizeLower(area.name).includes(searchQuery);
+            return (
+              <li
+                key={area.name}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  isMatch
+                    ? "border-blue-400 bg-blue-100 font-black text-blue-900"
+                    : "border-slate-200 bg-slate-50 font-semibold text-slate-700"
+                }`}
+              >
+                {area.name} ({area.count} account{area.count === 1 ? "" : "s"})
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -128,6 +145,7 @@ export default function SubCenterCoverage() {
   const [coverage, setCoverage] = useState<SubcontractorCoverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +165,8 @@ export default function SubCenterCoverage() {
       cancelled = true;
     };
   }, []);
+
+  const searchQuery = normalizeLower(searchTerm);
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
@@ -169,20 +189,54 @@ export default function SubCenterCoverage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {coverage.map((entry) => (
-              <section key={entry.subcontractor} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-lg font-bold">{entry.subcontractor}</h2>
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                    {entry.totalAccounts} account{entry.totalAccounts === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <AreaList title="Towns / Cities" areas={entry.cities} emptyLabel="No city data." />
-                  <AreaList title="Zip Codes" areas={entry.zips} emptyLabel="No zip data." />
-                </div>
-              </section>
-            ))}
+            <div className="relative max-w-md">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder="Search town, zip, or sub name"
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 pr-9 text-sm shadow-sm focus:border-blue-400 focus:outline-none"
+              />
+              {searchTerm ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm("")}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+            {coverage.map((entry) => {
+              const nameMatches = searchQuery.length > 0 && normalizeLower(entry.subcontractor).includes(searchQuery);
+              const cityMatches = entry.cities.some((city) => normalizeLower(city.name).includes(searchQuery));
+              const zipMatches = entry.zips.some((zip) => normalizeLower(zip.name).includes(searchQuery));
+              const hasAnyMatch = nameMatches || cityMatches || zipMatches;
+              const shouldDim = searchQuery.length >= 2 && !hasAnyMatch;
+
+              return (
+                <section
+                  key={entry.subcontractor}
+                  className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-sm ${
+                    shouldDim ? "opacity-40" : ""
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className={`text-lg font-bold ${nameMatches ? "text-blue-700" : ""}`}>
+                      {entry.subcontractor}
+                    </h2>
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                      {entry.totalAccounts} account{entry.totalAccounts === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <AreaList title="Towns / Cities" areas={entry.cities} emptyLabel="No city data." searchQuery={searchQuery} />
+                    <AreaList title="Zip Codes" areas={entry.zips} emptyLabel="No zip data." searchQuery={searchQuery} />
+                  </div>
+                </section>
+              );
+            })}
           </div>
         )}
       </div>
