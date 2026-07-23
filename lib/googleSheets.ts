@@ -1207,6 +1207,130 @@ export async function updateManager(
   });
 }
 
+// ─── Subcontractors (main roster tab) ────────────────────────────────────────
+// Column A ("Subcontractor ID") is a single ARRAYFORMULA in A2 that spills
+// computed IDs (SUB-001, SUB-002, ...) down the whole column based on row
+// position. Writing anything into column A — even the correct, unchanged ID —
+// blocks the spill and breaks the formula (#REF!) for every row below it.
+// updateSubcontractor must NEVER write to column A; it only reads it to find
+// the target row. Lives in the same spreadsheet as Managers/SubSchedules
+// (GOOGLE_MAIN_SHEET_ID), not the customer-portal one.
+
+const SUBCONTRACTORS_TAB = "Subcontractors";
+
+// Maps the field names the app sends to every header text this sheet has
+// used for that field (matched case/whitespace-insensitively). The sheet
+// has a couple of duplicate legacy header columns near the end (a second
+// "Phone" and "Insurance Expiration") — header lookup keeps the first
+// (leftmost) match, which is always the primary column.
+const SUBCONTRACTOR_FIELD_ALIASES: Record<string, string[]> = {
+  companyName: ["company name"],
+  contactName: ["contact name"],
+  phone: ["phone"],
+  email: ["email"],
+  address: ["address"],
+  areasServiced: ["areas serviced"],
+  servicesProvided: ["services provided"],
+  employeeCapacity: ["employee capacity"],
+  insuranceExpiration: ["insurance expiration date", "insurance expiration"],
+  status: ["status"],
+  notes: ["notes"],
+};
+
+function columnIndexToLetter(index: number): string {
+  let letter = "";
+  let n = index;
+  while (n >= 0) {
+    letter = String.fromCharCode((n % 26) + 65) + letter;
+    n = Math.floor(n / 26) - 1;
+  }
+  return letter;
+}
+
+export async function updateSubcontractor(
+  id: string,
+  fields: Record<string, unknown>
+): Promise<Record<string, string>> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing subcontractor id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${SUBCONTRACTORS_TAB}!A:Z`,
+    })
+  );
+
+  const allRows = (res.data.values ?? []) as string[][];
+  const headerRow = allRows[0] ?? [];
+  const dataRows = allRows.slice(1);
+
+  const rowIndex = dataRows.findIndex((r) => (r[0] ?? "").trim() === targetId);
+  if (rowIndex === -1) {
+    throw new Error(`Subcontractor "${targetId}" not found.`);
+  }
+  const sheetRow = rowIndex + 2; // header row + 1-based sheet rows
+
+  // Normalize headers once; first occurrence of a name wins so duplicate/
+  // legacy columns later in the row are never the write target.
+  const normalizedHeaderCols = new Map<string, number>();
+  headerRow.forEach((header, colIndex) => {
+    const normalized = String(header ?? "").trim().toLowerCase();
+    if (!normalized || normalizedHeaderCols.has(normalized)) return;
+    normalizedHeaderCols.set(normalized, colIndex);
+  });
+
+  const writes: { colIndex: number; value: string }[] = [];
+
+  for (const [key, rawValue] of Object.entries(fields)) {
+    if (rawValue === undefined) continue;
+    // "id"/"Subcontractor ID" must never resolve to a write — column A is
+    // the ARRAYFORMULA-driven ID and is read-only from this function's POV.
+    if (key === "id" || key === "Subcontractor ID") continue;
+
+    const aliases = SUBCONTRACTOR_FIELD_ALIASES[key];
+    if (!aliases) continue; // unrecognized field — ignore rather than guess a column
+
+    let colIndex: number | undefined;
+    for (const alias of aliases) {
+      if (normalizedHeaderCols.has(alias)) {
+        colIndex = normalizedHeaderCols.get(alias);
+        break;
+      }
+    }
+    if (colIndex === undefined || colIndex === 0) continue;
+
+    writes.push({ colIndex, value: String(rawValue ?? "") });
+  }
+
+  if (writes.length > 0) {
+    const data = writes.map(({ colIndex, value }) => ({
+      range: `${SUBCONTRACTORS_TAB}!${columnIndexToLetter(colIndex)}${sheetRow}`,
+      values: [[value]],
+    }));
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
+
+  const mergedRow = [...(dataRows[rowIndex] ?? [])];
+  for (const { colIndex, value } of writes) mergedRow[colIndex] = value;
+
+  const updatedRow: Record<string, string> = {};
+  headerRow.forEach((header, colIndex) => {
+    const key = String(header ?? "").trim();
+    if (!key || key in updatedRow) return; // keep first occurrence, same as write mapping
+    updatedRow[key] = mergedRow[colIndex] ?? "";
+  });
+
+  return updatedRow;
+}
+
 // ─── Geocode cache ───────────────────────────────────────────────────────────
 // Shared by the Map page (Leaflet -> Google Maps migration) and the Coverage
 // page's "nearby subcontractor" matching — both turn addresses/towns into

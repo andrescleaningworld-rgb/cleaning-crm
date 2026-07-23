@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getOrFetch } from "@/lib/serverCache";
+import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { updateSubcontractor } from "@/lib/googleSheets";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -399,6 +400,42 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const body = await request.json();
+
+    // Migrated off the Apps Script backend: that path wrote a full row
+    // (including column A, the Subcontractor ID) back to the sheet, which
+    // collided with the ARRAYFORMULA in A2 that spills computed IDs down
+    // the whole column and corrupted it on every edit. This writes directly
+    // via the Sheets API, targeting only the specific changed columns from
+    // B onward — see updateSubcontractor in lib/googleSheets.ts.
+    if (body.action === "updateSubcontractor") {
+      const { id, ...fields } = body as { id?: unknown; [key: string]: unknown };
+
+      if (typeof id !== "string" || !id.trim()) {
+        return NextResponse.json(
+          { success: false, error: "Missing subcontractor id." },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const subcontractor = await updateSubcontractor(id, fields);
+        invalidateCached("subcontractors:getSubcontractors");
+        return NextResponse.json({ success: true, subcontractor });
+      } catch (error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Failed to update subcontractor.",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -408,8 +445,6 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
-
-    const body = await request.json();
 
     const response = await fetch(SCRIPT_URL, {
       method: "POST",
