@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { generateScheduleDates } from "@/lib/scheduleRecurrence";
+import { generateScheduleDates, isScheduleEffectivelyActive, todayISO as scheduleTodayISO } from "@/lib/scheduleRecurrence";
 
 type ScheduleAccount = {
   id?: string;
@@ -172,8 +172,9 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
 
   const mySchedules = useMemo(() => {
     const subIdLower = subId.trim().toLowerCase();
+    const asOfToday = scheduleTodayISO();
     return schedules.filter(
-      (s) => s.subId.trim().toLowerCase() === subIdLower && s.status.trim().toLowerCase() === "active"
+      (s) => s.subId.trim().toLowerCase() === subIdLower && isScheduleEffectivelyActive(s, asOfToday)
     );
   }, [schedules, subId]);
 

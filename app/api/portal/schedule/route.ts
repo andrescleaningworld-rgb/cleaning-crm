@@ -3,6 +3,7 @@ import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { fetchScheduleExceptions, fetchSubSchedules } from "@/lib/googleSheets";
+import { isScheduleEffectivelyActive, todayISO } from "@/lib/scheduleRecurrence";
 
 export async function GET() {
   const session = await getIronSession<PortalSessionData>(await cookies(), sessionOptions());
@@ -19,8 +20,9 @@ export async function GET() {
       fetchScheduleExceptions(),
     ]);
 
+    const asOfToday = todayISO();
     const schedules = allSchedules
-      .filter((s) => s.accountId.trim() === accountId && s.status.trim().toLowerCase() === "active")
+      .filter((s) => s.accountId.trim() === accountId && isScheduleEffectivelyActive(s, asOfToday))
       .map((s) => ({
         dayOfWeek: s.dayOfWeek,
         timeWindow: s.timeWindow,
