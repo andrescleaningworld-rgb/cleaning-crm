@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SubSchedule } from "./schedule-modal";
 import type { SearchOption } from "./autocomplete";
-import { generateScheduleDates, SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import {
+  generateScheduleDates,
+  isScheduleEffectivelyActive,
+  todayISO as scheduleTodayISO,
+  SCHEDULE_FREQUENCIES,
+  type ScheduleFrequency,
+} from "@/lib/scheduleRecurrence";
 
 const FREQUENCY_LABELS: Record<string, string> = {
   WEEKLY: "Weekly",
@@ -289,10 +295,10 @@ export default function FullCalendar({
     []
   );
 
-  const activeSchedules = useMemo(
-    () => schedules.filter((s) => s.status.trim().toLowerCase() === "active"),
-    [schedules]
-  );
+  const activeSchedules = useMemo(() => {
+    const asOfToday = scheduleTodayISO();
+    return schedules.filter((s) => isScheduleEffectivelyActive(s, asOfToday));
+  }, [schedules]);
 
   const filteredSchedules = useMemo(() => {
     return activeSchedules.filter((s) => {

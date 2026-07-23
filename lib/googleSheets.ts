@@ -862,12 +862,15 @@ export async function updateSubSchedule(
 
 // Pattern-affecting edits (Frequency, DayOfWeek/Weekdays, MonthlyOccurrence,
 // TimeWindow) are versioned rather than patched in place: the existing row
-// is closed out with EffectiveEnd = effectiveDate - 1 day, and a new row is
-// appended starting at EffectiveStart = effectiveDate. Dates before
-// effectiveDate keep generating from the closed-out row exactly as they did
-// before the edit — nothing before the change is rewritten. Non-pattern
-// edits (Status, a manual EffectiveStart/EffectiveEnd adjustment) should
-// keep using updateSubSchedule instead, which patches the row in place.
+// is closed out with EffectiveEnd = effectiveDate - 1 day and Status =
+// "Superseded", and a new row is appended starting at EffectiveStart =
+// effectiveDate. Dates before effectiveDate keep generating from the
+// closed-out row exactly as they did before the edit — nothing before the
+// change is rewritten. "Superseded" is distinct from "Inactive" (manual
+// deactivation via the Deactivate action) so the two cases stay
+// distinguishable in the UI/history. Non-pattern edits (Status, a manual
+// EffectiveStart/EffectiveEnd adjustment) should keep using updateSubSchedule
+// instead, which patches the row in place.
 export async function applySchedulePatternChange(
   scheduleId: string,
   newPattern: {
@@ -898,6 +901,7 @@ export async function applySchedulePatternChange(
 
   await updateSubSchedule(current.sheetRow, {
     effectiveEnd,
+    status: "Superseded",
     lastEditedBy: editedBy,
     lastEditedDate: new Date().toISOString(),
   });

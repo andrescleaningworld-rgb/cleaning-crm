@@ -178,3 +178,31 @@ export function generateScheduleDates(row: RecurrenceInput, rangeStart: Date, ra
       return [];
   }
 }
+
+// Eastern-time-safe "today" — matches the todayISO() helpers already used in
+// schedule-modal.tsx / sub-schedule-tab.tsx (new Date().toISOString() reads
+// UTC, which in the evening US Eastern has already rolled to the next day).
+export function todayISO(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+// Defense-in-depth on top of the stored Status column: a pattern-change edit
+// closes out the superseded row by setting EffectiveEnd and Status =
+// "Superseded" (see applySchedulePatternChange in lib/googleSheets.ts), but
+// legacy rows written before that fix, or rows where EffectiveEnd was set
+// manually without also updating Status, would otherwise still read as
+// "Active". This does not touch the stored Status value — it only decides
+// what counts as active for rendering/filtering.
+export function isScheduleEffectivelyActive(
+  schedule: { status: string; effectiveEnd: string },
+  todayIso: string = todayISO()
+): boolean {
+  if (schedule.status.trim().toLowerCase() !== "active") return false;
+  if (schedule.effectiveEnd && schedule.effectiveEnd < todayIso) return false;
+  return true;
+}

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
 import FullCalendar from "./full-calendar";
-import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
+import { isScheduleEffectivelyActive, parseMonthlyOccurrence, todayISO } from "@/lib/scheduleRecurrence";
 import {
   AutocompleteField,
   useAllAccountOptions,
@@ -264,6 +264,8 @@ export default function SubSchedulesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminTab, customer.selected, selectedTeamLeader]);
 
+  const today = useMemo(() => todayISO(), []);
+
   const filteredSchedules = useMemo(() => {
     return schedules.filter((s) => {
       const matchesAccount = !customer.selected || s.accountId === customer.selected.id;
@@ -294,7 +296,7 @@ export default function SubSchedulesPage() {
       setError("Enter your name above before making changes.");
       return;
     }
-    const nextStatus = schedule.status.trim().toLowerCase() === "active" ? "Inactive" : "Active";
+    const nextStatus = isScheduleEffectivelyActive(schedule) ? "Inactive" : "Active";
     try {
       const res = await fetch("/api/admin/sub-schedules", {
         method: "PATCH",
@@ -506,7 +508,7 @@ export default function SubSchedulesPage() {
                         <td className="px-4 py-3">
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              s.status.trim().toLowerCase() === "active"
+                              isScheduleEffectivelyActive(s, today)
                                 ? "bg-green-100 text-green-800"
                                 : "bg-slate-100 text-slate-700"
                             }`}
@@ -533,10 +535,10 @@ export default function SubSchedulesPage() {
                               type="button"
                               onClick={() => toggleScheduleStatus(s)}
                               className={`text-xs font-semibold hover:underline ${
-                                s.status.trim().toLowerCase() === "active" ? "text-red-600" : "text-green-700"
+                                isScheduleEffectivelyActive(s, today) ? "text-red-600" : "text-green-700"
                               }`}
                             >
-                              {s.status.trim().toLowerCase() === "active" ? "Deactivate" : "Reactivate"}
+                              {isScheduleEffectivelyActive(s, today) ? "Deactivate" : "Reactivate"}
                             </button>
                           </div>
                         </td>
