@@ -1272,8 +1272,20 @@ export async function updateSubcontractor(
   const headerRow = allRows[0] ?? [];
   const dataRows = allRows.slice(1);
 
-  const rowIndex = dataRows.findIndex((r) => (r[0] ?? "").trim() === targetId);
-  if (rowIndex === -1) {
+  // The frontend's subcontractor "id" comes straight through from Apps
+  // Script's getSubcontractors action, which has always identified rows as
+  // "SUB-ROW-<sheet row number>" — a stable, row-position-based locator
+  // that is separate from column A's ARRAYFORMULA-computed display ID
+  // (e.g. sheet row 15 shows "SUB-014" in column A, not "SUB-ROW-15").
+  // Matching targetId against column A text (the previous approach here)
+  // never matches anything, so every save failed with "not found". Parse
+  // the row number straight out of the id instead; column A is still never
+  // read for this lookup and never written to.
+  const rowMatch = targetId.match(/^SUB-ROW-(\d+)$/i);
+  const rowIndex = rowMatch
+    ? parseInt(rowMatch[1], 10) - 2 // header row + 1-based sheet rows
+    : dataRows.findIndex((r) => (r[0] ?? "").trim() === targetId); // fallback for a raw column-A-style id
+  if (rowIndex < 0 || rowIndex >= dataRows.length) {
     throw new Error(`Subcontractor "${targetId}" not found.`);
   }
   const sheetRow = rowIndex + 2; // header row + 1-based sheet rows
