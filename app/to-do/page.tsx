@@ -178,15 +178,11 @@ export default function ToDoPage() {
         return text.includes(normalizedSearch);
       })
       .sort((a, b) => {
-        const aTime = a.dueDate
-          ? new Date(a.dueDate).getTime()
-          : Number.MAX_SAFE_INTEGER;
+        // Newest created first; items missing a createdDate sort last.
+        const aTime = a.createdDate ? new Date(a.createdDate).getTime() : 0;
+        const bTime = b.createdDate ? new Date(b.createdDate).getTime() : 0;
 
-        const bTime = b.dueDate
-          ? new Date(b.dueDate).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        return aTime - bTime;
+        return bTime - aTime;
       });
   }, [todos, search, assignedFilter, statusFilter, typeFilter]);
 
