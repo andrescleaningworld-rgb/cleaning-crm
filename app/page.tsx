@@ -239,6 +239,13 @@ function isRevenueAccount(row: AnyRow): boolean {
   return !excludedStatuses.some((badStatus) => status.includes(badStatus));
 }
 
+// Mirrors the "Active" bucket of STATUS_CATEGORY_MAP in app/accounts/page.tsx
+// so this dashboard's count agrees with the Accounts page's own Active stat.
+function isAccountActive(row: AnyRow): boolean {
+  const status = cleanLower(getAccountStatus(row));
+  return status === "active" || status === "active account" || status === "current";
+}
+
 function dedupeAccountsByName(accounts: AnyRow[]): AnyRow[] {
   const map = new Map<string, AnyRow>();
 
@@ -669,6 +676,7 @@ export default function DashboardPage() {
     const rawAccounts = data.accounts;
     const uniqueAccounts = dedupeAccountsByName(rawAccounts);
     const revenueAccounts = uniqueAccounts.filter(isRevenueAccount);
+    const activeAccounts = uniqueAccounts.filter(isAccountActive);
 
     const monthlyRevenue = revenueAccounts.reduce((total, account) => {
       return total + getMonthlyRevenue(account);
@@ -728,6 +736,7 @@ export default function DashboardPage() {
     return {
       rawAccounts,
       revenueAccounts,
+      activeAccounts,
       monthlyRevenue,
       monthlySubcontractorPay,
       grossMargin,
@@ -819,6 +828,13 @@ export default function DashboardPage() {
               label="Accounts Needing Attention"
               value={formatNumber(dashboard.accountsNeedingAttention.length)}
               note="High risk or needs attention"
+              href="/accounts"
+            />
+
+            <StatCard
+              label="Active Accounts"
+              value={formatNumber(dashboard.activeAccounts.length)}
+              note="Currently active accounts"
               href="/accounts"
             />
           </section>
