@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import CoverageMap from "./coverage-map";
+
 type RawAccount = {
   subcontractor?: string;
   city?: string;
@@ -218,7 +220,7 @@ export default function SubCenterCoverage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [viewMode, setViewMode] = useState<"bySub" | "byTown">("bySub");
+  const [viewMode, setViewMode] = useState<"bySub" | "byTown" | "map">("bySub");
 
   useEffect(() => {
     let cancelled = false;
@@ -283,132 +285,147 @@ export default function SubCenterCoverage() {
               >
                 By Town
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("map")}
+                className={`rounded-lg px-4 py-1.5 text-sm font-bold transition ${
+                  viewMode === "map" ? "bg-blue-700 text-white" : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                Map
+              </button>
             </div>
-            <div className="relative max-w-md">
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search town, zip, or sub name"
-                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 pr-9 text-sm shadow-sm focus:border-blue-400 focus:outline-none"
-              />
-              {searchTerm ? (
-                <button
-                  type="button"
-                  onClick={() => setSearchTerm("")}
-                  aria-label="Clear search"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  ×
-                </button>
-              ) : null}
-            </div>
-            {viewMode === "bySub"
-              ? coverage.map((entry) => {
-                  const nameMatches =
-                    searchQuery.length > 0 && normalizeLower(entry.subcontractor).includes(searchQuery);
-                  const cityMatches = entry.cities.some((city) => normalizeLower(city.name).includes(searchQuery));
-                  const zipMatches = entry.zips.some((zip) => normalizeLower(zip.name).includes(searchQuery));
-                  const hasAnyMatch = nameMatches || cityMatches || zipMatches;
-                  const shouldDim = searchQuery.length >= 2 && !hasAnyMatch;
-
-                  return (
-                    <section
-                      key={entry.subcontractor}
-                      className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-sm ${
-                        shouldDim ? "opacity-40" : ""
-                      }`}
+            {viewMode === "map" ? (
+              <CoverageMap />
+            ) : (
+              <>
+                <div className="relative max-w-md">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Search town, zip, or sub name"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 pr-9 text-sm shadow-sm focus:border-blue-400 focus:outline-none"
+                  />
+                  {searchTerm ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm("")}
+                      aria-label="Clear search"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h2 className={`text-lg font-bold ${nameMatches ? "text-blue-700" : ""}`}>
-                          {entry.subcontractor}
-                        </h2>
-                        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                          {entry.totalAccounts} account{entry.totalAccounts === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <AreaList title="Towns / Cities" areas={entry.cities} emptyLabel="No city data." searchQuery={searchQuery} />
-                        <AreaList title="Zip Codes" areas={entry.zips} emptyLabel="No zip data." searchQuery={searchQuery} />
-                      </div>
-                    </section>
-                  );
-                })
-              : townCoverage.map((entry) => {
-                  const townMatches = searchQuery.length > 0 && normalizeLower(entry.town).includes(searchQuery);
-                  const subNameMatches = entry.subs.some((sub) => normalizeLower(sub.subcontractor).includes(searchQuery));
-                  const zipMatches = entry.subs.some((sub) =>
-                    sub.zips.some((zip) => normalizeLower(zip).includes(searchQuery))
-                  );
-                  const hasAnyMatch = townMatches || subNameMatches || zipMatches;
-                  const shouldDim = searchQuery.length >= 2 && !hasAnyMatch;
+                      ×
+                    </button>
+                  ) : null}
+                </div>
+                {viewMode === "bySub"
+                  ? coverage.map((entry) => {
+                      const nameMatches =
+                        searchQuery.length > 0 && normalizeLower(entry.subcontractor).includes(searchQuery);
+                      const cityMatches = entry.cities.some((city) => normalizeLower(city.name).includes(searchQuery));
+                      const zipMatches = entry.zips.some((zip) => normalizeLower(zip.name).includes(searchQuery));
+                      const hasAnyMatch = nameMatches || cityMatches || zipMatches;
+                      const shouldDim = searchQuery.length >= 2 && !hasAnyMatch;
 
-                  return (
-                    <section
-                      key={entry.isZipOnly ? `zip:${entry.town}` : `city:${entry.town}`}
-                      className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-sm ${
-                        shouldDim ? "opacity-40" : ""
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <h2 className={`text-lg font-bold ${townMatches ? "text-blue-700" : ""}`}>
-                          {entry.town}
-                          {entry.isZipOnly ? (
-                            <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                              Zip only
+                      return (
+                        <section
+                          key={entry.subcontractor}
+                          className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-sm ${
+                            shouldDim ? "opacity-40" : ""
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h2 className={`text-lg font-bold ${nameMatches ? "text-blue-700" : ""}`}>
+                              {entry.subcontractor}
+                            </h2>
+                            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                              {entry.totalAccounts} account{entry.totalAccounts === 1 ? "" : "s"}
                             </span>
-                          ) : null}
-                        </h2>
-                        <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
-                          {entry.totalAccounts} account{entry.totalAccounts === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <div className="mt-4">
-                        <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                          Subs Covering This {entry.isZipOnly ? "Zip" : "Town"}
-                        </p>
-                        <ul className="mt-2 space-y-2">
-                          {entry.subs.map((sub) => {
-                            const subMatches =
-                              searchQuery.length > 0 && normalizeLower(sub.subcontractor).includes(searchQuery);
-                            return (
-                              <li
-                                key={sub.subcontractor}
-                                className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
-                              >
-                                <span className={`text-sm font-bold ${subMatches ? "text-blue-700" : "text-slate-800"}`}>
-                                  {sub.subcontractor}
+                          </div>
+                          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <AreaList title="Towns / Cities" areas={entry.cities} emptyLabel="No city data." searchQuery={searchQuery} />
+                            <AreaList title="Zip Codes" areas={entry.zips} emptyLabel="No zip data." searchQuery={searchQuery} />
+                          </div>
+                        </section>
+                      );
+                    })
+                  : townCoverage.map((entry) => {
+                      const townMatches = searchQuery.length > 0 && normalizeLower(entry.town).includes(searchQuery);
+                      const subNameMatches = entry.subs.some((sub) => normalizeLower(sub.subcontractor).includes(searchQuery));
+                      const zipMatches = entry.subs.some((sub) =>
+                        sub.zips.some((zip) => normalizeLower(zip).includes(searchQuery))
+                      );
+                      const hasAnyMatch = townMatches || subNameMatches || zipMatches;
+                      const shouldDim = searchQuery.length >= 2 && !hasAnyMatch;
+
+                      return (
+                        <section
+                          key={entry.isZipOnly ? `zip:${entry.town}` : `city:${entry.town}`}
+                          className={`rounded-2xl border border-gray-200 bg-white p-5 shadow-sm ${
+                            shouldDim ? "opacity-40" : ""
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <h2 className={`text-lg font-bold ${townMatches ? "text-blue-700" : ""}`}>
+                              {entry.town}
+                              {entry.isZipOnly ? (
+                                <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                  Zip only
                                 </span>
-                                <span className="text-xs text-slate-500">
-                                  ({sub.count} account{sub.count === 1 ? "" : "s"})
-                                </span>
-                                {sub.zips.length > 0 ? (
-                                  <span className="flex flex-wrap gap-1">
-                                    {sub.zips.map((zip) => {
-                                      const zipIsMatch = searchQuery.length > 0 && normalizeLower(zip).includes(searchQuery);
-                                      return (
-                                        <span
-                                          key={zip}
-                                          className={`rounded-full border px-2 py-0.5 text-xs ${
-                                            zipIsMatch
-                                              ? "border-blue-400 bg-blue-100 font-black text-blue-900"
-                                              : "border-slate-200 bg-white font-semibold text-slate-600"
-                                          }`}
-                                        >
-                                          {zip}
-                                        </span>
-                                      );
-                                    })}
-                                  </span>
-                                ) : null}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </div>
-                    </section>
-                  );
-                })}
+                              ) : null}
+                            </h2>
+                            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                              {entry.totalAccounts} account{entry.totalAccounts === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <div className="mt-4">
+                            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                              Subs Covering This {entry.isZipOnly ? "Zip" : "Town"}
+                            </p>
+                            <ul className="mt-2 space-y-2">
+                              {entry.subs.map((sub) => {
+                                const subMatches =
+                                  searchQuery.length > 0 && normalizeLower(sub.subcontractor).includes(searchQuery);
+                                return (
+                                  <li
+                                    key={sub.subcontractor}
+                                    className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+                                  >
+                                    <span className={`text-sm font-bold ${subMatches ? "text-blue-700" : "text-slate-800"}`}>
+                                      {sub.subcontractor}
+                                    </span>
+                                    <span className="text-xs text-slate-500">
+                                      ({sub.count} account{sub.count === 1 ? "" : "s"})
+                                    </span>
+                                    {sub.zips.length > 0 ? (
+                                      <span className="flex flex-wrap gap-1">
+                                        {sub.zips.map((zip) => {
+                                          const zipIsMatch = searchQuery.length > 0 && normalizeLower(zip).includes(searchQuery);
+                                          return (
+                                            <span
+                                              key={zip}
+                                              className={`rounded-full border px-2 py-0.5 text-xs ${
+                                                zipIsMatch
+                                                  ? "border-blue-400 bg-blue-100 font-black text-blue-900"
+                                                  : "border-slate-200 bg-white font-semibold text-slate-600"
+                                              }`}
+                                            >
+                                              {zip}
+                                            </span>
+                                          );
+                                        })}
+                                      </span>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        </section>
+                      );
+                    })}
+              </>
+            )}
           </div>
         )}
       </div>
