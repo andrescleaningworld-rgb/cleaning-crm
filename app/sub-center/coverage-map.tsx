@@ -6,8 +6,8 @@
 // usage in the app. A shared hook can be extracted later once this view is
 // live and proven; see the Coverage Map design doc for the reasoning.
 
-import { useEffect, useMemo, useState } from "react";
-import { APIProvider, Circle, InfoWindow, Map as GoogleMap } from "@vis.gl/react-google-maps";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { APIProvider, Circle, InfoWindow, Map as GoogleMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
@@ -21,8 +21,17 @@ const SERVICE_AREA_LAT_MAX = 42.5;
 const SERVICE_AREA_LNG_MIN = -76.5;
 const SERVICE_AREA_LNG_MAX = -72.5;
 
+const SERVICE_AREA_BOUNDS = {
+  south: SERVICE_AREA_LAT_MIN,
+  north: SERVICE_AREA_LAT_MAX,
+  west: SERVICE_AREA_LNG_MIN,
+  east: SERVICE_AREA_LNG_MAX,
+};
+
 const DEFAULT_CENTER = { lat: 40.8584, lng: -74.1638 };
 const DEFAULT_ZOOM = 9;
+
+const CLOSEST_SUB_COUNT = 5;
 
 function isInServiceArea(latitude: number, longitude: number) {
   return (
@@ -31,6 +40,20 @@ function isInServiceArea(latitude: number, longitude: number) {
     longitude >= SERVICE_AREA_LNG_MIN &&
     longitude <= SERVICE_AREA_LNG_MAX
   );
+}
+
+function haversineMiles(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const EARTH_RADIUS_MILES = 3958.8;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+
+  return EARTH_RADIUS_MILES * 2 * Math.asin(Math.sqrt(h));
 }
 
 type AnyRow = Record<string, unknown>;
@@ -198,6 +221,53 @@ async function fetchMapAccounts(): Promise<MapAccountRecord[]> {
     .filter((account) => account.name !== "Unnamed Account" && account.fullAddress && isServicedStatus(account.status));
 }
 
+type SubRecord = {
+  name: string;
+  address: string;
+};
+
+type SubDistanceRecord = SubRecord & { distanceMiles: number };
+
+// Mirrors app/subcontractors/page.tsx's getStatus: a blank status column
+// defaults to "Active" rather than being treated as inactive/hidden.
+function isActiveSubStatus(row: AnyRow): boolean {
+  const status = cleanText(getValue(row, ["status", "Status"]), "Active");
+  return status.toLowerCase() === "active";
+}
+
+// Subcontractors only have a single free-text address (no stored lat/lng),
+// so "closest subs" geocodes that address the same way fetchMapAccounts'
+// caller geocodes account addresses — via the shared /api/geocode/batch
+// cache, not a distinct pipeline.
+async function fetchActiveSubcontractors(): Promise<SubRecord[]> {
+  const response = await fetch("/api/subcontractors");
+  const result = (await response.json()) as { success?: boolean; error?: string; subcontractors?: AnyRow[] };
+
+  if (!result.success) {
+    throw new Error(result.error || "Could not load subcontractors.");
+  }
+
+  const rows = Array.isArray(result.subcontractors) ? result.subcontractors : [];
+
+  return rows
+    .filter(isActiveSubStatus)
+    .map((row) => ({
+      name: cleanText(
+        getValue(row, [
+          "companyName",
+          "Company Name",
+          "company",
+          "Company",
+          "Subcontractor",
+          "Sub Contractor",
+          "Subcontractor Name",
+        ])
+      ),
+      address: cleanText(getValue(row, ["address", "Address"])),
+    }))
+    .filter((sub) => sub.name && sub.address);
+}
+
 // NOTE: google.maps.visualization.HeatmapLayer was removed in Maps
 // JavaScript API v3.65 (May 2026) — Google's own replacement recommendation
 // (deck.gl) was rejected here to avoid a new WebGL dependency family. Density
@@ -313,6 +383,194 @@ function TownBubbles({ clusters }: { clusters: TownCluster[] }) {
         </InfoWindow>
       ) : null}
     </>
+  );
+}
+
+// Address search for "closest subcontractors to this point." Must render
+// inside <APIProvider> — uses useMapsLibrary("places") rather than its own
+// <Script> tag (the pattern GoogleAddressAutocompleteInput uses elsewhere)
+// so it reuses the same Maps JS bootstrap APIProvider already loads for the
+// map itself, instead of injecting a second, competing script tag.
+function SubDistanceFinder() {
+  const placesLibrary = useMapsLibrary("places");
+
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+
+  const [addressInput, setAddressInput] = useState("");
+  const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // Loaded lazily — only once a search actually happens — rather than on
+  // every Coverage > Map visit, since most visits won't use this box.
+  const [subcontractors, setSubcontractors] = useState<SubRecord[] | null>(null);
+  const [subCoords, setSubCoords] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  const [isLoadingSubs, setIsLoadingSubs] = useState(false);
+  const [isGeocodingSubs, setIsGeocodingSubs] = useState(false);
+
+  useEffect(() => {
+    if (!placesLibrary || !inputRef.current || autocompleteRef.current) return;
+
+    const { Autocomplete } = placesLibrary;
+
+    const autocomplete = new Autocomplete(inputRef.current, {
+      componentRestrictions: { country: "us" },
+      fields: ["formatted_address", "geometry"],
+      bounds: SERVICE_AREA_BOUNDS,
+    });
+
+    autocompleteRef.current = autocomplete;
+
+    const listener = autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      const latitude = place.geometry?.location?.lat();
+      const longitude = place.geometry?.location?.lng();
+
+      if (latitude === undefined || longitude === undefined) {
+        setErrorMessage("Could not determine coordinates for that address.");
+        return;
+      }
+
+      setErrorMessage("");
+      setAddressInput(place.formatted_address || inputRef.current?.value || "");
+      setSearchPoint({ lat: latitude, lng: longitude });
+    });
+
+    return () => {
+      window.google?.maps?.event?.removeListener(listener);
+      autocompleteRef.current = null;
+    };
+  }, [placesLibrary]);
+
+  useEffect(() => {
+    if (!searchPoint) return;
+
+    let cancelled = false;
+
+    async function ensureSubData() {
+      let subs = subcontractors;
+
+      if (subs === null) {
+        setIsLoadingSubs(true);
+        try {
+          subs = await fetchActiveSubcontractors();
+          if (cancelled) return;
+          setSubcontractors(subs);
+        } catch (error) {
+          if (!cancelled) {
+            setErrorMessage(error instanceof Error ? error.message : "Could not load subcontractors.");
+          }
+          return;
+        } finally {
+          if (!cancelled) setIsLoadingSubs(false);
+        }
+      }
+
+      const toGeocode = Array.from(
+        new Set((subs ?? []).filter((sub) => !(sub.address in subCoords)).map((sub) => sub.address))
+      );
+
+      if (toGeocode.length === 0) return;
+
+      setIsGeocodingSubs(true);
+      try {
+        for (let i = 0; i < toGeocode.length; i += GEOCODE_BATCH_SIZE) {
+          if (cancelled) return;
+          const chunk = toGeocode.slice(i, i + GEOCODE_BATCH_SIZE);
+
+          const response = await fetch("/api/geocode/batch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ addresses: chunk }),
+          });
+
+          if (response.ok) {
+            const data = (await response.json()) as {
+              results: Array<{ address: string; latitude: number | null; longitude: number | null }>;
+            };
+
+            if (!cancelled) {
+              setSubCoords((prev) => {
+                const next = { ...prev };
+                for (const result of data.results) {
+                  next[result.address] =
+                    result.latitude !== null && result.longitude !== null
+                      ? { lat: result.latitude, lng: result.longitude }
+                      : null;
+                }
+                return next;
+              });
+            }
+          }
+        }
+      } catch {
+        // Network error — affected subs simply stay excluded from the results below.
+      } finally {
+        if (!cancelled) setIsGeocodingSubs(false);
+      }
+    }
+
+    ensureSubData();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchPoint]);
+
+  const closestSubs = useMemo<SubDistanceRecord[]>(() => {
+    if (!searchPoint || !subcontractors) return [];
+
+    return subcontractors
+      .map((sub) => {
+        const coords = subCoords[sub.address];
+        if (!coords) return null;
+        return { ...sub, distanceMiles: haversineMiles(searchPoint, coords) };
+      })
+      .filter((sub): sub is SubDistanceRecord => sub !== null)
+      .sort((a, b) => a.distanceMiles - b.distanceMiles)
+      .slice(0, CLOSEST_SUB_COUNT);
+  }, [searchPoint, subcontractors, subCoords]);
+
+  const isBusy = isLoadingSubs || isGeocodingSubs;
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <label htmlFor="coverage-map-address-search" className="text-sm font-bold text-gray-900">
+        Find closest subcontractors
+      </label>
+      <input
+        id="coverage-map-address-search"
+        ref={inputRef}
+        value={addressInput}
+        onChange={(event) => setAddressInput(event.target.value)}
+        placeholder={placesLibrary ? "Enter an address..." : "Loading address search..."}
+        disabled={!placesLibrary}
+        autoComplete="off"
+        className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+      />
+
+      {errorMessage ? <p className="mt-2 text-xs font-bold text-red-700">{errorMessage}</p> : null}
+
+      {searchPoint && isBusy ? (
+        <p className="mt-2 text-xs font-bold text-blue-700">Finding closest subcontractors...</p>
+      ) : null}
+
+      {searchPoint && !isBusy ? (
+        closestSubs.length > 0 ? (
+          <ul className="mt-3 space-y-1.5">
+            {closestSubs.map((sub) => (
+              <li key={`${sub.name}|${sub.address}`} className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-semibold text-gray-900">{sub.name}</span>
+                <span className="whitespace-nowrap text-xs font-bold text-gray-600">{sub.distanceMiles.toFixed(1)} mi</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-xs font-bold text-gray-500">No subcontractors with a known location were found.</p>
+        )
+      ) : null}
+    </div>
   );
 }
 
@@ -502,11 +760,13 @@ export default function CoverageMap() {
         </details>
       ) : null}
 
-      <div className="h-[68vh] min-h-[460px] w-full overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center text-center text-gray-600">Loading account locations for the map...</div>
-        ) : (
-          <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
+      <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
+        <SubDistanceFinder />
+
+        <div className="h-[68vh] min-h-[460px] w-full overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+          {isLoading ? (
+            <div className="flex h-full items-center justify-center text-center text-gray-600">Loading account locations for the map...</div>
+          ) : (
             <GoogleMap
               defaultCenter={DEFAULT_CENTER}
               defaultZoom={DEFAULT_ZOOM}
@@ -516,9 +776,9 @@ export default function CoverageMap() {
             >
               <TownBubbles clusters={townClusters} />
             </GoogleMap>
-          </APIProvider>
-        )}
-      </div>
+          )}
+        </div>
+      </APIProvider>
     </div>
   );
 }
