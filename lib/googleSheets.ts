@@ -1199,7 +1199,10 @@ export async function appendToDo(data: {
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const id = `TODO-${stamp}`;
-  const createdDate = new Date().toISOString();
+  // yyyy-MM-dd, matching this file's other created/submitted-date fields
+  // (appendSubSchedule's submittedDate, appendScheduleException's
+  // createdDate) and the old Apps Script behavior this replaced.
+  const createdDate = new Date().toISOString().slice(0, 10);
 
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
