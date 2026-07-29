@@ -506,23 +506,14 @@ export default function ToDoPage() {
             <div className="md:col-span-2">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold">
-                  {recurring ? "Accounts" : "Account"}
+                  {form.taskType === "Visit" ? "Accounts" : "Account"}
                 </label>
 
                 <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
                   <input
                     type="checkbox"
                     checked={recurring}
-                    onChange={(event) => {
-                      const checked = event.target.checked;
-                      setRecurring(checked);
-                      if (!checked) {
-                        // Dropping back to a single to-do: keep only the
-                        // first pick rather than silently discarding the
-                        // whole selection.
-                        setSelectedAccounts((current) => current.slice(0, 1));
-                      }
-                    }}
+                    onChange={(event) => setRecurring(event.target.checked)}
                   />
                   Recurring visit (multiple accounts)
                 </label>
@@ -533,10 +524,10 @@ export default function ToDoPage() {
                   accounts={accountMultiOptions}
                   selected={selectedAccounts}
                   onChange={setSelectedAccounts}
-                  singleSelect={!recurring}
+                  singleSelect={form.taskType !== "Visit"}
                   loading={loadingAccounts}
                   placeholder={
-                    recurring ? "Select accounts" : "Select account"
+                    form.taskType === "Visit" ? "Select accounts" : "Select account"
                   }
                 />
               </div>
@@ -567,12 +558,18 @@ export default function ToDoPage() {
               <label className="text-sm font-semibold">Task Type</label>
               <select
                 value={form.taskType}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const nextTaskType = event.target.value;
                   setForm((current) => ({
                     ...current,
-                    taskType: event.target.value,
-                  }))
-                }
+                    taskType: nextTaskType,
+                  }));
+                  if (nextTaskType !== "Visit") {
+                    // Dropping out of Visit: keep only the first pick
+                    // rather than silently discarding the whole selection.
+                    setSelectedAccounts((current) => current.slice(0, 1));
+                  }
+                }}
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
               >
                 {taskTypes.map((taskType) => (
