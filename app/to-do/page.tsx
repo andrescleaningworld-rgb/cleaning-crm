@@ -15,6 +15,10 @@ type ToDo = {
   why: string;
   status: string;
   notes: string;
+  // Deeper-detail writeup (what was actually found/done on a visit) — kept
+  // separate from `notes`, which is a short, frequently-edited "latest
+  // update" rather than a full outcome writeup.
+  outcome?: string;
   // Links a "Complaint Follow-Up" to-do back to the complaint that created
   // it (see app/complaints/new/page.tsx). Optional: only set on to-dos
   // auto-created from a complaint, not on manually-created ones.
@@ -69,6 +73,22 @@ function getAccountName(account: Account) {
   return account.accountName || account.name || "";
 }
 
+// Distinct color per status so state reads at a glance without opening the
+// card — the badge previously used the same gray pill for every status.
+function statusBadgeClasses(status: string): string {
+  switch (status) {
+    case "In Progress":
+      return "bg-amber-100 text-amber-800";
+    case "Done":
+      return "bg-green-100 text-green-800";
+    case "Cancelled":
+      return "bg-slate-200 text-slate-600";
+    case "Open":
+    default:
+      return "bg-blue-100 text-blue-800";
+  }
+}
+
 function isOverdue(todo: ToDo) {
   if (!todo.dueDate) return false;
   if (todo.status === "Done" || todo.status === "Cancelled") return false;
@@ -80,6 +100,186 @@ function isOverdue(todo: ToDo) {
   dueDate.setHours(0, 0, 0, 0);
 
   return dueDate < today;
+}
+
+type ToDoCardProps = {
+  todo: ToDo;
+  recurringCount: number;
+  onUpdateStatus: (toDoId: string, status: string, notes: string) => Promise<void>;
+  onSaveOutcome: (toDoId: string, outcome: string) => Promise<void>;
+};
+
+// Status-change buttons and the "Latest update" Save button all funnel
+// through onUpdateStatus with the currently-typed notesDraft (not just
+// todo.notes) — clicking "Done" with an unsaved note in the box still
+// persists that note instead of silently dropping it.
+function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(todo.notes);
+  const [outcomeDraft, setOutcomeDraft] = useState(todo.outcome ?? "");
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [savingOutcome, setSavingOutcome] = useState(false);
+
+  useEffect(() => {
+    setNotesDraft(todo.notes);
+  }, [todo.notes]);
+
+  useEffect(() => {
+    setOutcomeDraft(todo.outcome ?? "");
+  }, [todo.outcome]);
+
+  async function handleStatusChange(status: string) {
+    setSavingStatus(true);
+    try {
+      await onUpdateStatus(todo.id, status, notesDraft);
+    } finally {
+      setSavingStatus(false);
+    }
+  }
+
+  async function handleSaveOutcome() {
+    setSavingOutcome(true);
+    try {
+      await onSaveOutcome(todo.id, outcomeDraft);
+    } finally {
+      setSavingOutcome(false);
+    }
+  }
+
+  return (
+    <article className="print-card rounded-2xl bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              {todo.taskType || "Task"}
+            </span>
+
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(todo.status)}`}>
+              {todo.status || "Open"}
+            </span>
+
+            {isOverdue(todo) ? (
+              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
+                Overdue
+              </span>
+            ) : null}
+
+            {recurringCount > 1 ? (
+              <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
+                Recurring ({recurringCount} accounts)
+              </span>
+            ) : null}
+          </div>
+
+          <h3 className="mt-3 text-lg font-bold">{todo.accountName}</h3>
+
+          <p className="mt-1 text-sm text-slate-600">
+            Assigned to: <span className="font-semibold">{todo.assignedTo}</span>
+          </p>
+
+          {todo.dueDate ? (
+            <p className="text-sm text-slate-600">
+              Due: <span className="font-semibold">{todo.dueDate}</span>
+            </p>
+          ) : null}
+        </div>
+
+        <div className="no-print flex flex-wrap gap-2">
+          {todo.status !== "In Progress" && todo.status !== "Done" ? (
+            <button
+              type="button"
+              onClick={() => handleStatusChange("In Progress")}
+              disabled={savingStatus}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60"
+            >
+              In Progress
+            </button>
+          ) : null}
+
+          {todo.status !== "Done" ? (
+            <button
+              type="button"
+              onClick={() => handleStatusChange("Done")}
+              disabled={savingStatus}
+              className="rounded-xl bg-green-700 px-3 py-2 text-xs font-semibold text-white hover:bg-green-600 disabled:opacity-60"
+            >
+              Done
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3 text-sm text-slate-700">
+        <p>
+          <span className="font-semibold">Why:</span> {todo.why}
+        </p>
+
+        <div>
+          <label className="text-xs font-semibold text-slate-500" htmlFor={`notes-${todo.id}`}>
+            Latest update
+          </label>
+          <div className="mt-1 flex gap-2">
+            <input
+              id={`notes-${todo.id}`}
+              value={notesDraft}
+              onChange={(event) => setNotesDraft(event.target.value)}
+              placeholder="e.g. Left message, no answer"
+              className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => handleStatusChange(todo.status)}
+              disabled={savingStatus || notesDraft === todo.notes}
+              className="no-print shrink-0 rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40"
+            >
+              {savingStatus ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 border-t border-slate-100 pt-3">
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="no-print text-xs font-semibold text-blue-700 hover:text-blue-900"
+        >
+          {expanded ? "▲ Hide details" : "▼ Details"}
+        </button>
+
+        {expanded ? (
+          <div className="mt-3 space-y-2">
+            <label className="text-xs font-semibold text-slate-500" htmlFor={`outcome-${todo.id}`}>
+              Outcome / findings
+            </label>
+            <textarea
+              id={`outcome-${todo.id}`}
+              value={outcomeDraft}
+              onChange={(event) => setOutcomeDraft(event.target.value)}
+              rows={3}
+              placeholder="What did the visit find? What was done?"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={handleSaveOutcome}
+              disabled={savingOutcome || outcomeDraft === (todo.outcome ?? "")}
+              className="no-print rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40"
+            >
+              {savingOutcome ? "Saving..." : "Save outcome"}
+            </button>
+
+            <p className="pt-1 text-xs text-slate-500">
+              Created: {todo.createdDate || "N/A"} &middot; ID: {todo.id || "N/A"}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-slate-500">ID: {todo.id || "N/A"}</p>
+        )}
+      </div>
+    </article>
+  );
 }
 
 export default function ToDoPage() {
@@ -102,7 +302,7 @@ export default function ToDoPage() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/to-do");
+      const response = await fetch("/api/to-do", { cache: "no-store" });
 
       const data = await response.json();
       setTodos(Array.isArray(data.todos) ? data.todos : []);
@@ -266,20 +466,24 @@ export default function ToDoPage() {
   const overdueCount = todos.filter(isOverdue).length;
   const doneCount = todos.filter((todo) => todo.status === "Done").length;
 
-  // One addToDo call per selected account, now that /api/to-do writes
-  // directly to Sheets — used for both the regular single-account case
-  // (selectedAccounts.length === 1) and the multi-account Visit batch.
-  async function submitToDo(accountName: string, notes: string, groupId?: string) {
+  // One to-do per selected account, written as a SINGLE batched request —
+  // not one addToDo call per account. Firing N concurrent requests each
+  // doing their own Sheets append used to lose rows: concurrent appends to
+  // the same range race on "what's the next empty row", so near-simultaneous
+  // calls can land on the same row and silently overwrite each other, each
+  // still reporting success to its own caller. Routing every submission
+  // (one account or many) through the same bulk endpoint keeps this as one
+  // code path instead of two.
+  async function submitToDos(accountNames: string[], groupId?: string) {
     const response = await fetch("/api/to-do", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        action: "addToDo",
+        action: "addToDos",
         ...form,
-        notes,
-        accountName,
+        accountNames,
         groupId,
       }),
     });
@@ -287,7 +491,7 @@ export default function ToDoPage() {
     const data = await response.json();
 
     if (!data.success) {
-      throw new Error(data.message || `Could not add to-do for ${accountName}.`);
+      throw new Error(data.message || "Could not add to-do(s).");
     }
   }
 
@@ -316,36 +520,19 @@ export default function ToDoPage() {
     // one picked) doesn't need one.
     const groupId =
       selectedAccounts.length > 1 ? crypto.randomUUID() : undefined;
-    const notes = form.notes;
 
     try {
-      const results = await Promise.allSettled(
-        selectedAccounts.map((accountName) =>
-          submitToDo(accountName, notes, groupId)
-        )
-      );
-
-      const failedAccounts = results
-        .map((result, index) =>
-          result.status === "rejected" ? selectedAccounts[index] : null
-        )
-        .filter((name): name is string => Boolean(name));
-
+      await submitToDos(selectedAccounts, groupId);
       await loadTodos();
-
-      if (failedAccounts.length > 0) {
-        setSelectedAccounts(failedAccounts);
-        alert(
-          `Could not add a to-do for: ${failedAccounts.join(", ")}. The rest were saved — fix and resubmit for the remaining account(s).`
-        );
-        return;
-      }
-
       setForm(emptyForm);
       setSelectedAccounts([]);
     } catch (error) {
-      console.error("Failed to add to-do:", error);
-      alert("Could not add to-do.");
+      console.error("Failed to add to-do(s):", error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Could not add to-do(s). Nothing was saved — fix and resubmit."
+      );
     } finally {
       setSaving(false);
     }
@@ -376,6 +563,33 @@ export default function ToDoPage() {
     } catch (error) {
       console.error("Failed to update to-do:", error);
       alert("Could not update to-do.");
+    }
+  }
+
+  async function updateOutcome(toDoId: string, outcome: string) {
+    try {
+      const response = await fetch("/api/to-do", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "updateToDoOutcome",
+          toDoId,
+          outcome,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || "Could not save outcome.");
+      }
+
+      await loadTodos();
+    } catch (error) {
+      console.error("Failed to save outcome:", error);
+      alert("Could not save outcome.");
     }
   }
 
@@ -638,92 +852,13 @@ export default function ToDoPage() {
             </div>
           ) : (
             filteredTodos.map((todo) => (
-              <article
+              <ToDoCard
                 key={todo.id}
-                className="print-card rounded-2xl bg-white p-5 shadow-sm"
-              >
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                        {todo.taskType || "Task"}
-                      </span>
-
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                        {todo.status || "Open"}
-                      </span>
-
-                      {isOverdue(todo) ? (
-                        <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
-                          Overdue
-                        </span>
-                      ) : null}
-
-                      {todo.groupId && (groupCounts.get(todo.groupId) ?? 0) > 1 ? (
-                        <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
-                          Recurring ({groupCounts.get(todo.groupId)} accounts)
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <h3 className="mt-3 text-lg font-bold">
-                      {todo.accountName}
-                    </h3>
-
-                    <p className="mt-1 text-sm text-slate-600">
-                      Assigned to:{" "}
-                      <span className="font-semibold">{todo.assignedTo}</span>
-                    </p>
-
-                    {todo.dueDate ? (
-                      <p className="text-sm text-slate-600">
-                        Due:{" "}
-                        <span className="font-semibold">{todo.dueDate}</span>
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="no-print flex flex-wrap gap-2">
-                    {todo.status !== "In Progress" && todo.status !== "Done" ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateStatus(todo.id, "In Progress", todo.notes)
-                        }
-                        className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50"
-                      >
-                        In Progress
-                      </button>
-                    ) : null}
-
-                    {todo.status !== "Done" ? (
-                      <button
-                        type="button"
-                        onClick={() => updateStatus(todo.id, "Done", todo.notes)}
-                        className="rounded-xl bg-green-700 px-3 py-2 text-xs font-semibold text-white hover:bg-green-600"
-                      >
-                        Done
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="mt-4 space-y-2 text-sm text-slate-700">
-                  <p>
-                    <span className="font-semibold">Why:</span> {todo.why}
-                  </p>
-
-                  {todo.notes ? (
-                    <p>
-                      <span className="font-semibold">Notes:</span> {todo.notes}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500">
-                  ID: {todo.id || "N/A"}
-                </div>
-              </article>
+                todo={todo}
+                recurringCount={todo.groupId ? groupCounts.get(todo.groupId) ?? 0 : 0}
+                onUpdateStatus={updateStatus}
+                onSaveOutcome={updateOutcome}
+              />
             ))
           )}
         </section>

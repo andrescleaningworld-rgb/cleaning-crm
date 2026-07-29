@@ -1,22 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendToDo, fetchToDos, updateToDoStatus } from "@/lib/googleSheets";
+import { appendToDo, appendToDos, fetchToDos, updateToDoOutcome, updateToDoStatus } from "@/lib/googleSheets";
 
 export async function GET() {
   try {
     const todos = await fetchToDos();
 
-    return NextResponse.json(
-      {
-        success: true,
-        todos,
-        message: "",
-      },
-      {
-        headers: {
-          "Cache-Control": "public, max-age=20, stale-while-revalidate=40",
-        },
-      }
-    );
+    // Deliberately uncached: this list is expected to reflect a create/
+    // status-update immediately after the action that caused it, and an
+    // HTTP-cached response here previously made just-created to-dos look
+    // like they hadn't saved.
+    return NextResponse.json({
+      success: true,
+      todos,
+      message: "",
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -54,6 +51,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, id });
     }
 
+    // One to-do per account, written as a single batched Sheets append —
+    // see appendToDos' comment for why this can't be N separate addToDo
+    // calls fired concurrently.
+    if (action === "addToDos") {
+      const accountNames = Array.isArray(body.accountNames)
+        ? body.accountNames.map((name: unknown) => String(name)).filter(Boolean)
+        : [];
+
+      if (accountNames.length === 0) {
+        return NextResponse.json(
+          { success: false, message: "No accounts provided." },
+          { status: 400 }
+        );
+      }
+
+      const shared = {
+        dueDate: String(body.dueDate ?? ""),
+        assignedTo: String(body.assignedTo ?? ""),
+        taskType: String(body.taskType ?? ""),
+        why: String(body.why ?? ""),
+        status: String(body.status || "Open"),
+        notes: String(body.notes ?? ""),
+        groupId: typeof body.groupId === "string" ? body.groupId : "",
+      };
+
+      const ids = await appendToDos(
+        accountNames.map((accountName: string) => ({ ...shared, accountName }))
+      );
+
+      return NextResponse.json({ success: true, ids });
+    }
+
     if (action === "updateToDoStatus") {
       const toDoId = String(body.toDoId ?? "");
 
@@ -69,6 +98,21 @@ export async function POST(request: NextRequest) {
         String(body.status ?? ""),
         String(body.notes ?? "")
       );
+
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "updateToDoOutcome") {
+      const toDoId = String(body.toDoId ?? "");
+
+      if (!toDoId) {
+        return NextResponse.json(
+          { success: false, message: "Missing toDoId." },
+          { status: 400 }
+        );
+      }
+
+      await updateToDoOutcome(toDoId, String(body.outcome ?? ""));
 
       return NextResponse.json({ success: true });
     }

@@ -1137,6 +1137,11 @@ const TO_DO_COL = {
   // group and badge them ("Recurring (3 accounts)"). Blank for ordinary
   // to-dos and for every row written before this column existed.
   GROUP_ID:     9, // J
+  // Deeper-detail writeup (what was actually found/done on a visit),
+  // distinct from NOTES (a short, frequently-edited "latest update") and
+  // WHY (the reason the to-do was created, set once). Blank for every row
+  // written before this column existed.
+  OUTCOME:      10, // K
 } as const;
 
 export type ToDo = {
@@ -1151,24 +1156,26 @@ export type ToDo = {
   status: string;
   notes: string;
   groupId: string;
+  outcome: string;
 };
 
+// Unlike the other tabs in this file, To-Do reads deliberately skip the
+// shared 60s row cache: it's a small, action-driven list where users expect
+// a create/status-update to show up immediately, and the in-memory cache is
+// per serverless instance — a write on one instance doesn't invalidate the
+// cache on whichever instance happens to serve the next read, which reads
+// as "my to-dos didn't save" even though they did.
 async function fetchToDoRows(): Promise<string[][]> {
-  const cacheKey = `tab-${TO_DO_TAB}`;
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
-
   const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:J`,
+      range: `${TO_DO_RANGE}!A:K`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
 
-  setCache(cacheKey, rows);
   return rows;
 }
 
@@ -1187,6 +1194,7 @@ export async function fetchToDos(): Promise<ToDo[]> {
       status:      r[TO_DO_COL.STATUS]        ?? "",
       notes:       r[TO_DO_COL.NOTES]         ?? "",
       groupId:     r[TO_DO_COL.GROUP_ID]      ?? "",
+      outcome:     r[TO_DO_COL.OUTCOME]       ?? "",
     }))
     .filter((t) => t.id);
 }
@@ -1195,7 +1203,7 @@ export async function fetchToDos(): Promise<ToDo[]> {
 // functions (appendManager, appendSubSchedule, appendScheduleException,
 // logSubcontractorVisit) — callers reload the list rather than relying on a
 // full record back.
-export async function appendToDo(data: {
+type ToDoInput = {
   dueDate: string;
   assignedTo: string;
   accountName: string;
@@ -1204,7 +1212,25 @@ export async function appendToDo(data: {
   status: string;
   notes: string;
   groupId?: string;
-}): Promise<string> {
+};
+
+function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[] {
+  return [
+    id,
+    createdDate,
+    data.dueDate,
+    data.assignedTo,
+    data.accountName,
+    data.taskType,
+    data.why,
+    data.status,
+    data.notes,
+    data.groupId ?? "",
+    "", // OUTCOME — only ever set later, via updateToDoOutcome
+  ];
+}
+
+export async function appendToDo(data: ToDoInput): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const id = `TODO-${stamp}`;
   // yyyy-MM-dd, matching this file's other created/submitted-date fields
@@ -1216,26 +1242,63 @@ export async function appendToDo(data: {
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:J`,
+    range: `${TO_DO_RANGE}!A:K`,
     valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [[
-        id,
-        createdDate,
-        data.dueDate,
-        data.assignedTo,
-        data.accountName,
-        data.taskType,
-        data.why,
-        data.status,
-        data.notes,
-        data.groupId ?? "",
-      ]],
-    },
+    requestBody: { values: [buildToDoRow(id, createdDate, data)] },
   });
 
-  invalidateCache(`tab-${TO_DO_TAB}`);
   return id;
+}
+
+// Bulk "one independent to-do per selected account" creation (the multi-
+// account Visit form) MUST go through a single values.append call with all
+// rows in one requestBody, not N concurrent per-account calls: the Sheets
+// API determines each append's target row by reading the current end of
+// the table, and concurrent appends to the same range race on that read —
+// several near-simultaneous calls can land on the same row and overwrite
+// each other. Each call still reports success to its caller when this
+// happens, so the failure is invisible to Promise.allSettled-style
+// per-request error handling; only a single serialized write avoids it.
+export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
+  if (entries.length === 0) return [];
+
+  const baseStamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const createdDate = new Date().toISOString().slice(0, 10);
+  // Every row in the batch would otherwise share the same second-resolution
+  // stamp as appendToDo's id — suffix with the row's index to keep ids
+  // unique within one batch.
+  const ids = entries.map((_, index) => `TODO-${baseStamp}-${index}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${TO_DO_RANGE}!A:K`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: entries.map((data, index) => buildToDoRow(ids[index], createdDate, data)) },
+  });
+
+  return ids;
+}
+
+// Shared by updateToDoStatus/updateToDoOutcome — both need the current
+// sheet row for a given To Do ID before they can target a single-cell
+// range, and neither can rely on a cached row index since a row's position
+// shifts if rows above it are ever added/removed.
+async function findToDoSheetRow(sheets: ReturnType<typeof google.sheets>, targetId: string): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${TO_DO_RANGE}!A:A`,
+    })
+  );
+
+  const ids = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = ids.findIndex((r) => (r[0] ?? "").trim() === targetId);
+  if (rowIndex === -1) {
+    throw new Error(`To-do "${targetId}" not found.`);
+  }
+  return rowIndex + 2; // header row + 1-based sheet rows
 }
 
 export async function updateToDoStatus(
@@ -1248,20 +1311,7 @@ export async function updateToDoStatus(
 
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
-
-  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
-    sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:J`,
-    })
-  );
-
-  const rows = ((res.data.values ?? []) as string[][]).slice(1);
-  const rowIndex = rows.findIndex((r) => (r[TO_DO_COL.ID] ?? "").trim() === targetId);
-  if (rowIndex === -1) {
-    throw new Error(`To-do "${targetId}" not found.`);
-  }
-  const sheetRow = rowIndex + 2; // header row + 1-based sheet rows
+  const sheetRow = await findToDoSheetRow(sheets, targetId);
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
@@ -1273,8 +1323,24 @@ export async function updateToDoStatus(
       ],
     },
   });
+}
 
-  invalidateCache(`tab-${TO_DO_TAB}`);
+// Deeper-detail writeup (what was actually found/done), separate from the
+// short "latest update" notes above — see the OUTCOME column comment.
+export async function updateToDoOutcome(toDoId: string, outcome: string): Promise<void> {
+  const targetId = toDoId.trim();
+  if (!targetId) throw new Error("Missing to-do id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetRow = await findToDoSheetRow(sheets, targetId);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${TO_DO_RANGE}!K${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[outcome]] },
+  });
 }
 
 // ─── Managers ──────────────────────────────────────────────────────────────
