@@ -1109,6 +1109,165 @@ export async function deleteScheduleException(sheetRow: number): Promise<void> {
   });
 }
 
+// ─── To-Dos ──────────────────────────────────────────────────────────────
+// Migrated off the Apps Script backend (strangler-fig, same as
+// updateSubcontractor below). Confirmed against the Apps Script source
+// before migrating: To Do ID is a timestamp-based generated string (not
+// row-position-derived, so it's a stable lookup key), Created Date is a
+// plain server-stamped value (not a sheet formula), and neither addToDo nor
+// updateToDoStatus has side effects (no emails, no dedup) — a direct-write
+// port carries no hidden behavior to replicate. Lives in the same
+// spreadsheet as Managers/SubSchedules/Subcontractors (GOOGLE_MAIN_SHEET_ID).
+
+const TO_DO_TAB = "To Do";
+const TO_DO_RANGE = `'${TO_DO_TAB}'`; // tab name has a space, must be quoted in A1 notation
+
+const TO_DO_COL = {
+  ID:           0, // A
+  CREATED_DATE: 1, // B
+  DUE_DATE:     2, // C
+  ASSIGNED_TO:  3, // D
+  ACCOUNT:      4, // E
+  TASK_TYPE:    5, // F
+  WHY:          6, // G
+  STATUS:       7, // H
+  NOTES:        8, // I
+} as const;
+
+export type ToDo = {
+  sheetRow: number;
+  id: string;
+  createdDate: string;
+  dueDate: string;
+  assignedTo: string;
+  accountName: string;
+  taskType: string;
+  why: string;
+  status: string;
+  notes: string;
+};
+
+async function fetchToDoRows(): Promise<string[][]> {
+  const cacheKey = `tab-${TO_DO_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${TO_DO_RANGE}!A:I`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchToDos(): Promise<ToDo[]> {
+  const rows = await fetchToDoRows();
+  return rows
+    .map((r, i) => ({
+      sheetRow:    i + 2,
+      id:          r[TO_DO_COL.ID]           ?? "",
+      createdDate: r[TO_DO_COL.CREATED_DATE] ?? "",
+      dueDate:     r[TO_DO_COL.DUE_DATE]      ?? "",
+      assignedTo:  r[TO_DO_COL.ASSIGNED_TO]   ?? "",
+      accountName: r[TO_DO_COL.ACCOUNT]       ?? "",
+      taskType:    r[TO_DO_COL.TASK_TYPE]     ?? "",
+      why:         r[TO_DO_COL.WHY]           ?? "",
+      status:      r[TO_DO_COL.STATUS]        ?? "",
+      notes:       r[TO_DO_COL.NOTES]         ?? "",
+    }))
+    .filter((t) => t.id);
+}
+
+// Returns just the generated To Do ID, matching this file's other append*
+// functions (appendManager, appendSubSchedule, appendScheduleException,
+// logSubcontractorVisit) — callers reload the list rather than relying on a
+// full record back.
+export async function appendToDo(data: {
+  dueDate: string;
+  assignedTo: string;
+  accountName: string;
+  taskType: string;
+  why: string;
+  status: string;
+  notes: string;
+}): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const id = `TODO-${stamp}`;
+  // yyyy-MM-dd, matching this file's other created/submitted-date fields
+  // (appendSubSchedule's submittedDate, appendScheduleException's
+  // createdDate) and the old Apps Script behavior this replaced.
+  const createdDate = new Date().toISOString().slice(0, 10);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${TO_DO_RANGE}!A:I`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[
+        id,
+        createdDate,
+        data.dueDate,
+        data.assignedTo,
+        data.accountName,
+        data.taskType,
+        data.why,
+        data.status,
+        data.notes,
+      ]],
+    },
+  });
+
+  invalidateCache(`tab-${TO_DO_TAB}`);
+  return id;
+}
+
+export async function updateToDoStatus(
+  toDoId: string,
+  status: string,
+  notes: string
+): Promise<void> {
+  const targetId = toDoId.trim();
+  if (!targetId) throw new Error("Missing to-do id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${TO_DO_RANGE}!A:I`,
+    })
+  );
+
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[TO_DO_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) {
+    throw new Error(`To-do "${targetId}" not found.`);
+  }
+  const sheetRow = rowIndex + 2; // header row + 1-based sheet rows
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: {
+      valueInputOption: "USER_ENTERED",
+      data: [
+        { range: `${TO_DO_RANGE}!H${sheetRow}`, values: [[status]] },
+        { range: `${TO_DO_RANGE}!I${sheetRow}`, values: [[notes]] },
+      ],
+    },
+  });
+
+  invalidateCache(`tab-${TO_DO_TAB}`);
+}
+
 // ─── Managers ──────────────────────────────────────────────────────────────
 
 const MANAGERS_TAB = "Managers";

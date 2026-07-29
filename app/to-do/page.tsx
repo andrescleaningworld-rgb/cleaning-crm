@@ -297,18 +297,7 @@ export default function ToDoPage() {
       <div className="mx-auto max-w-7xl space-y-6">
         <CleaningWorldHeader />
 
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Cleaning World
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight">To-Do List</h1>
-            <p className="mt-1 text-sm text-slate-600">
-              Simple list for account visits, follow-ups, complaints, and
-              onboarding.
-            </p>
-          </div>
-
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={() => window.print()}

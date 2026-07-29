@@ -1,61 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+import { appendToDo, fetchToDos, updateToDoStatus } from "@/lib/googleSheets";
 
 export async function GET() {
-  if (!GOOGLE_SCRIPT_URL) {
+  try {
+    const todos = await fetchToDos();
+
     return NextResponse.json(
       {
-        success: false,
-        message: "GOOGLE_SCRIPT_URL is missing.",
-        todos: [],
+        success: true,
+        todos,
+        message: "",
       },
-      { status: 500 }
+      {
+        headers: {
+          "Cache-Control": "public, max-age=20, stale-while-revalidate=40",
+        },
+      }
     );
-  }
-
-  try {
-    const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getToDos`, {
-      method: "GET",
-      cache: "no-store",
-    });
-
-    const text = await response.text();
-
-    try {
-      const data = JSON.parse(text);
-
-      const todos = Array.isArray(data)
-        ? data
-        : Array.isArray(data.todos)
-          ? data.todos
-          : Array.isArray(data.data)
-            ? data.data
-            : [];
-
-      return NextResponse.json(
-        {
-          success: true,
-          todos,
-          message: data.message || "",
-        },
-        {
-          headers: {
-            "Cache-Control": "public, max-age=20, stale-while-revalidate=40",
-          },
-        }
-      );
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Google Script did not return valid JSON.",
-          raw: text,
-          todos: [],
-        },
-        { status: 500 }
-      );
-    }
   } catch (error) {
     return NextResponse.json(
       {
@@ -70,16 +31,6 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!GOOGLE_SCRIPT_URL) {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "GOOGLE_SCRIPT_URL is missing.",
-      },
-      { status: 500 }
-    );
-  }
-
   try {
     const body = await request.json();
 
@@ -88,33 +39,43 @@ export async function POST(request: NextRequest) {
         ? body.action
         : "addToDo";
 
-    const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify({
-        ...body,
-        action,
-      }),
-      cache: "no-store",
-    });
+    if (action === "addToDo") {
+      const id = await appendToDo({
+        dueDate: String(body.dueDate ?? ""),
+        assignedTo: String(body.assignedTo ?? ""),
+        accountName: String(body.accountName ?? ""),
+        taskType: String(body.taskType ?? ""),
+        why: String(body.why ?? ""),
+        status: String(body.status || "Open"),
+        notes: String(body.notes ?? ""),
+      });
 
-    const text = await response.text();
-
-    try {
-      const data = JSON.parse(text);
-      return NextResponse.json(data);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Google Script did not return valid JSON.",
-          raw: text,
-        },
-        { status: 500 }
-      );
+      return NextResponse.json({ success: true, id });
     }
+
+    if (action === "updateToDoStatus") {
+      const toDoId = String(body.toDoId ?? "");
+
+      if (!toDoId) {
+        return NextResponse.json(
+          { success: false, message: "Missing toDoId." },
+          { status: 400 }
+        );
+      }
+
+      await updateToDoStatus(
+        toDoId,
+        String(body.status ?? ""),
+        String(body.notes ?? "")
+      );
+
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json(
+      { success: false, message: `Unsupported action "${action}".` },
+      { status: 400 }
+    );
   } catch (error) {
     return NextResponse.json(
       {
