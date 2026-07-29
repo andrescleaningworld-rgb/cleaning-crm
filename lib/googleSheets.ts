@@ -1132,6 +1132,11 @@ const TO_DO_COL = {
   WHY:          6, // G
   STATUS:       7, // H
   NOTES:        8, // I
+  // Client-generated (crypto.randomUUID()), shared by every to-do created
+  // together from the "recurring visit" multi-account form — lets the UI
+  // group and badge them ("Recurring (3 accounts)"). Blank for ordinary
+  // to-dos and for every row written before this column existed.
+  GROUP_ID:     9, // J
 } as const;
 
 export type ToDo = {
@@ -1145,6 +1150,7 @@ export type ToDo = {
   why: string;
   status: string;
   notes: string;
+  groupId: string;
 };
 
 async function fetchToDoRows(): Promise<string[][]> {
@@ -1157,7 +1163,7 @@ async function fetchToDoRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:I`,
+      range: `${TO_DO_RANGE}!A:J`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1180,6 +1186,7 @@ export async function fetchToDos(): Promise<ToDo[]> {
       why:         r[TO_DO_COL.WHY]           ?? "",
       status:      r[TO_DO_COL.STATUS]        ?? "",
       notes:       r[TO_DO_COL.NOTES]         ?? "",
+      groupId:     r[TO_DO_COL.GROUP_ID]      ?? "",
     }))
     .filter((t) => t.id);
 }
@@ -1196,6 +1203,7 @@ export async function appendToDo(data: {
   why: string;
   status: string;
   notes: string;
+  groupId?: string;
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const id = `TODO-${stamp}`;
@@ -1208,7 +1216,7 @@ export async function appendToDo(data: {
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:I`,
+    range: `${TO_DO_RANGE}!A:J`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
       values: [[
@@ -1221,6 +1229,7 @@ export async function appendToDo(data: {
         data.why,
         data.status,
         data.notes,
+        data.groupId ?? "",
       ]],
     },
   });
@@ -1243,7 +1252,7 @@ export async function updateToDoStatus(
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:I`,
+      range: `${TO_DO_RANGE}!A:J`,
     })
   );
 

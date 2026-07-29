@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
         why: String(body.why ?? ""),
         status: String(body.status || "Open"),
         notes: String(body.notes ?? ""),
+        groupId: typeof body.groupId === "string" ? body.groupId : "",
       });
 
       return NextResponse.json({ success: true, id });

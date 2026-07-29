@@ -3,6 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import AccountMultiSelect, {
+  type AccountMultiSelectOption,
+} from "@/app/components/AccountMultiSelect";
 
 type ToDo = {
   id: string;
@@ -18,17 +21,25 @@ type ToDo = {
   // it (see app/complaints/new/page.tsx). Optional: only set on to-dos
   // auto-created from a complaint, not on manually-created ones.
   complaintId?: string;
+  // Shared by every to-do created together from the "recurring visit"
+  // multi-account form (see handleSubmit) — blank on ordinary to-dos.
+  groupId?: string;
 };
 
 type Account = {
   name?: string;
   accountName?: string;
+  status?: string;
+};
+
+type Manager = {
+  name?: string;
+  status?: string;
 };
 
 type ToDoForm = {
   dueDate: string;
   assignedTo: string;
-  accountName: string;
   taskType: string;
   why: string;
   status: string;
@@ -38,7 +49,6 @@ type ToDoForm = {
 const emptyForm: ToDoForm = {
   dueDate: "",
   assignedTo: "",
-  accountName: "",
   taskType: "Visit",
   why: "",
   status: "Open",
@@ -56,6 +66,18 @@ const taskTypes = [
 ];
 
 const statuses = ["Open", "In Progress", "Done", "Cancelled"];
+
+// Matches the frequency terminology already used for subcontractor visit
+// schedules (see FREQUENCY_LABELS in app/sub-schedules/full-calendar.tsx) —
+// this is a plain descriptive label folded into the to-do's notes, not tied
+// to that scheduling engine.
+const cadenceOptions = [
+  "Weekly",
+  "Every Other Week",
+  "1x per Month",
+  "2x per Month",
+  "As Needed",
+];
 
 function getAccountName(account: Account) {
   return account.accountName || account.name || "";
@@ -77,7 +99,13 @@ function isOverdue(todo: ToDo) {
 export default function ToDoPage() {
   const [todos, setTodos] = useState<ToDo[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(true);
+  const [managers, setManagers] = useState<string[]>([]);
+  const [loadingManagers, setLoadingManagers] = useState(true);
   const [form, setForm] = useState<ToDoForm>(emptyForm);
+  const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
+  const [recurring, setRecurring] = useState(false);
+  const [cadence, setCadence] = useState(cadenceOptions[0]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -103,6 +131,8 @@ export default function ToDoPage() {
   }
 
   async function loadAccounts() {
+    setLoadingAccounts(true);
+
     try {
       const response = await fetch("/api/accounts");
 
@@ -118,22 +148,81 @@ export default function ToDoPage() {
     } catch (error) {
       console.error("Failed to load accounts:", error);
       setAccounts([]);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  }
+
+  // Mirrors app/complaints/new/page.tsx's loadManagers(): missing/blank
+  // status is treated as Active so a manager row that predates the Status
+  // column (or was left blank by mistake) still shows up here rather than
+  // silently disappearing from the dropdown.
+  async function loadManagers() {
+    setLoadingManagers(true);
+
+    try {
+      const response = await fetch("/api/admin/managers", {
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+      const rows: Manager[] = Array.isArray(data)
+        ? data
+        : data.managers || data.data || [];
+
+      const activeNames = Array.from(
+        new Set(
+          rows
+            .filter((row) => !row.status || row.status === "Active")
+            .map((row) => (row.name || "").trim())
+            .filter(Boolean)
+        )
+      ).sort();
+
+      setManagers(activeNames);
+    } catch (error) {
+      console.error("Failed to load managers:", error);
+      setManagers([]);
+    } finally {
+      setLoadingManagers(false);
     }
   }
 
   useEffect(() => {
     loadTodos();
     loadAccounts();
+    loadManagers();
   }, []);
 
-  const accountOptions = useMemo(() => {
-    const names = accounts.map(getAccountName).filter(Boolean);
-    return Array.from(new Set(names)).sort();
+  const accountMultiOptions = useMemo<AccountMultiSelectOption[]>(() => {
+    const seen = new Set<string>();
+    const options: AccountMultiSelectOption[] = [];
+
+    for (const account of accounts) {
+      const name = getAccountName(account);
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      options.push({ name, status: account.status });
+    }
+
+    return options;
   }, [accounts]);
 
   const assignedOptions = useMemo(() => {
     const names = todos.map((todo) => todo.assignedTo).filter(Boolean);
     return ["All", ...Array.from(new Set(names)).sort()];
+  }, [todos]);
+
+  // Counts to-dos sharing a groupId (recurring multi-account batches) across
+  // the full list, not just the currently filtered view, so the "Recurring
+  // (N accounts)" badge stays accurate even when a filter hides siblings.
+  const groupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const todo of todos) {
+      if (!todo.groupId) continue;
+      counts.set(todo.groupId, (counts.get(todo.groupId) ?? 0) + 1);
+    }
+    return counts;
   }, [todos]);
 
   const filteredTodos = useMemo(() => {
@@ -193,6 +282,31 @@ export default function ToDoPage() {
   const overdueCount = todos.filter(isOverdue).length;
   const doneCount = todos.filter((todo) => todo.status === "Done").length;
 
+  // One addToDo call per selected account, now that /api/to-do writes
+  // directly to Sheets — used for both the regular single-account case
+  // (selectedAccounts.length === 1) and the recurring multi-account batch.
+  async function submitToDo(accountName: string, notes: string, groupId?: string) {
+    const response = await fetch("/api/to-do", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "addToDo",
+        ...form,
+        notes,
+        accountName,
+        groupId,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.message || `Could not add to-do for ${accountName}.`);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -201,8 +315,8 @@ export default function ToDoPage() {
       return;
     }
 
-    if (!form.accountName.trim()) {
-      alert("Account is required.");
+    if (selectedAccounts.length === 0) {
+      alert("Select at least one account.");
       return;
     }
 
@@ -213,26 +327,45 @@ export default function ToDoPage() {
 
     setSaving(true);
 
+    // Only stamp a groupId when there's actually something to group —
+    // a single-account submission (recurring toggled on but only one
+    // account picked) doesn't need one.
+    const groupId =
+      selectedAccounts.length > 1 ? crypto.randomUUID() : undefined;
+    const notes =
+      recurring && cadence
+        ? [form.notes.trim(), `Recurring cadence: ${cadence}.`]
+            .filter(Boolean)
+            .join(" ")
+        : form.notes;
+
     try {
-      const response = await fetch("/api/to-do", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "addToDo",
-          ...form,
-        }),
-      });
+      const results = await Promise.allSettled(
+        selectedAccounts.map((accountName) =>
+          submitToDo(accountName, notes, groupId)
+        )
+      );
 
-      const data = await response.json();
+      const failedAccounts = results
+        .map((result, index) =>
+          result.status === "rejected" ? selectedAccounts[index] : null
+        )
+        .filter((name): name is string => Boolean(name));
 
-      if (!data.success) {
-        throw new Error(data.message || "Could not add to-do.");
+      await loadTodos();
+
+      if (failedAccounts.length > 0) {
+        setSelectedAccounts(failedAccounts);
+        alert(
+          `Could not add a to-do for: ${failedAccounts.join(", ")}. The rest were saved — fix and resubmit for the remaining account(s).`
+        );
+        return;
       }
 
       setForm(emptyForm);
-      await loadTodos();
+      setSelectedAccounts([]);
+      setRecurring(false);
+      setCadence(cadenceOptions[0]);
     } catch (error) {
       console.error("Failed to add to-do:", error);
       alert("Could not add to-do.");
@@ -348,7 +481,7 @@ export default function ToDoPage() {
 
             <div>
               <label className="text-sm font-semibold">Assigned To</label>
-              <input
+              <select
                 value={form.assignedTo}
                 onChange={(event) =>
                   setForm((current) => ({
@@ -356,46 +489,78 @@ export default function ToDoPage() {
                     assignedTo: event.target.value,
                   }))
                 }
-                placeholder="Junior Account Manager"
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold">Account</label>
-
-              <input
-                list="to-do-account-options"
-                value={form.accountName}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    accountName: event.target.value,
-                  }))
-                }
-                onFocus={(event) => {
-                  event.currentTarget.showPicker?.();
-                }}
-                placeholder={
-                  accountOptions.length > 0
-                    ? "Click to select or type account"
-                    : "Loading accounts..."
-                }
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-              />
-
-              <datalist id="to-do-account-options">
-                {accountOptions.map((accountName) => (
-                  <option key={accountName} value={accountName}>
-                    {accountName}
+                disabled={loadingManagers}
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
+              >
+                <option value="">
+                  {loadingManagers ? "Loading managers..." : "Select manager"}
+                </option>
+                {managers.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
-              </datalist>
+              </select>
+            </div>
 
-              <p className="mt-1 text-xs text-slate-500">
-                Start typing to search, or click the field to choose from the
-                account list.
-              </p>
+            <div className="md:col-span-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold">
+                  {recurring ? "Accounts" : "Account"}
+                </label>
+
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={recurring}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setRecurring(checked);
+                      if (!checked) {
+                        // Dropping back to a single to-do: keep only the
+                        // first pick rather than silently discarding the
+                        // whole selection.
+                        setSelectedAccounts((current) => current.slice(0, 1));
+                      }
+                    }}
+                  />
+                  Recurring visit (multiple accounts)
+                </label>
+              </div>
+
+              <div className="mt-1">
+                <AccountMultiSelect
+                  accounts={accountMultiOptions}
+                  selected={selectedAccounts}
+                  onChange={setSelectedAccounts}
+                  singleSelect={!recurring}
+                  loading={loadingAccounts}
+                  placeholder={
+                    recurring ? "Select accounts" : "Select account"
+                  }
+                />
+              </div>
+
+              {recurring ? (
+                <div className="mt-2">
+                  <label className="text-xs font-semibold text-slate-600">
+                    Cadence
+                  </label>
+                  <select
+                    value={cadence}
+                    onChange={(event) => setCadence(event.target.value)}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm md:w-64"
+                  >
+                    {cadenceOptions.map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Creates one to-do per selected account, all tagged as the
+                    same recurring group.
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div>
@@ -551,6 +716,12 @@ export default function ToDoPage() {
                       {isOverdue(todo) ? (
                         <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
                           Overdue
+                        </span>
+                      ) : null}
+
+                      {todo.groupId && (groupCounts.get(todo.groupId) ?? 0) > 1 ? (
+                        <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
+                          Recurring ({groupCounts.get(todo.groupId)} accounts)
                         </span>
                       ) : null}
                     </div>
