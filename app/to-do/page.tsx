@@ -21,8 +21,8 @@ type ToDo = {
   // it (see app/complaints/new/page.tsx). Optional: only set on to-dos
   // auto-created from a complaint, not on manually-created ones.
   complaintId?: string;
-  // Shared by every to-do created together from the "recurring visit"
-  // multi-account form (see handleSubmit) — blank on ordinary to-dos.
+  // Shared by every to-do created together when multiple accounts are
+  // selected on a Visit (see handleSubmit) — blank on ordinary to-dos.
   groupId?: string;
 };
 
@@ -67,18 +67,6 @@ const taskTypes = [
 
 const statuses = ["Open", "In Progress", "Done", "Cancelled"];
 
-// Matches the frequency terminology already used for subcontractor visit
-// schedules (see FREQUENCY_LABELS in app/sub-schedules/full-calendar.tsx) —
-// this is a plain descriptive label folded into the to-do's notes, not tied
-// to that scheduling engine.
-const cadenceOptions = [
-  "Weekly",
-  "Every Other Week",
-  "1x per Month",
-  "2x per Month",
-  "As Needed",
-];
-
 function getAccountName(account: Account) {
   return account.accountName || account.name || "";
 }
@@ -104,8 +92,6 @@ export default function ToDoPage() {
   const [loadingManagers, setLoadingManagers] = useState(true);
   const [form, setForm] = useState<ToDoForm>(emptyForm);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
-  const [recurring, setRecurring] = useState(false);
-  const [cadence, setCadence] = useState(cadenceOptions[0]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -284,7 +270,7 @@ export default function ToDoPage() {
 
   // One addToDo call per selected account, now that /api/to-do writes
   // directly to Sheets — used for both the regular single-account case
-  // (selectedAccounts.length === 1) and the recurring multi-account batch.
+  // (selectedAccounts.length === 1) and the multi-account Visit batch.
   async function submitToDo(accountName: string, notes: string, groupId?: string) {
     const response = await fetch("/api/to-do", {
       method: "POST",
@@ -328,16 +314,11 @@ export default function ToDoPage() {
     setSaving(true);
 
     // Only stamp a groupId when there's actually something to group —
-    // a single-account submission (recurring toggled on but only one
-    // account picked) doesn't need one.
+    // a single-account submission (multiple accounts allowed but only
+    // one picked) doesn't need one.
     const groupId =
       selectedAccounts.length > 1 ? crypto.randomUUID() : undefined;
-    const notes =
-      recurring && cadence
-        ? [form.notes.trim(), `Recurring cadence: ${cadence}.`]
-            .filter(Boolean)
-            .join(" ")
-        : form.notes;
+    const notes = form.notes;
 
     try {
       const results = await Promise.allSettled(
@@ -364,8 +345,6 @@ export default function ToDoPage() {
 
       setForm(emptyForm);
       setSelectedAccounts([]);
-      setRecurring(false);
-      setCadence(cadenceOptions[0]);
     } catch (error) {
       console.error("Failed to add to-do:", error);
       alert("Could not add to-do.");
@@ -504,20 +483,9 @@ export default function ToDoPage() {
             </div>
 
             <div className="md:col-span-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold">
-                  {form.taskType === "Visit" ? "Accounts" : "Account"}
-                </label>
-
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={recurring}
-                    onChange={(event) => setRecurring(event.target.checked)}
-                  />
-                  Recurring visit (multiple accounts)
-                </label>
-              </div>
+              <label className="text-sm font-semibold">
+                {form.taskType === "Visit" ? "Accounts" : "Account"}
+              </label>
 
               <div className="mt-1">
                 <AccountMultiSelect
@@ -531,27 +499,6 @@ export default function ToDoPage() {
                   }
                 />
               </div>
-
-              {recurring ? (
-                <div className="mt-2">
-                  <label className="text-xs font-semibold text-slate-600">
-                    Cadence
-                  </label>
-                  <select
-                    value={cadence}
-                    onChange={(event) => setCadence(event.target.value)}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm md:w-64"
-                  >
-                    {cadenceOptions.map((option) => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Creates one to-do per selected account, all tagged as the
-                    same recurring group.
-                  </p>
-                </div>
-              ) : null}
             </div>
 
             <div>
