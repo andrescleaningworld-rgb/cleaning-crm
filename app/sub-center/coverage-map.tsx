@@ -221,51 +221,84 @@ async function fetchMapAccounts(): Promise<MapAccountRecord[]> {
     .filter((account) => account.name !== "Unnamed Account" && account.fullAddress && isServicedStatus(account.status));
 }
 
-type SubRecord = {
-  name: string;
-  address: string;
+type SubCoverageRecord = {
+  subcontractor: string;
+  distanceMiles: number;
+  accountCount: number;
+  nearestAccountName: string;
+  nearestAccountAddress: string;
+  nearestAccountCoords: { lat: number; lng: number };
 };
 
-type SubDistanceRecord = SubRecord & { distanceMiles: number };
+// Distance bands for the proximity search — red (effectively on top of an
+// existing job) fading through orange/yellow down to green/gray for
+// anything far away. Applied both to the ranked list dots and the map
+// markers below so the two stay visually in sync.
+const PROXIMITY_BANDS: Array<{ maxMiles: number; color: string; label: string }> = [
+  { maxMiles: 1, color: "#dc2626", label: "< 1 mi" },
+  { maxMiles: 3, color: "#f97316", label: "1-3 mi" },
+  { maxMiles: 5, color: "#eab308", label: "3-5 mi" },
+  { maxMiles: 10, color: "#65a30d", label: "5-10 mi" },
+  { maxMiles: Infinity, color: "#6b7280", label: "10+ mi" },
+];
 
-// Mirrors app/subcontractors/page.tsx's getStatus: a blank status column
-// defaults to "Active" rather than being treated as inactive/hidden.
-function isActiveSubStatus(row: AnyRow): boolean {
-  const status = cleanText(getValue(row, ["status", "Status"]), "Active");
-  return status.toLowerCase() === "active";
+function proximityColor(distanceMiles: number): string {
+  return (PROXIMITY_BANDS.find((band) => distanceMiles < band.maxMiles) ?? PROXIMITY_BANDS[PROXIMITY_BANDS.length - 1]).color;
 }
 
-// Subcontractors only have a single free-text address (no stored lat/lng),
-// so "closest subs" geocodes that address the same way fetchMapAccounts'
-// caller geocodes account addresses — via the shared /api/geocode/batch
-// cache, not a distinct pipeline.
-async function fetchActiveSubcontractors(): Promise<SubRecord[]> {
-  const response = await fetch("/api/subcontractors");
-  const result = (await response.json()) as { success?: boolean; error?: string; subcontractors?: AnyRow[] };
+// Subcontractors don't have a reliable geocoded home address (their
+// free-text `address` field is often blank or just a mailing address, not
+// where they actually work), so "closest sub" is inferred from the
+// coordinates of the accounts already assigned to them instead.
+//
+// Ranking uses each sub's SINGLE NEAREST assigned account, not the centroid
+// of all their accounts: a sub who already services one job half a mile
+// from the searched address is a strong, concrete signal even if their
+// other accounts are scattered across the territory, whereas an averaged
+// center point can land nowhere near any real job and would bury that
+// nearby account under a misleading aggregate distance. accountCount is
+// still surfaced per sub so a single-account match can be told apart from
+// one backed by a large existing territory.
+//
+// `accounts` must already be filtered to those with valid, in-service-area
+// coordinates by the caller (see geocodedServiceAreaAccounts below) — this
+// is what excludes both unresolved geocodes (ZERO_RESULTS) and the known
+// outlier/bad-coordinate accounts from skewing results.
+function findClosestSubs(point: { lat: number; lng: number }, accounts: MapAccountRecord[], limit: number): SubCoverageRecord[] {
+  const bySub = new Map<
+    string,
+    { accountCount: number; nearestAccount: MapAccountRecord; nearestDistance: number }
+  >();
 
-  if (!result.success) {
-    throw new Error(result.error || "Could not load subcontractors.");
+  for (const account of accounts) {
+    if (account.subcontractor === "Unassigned" || account.latitude === null || account.longitude === null) continue;
+
+    const distance = haversineMiles(point, { lat: account.latitude, lng: account.longitude });
+    const existing = bySub.get(account.subcontractor);
+
+    if (!existing) {
+      bySub.set(account.subcontractor, { accountCount: 1, nearestAccount: account, nearestDistance: distance });
+      continue;
+    }
+
+    existing.accountCount += 1;
+    if (distance < existing.nearestDistance) {
+      existing.nearestAccount = account;
+      existing.nearestDistance = distance;
+    }
   }
 
-  const rows = Array.isArray(result.subcontractors) ? result.subcontractors : [];
-
-  return rows
-    .filter(isActiveSubStatus)
-    .map((row) => ({
-      name: cleanText(
-        getValue(row, [
-          "companyName",
-          "Company Name",
-          "company",
-          "Company",
-          "Subcontractor",
-          "Sub Contractor",
-          "Subcontractor Name",
-        ])
-      ),
-      address: cleanText(getValue(row, ["address", "Address"])),
+  return Array.from(bySub.entries())
+    .map(([subcontractor, entry]) => ({
+      subcontractor,
+      distanceMiles: entry.nearestDistance,
+      accountCount: entry.accountCount,
+      nearestAccountName: entry.nearestAccount.name,
+      nearestAccountAddress: entry.nearestAccount.fullAddress,
+      nearestAccountCoords: { lat: entry.nearestAccount.latitude as number, lng: entry.nearestAccount.longitude as number },
     }))
-    .filter((sub) => sub.name && sub.address);
+    .sort((a, b) => a.distanceMiles - b.distanceMiles)
+    .slice(0, limit);
 }
 
 // NOTE: google.maps.visualization.HeatmapLayer was removed in Maps
@@ -386,27 +419,91 @@ function TownBubbles({ clusters }: { clusters: TownCluster[] }) {
   );
 }
 
+// A single marker for the searched address itself — dark fill with a white
+// ring so it reads as "you are here" against the colored sub markers.
+function SearchPointMarker({ point }: { point: { lat: number; lng: number } }) {
+  return (
+    <Circle
+      center={point}
+      radius={220}
+      fillColor="#111827"
+      fillOpacity={0.9}
+      strokeColor="#ffffff"
+      strokeOpacity={1}
+      strokeWeight={2}
+      clickable={false}
+    />
+  );
+}
+
+// One colored dot per ranked sub, placed at that sub's single nearest
+// account (the same account driving its ranking in the list below) rather
+// than at every account they own — keeps the overlay readable and ties
+// each marker directly to the evidence behind its ranking.
+function SubProximityMarkers({ records }: { records: SubCoverageRecord[] }) {
+  const [selectedSub, setSelectedSub] = useState<string | null>(null);
+  const selected = records.find((record) => record.subcontractor === selectedSub) ?? null;
+
+  return (
+    <>
+      {records.map((record) => (
+        <Circle
+          key={record.subcontractor}
+          center={record.nearestAccountCoords}
+          radius={300}
+          fillColor={proximityColor(record.distanceMiles)}
+          fillOpacity={0.85}
+          strokeColor="#ffffff"
+          strokeOpacity={1}
+          strokeWeight={1.5}
+          clickable
+          onClick={() => setSelectedSub(record.subcontractor)}
+        />
+      ))}
+
+      {selected ? (
+        <InfoWindow position={selected.nearestAccountCoords} onCloseClick={() => setSelectedSub(null)}>
+          <div className="max-w-[220px] text-sm">
+            <p className="font-black text-gray-900">{selected.subcontractor}</p>
+            <p className="mt-1 text-xs font-bold text-gray-600">{selected.distanceMiles.toFixed(1)} mi away</p>
+            <p className="mt-1 text-xs text-gray-700">
+              Nearest job: {selected.nearestAccountName} — {selected.nearestAccountAddress}
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              {selected.accountCount} account{selected.accountCount === 1 ? "" : "s"} total
+            </p>
+          </div>
+        </InfoWindow>
+      ) : null}
+    </>
+  );
+}
+
+type SubDistanceFinderProps = {
+  searchPoint: { lat: number; lng: number } | null;
+  onSearchPointChange: (point: { lat: number; lng: number } | null) => void;
+  closestSubs: SubCoverageRecord[];
+  isGeocodingAccounts: boolean;
+};
+
 // Address search for "closest subcontractors to this point." Must render
 // inside <APIProvider> — uses useMapsLibrary("places") rather than its own
 // <Script> tag (the pattern GoogleAddressAutocompleteInput uses elsewhere)
 // so it reuses the same Maps JS bootstrap APIProvider already loads for the
 // map itself, instead of injecting a second, competing script tag.
-function SubDistanceFinder() {
+//
+// The search point itself is lifted to the parent (CoverageMap) so the map
+// can plot proximity markers for it — this component stays focused on the
+// input widget and the ranked-list readout; ranking is computed by the
+// parent from the same geocoded account data driving the rest of the map.
+function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGeocodingAccounts }: SubDistanceFinderProps) {
   const placesLibrary = useMapsLibrary("places");
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   const [addressInput, setAddressInput] = useState("");
-  const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
-
-  // Loaded lazily — only once a search actually happens — rather than on
-  // every Coverage > Map visit, since most visits won't use this box.
-  const [subcontractors, setSubcontractors] = useState<SubRecord[] | null>(null);
-  const [subCoords, setSubCoords] = useState<Record<string, { lat: number; lng: number } | null>>({});
-  const [isLoadingSubs, setIsLoadingSubs] = useState(false);
-  const [isGeocodingSubs, setIsGeocodingSubs] = useState(false);
 
   useEffect(() => {
     if (!placesLibrary || !inputRef.current || autocompleteRef.current) return;
@@ -433,106 +530,15 @@ function SubDistanceFinder() {
 
       setErrorMessage("");
       setAddressInput(place.formatted_address || inputRef.current?.value || "");
-      setSearchPoint({ lat: latitude, lng: longitude });
+      onSearchPointChange({ lat: latitude, lng: longitude });
     });
 
     return () => {
       window.google?.maps?.event?.removeListener(listener);
       autocompleteRef.current = null;
     };
-  }, [placesLibrary]);
-
-  useEffect(() => {
-    if (!searchPoint) return;
-
-    let cancelled = false;
-
-    async function ensureSubData() {
-      let subs = subcontractors;
-
-      if (subs === null) {
-        setIsLoadingSubs(true);
-        try {
-          subs = await fetchActiveSubcontractors();
-          if (cancelled) return;
-          setSubcontractors(subs);
-        } catch (error) {
-          if (!cancelled) {
-            setErrorMessage(error instanceof Error ? error.message : "Could not load subcontractors.");
-          }
-          return;
-        } finally {
-          if (!cancelled) setIsLoadingSubs(false);
-        }
-      }
-
-      const toGeocode = Array.from(
-        new Set((subs ?? []).filter((sub) => !(sub.address in subCoords)).map((sub) => sub.address))
-      );
-
-      if (toGeocode.length === 0) return;
-
-      setIsGeocodingSubs(true);
-      try {
-        for (let i = 0; i < toGeocode.length; i += GEOCODE_BATCH_SIZE) {
-          if (cancelled) return;
-          const chunk = toGeocode.slice(i, i + GEOCODE_BATCH_SIZE);
-
-          const response = await fetch("/api/geocode/batch", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ addresses: chunk }),
-          });
-
-          if (response.ok) {
-            const data = (await response.json()) as {
-              results: Array<{ address: string; latitude: number | null; longitude: number | null }>;
-            };
-
-            if (!cancelled) {
-              setSubCoords((prev) => {
-                const next = { ...prev };
-                for (const result of data.results) {
-                  next[result.address] =
-                    result.latitude !== null && result.longitude !== null
-                      ? { lat: result.latitude, lng: result.longitude }
-                      : null;
-                }
-                return next;
-              });
-            }
-          }
-        }
-      } catch {
-        // Network error — affected subs simply stay excluded from the results below.
-      } finally {
-        if (!cancelled) setIsGeocodingSubs(false);
-      }
-    }
-
-    ensureSubData();
-
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchPoint]);
-
-  const closestSubs = useMemo<SubDistanceRecord[]>(() => {
-    if (!searchPoint || !subcontractors) return [];
-
-    return subcontractors
-      .map((sub) => {
-        const coords = subCoords[sub.address];
-        if (!coords) return null;
-        return { ...sub, distanceMiles: haversineMiles(searchPoint, coords) };
-      })
-      .filter((sub): sub is SubDistanceRecord => sub !== null)
-      .sort((a, b) => a.distanceMiles - b.distanceMiles)
-      .slice(0, CLOSEST_SUB_COUNT);
-  }, [searchPoint, subcontractors, subCoords]);
-
-  const isBusy = isLoadingSubs || isGeocodingSubs;
+  }, [placesLibrary]);
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -552,22 +558,43 @@ function SubDistanceFinder() {
 
       {errorMessage ? <p className="mt-2 text-xs font-bold text-red-700">{errorMessage}</p> : null}
 
-      {searchPoint && isBusy ? (
-        <p className="mt-2 text-xs font-bold text-blue-700">Finding closest subcontractors...</p>
+      {searchPoint && isGeocodingAccounts ? (
+        <p className="mt-2 text-xs font-bold text-blue-700">
+          Still geocoding account locations in the background — results below may be incomplete until that finishes.
+        </p>
       ) : null}
 
-      {searchPoint && !isBusy ? (
+      {searchPoint ? (
         closestSubs.length > 0 ? (
-          <ul className="mt-3 space-y-1.5">
-            {closestSubs.map((sub) => (
-              <li key={`${sub.name}|${sub.address}`} className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-semibold text-gray-900">{sub.name}</span>
-                <span className="whitespace-nowrap text-xs font-bold text-gray-600">{sub.distanceMiles.toFixed(1)} mi</span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="mt-3 space-y-1.5">
+              {closestSubs.map((sub) => (
+                <li key={sub.subcontractor} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: proximityColor(sub.distanceMiles) }}
+                      aria-hidden
+                    />
+                    <span className="truncate font-semibold text-gray-900">{sub.subcontractor}</span>
+                    <span className="shrink-0 text-xs font-medium text-gray-500">
+                      ({sub.accountCount} acct{sub.accountCount === 1 ? "" : "s"})
+                    </span>
+                  </span>
+                  <span className="shrink-0 whitespace-nowrap text-xs font-bold text-gray-600">
+                    {sub.distanceMiles.toFixed(1)} mi
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[11px] font-semibold leading-relaxed text-gray-400">
+              Ranked by each sub&apos;s nearest existing account to the searched address.
+            </p>
+          </>
         ) : (
-          <p className="mt-2 text-xs font-bold text-gray-500">No subcontractors with a known location were found.</p>
+          <p className="mt-2 text-xs font-bold text-gray-500">
+            No subcontractors with a validly-geocoded assigned account were found nearby.
+          </p>
         )
       ) : null}
     </div>
@@ -582,6 +609,8 @@ export default function CoverageMap() {
 
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, { lat: number; lng: number } | null>>({});
   const [geocodingProgress, setGeocodingProgress] = useState<{ total: number; done: number } | null>(null);
+
+  const [searchPoint, setSearchPoint] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -696,6 +725,22 @@ export default function CoverageMap() {
     return filteredAccounts.filter((a) => a.latitude !== null && a.longitude !== null && !isInServiceArea(a.latitude, a.longitude));
   }, [filteredAccounts]);
 
+  // Validly-geocoded, in-service-area accounts across ALL subs — independent
+  // of the subFilter dropdown above, since "closest sub" is a global query
+  // ("who's nearest, out of everyone") rather than one scoped to whichever
+  // single sub is currently selected for the town-bubble map. This is also
+  // what excludes the known bad-coordinate accounts (unresolved ZERO_RESULTS
+  // geocodes, which never get lat/lng at all, and the outlier accounts whose
+  // coordinates fall outside the service-area box) from skewing rankings.
+  const geocodedServiceAreaAccounts = useMemo(() => {
+    return accountsWithCoords.filter((a) => a.latitude !== null && a.longitude !== null && isInServiceArea(a.latitude, a.longitude));
+  }, [accountsWithCoords]);
+
+  const closestSubs = useMemo(() => {
+    if (!searchPoint) return [];
+    return findClosestSubs(searchPoint, geocodedServiceAreaAccounts, CLOSEST_SUB_COUNT);
+  }, [searchPoint, geocodedServiceAreaAccounts]);
+
   if (!GOOGLE_MAPS_API_KEY) {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm font-bold text-amber-800">
@@ -761,7 +806,12 @@ export default function CoverageMap() {
       ) : null}
 
       <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-        <SubDistanceFinder />
+        <SubDistanceFinder
+          searchPoint={searchPoint}
+          onSearchPointChange={setSearchPoint}
+          closestSubs={closestSubs}
+          isGeocodingAccounts={geocodingProgress !== null}
+        />
 
         <div className="h-[68vh] min-h-[460px] w-full overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
           {isLoading ? (
@@ -775,6 +825,8 @@ export default function CoverageMap() {
               style={{ width: "100%", height: "100%" }}
             >
               <TownBubbles clusters={townClusters} />
+              {searchPoint ? <SearchPointMarker point={searchPoint} /> : null}
+              {searchPoint && closestSubs.length > 0 ? <SubProximityMarkers records={closestSubs} /> : null}
             </GoogleMap>
           )}
         </div>
