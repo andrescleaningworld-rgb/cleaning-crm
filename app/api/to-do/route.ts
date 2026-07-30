@@ -53,10 +53,12 @@ export async function POST(request: NextRequest) {
 
     // One to-do per account, written as a single batched Sheets append —
     // see appendToDos' comment for why this can't be N separate addToDo
-    // calls fired concurrently.
+    // calls fired concurrently. An empty-string entry is valid here (a
+    // General Task with no account attached still writes one row, just with
+    // a blank ACCOUNT column) — only a missing/empty array is rejected.
     if (action === "addToDos") {
       const accountNames = Array.isArray(body.accountNames)
-        ? body.accountNames.map((name: unknown) => String(name)).filter(Boolean)
+        ? body.accountNames.map((name: unknown) => String(name))
         : [];
 
       if (accountNames.length === 0) {

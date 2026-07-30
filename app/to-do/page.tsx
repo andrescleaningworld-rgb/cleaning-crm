@@ -64,8 +64,15 @@ const taskTypes = [
   "New Account Onboarding",
   "Customer Call",
   "Subcontractor Follow-Up",
+  "General Task",
   "Other",
 ];
+
+// The only task type where an account link is optional — quotes/calls/
+// emails to a customer can still name an account, but a personal reminder
+// ("order more supplies") has nothing to attach. Every other type keeps the
+// existing required-account validation.
+const ACCOUNT_OPTIONAL_TASK_TYPE = "General Task";
 
 const statuses = ["Open", "In Progress", "Done", "Cancelled"];
 
@@ -172,7 +179,9 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
             ) : null}
           </div>
 
-          <h3 className="mt-3 text-lg font-bold">{todo.accountName}</h3>
+          <h3 className="mt-3 text-lg font-bold">
+            {todo.accountName || `${todo.taskType || "General Task"} (no account)`}
+          </h3>
 
           <p className="mt-1 text-sm text-slate-600">
             Assigned to: <span className="font-semibold">{todo.assignedTo}</span>
@@ -503,7 +512,7 @@ export default function ToDoPage() {
       return;
     }
 
-    if (selectedAccounts.length === 0) {
+    if (selectedAccounts.length === 0 && form.taskType !== ACCOUNT_OPTIONAL_TASK_TYPE) {
       alert("Select at least one account.");
       return;
     }
@@ -521,8 +530,14 @@ export default function ToDoPage() {
     const groupId =
       selectedAccounts.length > 1 ? crypto.randomUUID() : undefined;
 
+    // A General Task with no account picked still writes one row — just
+    // with a blank ACCOUNT column — so this stays the same single batched
+    // code path as every other submission instead of branching into a
+    // separate "no account" request.
+    const accountNames = selectedAccounts.length > 0 ? selectedAccounts : [""];
+
     try {
-      await submitToDos(selectedAccounts, groupId);
+      await submitToDos(accountNames, groupId);
       await loadTodos();
       setForm(emptyForm);
       setSelectedAccounts([]);
@@ -694,7 +709,11 @@ export default function ToDoPage() {
 
             <div className="md:col-span-2">
               <label className="text-sm font-semibold">
-                {form.taskType === "Visit" ? "Accounts" : "Account"}
+                {form.taskType === "Visit"
+                  ? "Accounts"
+                  : form.taskType === ACCOUNT_OPTIONAL_TASK_TYPE
+                    ? "Account (optional)"
+                    : "Account"}
               </label>
 
               <div className="mt-1">
@@ -705,7 +724,11 @@ export default function ToDoPage() {
                   singleSelect={form.taskType !== "Visit"}
                   loading={loadingAccounts}
                   placeholder={
-                    form.taskType === "Visit" ? "Select accounts" : "Select account"
+                    form.taskType === "Visit"
+                      ? "Select accounts"
+                      : form.taskType === ACCOUNT_OPTIONAL_TASK_TYPE
+                        ? "Select account (optional)"
+                        : "Select account"
                   }
                 />
               </div>
