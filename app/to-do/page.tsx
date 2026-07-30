@@ -113,23 +113,59 @@ function isOverdue(todo: ToDo) {
   return dueDate < today;
 }
 
+export type ToDoEditFields = {
+  assignedTo: string;
+  taskType: string;
+  dueDate: string;
+  status: string;
+};
+
 type ToDoCardProps = {
   todo: ToDo;
   recurringCount: number;
+  managers: string[];
   onUpdateStatus: (toDoId: string, status: string, notes: string) => Promise<void>;
   onSaveOutcome: (toDoId: string, outcome: string) => Promise<void>;
+  onEditToDo: (toDoId: string, updates: ToDoEditFields) => Promise<void>;
+  bulkEditMode: boolean;
+  bulkSelected: boolean;
+  onToggleBulkSelected: (toDoId: string) => void;
 };
 
 // Status-change buttons and the "Latest update" Save button all funnel
 // through onUpdateStatus with the currently-typed notesDraft (not just
 // todo.notes) — clicking "Done" with an unsaved note in the box still
 // persists that note instead of silently dropping it.
-function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoCardProps) {
+function ToDoCard({
+  todo,
+  recurringCount,
+  managers,
+  onUpdateStatus,
+  onSaveOutcome,
+  onEditToDo,
+  bulkEditMode,
+  bulkSelected,
+  onToggleBulkSelected,
+}: ToDoCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [notesDraft, setNotesDraft] = useState(todo.notes);
   const [outcomeDraft, setOutcomeDraft] = useState(todo.outcome ?? "");
   const [savingStatus, setSavingStatus] = useState(false);
   const [savingOutcome, setSavingOutcome] = useState(false);
+
+  // Assigned To / Type / Due Date / Status editing. Notes already has its
+  // own working "Latest update" save flow above (via onUpdateStatus), so
+  // it isn't duplicated here — this panel only covers the fields that
+  // previously had no way to change after creation at all.
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState<ToDoEditFields>({
+    assignedTo: todo.assignedTo,
+    taskType: todo.taskType,
+    dueDate: todo.dueDate,
+    status: todo.status,
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
 
   useEffect(() => {
     setNotesDraft(todo.notes);
@@ -138,6 +174,15 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
   useEffect(() => {
     setOutcomeDraft(todo.outcome ?? "");
   }, [todo.outcome]);
+
+  useEffect(() => {
+    setEditDraft({
+      assignedTo: todo.assignedTo,
+      taskType: todo.taskType,
+      dueDate: todo.dueDate,
+      status: todo.status,
+    });
+  }, [todo.assignedTo, todo.taskType, todo.dueDate, todo.status]);
 
   async function handleStatusChange(status: string) {
     setSavingStatus(true);
@@ -157,8 +202,51 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
     }
   }
 
+  async function handleSaveEdit() {
+    setEditError("");
+    if (!editDraft.assignedTo.trim()) {
+      setEditError("Assigned To is required.");
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await onEditToDo(todo.id, editDraft);
+      setEditing(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Could not save changes.");
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  function handleCancelEdit() {
+    setEditDraft({
+      assignedTo: todo.assignedTo,
+      taskType: todo.taskType,
+      dueDate: todo.dueDate,
+      status: todo.status,
+    });
+    setEditError("");
+    setEditing(false);
+  }
+
   return (
-    <article className="print-card rounded-2xl bg-white p-5 shadow-sm">
+    <article
+      className={`print-card flex gap-3 rounded-2xl bg-white p-5 shadow-sm ${
+        bulkEditMode && bulkSelected ? "ring-2 ring-blue-500" : ""
+      }`}
+    >
+      {bulkEditMode ? (
+        <input
+          type="checkbox"
+          checked={bulkSelected}
+          onChange={() => onToggleBulkSelected(todo.id)}
+          aria-label={`Select to-do: ${todo.why || todo.id}`}
+          className="no-print mt-1 h-5 w-5 shrink-0 rounded border-slate-300"
+        />
+      ) : null}
+      <div className="min-w-0 flex-1">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap gap-2">
@@ -196,18 +284,130 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
             {todo.accountName || `${todo.taskType || "Reminder"} (no account)`}
           </h3>
 
-          <p className="mt-1 text-sm text-slate-600">
-            Assigned to: <span className="font-semibold">{todo.assignedTo}</span>
-          </p>
+          {editing ? (
+            <div className="mt-2 space-y-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+              {editError ? (
+                <p className="text-xs font-semibold text-red-700">{editError}</p>
+              ) : null}
 
-          {todo.dueDate ? (
-            <p className="text-sm text-slate-600">
-              Due: <span className="font-semibold">{todo.dueDate}</span>
-            </p>
-          ) : null}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-assigned-${todo.id}`}>
+                    Assigned To
+                  </label>
+                  <select
+                    id={`edit-assigned-${todo.id}`}
+                    value={editDraft.assignedTo}
+                    onChange={(event) => setEditDraft((d) => ({ ...d, assignedTo: event.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">Select a manager...</option>
+                    {managers.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                    {editDraft.assignedTo && !managers.includes(editDraft.assignedTo) ? (
+                      <option value={editDraft.assignedTo}>{editDraft.assignedTo}</option>
+                    ) : null}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-type-${todo.id}`}>
+                    Type
+                  </label>
+                  <select
+                    id={`edit-type-${todo.id}`}
+                    value={editDraft.taskType}
+                    onChange={(event) => setEditDraft((d) => ({ ...d, taskType: event.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    {taskTypes.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-due-${todo.id}`}>
+                    Due Date
+                  </label>
+                  <input
+                    id={`edit-due-${todo.id}`}
+                    type="date"
+                    value={editDraft.dueDate}
+                    onChange={(event) => setEditDraft((d) => ({ ...d, dueDate: event.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-status-${todo.id}`}>
+                    Status
+                  </label>
+                  <select
+                    id={`edit-status-${todo.id}`}
+                    value={editDraft.status}
+                    onChange={(event) => setEditDraft((d) => ({ ...d, status: event.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    {statuses.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                  className="rounded-xl bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                >
+                  {savingEdit ? "Saving..." : "Save Changes"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={savingEdit}
+                  className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-slate-600">
+                Assigned to: <span className="font-semibold">{todo.assignedTo}</span>
+              </p>
+
+              {todo.dueDate ? (
+                <p className="text-sm text-slate-600">
+                  Due: <span className="font-semibold">{todo.dueDate}</span>
+                </p>
+              ) : null}
+            </>
+          )}
         </div>
 
         <div className="no-print flex flex-wrap gap-2">
+          {!editing ? (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50"
+            >
+              Edit
+            </button>
+          ) : null}
+
           {todo.status !== "In Progress" && todo.status !== "Done" ? (
             <button
               type="button"
@@ -300,6 +500,7 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
           <p className="mt-2 text-xs text-slate-500">ID: {todo.id || "N/A"}</p>
         )}
       </div>
+      </div>
     </article>
   );
 }
@@ -319,6 +520,17 @@ export default function ToDoPage() {
   const [assignedFilter, setAssignedFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("Open");
   const [typeFilter, setTypeFilter] = useState("All");
+
+  // Bulk edit: select N existing to-dos (from whatever's currently
+  // filtered/visible), then apply one shared partial update to all of them
+  // via the updateToDos batch action.
+  const [bulkEditMode, setBulkEditMode] = useState(false);
+  const [selectedBulkEditIds, setSelectedBulkEditIds] = useState<Set<string>>(new Set());
+  const [showBulkEditForm, setShowBulkEditForm] = useState(false);
+  const [bulkEditForm, setBulkEditForm] = useState({ assignedTo: "", taskType: "", dueDate: "", status: "" });
+  const [bulkEditSaving, setBulkEditSaving] = useState(false);
+  const [bulkEditError, setBulkEditError] = useState("");
+  const [bulkEditSuccess, setBulkEditSuccess] = useState("");
 
   async function loadTodos() {
     setLoading(true);
@@ -621,6 +833,102 @@ export default function ToDoPage() {
     }
   }
 
+  // Unlike updateStatus/updateOutcome above, errors here are re-thrown
+  // rather than alert()'d — ToDoCard's edit panel shows them inline next
+  // to the fields being edited instead.
+  async function editToDo(toDoId: string, updates: ToDoEditFields) {
+    const response = await fetch("/api/to-do", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        action: "updateToDo",
+        toDoId,
+        ...updates,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.message || "Could not save changes.");
+    }
+
+    await loadTodos();
+  }
+
+  function toggleBulkEditMode() {
+    setBulkEditMode((current) => !current);
+    setSelectedBulkEditIds(new Set());
+    setShowBulkEditForm(false);
+    setBulkEditError("");
+    setBulkEditSuccess("");
+    setBulkEditForm({ assignedTo: "", taskType: "", dueDate: "", status: "" });
+  }
+
+  function toggleBulkEditSelected(toDoId: string) {
+    setSelectedBulkEditIds((current) => {
+      const next = new Set(current);
+      if (next.has(toDoId)) next.delete(toDoId);
+      else next.add(toDoId);
+      return next;
+    });
+  }
+
+  async function submitBulkEdit() {
+    setBulkEditError("");
+    setBulkEditSuccess("");
+
+    const fields: Record<string, string> = {};
+    if (bulkEditForm.assignedTo) fields.assignedTo = bulkEditForm.assignedTo;
+    if (bulkEditForm.taskType) fields.taskType = bulkEditForm.taskType;
+    if (bulkEditForm.dueDate) fields.dueDate = bulkEditForm.dueDate;
+    if (bulkEditForm.status) fields.status = bulkEditForm.status;
+
+    if (Object.keys(fields).length === 0) {
+      setBulkEditError("Fill in at least one field to apply.");
+      return;
+    }
+    if (selectedBulkEditIds.size === 0) {
+      setBulkEditError("Select at least one to-do.");
+      return;
+    }
+
+    setBulkEditSaving(true);
+    try {
+      const response = await fetch("/api/to-do", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateToDos",
+          toDoIds: Array.from(selectedBulkEditIds),
+          ...fields,
+        }),
+      });
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || "Could not update to-dos.");
+      }
+
+      setBulkEditSuccess(
+        `Updated ${data.updated ?? selectedBulkEditIds.size} to-do${
+          (data.updated ?? selectedBulkEditIds.size) === 1 ? "" : "s"
+        }${data.calendarSyncFailed ? " (Calendar sync failed for at least one — check for the warning badge)" : ""}.`
+      );
+      setShowBulkEditForm(false);
+      setBulkEditMode(false);
+      setSelectedBulkEditIds(new Set());
+      setBulkEditForm({ assignedTo: "", taskType: "", dueDate: "", status: "" });
+      await loadTodos();
+    } catch (err) {
+      setBulkEditError(err instanceof Error ? err.message : "Could not update to-dos.");
+    } finally {
+      setBulkEditSaving(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
       <style jsx global>{`
@@ -659,12 +967,156 @@ export default function ToDoPage() {
 
           <button
             type="button"
+            onClick={toggleBulkEditMode}
+            className={`w-full rounded-xl px-5 py-3 text-sm font-semibold text-white md:w-auto ${
+              bulkEditMode ? "bg-amber-600 hover:bg-amber-700" : "bg-indigo-700 hover:bg-indigo-800"
+            }`}
+          >
+            {bulkEditMode ? "Cancel Selection" : "Bulk Edit To-Dos"}
+          </button>
+
+          <button
+            type="button"
             onClick={() => window.print()}
             className="w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 md:w-auto"
           >
             Print Assigned Tasks
           </button>
         </div>
+
+        {bulkEditSuccess ? (
+          <div className="no-print rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+            {bulkEditSuccess}
+          </div>
+        ) : null}
+
+        {bulkEditMode ? (
+          <div className="no-print flex flex-col gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold text-indigo-900">
+              {selectedBulkEditIds.size} to-do{selectedBulkEditIds.size === 1 ? "" : "s"} selected.
+              Check the boxes on the to-dos below (filter first to narrow them down), then apply a
+              shared update to all of them at once.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowBulkEditForm(true)}
+              disabled={selectedBulkEditIds.size === 0}
+              className="shrink-0 rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Bulk Edit Selected ({selectedBulkEditIds.size})
+            </button>
+          </div>
+        ) : null}
+
+        {showBulkEditForm ? (
+          <div className="no-print rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-black text-slate-950">
+              Bulk Edit {selectedBulkEditIds.size} To-Do{selectedBulkEditIds.size === 1 ? "" : "s"}
+            </h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              Only fields you fill in below are applied — leave a field blank to keep each
+              to-do&apos;s existing value. Calendar events sync automatically per to-do if a
+              change affects eligibility (type, due date, or assignment).
+            </p>
+
+            {bulkEditError ? (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                {bulkEditError}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-assigned-to">
+                  Assigned To
+                </label>
+                <select
+                  id="bulk-edit-assigned-to"
+                  value={bulkEditForm.assignedTo}
+                  onChange={(e) => setBulkEditForm((f) => ({ ...f, assignedTo: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Leave unchanged</option>
+                  {managers.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-type">
+                  Type
+                </label>
+                <select
+                  id="bulk-edit-type"
+                  value={bulkEditForm.taskType}
+                  onChange={(e) => setBulkEditForm((f) => ({ ...f, taskType: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Leave unchanged</option>
+                  {taskTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-due-date">
+                  Due Date
+                </label>
+                <input
+                  id="bulk-edit-due-date"
+                  type="date"
+                  value={bulkEditForm.dueDate}
+                  onChange={(e) => setBulkEditForm((f) => ({ ...f, dueDate: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-status">
+                  Status
+                </label>
+                <select
+                  id="bulk-edit-status"
+                  value={bulkEditForm.status}
+                  onChange={(e) => setBulkEditForm((f) => ({ ...f, status: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Leave unchanged</option>
+                  {statuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={submitBulkEdit}
+                disabled={bulkEditSaving}
+                className="rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {bulkEditSaving ? "Applying..." : `Apply to ${selectedBulkEditIds.size} To-Do${selectedBulkEditIds.size === 1 ? "" : "s"}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBulkEditForm(false)}
+                disabled={bulkEditSaving}
+                className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <section className="grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl bg-white p-5 shadow-sm">
@@ -901,8 +1353,13 @@ export default function ToDoPage() {
                 key={todo.id}
                 todo={todo}
                 recurringCount={todo.groupId ? groupCounts.get(todo.groupId) ?? 0 : 0}
+                managers={managers}
                 onUpdateStatus={updateStatus}
                 onSaveOutcome={updateOutcome}
+                onEditToDo={editToDo}
+                bulkEditMode={bulkEditMode}
+                bulkSelected={selectedBulkEditIds.has(todo.id)}
+                onToggleBulkSelected={toggleBulkEditSelected}
               />
             ))
           )}

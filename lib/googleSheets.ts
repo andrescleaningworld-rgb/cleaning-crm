@@ -1331,6 +1331,34 @@ async function findToDoRow(
   return { sheetRow: rowIndex + 2, row: rows[rowIndex] }; // header row + 1-based sheet rows
 }
 
+// Bulk-edit's equivalent of findToDoRow above — one sheet read for N ids
+// instead of N separate reads, same reasoning as appendToDos batching N
+// writes into one request. Missing ids are simply absent from the returned
+// map rather than throwing, so one bad id in a bulk selection doesn't fail
+// the whole batch.
+async function findToDoRows(
+  sheets: ReturnType<typeof google.sheets>,
+  targetIds: string[]
+): Promise<Map<string, { sheetRow: number; row: string[] }>> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${TO_DO_RANGE}!A:M`,
+    })
+  );
+
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const wanted = new Set(targetIds);
+  const found = new Map<string, { sheetRow: number; row: string[] }>();
+
+  rows.forEach((row, index) => {
+    const id = (row[TO_DO_COL.ID] ?? "").trim();
+    if (wanted.has(id)) found.set(id, { sheetRow: index + 2, row });
+  });
+
+  return found;
+}
+
 export type ToDoStatusUpdateResult = {
   accountName: string;
   why: string;
@@ -1384,6 +1412,211 @@ export async function setToDoCalendarSyncFailed(toDoId: string, failed: boolean)
     range: `${TO_DO_RANGE}!M${sheetRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [[failed ? "TRUE" : ""]] },
+  });
+}
+
+// Same reasoning as setToDoCalendarSyncFailed above, but for the edit flow
+// (see updateToDo below), which can also need to write a changed/cleared
+// calendarEventId (column L) after the API route decides whether to
+// create, patch, or cancel a Calendar event — that decision happens after
+// updateToDo's own field write, so it can't be folded into the same call.
+export async function setToDoCalendarFields(
+  toDoId: string,
+  fields: { calendarEventId?: string; calendarSyncFailed?: boolean }
+): Promise<void> {
+  const targetId = toDoId.trim();
+  if (!targetId) throw new Error("Missing to-do id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const { sheetRow } = await findToDoRow(sheets, targetId);
+
+  const data: { range: string; values: string[][] }[] = [];
+  if (fields.calendarEventId !== undefined) {
+    data.push({ range: `${TO_DO_RANGE}!L${sheetRow}`, values: [[fields.calendarEventId]] });
+  }
+  if (fields.calendarSyncFailed !== undefined) {
+    data.push({ range: `${TO_DO_RANGE}!M${sheetRow}`, values: [[fields.calendarSyncFailed ? "TRUE" : ""]] });
+  }
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+export type ToDoEditInput = {
+  dueDate?: string;
+  assignedTo?: string;
+  taskType?: string;
+  status?: string;
+  notes?: string;
+};
+
+export type ToDoEditResult = {
+  accountName: string;
+  why: string;
+  // Resolved values: the new value where the edit changed it, the existing
+  // sheet value otherwise — the API route needs these (not just the diff)
+  // to recompute Calendar eligibility against the to-do's full current state.
+  taskType: string;
+  dueDate: string;
+  assignedTo: string;
+  status: string;
+  notes: string;
+  // Pre-edit value, so the route can tell whether a Calendar event already
+  // existed before deciding whether to create/patch/cancel one.
+  previousCalendarEventId: string;
+};
+
+// Full-field edit (Assigned To / Type / Due Date / Status / Notes) for a
+// to-do that already exists — unlike updateToDoStatus, which only ever
+// touches status+notes, this can change anything that Calendar eligibility
+// depends on. Only the fields present in `updates` are written; omitted
+// fields keep their current sheet value untouched (same "partial update"
+// contract app/api/to-do/route.ts's bulk-edit action relies on for item 3).
+export async function updateToDo(toDoId: string, updates: ToDoEditInput): Promise<ToDoEditResult> {
+  const targetId = toDoId.trim();
+  if (!targetId) throw new Error("Missing to-do id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const { sheetRow, row } = await findToDoRow(sheets, targetId);
+
+  const data: { range: string; values: string[][] }[] = [];
+  if (updates.dueDate !== undefined) data.push({ range: `${TO_DO_RANGE}!C${sheetRow}`, values: [[updates.dueDate]] });
+  if (updates.assignedTo !== undefined) data.push({ range: `${TO_DO_RANGE}!D${sheetRow}`, values: [[updates.assignedTo]] });
+  if (updates.taskType !== undefined) data.push({ range: `${TO_DO_RANGE}!F${sheetRow}`, values: [[updates.taskType]] });
+  if (updates.status !== undefined) data.push({ range: `${TO_DO_RANGE}!H${sheetRow}`, values: [[updates.status]] });
+  if (updates.notes !== undefined) data.push({ range: `${TO_DO_RANGE}!I${sheetRow}`, values: [[updates.notes]] });
+
+  if (data.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
+
+  return {
+    accountName: row[TO_DO_COL.ACCOUNT] ?? "",
+    why: row[TO_DO_COL.WHY] ?? "",
+    taskType: updates.taskType ?? row[TO_DO_COL.TASK_TYPE] ?? "",
+    dueDate: updates.dueDate ?? row[TO_DO_COL.DUE_DATE] ?? "",
+    assignedTo: updates.assignedTo ?? row[TO_DO_COL.ASSIGNED_TO] ?? "",
+    status: updates.status ?? row[TO_DO_COL.STATUS] ?? "",
+    notes: updates.notes ?? row[TO_DO_COL.NOTES] ?? "",
+    previousCalendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
+  };
+}
+
+export type ToDoBulkEditEntry = {
+  toDoId: string;
+  updates: ToDoEditInput;
+};
+
+export type ToDoBulkEditResult = ToDoEditResult & {
+  toDoId: string;
+  sheetRow: number;
+  notFound?: boolean;
+};
+
+// Bulk equivalent of updateToDo — every entry's field writes are folded
+// into ONE spreadsheets.values.batchUpdate call (same reasoning as
+// appendToDos), rather than looping updateToDo per row. Each entry can
+// carry different `updates` (matters for future use), though today's only
+// caller (app/api/to-do/route.ts's updateToDos action) applies the same
+// partial update to every selected id. An id that no longer exists in the
+// sheet is reported back via `notFound` rather than failing the batch.
+export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<ToDoBulkEditResult[]> {
+  const targetIds = entries.map((entry) => entry.toDoId.trim()).filter(Boolean);
+  if (targetIds.length === 0) return [];
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const rowsById = await findToDoRows(sheets, targetIds);
+
+  const data: { range: string; values: string[][] }[] = [];
+  const results: ToDoBulkEditResult[] = [];
+
+  for (const entry of entries) {
+    const targetId = entry.toDoId.trim();
+    const found = rowsById.get(targetId);
+    if (!found) {
+      results.push({
+        toDoId: targetId,
+        sheetRow: -1,
+        accountName: "",
+        why: "",
+        taskType: "",
+        dueDate: "",
+        assignedTo: "",
+        status: "",
+        notes: "",
+        previousCalendarEventId: "",
+        notFound: true,
+      });
+      continue;
+    }
+
+    const { sheetRow, row } = found;
+    const { updates } = entry;
+
+    if (updates.dueDate !== undefined) data.push({ range: `${TO_DO_RANGE}!C${sheetRow}`, values: [[updates.dueDate]] });
+    if (updates.assignedTo !== undefined) data.push({ range: `${TO_DO_RANGE}!D${sheetRow}`, values: [[updates.assignedTo]] });
+    if (updates.taskType !== undefined) data.push({ range: `${TO_DO_RANGE}!F${sheetRow}`, values: [[updates.taskType]] });
+    if (updates.status !== undefined) data.push({ range: `${TO_DO_RANGE}!H${sheetRow}`, values: [[updates.status]] });
+    if (updates.notes !== undefined) data.push({ range: `${TO_DO_RANGE}!I${sheetRow}`, values: [[updates.notes]] });
+
+    results.push({
+      toDoId: targetId,
+      sheetRow,
+      accountName: row[TO_DO_COL.ACCOUNT] ?? "",
+      why: row[TO_DO_COL.WHY] ?? "",
+      taskType: updates.taskType ?? row[TO_DO_COL.TASK_TYPE] ?? "",
+      dueDate: updates.dueDate ?? row[TO_DO_COL.DUE_DATE] ?? "",
+      assignedTo: updates.assignedTo ?? row[TO_DO_COL.ASSIGNED_TO] ?? "",
+      status: updates.status ?? row[TO_DO_COL.STATUS] ?? "",
+      notes: updates.notes ?? row[TO_DO_COL.NOTES] ?? "",
+      previousCalendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
+    });
+  }
+
+  if (data.length > 0) {
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
+
+  return results;
+}
+
+// Batch counterpart to setToDoCalendarFields, keyed by sheetRow (already
+// known from updateToDosBatch's results) rather than toDoId, so this skips
+// a second findToDoRow(s) lookup entirely — one combined batchUpdate for
+// every row's post-Calendar-sync outcome instead of N single-cell writes.
+export async function setToDoCalendarFieldsBatch(
+  entries: { sheetRow: number; calendarEventId?: string; calendarSyncFailed?: boolean }[]
+): Promise<void> {
+  const data: { range: string; values: string[][] }[] = [];
+
+  for (const entry of entries) {
+    if (entry.sheetRow < 0) continue; // notFound placeholder — nothing to write
+    if (entry.calendarEventId !== undefined) {
+      data.push({ range: `${TO_DO_RANGE}!L${entry.sheetRow}`, values: [[entry.calendarEventId]] });
+    }
+    if (entry.calendarSyncFailed !== undefined) {
+      data.push({ range: `${TO_DO_RANGE}!M${entry.sheetRow}`, values: [[entry.calendarSyncFailed ? "TRUE" : ""]] });
+    }
+  }
+  if (data.length === 0) return;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
   });
 }
 

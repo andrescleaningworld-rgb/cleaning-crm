@@ -1,6 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendToDo, appendToDos, fetchToDos, setToDoCalendarSyncFailed, updateToDoOutcome, updateToDoStatus } from "@/lib/googleSheets";
-import { createCalendarEventForToDo, updateCalendarEventForToDo, type ToDoCalendarInput } from "@/lib/googleCalendar";
+import {
+  appendToDo,
+  appendToDos,
+  fetchToDos,
+  setToDoCalendarFields,
+  setToDoCalendarFieldsBatch,
+  setToDoCalendarSyncFailed,
+  updateToDo,
+  updateToDoOutcome,
+  updateToDosBatch,
+  updateToDoStatus,
+} from "@/lib/googleSheets";
+import {
+  CALENDAR_SYNCED_TASK_TYPES,
+  createCalendarEventForToDo,
+  deleteCalendarEventForToDo,
+  updateCalendarEventForToDo,
+  type ToDoCalendarInput,
+} from "@/lib/googleCalendar";
+
+// Shared by the single-edit and bulk-edit actions: given a to-do's
+// resolved post-edit fields and its pre-edit calendarEventId, decide
+// whether to create a new Calendar event (newly eligible), patch the
+// existing one (still eligible), cancel it (no longer eligible), or do
+// nothing (was never eligible and still isn't). Returns the calendarEventId
+// to persist (unchanged, cleared, or newly created) and whether the
+// Calendar call itself failed.
+async function syncCalendarAfterEdit(
+  previousCalendarEventId: string,
+  resolved: { taskType: string; dueDate: string; accountName: string; why: string; notes: string; assignedTo: string; status: string }
+): Promise<{ calendarEventId: string; calendarSyncFailed: boolean }> {
+  const nowEligible = CALENDAR_SYNCED_TASK_TYPES.has(resolved.taskType) && Boolean(resolved.dueDate);
+
+  if (previousCalendarEventId && nowEligible) {
+    const result = await updateCalendarEventForToDo({
+      eventId: previousCalendarEventId,
+      accountName: resolved.accountName,
+      why: resolved.why,
+      status: resolved.status,
+      dueDate: resolved.dueDate,
+      assignedTo: resolved.assignedTo,
+    });
+    return { calendarEventId: previousCalendarEventId, calendarSyncFailed: result.failed };
+  }
+
+  if (previousCalendarEventId && !nowEligible) {
+    const result = await deleteCalendarEventForToDo(previousCalendarEventId);
+    return { calendarEventId: "", calendarSyncFailed: result.failed };
+  }
+
+  if (!previousCalendarEventId && nowEligible) {
+    const result = await createCalendarEventForToDo(resolved);
+    return { calendarEventId: result.eventId ?? "", calendarSyncFailed: result.failed };
+  }
+
+  return { calendarEventId: "", calendarSyncFailed: false };
+}
 
 export async function GET() {
   try {
@@ -140,12 +195,109 @@ export async function POST(request: NextRequest) {
 
       let calendarSyncFailed = false;
       if (calendarEventId) {
-        const result = await updateCalendarEventForToDo(calendarEventId, accountName, why, status);
+        const result = await updateCalendarEventForToDo({ eventId: calendarEventId, accountName, why, status });
         calendarSyncFailed = result.failed;
         await setToDoCalendarSyncFailed(toDoId, calendarSyncFailed);
       }
 
       return NextResponse.json({ success: true, calendarSyncFailed });
+    }
+
+    // Full-field edit — Assigned To / Type / Due Date / Status / Notes.
+    // Unlike updateToDoStatus, any of these can flip Calendar eligibility
+    // (task type off/onto the synced list, due date added/cleared), so this
+    // recomputes and reconciles the Calendar event afterward via
+    // syncCalendarAfterEdit rather than just patching a title in place.
+    // Only keys actually present in the request body are written — omitted
+    // fields keep their existing sheet value (see updateToDo's own comment).
+    if (action === "updateToDo") {
+      const toDoId = String(body.toDoId ?? "");
+
+      if (!toDoId) {
+        return NextResponse.json(
+          { success: false, message: "Missing toDoId." },
+          { status: 400 }
+        );
+      }
+
+      const edits: Parameters<typeof updateToDo>[1] = {};
+      if (body.dueDate !== undefined) edits.dueDate = String(body.dueDate);
+      if (body.assignedTo !== undefined) edits.assignedTo = String(body.assignedTo);
+      if (body.taskType !== undefined) edits.taskType = String(body.taskType);
+      if (body.status !== undefined) edits.status = String(body.status);
+      if (body.notes !== undefined) edits.notes = String(body.notes);
+
+      const resolved = await updateToDo(toDoId, edits);
+
+      const { calendarEventId, calendarSyncFailed } = await syncCalendarAfterEdit(
+        resolved.previousCalendarEventId,
+        resolved
+      );
+
+      // Always persisted (not just on change) — a retried sync can succeed
+      // on the same eventId, and that success must clear a previously-set
+      // calendarSyncFailed flag even though the id itself didn't change.
+      await setToDoCalendarFields(toDoId, { calendarEventId, calendarSyncFailed });
+
+      return NextResponse.json({ success: true, calendarSyncFailed });
+    }
+
+    // Bulk edit — same Assigned To / Type / Due Date / Status fields as
+    // updateToDo above, applied identically to every selected to-do. Unlike
+    // the single-edit action, an empty string here means "leave this field
+    // alone" (not "clear it") — a shared bulk form has no way to represent
+    // "clear this for everyone" separately from "I didn't fill this in", so
+    // blank is always treated as untouched. All Sheet field writes go
+    // through one updateToDosBatch call rather than one updateToDo per id;
+    // Calendar itself has no batch API, so those calls still happen one per
+    // to-do, but their resulting calendarEventId/calendarSyncFailed writes
+    // are folded back into a single setToDoCalendarFieldsBatch call too.
+    if (action === "updateToDos") {
+      const toDoIds: string[] = Array.isArray(body.toDoIds)
+        ? body.toDoIds.map((id: unknown) => String(id)).filter(Boolean)
+        : [];
+
+      if (toDoIds.length === 0) {
+        return NextResponse.json(
+          { success: false, message: "No to-dos selected." },
+          { status: 400 }
+        );
+      }
+
+      const edits: Parameters<typeof updateToDo>[1] = {};
+      if (typeof body.dueDate === "string" && body.dueDate !== "") edits.dueDate = body.dueDate;
+      if (typeof body.assignedTo === "string" && body.assignedTo !== "") edits.assignedTo = body.assignedTo;
+      if (typeof body.taskType === "string" && body.taskType !== "") edits.taskType = body.taskType;
+      if (typeof body.status === "string" && body.status !== "") edits.status = body.status;
+
+      if (Object.keys(edits).length === 0) {
+        return NextResponse.json(
+          { success: false, message: "No fields to update — fill in at least one field." },
+          { status: 400 }
+        );
+      }
+
+      const results = await updateToDosBatch(toDoIds.map((toDoId) => ({ toDoId, updates: edits })));
+      const found = results.filter((r) => !r.notFound);
+
+      const calendarUpdates = await Promise.all(
+        found.map(async (result) => {
+          const { calendarEventId, calendarSyncFailed } = await syncCalendarAfterEdit(
+            result.previousCalendarEventId,
+            result
+          );
+          return { sheetRow: result.sheetRow, calendarEventId, calendarSyncFailed };
+        })
+      );
+
+      await setToDoCalendarFieldsBatch(calendarUpdates);
+
+      return NextResponse.json({
+        success: true,
+        updated: found.length,
+        notFound: results.filter((r) => r.notFound).map((r) => r.toDoId),
+        calendarSyncFailed: calendarUpdates.some((update) => update.calendarSyncFailed),
+      });
     }
 
     if (action === "updateToDoOutcome") {

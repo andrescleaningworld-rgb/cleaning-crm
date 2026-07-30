@@ -125,17 +125,29 @@ export async function createCalendarEventForToDo(input: ToDoCalendarInput): Prom
   }
 }
 
-// Recomputes and pushes the event's title from the to-do's current fields
-// (see buildEventTitle) — never fetches the event first. Called on every
-// status change for a to-do that has a stored calendarEventId; clears
-// reminders when marking Done so a stale notification doesn't fire for an
-// already-finished task.
+export type ToDoCalendarUpdateInput = {
+  eventId: string;
+  accountName: string;
+  why: string;
+  status: string;
+  // Both optional: a plain status-change (Done/In Progress) doesn't know or
+  // need to touch the event's date/color, so callers that only have
+  // accountName/why/status can omit them and this leaves start/end/colorId
+  // alone. An actual to-do edit (see app/api/to-do/route.ts's updateToDo
+  // action) passes both so a changed due date or reassignment is reflected.
+  dueDate?: string;
+  assignedTo?: string;
+};
+
+// Recomputes and pushes the event's title (and, when provided, date/color)
+// from the to-do's current fields (see buildEventTitle) — never fetches the
+// event first. Clears reminders when marking Done so a stale notification
+// doesn't fire for an already-finished task.
 export async function updateCalendarEventForToDo(
-  eventId: string,
-  accountName: string,
-  why: string,
-  status: string
+  input: ToDoCalendarUpdateInput
 ): Promise<{ failed: boolean }> {
+  const { eventId, accountName, why, status, dueDate, assignedTo } = input;
+
   // No stored event id means there was never a synced event to update (e.g.
   // the original create wasn't calendar-eligible) — nothing to report as
   // failed here.
@@ -148,18 +160,47 @@ export async function updateCalendarEventForToDo(
   }
 
   try {
+    const colorId = assignedTo !== undefined ? await getManagerCalendarColorId(assignedTo) : undefined;
     const calendar = getCalendarClient();
     await calendar.events.patch({
       calendarId,
       eventId,
       requestBody: {
         summary: buildEventTitle(accountName, why, status),
+        ...(dueDate ? { start: { date: dueDate }, end: { date: nextDay(dueDate) } } : {}),
+        ...(colorId ? { colorId } : {}),
         ...(status === "Done" ? { reminders: { useDefault: false, overrides: [] } } : {}),
       },
     });
     return { failed: false };
   } catch (error) {
     console.error("[googleCalendar] updateCalendarEventForToDo failed:", error);
+    return { failed: true };
+  }
+}
+
+// Cancels a to-do's synced event outright — used when an edit makes a
+// previously-eligible to-do no longer calendar-eligible (task type changed
+// off the synced list, or the due date was cleared). A 404/410 from Calendar
+// means the event is already gone (e.g. deleted by hand) — treated as
+// success rather than a failure, since the end state we want is achieved.
+export async function deleteCalendarEventForToDo(eventId: string): Promise<{ failed: boolean }> {
+  if (!eventId) return { failed: false };
+
+  const calendarId = process.env.GOOGLE_CALENDAR_ID;
+  if (!calendarId) {
+    console.error("[googleCalendar] GOOGLE_CALENDAR_ID is not configured — skipping event deletion.");
+    return { failed: true };
+  }
+
+  try {
+    const calendar = getCalendarClient();
+    await calendar.events.delete({ calendarId, eventId });
+    return { failed: false };
+  } catch (error) {
+    const status = (error as { code?: number; status?: number })?.code ?? (error as { status?: number })?.status;
+    if (status === 404 || status === 410) return { failed: false };
+    console.error("[googleCalendar] deleteCalendarEventForToDo failed:", error);
     return { failed: true };
   }
 }
