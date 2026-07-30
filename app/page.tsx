@@ -521,8 +521,12 @@ function getRowTitle(row: AnyRow): string {
 
 async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
   try {
+    // Matches app/to-do/page.tsx's own loadTodos() — without this, a plain
+    // fetch() defaults to the browser's normal HTTP cache mode, which can
+    // serve a stale response instead of always hitting the API fresh.
     const response = await fetch(url, {
       method: "GET",
+      cache: "no-store",
     });
 
     const text = await response.text();
@@ -646,8 +650,10 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadDashboard() {
-      setLoading(true);
+    let cancelled = false;
+
+    async function loadDashboard(showLoading: boolean) {
+      if (showLoading) setLoading(true);
 
       const [accounts, visits, complaints, supplyOrders, todos] =
         await Promise.all([
@@ -658,6 +664,8 @@ export default function DashboardPage() {
           safeReadData("/api/to-do", "To-Dos"),
         ]);
 
+      if (cancelled) return;
+
       setData({
         accounts,
         visits,
@@ -666,10 +674,32 @@ export default function DashboardPage() {
         todos,
       });
 
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
 
-    loadDashboard();
+    void loadDashboard(true);
+
+    // The mount-only load above never re-runs on its own — a manager who
+    // creates a to-do on /to-do and comes back to this tab would otherwise
+    // keep seeing whatever "Today's Manager To-Dos" looked like at the
+    // start of the session. Refetch (silently — no loading flash, so
+    // already-visible cards never blank mid-refresh) whenever this tab
+    // regains focus/visibility, which is the realistic moment this data
+    // needs to be current.
+    function handleFocusOrVisible() {
+      if (document.visibilityState === "visible") {
+        void loadDashboard(false);
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleFocusOrVisible);
+    window.addEventListener("focus", handleFocusOrVisible);
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", handleFocusOrVisible);
+      window.removeEventListener("focus", handleFocusOrVisible);
+    };
   }, []);
 
   const dashboard = useMemo(() => {
