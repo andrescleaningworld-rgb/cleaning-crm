@@ -72,6 +72,25 @@ type SubcontractorDisplay = {
   fallback: string;
 };
 
+type Manager = {
+  name?: string;
+  status?: string;
+};
+
+// Mirrors app/to-do/page.tsx's taskTypes — kept as a separate local copy
+// since that file doesn't export it, same as this file's other small
+// cross-page duplications (e.g. the Manager fetch/filter pattern above).
+const BULK_TODO_TASK_TYPES = [
+  "Visit",
+  "Complaint Follow-Up",
+  "Account Follow-Up",
+  "New Account Onboarding",
+  "Customer Call",
+  "Subcontractor Follow-Up",
+  "Reminder",
+  "Other",
+];
+
 type SubcontractorFilterOption = {
   value: string;
   label: string;
@@ -727,6 +746,24 @@ export default function AccountsPage() {
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState("");
 
+  // Bulk to-do creation: select N accounts here, then fire one addToDos
+  // batch request (see app/api/to-do/route.ts) instead of the one-at-a-time
+  // flow on the To-Do page itself.
+  const [bulkToDoMode, setBulkToDoMode] = useState(false);
+  const [selectedBulkToDoIds, setSelectedBulkToDoIds] = useState<Set<string>>(new Set());
+  const [showBulkToDoForm, setShowBulkToDoForm] = useState(false);
+  const [bulkToDoManagers, setBulkToDoManagers] = useState<string[]>([]);
+  const [bulkToDoForm, setBulkToDoForm] = useState({
+    assignedTo: "",
+    taskType: "Visit",
+    dueDate: "",
+    why: "",
+    notes: "",
+  });
+  const [bulkToDoSaving, setBulkToDoSaving] = useState(false);
+  const [bulkToDoError, setBulkToDoError] = useState("");
+  const [bulkToDoSuccess, setBulkToDoSuccess] = useState("");
+
   const modalRef = useFocusTrap(statusModalAccount !== null);
 
   // -------------------------------------------------------------------------
@@ -867,7 +904,13 @@ export default function AccountsPage() {
   useEffect(() => {
     void fetchSubcontractors();
     void fetchFilterOptionAccounts();
-  }, [fetchSubcontractors, fetchFilterOptionAccounts]);
+    void loadBulkToDoManagers();
+    // Auto-load with the default filters (Status: Active, etc.) immediately
+    // on mount — same request handleSearch's empty-text Search click would
+    // make, so the page arrives with data/metrics already populated instead
+    // of the old "click Search to get started" placeholder.
+    void fetchAccounts("");
+  }, [fetchSubcontractors, fetchFilterOptionAccounts, fetchAccounts]);
 
   // Search only runs when the user explicitly asks for it (Search button or
   // Enter key) — not on every keystroke or filter-dropdown change. An empty
@@ -1173,6 +1216,114 @@ export default function AccountsPage() {
     setTransferMode((current) => !current);
     setTransferMessage("");
     setTransferError("");
+    // Mutually exclusive with bulk-to-do selection — both repurpose the
+    // same row-checkbox UI for a different bulk action.
+    setBulkToDoMode(false);
+    setSelectedBulkToDoIds(new Set());
+  }
+
+  function toggleBulkToDoMode() {
+    setBulkToDoMode((current) => !current);
+    setSelectedBulkToDoIds(new Set());
+    setShowBulkToDoForm(false);
+    setBulkToDoError("");
+    setBulkToDoSuccess("");
+    setTransferMode(false);
+  }
+
+  function toggleBulkToDoAccount(account: Account) {
+    const accountId = getAccountId(account);
+    if (!accountId) return;
+
+    setSelectedBulkToDoIds((current) => {
+      const next = new Set(current);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  }
+
+  // Mirrors app/to-do/page.tsx's loadManagers(): missing/blank status is
+  // treated as Active so a manager row that predates the Status column
+  // still shows up here rather than silently disappearing from the dropdown.
+  async function loadBulkToDoManagers() {
+    try {
+      const response = await fetch("/api/admin/managers", { cache: "no-store" });
+      const data = await readJson<{ managers?: Manager[]; data?: Manager[] } | Manager[]>(response);
+      const rows: Manager[] = Array.isArray(data) ? data : data.managers ?? data.data ?? [];
+
+      const activeNames = Array.from(
+        new Set(
+          rows
+            .filter((row) => !row.status || row.status === "Active")
+            .map((row) => (row.name ?? "").trim())
+            .filter(Boolean)
+        )
+      ).sort();
+
+      setBulkToDoManagers(activeNames);
+    } catch {
+      setBulkToDoManagers([]);
+    }
+  }
+
+  async function submitBulkToDos() {
+    setBulkToDoError("");
+    setBulkToDoSuccess("");
+
+    if (!bulkToDoForm.assignedTo.trim()) {
+      setBulkToDoError("Assigned To is required.");
+      return;
+    }
+    if (!bulkToDoForm.why.trim()) {
+      setBulkToDoError("Why is required.");
+      return;
+    }
+    if (selectedBulkToDoIds.size === 0) {
+      setBulkToDoError("Select at least one account.");
+      return;
+    }
+
+    const accountNames = accounts
+      .filter((account) => selectedBulkToDoIds.has(getAccountId(account)))
+      .map((account) => normalizeText(account.accountName) || "Unnamed Account");
+
+    setBulkToDoSaving(true);
+    try {
+      const response = await fetch("/api/to-do", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addToDos",
+          accountNames,
+          dueDate: bulkToDoForm.dueDate,
+          assignedTo: bulkToDoForm.assignedTo,
+          taskType: bulkToDoForm.taskType,
+          why: bulkToDoForm.why,
+          notes: bulkToDoForm.notes,
+          status: "Open",
+        }),
+      });
+
+      const data = await readJson<{ success?: boolean; message?: string; calendarSyncFailed?: boolean }>(response);
+      if (!data.success) {
+        throw new Error(data.message ?? "Could not create to-dos.");
+      }
+
+      setBulkToDoSuccess(
+        `Created ${accountNames.length} to-do${accountNames.length === 1 ? "" : "s"}${
+          data.calendarSyncFailed ? " (Calendar sync failed for at least one — check the To-Do page)" : ""
+        }.`
+      );
+      setShowBulkToDoForm(false);
+      setBulkToDoMode(false);
+      setSelectedBulkToDoIds(new Set());
+      setBulkToDoForm({ assignedTo: "", taskType: "Visit", dueDate: "", why: "", notes: "" });
+    } catch (err) {
+      setBulkToDoError(err instanceof Error ? err.message : "Could not create to-dos.");
+    } finally {
+      setBulkToDoSaving(false);
+    }
   }
 
   function toggleTransferAccount(account: Account) {
@@ -1995,6 +2146,17 @@ async function handleSaveTransferProposal() {
             </button>
             <button
               type="button"
+              onClick={toggleBulkToDoMode}
+              className={`rounded-2xl px-5 py-3.5 text-sm font-black shadow-sm ${
+                bulkToDoMode
+                  ? "bg-amber-500 text-white hover:bg-amber-600"
+                  : "bg-indigo-700 text-white hover:bg-indigo-800"
+              }`}
+            >
+              {bulkToDoMode ? "Cancel Selection" : "Create To-Dos for Multiple"}
+            </button>
+            <button
+              type="button"
               onClick={() => window.print()}
               className="rounded-2xl bg-slate-950 px-5 py-3.5 text-sm font-black text-white shadow-sm hover:bg-blue-950"
             >
@@ -2002,6 +2164,143 @@ async function handleSaveTransferProposal() {
             </button>
           </div>
         </div>
+
+        {bulkToDoMode ? (
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold text-indigo-900">
+              {selectedBulkToDoIds.size} account{selectedBulkToDoIds.size === 1 ? "" : "s"} selected.
+              Check the boxes next to accounts below, then create to-dos for all of them at once.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowBulkToDoForm(true)}
+              disabled={selectedBulkToDoIds.size === 0}
+              className="shrink-0 rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Create To-Dos for Selected ({selectedBulkToDoIds.size})
+            </button>
+          </div>
+        ) : null}
+
+        {bulkToDoSuccess ? (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+            {bulkToDoSuccess}
+          </div>
+        ) : null}
+
+        {showBulkToDoForm ? (
+          <div className="mt-4 rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
+            <h2 className="text-lg font-black text-slate-950">
+              Create To-Dos for {selectedBulkToDoIds.size} Account{selectedBulkToDoIds.size === 1 ? "" : "s"}
+            </h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              One independent to-do is created per selected account — each fully separate afterward,
+              including its own Calendar sync if the type is calendar-eligible.
+            </p>
+
+            {bulkToDoError ? (
+              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+                {bulkToDoError}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-assigned-to">
+                  Assigned To
+                </label>
+                <select
+                  id="bulk-todo-assigned-to"
+                  value={bulkToDoForm.assignedTo}
+                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, assignedTo: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Select a manager...</option>
+                  {bulkToDoManagers.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-type">
+                  Type
+                </label>
+                <select
+                  id="bulk-todo-type"
+                  value={bulkToDoForm.taskType}
+                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, taskType: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {BULK_TODO_TASK_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-due-date">
+                  Due Date
+                </label>
+                <input
+                  id="bulk-todo-due-date"
+                  type="date"
+                  value={bulkToDoForm.dueDate}
+                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, dueDate: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-why">
+                  Why
+                </label>
+                <input
+                  id="bulk-todo-why"
+                  value={bulkToDoForm.why}
+                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, why: e.target.value }))}
+                  placeholder="e.g. Routine check-in visit"
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-notes">
+                  Notes (applied to every to-do created)
+                </label>
+                <input
+                  id="bulk-todo-notes"
+                  value={bulkToDoForm.notes}
+                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, notes: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={submitBulkToDos}
+                disabled={bulkToDoSaving}
+                className="rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {bulkToDoSaving ? "Creating..." : `Create ${selectedBulkToDoIds.size} To-Do${selectedBulkToDoIds.size === 1 ? "" : "s"}`}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowBulkToDoForm(false)}
+                disabled={bulkToDoSaving}
+                className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Mobile-only search — on small screens the stat cards and money
             tiles below push the real search box (in the Filters grid
@@ -2227,7 +2526,7 @@ async function handleSaveTransferProposal() {
           </select>
         </div>
 
-        {hasSearched && !loading ? (
+        {hasSearched ? (
           <div className="mt-4 flex flex-col gap-3 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p>
@@ -2240,6 +2539,9 @@ async function handleSaveTransferProposal() {
                   {filteredAccounts.length}
                 </span>{" "}
                 matching account{filteredAccounts.length === 1 ? "" : "s"}
+                {loading && accounts.length > 0 ? (
+                  <span className="ml-2 text-xs font-semibold text-blue-600">Refreshing…</span>
+                ) : null}
               </p>
 
               <p className="mt-1 text-xs">
@@ -2920,7 +3222,16 @@ async function handleSaveTransferProposal() {
             <div className="col-span-1 text-right">Action</div>
           </div>
 
-          {loading ? (
+          {/* `loading` alone used to gate this whole block, which blanked the
+              entire table back to a "Loading accounts..." placeholder on
+              every refetch (Search click, or any future re-fetch trigger) —
+              even though the previous `accounts` data was still sitting in
+              state the whole time, untouched, until the new response
+              arrived. Now the full-page loading state only shows when there
+              is nothing to show yet (first load); a refetch with existing
+              data keeps rendering the current rows below and only swaps
+              them once the new results land. */}
+          {loading && accounts.length === 0 ? (
             <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
               Loading accounts...
             </div>
@@ -2936,7 +3247,7 @@ async function handleSaveTransferProposal() {
             </div>
           ) : visibleAccounts.length === 0 ? (
             <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
-              No accounts found for this search.
+              {loading ? "Loading accounts..." : "No accounts found for this search."}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 bg-white">
@@ -2952,6 +3263,15 @@ async function handleSaveTransferProposal() {
                   >
                     <div className="lg:col-span-3">
                       <div className="flex items-start gap-3">
+                        {bulkToDoMode ? (
+                          <input
+                            type="checkbox"
+                            checked={selectedBulkToDoIds.has(accountId)}
+                            onChange={() => toggleBulkToDoAccount(account)}
+                            aria-label={`Select ${account.accountName || "account"} for bulk to-do creation`}
+                            className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300"
+                          />
+                        ) : null}
                         <Link href={accountHref} className="block flex-1 no-underline">
                       <div className="flex items-start justify-between gap-3 lg:block">
                         <div>
