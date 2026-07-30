@@ -64,7 +64,7 @@ const taskTypes = [
   "New Account Onboarding",
   "Customer Call",
   "Subcontractor Follow-Up",
-  "General Task",
+  "Reminder",
   "Other",
 ];
 
@@ -72,7 +72,7 @@ const taskTypes = [
 // emails to a customer can still name an account, but a personal reminder
 // ("order more supplies") has nothing to attach. Every other type keeps the
 // existing required-account validation.
-const ACCOUNT_OPTIONAL_TASK_TYPE = "General Task";
+const ACCOUNT_OPTIONAL_TASK_TYPE = "Reminder";
 
 const statuses = ["Open", "In Progress", "Done", "Cancelled"];
 
@@ -180,7 +180,7 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
           </div>
 
           <h3 className="mt-3 text-lg font-bold">
-            {todo.accountName || `${todo.taskType || "General Task"} (no account)`}
+            {todo.accountName || `${todo.taskType || "Reminder"} (no account)`}
           </h3>
 
           <p className="mt-1 text-sm text-slate-600">
@@ -530,7 +530,7 @@ export default function ToDoPage() {
     const groupId =
       selectedAccounts.length > 1 ? crypto.randomUUID() : undefined;
 
-    // A General Task with no account picked still writes one row — just
+    // A Reminder with no account picked still writes one row — just
     // with a blank ACCOUNT column — so this stays the same single batched
     // code path as every other submission instead of branching into a
     // separate "no account" request.
@@ -634,11 +634,20 @@ export default function ToDoPage() {
       `}</style>
 
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex justify-end">
+        <div className="no-print flex flex-wrap justify-end gap-2">
+          <a
+            href="https://calendar.google.com/calendar/r?cid=cleaningworldoperations%40gmail.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Open Google Calendar
+          </a>
+
           <button
             type="button"
             onClick={() => window.print()}
-            className="no-print w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 md:w-auto"
+            className="w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 md:w-auto"
           >
             Print Assigned Tasks
           </button>

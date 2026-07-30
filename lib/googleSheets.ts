@@ -1142,6 +1142,12 @@ const TO_DO_COL = {
   // WHY (the reason the to-do was created, set once). Blank for every row
   // written before this column existed.
   OUTCOME:      10, // K
+  // Google Calendar event id for this to-do's synced event (see
+  // lib/googleCalendar.ts) — blank for task types that don't sync, for
+  // to-dos with no due date, and for every row written before Calendar
+  // sync existed. This is bookkeeping for OUR OWN write target, not a
+  // read-back from Calendar: sync stays strictly one-way (app → Calendar).
+  CALENDAR_EVENT_ID: 11, // L
 } as const;
 
 export type ToDo = {
@@ -1157,6 +1163,7 @@ export type ToDo = {
   notes: string;
   groupId: string;
   outcome: string;
+  calendarEventId: string;
 };
 
 // Unlike the other tabs in this file, To-Do reads deliberately skip the
@@ -1171,7 +1178,7 @@ async function fetchToDoRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:K`,
+      range: `${TO_DO_RANGE}!A:L`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1183,18 +1190,19 @@ export async function fetchToDos(): Promise<ToDo[]> {
   const rows = await fetchToDoRows();
   return rows
     .map((r, i) => ({
-      sheetRow:    i + 2,
-      id:          r[TO_DO_COL.ID]           ?? "",
-      createdDate: r[TO_DO_COL.CREATED_DATE] ?? "",
-      dueDate:     r[TO_DO_COL.DUE_DATE]      ?? "",
-      assignedTo:  r[TO_DO_COL.ASSIGNED_TO]   ?? "",
-      accountName: r[TO_DO_COL.ACCOUNT]       ?? "",
-      taskType:    r[TO_DO_COL.TASK_TYPE]     ?? "",
-      why:         r[TO_DO_COL.WHY]           ?? "",
-      status:      r[TO_DO_COL.STATUS]        ?? "",
-      notes:       r[TO_DO_COL.NOTES]         ?? "",
-      groupId:     r[TO_DO_COL.GROUP_ID]      ?? "",
-      outcome:     r[TO_DO_COL.OUTCOME]       ?? "",
+      sheetRow:        i + 2,
+      id:              r[TO_DO_COL.ID]                ?? "",
+      createdDate:     r[TO_DO_COL.CREATED_DATE]       ?? "",
+      dueDate:         r[TO_DO_COL.DUE_DATE]           ?? "",
+      assignedTo:      r[TO_DO_COL.ASSIGNED_TO]        ?? "",
+      accountName:     r[TO_DO_COL.ACCOUNT]            ?? "",
+      taskType:        r[TO_DO_COL.TASK_TYPE]          ?? "",
+      why:             r[TO_DO_COL.WHY]                ?? "",
+      status:          r[TO_DO_COL.STATUS]             ?? "",
+      notes:           r[TO_DO_COL.NOTES]              ?? "",
+      groupId:         r[TO_DO_COL.GROUP_ID]           ?? "",
+      outcome:         r[TO_DO_COL.OUTCOME]             ?? "",
+      calendarEventId: r[TO_DO_COL.CALENDAR_EVENT_ID]  ?? "",
     }))
     .filter((t) => t.id);
 }
@@ -1212,6 +1220,10 @@ type ToDoInput = {
   status: string;
   notes: string;
   groupId?: string;
+  // Set by the caller AFTER creating the Calendar event (see
+  // lib/googleCalendar.ts's createCalendarEventForToDo) so the id lands in
+  // the same row-append as everything else, rather than a second write.
+  calendarEventId?: string;
 };
 
 function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[] {
@@ -1227,6 +1239,7 @@ function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[
     data.notes,
     data.groupId ?? "",
     "", // OUTCOME — only ever set later, via updateToDoOutcome
+    data.calendarEventId ?? "",
   ];
 }
 
@@ -1242,7 +1255,7 @@ export async function appendToDo(data: ToDoInput): Promise<string> {
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:K`,
+    range: `${TO_DO_RANGE}!A:L`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [buildToDoRow(id, createdDate, data)] },
   });
@@ -1273,7 +1286,7 @@ export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:K`,
+    range: `${TO_DO_RANGE}!A:L`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: entries.map((data, index) => buildToDoRow(ids[index], createdDate, data)) },
   });
@@ -1284,34 +1297,45 @@ export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
 // Shared by updateToDoStatus/updateToDoOutcome — both need the current
 // sheet row for a given To Do ID before they can target a single-cell
 // range, and neither can rely on a cached row index since a row's position
-// shifts if rows above it are ever added/removed.
-async function findToDoSheetRow(sheets: ReturnType<typeof google.sheets>, targetId: string): Promise<number> {
+// shifts if rows above it are ever added/removed. Returns the full row too
+// since updateToDoStatus needs accountName/why/calendarEventId to decide
+// whether (and how) to push a Calendar update.
+async function findToDoRow(
+  sheets: ReturnType<typeof google.sheets>,
+  targetId: string
+): Promise<{ sheetRow: number; row: string[] }> {
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:A`,
+      range: `${TO_DO_RANGE}!A:L`,
     })
   );
 
-  const ids = ((res.data.values ?? []) as string[][]).slice(1);
-  const rowIndex = ids.findIndex((r) => (r[0] ?? "").trim() === targetId);
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[TO_DO_COL.ID] ?? "").trim() === targetId);
   if (rowIndex === -1) {
     throw new Error(`To-do "${targetId}" not found.`);
   }
-  return rowIndex + 2; // header row + 1-based sheet rows
+  return { sheetRow: rowIndex + 2, row: rows[rowIndex] }; // header row + 1-based sheet rows
 }
+
+export type ToDoStatusUpdateResult = {
+  accountName: string;
+  why: string;
+  calendarEventId: string;
+};
 
 export async function updateToDoStatus(
   toDoId: string,
   status: string,
   notes: string
-): Promise<void> {
+): Promise<ToDoStatusUpdateResult> {
   const targetId = toDoId.trim();
   if (!targetId) throw new Error("Missing to-do id.");
 
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
-  const sheetRow = await findToDoSheetRow(sheets, targetId);
+  const { sheetRow, row } = await findToDoRow(sheets, targetId);
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
@@ -1323,6 +1347,12 @@ export async function updateToDoStatus(
       ],
     },
   });
+
+  return {
+    accountName: row[TO_DO_COL.ACCOUNT] ?? "",
+    why: row[TO_DO_COL.WHY] ?? "",
+    calendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
+  };
 }
 
 // Deeper-detail writeup (what was actually found/done), separate from the
@@ -1333,7 +1363,7 @@ export async function updateToDoOutcome(toDoId: string, outcome: string): Promis
 
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
-  const sheetRow = await findToDoSheetRow(sheets, targetId);
+  const { sheetRow } = await findToDoRow(sheets, targetId);
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
@@ -1356,6 +1386,11 @@ const MANAGER_COL = {
   PHONE:      3, // D
   STATUS:     4, // E
   NOTES:      5, // F (unused for now)
+  // Google Calendar's fixed event colorId ("1"-"11"), manually assigned per
+  // manager in Settings — drives the color of that manager's synced to-do
+  // events. Blank means "no color assigned," which leaves colorId unset on
+  // the event (Calendar falls back to the calendar's default color).
+  CALENDAR_COLOR_ID: 6, // G
 } as const;
 
 export type Manager = {
@@ -1364,6 +1399,7 @@ export type Manager = {
   name: string;
   phone: string;
   status: string;
+  calendarColorId: string;
 };
 
 async function fetchManagerRows(): Promise<string[][]> {
@@ -1376,7 +1412,7 @@ async function fetchManagerRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${MANAGERS_TAB}!A:F`,
+      range: `${MANAGERS_TAB}!A:G`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1388,12 +1424,28 @@ async function fetchManagerRows(): Promise<string[][]> {
 export async function fetchManagers(): Promise<Manager[]> {
   const rows = await fetchManagerRows();
   return rows.map((r, i) => ({
-    sheetRow:  i + 2,
-    managerId: r[MANAGER_COL.MANAGER_ID] ?? "",
-    name:      r[MANAGER_COL.NAME]       ?? "",
-    phone:     r[MANAGER_COL.PHONE]      ?? "",
-    status:    r[MANAGER_COL.STATUS]     ?? "",
+    sheetRow:        i + 2,
+    managerId:       r[MANAGER_COL.MANAGER_ID]       ?? "",
+    name:            r[MANAGER_COL.NAME]             ?? "",
+    phone:           r[MANAGER_COL.PHONE]            ?? "",
+    status:          r[MANAGER_COL.STATUS]           ?? "",
+    calendarColorId: r[MANAGER_COL.CALENDAR_COLOR_ID] ?? "",
   }));
+}
+
+// Used by lib/googleCalendar.ts to color a synced to-do's event by its
+// assignee. Matches on trimmed, case-insensitive name — the to-do form's
+// "Assigned To" dropdown is populated straight from this same list, so this
+// is normally an exact match; the case-insensitive fallback just guards
+// against incidental whitespace/casing drift rather than any real fuzzy
+// matching need.
+export async function getManagerCalendarColorId(assignedTo: string): Promise<string | undefined> {
+  const target = assignedTo.trim().toLowerCase();
+  if (!target) return undefined;
+
+  const managers = await fetchManagers();
+  const match = managers.find((manager) => manager.name.trim().toLowerCase() === target);
+  return match?.calendarColorId || undefined;
 }
 
 export async function appendManager(data: {
@@ -1404,7 +1456,7 @@ export async function appendManager(data: {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const rand = Math.random().toString(36).slice(2, 6);
   const managerId = `MGR-${stamp.slice(-8)}-${rand}`;
-  const row = Array(6).fill("");
+  const row = Array(7).fill("");
   row[MANAGER_COL.MANAGER_ID] = managerId;
   row[MANAGER_COL.NAME] = data.name;
   row[MANAGER_COL.PHONE] = data.phone;
@@ -1419,6 +1471,7 @@ export async function updateManager(
     name: string;
     phone: string;
     status: string;
+    calendarColorId: string;
   }>
 ): Promise<void> {
   invalidateCache(`tab-${MANAGERS_TAB}`);
@@ -1426,6 +1479,7 @@ export async function updateManager(
     name: "B",
     phone: "D",
     status: "E",
+    calendarColorId: "G",
   };
 
   const data = Object.entries(fields)

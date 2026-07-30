@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendToDo, appendToDos, fetchToDos, updateToDoOutcome, updateToDoStatus } from "@/lib/googleSheets";
+import { createCalendarEventForToDo, updateCalendarEventForToDo, type ToDoCalendarInput } from "@/lib/googleCalendar";
 
 export async function GET() {
   try {
@@ -37,7 +38,7 @@ export async function POST(request: NextRequest) {
         : "addToDo";
 
     if (action === "addToDo") {
-      const id = await appendToDo({
+      const input: ToDoCalendarInput = {
         dueDate: String(body.dueDate ?? ""),
         assignedTo: String(body.assignedTo ?? ""),
         accountName: String(body.accountName ?? ""),
@@ -45,7 +46,19 @@ export async function POST(request: NextRequest) {
         why: String(body.why ?? ""),
         status: String(body.status || "Open"),
         notes: String(body.notes ?? ""),
+      };
+
+      // Calendar event is created BEFORE the Sheets row so its id can be
+      // written in the same append — see appendToDo's calendarEventId
+      // comment for why this avoids a second write-back step. Best-effort:
+      // createCalendarEventForToDo never throws, so a Calendar failure
+      // still lets the to-do itself save.
+      const calendarEventId = await createCalendarEventForToDo(input);
+
+      const id = await appendToDo({
+        ...input,
         groupId: typeof body.groupId === "string" ? body.groupId : "",
+        calendarEventId: calendarEventId ?? "",
       });
 
       return NextResponse.json({ success: true, id });
@@ -54,10 +67,10 @@ export async function POST(request: NextRequest) {
     // One to-do per account, written as a single batched Sheets append —
     // see appendToDos' comment for why this can't be N separate addToDo
     // calls fired concurrently. An empty-string entry is valid here (a
-    // General Task with no account attached still writes one row, just with
+    // Reminder with no account attached still writes one row, just with
     // a blank ACCOUNT column) — only a missing/empty array is rejected.
     if (action === "addToDos") {
-      const accountNames = Array.isArray(body.accountNames)
+      const accountNames: string[] = Array.isArray(body.accountNames)
         ? body.accountNames.map((name: unknown) => String(name))
         : [];
 
@@ -78,8 +91,24 @@ export async function POST(request: NextRequest) {
         groupId: typeof body.groupId === "string" ? body.groupId : "",
       };
 
+      const entries: (ToDoCalendarInput & { groupId: string })[] = accountNames.map((accountName) => ({
+        ...shared,
+        accountName,
+      }));
+
+      // Independent Calendar API calls (unlike Sheets appends, creating N
+      // separate events has no shared-row race to worry about), so these
+      // run in parallel rather than needing the single-request batching
+      // appendToDos itself requires.
+      const calendarEventIds = await Promise.all(
+        entries.map((entry: ToDoCalendarInput) => createCalendarEventForToDo(entry))
+      );
+
       const ids = await appendToDos(
-        accountNames.map((accountName: string) => ({ ...shared, accountName }))
+        entries.map((entry: ToDoCalendarInput & { groupId: string }, index: number) => ({
+          ...entry,
+          calendarEventId: calendarEventIds[index] ?? "",
+        }))
       );
 
       return NextResponse.json({ success: true, ids });
@@ -95,11 +124,17 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await updateToDoStatus(
+      const status = String(body.status ?? "");
+
+      const { accountName, why, calendarEventId } = await updateToDoStatus(
         toDoId,
-        String(body.status ?? ""),
+        status,
         String(body.notes ?? "")
       );
+
+      if (calendarEventId) {
+        await updateCalendarEventForToDo(calendarEventId, accountName, why, status);
+      }
 
       return NextResponse.json({ success: true });
     }

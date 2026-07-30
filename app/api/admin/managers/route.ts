@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Update name/phone/status for an existing manager
+// Update name/phone/status/calendarColorId for an existing manager
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json() as {
@@ -39,6 +39,7 @@ export async function PATCH(request: NextRequest) {
         name?: string;
         phone?: string;
         status?: string;
+        calendarColorId?: string;
       };
     };
 

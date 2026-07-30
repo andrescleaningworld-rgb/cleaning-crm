@@ -20,7 +20,30 @@ type Manager = {
   name: string;
   phone: string;
   status: "Active" | "Inactive";
+  calendarColorId: string;
 };
+
+// Google Calendar's fixed 11-color event palette (colorId "1"-"11") — not
+// configurable, this is the exact set Calendar itself offers. Manually
+// assigned per manager here rather than round-robin so people can pick
+// something meaningful (e.g. a favorite color) and keep it stable.
+const CALENDAR_COLORS: Array<{ id: string; name: string; hex: string }> = [
+  { id: "1", name: "Lavender", hex: "#7986cb" },
+  { id: "2", name: "Sage", hex: "#33b679" },
+  { id: "3", name: "Grape", hex: "#8e24aa" },
+  { id: "4", name: "Flamingo", hex: "#e67c73" },
+  { id: "5", name: "Banana", hex: "#f6bf26" },
+  { id: "6", name: "Tangerine", hex: "#f4511e" },
+  { id: "7", name: "Peacock", hex: "#039be5" },
+  { id: "8", name: "Graphite", hex: "#616161" },
+  { id: "9", name: "Blueberry", hex: "#3f51b5" },
+  { id: "10", name: "Basil", hex: "#0b8043" },
+  { id: "11", name: "Tomato", hex: "#d60000" },
+];
+
+function getCalendarColor(id: string) {
+  return CALENDAR_COLORS.find((color) => color.id === id);
+}
 
 const startingVisitTypes: SettingItem[] = [
   { id: "visit-routine", name: "Routine Visit", status: "Active" },
@@ -257,6 +280,40 @@ function ManagersSettingsSection({
     }
   }
 
+  async function saveColor(manager: Manager, calendarColorId: string) {
+    if (calendarColorId === manager.calendarColorId) return;
+
+    setSavingRow(manager.sheetRow);
+    setActionError("");
+
+    try {
+      const response = await fetch("/api/admin/managers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sheetRow: manager.sheetRow,
+          fields: { calendarColorId },
+        }),
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+
+      if (!response.ok || !data.success) {
+        setActionError(data.error ?? "Failed to save calendar color.");
+        return;
+      }
+
+      setManagers((current) =>
+        current.map((item) =>
+          item.sheetRow === manager.sheetRow ? { ...item, calendarColorId } : item
+        )
+      );
+    } catch {
+      setActionError("Network error saving calendar color.");
+    } finally {
+      setSavingRow(null);
+    }
+  }
+
   async function toggleStatus(manager: Manager) {
     const newStatus: Manager["status"] =
       manager.status === "Active" ? "Inactive" : "Active";
@@ -354,6 +411,7 @@ function ManagersSettingsSection({
               <tr className="border-b bg-gray-50 text-gray-600">
                 <th className="px-4 py-3 font-semibold">Name</th>
                 <th className="px-4 py-3 font-semibold">Phone</th>
+                <th className="px-4 py-3 font-semibold">Calendar Color</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
                 <th className="px-4 py-3 font-semibold">Action</th>
               </tr>
@@ -381,6 +439,31 @@ function ManagersSettingsSection({
                       placeholder="Add phone..."
                       className="w-full min-w-[160px] rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
                     />
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="h-4 w-4 shrink-0 rounded-full border border-gray-300"
+                        style={{
+                          backgroundColor: getCalendarColor(manager.calendarColorId)?.hex ?? "transparent",
+                        }}
+                      />
+                      <select
+                        value={manager.calendarColorId}
+                        onChange={(event) => saveColor(manager, event.target.value)}
+                        disabled={savingRow === manager.sheetRow}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                      >
+                        <option value="">None</option>
+                        {CALENDAR_COLORS.map((color) => (
+                          <option key={color.id} value={color.id}>
+                            {color.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </td>
 
                   <td className="px-4 py-3">
