@@ -224,7 +224,7 @@ async function fetchMapAccounts(): Promise<MapAccountRecord[]> {
 type SubCoverageRecord = {
   subcontractor: string;
   distanceMiles: number;
-  accountCount: number;
+  nearbyAccountCount: number;
   nearestAccountName: string;
   nearestAccountAddress: string;
   nearestAccountCoords: { lat: number; lng: number };
@@ -246,6 +246,15 @@ function proximityColor(distanceMiles: number): string {
   return (PROXIMITY_BANDS.find((band) => distanceMiles < band.maxMiles) ?? PROXIMITY_BANDS[PROXIMITY_BANDS.length - 1]).color;
 }
 
+// "Nearby" for the purposes of the count shown per sub — the upper edge of
+// the yellow band above (red+orange+yellow = "same area"; green/gray =
+// meaningfully far). A sub's total account count isn't useful evidence for
+// "who's closest to this address" — a sub with 30 accounts scattered across
+// the territory and one sub with 3 accounts clustered right here should not
+// look equivalent, so the list shows how many of each sub's accounts are
+// actually close to the searched point instead of their portfolio size.
+const NEARBY_RADIUS_MILES = 5;
+
 // Subcontractors don't have a reliable geocoded home address (their
 // free-text `address` field is often blank or just a mailing address, not
 // where they actually work), so "closest sub" is inferred from the
@@ -256,9 +265,7 @@ function proximityColor(distanceMiles: number): string {
 // from the searched address is a strong, concrete signal even if their
 // other accounts are scattered across the territory, whereas an averaged
 // center point can land nowhere near any real job and would bury that
-// nearby account under a misleading aggregate distance. accountCount is
-// still surfaced per sub so a single-account match can be told apart from
-// one backed by a large existing territory.
+// nearby account under a misleading aggregate distance.
 //
 // `accounts` must already be filtered to those with valid, in-service-area
 // coordinates by the caller (see geocodedServiceAreaAccounts below) — this
@@ -267,21 +274,22 @@ function proximityColor(distanceMiles: number): string {
 function findClosestSubs(point: { lat: number; lng: number }, accounts: MapAccountRecord[], limit: number): SubCoverageRecord[] {
   const bySub = new Map<
     string,
-    { accountCount: number; nearestAccount: MapAccountRecord; nearestDistance: number }
+    { nearbyAccountCount: number; nearestAccount: MapAccountRecord; nearestDistance: number }
   >();
 
   for (const account of accounts) {
     if (account.subcontractor === "Unassigned" || account.latitude === null || account.longitude === null) continue;
 
     const distance = haversineMiles(point, { lat: account.latitude, lng: account.longitude });
+    const isNearby = distance <= NEARBY_RADIUS_MILES;
     const existing = bySub.get(account.subcontractor);
 
     if (!existing) {
-      bySub.set(account.subcontractor, { accountCount: 1, nearestAccount: account, nearestDistance: distance });
+      bySub.set(account.subcontractor, { nearbyAccountCount: isNearby ? 1 : 0, nearestAccount: account, nearestDistance: distance });
       continue;
     }
 
-    existing.accountCount += 1;
+    if (isNearby) existing.nearbyAccountCount += 1;
     if (distance < existing.nearestDistance) {
       existing.nearestAccount = account;
       existing.nearestDistance = distance;
@@ -292,7 +300,7 @@ function findClosestSubs(point: { lat: number; lng: number }, accounts: MapAccou
     .map(([subcontractor, entry]) => ({
       subcontractor,
       distanceMiles: entry.nearestDistance,
-      accountCount: entry.accountCount,
+      nearbyAccountCount: entry.nearbyAccountCount,
       nearestAccountName: entry.nearestAccount.name,
       nearestAccountAddress: entry.nearestAccount.fullAddress,
       nearestAccountCoords: { lat: entry.nearestAccount.latitude as number, lng: entry.nearestAccount.longitude as number },
@@ -470,7 +478,7 @@ function SubProximityMarkers({ records }: { records: SubCoverageRecord[] }) {
               Nearest job: {selected.nearestAccountName} — {selected.nearestAccountAddress}
             </p>
             <p className="mt-1 text-xs text-gray-500">
-              {selected.accountCount} account{selected.accountCount === 1 ? "" : "s"} total
+              {selected.nearbyAccountCount} account{selected.nearbyAccountCount === 1 ? "" : "s"} within {NEARBY_RADIUS_MILES}mi
             </p>
           </div>
         </InfoWindow>
@@ -545,16 +553,32 @@ function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGe
       <label htmlFor="coverage-map-address-search" className="text-sm font-bold text-gray-900">
         Find closest subcontractors
       </label>
-      <input
-        id="coverage-map-address-search"
-        ref={inputRef}
-        value={addressInput}
-        onChange={(event) => setAddressInput(event.target.value)}
-        placeholder={placesLibrary ? "Enter an address..." : "Loading address search..."}
-        disabled={!placesLibrary}
-        autoComplete="off"
-        className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-      />
+      <div className="mt-1 flex gap-2">
+        <input
+          id="coverage-map-address-search"
+          ref={inputRef}
+          value={addressInput}
+          onChange={(event) => setAddressInput(event.target.value)}
+          placeholder={placesLibrary ? "Enter an address..." : "Loading address search..."}
+          disabled={!placesLibrary}
+          autoComplete="off"
+          className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+        />
+
+        {searchPoint ? (
+          <button
+            type="button"
+            onClick={() => {
+              setAddressInput("");
+              setErrorMessage("");
+              onSearchPointChange(null);
+            }}
+            className="shrink-0 rounded-xl border border-gray-300 px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
 
       {errorMessage ? <p className="mt-2 text-xs font-bold text-red-700">{errorMessage}</p> : null}
 
@@ -578,7 +602,7 @@ function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGe
                     />
                     <span className="truncate font-semibold text-gray-900">{sub.subcontractor}</span>
                     <span className="shrink-0 text-xs font-medium text-gray-500">
-                      ({sub.accountCount} acct{sub.accountCount === 1 ? "" : "s"})
+                      ({sub.nearbyAccountCount} nearby)
                     </span>
                   </span>
                   <span className="shrink-0 whitespace-nowrap text-xs font-bold text-gray-600">
@@ -824,7 +848,10 @@ export default function CoverageMap() {
               disableDefaultUI={false}
               style={{ width: "100%", height: "100%" }}
             >
-              <TownBubbles clusters={townClusters} />
+              {/* Hidden during an active search so the ranked/colored proximity
+                  markers below aren't competing with the default all-subs
+                  density view — reappears once the search is cleared. */}
+              {!searchPoint ? <TownBubbles clusters={townClusters} /> : null}
               {searchPoint ? <SearchPointMarker point={searchPoint} /> : null}
               {searchPoint && closestSubs.length > 0 ? <SubProximityMarkers records={closestSubs} /> : null}
             </GoogleMap>
