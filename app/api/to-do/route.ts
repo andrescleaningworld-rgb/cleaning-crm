@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendToDo, appendToDos, fetchToDos, updateToDoOutcome, updateToDoStatus } from "@/lib/googleSheets";
+import { appendToDo, appendToDos, fetchToDos, setToDoCalendarSyncFailed, updateToDoOutcome, updateToDoStatus } from "@/lib/googleSheets";
 import { createCalendarEventForToDo, updateCalendarEventForToDo, type ToDoCalendarInput } from "@/lib/googleCalendar";
 
 export async function GET() {
@@ -48,20 +48,21 @@ export async function POST(request: NextRequest) {
         notes: String(body.notes ?? ""),
       };
 
-      // Calendar event is created BEFORE the Sheets row so its id can be
-      // written in the same append — see appendToDo's calendarEventId
-      // comment for why this avoids a second write-back step. Best-effort:
-      // createCalendarEventForToDo never throws, so a Calendar failure
-      // still lets the to-do itself save.
-      const calendarEventId = await createCalendarEventForToDo(input);
+      // Calendar event is created BEFORE the Sheets row so its id (and
+      // whether the sync failed) can be written in the same append — see
+      // appendToDo's calendarEventId comment for why this avoids a second
+      // write-back step. Best-effort: createCalendarEventForToDo never
+      // throws, so a Calendar failure still lets the to-do itself save.
+      const { eventId: calendarEventId, failed: calendarSyncFailed } = await createCalendarEventForToDo(input);
 
       const id = await appendToDo({
         ...input,
         groupId: typeof body.groupId === "string" ? body.groupId : "",
         calendarEventId: calendarEventId ?? "",
+        calendarSyncFailed,
       });
 
-      return NextResponse.json({ success: true, id });
+      return NextResponse.json({ success: true, id, calendarSyncFailed });
     }
 
     // One to-do per account, written as a single batched Sheets append —
@@ -100,18 +101,23 @@ export async function POST(request: NextRequest) {
       // separate events has no shared-row race to worry about), so these
       // run in parallel rather than needing the single-request batching
       // appendToDos itself requires.
-      const calendarEventIds = await Promise.all(
+      const calendarResults = await Promise.all(
         entries.map((entry: ToDoCalendarInput) => createCalendarEventForToDo(entry))
       );
 
       const ids = await appendToDos(
         entries.map((entry: ToDoCalendarInput & { groupId: string }, index: number) => ({
           ...entry,
-          calendarEventId: calendarEventIds[index] ?? "",
+          calendarEventId: calendarResults[index].eventId ?? "",
+          calendarSyncFailed: calendarResults[index].failed,
         }))
       );
 
-      return NextResponse.json({ success: true, ids });
+      return NextResponse.json({
+        success: true,
+        ids,
+        calendarSyncFailed: calendarResults.some((result) => result.failed),
+      });
     }
 
     if (action === "updateToDoStatus") {
@@ -132,11 +138,14 @@ export async function POST(request: NextRequest) {
         String(body.notes ?? "")
       );
 
+      let calendarSyncFailed = false;
       if (calendarEventId) {
-        await updateCalendarEventForToDo(calendarEventId, accountName, why, status);
+        const result = await updateCalendarEventForToDo(calendarEventId, accountName, why, status);
+        calendarSyncFailed = result.failed;
+        await setToDoCalendarSyncFailed(toDoId, calendarSyncFailed);
       }
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, calendarSyncFailed });
     }
 
     if (action === "updateToDoOutcome") {

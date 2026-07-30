@@ -1148,6 +1148,12 @@ const TO_DO_COL = {
   // sync existed. This is bookkeeping for OUR OWN write target, not a
   // read-back from Calendar: sync stays strictly one-way (app → Calendar).
   CALENDAR_EVENT_ID: 11, // L
+  // "TRUE" when the most recent Calendar sync attempt for this to-do (create
+  // or status-update) failed — surfaced as a non-blocking badge in the UI so
+  // a Calendar outage/misconfig doesn't fail silently. Blank for to-dos that
+  // were never calendar-eligible, that synced successfully, and for every
+  // row written before this column existed.
+  CALENDAR_SYNC_FAILED: 12, // M
 } as const;
 
 export type ToDo = {
@@ -1164,6 +1170,7 @@ export type ToDo = {
   groupId: string;
   outcome: string;
   calendarEventId: string;
+  calendarSyncFailed: boolean;
 };
 
 // Unlike the other tabs in this file, To-Do reads deliberately skip the
@@ -1178,7 +1185,7 @@ async function fetchToDoRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:L`,
+      range: `${TO_DO_RANGE}!A:M`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1190,19 +1197,20 @@ export async function fetchToDos(): Promise<ToDo[]> {
   const rows = await fetchToDoRows();
   return rows
     .map((r, i) => ({
-      sheetRow:        i + 2,
-      id:              r[TO_DO_COL.ID]                ?? "",
-      createdDate:     r[TO_DO_COL.CREATED_DATE]       ?? "",
-      dueDate:         r[TO_DO_COL.DUE_DATE]           ?? "",
-      assignedTo:      r[TO_DO_COL.ASSIGNED_TO]        ?? "",
-      accountName:     r[TO_DO_COL.ACCOUNT]            ?? "",
-      taskType:        r[TO_DO_COL.TASK_TYPE]          ?? "",
-      why:             r[TO_DO_COL.WHY]                ?? "",
-      status:          r[TO_DO_COL.STATUS]             ?? "",
-      notes:           r[TO_DO_COL.NOTES]              ?? "",
-      groupId:         r[TO_DO_COL.GROUP_ID]           ?? "",
-      outcome:         r[TO_DO_COL.OUTCOME]             ?? "",
-      calendarEventId: r[TO_DO_COL.CALENDAR_EVENT_ID]  ?? "",
+      sheetRow:           i + 2,
+      id:                 r[TO_DO_COL.ID]                   ?? "",
+      createdDate:        r[TO_DO_COL.CREATED_DATE]         ?? "",
+      dueDate:            r[TO_DO_COL.DUE_DATE]             ?? "",
+      assignedTo:         r[TO_DO_COL.ASSIGNED_TO]          ?? "",
+      accountName:        r[TO_DO_COL.ACCOUNT]              ?? "",
+      taskType:           r[TO_DO_COL.TASK_TYPE]            ?? "",
+      why:                r[TO_DO_COL.WHY]                  ?? "",
+      status:             r[TO_DO_COL.STATUS]               ?? "",
+      notes:              r[TO_DO_COL.NOTES]                ?? "",
+      groupId:            r[TO_DO_COL.GROUP_ID]             ?? "",
+      outcome:            r[TO_DO_COL.OUTCOME]              ?? "",
+      calendarEventId:    r[TO_DO_COL.CALENDAR_EVENT_ID]    ?? "",
+      calendarSyncFailed: r[TO_DO_COL.CALENDAR_SYNC_FAILED] === "TRUE",
     }))
     .filter((t) => t.id);
 }
@@ -1224,6 +1232,9 @@ type ToDoInput = {
   // lib/googleCalendar.ts's createCalendarEventForToDo) so the id lands in
   // the same row-append as everything else, rather than a second write.
   calendarEventId?: string;
+  // Same timing as calendarEventId above — the caller already knows whether
+  // the create-time sync attempt failed before this row is ever written.
+  calendarSyncFailed?: boolean;
 };
 
 function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[] {
@@ -1240,6 +1251,7 @@ function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[
     data.groupId ?? "",
     "", // OUTCOME — only ever set later, via updateToDoOutcome
     data.calendarEventId ?? "",
+    data.calendarSyncFailed ? "TRUE" : "",
   ];
 }
 
@@ -1255,7 +1267,7 @@ export async function appendToDo(data: ToDoInput): Promise<string> {
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:L`,
+    range: `${TO_DO_RANGE}!A:M`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [buildToDoRow(id, createdDate, data)] },
   });
@@ -1286,7 +1298,7 @@ export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
   const sheets = google.sheets({ version: "v4", auth });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:L`,
+    range: `${TO_DO_RANGE}!A:M`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: entries.map((data, index) => buildToDoRow(ids[index], createdDate, data)) },
   });
@@ -1307,7 +1319,7 @@ async function findToDoRow(
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:L`,
+      range: `${TO_DO_RANGE}!A:M`,
     })
   );
 
@@ -1353,6 +1365,26 @@ export async function updateToDoStatus(
     why: row[TO_DO_COL.WHY] ?? "",
     calendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
   };
+}
+
+// Separate write from updateToDoStatus because the Calendar patch it's
+// reporting on only happens (in the API route) after updateToDoStatus
+// already returned — the outcome isn't known in time to fold into that
+// same batchUpdate.
+export async function setToDoCalendarSyncFailed(toDoId: string, failed: boolean): Promise<void> {
+  const targetId = toDoId.trim();
+  if (!targetId) throw new Error("Missing to-do id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const { sheetRow } = await findToDoRow(sheets, targetId);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${TO_DO_RANGE}!M${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[failed ? "TRUE" : ""]] },
+  });
 }
 
 // Deeper-detail writeup (what was actually found/done), separate from the

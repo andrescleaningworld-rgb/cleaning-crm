@@ -76,21 +76,30 @@ export type ToDoCalendarInput = {
   status: string;
 };
 
+// `failed` distinguishes an actual Calendar failure (misconfigured env var,
+// API error) from this to-do simply not being calendar-eligible — a normal
+// Visit/Customer Call/Other to-do, or one with no due date, returns
+// `failed: false` since there was never anything to sync.
+export type CalendarSyncResult = {
+  eventId: string | null;
+  failed: boolean;
+};
+
 // Creates (or skips) the calendar event for a newly-created to-do. Returns
 // the new event's id to be stored on the to-do's row, or null if this
 // to-do isn't calendar-eligible (wrong task type, no due date) or the
 // Calendar call itself failed.
-export async function createCalendarEventForToDo(input: ToDoCalendarInput): Promise<string | null> {
-  if (!CALENDAR_SYNCED_TASK_TYPES.has(input.taskType)) return null;
+export async function createCalendarEventForToDo(input: ToDoCalendarInput): Promise<CalendarSyncResult> {
+  if (!CALENDAR_SYNCED_TASK_TYPES.has(input.taskType)) return { eventId: null, failed: false };
   // An all-day event needs a date to land on — a to-do saved without a due
   // date simply doesn't get a calendar event (dueDate isn't a required
   // field on the to-do form).
-  if (!input.dueDate) return null;
+  if (!input.dueDate) return { eventId: null, failed: false };
 
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
   if (!calendarId) {
     console.error("[googleCalendar] GOOGLE_CALENDAR_ID is not configured — skipping event creation.");
-    return null;
+    return { eventId: null, failed: true };
   }
 
   try {
@@ -109,10 +118,10 @@ export async function createCalendarEventForToDo(input: ToDoCalendarInput): Prom
       },
     });
 
-    return response.data.id ?? null;
+    return { eventId: response.data.id ?? null, failed: false };
   } catch (error) {
     console.error("[googleCalendar] createCalendarEventForToDo failed:", error);
-    return null;
+    return { eventId: null, failed: true };
   }
 }
 
@@ -126,9 +135,17 @@ export async function updateCalendarEventForToDo(
   accountName: string,
   why: string,
   status: string
-): Promise<void> {
+): Promise<{ failed: boolean }> {
+  // No stored event id means there was never a synced event to update (e.g.
+  // the original create wasn't calendar-eligible) — nothing to report as
+  // failed here.
+  if (!eventId) return { failed: false };
+
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
-  if (!calendarId || !eventId) return;
+  if (!calendarId) {
+    console.error("[googleCalendar] GOOGLE_CALENDAR_ID is not configured — skipping event update.");
+    return { failed: true };
+  }
 
   try {
     const calendar = getCalendarClient();
@@ -140,7 +157,9 @@ export async function updateCalendarEventForToDo(
         ...(status === "Done" ? { reminders: { useDefault: false, overrides: [] } } : {}),
       },
     });
+    return { failed: false };
   } catch (error) {
     console.error("[googleCalendar] updateCalendarEventForToDo failed:", error);
+    return { failed: true };
   }
 }

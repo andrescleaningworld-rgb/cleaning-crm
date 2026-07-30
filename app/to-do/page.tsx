@@ -26,6 +26,10 @@ type ToDo = {
   // Shared by every to-do created together when multiple accounts are
   // selected on a Visit (see handleSubmit) — blank on ordinary to-dos.
   groupId?: string;
+  // True when the most recent Calendar sync attempt (create or status
+  // update) for this to-do failed — non-blocking: the to-do itself always
+  // saves regardless. See lib/googleCalendar.ts.
+  calendarSyncFailed?: boolean;
 };
 
 type Account = {
@@ -175,6 +179,15 @@ function ToDoCard({ todo, recurringCount, onUpdateStatus, onSaveOutcome }: ToDoC
             {recurringCount > 1 ? (
               <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
                 Recurring ({recurringCount} accounts)
+              </span>
+            ) : null}
+
+            {todo.calendarSyncFailed ? (
+              <span
+                className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700"
+                title="This to-do saved normally, but syncing it to Google Calendar failed. Check Calendar manually."
+              >
+                ⚠ Calendar sync failed
               </span>
             ) : null}
           </div>
