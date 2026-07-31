@@ -708,6 +708,21 @@ export default function SettingsPage() {
           <span className="ml-4 shrink-0 text-blue-500">→</span>
         </Link>
 
+        {/* Extra/Specialty Services shortcut */}
+        <Link
+          href="/settings/extra-services"
+          className="mb-6 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50 px-5 py-4 shadow-sm transition hover:bg-purple-100"
+        >
+          <div>
+            <p className="font-bold text-purple-900">Extra / Specialty Services</p>
+            <p className="mt-0.5 text-sm text-purple-700">
+              Manage the specialty services customers can request from the portal — name,
+              description, photo, and display order.
+            </p>
+          </div>
+          <span className="ml-4 shrink-0 text-purple-500">→</span>
+        </Link>
+
         <div className="mb-6 grid gap-4 md:grid-cols-4">
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Active Managers</p>
