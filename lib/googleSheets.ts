@@ -1638,6 +1638,173 @@ export async function updateToDoOutcome(toDoId: string, outcome: string): Promis
   });
 }
 
+// ─── Extra/Specialty Services ────────────────────────────────────────────────
+// Admin-managed catalog of specialty services customers can request from the
+// portal (Phase 1: backend only — see app/api/extra-services). Lives in the
+// same spreadsheet as customer-portal/portal-* tabs (GOOGLE_SHEET_ID), not
+// the main Accounts one, since this data is customer-portal-facing.
+
+const EXTRA_SERVICES_TAB = "ExtraServices";
+
+const EXTRA_SERVICE_COL = {
+  ID:          0, // A
+  NAME:        1, // B
+  DESCRIPTION: 2, // C
+  IMAGE_URL:   3, // D — Vercel Blob URL
+  ACTIVE:      4, // E — "Yes"/"No"; hides a service from the portal without deleting it
+  SORT_ORDER:  5, // F — controls display order
+} as const;
+
+export type ExtraService = {
+  sheetRow: number;
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  active: boolean;
+  sortOrder: number;
+};
+
+async function fetchExtraServiceRows(): Promise<string[][]> {
+  const cacheKey = `tab-${EXTRA_SERVICES_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${EXTRA_SERVICES_TAB}!A:F`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchExtraServices(): Promise<ExtraService[]> {
+  const rows = await fetchExtraServiceRows();
+  return rows
+    .map((r, i) => ({
+      sheetRow:    i + 2,
+      id:          r[EXTRA_SERVICE_COL.ID]          ?? "",
+      name:        r[EXTRA_SERVICE_COL.NAME]         ?? "",
+      description: r[EXTRA_SERVICE_COL.DESCRIPTION]  ?? "",
+      imageUrl:    r[EXTRA_SERVICE_COL.IMAGE_URL]    ?? "",
+      // Missing/blank Active is treated as active, matching this app's
+      // general "blank status = Active" convention (see app/to-do/page.tsx's
+      // loadManagers) — only an explicit "No" hides a service.
+      active:      (r[EXTRA_SERVICE_COL.ACTIVE] ?? "").trim().toUpperCase() !== "NO",
+      sortOrder:   Number(r[EXTRA_SERVICE_COL.SORT_ORDER]) || 0,
+    }))
+    .filter((s) => s.id);
+}
+
+export async function getExtraServiceById(id: string): Promise<ExtraService | null> {
+  const targetId = id.trim();
+  if (!targetId) return null;
+  const services = await fetchExtraServices();
+  return services.find((s) => s.id === targetId) ?? null;
+}
+
+// Shared by updateExtraService — always a fresh (uncached) read, since a
+// row's position can shift between requests and this needs the CURRENT
+// sheet row, not a possibly-stale cached one (same reasoning as To-Do's
+// findToDoRow).
+async function findExtraServiceRow(
+  sheets: ReturnType<typeof google.sheets>,
+  targetId: string
+): Promise<{ sheetRow: number; row: string[] }> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: `${EXTRA_SERVICES_TAB}!A:F`,
+    })
+  );
+
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[EXTRA_SERVICE_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) {
+    throw new Error(`Extra service "${targetId}" not found.`);
+  }
+  return { sheetRow: rowIndex + 2, row: rows[rowIndex] };
+}
+
+export type ExtraServiceInput = {
+  name: string;
+  description: string;
+  imageUrl: string;
+  active: boolean;
+  sortOrder: number;
+};
+
+function buildExtraServiceRow(id: string, data: ExtraServiceInput): string[] {
+  return [
+    id,
+    data.name,
+    data.description,
+    data.imageUrl,
+    data.active ? "Yes" : "No",
+    String(data.sortOrder),
+  ];
+}
+
+export async function appendExtraService(data: ExtraServiceInput): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 6);
+  const id = `SVC-${stamp.slice(-8)}-${rand}`;
+  await appendToSheet(EXTRA_SERVICES_TAB, buildExtraServiceRow(id, data));
+  return id;
+}
+
+export type ExtraServiceUpdateInput = Partial<{
+  name: string;
+  description: string;
+  imageUrl: string;
+  active: boolean;
+  sortOrder: number;
+}>;
+
+// Partial update by id (not sheetRow) — only the fields present in `fields`
+// are written; omitted fields keep their current sheet value untouched,
+// same "partial update" contract as updateToDo/updateManager.
+export async function updateExtraService(id: string, fields: ExtraServiceUpdateInput): Promise<void> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing extra service id.");
+
+  invalidateCache(`tab-${EXTRA_SERVICES_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const { sheetRow } = await findExtraServiceRow(sheets, targetId);
+
+  const data: { range: string; values: string[][] }[] = [];
+  if (fields.name !== undefined) {
+    data.push({ range: `${EXTRA_SERVICES_TAB}!B${sheetRow}`, values: [[fields.name]] });
+  }
+  if (fields.description !== undefined) {
+    data.push({ range: `${EXTRA_SERVICES_TAB}!C${sheetRow}`, values: [[fields.description]] });
+  }
+  if (fields.imageUrl !== undefined) {
+    data.push({ range: `${EXTRA_SERVICES_TAB}!D${sheetRow}`, values: [[fields.imageUrl]] });
+  }
+  if (fields.active !== undefined) {
+    data.push({ range: `${EXTRA_SERVICES_TAB}!E${sheetRow}`, values: [[fields.active ? "Yes" : "No"]] });
+  }
+  if (fields.sortOrder !== undefined) {
+    data.push({ range: `${EXTRA_SERVICES_TAB}!F${sheetRow}`, values: [[String(fields.sortOrder)]] });
+  }
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
 // ─── Managers ──────────────────────────────────────────────────────────────
 
 const MANAGERS_TAB = "Managers";
