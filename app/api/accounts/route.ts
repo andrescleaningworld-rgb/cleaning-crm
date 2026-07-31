@@ -19,7 +19,11 @@ const ALLOWED_GET_ACTIONS = new Set([
   "mapAccounts",
 ]);
 
-class AccountsFetchError extends Error {
+// Exported so app/api/accounts/[id]/pdf/route.ts can reuse the exact same
+// fetch/cache/error-handling path (and the same getOrFetch cache key) rather
+// than maintaining a second, possibly-drifting copy of "how to read accounts
+// from the shared Apps Script backend."
+export class AccountsFetchError extends Error {
   status: number;
   details: Record<string, unknown>;
   constructor(message: string, status: number, details: Record<string, unknown> = {}) {
@@ -33,7 +37,7 @@ class AccountsFetchError extends Error {
 // shared Apps Script backend. Wrapped in getOrFetch below so every distinct
 // action is only fetched from Apps Script once per 60s, no matter how many
 // different "q" searches hit this route in that window.
-async function fetchAccountsForAction(action: string): Promise<unknown[]> {
+export async function fetchAccountsForAction(action: string): Promise<unknown[]> {
   let response: Response;
   try {
     response = await fetchAppsScript(`${SCRIPT_URL}?action=${encodeURIComponent(action)}`, {

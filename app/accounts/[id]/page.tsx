@@ -299,6 +299,8 @@ export default function AccountDetailPage() {
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState("");
   const [showFullAccountInfo, setShowFullAccountInfo] = useState(false);
 
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -587,6 +589,48 @@ export default function AccountDetailPage() {
       );
     } finally {
       setSendingPacket(false);
+    }
+  }
+
+  // Fetches the PDF as a blob (rather than a plain navigation/window.open)
+  // so a failure surfaces as a proper error message instead of the browser
+  // just showing a blank tab or a raw JSON error page.
+  async function handleDownloadPdf() {
+    if (!account) return;
+
+    try {
+      setDownloadingPdf(true);
+      setPdfError("");
+
+      const response = await fetch(`/api/accounts/${accountIdForUrl}/pdf`);
+
+      if (!response.ok) {
+        const data = await readApiResponse(response).catch(() => ({}) as ApiResponse);
+        throw new Error(data.error || "Could not generate the account packet PDF.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/);
+      const filename =
+        filenameMatch?.[1] || `${account.accountName || "account"} - New Account Packet.pdf`;
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setPdfError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong generating the account packet PDF."
+      );
+    } finally {
+      setDownloadingPdf(false);
     }
   }
 
@@ -942,10 +986,11 @@ export default function AccountDetailPage() {
 
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50"
+                onClick={handleDownloadPdf}
+                disabled={downloadingPdf}
+                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Print
+                {downloadingPdf ? "Generating PDF..." : "Download PDF"}
               </button>
 
               <Link
@@ -995,6 +1040,12 @@ export default function AccountDetailPage() {
           {packetError ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
               {packetError}
+            </div>
+          ) : null}
+
+          {pdfError ? (
+            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
+              {pdfError}
             </div>
           ) : null}
 
