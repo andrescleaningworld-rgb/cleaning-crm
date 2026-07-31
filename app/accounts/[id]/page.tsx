@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
@@ -299,8 +299,12 @@ export default function AccountDetailPage() {
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
+  // Which variant is currently being fetched/printed, if any — also doubles
+  // as the "an action is in flight" flag that disables both choice buttons.
+  const [printingVariant, setPrintingVariant] = useState<"teamLeader" | "admin" | null>(null);
   const [pdfError, setPdfError] = useState("");
+  const printIframeRef = useRef<HTMLIFrameElement>(null);
   const [showFullAccountInfo, setShowFullAccountInfo] = useState(false);
 
   const [showStatusModal, setShowStatusModal] = useState(false);
@@ -592,17 +596,37 @@ export default function AccountDetailPage() {
     }
   }
 
-  // Fetches the PDF as a blob (rather than a plain navigation/window.open)
-  // so a failure surfaces as a proper error message instead of the browser
-  // just showing a blank tab or a raw JSON error page.
-  async function handleDownloadPdf() {
+  function openPdfModal() {
+    if (!account) return;
+    setPdfError("");
+    setShowPdfModal(true);
+  }
+
+  function closePdfModal() {
+    if (printingVariant) return;
+    setShowPdfModal(false);
+    setPdfError("");
+  }
+
+  // Fetches the PDF as a blob, loads it into a hidden iframe, then calls the
+  // iframe's own print() — this opens the browser's native print dialog
+  // directly against the rendered PDF (same UX as Ctrl+P on a real page),
+  // rather than a download the user has to go find and open manually. Falls
+  // back to opening the PDF in a new tab if print() can't be invoked for any
+  // reason, so there's always a way to reach it.
+  async function handlePrintPacket(variant: "teamLeader" | "admin") {
     if (!account) return;
 
     try {
-      setDownloadingPdf(true);
+      setPrintingVariant(variant);
       setPdfError("");
 
-      const response = await fetch(`/api/accounts/${accountIdForUrl}/pdf`);
+      const url =
+        variant === "admin"
+          ? `/api/accounts/${accountIdForUrl}/pdf/admin`
+          : `/api/accounts/${accountIdForUrl}/pdf`;
+
+      const response = await fetch(url);
 
       if (!response.ok) {
         const data = await readApiResponse(response).catch(() => ({}) as ApiResponse);
@@ -610,19 +634,40 @@ export default function AccountDetailPage() {
       }
 
       const blob = await response.blob();
-      const disposition = response.headers.get("Content-Disposition") || "";
-      const filenameMatch = disposition.match(/filename="([^"]+)"/);
-      const filename =
-        filenameMatch?.[1] || `${account.accountName || "account"} - New Account Packet.pdf`;
+      const objectUrl = URL.createObjectURL(blob);
 
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      const iframe = printIframeRef.current;
+      if (!iframe) {
+        throw new Error("Print preview is not ready. Please try again.");
+      }
+
+      await new Promise<void>((resolve) => {
+        const handleLoad = () => {
+          iframe.removeEventListener("load", handleLoad);
+          resolve();
+        };
+        iframe.addEventListener("load", handleLoad);
+        iframe.src = objectUrl;
+        // Some browsers' embedded PDF viewers don't reliably fire `load`
+        // once the PDF itself has actually rendered — this bounds the wait
+        // so a missed event can't hang the button forever.
+        setTimeout(resolve, 3000);
+      });
+
+      try {
+        const win = iframe.contentWindow;
+        if (!win) throw new Error("Print preview window is unavailable.");
+        win.focus();
+        win.print();
+      } catch {
+        window.open(objectUrl, "_blank");
+      }
+
+      setShowPdfModal(false);
+      // Delayed, not immediate — the iframe/new tab needs the blob URL to
+      // stay valid long enough to finish loading and for the print dialog
+      // (or the fallback tab) to actually open.
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch (err) {
       setPdfError(
         err instanceof Error
@@ -630,7 +675,7 @@ export default function AccountDetailPage() {
           : "Something went wrong generating the account packet PDF."
       );
     } finally {
-      setDownloadingPdf(false);
+      setPrintingVariant(null);
     }
   }
 
@@ -986,11 +1031,10 @@ export default function AccountDetailPage() {
 
               <button
                 type="button"
-                onClick={handleDownloadPdf}
-                disabled={downloadingPdf}
-                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={openPdfModal}
+                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50"
               >
-                {downloadingPdf ? "Generating PDF..." : "Download PDF"}
+                Print PDF
               </button>
 
               <Link
@@ -1040,12 +1084,6 @@ export default function AccountDetailPage() {
           {packetError ? (
             <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
               {packetError}
-            </div>
-          ) : null}
-
-          {pdfError ? (
-            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
-              {pdfError}
             </div>
           ) : null}
 
@@ -1558,6 +1596,95 @@ export default function AccountDetailPage() {
           </div>
         </div>
       ) : null}
+
+      {showPdfModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
+          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+                  Print Account Packet
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">
+                  {account.accountName || "Unnamed Account"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closePdfModal}
+                disabled={printingVariant !== null}
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                X
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm font-semibold text-slate-500">
+              Choose which version to print.
+            </p>
+
+            <div className="mt-5 grid gap-3">
+              <button
+                type="button"
+                onClick={() => handlePrintPacket("teamLeader")}
+                disabled={printingVariant !== null}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <p className="text-sm font-black text-slate-950">
+                  {printingVariant === "teamLeader" ? "Preparing..." : "Team Leader PDF"}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Account details, access info, and scope of work. Safe to hand to a
+                  subcontractor.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handlePrintPacket("admin")}
+                disabled={printingVariant !== null}
+                className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-left shadow-sm hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <p className="text-sm font-black text-red-900">
+                  {printingVariant === "admin" ? "Preparing..." : "Admin PDF"}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-red-700">
+                  Everything above, plus revenue, margin, subcontractor company, and
+                  internal notes. Internal use only — never share with a subcontractor.
+                </p>
+              </button>
+            </div>
+
+            {pdfError ? (
+              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
+                {pdfError}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Off-screen (not display:none/zero-size, which can keep some
+          browsers' embedded PDF viewers from initializing) target for
+          handlePrintPacket's fetch-blob -> load -> print() flow. Never
+          shown to the user; exists purely so window.print() has a PDF
+          document to act on. */}
+      <iframe
+        ref={printIframeRef}
+        title="Account packet print preview"
+        className="account-detail-print-hide"
+        style={{
+          position: "fixed",
+          top: "-9999px",
+          left: "-9999px",
+          width: 1,
+          height: 1,
+          opacity: 0,
+          border: 0,
+          pointerEvents: "none",
+        }}
+      />
     </div>
     </>
   );
