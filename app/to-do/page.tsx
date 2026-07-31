@@ -4,8 +4,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
+import VisitCompletionModal, {
+  type VisitFromToDoPayload,
+} from "./VisitCompletionModal";
 
-type ToDo = {
+export type ToDo = {
   id: string;
   createdDate: string;
   dueDate: string;
@@ -127,6 +130,10 @@ type ToDoCardProps = {
   onUpdateStatus: (toDoId: string, status: string, notes: string) => Promise<void>;
   onSaveOutcome: (toDoId: string, outcome: string) => Promise<void>;
   onEditToDo: (toDoId: string, updates: ToDoEditFields) => Promise<void>;
+  // Only called for taskType === "Visit" to-dos when "Done" is clicked —
+  // opens the Visit-linking modal instead of completing immediately. Every
+  // other taskType keeps going straight through onUpdateStatus.
+  onRequestVisitCompletion: (todo: ToDo, notes: string) => void;
   bulkEditMode: boolean;
   bulkSelected: boolean;
   onToggleBulkSelected: (toDoId: string) => void;
@@ -143,6 +150,7 @@ function ToDoCard({
   onUpdateStatus,
   onSaveOutcome,
   onEditToDo,
+  onRequestVisitCompletion,
   bulkEditMode,
   bulkSelected,
   onToggleBulkSelected,
@@ -422,7 +430,13 @@ function ToDoCard({
           {todo.status !== "Done" ? (
             <button
               type="button"
-              onClick={() => handleStatusChange("Done")}
+              onClick={() => {
+                if (todo.taskType === "Visit") {
+                  onRequestVisitCompletion(todo, notesDraft);
+                } else {
+                  handleStatusChange("Done");
+                }
+              }}
               disabled={savingStatus}
               className="rounded-xl bg-green-700 px-3 py-2 text-xs font-semibold text-white hover:bg-green-600 disabled:opacity-60"
             >
@@ -531,6 +545,15 @@ export default function ToDoPage() {
   const [bulkEditSaving, setBulkEditSaving] = useState(false);
   const [bulkEditError, setBulkEditError] = useState("");
   const [bulkEditSuccess, setBulkEditSuccess] = useState("");
+
+  // Set when "Done" is clicked on a Visit to-do — holds the to-do plus the
+  // notes draft that was in the box at that moment (see ToDoCard's
+  // handleStatusChange comment on why notesDraft, not todo.notes). Opens
+  // VisitCompletionModal instead of completing the to-do immediately.
+  const [visitCompletionToDo, setVisitCompletionToDo] = useState<{
+    todo: ToDo;
+    notes: string;
+  } | null>(null);
 
   async function loadTodos() {
     setLoading(true);
@@ -856,6 +879,43 @@ export default function ToDoPage() {
     }
 
     await loadTodos();
+  }
+
+  function requestVisitCompletion(todo: ToDo, notes: string) {
+    setVisitCompletionToDo({ todo, notes });
+  }
+
+  // Rejects (without clearing visitCompletionToDo) on failure so the modal
+  // stays open with its inline error — see VisitCompletionModal's
+  // onSaveAndComplete contract.
+  async function saveVisitAndComplete(payload: VisitFromToDoPayload) {
+    if (!visitCompletionToDo) return;
+
+    const response = await fetch("/api/visits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || data.message || "Could not save the visit.");
+    }
+
+    await updateStatus(visitCompletionToDo.todo.id, "Done", payload.notes);
+    setVisitCompletionToDo(null);
+  }
+
+  async function skipVisitAndComplete() {
+    if (!visitCompletionToDo) return;
+
+    await updateStatus(
+      visitCompletionToDo.todo.id,
+      "Done",
+      visitCompletionToDo.notes
+    );
+    setVisitCompletionToDo(null);
   }
 
   function toggleBulkEditMode() {
@@ -1357,6 +1417,7 @@ export default function ToDoPage() {
                 onUpdateStatus={updateStatus}
                 onSaveOutcome={updateOutcome}
                 onEditToDo={editToDo}
+                onRequestVisitCompletion={requestVisitCompletion}
                 bulkEditMode={bulkEditMode}
                 bulkSelected={selectedBulkEditIds.has(todo.id)}
                 onToggleBulkSelected={toggleBulkEditSelected}
@@ -1365,6 +1426,17 @@ export default function ToDoPage() {
           )}
         </section>
       </div>
+
+      {visitCompletionToDo ? (
+        <VisitCompletionModal
+          todo={visitCompletionToDo.todo}
+          initialNotes={visitCompletionToDo.notes}
+          accounts={accountMultiOptions}
+          loadingAccounts={loadingAccounts}
+          onSaveAndComplete={saveVisitAndComplete}
+          onSkip={skipVisitAndComplete}
+        />
+      ) : null}
     </main>
   );
 }
