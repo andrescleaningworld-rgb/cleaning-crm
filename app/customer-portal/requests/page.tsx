@@ -13,6 +13,17 @@ const REQUEST_TYPES = [
   "Other Request",
 ];
 
+// Only "Specialty Service" shows the service picker below — every other
+// request type keeps the plain free-text Details field.
+const SPECIALTY_TYPE = REQUEST_TYPES[0];
+
+type ExtraServiceOption = {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+};
+
 export default function CustomerRequestsPage() {
   const router = useRouter();
   const [customerId, setCustomerId] = useState("");
@@ -27,6 +38,13 @@ export default function CustomerRequestsPage() {
   const [pendingRequests, setPendingRequests] = useState<
     { type?: string; details?: string; status?: string }[]
   >([]);
+
+  const [services, setServices] = useState<ExtraServiceOption[]>([]);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [servicesError, setServicesError] = useState("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<Set<string>>(new Set());
+
+  const isSpecialty = form.type === SPECIALTY_TYPE;
 
   useEffect(() => {
     const storedId = localStorage.getItem("cwCustomerId");
@@ -56,16 +74,79 @@ export default function CustomerRequestsPage() {
     loadPending();
   }, [router]);
 
+  // Loaded once regardless of the initially-selected type (Specialty Service
+  // is REQUEST_TYPES[0], the default, so it's usually needed immediately
+  // anyway) — simpler than a conditional fetch keyed to type changes, and
+  // the list is small.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadServices() {
+      setServicesLoading(true);
+      setServicesError("");
+      try {
+        const res = await fetch("/api/customer-portal/extra-services", { cache: "no-store" });
+        const data = (await res.json()) as { success?: boolean; services?: ExtraServiceOption[] };
+        if (!data.success || !Array.isArray(data.services)) {
+          if (!cancelled) setServicesError("Could not load the list of services right now.");
+          return;
+        }
+        if (!cancelled) setServices(data.services);
+      } catch {
+        if (!cancelled) setServicesError("Could not load the list of services right now.");
+      } finally {
+        if (!cancelled) setServicesLoading(false);
+      }
+    }
+
+    loadServices();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function toggleService(id: string) {
+    setSelectedServiceIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleTypeChange(nextType: string) {
+    setForm((current) => ({ ...current, type: nextType }));
+    if (nextType !== SPECIALTY_TYPE) setSelectedServiceIds(new Set());
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!customerId) return;
+
+    if (isSpecialty && selectedServiceIds.size === 0) {
+      setError("Please select at least one service.");
+      return;
+    }
+
+    // The Apps Script backend this posts to only has a plain-text `details`
+    // column for requests — no structured service-picker field — so the
+    // selected names are folded into `details` itself rather than sent as a
+    // separate field the backend would silently drop.
+    const selectedNames = services
+      .filter((service) => selectedServiceIds.has(service.id))
+      .map((service) => service.name);
+    const composedDetails = isSpecialty
+      ? [`Requested service(s): ${selectedNames.join(", ")}`, form.details.trim()]
+          .filter(Boolean)
+          .join("\n\n")
+      : form.details;
 
     try {
       setSubmitting(true);
       setError("");
       await submitCustomerRequest({
         type: form.type,
-        details: form.details,
+        details: composedDetails,
         preferredDate: form.preferredDate,
         customerId,
       });
@@ -144,7 +225,7 @@ export default function CustomerRequestsPage() {
           </label>
           <select
             value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value })}
+            onChange={(e) => handleTypeChange(e.target.value)}
             className="mt-2 min-h-[48px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500"
           >
             {REQUEST_TYPES.map((t) => (
@@ -155,16 +236,93 @@ export default function CustomerRequestsPage() {
           </select>
         </div>
 
+        {isSpecialty ? (
+          <div>
+            <label className="block text-sm font-black text-slate-700">
+              Select Service(s) *
+            </label>
+            <p className="mt-1 text-xs text-slate-500">
+              Choose one or more specialty services you&apos;d like a quote for.
+            </p>
+
+            {servicesLoading ? (
+              <p className="mt-3 text-sm text-slate-500">Loading services...</p>
+            ) : servicesError ? (
+              <p className="mt-3 text-sm font-semibold text-red-700">{servicesError}</p>
+            ) : services.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">
+                No specialty services are listed right now — describe what you need below.
+              </p>
+            ) : (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {services.map((service) => {
+                  const selected = selectedServiceIds.has(service.id);
+                  return (
+                    <button
+                      key={service.id}
+                      type="button"
+                      onClick={() => toggleService(service.id)}
+                      aria-pressed={selected}
+                      className={`flex items-start gap-3 rounded-2xl border p-3 text-left transition ${
+                        selected
+                          ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
+                          : "border-slate-200 bg-white hover:border-purple-300"
+                      }`}
+                    >
+                      {service.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- external Blob URL, not a local asset
+                        <img
+                          src={service.imageUrl}
+                          alt=""
+                          className="h-14 w-14 shrink-0 rounded-xl border border-slate-100 object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-lg">
+                          🧹
+                        </div>
+                      )}
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-slate-900">{service.name}</p>
+                        {service.description ? (
+                          <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                            {service.description}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <span
+                        aria-hidden
+                        className={`ml-auto mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold ${
+                          selected
+                            ? "border-purple-600 bg-purple-600 text-white"
+                            : "border-slate-300 text-transparent"
+                        }`}
+                      >
+                        ✓
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : null}
+
         <div>
           <label className="block text-sm font-black text-slate-700">
-            Details *
+            {isSpecialty ? "Additional Details (optional)" : "Details *"}
           </label>
           <textarea
-            required
+            required={!isSpecialty}
             value={form.details}
             onChange={(e) => setForm({ ...form, details: e.target.value })}
             className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
-            placeholder="Please describe what you need..."
+            placeholder={
+              isSpecialty
+                ? "Anything else we should know? (optional)"
+                : "Please describe what you need..."
+            }
           />
         </div>
 
