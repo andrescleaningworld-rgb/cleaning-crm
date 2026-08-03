@@ -12,12 +12,12 @@ import {
   updateToDoStatus,
 } from "@/lib/googleSheets";
 import {
-  CALENDAR_SYNCED_TASK_TYPES,
   createCalendarEventForToDo,
   deleteCalendarEventForToDo,
   updateCalendarEventForToDo,
   type ToDoCalendarInput,
 } from "@/lib/googleCalendar";
+import { normalizeToDoPriority } from "@/lib/toDoPriority";
 
 // Shared by the single-edit and bulk-edit actions: given a to-do's
 // resolved post-edit fields and its pre-edit calendarEventId, decide
@@ -28,9 +28,9 @@ import {
 // Calendar call itself failed.
 async function syncCalendarAfterEdit(
   previousCalendarEventId: string,
-  resolved: { taskType: string; dueDate: string; accountName: string; why: string; notes: string; assignedTo: string; status: string }
+  resolved: { taskType: string; dueDate: string; accountName: string; why: string; notes: string; assignedTo: string; status: string; syncToCalendar: boolean }
 ): Promise<{ calendarEventId: string; calendarSyncFailed: boolean }> {
-  const nowEligible = CALENDAR_SYNCED_TASK_TYPES.has(resolved.taskType) && Boolean(resolved.dueDate);
+  const nowEligible = resolved.syncToCalendar && Boolean(resolved.dueDate);
 
   if (previousCalendarEventId && nowEligible) {
     const result = await updateCalendarEventForToDo({
@@ -101,7 +101,9 @@ export async function POST(request: NextRequest) {
         why: String(body.why ?? ""),
         status: String(body.status || "Open"),
         notes: String(body.notes ?? ""),
+        syncToCalendar: typeof body.syncToCalendar === "boolean" ? body.syncToCalendar : true,
       };
+      const priority = normalizeToDoPriority(body.priority);
 
       // Calendar event is created BEFORE the Sheets row so its id (and
       // whether the sync failed) can be written in the same append — see
@@ -115,6 +117,7 @@ export async function POST(request: NextRequest) {
         groupId: typeof body.groupId === "string" ? body.groupId : "",
         calendarEventId: calendarEventId ?? "",
         calendarSyncFailed,
+        priority,
       });
 
       return NextResponse.json({ success: true, id, calendarSyncFailed });
@@ -145,11 +148,14 @@ export async function POST(request: NextRequest) {
         status: String(body.status || "Open"),
         notes: String(body.notes ?? ""),
         groupId: typeof body.groupId === "string" ? body.groupId : "",
+        syncToCalendar: typeof body.syncToCalendar === "boolean" ? body.syncToCalendar : true,
       };
+      const priority = normalizeToDoPriority(body.priority);
 
-      const entries: (ToDoCalendarInput & { groupId: string })[] = accountNames.map((accountName) => ({
+      const entries: (ToDoCalendarInput & { groupId: string; priority: typeof priority })[] = accountNames.map((accountName) => ({
         ...shared,
         accountName,
+        priority,
       }));
 
       // Independent Calendar API calls (unlike Sheets appends, creating N
@@ -161,7 +167,7 @@ export async function POST(request: NextRequest) {
       );
 
       const ids = await appendToDos(
-        entries.map((entry: ToDoCalendarInput & { groupId: string }, index: number) => ({
+        entries.map((entry: ToDoCalendarInput & { groupId: string; priority: typeof priority }, index: number) => ({
           ...entry,
           calendarEventId: calendarResults[index].eventId ?? "",
           calendarSyncFailed: calendarResults[index].failed,
@@ -203,13 +209,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, calendarSyncFailed });
     }
 
-    // Full-field edit — Assigned To / Type / Due Date / Status / Notes.
-    // Unlike updateToDoStatus, any of these can flip Calendar eligibility
-    // (task type off/onto the synced list, due date added/cleared), so this
-    // recomputes and reconciles the Calendar event afterward via
-    // syncCalendarAfterEdit rather than just patching a title in place.
-    // Only keys actually present in the request body are written — omitted
-    // fields keep their existing sheet value (see updateToDo's own comment).
+    // Full-field edit — Assigned To / Type / Due Date / Status / Notes /
+    // Sync to Calendar. Unlike updateToDoStatus, any of these can flip
+    // Calendar eligibility (Sync to Calendar toggled off/on, due date
+    // added/cleared), so this recomputes and reconciles the Calendar event
+    // afterward via syncCalendarAfterEdit rather than just patching a title
+    // in place. Only keys actually present in the request body are written —
+    // omitted fields keep their existing sheet value (see updateToDo's own
+    // comment).
     if (action === "updateToDo") {
       const toDoId = String(body.toDoId ?? "");
 
@@ -226,6 +233,8 @@ export async function POST(request: NextRequest) {
       if (body.taskType !== undefined) edits.taskType = String(body.taskType);
       if (body.status !== undefined) edits.status = String(body.status);
       if (body.notes !== undefined) edits.notes = String(body.notes);
+      if (body.syncToCalendar !== undefined) edits.syncToCalendar = Boolean(body.syncToCalendar);
+      if (body.priority !== undefined) edits.priority = normalizeToDoPriority(body.priority);
 
       const resolved = await updateToDo(toDoId, edits);
 
@@ -247,7 +256,11 @@ export async function POST(request: NextRequest) {
     // the single-edit action, an empty string here means "leave this field
     // alone" (not "clear it") — a shared bulk form has no way to represent
     // "clear this for everyone" separately from "I didn't fill this in", so
-    // blank is always treated as untouched. All Sheet field writes go
+    // blank is always treated as untouched. Sync to Calendar uses the same
+    // "untouched unless present" convention, but since it's a boolean with
+    // no meaningful empty-string state, presence is signaled by the value
+    // actually being a boolean (`true`/`false`) rather than a non-empty
+    // string — see the syncToCalendar check below. All Sheet field writes go
     // through one updateToDosBatch call rather than one updateToDo per id;
     // Calendar itself has no batch API, so those calls still happen one per
     // to-do, but their resulting calendarEventId/calendarSyncFailed writes
@@ -269,6 +282,8 @@ export async function POST(request: NextRequest) {
       if (typeof body.assignedTo === "string" && body.assignedTo !== "") edits.assignedTo = body.assignedTo;
       if (typeof body.taskType === "string" && body.taskType !== "") edits.taskType = body.taskType;
       if (typeof body.status === "string" && body.status !== "") edits.status = body.status;
+      if (typeof body.syncToCalendar === "boolean") edits.syncToCalendar = body.syncToCalendar;
+      if (typeof body.priority === "string" && body.priority !== "") edits.priority = normalizeToDoPriority(body.priority);
 
       if (Object.keys(edits).length === 0) {
         return NextResponse.json(

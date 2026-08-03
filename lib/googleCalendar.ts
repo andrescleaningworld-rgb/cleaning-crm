@@ -46,16 +46,6 @@ const DEFAULT_EVENT_REMINDERS = {
   ],
 };
 
-// Only these task types get a calendar event at all — Visit, Customer Call,
-// and Other stay Sheets-only.
-export const CALENDAR_SYNCED_TASK_TYPES = new Set([
-  "Complaint Follow-Up",
-  "Account Follow-Up",
-  "Subcontractor Follow-Up",
-  "New Account Onboarding",
-  "Reminder",
-]);
-
 // Deterministically recomputed from the to-do's own fields every time
 // (create AND update) rather than read back from Calendar and patched
 // incrementally — keeps this genuinely one-way and means un-completing a
@@ -74,11 +64,15 @@ export type ToDoCalendarInput = {
   notes: string;
   assignedTo: string;
   status: string;
+  // User-controlled per-to-do opt-out — replaces the old task-type-based
+  // eligibility set. Every task type is calendar-eligible now; this is the
+  // only gate.
+  syncToCalendar: boolean;
 };
 
 // `failed` distinguishes an actual Calendar failure (misconfigured env var,
-// API error) from this to-do simply not being calendar-eligible — a normal
-// Visit/Customer Call/Other to-do, or one with no due date, returns
+// API error) from this to-do simply not being calendar-eligible — a to-do
+// with "Sync to Calendar" unchecked, or one with no due date, returns
 // `failed: false` since there was never anything to sync.
 export type CalendarSyncResult = {
   eventId: string | null;
@@ -87,10 +81,10 @@ export type CalendarSyncResult = {
 
 // Creates (or skips) the calendar event for a newly-created to-do. Returns
 // the new event's id to be stored on the to-do's row, or null if this
-// to-do isn't calendar-eligible (wrong task type, no due date) or the
-// Calendar call itself failed.
+// to-do isn't calendar-eligible ("Sync to Calendar" unchecked, no due date)
+// or the Calendar call itself failed.
 export async function createCalendarEventForToDo(input: ToDoCalendarInput): Promise<CalendarSyncResult> {
-  if (!CALENDAR_SYNCED_TASK_TYPES.has(input.taskType)) return { eventId: null, failed: false };
+  if (!input.syncToCalendar) return { eventId: null, failed: false };
   // An all-day event needs a date to land on — a to-do saved without a due
   // date simply doesn't get a calendar event (dueDate isn't a required
   // field on the to-do form).
@@ -180,8 +174,8 @@ export async function updateCalendarEventForToDo(
 }
 
 // Cancels a to-do's synced event outright — used when an edit makes a
-// previously-eligible to-do no longer calendar-eligible (task type changed
-// off the synced list, or the due date was cleared). A 404/410 from Calendar
+// previously-eligible to-do no longer calendar-eligible ("Sync to Calendar"
+// unchecked, or the due date was cleared). A 404/410 from Calendar
 // means the event is already gone (e.g. deleted by hand) — treated as
 // success rather than a failure, since the end state we want is achieved.
 export async function deleteCalendarEventForToDo(eventId: string): Promise<{ failed: boolean }> {

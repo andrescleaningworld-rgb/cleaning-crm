@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { DEFAULT_TO_DO_PRIORITY, normalizeToDoPriority, type ToDoPriority } from "./toDoPriority";
 
 const SHEET_TAB = "customer-portal";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
@@ -1143,10 +1144,11 @@ const TO_DO_COL = {
   // written before this column existed.
   OUTCOME:      10, // K
   // Google Calendar event id for this to-do's synced event (see
-  // lib/googleCalendar.ts) — blank for task types that don't sync, for
-  // to-dos with no due date, and for every row written before Calendar
-  // sync existed. This is bookkeeping for OUR OWN write target, not a
-  // read-back from Calendar: sync stays strictly one-way (app → Calendar).
+  // lib/googleCalendar.ts) — blank for to-dos with "Sync to Calendar"
+  // unchecked, for to-dos with no due date, and for every row written
+  // before Calendar sync existed. This is bookkeeping for OUR OWN write
+  // target, not a read-back from Calendar: sync stays strictly one-way
+  // (app → Calendar).
   CALENDAR_EVENT_ID: 11, // L
   // "TRUE" when the most recent Calendar sync attempt for this to-do (create
   // or status-update) failed — surfaced as a non-blocking badge in the UI so
@@ -1154,6 +1156,19 @@ const TO_DO_COL = {
   // were never calendar-eligible, that synced successfully, and for every
   // row written before this column existed.
   CALENDAR_SYNC_FAILED: 12, // M
+  // User-controlled per-to-do Calendar opt-out (replaces the old task-type
+  // eligibility set). Read as an OPT-OUT flag — "FALSE" means don't sync,
+  // anything else (including blank, for every row written before this
+  // column existed) means sync — so pre-existing rows default to synced
+  // without needing a backfill write. New rows always write an explicit
+  // "TRUE"/"FALSE", never blank, keeping the pattern symmetric going forward.
+  SYNC_TO_CALENDAR: 13, // N
+  // Low/Medium/High tier (see lib/toDoPriority.ts). Read with a
+  // default-on-missing-or-invalid fallback (normalizeToDoPriority), same
+  // reasoning as SYNC_TO_CALENDAR above — every row written before this
+  // column existed reads as "Medium" with no backfill needed. New rows
+  // always write one of the three valid strings, never blank.
+  PRIORITY: 14, // O
 } as const;
 
 export type ToDo = {
@@ -1171,6 +1186,8 @@ export type ToDo = {
   outcome: string;
   calendarEventId: string;
   calendarSyncFailed: boolean;
+  syncToCalendar: boolean;
+  priority: ToDoPriority;
 };
 
 // Unlike the other tabs in this file, To-Do reads deliberately skip the
@@ -1185,7 +1202,7 @@ async function fetchToDoRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:M`,
+      range: `${TO_DO_RANGE}!A:O`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1211,6 +1228,8 @@ export async function fetchToDos(): Promise<ToDo[]> {
       outcome:            r[TO_DO_COL.OUTCOME]              ?? "",
       calendarEventId:    r[TO_DO_COL.CALENDAR_EVENT_ID]    ?? "",
       calendarSyncFailed: r[TO_DO_COL.CALENDAR_SYNC_FAILED] === "TRUE",
+      syncToCalendar:     r[TO_DO_COL.SYNC_TO_CALENDAR]     !== "FALSE",
+      priority:           normalizeToDoPriority(r[TO_DO_COL.PRIORITY]),
     }))
     .filter((t) => t.id);
 }
@@ -1235,6 +1254,14 @@ type ToDoInput = {
   // Same timing as calendarEventId above — the caller already knows whether
   // the create-time sync attempt failed before this row is ever written.
   calendarSyncFailed?: boolean;
+  // User's "Sync to Calendar" choice for this to-do. Optional on the type,
+  // but buildToDoRow below treats anything other than an explicit `false`
+  // as true — never silently defaults a caller that omits this to "off".
+  syncToCalendar?: boolean;
+  // Optional on the type, but buildToDoRow below always resolves it via
+  // normalizeToDoPriority (missing/invalid -> "Medium"), so a written row
+  // never has a blank priority cell.
+  priority?: ToDoPriority;
 };
 
 function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[] {
@@ -1252,7 +1279,36 @@ function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[
     "", // OUTCOME — only ever set later, via updateToDoOutcome
     data.calendarEventId ?? "",
     data.calendarSyncFailed ? "TRUE" : "",
+    data.syncToCalendar === false ? "FALSE" : "TRUE",
+    normalizeToDoPriority(data.priority),
   ];
+}
+
+// Finds the sheet row immediately after the last row containing ANY data,
+// scanned across the tab's FULL column width (A:Z, not just A:N) rather
+// than relying on Sheets' own values.append() table-detection. append()
+// determines where — and critically, at WHICH COLUMN — to write a new row
+// by inspecting the current last row; when that row has a gap (one or more
+// blank cells followed by more populated cells further right), append()
+// misidentifies the table's left edge as wherever that trailing data
+// starts and silently writes the new row there instead of at column A.
+// A normal to-do has exactly this shape once Calendar sync populates
+// calendarEventId (L) while groupId/outcome (J/K) stay blank — confirmed
+// reproducible in an isolated test tab, and confirmed already corrupting
+// real rows in production (two real to-dos landed in columns L onward,
+// invisible to fetchToDos, which only reads A:N and requires a non-blank
+// ID in column A). Reading the full A:Z width (not just A:N) also means
+// this keeps computing the correct next row even before any already-
+// corrupted legacy rows get manually repaired.
+async function findNextToDoRow(sheets: ReturnType<typeof google.sheets>): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${TO_DO_RANGE}!A:Z`,
+    })
+  );
+  const rows = (res.data.values ?? []) as string[][];
+  return rows.length + 1; // 1-indexed sheet row right after the last one with data
 }
 
 export async function appendToDo(data: ToDoInput): Promise<string> {
@@ -1265,9 +1321,14 @@ export async function appendToDo(data: ToDoInput): Promise<string> {
 
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
-  await sheets.spreadsheets.values.append({
+  const targetRow = await findNextToDoRow(sheets);
+
+  // A targeted update() to an explicitly computed row has no ambiguity
+  // about which column to start at — see findNextToDoRow's comment for why
+  // values.append() is unsafe here.
+  await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:M`,
+    range: `${TO_DO_RANGE}!A${targetRow}:O${targetRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [buildToDoRow(id, createdDate, data)] },
   });
@@ -1276,13 +1337,12 @@ export async function appendToDo(data: ToDoInput): Promise<string> {
 }
 
 // Bulk "one independent to-do per selected account" creation (the multi-
-// account Visit form) MUST go through a single values.append call with all
-// rows in one requestBody, not N concurrent per-account calls: the Sheets
-// API determines each append's target row by reading the current end of
-// the table, and concurrent appends to the same range race on that read —
-// several near-simultaneous calls can land on the same row and overwrite
-// each other. Each call still reports success to its caller when this
-// happens, so the failure is invisible to Promise.allSettled-style
+// account Visit form) MUST go through a single values.update call with all
+// rows in one requestBody, not N concurrent per-account calls: computing
+// one target row and writing N rows to it in one request avoids N separate
+// calls each independently (and possibly concurrently) computing "the next
+// row" and colliding. Each call still reports success to its caller when
+// this happens, so the failure is invisible to Promise.allSettled-style
 // per-request error handling; only a single serialized write avoids it.
 export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
   if (entries.length === 0) return [];
@@ -1296,9 +1356,14 @@ export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
 
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
-  await sheets.spreadsheets.values.append({
+  const targetRow = await findNextToDoRow(sheets);
+  const lastRow = targetRow + entries.length - 1;
+
+  // Same targeted-update reasoning as appendToDo above — see
+  // findNextToDoRow's comment.
+  await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A:M`,
+    range: `${TO_DO_RANGE}!A${targetRow}:O${lastRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: entries.map((data, index) => buildToDoRow(ids[index], createdDate, data)) },
   });
@@ -1319,7 +1384,7 @@ async function findToDoRow(
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:M`,
+      range: `${TO_DO_RANGE}!A:O`,
     })
   );
 
@@ -1343,7 +1408,7 @@ async function findToDoRows(
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:M`,
+      range: `${TO_DO_RANGE}!A:O`,
     })
   );
 
@@ -1452,6 +1517,8 @@ export type ToDoEditInput = {
   taskType?: string;
   status?: string;
   notes?: string;
+  syncToCalendar?: boolean;
+  priority?: ToDoPriority;
 };
 
 export type ToDoEditResult = {
@@ -1465,6 +1532,8 @@ export type ToDoEditResult = {
   assignedTo: string;
   status: string;
   notes: string;
+  syncToCalendar: boolean;
+  priority: ToDoPriority;
   // Pre-edit value, so the route can tell whether a Calendar event already
   // existed before deciding whether to create/patch/cancel one.
   previousCalendarEventId: string;
@@ -1490,6 +1559,8 @@ export async function updateToDo(toDoId: string, updates: ToDoEditInput): Promis
   if (updates.taskType !== undefined) data.push({ range: `${TO_DO_RANGE}!F${sheetRow}`, values: [[updates.taskType]] });
   if (updates.status !== undefined) data.push({ range: `${TO_DO_RANGE}!H${sheetRow}`, values: [[updates.status]] });
   if (updates.notes !== undefined) data.push({ range: `${TO_DO_RANGE}!I${sheetRow}`, values: [[updates.notes]] });
+  if (updates.syncToCalendar !== undefined) data.push({ range: `${TO_DO_RANGE}!N${sheetRow}`, values: [[updates.syncToCalendar ? "TRUE" : "FALSE"]] });
+  if (updates.priority !== undefined) data.push({ range: `${TO_DO_RANGE}!O${sheetRow}`, values: [[updates.priority]] });
 
   if (data.length > 0) {
     await sheets.spreadsheets.values.batchUpdate({
@@ -1506,6 +1577,8 @@ export async function updateToDo(toDoId: string, updates: ToDoEditInput): Promis
     assignedTo: updates.assignedTo ?? row[TO_DO_COL.ASSIGNED_TO] ?? "",
     status: updates.status ?? row[TO_DO_COL.STATUS] ?? "",
     notes: updates.notes ?? row[TO_DO_COL.NOTES] ?? "",
+    syncToCalendar: updates.syncToCalendar !== undefined ? updates.syncToCalendar : row[TO_DO_COL.SYNC_TO_CALENDAR] !== "FALSE",
+    priority: updates.priority ?? normalizeToDoPriority(row[TO_DO_COL.PRIORITY]),
     previousCalendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
   };
 }
@@ -1553,6 +1626,11 @@ export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<To
         assignedTo: "",
         status: "",
         notes: "",
+        // Inert placeholder — this entry is filtered out (notFound) before
+        // ever reaching Calendar reconciliation, so the value itself is
+        // never used; it's only here to satisfy ToDoEditResult's shape.
+        syncToCalendar: true,
+        priority: DEFAULT_TO_DO_PRIORITY,
         previousCalendarEventId: "",
         notFound: true,
       });
@@ -1567,6 +1645,8 @@ export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<To
     if (updates.taskType !== undefined) data.push({ range: `${TO_DO_RANGE}!F${sheetRow}`, values: [[updates.taskType]] });
     if (updates.status !== undefined) data.push({ range: `${TO_DO_RANGE}!H${sheetRow}`, values: [[updates.status]] });
     if (updates.notes !== undefined) data.push({ range: `${TO_DO_RANGE}!I${sheetRow}`, values: [[updates.notes]] });
+    if (updates.syncToCalendar !== undefined) data.push({ range: `${TO_DO_RANGE}!N${sheetRow}`, values: [[updates.syncToCalendar ? "TRUE" : "FALSE"]] });
+    if (updates.priority !== undefined) data.push({ range: `${TO_DO_RANGE}!O${sheetRow}`, values: [[updates.priority]] });
 
     results.push({
       toDoId: targetId,
@@ -1578,6 +1658,8 @@ export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<To
       assignedTo: updates.assignedTo ?? row[TO_DO_COL.ASSIGNED_TO] ?? "",
       status: updates.status ?? row[TO_DO_COL.STATUS] ?? "",
       notes: updates.notes ?? row[TO_DO_COL.NOTES] ?? "",
+      syncToCalendar: updates.syncToCalendar !== undefined ? updates.syncToCalendar : row[TO_DO_COL.SYNC_TO_CALENDAR] !== "FALSE",
+      priority: updates.priority ?? normalizeToDoPriority(row[TO_DO_COL.PRIORITY]),
       previousCalendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
     });
   }

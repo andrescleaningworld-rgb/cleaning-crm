@@ -7,6 +7,11 @@ import AccountMultiSelect, {
 import VisitCompletionModal, {
   type VisitFromToDoPayload,
 } from "./VisitCompletionModal";
+import {
+  DEFAULT_TO_DO_PRIORITY,
+  TO_DO_PRIORITIES,
+  type ToDoPriority,
+} from "@/lib/toDoPriority";
 
 export type ToDo = {
   id: string;
@@ -33,6 +38,15 @@ export type ToDo = {
   // update) for this to-do failed — non-blocking: the to-do itself always
   // saves regardless. See lib/googleCalendar.ts.
   calendarSyncFailed?: boolean;
+  // User's choice of whether this to-do should sync to Google Calendar.
+  // Available for every task type. Optional here (like calendarSyncFailed
+  // above) since older rows may load before this field existed — treat a
+  // missing value as synced, matching the backend's default-true read.
+  syncToCalendar?: boolean;
+  // Low/Medium/High tier. Optional here for the same reason as
+  // syncToCalendar above — older rows may load before this field existed;
+  // treat a missing value as "Medium", matching the backend's default.
+  priority?: ToDoPriority;
 };
 
 type Account = {
@@ -53,6 +67,8 @@ type ToDoForm = {
   why: string;
   status: string;
   notes: string;
+  syncToCalendar: boolean;
+  priority: ToDoPriority;
 };
 
 const emptyForm: ToDoForm = {
@@ -62,6 +78,8 @@ const emptyForm: ToDoForm = {
   why: "",
   status: "Open",
   notes: "",
+  syncToCalendar: true,
+  priority: DEFAULT_TO_DO_PRIORITY,
 };
 
 const taskTypes = [
@@ -103,6 +121,20 @@ function statusBadgeClasses(status: string): string {
   }
 }
 
+// Same reasoning as statusBadgeClasses above — a color per tier so priority
+// reads at a glance without opening the card.
+function priorityBadgeClasses(priority: ToDoPriority): string {
+  switch (priority) {
+    case "High":
+      return "bg-red-100 text-red-700";
+    case "Low":
+      return "bg-slate-200 text-slate-600";
+    case "Medium":
+    default:
+      return "bg-amber-100 text-amber-800";
+  }
+}
+
 function isOverdue(todo: ToDo) {
   if (!todo.dueDate) return false;
   if (todo.status === "Done" || todo.status === "Cancelled") return false;
@@ -121,6 +153,8 @@ export type ToDoEditFields = {
   taskType: string;
   dueDate: string;
   status: string;
+  syncToCalendar: boolean;
+  priority: ToDoPriority;
 };
 
 type ToDoCardProps = {
@@ -171,6 +205,8 @@ function ToDoCard({
     taskType: todo.taskType,
     dueDate: todo.dueDate,
     status: todo.status,
+    syncToCalendar: todo.syncToCalendar ?? true,
+    priority: todo.priority ?? DEFAULT_TO_DO_PRIORITY,
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
@@ -189,8 +225,10 @@ function ToDoCard({
       taskType: todo.taskType,
       dueDate: todo.dueDate,
       status: todo.status,
+      syncToCalendar: todo.syncToCalendar ?? true,
+      priority: todo.priority ?? DEFAULT_TO_DO_PRIORITY,
     });
-  }, [todo.assignedTo, todo.taskType, todo.dueDate, todo.status]);
+  }, [todo.assignedTo, todo.taskType, todo.dueDate, todo.status, todo.syncToCalendar, todo.priority]);
 
   async function handleStatusChange(status: string) {
     setSavingStatus(true);
@@ -234,6 +272,8 @@ function ToDoCard({
       taskType: todo.taskType,
       dueDate: todo.dueDate,
       status: todo.status,
+      syncToCalendar: todo.syncToCalendar ?? true,
+      priority: todo.priority ?? DEFAULT_TO_DO_PRIORITY,
     });
     setEditError("");
     setEditing(false);
@@ -260,6 +300,10 @@ function ToDoCard({
           <div className="flex flex-wrap gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
               {todo.taskType || "Task"}
+            </span>
+
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClasses(todo.priority ?? DEFAULT_TO_DO_PRIORITY)}`}>
+              {todo.priority ?? DEFAULT_TO_DO_PRIORITY}
             </span>
 
             <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(todo.status)}`}>
@@ -365,6 +409,37 @@ function ToDoCard({
                     {statuses.map((status) => (
                       <option key={status} value={status}>
                         {status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2 pt-5">
+                  <input
+                    type="checkbox"
+                    id={`edit-sync-${todo.id}`}
+                    checked={editDraft.syncToCalendar}
+                    onChange={(event) => setEditDraft((d) => ({ ...d, syncToCalendar: event.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-sync-${todo.id}`}>
+                    Sync to Calendar
+                  </label>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-priority-${todo.id}`}>
+                    Priority
+                  </label>
+                  <select
+                    id={`edit-priority-${todo.id}`}
+                    value={editDraft.priority}
+                    onChange={(event) => setEditDraft((d) => ({ ...d, priority: event.target.value as ToDoPriority }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    {TO_DO_PRIORITIES.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {priority}
                       </option>
                     ))}
                   </select>
@@ -534,6 +609,8 @@ export default function ToDoPage() {
   const [assignedFilter, setAssignedFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("Open");
   const [typeFilter, setTypeFilter] = useState("All");
+  const [priorityFilter, setPriorityFilter] = useState("All");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
 
   // Bulk edit: select N existing to-dos (from whatever's currently
   // filtered/visible), then apply one shared partial update to all of them
@@ -541,7 +618,7 @@ export default function ToDoPage() {
   const [bulkEditMode, setBulkEditMode] = useState(false);
   const [selectedBulkEditIds, setSelectedBulkEditIds] = useState<Set<string>>(new Set());
   const [showBulkEditForm, setShowBulkEditForm] = useState(false);
-  const [bulkEditForm, setBulkEditForm] = useState({ assignedTo: "", taskType: "", dueDate: "", status: "" });
+  const [bulkEditForm, setBulkEditForm] = useState({ assignedTo: "", taskType: "", dueDate: "", status: "", syncToCalendar: "", priority: "" });
   const [bulkEditSaving, setBulkEditSaving] = useState(false);
   const [bulkEditError, setBulkEditError] = useState("");
   const [bulkEditSuccess, setBulkEditSuccess] = useState("");
@@ -690,6 +767,10 @@ export default function ToDoPage() {
         return todo.taskType === typeFilter;
       })
       .filter((todo) => {
+        if (priorityFilter === "All") return true;
+        return (todo.priority ?? DEFAULT_TO_DO_PRIORITY) === priorityFilter;
+      })
+      .filter((todo) => {
         if (!normalizedSearch) return true;
 
         const text = [
@@ -708,13 +789,16 @@ export default function ToDoPage() {
         return text.includes(normalizedSearch);
       })
       .sort((a, b) => {
-        // Newest created first; items missing a createdDate sort last.
+        // A missing createdDate (in practice: never happens — see
+        // appendToDo/appendToDos, which always stamp it server-side) sorts
+        // toward the end in "newest" mode and toward the start in "oldest"
+        // mode, since it's treated as time zero either way.
         const aTime = a.createdDate ? new Date(a.createdDate).getTime() : 0;
         const bTime = b.createdDate ? new Date(b.createdDate).getTime() : 0;
 
-        return bTime - aTime;
+        return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
       });
-  }, [todos, search, assignedFilter, statusFilter, typeFilter]);
+  }, [todos, search, assignedFilter, statusFilter, typeFilter, priorityFilter, sortOrder]);
 
   const openCount = todos.filter(
     (todo) => todo.status !== "Done" && todo.status !== "Cancelled"
@@ -924,7 +1008,7 @@ export default function ToDoPage() {
     setShowBulkEditForm(false);
     setBulkEditError("");
     setBulkEditSuccess("");
-    setBulkEditForm({ assignedTo: "", taskType: "", dueDate: "", status: "" });
+    setBulkEditForm({ assignedTo: "", taskType: "", dueDate: "", status: "", syncToCalendar: "", priority: "" });
   }
 
   function toggleBulkEditSelected(toDoId: string) {
@@ -940,11 +1024,13 @@ export default function ToDoPage() {
     setBulkEditError("");
     setBulkEditSuccess("");
 
-    const fields: Record<string, string> = {};
+    const fields: Record<string, string | boolean> = {};
     if (bulkEditForm.assignedTo) fields.assignedTo = bulkEditForm.assignedTo;
     if (bulkEditForm.taskType) fields.taskType = bulkEditForm.taskType;
     if (bulkEditForm.dueDate) fields.dueDate = bulkEditForm.dueDate;
     if (bulkEditForm.status) fields.status = bulkEditForm.status;
+    if (bulkEditForm.syncToCalendar !== "") fields.syncToCalendar = bulkEditForm.syncToCalendar === "true";
+    if (bulkEditForm.priority) fields.priority = bulkEditForm.priority;
 
     if (Object.keys(fields).length === 0) {
       setBulkEditError("Fill in at least one field to apply.");
@@ -980,7 +1066,7 @@ export default function ToDoPage() {
       setShowBulkEditForm(false);
       setBulkEditMode(false);
       setSelectedBulkEditIds(new Set());
-      setBulkEditForm({ assignedTo: "", taskType: "", dueDate: "", status: "" });
+      setBulkEditForm({ assignedTo: "", taskType: "", dueDate: "", status: "", syncToCalendar: "", priority: "" });
       await loadTodos();
     } catch (err) {
       setBulkEditError(err instanceof Error ? err.message : "Could not update to-dos.");
@@ -1074,9 +1160,10 @@ export default function ToDoPage() {
               Bulk Edit {selectedBulkEditIds.size} To-Do{selectedBulkEditIds.size === 1 ? "" : "s"}
             </h2>
             <p className="mt-1 text-xs font-semibold text-slate-500">
-              Only fields you fill in below are applied — leave a field blank to keep each
-              to-do&apos;s existing value. Calendar events sync automatically per to-do if a
-              change affects eligibility (type, due date, or assignment).
+              Only fields you fill in below are applied — leave a field blank (or
+              &quot;Leave unchanged&quot;) to keep each to-do&apos;s existing value.
+              Calendar events sync automatically per to-do if a change affects eligibility
+              (due date, assignment, or Sync to Calendar).
             </p>
 
             {bulkEditError ? (
@@ -1151,6 +1238,41 @@ export default function ToDoPage() {
                   {statuses.map((status) => (
                     <option key={status} value={status}>
                       {status}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-sync">
+                  Sync to Calendar
+                </label>
+                <select
+                  id="bulk-edit-sync"
+                  value={bulkEditForm.syncToCalendar}
+                  onChange={(e) => setBulkEditForm((f) => ({ ...f, syncToCalendar: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Leave unchanged</option>
+                  <option value="true">Sync to Calendar</option>
+                  <option value="false">Don&apos;t sync to Calendar</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-priority">
+                  Priority
+                </label>
+                <select
+                  id="bulk-edit-priority"
+                  value={bulkEditForm.priority}
+                  onChange={(e) => setBulkEditForm((f) => ({ ...f, priority: e.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Leave unchanged</option>
+                  {TO_DO_PRIORITIES.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priority}
                     </option>
                   ))}
                 </select>
@@ -1292,6 +1414,26 @@ export default function ToDoPage() {
               </select>
             </div>
 
+            <div>
+              <label className="text-sm font-semibold">Priority</label>
+              <select
+                value={form.priority}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    priority: event.target.value as ToDoPriority,
+                  }))
+                }
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              >
+                {TO_DO_PRIORITIES.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="md:col-span-2">
               <label className="text-sm font-semibold">Why</label>
               <input
@@ -1323,6 +1465,24 @@ export default function ToDoPage() {
               />
             </div>
 
+            <div className="md:col-span-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="sync-to-calendar"
+                checked={form.syncToCalendar}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    syncToCalendar: event.target.checked,
+                  }))
+                }
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              <label htmlFor="sync-to-calendar" className="text-sm font-semibold">
+                Sync to Calendar
+              </label>
+            </div>
+
             <div className="md:col-span-2">
               <button
                 type="submit"
@@ -1336,7 +1496,7 @@ export default function ToDoPage() {
         </section>
 
         <section className="no-print rounded-2xl bg-white p-5 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-6">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -1375,6 +1535,26 @@ export default function ToDoPage() {
               {taskTypes.map((taskType) => (
                 <option key={taskType}>{taskType}</option>
               ))}
+            </select>
+
+            <select
+              value={priorityFilter}
+              onChange={(event) => setPriorityFilter(event.target.value)}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option>All</option>
+              {TO_DO_PRIORITIES.map((priority) => (
+                <option key={priority}>{priority}</option>
+              ))}
+            </select>
+
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest")}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
             </select>
           </div>
         </section>
