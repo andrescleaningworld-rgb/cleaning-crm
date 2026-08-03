@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOrFetch, invalidateCached } from "@/lib/serverCache";
+import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
@@ -171,7 +171,7 @@ export async function POST(request: Request) {
 
       let freshAccounts: Record<string, unknown>[];
       try {
-        freshAccounts = (await getOrFetch("accounts:getAllAccounts", () =>
+        freshAccounts = (await getFreshAndCache("accounts:getAllAccounts", () =>
           fetchAccountsForAction("getAllAccounts")
         )) as Record<string, unknown>[];
       } catch (err) {
@@ -271,15 +271,30 @@ export async function POST(request: Request) {
     }
 
     // All other actions (addAccount, updateAccount, etc.) go through doPost as before.
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: action === "updateAccount" || action === "editAccount" ? "updateAccount" : "addAccount",
-        account: accountPayload,
-      }),
-      cache: "no-store",
-    });
+    const resolvedAction =
+      action === "updateAccount" || action === "editAccount" ? "updateAccount" : "addAccount";
+
+    // updateAccount overwrites the full record by accountId, so retrying after
+    // an ambiguous timeout/network failure converges to the same end state
+    // (safe). addAccount's Apps Script handler isn't in this repo, so we can't
+    // confirm it upserts by id rather than appending a row — treat a blind
+    // retry-on-timeout as a duplicate-account risk and fail fast instead. A
+    // confirmed 5xx is safe to retry either way, since the server explicitly
+    // rejected the request and nothing was written.
+    const response = await fetchAppsScript(
+      SCRIPT_URL,
+      {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          action: resolvedAction,
+          account: accountPayload,
+        }),
+        cache: "no-store",
+      },
+      undefined,
+      { retryOn5xx: true, retryOnThrow: resolvedAction === "updateAccount" }
+    );
 
     const text = await response.text();
     let data;
