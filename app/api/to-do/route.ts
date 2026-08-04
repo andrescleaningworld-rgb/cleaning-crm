@@ -25,7 +25,15 @@ import { sanitizeSmsText, sendSms } from "@/lib/sms";
 // case-insensitive match getManagerCalendarColorId uses — to-dos have no
 // Manager ID field, only the assignee's name) and texts them. Never awaited
 // by the caller, and any failure is swallowed inside sendSms itself.
-function notifyManagerOfNewToDo(input: ToDoCalendarInput): void {
+//
+// Body is title / full description / deep link, deliberately unsanitized-
+// for-length (sanitizeSmsText(..., Infinity) strips to ASCII but never
+// truncates) — the description is whatever the manager or the person who
+// filed the to-do actually wrote, so shortening it would drop real content.
+// "Description" here is `why` (the to-do's required, always-populated
+// description field, shown as "Why:" on the card) plus `notes` (a separate,
+// optional "latest update" field — usually blank at creation) when present.
+function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): void {
   const assignedTo = input.assignedTo.trim();
   if (!assignedTo) return;
 
@@ -44,7 +52,16 @@ function notifyManagerOfNewToDo(input: ToDoCalendarInput): void {
       }
 
       const title = input.accountName || input.taskType || "Reminder";
-      const message = sanitizeSmsText(`New to-do: ${title}, due ${input.dueDate}`);
+      const description = [input.why, input.notes]
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(" - ");
+      const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
+
+      const rawMessage = [`New to-do: ${title}, due ${input.dueDate}`, description, link]
+        .filter(Boolean)
+        .join("\n");
+      const message = sanitizeSmsText(rawMessage, Infinity);
       void sendSms(manager.phone, message, "to-do/addToDo");
     })
     .catch((error) => {
@@ -153,7 +170,7 @@ export async function POST(request: NextRequest) {
         priority,
       });
 
-      notifyManagerOfNewToDo(input);
+      notifyManagerOfNewToDo(id, input, new URL(request.url).origin);
 
       return NextResponse.json({ success: true, id, calendarSyncFailed });
     }

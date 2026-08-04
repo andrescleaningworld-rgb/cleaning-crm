@@ -472,8 +472,14 @@ export async function POST(request: Request) {
     // Fire-and-forget: not awaited, so a Textbelt hiccup never delays this
     // response. Only fires on a fresh addComplaint — this route has no
     // "reassign subcontractor on an existing complaint" action to hook.
+    // Body is title / description / deep link to the complaint's detail
+    // page, same shape as the to-do and account notifications, sent
+    // unsanitized-for-length via sanitizeSmsText(..., Infinity).
     if (payload.complaint.subcontractor) {
       const summary = payload.complaint.issue || payload.complaint.accountName;
+      const complaintId = String(data.id ?? data.rowNumber ?? "").trim();
+      const origin = new URL(request.url).origin;
+
       findSubcontractorPhoneByName(payload.complaint.subcontractor)
         .then((phone) => {
           if (!phone) {
@@ -482,7 +488,15 @@ export async function POST(request: Request) {
             );
             return;
           }
-          const message = sanitizeSmsText(`New complaint: ${summary}`);
+          const link = complaintId ? `${origin}/complaints/${encodeURIComponent(complaintId)}` : "";
+          const rawMessage = [
+            `New complaint: ${payload.complaint.accountName || "Account"}`,
+            summary,
+            link,
+          ]
+            .filter(Boolean)
+            .join("\n");
+          const message = sanitizeSmsText(rawMessage, Infinity);
           void sendSms(phone, message, "complaints/addComplaint");
         })
         .catch((error) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
@@ -173,6 +173,10 @@ type ToDoCardProps = {
   bulkEditMode: boolean;
   bulkSelected: boolean;
   onToggleBulkSelected: (toDoId: string) => void;
+  // True when this card is the target of a ?id= deep link (see ToDoPage's
+  // highlightId). Scrolls into view and rings the card, then fades on its
+  // own — see the highlightId effect for the timeout.
+  highlighted: boolean;
 };
 
 // Status-change buttons and the "Latest update" Save button all funnel
@@ -190,7 +194,9 @@ function ToDoCard({
   bulkEditMode,
   bulkSelected,
   onToggleBulkSelected,
+  highlighted,
 }: ToDoCardProps) {
+  const cardRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [notesDraft, setNotesDraft] = useState(todo.notes);
   const [outcomeDraft, setOutcomeDraft] = useState(todo.outcome ?? "");
@@ -212,6 +218,12 @@ function ToDoCard({
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
+
+  useEffect(() => {
+    if (highlighted) {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted]);
 
   useEffect(() => {
     setNotesDraft(todo.notes);
@@ -283,8 +295,14 @@ function ToDoCard({
 
   return (
     <article
-      className={`flex gap-3 rounded-2xl bg-white p-5 shadow-sm ${
-        bulkEditMode && bulkSelected ? "ring-2 ring-blue-500" : ""
+      ref={cardRef}
+      id={`todo-${todo.id}`}
+      className={`flex gap-3 rounded-2xl bg-white p-5 shadow-sm transition-shadow ${
+        highlighted
+          ? "ring-2 ring-amber-400"
+          : bulkEditMode && bulkSelected
+            ? "ring-2 ring-blue-500"
+            : ""
       }`}
     >
       {bulkEditMode ? (
@@ -642,6 +660,29 @@ export default function ToDoPage() {
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [includeCompletedInPrint, setIncludeCompletedInPrint] = useState(false);
   const [printLayout, setPrintLayout] = useState<"taskSheet" | "byManager" | null>(null);
+
+  // Deep-linking support: ?id=TODO-... (from an SMS notification link)
+  // scrolls to and highlights that card. Read via window.location rather
+  // than useSearchParams so this stays a plain effect with no Suspense
+  // boundary requirement — this is a one-shot client-only affordance, not
+  // something that needs to react to in-app navigation. Clears itself after
+  // a few seconds (a flash, not a persistent state) and strips the param
+  // from the URL so a later manual refresh doesn't re-trigger it. If the id
+  // doesn't match any loaded to-do (deleted, invalid, or filtered out of
+  // the current view), nothing happens — the list just renders normally.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("id");
+    if (!id) return;
+
+    setHighlightId(id);
+    window.history.replaceState(null, "", window.location.pathname);
+
+    const timer = setTimeout(() => setHighlightId(null), 6000);
+    return () => clearTimeout(timer);
+  }, []);
 
   async function loadTodos() {
     setLoading(true);
@@ -1675,6 +1716,7 @@ export default function ToDoPage() {
                 bulkEditMode={bulkEditMode}
                 bulkSelected={selectedBulkEditIds.has(todo.id)}
                 onToggleBulkSelected={toggleBulkEditSelected}
+                highlighted={todo.id === highlightId}
               />
             ))
           )}

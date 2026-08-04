@@ -373,7 +373,10 @@ export async function POST(request: Request) {
 
     // Fire-and-forget: only when the sub is newly set or actually changed
     // (see newSubcontractorName/previousSubcontractorName above) — not
-    // awaited, so a Textbelt hiccup never delays this response.
+    // awaited, so a Textbelt hiccup never delays this response. Body is
+    // title / description / deep link to the account's detail page — same
+    // shape as the to-do notification, sent unsanitized-for-length via
+    // sanitizeSmsText(..., Infinity) so the address never gets truncated.
     if (
       newSubcontractorName &&
       newSubcontractorName.toLowerCase() !== previousSubcontractorName.trim().toLowerCase()
@@ -388,6 +391,13 @@ export async function POST(request: Request) {
           (accountPayload as Record<string, unknown>).Address ??
           ""
       ).trim();
+      const effectiveAccountId = String(
+        (data as { accountId?: unknown; id?: unknown }).accountId ??
+          (data as { accountId?: unknown; id?: unknown }).id ??
+          accountIdForSmsCheck ??
+          ""
+      ).trim();
+      const origin = new URL(request.url).origin;
 
       findSubcontractorPhoneByName(newSubcontractorName)
         .then((phone) => {
@@ -397,9 +407,11 @@ export async function POST(request: Request) {
             );
             return;
           }
-          const message = sanitizeSmsText(
-            `New account assigned: ${accountName}${address ? `, ${address}` : ""}`
-          );
+          const link = effectiveAccountId ? `${origin}/accounts/${encodeURIComponent(effectiveAccountId)}` : "";
+          const rawMessage = [`New account assigned: ${accountName}`, address, link]
+            .filter(Boolean)
+            .join("\n");
+          const message = sanitizeSmsText(rawMessage, Infinity);
           void sendSms(phone, message, "accounts/updateAccount");
         })
         .catch((error) => {

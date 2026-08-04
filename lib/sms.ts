@@ -20,12 +20,24 @@ export function sanitizeSmsText(text: string, maxBytes: number = SMS_MAX_BYTES):
   return asciiOnly.length > maxBytes ? asciiOnly.slice(0, maxBytes) : asciiOnly;
 }
 
+// Single-segment GSM-7 budget. Callers that want the full body sent
+// regardless of segment count (see notifyManagerOfNewToDo and its
+// account/complaint equivalents) pass sanitizeSmsText(text, Infinity) rather
+// than truncating — this just logs so segment count stays visible.
+const SMS_SEGMENT_WARN_LENGTH = 160;
+
 export async function sendSms(
   phone: string,
   message: string,
   routeContext: string = "unknown"
 ): Promise<{ success: boolean; quotaRemaining?: number }> {
   const last4 = phone.slice(-4);
+
+  if (message.length > SMS_SEGMENT_WARN_LENGTH) {
+    console.warn(
+      `[sms] message is ${message.length} chars (${routeContext}) — exceeds one SMS segment (${SMS_SEGMENT_WARN_LENGTH}), Textbelt will send multi-segment`
+    );
+  }
 
   try {
     const response = await fetch("https://textbelt.com/text", {
