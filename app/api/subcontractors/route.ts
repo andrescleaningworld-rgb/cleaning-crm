@@ -100,7 +100,20 @@ function getSubEmail(sub: SheetRow) {
   ]);
 }
 
-function getAccountAssignedSub(account: SheetRow) {
+function getSubPhone(sub: SheetRow) {
+  return rowValue(sub, [
+    "phone",
+    "Phone",
+    "Phone Number",
+    "phoneNumber",
+    "Cell",
+    "cell",
+    "Mobile",
+    "mobile",
+  ]);
+}
+
+export function getAccountAssignedSub(account: SheetRow) {
   return rowValue(account, [
     "Subcontractor",
     "subcontractor",
@@ -294,6 +307,42 @@ function namesMatch(sub: SheetRow, account: SheetRow) {
 
     return false;
   });
+}
+
+// Used by the accounts/complaints SMS notifications to resolve a free-text
+// subcontractor name (the only linkage those routes have — see namesMatch's
+// comment) to a phone number, via the same cached Apps Script subcontractor
+// list and fuzzy company/contact-name matching namesMatch uses for an
+// account row. Returns "" if there's no match or no phone on file.
+export async function findSubcontractorPhoneByName(name: string): Promise<string> {
+  const target = normalizeName(name);
+  if (!target || !SCRIPT_URL) return "";
+
+  let data: GoogleScriptResponse;
+  try {
+    data = await getOrFetch("subcontractors:getSubcontractors", () =>
+      fetchGoogleScriptData("getSubcontractors")
+    );
+  } catch {
+    return "";
+  }
+
+  const subcontractors = getLoadedSubcontractors(data);
+
+  const match = subcontractors.find((sub) => {
+    const possibleNames = [getSubCompanyName(sub), getSubContactName(sub)]
+      .map((value) => normalizeName(value))
+      .filter(Boolean);
+
+    return possibleNames.some((subName) => {
+      if (subName === target) return true;
+      if (subName.length >= 4 && target.includes(subName)) return true;
+      if (target.length >= 4 && subName.includes(target)) return true;
+      return false;
+    });
+  });
+
+  return match ? getSubPhone(match) : "";
 }
 
 function enrichSubcontractorsWithRevenue(

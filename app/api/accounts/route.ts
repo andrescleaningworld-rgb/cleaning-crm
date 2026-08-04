@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
+import { sanitizeSmsText, sendSms } from "@/lib/sms";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -274,6 +276,47 @@ export async function POST(request: Request) {
     const resolvedAction =
       action === "updateAccount" || action === "editAccount" ? "updateAccount" : "addAccount";
 
+    // Captured before the write below so the SMS step (after a successful
+    // save, near the bottom of this function) can tell "sub freshly
+    // assigned/changed" apart from "account saved, sub field untouched" —
+    // without this, every unrelated edit to an already-assigned account
+    // would re-text the subcontractor. Read straight off the write payload's
+    // own "subcontractor" field (what app/accounts/[id]/edit/page.tsx
+    // actually submits), not the broader alias list getAccountAssignedSub
+    // uses for Apps-Script-shaped read rows, to avoid matching an unrelated
+    // field on this payload.
+    const newSubcontractorName = String(
+      (accountPayload as Record<string, unknown>).subcontractor ??
+        (accountPayload as Record<string, unknown>).Subcontractor ??
+        ""
+    ).trim();
+    const accountIdForSmsCheck = String(
+      (accountPayload as Record<string, unknown>).accountId ??
+        (accountPayload as Record<string, unknown>).id ??
+        (accountPayload as Record<string, unknown>)["Account ID"] ??
+        ""
+    ).trim();
+
+    let previousSubcontractorName = "";
+    if (newSubcontractorName && resolvedAction === "updateAccount" && accountIdForSmsCheck) {
+      try {
+        const priorAccounts = (await getOrFetch("accounts:getAllAccounts", () =>
+          fetchAccountsForAction("getAllAccounts")
+        )) as Record<string, unknown>[];
+        const priorAccount = priorAccounts.find(
+          (a) => a.id === accountIdForSmsCheck || a.accountId === accountIdForSmsCheck
+        );
+        if (priorAccount) {
+          previousSubcontractorName = getAccountAssignedSub(
+            priorAccount as Record<string, string | number | boolean | null | undefined>
+          );
+        }
+      } catch {
+        // Best-effort only — if this lookup fails, fall through and treat
+        // it as a change so the sub still gets notified rather than missed.
+      }
+    }
+
     // updateAccount overwrites the full record by accountId, so retrying after
     // an ambiguous timeout/network failure converges to the same end state
     // (safe). addAccount's Apps Script handler isn't in this repo, so we can't
@@ -326,6 +369,45 @@ export async function POST(request: Request) {
     // serving the pre-write data for up to the getOrFetch TTL (60s).
     for (const cachedAction of ALLOWED_GET_ACTIONS) {
       invalidateCached(`accounts:${cachedAction}`);
+    }
+
+    // Fire-and-forget: only when the sub is newly set or actually changed
+    // (see newSubcontractorName/previousSubcontractorName above) — not
+    // awaited, so a Textbelt hiccup never delays this response.
+    if (
+      newSubcontractorName &&
+      newSubcontractorName.toLowerCase() !== previousSubcontractorName.trim().toLowerCase()
+    ) {
+      const accountName = String(
+        (accountPayload as Record<string, unknown>).accountName ??
+          (accountPayload as Record<string, unknown>)["Account Name"] ??
+          ""
+      ).trim();
+      const address = String(
+        (accountPayload as Record<string, unknown>).address ??
+          (accountPayload as Record<string, unknown>).Address ??
+          ""
+      ).trim();
+
+      findSubcontractorPhoneByName(newSubcontractorName)
+        .then((phone) => {
+          if (!phone) {
+            console.debug(
+              `[sms] skip account-assignment notify: no phone on file for subcontractor "${newSubcontractorName}"`
+            );
+            return;
+          }
+          const message = sanitizeSmsText(
+            `New account assigned: ${accountName}${address ? `, ${address}` : ""}`
+          );
+          void sendSms(phone, message, "accounts/updateAccount");
+        })
+        .catch((error) => {
+          console.error(
+            "[sms] account-assignment notify lookup failed:",
+            error instanceof Error ? error.message : error
+          );
+        });
     }
 
     return NextResponse.json({

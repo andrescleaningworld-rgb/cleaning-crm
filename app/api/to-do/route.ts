@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   appendToDo,
   appendToDos,
+  fetchManagers,
   fetchToDos,
   setToDoCalendarFields,
   setToDoCalendarFieldsBatch,
@@ -18,6 +19,38 @@ import {
   type ToDoCalendarInput,
 } from "@/lib/googleCalendar";
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
+import { sanitizeSmsText, sendSms } from "@/lib/sms";
+
+// Fire-and-forget: looks up the assigned manager's phone by name (the same
+// case-insensitive match getManagerCalendarColorId uses — to-dos have no
+// Manager ID field, only the assignee's name) and texts them. Never awaited
+// by the caller, and any failure is swallowed inside sendSms itself.
+function notifyManagerOfNewToDo(input: ToDoCalendarInput): void {
+  const assignedTo = input.assignedTo.trim();
+  if (!assignedTo) return;
+
+  fetchManagers()
+    .then((managers) => {
+      const target = assignedTo.toLowerCase();
+      const manager = managers.find((m) => m.name.trim().toLowerCase() === target);
+
+      if (!manager) {
+        console.debug(`[sms] skip to-do notify: no manager matching "${assignedTo}"`);
+        return;
+      }
+      if (!manager.phone.trim()) {
+        console.debug(`[sms] skip to-do notify: manager "${manager.name}" has no phone on file`);
+        return;
+      }
+
+      const title = input.accountName || input.taskType || "Reminder";
+      const message = sanitizeSmsText(`New to-do: ${title}, due ${input.dueDate}`);
+      void sendSms(manager.phone, message, "to-do/addToDo");
+    })
+    .catch((error) => {
+      console.error("[sms] to-do notify lookup failed:", error instanceof Error ? error.message : error);
+    });
+}
 
 // Shared by the single-edit and bulk-edit actions: given a to-do's
 // resolved post-edit fields and its pre-edit calendarEventId, decide
@@ -119,6 +152,8 @@ export async function POST(request: NextRequest) {
         calendarSyncFailed,
         priority,
       });
+
+      notifyManagerOfNewToDo(input);
 
       return NextResponse.json({ success: true, id, calendarSyncFailed });
     }

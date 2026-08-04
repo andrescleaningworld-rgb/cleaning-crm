@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { findSubcontractorPhoneByName } from "@/app/api/subcontractors/route";
+import { sanitizeSmsText, sendSms } from "@/lib/sms";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -465,6 +467,30 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
+
+    // Fire-and-forget: not awaited, so a Textbelt hiccup never delays this
+    // response. Only fires on a fresh addComplaint — this route has no
+    // "reassign subcontractor on an existing complaint" action to hook.
+    if (payload.complaint.subcontractor) {
+      const summary = payload.complaint.issue || payload.complaint.accountName;
+      findSubcontractorPhoneByName(payload.complaint.subcontractor)
+        .then((phone) => {
+          if (!phone) {
+            console.debug(
+              `[sms] skip complaint-assignment notify: no phone on file for subcontractor "${payload.complaint.subcontractor}"`
+            );
+            return;
+          }
+          const message = sanitizeSmsText(`New complaint: ${summary}`);
+          void sendSms(phone, message, "complaints/addComplaint");
+        })
+        .catch((error) => {
+          console.error(
+            "[sms] complaint-assignment notify lookup failed:",
+            error instanceof Error ? error.message : error
+          );
+        });
     }
 
     return NextResponse.json({
