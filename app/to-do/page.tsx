@@ -1160,10 +1160,21 @@ export default function ToDoPage() {
           .todo-print-row {
             break-inside: avoid;
           }
+
+          /* visibility: hidden (the shared globals.css rule this page opts
+             into) hides content but doesn't collapse its layout height —
+             left alone, the full interactive page (list, form, filters)
+             still occupies its normal height off-screen, and the print
+             engine paginates for that phantom height, producing blank
+             pages after the real .todo-print-view content. Collapsing it
+             with display: none removes it from the layout entirely. */
+          .todo-page-content {
+            display: none !important;
+          }
         }
       `}</style>
 
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="todo-page-content mx-auto max-w-7xl space-y-6">
         <div className="no-print flex flex-wrap justify-end gap-2">
           <a
             href="https://calendar.google.com/calendar/r?cid=cleaningworldoperations%40gmail.com"
