@@ -7,6 +7,8 @@ import AccountMultiSelect, {
 import VisitCompletionModal, {
   type VisitFromToDoPayload,
 } from "./VisitCompletionModal";
+import PrintTaskSheet from "./print/PrintTaskSheet";
+import PrintByManager from "./print/PrintByManager";
 import {
   DEFAULT_TO_DO_PRIORITY,
   TO_DO_PRIORITIES,
@@ -281,7 +283,7 @@ function ToDoCard({
 
   return (
     <article
-      className={`print-card flex gap-3 rounded-2xl bg-white p-5 shadow-sm ${
+      className={`flex gap-3 rounded-2xl bg-white p-5 shadow-sm ${
         bulkEditMode && bulkSelected ? "ring-2 ring-blue-500" : ""
       }`}
     >
@@ -632,6 +634,15 @@ export default function ToDoPage() {
     notes: string;
   } | null>(null);
 
+  // Print options modal + which off-screen print-only view (if any) is
+  // currently mounted. printLayout drives an effect that calls
+  // window.print() once the chosen view has committed to the DOM; the
+  // 'afterprint' event (fires whether the user printed or cancelled) then
+  // unmounts it again.
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [includeCompletedInPrint, setIncludeCompletedInPrint] = useState(false);
+  const [printLayout, setPrintLayout] = useState<"taskSheet" | "byManager" | null>(null);
+
   async function loadTodos() {
     setLoading(true);
 
@@ -799,6 +810,16 @@ export default function ToDoPage() {
         return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
       });
   }, [todos, search, assignedFilter, statusFilter, typeFilter, priorityFilter, sortOrder]);
+
+  // What actually gets printed: whatever's currently filtered on screen
+  // (filteredTodos already reflects the active status/assigned/type/priority
+  // filters), minus Done tasks unless "Include completed" is checked in the
+  // print modal.
+  const printTodos = useMemo(() => {
+    return includeCompletedInPrint
+      ? filteredTodos
+      : filteredTodos.filter((todo) => todo.status !== "Done");
+  }, [filteredTodos, includeCompletedInPrint]);
 
   const openCount = todos.filter(
     (todo) => todo.status !== "Done" && todo.status !== "Cancelled"
@@ -1002,6 +1023,38 @@ export default function ToDoPage() {
     setVisitCompletionToDo(null);
   }
 
+  function openPrintModal() {
+    setPrintModalOpen(true);
+  }
+
+  function closePrintModal() {
+    setPrintModalOpen(false);
+  }
+
+  function choosePrintLayout(layout: "taskSheet" | "byManager") {
+    setPrintModalOpen(false);
+    setPrintLayout(layout);
+  }
+
+  // Fires once the chosen print-only view has committed to the DOM (this
+  // effect runs after that render), so window.print() always sees the
+  // finished layout instead of a stale/empty one.
+  useEffect(() => {
+    if (!printLayout) return;
+    window.print();
+  }, [printLayout]);
+
+  // 'afterprint' fires once the print dialog closes, whether the user
+  // printed or cancelled — either way, unmount the print-only view so it's
+  // not left sitting in the DOM.
+  useEffect(() => {
+    function handleAfterPrint() {
+      setPrintLayout(null);
+    }
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
+  }, []);
+
   function toggleBulkEditMode() {
     setBulkEditMode((current) => !current);
     setSelectedBulkEditIds(new Set());
@@ -1078,24 +1131,34 @@ export default function ToDoPage() {
   return (
     <main className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
       <style jsx global>{`
+        .todo-print-view {
+          display: none;
+        }
+
         @media print {
-          .no-print {
-            display: none !important;
+          /* Same opt-in contract as .account-packet-print-view in
+             globals.css: that shared rule hides everything in <body> and
+             re-shows only a page's own "-print-view" container. This plugs
+             the to-do page into that contract without touching the shared
+             rule itself. */
+          .todo-print-view,
+          .todo-print-view * {
+            visibility: visible;
           }
 
-          .print-header {
-            display: block !important;
+          .todo-print-view {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: #fff;
+            color: #000;
+            padding: 24px;
           }
 
-          main {
-            background: white !important;
-            padding: 0 !important;
-          }
-
-          .print-card {
+          .todo-print-row {
             break-inside: avoid;
-            border: 1px solid #ddd !important;
-            box-shadow: none !important;
           }
         }
       `}</style>
@@ -1123,7 +1186,7 @@ export default function ToDoPage() {
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={openPrintModal}
             className="w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 md:w-auto"
           >
             Print Assigned Tasks
@@ -1572,7 +1635,7 @@ export default function ToDoPage() {
 
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={openPrintModal}
               className="no-print rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
             >
               Print This List
@@ -1617,6 +1680,72 @@ export default function ToDoPage() {
           onSkip={skipVisitAndComplete}
         />
       ) : null}
+
+      {printModalOpen ? (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+                  Print To-Dos
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">Choose a layout</h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closePrintModal}
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
+              >
+                X
+              </button>
+            </div>
+
+            <p className="mt-4 text-sm font-semibold text-slate-500">
+              Prints whatever&apos;s currently filtered ({filteredTodos.length} visible).
+            </p>
+
+            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-600">
+              <input
+                type="checkbox"
+                checked={includeCompletedInPrint}
+                onChange={(event) => setIncludeCompletedInPrint(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Include completed tasks
+            </label>
+
+            <div className="mt-5 grid gap-3">
+              <button
+                type="button"
+                onClick={() => choosePrintLayout("taskSheet")}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm hover:bg-slate-50"
+              >
+                <p className="text-sm font-black text-slate-950">Task Sheet</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Flat checklist sorted by due date, with a checkbox next to each task. Hand it
+                  out or check off by hand.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => choosePrintLayout("byManager")}
+                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm hover:bg-slate-50"
+              >
+                <p className="text-sm font-black text-slate-950">By Manager</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Grouped by assignee with a task count per manager — a review view, no
+                  checkboxes.
+                </p>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {printLayout === "taskSheet" ? <PrintTaskSheet todos={printTodos} /> : null}
+      {printLayout === "byManager" ? <PrintByManager todos={printTodos} /> : null}
     </main>
   );
 }
