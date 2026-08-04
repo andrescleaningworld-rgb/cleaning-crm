@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { findSubcontractorPhoneByName } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 
@@ -469,22 +469,26 @@ export async function POST(request: Request) {
       );
     }
 
-    // Fire-and-forget: not awaited, so a Textbelt hiccup never delays this
-    // response. Only fires on a fresh addComplaint — this route has no
-    // "reassign subcontractor on an existing complaint" action to hook.
-    // Body is title / description / deep link to the complaint's detail
-    // page, same shape as the to-do and account notifications, sent
+    // Only fires on a fresh addComplaint — this route has no "reassign
+    // subcontractor on an existing complaint" action to hook. Wrapped in
+    // after() so the invocation stays alive until the lookup + send
+    // actually finish, instead of racing a fire-and-forget chain against
+    // the instance freezing post-response — see notifyManagerOfNewToDo's
+    // comment in app/api/to-do/route.ts for why that matters. Body is
+    // title / description / deep link to the complaint's detail page, sent
     // unsanitized-for-length via sanitizeSmsText(..., Infinity).
     if (payload.complaint.subcontractor) {
+      const subcontractorName = payload.complaint.subcontractor;
       const summary = payload.complaint.issue || payload.complaint.accountName;
       const complaintId = String(data.id ?? data.rowNumber ?? "").trim();
       const origin = new URL(request.url).origin;
 
-      findSubcontractorPhoneByName(payload.complaint.subcontractor)
-        .then((phone) => {
+      after(async () => {
+        try {
+          const phone = await findSubcontractorPhoneByName(subcontractorName);
           if (!phone) {
             console.debug(
-              `[sms] skip complaint-assignment notify: no phone on file for subcontractor "${payload.complaint.subcontractor}"`
+              `[sms] skip complaint-assignment notify: no phone on file for subcontractor "${subcontractorName}"`
             );
             return;
           }
@@ -497,14 +501,14 @@ export async function POST(request: Request) {
             .filter(Boolean)
             .join("\n");
           const message = sanitizeSmsText(rawMessage, Infinity);
-          void sendSms(phone, message, "complaints/addComplaint");
-        })
-        .catch((error) => {
+          await sendSms(phone, message, "complaints/addComplaint");
+        } catch (error) {
           console.error(
             "[sms] complaint-assignment notify lookup failed:",
             error instanceof Error ? error.message : error
           );
-        });
+        }
+      });
     }
 
     return NextResponse.json({

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   appendToDo,
   appendToDos,
@@ -21,10 +21,16 @@ import {
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 
-// Fire-and-forget: looks up the assigned manager's phone by name (the same
-// case-insensitive match getManagerCalendarColorId uses — to-dos have no
-// Manager ID field, only the assignee's name) and texts them. Never awaited
-// by the caller, and any failure is swallowed inside sendSms itself.
+// Looks up the assigned manager's phone by name (the same case-insensitive
+// match getManagerCalendarColorId uses — to-dos have no Manager ID field,
+// only the assignee's name) and texts them. Doesn't block the response —
+// the call site wraps this in after(), which keeps the invocation alive
+// until the returned promise settles instead of racing it against the
+// instance freezing post-response (the previous fire-and-forget .then()
+// chain had no such guarantee: a Sheets lookup timeout or a slow Textbelt
+// call could be silently cut off with no trace — confirmed live twice).
+// Never throws: the caller's after() callback has nothing to catch since
+// every failure is already logged and swallowed here.
 //
 // Body is title / full description / deep link, deliberately unsanitized-
 // for-length (sanitizeSmsText(..., Infinity) strips to ASCII but never
@@ -33,40 +39,39 @@ import { sanitizeSmsText, sendSms } from "@/lib/sms";
 // "Description" here is `why` (the to-do's required, always-populated
 // description field, shown as "Why:" on the card) plus `notes` (a separate,
 // optional "latest update" field — usually blank at creation) when present.
-function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): void {
+async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): Promise<void> {
   const assignedTo = input.assignedTo.trim();
   if (!assignedTo) return;
 
-  fetchManagers()
-    .then((managers) => {
-      const target = assignedTo.toLowerCase();
-      const manager = managers.find((m) => m.name.trim().toLowerCase() === target);
+  try {
+    const managers = await fetchManagers();
+    const target = assignedTo.toLowerCase();
+    const manager = managers.find((m) => m.name.trim().toLowerCase() === target);
 
-      if (!manager) {
-        console.debug(`[sms] skip to-do notify: no manager matching "${assignedTo}"`);
-        return;
-      }
-      if (!manager.phone.trim()) {
-        console.debug(`[sms] skip to-do notify: manager "${manager.name}" has no phone on file`);
-        return;
-      }
+    if (!manager) {
+      console.debug(`[sms] skip to-do notify: no manager matching "${assignedTo}"`);
+      return;
+    }
+    if (!manager.phone.trim()) {
+      console.debug(`[sms] skip to-do notify: manager "${manager.name}" has no phone on file`);
+      return;
+    }
 
-      const title = input.accountName || input.taskType || "Reminder";
-      const description = [input.why, input.notes]
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .join(" - ");
-      const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
+    const title = input.accountName || input.taskType || "Reminder";
+    const description = [input.why, input.notes]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(" - ");
+    const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
 
-      const rawMessage = [`New to-do: ${title}, due ${input.dueDate}`, description, link]
-        .filter(Boolean)
-        .join("\n");
-      const message = sanitizeSmsText(rawMessage, Infinity);
-      void sendSms(manager.phone, message, "to-do/addToDo");
-    })
-    .catch((error) => {
-      console.error("[sms] to-do notify lookup failed:", error instanceof Error ? error.message : error);
-    });
+    const rawMessage = [`New to-do: ${title}, due ${input.dueDate}`, description, link]
+      .filter(Boolean)
+      .join("\n");
+    const message = sanitizeSmsText(rawMessage, Infinity);
+    await sendSms(manager.phone, message, "to-do/addToDo");
+  } catch (error) {
+    console.error("[sms] to-do notify lookup failed:", error instanceof Error ? error.message : error);
+  }
 }
 
 // Shared by the single-edit and bulk-edit actions: given a to-do's
@@ -170,7 +175,7 @@ export async function POST(request: NextRequest) {
         priority,
       });
 
-      notifyManagerOfNewToDo(id, input, new URL(request.url).origin);
+      after(() => notifyManagerOfNewToDo(id, input, new URL(request.url).origin));
 
       return NextResponse.json({ success: true, id, calendarSyncFailed });
     }

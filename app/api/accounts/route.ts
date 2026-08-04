@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
@@ -371,12 +371,15 @@ export async function POST(request: Request) {
       invalidateCached(`accounts:${cachedAction}`);
     }
 
-    // Fire-and-forget: only when the sub is newly set or actually changed
-    // (see newSubcontractorName/previousSubcontractorName above) — not
-    // awaited, so a Textbelt hiccup never delays this response. Body is
-    // title / description / deep link to the account's detail page — same
-    // shape as the to-do notification, sent unsanitized-for-length via
-    // sanitizeSmsText(..., Infinity) so the address never gets truncated.
+    // Only when the sub is newly set or actually changed (see
+    // newSubcontractorName/previousSubcontractorName above). Wrapped in
+    // after() so the invocation stays alive until the lookup + send
+    // actually finish, instead of racing a fire-and-forget chain against
+    // the instance freezing post-response — see notifyManagerOfNewToDo's
+    // comment in app/api/to-do/route.ts for why that matters. Body is
+    // title / description / deep link to the account's detail page, sent
+    // unsanitized-for-length via sanitizeSmsText(..., Infinity) so the
+    // address never gets truncated.
     if (
       newSubcontractorName &&
       newSubcontractorName.toLowerCase() !== previousSubcontractorName.trim().toLowerCase()
@@ -399,8 +402,9 @@ export async function POST(request: Request) {
       ).trim();
       const origin = new URL(request.url).origin;
 
-      findSubcontractorPhoneByName(newSubcontractorName)
-        .then((phone) => {
+      after(async () => {
+        try {
+          const phone = await findSubcontractorPhoneByName(newSubcontractorName);
           if (!phone) {
             console.debug(
               `[sms] skip account-assignment notify: no phone on file for subcontractor "${newSubcontractorName}"`
@@ -412,14 +416,14 @@ export async function POST(request: Request) {
             .filter(Boolean)
             .join("\n");
           const message = sanitizeSmsText(rawMessage, Infinity);
-          void sendSms(phone, message, "accounts/updateAccount");
-        })
-        .catch((error) => {
+          await sendSms(phone, message, "accounts/updateAccount");
+        } catch (error) {
           console.error(
             "[sms] account-assignment notify lookup failed:",
             error instanceof Error ? error.message : error
           );
-        });
+        }
+      });
     }
 
     return NextResponse.json({
