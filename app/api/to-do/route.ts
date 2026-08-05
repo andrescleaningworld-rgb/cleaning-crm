@@ -30,10 +30,11 @@ async function logSmsAttempt(
   toDoId: string,
   managerPhone: string,
   textId: string,
-  status: "sent" | "failed"
+  status: "sent" | "failed",
+  quotaRemaining?: number
 ): Promise<void> {
   try {
-    await appendSmsLog({ toDoId, managerPhone, textId, status });
+    await appendSmsLog({ toDoId, managerPhone, textId, status, quotaRemaining });
   } catch (error) {
     console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
   }
@@ -108,7 +109,8 @@ export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInpu
     id,
     manager.phone,
     result.textId !== undefined ? String(result.textId) : "",
-    result.success ? "sent" : "failed"
+    result.success ? "sent" : "failed",
+    result.quotaRemaining
   );
 }
 

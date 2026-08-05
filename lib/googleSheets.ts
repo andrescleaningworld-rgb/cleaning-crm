@@ -1904,6 +1904,12 @@ const SMS_LOG_COL = {
                        //     "failed" for a pre-Textbelt error (no textId).
   SENT_AT:         4, // E
   LAST_CHECKED_AT: 5, // F — blank until the first status check.
+  // Textbelt's quotaRemaining at the moment of THIS send — a point-in-time
+  // snapshot, not touched again by updateSmsLogStatus below. Blank for
+  // pre-Textbelt failures (lookup errors, no manager/phone) and for
+  // Textbelt-reported failures, since Textbelt only returns a quota number
+  // on success.
+  QUOTA_REMAINING: 6, // G
 } as const;
 
 export type SmsLogEntry = {
@@ -1914,6 +1920,7 @@ export type SmsLogEntry = {
   status: string;
   sentAt: string;
   lastCheckedAt: string;
+  quotaRemaining: string;
 };
 
 // Deliberately uncached, same reasoning as fetchToDoRows — a resend or a
@@ -1925,7 +1932,7 @@ async function fetchSmsLogRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${SMS_LOG_RANGE}!A:F`,
+      range: `${SMS_LOG_RANGE}!A:G`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1935,12 +1942,13 @@ async function fetchSmsLogRows(): Promise<string[][]> {
 function rowToSmsLogEntry(row: string[], sheetRow: number): SmsLogEntry {
   return {
     sheetRow,
-    toDoId:        row[SMS_LOG_COL.TO_DO_ID]        ?? "",
-    textId:        row[SMS_LOG_COL.TEXT_ID]         ?? "",
-    managerPhone:  row[SMS_LOG_COL.MANAGER_PHONE]   ?? "",
-    status:        row[SMS_LOG_COL.STATUS]          ?? "",
-    sentAt:        row[SMS_LOG_COL.SENT_AT]         ?? "",
-    lastCheckedAt: row[SMS_LOG_COL.LAST_CHECKED_AT] ?? "",
+    toDoId:         row[SMS_LOG_COL.TO_DO_ID]        ?? "",
+    textId:         row[SMS_LOG_COL.TEXT_ID]         ?? "",
+    managerPhone:   row[SMS_LOG_COL.MANAGER_PHONE]   ?? "",
+    status:         row[SMS_LOG_COL.STATUS]          ?? "",
+    sentAt:         row[SMS_LOG_COL.SENT_AT]         ?? "",
+    lastCheckedAt:  row[SMS_LOG_COL.LAST_CHECKED_AT] ?? "",
+    quotaRemaining: row[SMS_LOG_COL.QUOTA_REMAINING] ?? "",
   };
 }
 
@@ -1980,6 +1988,11 @@ export async function appendSmsLog(entry: {
   textId: string;
   managerPhone: string;
   status: string;
+  // Textbelt's quotaRemaining from THIS send's response — undefined for
+  // pre-Textbelt and Textbelt-reported failures (see QUOTA_REMAINING's
+  // comment above), written as a blank cell rather than "0" so a genuinely
+  // exhausted quota (0) stays distinguishable from "unknown."
+  quotaRemaining?: number;
 }): Promise<void> {
   const sentAt = new Date().toISOString();
 
@@ -1989,12 +2002,45 @@ export async function appendSmsLog(entry: {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${SMS_LOG_RANGE}!A${targetRow}:F${targetRow}`,
+    range: `${SMS_LOG_RANGE}!A${targetRow}:G${targetRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[entry.toDoId, entry.textId, entry.managerPhone, entry.status, sentAt, ""]],
+      values: [
+        [
+          entry.toDoId,
+          entry.textId,
+          entry.managerPhone,
+          entry.status,
+          sentAt,
+          "",
+          entry.quotaRemaining !== undefined ? String(entry.quotaRemaining) : "",
+        ],
+      ],
     },
   });
+}
+
+// Most recent send that actually reported a quota (Textbelt only returns
+// one on success) — read once on /to-do page load to drive the low-quota
+// banner. Deliberately a single scalar, not per-to-do: Textbelt quota is
+// one account-wide number, not something tied to any particular to-do.
+export async function fetchLatestSmsQuota(): Promise<{ quotaRemaining: number; sentAt: string } | null> {
+  const rows = await fetchSmsLogRows();
+
+  let latest: { quotaRemaining: number; sentAt: string } | null = null;
+  for (const row of rows) {
+    const raw = row[SMS_LOG_COL.QUOTA_REMAINING];
+    if (!raw) continue;
+    const quotaRemaining = Number(raw);
+    if (!Number.isFinite(quotaRemaining)) continue;
+
+    const sentAt = row[SMS_LOG_COL.SENT_AT] ?? "";
+    if (!latest || sentAt > latest.sentAt) {
+      latest = { quotaRemaining, sentAt };
+    }
+  }
+
+  return latest;
 }
 
 // Keyed by TextId (unique per Textbelt send) rather than ToDoId — a to-do

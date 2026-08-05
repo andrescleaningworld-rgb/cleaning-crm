@@ -38,7 +38,7 @@ function loadEnvLocal() {
 }
 
 const TAB_NAME = "SmsLog";
-const HEADERS = ["ToDoId", "TextId", "ManagerPhone", "Status", "SentAt", "LastCheckedAt"];
+const HEADERS = ["ToDoId", "TextId", "ManagerPhone", "Status", "SentAt", "LastCheckedAt", "QuotaRemaining"];
 
 async function main() {
   loadEnvLocal();

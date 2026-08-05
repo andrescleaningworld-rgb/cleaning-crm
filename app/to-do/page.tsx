@@ -832,6 +832,33 @@ export default function ToDoPage() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Low SMS quota banner — one check on page load (no polling), reading the
+  // most recent SmsLog row that reported a quota. Dismissal is
+  // sessionStorage-backed so it survives a reload within the same tab/
+  // session but comes back on a genuinely new visit, rather than a plain
+  // useState that would just re-show on every refresh.
+  const [quotaWarning, setQuotaWarning] = useState<number | null>(null);
+  const [quotaBannerDismissed, setQuotaBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    setQuotaBannerDismissed(sessionStorage.getItem("smsQuotaBannerDismissed") === "true");
+
+    fetch("/api/to-do/sms-quota", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { quotaRemaining: number | null; low: boolean }) => {
+        if (data.low && data.quotaRemaining !== null) setQuotaWarning(data.quotaRemaining);
+      })
+      .catch(() => {
+        // Silent — same "never worth blocking the page over" reasoning as
+        // the per-card SMS status fetch.
+      });
+  }, []);
+
+  function dismissQuotaBanner() {
+    setQuotaBannerDismissed(true);
+    sessionStorage.setItem("smsQuotaBannerDismissed", "true");
+  }
+
   async function loadTodos() {
     setLoading(true);
 
@@ -1364,6 +1391,21 @@ export default function ToDoPage() {
       `}</style>
 
       <div className="todo-page-content mx-auto max-w-7xl space-y-6">
+        {quotaWarning !== null && !quotaBannerDismissed ? (
+          <div className="no-print flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+            <span>
+              SMS quota low ({quotaWarning} left) — refill at Textbelt to keep notifications working.
+            </span>
+            <button
+              type="button"
+              onClick={dismissQuotaBanner}
+              className="shrink-0 text-xs font-semibold text-amber-700 hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
         <div className="no-print flex flex-wrap justify-end gap-2">
           <a
             href="https://calendar.google.com/calendar/r?cid=cleaningworldoperations%40gmail.com"

@@ -30,6 +30,22 @@ export function sanitizeSmsText(text: string, maxBytes: number = SMS_MAX_BYTES):
 // than truncating — this just logs so segment count stays visible.
 const SMS_SEGMENT_WARN_LENGTH = 160;
 
+// Exported so the /to-do quota banner (app/api/to-do/sms-quota/route.ts)
+// uses the exact same cutoff as this file's own console.warn below, rather
+// than a second hardcoded number that could drift out of sync with it.
+export const SMS_LOW_QUOTA_THRESHOLD = 50;
+
+// Textbelt's own error text sometimes embeds a live URL containing the
+// caller's API key — confirmed live: an "Out of quota" response reads
+// "Out of quota. Refill at https://textbelt.com/purchase?key=<the active
+// key>". That went straight into console.error unfiltered and leaked a
+// real key into Vercel's logs. Strips any URL out of third-party error
+// text before it's ever logged, protecting whichever key is active at the
+// time regardless of today's specific rotation.
+function redactUrls(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, "[URL removed]");
+}
+
 export async function sendSms(
   phone: string,
   message: string,
@@ -67,25 +83,22 @@ export async function sendSms(
     };
 
     if (!data.success) {
-      console.error(
-        `[sms] failed (${routeContext}) to ***${last4}: ${data.error || "Textbelt returned success:false"}`
-      );
+      const safeError = data.error ? redactUrls(data.error) : "Textbelt returned success:false";
+      console.error(`[sms] failed (${routeContext}) to ***${last4}: ${safeError}`);
       return { success: false };
     }
 
     console.log(
       `[sms] sent (${routeContext}) to ***${last4}, quotaRemaining=${data.quotaRemaining}, textId=${data.textId}`
     );
-    if (typeof data.quotaRemaining === "number" && data.quotaRemaining < 50) {
+    if (typeof data.quotaRemaining === "number" && data.quotaRemaining < SMS_LOW_QUOTA_THRESHOLD) {
       console.warn(`[sms] quota low: ${data.quotaRemaining} remaining`);
     }
 
     return { success: true, quotaRemaining: data.quotaRemaining, textId: data.textId };
   } catch (error) {
-    console.error(
-      `[sms] threw (${routeContext}) to ***${last4}:`,
-      error instanceof Error ? error.message : error
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[sms] threw (${routeContext}) to ***${last4}:`, redactUrls(message));
     return { success: false };
   }
 }
