@@ -5,6 +5,20 @@
 
 const GEOCODING_TIMEOUT_MS = 10_000;
 
+// The request URL below embeds GOOGLE_GEOCODING_API_KEY as a query param —
+// same shape as the Textbelt key that leaked into logs via an echoed-back
+// URL in an error message (see lib/sms.ts's redactUrls). No confirmed case
+// of Google's Geocoding API echoing the caller's own key back in
+// error_message, but the structural precondition (key-in-URL) is identical,
+// and this text flows into the client-facing API response
+// (app/api/geocode/route.ts, app/api/geocode/batch/route.ts), which is a
+// more exposed surface than a server log. Exported so those routes can
+// apply it again defensively right before responding, rather than trusting
+// this module alone to have already sanitized everything.
+export function redactSensitiveText(text: string): string {
+  return text.replace(/https?:\/\/\S+/gi, "[URL removed]").replace(/\bkey=\S+/gi, "key=[REDACTED]");
+}
+
 export type GeocodeSuccess = {
   ok: true;
   latitude: number;
@@ -59,7 +73,7 @@ export async function geocodeAddress(address: string): Promise<GeocodeOutcome> {
       kind: "api_error",
       reason: timedOut
         ? `Geocoding API request timed out after ${GEOCODING_TIMEOUT_MS}ms`
-        : `Geocoding API request failed: ${err instanceof Error ? err.message : String(err)}`,
+        : `Geocoding API request failed: ${redactSensitiveText(err instanceof Error ? err.message : String(err))}`,
     };
   } finally {
     clearTimeout(timeoutId);
@@ -95,7 +109,7 @@ export async function geocodeAddress(address: string): Promise<GeocodeOutcome> {
     return {
       ok: false,
       kind: "api_error",
-      reason: `Geocoding API call failed (status: ${data.status}${data.error_message ? ` — ${data.error_message}` : ""})`,
+      reason: `Geocoding API call failed (status: ${data.status}${data.error_message ? ` — ${redactSensitiveText(data.error_message)}` : ""})`,
     };
   }
 

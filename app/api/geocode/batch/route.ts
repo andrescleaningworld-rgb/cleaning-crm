@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeocodeCacheEntry, appendGeocodeCacheEntry } from "@/lib/googleSheets";
-import { geocodeAddress } from "@/lib/geocoding";
+import { geocodeAddress, redactSensitiveText } from "@/lib/geocoding";
 
 // Bulk geocoding (e.g. one-time backfill of Coverage towns) can process many
 // uncached addresses serially with a throttling delay between live API calls —
@@ -61,12 +61,14 @@ export async function POST(request: NextRequest) {
       const result = await geocodeAddress(address);
 
       if (!result.ok) {
+        // geocodeAddress already redacts upstream text before returning it —
+        // this is a defensive second pass right at the response boundary.
         resultByAddress.set(address, {
           address,
           latitude: null,
           longitude: null,
           cached: false,
-          error: result.reason,
+          error: redactSensitiveText(result.reason),
         });
       } else {
         await appendGeocodeCacheEntry(address, result.latitude, result.longitude);

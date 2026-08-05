@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeocodeCacheEntry, appendGeocodeCacheEntry } from "@/lib/googleSheets";
-import { geocodeAddress } from "@/lib/geocoding";
+import { geocodeAddress, redactSensitiveText } from "@/lib/geocoding";
 
 export async function POST(request: NextRequest) {
   let body: { address?: string };
@@ -28,7 +28,13 @@ export async function POST(request: NextRequest) {
       // "api_error" means the call itself failed (bad key/quota/network) and
       // is surfaced as an upstream failure (502). Neither is cached.
       const status = result.kind === "no_results" ? 200 : 502;
-      return NextResponse.json({ latitude: null, longitude: null, error: result.reason }, { status });
+      // geocodeAddress already redacts upstream text before returning it —
+      // this is a defensive second pass right at the response boundary, not
+      // a trust-the-caller assumption.
+      return NextResponse.json(
+        { latitude: null, longitude: null, error: redactSensitiveText(result.reason) },
+        { status }
+      );
     }
 
     await appendGeocodeCacheEntry(address, result.latitude, result.longitude);
