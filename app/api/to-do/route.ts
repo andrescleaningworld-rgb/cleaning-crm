@@ -1,5 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import {
+  appendSmsLog,
   appendToDo,
   appendToDos,
   fetchManagers,
@@ -21,16 +22,43 @@ import {
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 
+// Best-effort SmsLog write — never lets a Sheets error mask the send
+// outcome that already happened (and was already logged via console by
+// sendSms/the caller) above it. Exported so the resend endpoint's rate
+// limit can read the same log this writes to.
+async function logSmsAttempt(
+  toDoId: string,
+  managerPhone: string,
+  textId: string,
+  status: "sent" | "failed"
+): Promise<void> {
+  try {
+    await appendSmsLog({ toDoId, managerPhone, textId, status });
+  } catch (error) {
+    console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
+  }
+}
+
 // Looks up the assigned manager's phone by name (the same case-insensitive
 // match getManagerCalendarColorId uses — to-dos have no Manager ID field,
-// only the assignee's name) and texts them. Doesn't block the response —
-// the call site wraps this in after(), which keeps the invocation alive
-// until the returned promise settles instead of racing it against the
-// instance freezing post-response (the previous fire-and-forget .then()
-// chain had no such guarantee: a Sheets lookup timeout or a slow Textbelt
-// call could be silently cut off with no trace — confirmed live twice).
-// Never throws: the caller's after() callback has nothing to catch since
-// every failure is already logged and swallowed here.
+// only the assignee's name), texts them, and records the attempt in
+// SmsLog (see lib/googleSheets.ts) so the UI can show real send/delivery
+// status instead of nothing. Exported so the resend endpoint
+// (app/api/to-do/[id]/resend-notification/route.ts) reuses the exact same
+// lookup/send/log logic rather than a second, possibly-drifting copy.
+//
+// At to-do creation, the caller wraps this in after(), which keeps the
+// invocation alive until the returned promise settles instead of racing it
+// against the instance freezing post-response (the previous fire-and-forget
+// .then() chain had no such guarantee: a Sheets lookup timeout or a slow
+// Textbelt call could be silently cut off with no trace — confirmed live
+// twice). Never throws: every failure is already logged and swallowed here.
+//
+// A logged row is only written once an actual send was attempted (manager
+// matched AND had a phone on file) or once a lookup error prevented even
+// getting that far — "no manager matched" / "no phone on file" are legit
+// silent skips (nothing was ever attempted), not failures, so they write
+// nothing and the UI shows no badge at all for those to-dos.
 //
 // Body is title / full description / deep link, deliberately unsanitized-
 // for-length (sanitizeSmsText(..., Infinity) strips to ASCII but never
@@ -39,39 +67,49 @@ import { sanitizeSmsText, sendSms } from "@/lib/sms";
 // "Description" here is `why` (the to-do's required, always-populated
 // description field, shown as "Why:" on the card) plus `notes` (a separate,
 // optional "latest update" field — usually blank at creation) when present.
-async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): Promise<void> {
+export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): Promise<void> {
   const assignedTo = input.assignedTo.trim();
   if (!assignedTo) return;
 
+  let manager: Awaited<ReturnType<typeof fetchManagers>>[number] | undefined;
   try {
     const managers = await fetchManagers();
     const target = assignedTo.toLowerCase();
-    const manager = managers.find((m) => m.name.trim().toLowerCase() === target);
-
-    if (!manager) {
-      console.debug(`[sms] skip to-do notify: no manager matching "${assignedTo}"`);
-      return;
-    }
-    if (!manager.phone.trim()) {
-      console.debug(`[sms] skip to-do notify: manager "${manager.name}" has no phone on file`);
-      return;
-    }
-
-    const title = input.accountName || input.taskType || "Reminder";
-    const description = [input.why, input.notes]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(" - ");
-    const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
-
-    const rawMessage = [`New to-do: ${title}, due ${input.dueDate}`, description, link]
-      .filter(Boolean)
-      .join("\n");
-    const message = sanitizeSmsText(rawMessage, Infinity);
-    await sendSms(manager.phone, message, "to-do/addToDo");
+    manager = managers.find((m) => m.name.trim().toLowerCase() === target);
   } catch (error) {
     console.error("[sms] to-do notify lookup failed:", error instanceof Error ? error.message : error);
+    await logSmsAttempt(id, "", "", "failed");
+    return;
   }
+
+  if (!manager) {
+    console.debug(`[sms] skip to-do notify: no manager matching "${assignedTo}"`);
+    return;
+  }
+  if (!manager.phone.trim()) {
+    console.debug(`[sms] skip to-do notify: manager "${manager.name}" has no phone on file`);
+    return;
+  }
+
+  const title = input.accountName || input.taskType || "Reminder";
+  const description = [input.why, input.notes]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(" - ");
+  const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
+
+  const rawMessage = [`New to-do: ${title}, due ${input.dueDate}`, description, link]
+    .filter(Boolean)
+    .join("\n");
+  const message = sanitizeSmsText(rawMessage, Infinity);
+
+  const result = await sendSms(manager.phone, message, "to-do/addToDo");
+  await logSmsAttempt(
+    id,
+    manager.phone,
+    result.textId !== undefined ? String(result.textId) : "",
+    result.success ? "sent" : "failed"
+  );
 }
 
 // Shared by the single-edit and bulk-edit actions: given a to-do's

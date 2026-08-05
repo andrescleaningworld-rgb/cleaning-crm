@@ -15,6 +15,34 @@ import {
   type ToDoPriority,
 } from "@/lib/toDoPriority";
 
+// Shape returned by GET /api/to-do/[id]/sms-status — mirrors lib/googleSheets.ts's
+// SmsLogEntry closely enough for badge rendering without importing a server-only type.
+type SmsStatusEntry = {
+  status: string;
+  sentAt: string;
+  lastCheckedAt: string;
+  textId: string;
+};
+type SmsStatusResponse = { hasLog: boolean; entry?: SmsStatusEntry };
+type SmsStatusState = SmsStatusResponse & { isStuck: boolean };
+
+// A non-terminal status this old counts as "stuck" for resend-button
+// purposes (item 3's "Unknown/stuck for some reasonable idle window") —
+// separate from the badge text itself, which stays "Notifying…" either way.
+const SMS_STUCK_AFTER_MS = 10 * 60 * 1000;
+
+// Plain function, not a hook — safe to call Date.now() here. Computed once
+// when a fetch resolves (an async callback, not a render body) rather than
+// live via a timer, so "stuck" only re-evaluates on the next status fetch
+// instead of ticking every render.
+function computeIsStuck(data: SmsStatusResponse): boolean {
+  const status = (data.entry?.status ?? "").toUpperCase();
+  if (!data.hasLog || status === "DELIVERED" || status === "FAILED") return false;
+
+  const sentMs = data.entry?.sentAt ? Date.parse(data.entry.sentAt) : NaN;
+  return Number.isFinite(sentMs) && Date.now() - sentMs > SMS_STUCK_AFTER_MS;
+}
+
 export type ToDo = {
   id: string;
   createdDate: string;
@@ -179,6 +207,62 @@ type ToDoCardProps = {
   highlighted: boolean;
 };
 
+// Small/secondary by design (item 2's own requirement) — sits inline next
+// to "Assigned to," never as a headline element on the card. Resend is
+// shown only for Failed or a non-terminal status stuck past
+// SMS_STUCK_AFTER_MS; "Notifying…" covers every other non-terminal state
+// (sent/SENDING/SENT/UNKNOWN) since Textbelt's own statuses aren't all
+// meaningful to distinguish for a manager glancing at the list.
+function SmsStatusBadge({
+  entry,
+  isStuck,
+  resending,
+  resendCoolingDown,
+  resendError,
+  onResend,
+}: {
+  entry: SmsStatusEntry | undefined;
+  isStuck: boolean;
+  resending: boolean;
+  resendCoolingDown: boolean;
+  resendError: string;
+  onResend: () => void;
+}) {
+  const status = (entry?.status ?? "").toUpperCase();
+  const isDelivered = status === "DELIVERED";
+  const isFailed = status === "FAILED";
+  const showResend = isFailed || isStuck;
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+          isDelivered
+            ? "bg-green-100 text-green-700"
+            : isFailed
+              ? "bg-red-100 text-red-700"
+              : "bg-slate-100 text-slate-600"
+        }`}
+      >
+        {isDelivered ? "✓ Delivered" : isFailed ? "⚠ Failed" : "Notifying…"}
+      </span>
+
+      {showResend ? (
+        <button
+          type="button"
+          onClick={onResend}
+          disabled={resending || resendCoolingDown}
+          className="text-xs font-semibold text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline"
+        >
+          {resending ? "Resending..." : "Resend"}
+        </button>
+      ) : null}
+
+      {resendError ? <span className="text-xs text-red-600">{resendError}</span> : null}
+    </div>
+  );
+}
+
 // Status-change buttons and the "Latest update" Save button all funnel
 // through onUpdateStatus with the currently-typed notesDraft (not just
 // todo.notes) — clicking "Done" with an unsaved note in the box still
@@ -218,6 +302,59 @@ function ToDoCard({
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
+
+  // SMS notification status — self-fetched per card (not passed down from
+  // the list) so this stays fully additive: no change to how ToDoPage loads
+  // or filters todos. One check per card mount; the endpoint itself debounces
+  // the actual Textbelt call server-side, so re-renders here don't re-fetch.
+  const [smsInfo, setSmsInfo] = useState<SmsStatusState | null>(null);
+  const [resending, setResending] = useState(false);
+  const [resendCoolingDown, setResendCoolingDown] = useState(false);
+  const [resendError, setResendError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`/api/to-do/${encodeURIComponent(todo.id)}/sms-status`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: SmsStatusResponse) => {
+        if (!cancelled) setSmsInfo({ ...data, isStuck: computeIsStuck(data) });
+      })
+      .catch(() => {
+        // Silent — this is a secondary status affordance, never worth
+        // blocking or erroring the card over.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [todo.id]);
+
+  async function handleResendNotification() {
+    setResending(true);
+    setResendError("");
+    try {
+      const response = await fetch(`/api/to-do/${encodeURIComponent(todo.id)}/resend-notification`, {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (!data.success) {
+        setResendError(data.message || "Could not resend notification.");
+      } else {
+        setSmsInfo({
+          hasLog: true,
+          entry: { status: "sent", sentAt: new Date().toISOString(), lastCheckedAt: "", textId: "" },
+          isStuck: false,
+        });
+      }
+    } catch {
+      setResendError("Could not resend notification.");
+    } finally {
+      setResending(false);
+      setResendCoolingDown(true);
+      setTimeout(() => setResendCoolingDown(false), 30_000);
+    }
+  }
 
   useEffect(() => {
     if (highlighted) {
@@ -490,6 +627,17 @@ function ToDoCard({
               <p className="mt-1 text-sm text-slate-600">
                 Assigned to: <span className="font-semibold">{todo.assignedTo}</span>
               </p>
+
+              {smsInfo?.hasLog ? (
+                <SmsStatusBadge
+                  entry={smsInfo.entry}
+                  isStuck={smsInfo.isStuck}
+                  resending={resending}
+                  resendCoolingDown={resendCoolingDown}
+                  resendError={resendError}
+                  onResend={handleResendNotification}
+                />
+              ) : null}
 
               {todo.dueDate ? (
                 <p className="text-sm text-slate-600">

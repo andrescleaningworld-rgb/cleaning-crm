@@ -1887,6 +1887,150 @@ export async function updateExtraService(id: string, fields: ExtraServiceUpdateI
   });
 }
 
+// ─── SMS Log (per-to-do Textbelt notification attempts) ────────────────────
+
+const SMS_LOG_TAB = "SmsLog";
+const SMS_LOG_RANGE = `'${SMS_LOG_TAB}'`;
+
+const SMS_LOG_COL = {
+  TO_DO_ID:        0, // A
+  TEXT_ID:         1, // B — Textbelt's id for this specific send; blank when
+                       //     the attempt errored before Textbelt ever
+                       //     returned one (see sendSms's textId comment).
+  MANAGER_PHONE:   2, // C
+  STATUS:          3, // D — "sent" at write time, then whatever
+                       //     GET /status/:textId last reported
+                       //     (DELIVERED/SENT/SENDING/FAILED/UNKNOWN), or
+                       //     "failed" for a pre-Textbelt error (no textId).
+  SENT_AT:         4, // E
+  LAST_CHECKED_AT: 5, // F — blank until the first status check.
+} as const;
+
+export type SmsLogEntry = {
+  sheetRow: number;
+  toDoId: string;
+  textId: string;
+  managerPhone: string;
+  status: string;
+  sentAt: string;
+  lastCheckedAt: string;
+};
+
+// Deliberately uncached, same reasoning as fetchToDoRows — a resend or a
+// status check must see the row it just wrote/updated, not a stale
+// per-instance cache serving another invocation's snapshot.
+async function fetchSmsLogRows(): Promise<string[][]> {
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${SMS_LOG_RANGE}!A:F`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+  return rows;
+}
+
+function rowToSmsLogEntry(row: string[], sheetRow: number): SmsLogEntry {
+  return {
+    sheetRow,
+    toDoId:        row[SMS_LOG_COL.TO_DO_ID]        ?? "",
+    textId:        row[SMS_LOG_COL.TEXT_ID]         ?? "",
+    managerPhone:  row[SMS_LOG_COL.MANAGER_PHONE]   ?? "",
+    status:        row[SMS_LOG_COL.STATUS]          ?? "",
+    sentAt:        row[SMS_LOG_COL.SENT_AT]         ?? "",
+    lastCheckedAt: row[SMS_LOG_COL.LAST_CHECKED_AT] ?? "",
+  };
+}
+
+// Every attempt for a to-do, most recent first — a resend keeps full
+// history (a new row per attempt, never overwriting a prior one), so both
+// the UI's badge (latest attempt) and the resend rate-limit (any recent
+// attempt) need the whole list, not just one row.
+export async function fetchSmsLogForToDo(toDoId: string): Promise<SmsLogEntry[]> {
+  const target = toDoId.trim();
+  if (!target) return [];
+
+  const rows = await fetchSmsLogRows();
+  return rows
+    .map((row, i) => rowToSmsLogEntry(row, i + 2))
+    .filter((entry) => entry.toDoId === target)
+    .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+}
+
+// Same append-collision hazard findNextToDoRow's comment documents for the
+// To Do tab (values.append() misreads the table's left edge when the last
+// row has a gap) — LastCheckedAt is blank until the first status check,
+// which is exactly that shape, so this uses the same
+// find-next-row-then-targeted-update approach rather than values.append().
+async function findNextSmsLogRow(sheets: ReturnType<typeof google.sheets>): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${SMS_LOG_RANGE}!A:Z`,
+    })
+  );
+  const rows = (res.data.values ?? []) as string[][];
+  return rows.length + 1;
+}
+
+export async function appendSmsLog(entry: {
+  toDoId: string;
+  textId: string;
+  managerPhone: string;
+  status: string;
+}): Promise<void> {
+  const sentAt = new Date().toISOString();
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const targetRow = await findNextSmsLogRow(sheets);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${SMS_LOG_RANGE}!A${targetRow}:F${targetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[entry.toDoId, entry.textId, entry.managerPhone, entry.status, sentAt, ""]],
+    },
+  });
+}
+
+// Keyed by TextId (unique per Textbelt send) rather than ToDoId — a to-do
+// can have multiple attempts (resends), so "the row for this to-do" would
+// be ambiguous about which attempt to update. No-ops for a pre-Textbelt
+// failure row (blank textId, nothing to look up).
+export async function updateSmsLogStatus(textId: string, status: string): Promise<void> {
+  const target = textId.trim();
+  if (!target) return;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${SMS_LOG_RANGE}!A:F`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[SMS_LOG_COL.TEXT_ID] ?? "").trim() === target);
+  if (rowIndex === -1) return;
+
+  const sheetRow = rowIndex + 2;
+  const lastCheckedAt = new Date().toISOString();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${SMS_LOG_RANGE}!D${sheetRow}:F${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [[status, rows[rowIndex][SMS_LOG_COL.SENT_AT] ?? "", lastCheckedAt]],
+    },
+  });
+}
+
 // ─── Managers ──────────────────────────────────────────────────────────────
 
 const MANAGERS_TAB = "Managers";
