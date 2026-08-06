@@ -176,6 +176,20 @@ function formatCurrency(value: string | undefined) {
   });
 }
 
+// Mirrors app/accounts/new/page.tsx's computeSuggestedSubcontractorPay
+// (same 0.7 ratio) — that auto-calc was never ported to this Edit form at
+// all, which is the root cause of "changing Cleaning World Gets Paid
+// doesn't recalculate Subcontractor Pay" here.
+function computeSuggestedSubcontractorPay(revenueInput: string) {
+  const numericRevenue = moneyToNumber(revenueInput);
+
+  if (!numericRevenue || numericRevenue <= 0) {
+    return "";
+  }
+
+  return String(Math.round(numericRevenue * 0.7 * 100) / 100);
+}
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
 
@@ -208,6 +222,12 @@ export default function EditAccountPage() {
   const [savedMessage, setSavedMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
+  // Starts false on every load (including an account that already has a
+  // saved Subcontractor Pay) so opening the form never recalculates
+  // anything on its own — only an actual edit to Cleaning World Gets Paid
+  // (while untouched) or a direct edit to Subcontractor Pay itself (which
+  // flips this and stops further auto-overwrites) changes the value.
+  const [subcontractorPayTouched, setSubcontractorPayTouched] = useState(false);
 
   useEffect(() => {
     async function loadAccount() {
@@ -808,9 +828,24 @@ export default function EditAccountPage() {
                 <input
                   type="text"
                   value={formData.monthlyRevenue || ""}
-                  onChange={(event) =>
-                    updateField("monthlyRevenue", event.target.value)
-                  }
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setFormData((current) => {
+                      if (!current) return current;
+                      const suggestedPay = subcontractorPayTouched
+                        ? undefined
+                        : computeSuggestedSubcontractorPay(value);
+                      return {
+                        ...current,
+                        monthlyRevenue: value,
+                        ...(suggestedPay !== undefined
+                          ? { subcontractorPay: suggestedPay, monthlySubcontractorPay: suggestedPay }
+                          : {}),
+                      };
+                    });
+                    setSavedMessage("");
+                    setSaveError("");
+                  }}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -826,9 +861,26 @@ export default function EditAccountPage() {
                     formData.monthlySubcontractorPay ||
                     ""
                   }
-                  onChange={(event) =>
-                    updateField("subcontractorPay", event.target.value)
-                  }
+                  onChange={(event) => {
+                    // Marks this touched so a later Cleaning World Gets Paid
+                    // edit stops overwriting it — this is now the user's
+                    // deliberate value, not a suggestion. Written to both
+                    // subcontractorPay and monthlySubcontractorPay (the read
+                    // side already falls back between the two, meaning
+                    // existing data can land under either name) so a manual
+                    // edit can't end up saved under the field the load path
+                    // isn't preferring, which would look like the edit
+                    // silently didn't take.
+                    const value = event.target.value;
+                    setSubcontractorPayTouched(true);
+                    setFormData((current) =>
+                      current
+                        ? { ...current, subcontractorPay: value, monthlySubcontractorPay: value }
+                        : current
+                    );
+                    setSavedMessage("");
+                    setSaveError("");
+                  }}
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
               </div>
