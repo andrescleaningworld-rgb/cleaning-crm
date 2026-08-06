@@ -40,17 +40,16 @@ async function logSmsAttempt(
   }
 }
 
-// Looks up the assigned manager's phone by name (the same case-insensitive
-// match getManagerCalendarColorId uses — to-dos have no Manager ID field,
-// only the assignee's name), texts them, and records the attempt in
-// SmsLog (see lib/googleSheets.ts) so the UI can show real send/delivery
-// status instead of nothing. Exported so the resend endpoint
-// (app/api/to-do/[id]/resend-notification/route.ts) reuses the exact same
-// lookup/send/log logic rather than a second, possibly-drifting copy.
+// Looks up a manager's phone by name (the same case-insensitive match
+// getManagerCalendarColorId uses — to-dos have no Manager ID field, only
+// the assignee's name). Shared core for every per-to-do (not batch) SMS
+// notification — creation and single reassignment both call this via the
+// two thin wrappers below, differing only in `label` (the message's
+// opening line) and `routeContext` (the SmsLog/log-line tag).
 //
-// At to-do creation, the caller wraps this in after(), which keeps the
+// At every call site, the caller wraps this in after(), which keeps the
 // invocation alive until the returned promise settles instead of racing it
-// against the instance freezing post-response (the previous fire-and-forget
+// against the instance freezing post-response (a prior fire-and-forget
 // .then() chain had no such guarantee: a Sheets lookup timeout or a slow
 // Textbelt call could be silently cut off with no trace — confirmed live
 // twice). Never throws: every failure is already logged and swallowed here.
@@ -68,7 +67,13 @@ async function logSmsAttempt(
 // "Description" here is `why` (the to-do's required, always-populated
 // description field, shown as "Why:" on the card) plus `notes` (a separate,
 // optional "latest update" field — usually blank at creation) when present.
-export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): Promise<void> {
+async function sendToDoNotification(
+  id: string,
+  input: ToDoCalendarInput,
+  origin: string,
+  label: string,
+  routeContext: string
+): Promise<void> {
   const assignedTo = input.assignedTo.trim();
   if (!assignedTo) return;
 
@@ -78,17 +83,17 @@ export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInpu
     const target = assignedTo.toLowerCase();
     manager = managers.find((m) => m.name.trim().toLowerCase() === target);
   } catch (error) {
-    console.error("[sms] to-do notify lookup failed:", error instanceof Error ? error.message : error);
+    console.error(`[sms] ${routeContext} lookup failed:`, error instanceof Error ? error.message : error);
     await logSmsAttempt(id, "", "", "failed");
     return;
   }
 
   if (!manager) {
-    console.debug(`[sms] skip to-do notify: no manager matching "${assignedTo}"`);
+    console.debug(`[sms] skip ${routeContext}: no manager matching "${assignedTo}"`);
     return;
   }
   if (!manager.phone.trim()) {
-    console.debug(`[sms] skip to-do notify: manager "${manager.name}" has no phone on file`);
+    console.debug(`[sms] skip ${routeContext}: manager "${manager.name}" has no phone on file`);
     return;
   }
 
@@ -99,14 +104,97 @@ export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInpu
     .join(" - ");
   const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
 
-  const rawMessage = [`New to-do: ${title}, due ${input.dueDate}`, description, link]
+  const rawMessage = [`${label}: ${title}, due ${input.dueDate}`, description, link]
     .filter(Boolean)
     .join("\n");
   const message = sanitizeSmsText(rawMessage, Infinity);
 
-  const result = await sendSms(manager.phone, message, "to-do/addToDo");
+  const result = await sendSms(manager.phone, message, routeContext);
   await logSmsAttempt(
     id,
+    manager.phone,
+    result.textId !== undefined ? String(result.textId) : "",
+    result.success ? "sent" : "failed",
+    result.quotaRemaining
+  );
+}
+
+// Exported so the resend endpoint (app/api/to-do/[id]/resend-notification/
+// route.ts) reuses the exact same lookup/send/log logic rather than a
+// second, possibly-drifting copy.
+export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInput, origin: string): Promise<void> {
+  return sendToDoNotification(id, input, origin, "New to-do", "to-do/addToDo");
+}
+
+// Fires only when Assigned To actually changed (see the addToDo POST
+// handler's previousAssignedTo comparison) — an edit that touches other
+// fields but leaves the assignee alone must not re-notify.
+async function notifyManagerOfReassignedToDo(id: string, input: ToDoCalendarInput, origin: string): Promise<void> {
+  return sendToDoNotification(id, input, origin, "To-do reassigned to you", "to-do/updateToDo");
+}
+
+// Batch counterpart for addToDos (multi-account creation) and updateToDos
+// (bulk reassignment) — both apply ONE assignedTo value across N to-dos in
+// a single action, so this sends ONE summary text per action instead of
+// one per to-do (a large batch — this codebase has handled 27-account
+// batches before — would otherwise spam the manager with dozens of texts
+// at once). Logged against the batch's first to-do id: SmsLog is per-to-do,
+// and inventing a group-level tracking row for a summary text isn't worth
+// the schema/UI work this pass — the first card gets a real status badge,
+// the rest in the batch get none, an honest reflection of "one shared
+// notification was sent," not a bug.
+async function notifyManagerOfToDoBatch(
+  ids: string[],
+  accountNames: string[],
+  assignedTo: string,
+  dueDate: string,
+  origin: string,
+  label: string,
+  routeContext: string
+): Promise<void> {
+  const target = assignedTo.trim();
+  if (!target || ids.length === 0) return;
+
+  let manager: Awaited<ReturnType<typeof fetchManagers>>[number] | undefined;
+  try {
+    const managers = await fetchManagers();
+    const lower = target.toLowerCase();
+    manager = managers.find((m) => m.name.trim().toLowerCase() === lower);
+  } catch (error) {
+    console.error(`[sms] ${routeContext} lookup failed:`, error instanceof Error ? error.message : error);
+    await logSmsAttempt(ids[0], "", "", "failed");
+    return;
+  }
+
+  if (!manager) {
+    console.debug(`[sms] skip ${routeContext}: no manager matching "${target}"`);
+    return;
+  }
+  if (!manager.phone.trim()) {
+    console.debug(`[sms] skip ${routeContext}: manager "${manager.name}" has no phone on file`);
+    return;
+  }
+
+  const firstId = ids[0];
+  const link = `${origin}/to-do?id=${encodeURIComponent(firstId)}`;
+
+  const cleanNames = accountNames.map((name) => name.trim()).filter(Boolean);
+  const preview = cleanNames.slice(0, 3).join(", ");
+  const remaining = cleanNames.length - 3;
+  const accountsSummary = remaining > 0 ? `${preview}, and ${remaining} more` : preview;
+
+  const countLabel = `${ids.length} to-do${ids.length === 1 ? "" : "s"}`;
+  const rawMessage = [
+    `${label}: ${countLabel}${accountsSummary ? ` (${accountsSummary})` : ""}, due ${dueDate}`,
+    link,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const message = sanitizeSmsText(rawMessage, Infinity);
+
+  const result = await sendSms(manager.phone, message, routeContext);
+  await logSmsAttempt(
+    firstId,
     manager.phone,
     result.textId !== undefined ? String(result.textId) : "",
     result.success ? "sent" : "failed",
@@ -271,6 +359,18 @@ export async function POST(request: NextRequest) {
         }))
       );
 
+      after(() =>
+        notifyManagerOfToDoBatch(
+          ids,
+          accountNames,
+          shared.assignedTo,
+          shared.dueDate,
+          new URL(request.url).origin,
+          "New to-dos assigned",
+          "to-do/addToDos"
+        )
+      );
+
       return NextResponse.json({
         success: true,
         ids,
@@ -345,6 +445,30 @@ export async function POST(request: NextRequest) {
       // calendarSyncFailed flag even though the id itself didn't change.
       await setToDoCalendarFields(toDoId, { calendarEventId, calendarSyncFailed });
 
+      // Only when Assigned To actually changed — an edit that touches other
+      // fields but leaves the assignee alone must not re-notify.
+      if (
+        resolved.assignedTo.trim() &&
+        resolved.assignedTo.trim().toLowerCase() !== resolved.previousAssignedTo.trim().toLowerCase()
+      ) {
+        after(() =>
+          notifyManagerOfReassignedToDo(
+            toDoId,
+            {
+              dueDate: resolved.dueDate,
+              assignedTo: resolved.assignedTo,
+              accountName: resolved.accountName,
+              taskType: resolved.taskType,
+              why: resolved.why,
+              status: resolved.status,
+              notes: resolved.notes,
+              syncToCalendar: resolved.syncToCalendar,
+            },
+            new URL(request.url).origin
+          )
+        );
+      }
+
       return NextResponse.json({ success: true, calendarSyncFailed });
     }
 
@@ -403,6 +527,31 @@ export async function POST(request: NextRequest) {
       );
 
       await setToDoCalendarFieldsBatch(calendarUpdates);
+
+      // Same "only on an actual change" rule as the single-edit action —
+      // filtered down to entries where Assigned To really changed, since a
+      // bulk edit that didn't touch it at all resolves assignedTo back to
+      // each row's unchanged existing value (identical to previousAssignedTo,
+      // so this naturally excludes them with no separate "was assignedTo
+      // even part of this edit" check needed). The bulk form applies one
+      // assignedTo value to every selected to-do, so anything that changed
+      // shares the same new assignee — one summary text, not one per to-do.
+      const reassigned = found.filter(
+        (r) => r.assignedTo.trim() && r.assignedTo.trim().toLowerCase() !== r.previousAssignedTo.trim().toLowerCase()
+      );
+      if (reassigned.length > 0) {
+        after(() =>
+          notifyManagerOfToDoBatch(
+            reassigned.map((r) => r.toDoId),
+            reassigned.map((r) => r.accountName),
+            reassigned[0].assignedTo,
+            reassigned[0].dueDate,
+            new URL(request.url).origin,
+            "To-dos reassigned to you",
+            "to-do/updateToDos"
+          )
+        );
+      }
 
       return NextResponse.json({
         success: true,

@@ -1537,6 +1537,10 @@ export type ToDoEditResult = {
   // Pre-edit value, so the route can tell whether a Calendar event already
   // existed before deciding whether to create/patch/cancel one.
   previousCalendarEventId: string;
+  // Pre-edit assignee, so the route can tell a genuine reassignment (fires
+  // an SMS) apart from an edit that happened to touch other fields while
+  // leaving Assigned To untouched (must not re-notify).
+  previousAssignedTo: string;
 };
 
 // Full-field edit (Assigned To / Type / Due Date / Status / Notes) for a
@@ -1580,6 +1584,7 @@ export async function updateToDo(toDoId: string, updates: ToDoEditInput): Promis
     syncToCalendar: updates.syncToCalendar !== undefined ? updates.syncToCalendar : row[TO_DO_COL.SYNC_TO_CALENDAR] !== "FALSE",
     priority: updates.priority ?? normalizeToDoPriority(row[TO_DO_COL.PRIORITY]),
     previousCalendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
+    previousAssignedTo: row[TO_DO_COL.ASSIGNED_TO] ?? "",
   };
 }
 
@@ -1632,6 +1637,7 @@ export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<To
         syncToCalendar: true,
         priority: DEFAULT_TO_DO_PRIORITY,
         previousCalendarEventId: "",
+        previousAssignedTo: "",
         notFound: true,
       });
       continue;
@@ -1661,6 +1667,7 @@ export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<To
       syncToCalendar: updates.syncToCalendar !== undefined ? updates.syncToCalendar : row[TO_DO_COL.SYNC_TO_CALENDAR] !== "FALSE",
       priority: updates.priority ?? normalizeToDoPriority(row[TO_DO_COL.PRIORITY]),
       previousCalendarEventId: row[TO_DO_COL.CALENDAR_EVENT_ID] ?? "",
+      previousAssignedTo: row[TO_DO_COL.ASSIGNED_TO] ?? "",
     });
   }
 
