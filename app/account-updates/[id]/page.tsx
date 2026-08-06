@@ -220,8 +220,44 @@ export default function AccountUpdateDetailPage() {
   }`;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
+    <main className="account-update-print-page min-h-screen bg-gray-50 p-6">
+      <style jsx global>{`
+        @media print {
+          /* min-h-screen forces this <main> to reserve a full viewport of
+             height regardless of content — once the print view below
+             escapes normal flow via position: absolute, that reserved
+             height is empty but still there, producing a spurious blank
+             second page. */
+          .account-update-print-page {
+            min-height: 0;
+          }
+
+          /* Same opt-in contract as .account-packet-print-view in
+             globals.css: that shared rule hides everything in <body> and
+             re-shows only a page's own "-print-view" container. This page
+             previously called window.print() with no opt-in at all, so the
+             shared rule hid its content too — correct page count, nothing
+             visible, exactly the reported bug. Reuses this page's existing
+             content directly as the print view (no separate duplicate DOM,
+             unlike the to-do page's Task Sheet/By Manager views) since it's
+             already a single simple summary card, not a layout that needs
+             a different shape for print. */
+          .account-update-print-view,
+          .account-update-print-view * {
+            visibility: visible;
+          }
+
+          .account-update-print-view {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: #fff;
+          }
+        }
+      `}</style>
+
+      <div className="account-update-print-view mx-auto max-w-5xl">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-purple-700">
