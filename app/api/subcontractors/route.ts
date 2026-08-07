@@ -345,6 +345,39 @@ export async function findSubcontractorPhoneByName(name: string): Promise<string
   return match ? getSubPhone(match) : "";
 }
 
+// Same lookup as findSubcontractorPhoneByName above, for the complaint-
+// notification email instead of SMS.
+export async function findSubcontractorEmailByName(name: string): Promise<string> {
+  const target = normalizeName(name);
+  if (!target || !SCRIPT_URL) return "";
+
+  let data: GoogleScriptResponse;
+  try {
+    data = await getOrFetch("subcontractors:getSubcontractors", () =>
+      fetchGoogleScriptData("getSubcontractors")
+    );
+  } catch {
+    return "";
+  }
+
+  const subcontractors = getLoadedSubcontractors(data);
+
+  const match = subcontractors.find((sub) => {
+    const possibleNames = [getSubCompanyName(sub), getSubContactName(sub)]
+      .map((value) => normalizeName(value))
+      .filter(Boolean);
+
+    return possibleNames.some((subName) => {
+      if (subName === target) return true;
+      if (subName.length >= 4 && target.includes(subName)) return true;
+      if (target.length >= 4 && subName.includes(target)) return true;
+      return false;
+    });
+  });
+
+  return match ? getSubEmail(match) : "";
+}
+
 function enrichSubcontractorsWithRevenue(
   subcontractors: SheetRow[],
   accounts: SheetRow[]

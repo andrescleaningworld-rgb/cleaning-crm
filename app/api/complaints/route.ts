@@ -1,7 +1,11 @@
 import { after, NextResponse } from "next/server";
-import { findSubcontractorPhoneByName } from "@/app/api/subcontractors/route";
+import {
+  findSubcontractorEmailByName,
+  findSubcontractorPhoneByName,
+} from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import { appendComplaint } from "@/lib/googleSheets";
+import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -370,6 +374,37 @@ export async function POST(request: Request) {
       );
     }
 
+    // Internal ops notification — mirrors the old Apps Script addComplaint's
+    // sendInternalNotificationEmail: fires unconditionally on every new
+    // complaint (no subcontractor/manager gating), to the fixed ops inbox.
+    // Wrapped in after() for the same reason as the SMS/email blocks below —
+    // a slow or failed send must not hold up or fail the complaint save.
+    after(async () => {
+      try {
+        await sendInternalNotification(
+          `New Complaint Created - ${fields.accountName || "Cleaning World"}`,
+          [
+            `Account: ${fields.accountName || "-"}`,
+            `Complaint Date: ${fields.complaintDate || "-"}`,
+            `Issue: ${fields.issue || "-"}`,
+            `Priority: ${fields.priority || "-"}`,
+            `Status: ${fields.status || "-"}`,
+            `Validity: ${fields.complaintValidity || "-"}`,
+            `Assigned To: ${fields.assignedTo || "-"}`,
+            `Subcontractor: ${fields.subcontractor || "-"}`,
+            `Reported By: ${fields.reportedBy || "-"}`,
+            `Follow-Up Date: ${fields.lastFollowUpDate || "-"}`,
+            `Notes: ${fields.notes || "-"}`,
+          ]
+        );
+      } catch (error) {
+        console.error(
+          "[email] internal complaint notification failed:",
+          error instanceof Error ? error.message : error
+        );
+      }
+    });
+
     // Only fires on a fresh addComplaint — this route has no "reassign
     // subcontractor on an existing complaint" action to hook. Wrapped in
     // after() so the invocation stays alive until the lookup + send
@@ -405,6 +440,40 @@ export async function POST(request: Request) {
         } catch (error) {
           console.error(
             "[sms] complaint-assignment notify lookup failed:",
+            error instanceof Error ? error.message : error
+          );
+        }
+      });
+
+      // Same trigger condition as the old sendComplaintNotificationToSubcontractor
+      // (accountName + subcontractor both present — accountName is required by
+      // the Add Complaint form, so this if-block is the effective gate). Skips
+      // silently, same as before, when no email is on file for the subcontractor.
+      after(async () => {
+        try {
+          const email = await findSubcontractorEmailByName(subcontractorName);
+          if (!email) {
+            console.debug(
+              `[email] skip complaint notify: no email on file for subcontractor "${subcontractorName}"`
+            );
+            return;
+          }
+          await sendSubcontractorNotification(
+            email,
+            `New Complaint - ${fields.accountName || "Account"}`,
+            [
+              `Account Name: ${fields.accountName || "-"}`,
+              `Complaint Date: ${fields.complaintDate || "-"}`,
+              `Priority: ${fields.priority || "-"}`,
+              `Validity: ${fields.complaintValidity || "-"}`,
+              `Description: ${summary || "-"}`,
+              `Follow-Up Date: ${fields.lastFollowUpDate || "-"}`,
+              `Cleaning World Contact: ${fields.assignedTo || "Cleaning World Office"}`,
+            ]
+          );
+        } catch (error) {
+          console.error(
+            "[email] complaint-assignment notify failed:",
             error instanceof Error ? error.message : error
           );
         }
