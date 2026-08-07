@@ -1,11 +1,12 @@
 import { Resend } from "resend";
+import nodemailer, { type Transporter } from "nodemailer";
 
 // Requires RESEND_API_KEY in .env.local — silently skips if not set.
 // Also requires a verified sending domain in Resend dashboard.
 // Set RESEND_FROM to your verified address, e.g. portal@cleaningworldinc.com
 // Until domain is verified you can use: onboarding@resend.dev (sends to your Resend account email only)
 
-async function sendPlainTextEmail(to: string[], subject: string, lines: string[]): Promise<boolean> {
+async function sendViaResend(to: string[], subject: string, lines: string[]): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false;
 
@@ -30,11 +31,65 @@ async function sendPlainTextEmail(to: string[], subject: string, lines: string[]
   return true;
 }
 
+// Stopgap transport while cleaningworldinc.com is unverified in Resend
+// (verification is blocked on DNS access, owned by the web person). Gmail
+// SMTP via an app password sends real mail today; swap EMAIL_PROVIDER back
+// to "resend" once the domain is verified — no code changes needed.
+// Requires GMAIL_USER (the sending Gmail address) and GMAIL_APP_PASSWORD
+// (a 16-char app password, NOT the account password — generate one at
+// myaccount.google.com/apppasswords) in .env.local / Vercel env vars.
+let gmailTransporter: Transporter | null = null;
+
+function getGmailTransporter(): Transporter | null {
+  const user = process.env.GMAIL_USER;
+  // Google displays app passwords with spaces every 4 chars for
+  // readability; strip them so it works whether or not they're pasted in.
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "");
+  if (!user || !pass) return null;
+
+  if (!gmailTransporter) {
+    gmailTransporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: { user, pass },
+    });
+  }
+
+  return gmailTransporter;
+}
+
+async function sendViaGmail(to: string[], subject: string, lines: string[]): Promise<boolean> {
+  const transporter = getGmailTransporter();
+  if (!transporter) return false;
+
+  // sendMail() rejects (throws) on an SMTP-level failure, unlike Resend's
+  // SDK above — callers' existing try/catch already sees that correctly.
+  await transporter.sendMail({
+    from: process.env.GMAIL_USER,
+    to: to.join(", "),
+    subject,
+    text: lines.join("\n"),
+  });
+
+  return true;
+}
+
+// EMAIL_PROVIDER selects the transport for sendInternalNotification and
+// sendSubcontractorNotification below — defaults to "gmail" (the current
+// stopgap) when unset, so no env var needs to be added anywhere to use it.
+// Set EMAIL_PROVIDER=resend to switch back once the domain is verified.
+// sendPortalNotification is unaffected — it calls Resend directly.
+function sendPlainTextEmail(to: string[], subject: string, lines: string[]): Promise<boolean> {
+  const provider = (process.env.EMAIL_PROVIDER || "gmail").trim().toLowerCase();
+  return provider === "resend" ? sendViaResend(to, subject, lines) : sendViaGmail(to, subject, lines);
+}
+
 // Fixed-recipient internal ops notification — same two addresses the old
 // Apps Script addComplaint's sendInternalNotificationEmail used
 // (INTERNAL_NOTIFICATION_EMAIL), fired unconditionally on every new
-// complaint. Returns false (not thrown) when RESEND_API_KEY is unset, same
-// fault-isolation contract as sendPortalNotification below.
+// complaint. Returns false (not thrown) when the active provider's
+// credentials aren't configured (see EMAIL_PROVIDER above).
 export async function sendInternalNotification(subject: string, lines: string[]): Promise<boolean> {
   return sendPlainTextEmail(
     ["info@cleaningworldinc.com", "crm@cleaningworldinc.com"],
