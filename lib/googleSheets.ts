@@ -2415,3 +2415,107 @@ export async function appendGeocodeCacheEntry(
     new Date().toISOString(),
   ]);
 }
+
+// ─── Complaints (creation only) ─────────────────────────────────────────────
+// Complaint CREATION migrated off the Apps Script backend (strangler-fig,
+// same pattern as appendToDo above), prompted by "Reported By" being sent
+// correctly by the frontend and /api/complaints but silently dropped by the
+// Apps Script addComplaint handler before it reached the sheet — confirmed
+// by querying the live getComplaints endpoint directly, which returned an
+// empty reportedBy for every existing row including same-day submissions.
+// Reads (getComplaints) and the close/edit/resend actions stay on Apps
+// Script for now — this covers only the write path that was actually
+// broken. Column headers/order confirmed live against the "Complaints" tab
+// in GOOGLE_MAIN_SHEET_ID before writing this.
+//
+// Uses a targeted values.update() to an explicitly computed row rather than
+// values.append() — see findNextToDoRow's comment above for why append() is
+// unsafe once a sheet has blank cells followed by populated cells further
+// right in its last row. The Complaints tab already has that exact shape on
+// most rows (Last Follow-Up Date / Resolution Date blank while Notes, one
+// column to their right, is often populated), so this isn't a hypothetical
+// risk here.
+
+const COMPLAINTS_TAB = "Complaints";
+
+const COMPLAINT_COL = {
+  ID:                  0, // A
+  ACCOUNT_ID:          1, // B
+  ACCOUNT_NAME:        2, // C
+  COMPLAINT_DATE:      3, // D
+  ISSUE:               4, // E
+  PRIORITY:            5, // F
+  COMPLAINT_VALIDITY:  6, // G
+  STATUS:              7, // H
+  REPORTED_BY:         8, // I
+  ASSIGNED_TO:         9, // J
+  LAST_FOLLOW_UP_DATE: 10, // K
+  // RESOLUTION_DATE:  11, // L — set only by the (still Apps-Script-owned) close action
+  NOTES:               12, // M
+  // CREATED_AT:       13, // N — never populated by the old addComplaint either; left blank
+  // UPDATED_AT:       14, // O — set only by the close action
+  // LAST_FOLLOW_UP:   15, // P — unused in every row observed; left blank
+} as const;
+
+export type ComplaintInput = {
+  accountId: string;
+  accountName: string;
+  complaintDate: string;
+  issue: string;
+  priority: string;
+  complaintValidity: string;
+  status: string;
+  reportedBy: string;
+  assignedTo: string;
+  lastFollowUpDate: string;
+  notes: string;
+};
+
+function buildComplaintRow(id: string, data: ComplaintInput): string[] {
+  const row = Array(16).fill("") as string[];
+  row[COMPLAINT_COL.ID] = id;
+  row[COMPLAINT_COL.ACCOUNT_ID] = data.accountId;
+  row[COMPLAINT_COL.ACCOUNT_NAME] = data.accountName;
+  row[COMPLAINT_COL.COMPLAINT_DATE] = data.complaintDate;
+  row[COMPLAINT_COL.ISSUE] = data.issue;
+  row[COMPLAINT_COL.PRIORITY] = data.priority;
+  row[COMPLAINT_COL.COMPLAINT_VALIDITY] = data.complaintValidity;
+  row[COMPLAINT_COL.STATUS] = data.status;
+  row[COMPLAINT_COL.REPORTED_BY] = data.reportedBy;
+  row[COMPLAINT_COL.ASSIGNED_TO] = data.assignedTo;
+  row[COMPLAINT_COL.LAST_FOLLOW_UP_DATE] = data.lastFollowUpDate;
+  row[COMPLAINT_COL.NOTES] = data.notes;
+  return row;
+}
+
+async function findNextComplaintRow(sheets: ReturnType<typeof google.sheets>): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${COMPLAINTS_TAB}!A:Z`,
+    })
+  );
+  const rows = (res.data.values ?? []) as string[][];
+  return rows.length + 1; // 1-indexed sheet row right after the last one with data
+}
+
+export async function appendComplaint(data: ComplaintInput): Promise<string> {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // Matches the existing Complaint ID format ("COMP-20260615170222")
+  // produced by the Apps Script backend this replaces.
+  const id = `COMP-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const targetRow = await findNextComplaintRow(sheets);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${COMPLAINTS_TAB}!A${targetRow}:P${targetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [buildComplaintRow(id, data)] },
+  });
+
+  return id;
+}

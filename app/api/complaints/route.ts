@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { findSubcontractorPhoneByName } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
+import { appendComplaint } from "@/lib/googleSheets";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -309,161 +310,61 @@ export async function POST(request: Request) {
       });
     }
 
-    const payload = {
-      action: "addComplaint",
-      complaint: {
-        accountId: clean(
-          complaint.accountId || getText(complaint, "Account ID")
-        ),
-        accountName: clean(
-          complaint.accountName || getText(complaint, "Account Name")
-        ),
-
-        date: clean(
+    // Creation writes directly to the Complaints tab via the Sheets API
+    // (see appendComplaint in lib/googleSheets.ts) instead of forwarding to
+    // the Apps Script backend — that handler was silently dropping
+    // "Reported By" before it reached the sheet. Close/edit/resend actions
+    // above are untouched and still go through Apps Script.
+    const fields = {
+      accountId: clean(
+        complaint.accountId || getText(complaint, "Account ID")
+      ),
+      accountName: clean(
+        complaint.accountName || getText(complaint, "Account Name")
+      ),
+      complaintDate: clean(
+        complaint.complaintDate ||
           complaint.date ||
-            complaint.complaintDate ||
-            getText(complaint, "Complaint Date")
-        ),
-
-        complaintDate: clean(
-          complaint.complaintDate ||
-            complaint.date ||
-            getText(complaint, "Complaint Date")
-        ),
-
-        complaintType: clean(
-          complaint.complaintType ||
-            complaint.issueType ||
-            complaint.type ||
-            complaint.issue ||
-            complaint.Issue
-        ),
-
-        issue: clean(complaint.issue || complaint.Issue || complaint.description),
-        description: clean(complaint.description || complaint.issue || complaint.Issue),
-
-        priority:
-          clean(complaint.priority || complaint.Priority || complaint.severity) ||
-          "Medium",
-
-        severity:
-          clean(complaint.severity || complaint.priority || complaint.Priority) ||
-          "Medium",
-
-        status: clean(complaint.status || complaint.Status) || "Open",
-
-        complaintValidity:
-          clean(
-            complaint.complaintValidity ||
-              complaint.validity ||
-              getText(complaint, "Complaint Validity")
-          ) || "Needs Review",
-
-        validity:
-          clean(
-            complaint.complaintValidity ||
-              complaint.validity ||
-              getText(complaint, "Complaint Validity")
-          ) || "Needs Review",
-
-        manager: clean(
-          complaint.manager || complaint.assignedTo || getText(complaint, "Assigned To")
-        ),
-
-        assignedTo: clean(
-          complaint.assignedTo || complaint.manager || getText(complaint, "Assigned To")
-        ),
-
-        subcontractor: clean(complaint.subcontractor || complaint.Subcontractor),
-
-        resolution: clean(complaint.resolution || complaint.Resolution),
-
-        followUpDate: clean(
+          getText(complaint, "Complaint Date")
+      ),
+      issue: clean(complaint.issue || complaint.Issue || complaint.description),
+      priority:
+        clean(complaint.priority || complaint.Priority || complaint.severity) ||
+        "Medium",
+      status: clean(complaint.status || complaint.Status) || "Open",
+      complaintValidity:
+        clean(
+          complaint.complaintValidity ||
+            complaint.validity ||
+            getText(complaint, "Complaint Validity")
+        ) || "Needs Review",
+      reportedBy: clean(complaint.reportedBy || getText(complaint, "Reported By")),
+      assignedTo: clean(
+        complaint.assignedTo || complaint.manager || getText(complaint, "Assigned To")
+      ),
+      lastFollowUpDate: clean(
+        complaint.lastFollowUp ||
           complaint.followUpDate ||
-            complaint.lastFollowUp ||
-            getText(complaint, "Last Follow-Up") ||
-            getText(complaint, "Follow Up Date")
-        ),
-
-        lastFollowUp: clean(
-          complaint.lastFollowUp ||
-            complaint.followUpDate ||
-            getText(complaint, "Last Follow-Up")
-        ),
-
-        notes: clean(complaint.notes || complaint.Notes),
-        reportedBy: clean(complaint.reportedBy || getText(complaint, "Reported By")),
-
-        "Account ID": clean(
-          complaint.accountId || getText(complaint, "Account ID")
-        ),
-        "Account Name": clean(
-          complaint.accountName || getText(complaint, "Account Name")
-        ),
-        "Complaint Date": clean(
-          complaint.complaintDate ||
-            complaint.date ||
-            getText(complaint, "Complaint Date")
-        ),
-        Issue: clean(complaint.issue || complaint.Issue || complaint.description),
-        Priority:
-          clean(complaint.priority || complaint.Priority || complaint.severity) ||
-          "Medium",
-        Status: clean(complaint.status || complaint.Status) || "Open",
-        "Complaint Validity":
-          clean(
-            complaint.complaintValidity ||
-              complaint.validity ||
-              getText(complaint, "Complaint Validity")
-          ) || "Needs Review",
-        "Reported By": clean(complaint.reportedBy || getText(complaint, "Reported By")),
-        "Assigned To": clean(
-          complaint.assignedTo || complaint.manager || getText(complaint, "Assigned To")
-        ),
-        "Last Follow-Up": clean(
-          complaint.lastFollowUp ||
-            complaint.followUpDate ||
-            getText(complaint, "Last Follow-Up")
-        ),
-        Notes: clean(complaint.notes || complaint.Notes),
-      },
+          getText(complaint, "Last Follow-Up")
+      ),
+      notes: clean(complaint.notes || complaint.Notes),
+      // Not a sheet column — only used below to trigger the subcontractor
+      // SMS, same as before the migration.
+      subcontractor: clean(complaint.subcontractor || complaint.Subcontractor),
     };
 
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
-
-    const text = await response.text();
-
-    let data: ScriptResponse;
+    let complaintId: string;
 
     try {
-      data = JSON.parse(text) as ScriptResponse;
-    } catch {
+      complaintId = await appendComplaint(fields);
+    } catch (error) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "Google Script did not return valid JSON while saving complaint.",
-          sentPayload: payload,
-          rawResponse: text,
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!response.ok || data.success === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.error || "Failed to save complaint to Google Script.",
-          sentPayload: payload,
-          rawResponse: data,
+            error instanceof Error
+              ? error.message
+              : "Failed to save complaint to Google Sheets.",
         },
         { status: 500 }
       );
@@ -477,10 +378,9 @@ export async function POST(request: Request) {
     // comment in app/api/to-do/route.ts for why that matters. Body is
     // title / description / deep link to the complaint's detail page, sent
     // unsanitized-for-length via sanitizeSmsText(..., Infinity).
-    if (payload.complaint.subcontractor) {
-      const subcontractorName = payload.complaint.subcontractor;
-      const summary = payload.complaint.issue || payload.complaint.accountName;
-      const complaintId = String(data.id ?? data.rowNumber ?? "").trim();
+    if (fields.subcontractor) {
+      const subcontractorName = fields.subcontractor;
+      const summary = fields.issue || fields.accountName;
       const origin = new URL(request.url).origin;
 
       after(async () => {
@@ -492,9 +392,9 @@ export async function POST(request: Request) {
             );
             return;
           }
-          const link = complaintId ? `${origin}/complaints/${encodeURIComponent(complaintId)}` : "";
+          const link = `${origin}/complaints/${encodeURIComponent(complaintId)}`;
           const rawMessage = [
-            `New complaint: ${payload.complaint.accountName || "Account"}`,
+            `New complaint: ${fields.accountName || "Account"}`,
             summary,
             link,
           ]
@@ -513,14 +413,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      id: data.id || "",
-      rowNumber: data.rowNumber || "",
-      message: data.message || "Complaint saved successfully.",
-      // Forwarded as a top-level key (not just nested in scriptResponse)
-      // because app/complaints/new/page.tsx checks data.notification?.sent
-      // directly on the response.
-      notification: data.notification || undefined,
-      scriptResponse: data,
+      id: complaintId,
+      rowNumber: "",
+      message: "Complaint saved successfully.",
     });
   } catch (error) {
     return NextResponse.json(
