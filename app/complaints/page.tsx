@@ -815,6 +815,7 @@ export default function ComplaintsPage() {
                     <th className="p-3">Validity</th>
                     <th className="p-3">Photos</th>
                     <th className="p-3">Assigned To</th>
+                    <th className="p-3">Reported By</th>
                     <th className="p-3">Follow-Up</th>
                     <th className="p-3">Notes</th>
                     <th className="p-3">Action</th>
@@ -882,11 +883,16 @@ export default function ComplaintsPage() {
                         <td className="p-3">
                           {clean(complaint.manager) || clean(complaint.subcontractor) || "-"}
                         </td>
+                        <td className="p-3">
+                          {clean(complaint.reportedBy) || "-"}
+                        </td>
                         <td className="whitespace-nowrap p-3">
                           {formatDate(complaint.followUpDate)}
                         </td>
-                        <td className="min-w-[220px] p-3">
-                          {clean(complaint.notes) || clean(complaint.resolution) || "-"}
+                        <td className="min-w-[220px] max-w-[280px] p-3">
+                          <p className="line-clamp-2">
+                            {clean(complaint.notes) || clean(complaint.resolution) || "-"}
+                          </p>
                         </td>
                         <td className="whitespace-nowrap p-3">
                           {!isClosedComplaint(complaint.status) ? (
@@ -981,15 +987,13 @@ export default function ComplaintsPage() {
                 </p>
               </div>
               <div className="rounded-xl bg-gray-50 p-3">
+                <p className="text-xs font-bold uppercase text-gray-500">Reported By</p>
+                <p className="mt-1 font-semibold">{clean(detailComplaint.reportedBy) || "-"}</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 p-3">
                 <p className="text-xs font-bold uppercase text-gray-500">Follow-Up Date</p>
                 <p className="mt-1 font-semibold">{formatDate(detailComplaint.followUpDate)}</p>
               </div>
-              {clean(detailComplaint.reportedBy) ? (
-                <div className="rounded-xl bg-gray-50 p-3">
-                  <p className="text-xs font-bold uppercase text-gray-500">Reported By</p>
-                  <p className="mt-1 font-semibold">{clean(detailComplaint.reportedBy)}</p>
-                </div>
-              ) : null}
               <div className="rounded-xl bg-gray-50 p-3 sm:col-span-2">
                 <p className="text-xs font-bold uppercase text-gray-500">Description</p>
                 <p className="mt-1 font-semibold">
