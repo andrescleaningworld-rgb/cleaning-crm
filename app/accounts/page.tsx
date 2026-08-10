@@ -764,7 +764,40 @@ export default function AccountsPage() {
   const [bulkToDoError, setBulkToDoError] = useState("");
   const [bulkToDoSuccess, setBulkToDoSuccess] = useState("");
 
+  // Per-row "+ To-Do" quick add: same addToDos endpoint/field set as the
+  // bulk form above, just scoped to a single pre-filled account instead of
+  // a multi-select. Kept as its own state/modal rather than reusing the
+  // bulk form's so opening it doesn't disturb bulkToDoMode selection state.
+  const [quickToDoAccount, setQuickToDoAccount] = useState<Account | null>(null);
+  const [quickToDoForm, setQuickToDoForm] = useState({
+    assignedTo: "",
+    taskType: "Visit",
+    dueDate: "",
+    why: "",
+    notes: "",
+  });
+  const [quickToDoSaving, setQuickToDoSaving] = useState(false);
+  const [quickToDoError, setQuickToDoError] = useState("");
+
+  // Minimal self-contained toast — no shared toast component exists
+  // elsewhere in the app yet, so this stays local to this page.
+  const [toast, setToast] = useState("");
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, []);
+
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = setTimeout(() => setToast(""), 4000);
+  }
+
   const modalRef = useFocusTrap(statusModalAccount !== null);
+  const quickToDoModalRef = useFocusTrap(quickToDoAccount !== null);
 
   // -------------------------------------------------------------------------
   // Data loading
@@ -1323,6 +1356,94 @@ export default function AccountsPage() {
       setBulkToDoError(err instanceof Error ? err.message : "Could not create to-dos.");
     } finally {
       setBulkToDoSaving(false);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Quick to-do modal (per-row "+ To-Do")
+  // -------------------------------------------------------------------------
+
+  function openQuickToDoModal(account: Account) {
+    // Accounts and the managers list don't always agree on accents (e.g.
+    // "Andres" vs "Andrés"), so strip diacritics before comparing.
+    const foldAccents = (value: string) =>
+      value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const managerName = foldAccents(normalizeText(account.manager));
+    const matchedManager = bulkToDoManagers.find(
+      (name) => foldAccents(name) === managerName
+    );
+    setQuickToDoAccount(account);
+    setQuickToDoForm({
+      assignedTo: matchedManager ?? "",
+      taskType: "Visit",
+      dueDate: "",
+      why: "",
+      notes: "",
+    });
+    setQuickToDoError("");
+  }
+
+  function closeQuickToDoModal() {
+    if (quickToDoSaving) return;
+    setQuickToDoAccount(null);
+    setQuickToDoError("");
+  }
+
+  function handleQuickToDoOverlayClick(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) closeQuickToDoModal();
+  }
+
+  function handleQuickToDoOverlayKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") closeQuickToDoModal();
+  }
+
+  async function submitQuickToDo() {
+    if (!quickToDoAccount) return;
+    setQuickToDoError("");
+
+    if (!quickToDoForm.assignedTo.trim()) {
+      setQuickToDoError("Assigned To is required.");
+      return;
+    }
+    if (!quickToDoForm.why.trim()) {
+      setQuickToDoError("Why is required.");
+      return;
+    }
+
+    const accountName = normalizeText(quickToDoAccount.accountName) || "Unnamed Account";
+
+    setQuickToDoSaving(true);
+    try {
+      const response = await fetch("/api/to-do", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addToDos",
+          accountNames: [accountName],
+          dueDate: quickToDoForm.dueDate,
+          assignedTo: quickToDoForm.assignedTo,
+          taskType: quickToDoForm.taskType,
+          why: quickToDoForm.why,
+          notes: quickToDoForm.notes,
+          status: "Open",
+        }),
+      });
+
+      const data = await readJson<{ success?: boolean; message?: string; calendarSyncFailed?: boolean }>(response);
+      if (!data.success) {
+        throw new Error(data.message ?? "Could not create to-do.");
+      }
+
+      closeQuickToDoModal();
+      showToast(
+        `To-do created for ${accountName}.${
+          data.calendarSyncFailed ? " (Calendar sync failed — check the To-Do page.)" : ""
+        }`
+      );
+    } catch (err) {
+      setQuickToDoError(err instanceof Error ? err.message : "Could not create to-do.");
+    } finally {
+      setQuickToDoSaving(false);
     }
   }
 
@@ -3381,7 +3502,7 @@ async function handleSaveTransferProposal() {
                         ) : null}
                       </div>
 
-                      <div className="col-span-2 lg:col-span-1 lg:text-right">
+                      <div className="col-span-2 flex flex-col gap-2 lg:col-span-1 lg:items-end">
                         <button
                           type="button"
                           onClick={() => openStatusModal(account)}
@@ -3389,6 +3510,14 @@ async function handleSaveTransferProposal() {
                           className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 lg:w-auto"
                         >
                           Change Status
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openQuickToDoModal(account)}
+                          aria-label={`Add to-do for ${account.accountName ?? "this account"}`}
+                          className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-800 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 lg:w-auto"
+                        >
+                          + To-Do
                         </button>
                       </div>
                     </div>
@@ -3520,6 +3649,167 @@ async function handleSaveTransferProposal() {
               </div>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {/* ----------------------------------------------------------------- */}
+      {/* Quick to-do modal                                                  */}
+      {/* ----------------------------------------------------------------- */}
+
+      {quickToDoAccount ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+          role="presentation"
+          onClick={handleQuickToDoOverlayClick}
+          onKeyDown={handleQuickToDoOverlayKeyDown}
+        >
+          <div
+            ref={quickToDoModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="quick-todo-modal-title"
+            className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">
+                  New To-Do
+                </p>
+                <h2 id="quick-todo-modal-title" className="mt-2 text-2xl font-black text-slate-950">
+                  {quickToDoAccount.accountName || "Unnamed Account"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeQuickToDoModal}
+                disabled={quickToDoSaving}
+                aria-label="Close dialog"
+                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-assigned-to">
+                  Assigned To
+                </label>
+                <select
+                  id="quick-todo-assigned-to"
+                  value={quickToDoForm.assignedTo}
+                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, assignedTo: e.target.value }))}
+                  disabled={quickToDoSaving}
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                >
+                  <option value="">Select a manager...</option>
+                  {bulkToDoManagers.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-type">
+                  Type
+                </label>
+                <select
+                  id="quick-todo-type"
+                  value={quickToDoForm.taskType}
+                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, taskType: e.target.value }))}
+                  disabled={quickToDoSaving}
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                >
+                  {BULK_TODO_TASK_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-due-date">
+                  Due Date
+                </label>
+                <input
+                  id="quick-todo-due-date"
+                  type="date"
+                  value={quickToDoForm.dueDate}
+                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, dueDate: e.target.value }))}
+                  disabled={quickToDoSaving}
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-why">
+                  Why
+                </label>
+                <input
+                  id="quick-todo-why"
+                  value={quickToDoForm.why}
+                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, why: e.target.value }))}
+                  disabled={quickToDoSaving}
+                  placeholder="Example: Customer said restrooms need attention"
+                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-notes">
+                  Notes
+                </label>
+                <textarea
+                  id="quick-todo-notes"
+                  value={quickToDoForm.notes}
+                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, notes: e.target.value }))}
+                  disabled={quickToDoSaving}
+                  placeholder="Extra instructions"
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+                />
+              </div>
+
+              {quickToDoError ? (
+                <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700 sm:col-span-2">
+                  {quickToDoError}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={closeQuickToDoModal}
+                  disabled={quickToDoSaving}
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitQuickToDo}
+                  disabled={quickToDoSaving}
+                  className="rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {quickToDoSaving ? "Creating..." : "Create To-Do"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-[60] rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-800 shadow-lg"
+        >
+          {toast}
         </div>
       ) : null}
     </div>
