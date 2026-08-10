@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { getGoogleMapsUrl } from "../lib/backend";
+import { distanceInMiles, formatMiles } from "../lib/distance";
+import { useCustomerSearch, AutocompleteField } from "../sub-schedules/autocomplete";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +19,8 @@ type Account = {
   city?: string;
   state?: string;
   zip?: string;
+  latitude?: string | number;
+  longitude?: string | number;
   manager?: string;
   subcontractor?: string;
   status?: string;
@@ -50,6 +54,11 @@ type Account = {
   _frequencyText?: string;
   _startDateTime?: number;
   _subDisplay?: SubcontractorDisplay;
+  _latitudeNum?: number | null;
+  _longitudeNum?: number | null;
+  // Set only while the "Near Account" filter is active, to the distance in
+  // miles from the selected reference account.
+  _distanceMiles?: number | null;
 };
 
 type Subcontractor = {
@@ -111,8 +120,7 @@ type SortOption =
   | "Monthly Revenue - Highest First"
   | "Monthly Revenue - Lowest First"
   | "Sub Pay - Highest First"
-  | "Sub Pay - Lowest First"
-  | "Frequency";
+  | "Sub Pay - Lowest First";
 
 type QuickStatusOption =
   | "Active"
@@ -257,8 +265,10 @@ const sortOptions: SortOption[] = [
   "Monthly Revenue - Lowest First",
   "Sub Pay - Highest First",
   "Sub Pay - Lowest First",
-  "Frequency",
 ];
+
+const NEAR_ACCOUNT_RADIUS_OPTIONS = [5, 10, 25, 50] as const;
+const DEFAULT_NEAR_ACCOUNT_RADIUS_MILES = 10;
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -284,6 +294,58 @@ function normalizeForMatch(value: unknown): string {
 function getAccountId(account: Account): string {
   return normalizeText(
     account.accountId ?? account.id ?? account.rowNumber ?? account.accountName
+  );
+}
+
+type NonLocationFilterParams = {
+  cleanSearch: string;
+  statusFilter: StatusFilter;
+  managerFilter: string;
+  subcontractorFilter: string;
+  minRevenue: number;
+  maxRevenue: number;
+  minSubPay: number;
+  maxSubPay: number;
+};
+
+// Every filter except "Near Account" — factored out so the main filtered
+// list and the "N accounts hidden, no location data" count below apply
+// identical criteria without duplicating each check.
+function accountMatchesNonLocationFilters(
+  account: Account,
+  params: NonLocationFilterParams
+): boolean {
+  const revenue = account._monthlyRevenueNum ?? 0;
+  const subPay = account._subPayNum ?? 0;
+
+  const matchesSearch =
+    !params.cleanSearch || (account._searchBlob ?? "").includes(params.cleanSearch);
+
+  const matchesStatus =
+    params.statusFilter === "All" || account._statusCategory === params.statusFilter;
+
+  const matchesManager =
+    params.managerFilter === "All" || normalizeText(account.manager) === params.managerFilter;
+
+  const matchesSubcontractor =
+    params.subcontractorFilter === "All" ||
+    normalizeText(account.subcontractor) === params.subcontractorFilter;
+
+  const matchesMinRevenue = params.minRevenue <= 0 || revenue >= params.minRevenue;
+  const matchesMaxRevenue = params.maxRevenue <= 0 || revenue <= params.maxRevenue;
+
+  const matchesMinSubPay = params.minSubPay <= 0 || subPay >= params.minSubPay;
+  const matchesMaxSubPay = params.maxSubPay <= 0 || subPay <= params.maxSubPay;
+
+  return (
+    matchesSearch &&
+    matchesStatus &&
+    matchesManager &&
+    matchesSubcontractor &&
+    matchesMinRevenue &&
+    matchesMaxRevenue &&
+    matchesMinSubPay &&
+    matchesMaxSubPay
   );
 }
 
@@ -323,6 +385,12 @@ function moneyToNumber(value: string | number | undefined): number {
   if (typeof value === "number") return Number.isNaN(value) ? 0 : value;
   const parsed = Number(String(value).replace(/\$/g, "").replace(/,/g, "").trim());
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function parseCoordinate(value: string | number | undefined): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(String(value).trim());
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function formatMoney(value: string | number | undefined): string {
@@ -622,6 +690,8 @@ function enrichAccounts(accounts: Account[], subcontractors: Subcontractor[]): A
       _frequencyText: normalizeText(account.frequency ?? account.cleaningDays),
       _startDateTime: getDateTime(account.accountStartDate),
       _subDisplay: subDisplay,
+      _latitudeNum: parseCoordinate(account.latitude),
+      _longitudeNum: parseCoordinate(account.longitude),
     };
   });
 }
@@ -691,7 +761,7 @@ function useFocusTrap(active: boolean) {
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  // Full account list used only to build the Manager/Subcontractor/Frequency
+  // Full account list used only to build the Manager/Subcontractor
   // filter dropdown options — kept separate from `accounts` (which is
   // search-scoped and starts empty) so those dropdowns aren't empty until
   // the user has already searched. See fetchFilterOptionAccounts below.
@@ -708,7 +778,8 @@ export default function AccountsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [managerFilter, setManagerFilter] = useState("All");
   const [subcontractorFilter, setSubcontractorFilter] = useState("All");
-  const [frequencyFilter, setFrequencyFilter] = useState("All");
+  const nearAccountSearch = useCustomerSearch();
+  const [nearAccountRadius, setNearAccountRadius] = useState(DEFAULT_NEAR_ACCOUNT_RADIUS_MILES);
   const [minRevenueFilter, setMinRevenueFilter] = useState("");
   const [maxRevenueFilter, setMaxRevenueFilter] = useState("");
   const [minSubPayFilter, setMinSubPayFilter] = useState("");
@@ -961,22 +1032,6 @@ export default function AccountsPage() {
     }
   }, [transferMode]);
 
-  // Reset visible count whenever filters change
-  useEffect(() => {
-    setVisibleCount(INITIAL_VISIBLE_COUNT);
-  }, [
-    debouncedSearch,
-    statusFilter,
-    managerFilter,
-    subcontractorFilter,
-    frequencyFilter,
-    minRevenueFilter,
-    maxRevenueFilter,
-    minSubPayFilter,
-    maxSubPayFilter,
-    sortOption,
-  ]);
-
   // -------------------------------------------------------------------------
   // Derived filter options (managers + subcontractors)
   // -------------------------------------------------------------------------
@@ -1010,69 +1065,101 @@ export default function AccountsPage() {
     ];
   }, [filterOptionAccounts]);
 
-  const frequencies = useMemo(() => {
-    const unique = Array.from(
-      new Set(
-        filterOptionAccounts
-          .map((account) => normalizeText(account._frequencyText))
-          .filter(Boolean)
-      )
-    );
+  // Reference account for the "Near Account" filter, resolved from the
+  // shared account list so it has the same _latitudeNum/_longitudeNum this
+  // page computes (the autocomplete's own fetch doesn't carry those).
+  const nearAccountRef = useMemo(() => {
+    if (!nearAccountSearch.selected) return null;
+    return accounts.find((a) => getAccountId(a) === nearAccountSearch.selected!.id) ?? null;
+  }, [accounts, nearAccountSearch.selected]);
 
-    return ["All", ...unique.sort((a, b) => a.localeCompare(b))];
-  }, [filterOptionAccounts]);
+  const nearAccountCoords = useMemo(() => {
+    if (
+      !nearAccountRef ||
+      nearAccountRef._latitudeNum == null ||
+      nearAccountRef._longitudeNum == null
+    ) {
+      return null;
+    }
+    return { latitude: nearAccountRef._latitudeNum, longitude: nearAccountRef._longitudeNum };
+  }, [nearAccountRef]);
+
+  // Reset visible count whenever filters change
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE_COUNT);
+  }, [
+    debouncedSearch,
+    statusFilter,
+    managerFilter,
+    subcontractorFilter,
+    nearAccountRef,
+    nearAccountRadius,
+    minRevenueFilter,
+    maxRevenueFilter,
+    minSubPayFilter,
+    maxSubPayFilter,
+    sortOption,
+  ]);
 
   // -------------------------------------------------------------------------
   // Filtering + sorting — uses pre-normalized fields for speed
   // -------------------------------------------------------------------------
 
+  const nonLocationFilterParams = useMemo<NonLocationFilterParams>(
+    () => ({
+      cleanSearch: debouncedSearch.toLowerCase().trim(),
+      statusFilter,
+      managerFilter,
+      subcontractorFilter,
+      minRevenue: moneyToNumber(minRevenueFilter),
+      maxRevenue: moneyToNumber(maxRevenueFilter),
+      minSubPay: moneyToNumber(minSubPayFilter),
+      maxSubPay: moneyToNumber(maxSubPayFilter),
+    }),
+    [
+      debouncedSearch,
+      statusFilter,
+      managerFilter,
+      subcontractorFilter,
+      minRevenueFilter,
+      maxRevenueFilter,
+      minSubPayFilter,
+      maxSubPayFilter,
+    ]
+  );
+
   const filteredAccounts = useMemo(() => {
-    const cleanSearch = debouncedSearch.toLowerCase().trim();
-
-    const minRevenue = moneyToNumber(minRevenueFilter);
-    const maxRevenue = moneyToNumber(maxRevenueFilter);
-    const minSubPay = moneyToNumber(minSubPayFilter);
-    const maxSubPay = moneyToNumber(maxSubPayFilter);
-
     const filtered = accounts.filter((account) => {
-      const revenue = account._monthlyRevenueNum ?? 0;
-      const subPay = account._subPayNum ?? 0;
+      if (!accountMatchesNonLocationFilters(account, nonLocationFilterParams)) {
+        return false;
+      }
 
-      const matchesSearch =
-        !cleanSearch || (account._searchBlob ?? "").includes(cleanSearch);
+      if (nearAccountRef) {
+        if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
+        if (!nearAccountCoords) return false;
 
-      const matchesStatus =
-        statusFilter === "All" || account._statusCategory === statusFilter;
+        const distance = distanceInMiles(nearAccountCoords, {
+          latitude: account._latitudeNum ?? null,
+          longitude: account._longitudeNum ?? null,
+        });
 
-      const matchesManager =
-        managerFilter === "All" || normalizeText(account.manager) === managerFilter;
+        if (distance === null || distance > nearAccountRadius) return false;
+      }
 
-      const matchesSubcontractor =
-        subcontractorFilter === "All" ||
-        normalizeText(account.subcontractor) === subcontractorFilter;
-
-      const matchesFrequency =
-        frequencyFilter === "All" ||
-        normalizeText(account._frequencyText) === frequencyFilter;
-
-      const matchesMinRevenue = minRevenue <= 0 || revenue >= minRevenue;
-      const matchesMaxRevenue = maxRevenue <= 0 || revenue <= maxRevenue;
-
-      const matchesMinSubPay = minSubPay <= 0 || subPay >= minSubPay;
-      const matchesMaxSubPay = maxSubPay <= 0 || subPay <= maxSubPay;
-
-      return (
-        matchesSearch &&
-        matchesStatus &&
-        matchesManager &&
-        matchesSubcontractor &&
-        matchesFrequency &&
-        matchesMinRevenue &&
-        matchesMaxRevenue &&
-        matchesMinSubPay &&
-        matchesMaxSubPay
-      );
+      return true;
     });
+
+    if (nearAccountRef && nearAccountCoords) {
+      return filtered
+        .map((account) => ({
+          ...account,
+          _distanceMiles: distanceInMiles(nearAccountCoords, {
+            latitude: account._latitudeNum ?? null,
+            longitude: account._longitudeNum ?? null,
+          }),
+        }))
+        .sort((a, b) => (a._distanceMiles ?? Infinity) - (b._distanceMiles ?? Infinity));
+    }
 
     return [...filtered].sort((a, b) => {
       if (sortOption === "Start Date - Newest First") {
@@ -1099,29 +1186,25 @@ export default function AccountsPage() {
         return (a._subPayNum ?? 0) - (b._subPayNum ?? 0);
       }
 
-      if (sortOption === "Frequency") {
-        return normalizeText(a._frequencyText).localeCompare(
-          normalizeText(b._frequencyText)
-        );
-      }
-
       return normalizeText(a.accountName).localeCompare(
         normalizeText(b.accountName)
       );
     });
-  }, [
-    accounts,
-    debouncedSearch,
-    statusFilter,
-    managerFilter,
-    subcontractorFilter,
-    frequencyFilter,
-    minRevenueFilter,
-    maxRevenueFilter,
-    minSubPayFilter,
-    maxSubPayFilter,
-    sortOption,
-  ]);
+  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption]);
+
+  // Accounts that would otherwise match the current filters but are hidden
+  // from Near Account results only because they have no stored coordinates —
+  // surfaced as a count so staff know results aren't necessarily complete,
+  // without this page doing any live geocoding of its own.
+  const nearAccountMissingCoordsCount = useMemo(() => {
+    if (!nearAccountRef) return 0;
+
+    return accounts.filter((account) => {
+      if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
+      if (!accountMatchesNonLocationFilters(account, nonLocationFilterParams)) return false;
+      return account._latitudeNum == null || account._longitudeNum == null;
+    }).length;
+  }, [accounts, nearAccountRef, nonLocationFilterParams]);
 
   const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
 
@@ -2095,7 +2178,8 @@ async function handleSaveTransferProposal() {
     setStatusFilter("Active");
     setManagerFilter("All");
     setSubcontractorFilter("All");
-    setFrequencyFilter("All");
+    nearAccountSearch.clear();
+    setNearAccountRadius(DEFAULT_NEAR_ACCOUNT_RADIUS_MILES);
     setMinRevenueFilter("");
     setMaxRevenueFilter("");
     setMinSubPayFilter("");
@@ -2521,7 +2605,7 @@ async function handleSaveTransferProposal() {
         </div>
 
         {/* Filters */}
-        <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-6">
+        <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-7">
           <input
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
@@ -2573,18 +2657,40 @@ async function handleSaveTransferProposal() {
             ))}
           </select>
 
-          <select
-            value={frequencyFilter}
-            onChange={(e) => setFrequencyFilter(e.target.value)}
-            aria-label="Filter by frequency"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          >
-            {frequencies.map((frequency) => (
-              <option key={frequency} value={frequency}>
-                Frequency: {frequency}
-              </option>
-            ))}
-          </select>
+          <div className="flex gap-2 lg:col-span-2">
+            <AutocompleteField
+              label="Near Account"
+              placeholder="Find accounts near..."
+              query={nearAccountSearch.query}
+              onQueryChange={nearAccountSearch.setQuery}
+              options={nearAccountSearch.options}
+              loading={nearAccountSearch.loading}
+              selected={nearAccountSearch.selected}
+              onSelect={nearAccountSearch.select}
+              onClear={nearAccountSearch.clear}
+              className="min-w-0 flex-1 sm:w-full [&_input]:w-full [&_input]:sm:w-full [&>div:nth-child(2)]:w-full [&>div:nth-child(2)]:sm:w-full"
+            />
+
+            <div>
+              <label className="text-xs font-bold uppercase text-slate-500" htmlFor="near-account-radius">
+                Radius
+              </label>
+              <select
+                id="near-account-radius"
+                value={nearAccountRadius}
+                onChange={(e) => setNearAccountRadius(Number(e.target.value))}
+                disabled={!nearAccountSearch.selected}
+                aria-label="Near account radius in miles"
+                className="mt-1 min-h-[42px] w-20 shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 disabled:cursor-not-allowed disabled:bg-slate-100 sm:mt-1"
+              >
+                {NEAR_ACCOUNT_RADIUS_OPTIONS.map((miles) => (
+                  <option key={miles} value={miles}>
+                    {miles} mi
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <button
             type="button"
@@ -2634,16 +2740,22 @@ async function handleSaveTransferProposal() {
           />
 
           <select
-            value={sortOption}
+            value={nearAccountRef ? "Distance" : sortOption}
             onChange={(e) => setSortOption(e.target.value as SortOption)}
+            disabled={Boolean(nearAccountRef)}
             aria-label="Sort accounts"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
+            title={nearAccountRef ? "Sorted by distance while Near Account is active" : undefined}
+            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
           >
-            {sortOptions.map((s) => (
-              <option key={s} value={s}>
-                Sort: {s}
-              </option>
-            ))}
+            {nearAccountRef ? (
+              <option value="Distance">Sort: Distance (Near Account active)</option>
+            ) : (
+              sortOptions.map((s) => (
+                <option key={s} value={s}>
+                  Sort: {s}
+                </option>
+              ))
+            )}
           </select>
         </div>
 
@@ -2668,6 +2780,19 @@ async function handleSaveTransferProposal() {
               <p className="mt-1 text-xs">
                 Tap any account name to open the account detail page.
               </p>
+
+              {nearAccountRef && !nearAccountCoords ? (
+                <p className="mt-1 text-xs font-bold text-amber-700">
+                  {nearAccountRef.accountName || "The selected account"} has no stored location, so distance can&apos;t be calculated.
+                </p>
+              ) : null}
+
+              {nearAccountRef && nearAccountCoords && nearAccountMissingCoordsCount > 0 ? (
+                <p className="mt-1 text-xs font-bold text-amber-700">
+                  {nearAccountMissingCoordsCount} account
+                  {nearAccountMissingCoordsCount === 1 ? "" : "s"} otherwise matching your filters have no stored location and are excluded from these results.
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -3423,6 +3548,11 @@ async function handleSaveTransferProposal() {
                           <p className="mt-1 text-xs font-bold text-slate-400">
                             ID: {accountId || "N/A"}
                           </p>
+                          {account._distanceMiles != null ? (
+                            <p className="mt-1 text-xs font-black text-blue-700">
+                              {formatMiles(account._distanceMiles)} away
+                            </p>
+                          ) : null}
                         </div>
                         <div className="text-right lg:hidden">
                           <p className="text-xs font-black uppercase tracking-wide text-slate-400">

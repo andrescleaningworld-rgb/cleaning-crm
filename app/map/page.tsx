@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import "leaflet/dist/leaflet.css";
 import type { DivIcon } from "leaflet";
+import { distanceInMiles, formatMiles } from "../lib/distance";
 
 const MapContainer = dynamic(
   () => import("react-leaflet").then((module) => module.MapContainer),
@@ -283,38 +284,6 @@ function buildDirectionsUrl(destination: string, currentLocation: string) {
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
     destination
   )}&travelmode=driving`;
-}
-
-function distanceInMiles(
-  from: CurrentCoords | null,
-  account: AccountLocation
-): number | null {
-  if (!from || account.latitude === null || account.longitude === null) {
-    return null;
-  }
-
-  const earthRadiusMiles = 3958.8;
-  const fromLat = (from.latitude * Math.PI) / 180;
-  const toLat = (account.latitude * Math.PI) / 180;
-  const latDifference = ((account.latitude - from.latitude) * Math.PI) / 180;
-  const lngDifference = ((account.longitude - from.longitude) * Math.PI) / 180;
-
-  const a =
-    Math.sin(latDifference / 2) * Math.sin(latDifference / 2) +
-    Math.cos(fromLat) *
-      Math.cos(toLat) *
-      Math.sin(lngDifference / 2) *
-      Math.sin(lngDifference / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return earthRadiusMiles * c;
-}
-
-function formatMiles(value: number | null) {
-  if (value === null) return "";
-  if (value < 10) return `${value.toFixed(1)} mi`;
-  return `${Math.round(value)} mi`;
 }
 
 function getMapCenter(
