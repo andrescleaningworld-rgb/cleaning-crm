@@ -2519,3 +2519,275 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
 
   return id;
 }
+
+// ─── Subcontractor performance scoring ──────────────────────────────────────
+// Migrated off the Apps Script backend's calculateSubcontractorScore.
+// Root cause (confirmed live before writing this): the Accounts tab's
+// Subcontractor column is filled by staff with the contact's first name
+// ("Tania"), but the old function matched it with STRICT equality against
+// the Subcontractors tab's Company Name ("Tania Cleaning NJ Inc.") —
+// "tania" !== "tania cleaning nj inc.", so assignedAccounts came up empty
+// for almost every subcontractor (confirmed: live accountsAssigned was "0"
+// for all but one, whose Accounts-sheet field happened to exactly equal its
+// company name). Since visits/complaints were both matched to a
+// subcontractor via that same empty assignedAccountNames set, score stayed
+// pinned at its 10/"Excellent" default regardless of real complaints. (The
+// Complaints and Visits tabs also have no Subcontractor column of their own
+// — same class of issue as the earlier Reported By fix — so this was never
+// a viable primary match path either.)
+//
+// Fix: match accounts↔subcontractor with the same fuzzy substring logic
+// already proven correct elsewhere in this codebase (namesMatch in
+// app/api/subcontractors/route.ts, and the subcontractorAccounts computation
+// in app/subcontractors/[id]/page.tsx), then match visits/complaints↔account
+// by exact Account Name — the same approach that page's relatedComplaints
+// already uses correctly. The formula itself (avg visit condition, minus 0.5
+// per open complaint, clamped 0-10) and the score-status thresholds are
+// unchanged from the original Apps Script.
+//
+// Reads Accounts/Visits/Subcontractors directly (not through the Complaints
+// tab's cache-relevant machinery above) and deliberately isn't cached — same
+// reasoning as fetchToDoRows above: this is what a newly-filed complaint is
+// supposed to change, so serving a stale value defeats the point of the fix.
+
+const PERFORMANCE_VISITS_TAB = "Visits";
+
+const ACCOUNTS_TAB = "Accounts";
+
+const PERFORMANCE_ACCOUNT_COL = {
+  ACCOUNT_NAME: 1,
+  SUBCONTRACTOR: 8,
+} as const;
+
+const PERFORMANCE_VISIT_COL = {
+  ACCOUNT_NAME: 2,
+  VISIT_DATE: 3,
+  CONDITION_SCORE: 6,
+} as const;
+
+const PERFORMANCE_SUBCONTRACTOR_COL = {
+  ID: 0,
+  CONTACT_NAME: 1,
+  COMPANY_NAME: 2,
+} as const;
+
+function normalizeSubName(value: unknown): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/\bllc\b/g, "")
+    .replace(/\binc\b/g, "")
+    .replace(/\bcorp\b/g, "")
+    .replace(/\bcorporation\b/g, "")
+    .replace(/\bcompany\b/g, "")
+    .replace(/\bco\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Base match shape is the same as namesMatch (app/api/subcontractors/route.ts)
+// and subcontractorAccounts (app/subcontractors/[id]/page.tsx) — substring
+// match both directions against company name AND contact name, length-guarded
+// so a short fragment (e.g. "co") doesn't loosely match everything. But
+// unlike those two (which each test one known subcontractor in isolation),
+// this is resolved globally across ALL subcontractors per distinct raw
+// Accounts-tab value below, because the roster has real contact-name
+// prefix collisions (e.g. "Cesar" vs "Cesar Decarvalho", "Giovanna" vs
+// "Alonso & Giovanna Mendoza"): an account whose field is literally "Cesar"
+// is a substring-match against both, and resolving each subcontractor
+// independently — the first version of this fix did — silently
+// double-counted every one of that subcontractor's accounts, visits, and
+// complaints onto the unrelated one too. An exact match always wins over a
+// substring one; if either the exact or the fallback substring pass still
+// resolves to more than one subcontractor, the account is left unassigned
+// rather than guessed.
+function subAssignmentMatches(assignedSub: string, candidate: string): boolean {
+  if (!assignedSub || !candidate) return false;
+  if (assignedSub === candidate) return true;
+  if (assignedSub.length >= 4 && candidate.includes(assignedSub)) return true;
+  if (candidate.length >= 4 && assignedSub.includes(candidate)) return true;
+  return false;
+}
+
+function resolveAssignedSubKey(
+  assignedSubRaw: string,
+  subEntries: { key: string; company: string; contact: string }[]
+): string {
+  const assignedSub = normalizeSubName(assignedSubRaw);
+  if (!assignedSub) return "";
+
+  const exact = subEntries.filter((e) => assignedSub === e.company || assignedSub === e.contact);
+  if (exact.length === 1) return exact[0].key;
+  if (exact.length > 1) return "";
+
+  const fuzzy = subEntries.filter(
+    (e) => subAssignmentMatches(assignedSub, e.company) || subAssignmentMatches(assignedSub, e.contact)
+  );
+  return fuzzy.length === 1 ? fuzzy[0].key : "";
+}
+
+// One pass over the Accounts tab, resolving each distinct raw "Subcontractor"
+// value to at most one subcontractor key (see resolveAssignedSubKey), then
+// grouping account names by that key.
+function buildAccountAssignmentsBySubKey(
+  accountRows: string[][],
+  subRows: string[][]
+): Map<string, Set<string>> {
+  const subEntries = subRows.map((subRow) => {
+    const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
+    const contactName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.CONTACT_NAME] ?? "";
+    return {
+      key: buildSubcontractorPerformanceKey(companyName, contactName),
+      company: normalizeSubName(companyName),
+      contact: normalizeSubName(contactName),
+    };
+  });
+
+  const resolveCache = new Map<string, string>();
+  const bySubKey = new Map<string, Set<string>>();
+
+  for (const row of accountRows) {
+    const raw = row[PERFORMANCE_ACCOUNT_COL.SUBCONTRACTOR] ?? "";
+    const accountName = normalizeAccountName(row[PERFORMANCE_ACCOUNT_COL.ACCOUNT_NAME]);
+    if (!raw || !accountName) continue;
+
+    let resolvedKey = resolveCache.get(raw);
+    if (resolvedKey === undefined) {
+      resolvedKey = resolveAssignedSubKey(raw, subEntries);
+      resolveCache.set(raw, resolvedKey);
+    }
+    if (!resolvedKey) continue;
+
+    if (!bySubKey.has(resolvedKey)) bySubKey.set(resolvedKey, new Set());
+    bySubKey.get(resolvedKey)!.add(accountName);
+  }
+
+  return bySubKey;
+}
+
+function normalizeAccountName(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+export type SubcontractorPerformance = {
+  score: number;
+  scoreStatus: "Excellent" | "Good" | "Needs Attention" | "High Risk";
+  openComplaints: number;
+  avgCondition: number | null;
+  lastReview: string;
+  accountsAssigned: number;
+};
+
+// Join key for merging this map onto the Apps Script's getSubcontractors
+// list. NOT the Subcontractors sheet's own "Subcontractor ID" column
+// (confirmed live: the sheet also has a defunct duplicate "ID" header at
+// column P, blank on most rows; the Apps Script's own id lookup checks
+// "ID" before "Subcontractor ID" and — because of how its header-map
+// building silently lets a later duplicate header win — picks up that
+// blank column first, so its id/subcontractorId fields are actually
+// "SUB-ROW-<n>" row-position fallbacks for most rows, not the real
+// Subcontractor ID, and unpredictably the real one for a handful of others
+// with legacy data in column P. Company name + contact name are each
+// read via a single unambiguous header on both sides, so composing a key
+// from both (handles the few subcontractors that share a company name
+// across multiple contacts, e.g. "Cleaning World") is the reliable join.
+export function buildSubcontractorPerformanceKey(companyName: unknown, contactName: unknown): string {
+  return `${normalizeSubName(companyName)}|${normalizeSubName(contactName)}`;
+}
+
+export async function getSubcontractorPerformanceMap(): Promise<Map<string, SubcontractorPerformance>> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const [accountsRes, visitsRes, complaintsRes, subsRes] = await Promise.all([
+    withTimeout(FETCH_TIMEOUT_MS, () =>
+      sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!, range: `${ACCOUNTS_TAB}!A:Z` })
+    ),
+    withTimeout(FETCH_TIMEOUT_MS, () =>
+      sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!, range: `${PERFORMANCE_VISITS_TAB}!A:Z` })
+    ),
+    withTimeout(FETCH_TIMEOUT_MS, () =>
+      sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!, range: `${COMPLAINTS_TAB}!A:P` })
+    ),
+    withTimeout(FETCH_TIMEOUT_MS, () =>
+      sheets.spreadsheets.values.get({ spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!, range: `Subcontractors!A:Z` })
+    ),
+  ]);
+
+  const accountRows = ((accountsRes.data.values ?? []) as string[][]).slice(1);
+  const visitRows = ((visitsRes.data.values ?? []) as string[][]).slice(1);
+  const complaintRows = ((complaintsRes.data.values ?? []) as string[][]).slice(1);
+  const subRows = ((subsRes.data.values ?? []) as string[][]).slice(1);
+
+  const result = new Map<string, SubcontractorPerformance>();
+  const accountAssignmentsBySubKey = buildAccountAssignmentsBySubKey(accountRows, subRows);
+
+  for (const subRow of subRows) {
+    const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
+    const contactName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.CONTACT_NAME] ?? "";
+    const key = buildSubcontractorPerformanceKey(companyName, contactName);
+    if (!normalizeSubName(companyName) && !normalizeSubName(contactName)) continue;
+
+    const assignedAccountNames = accountAssignmentsBySubKey.get(key) ?? new Set<string>();
+
+    const relatedVisits = visitRows.filter((row) =>
+      assignedAccountNames.has(normalizeAccountName(row[PERFORMANCE_VISIT_COL.ACCOUNT_NAME]))
+    );
+
+    const conditionScores = relatedVisits
+      .map((row) => Number(row[PERFORMANCE_VISIT_COL.CONDITION_SCORE]))
+      .filter((score) => !Number.isNaN(score) && score >= 0 && score <= 10);
+
+    const avgCondition =
+      conditionScores.length > 0
+        ? Math.round((conditionScores.reduce((sum, s) => sum + s, 0) / conditionScores.length) * 10) / 10
+        : null;
+
+    let lastReview = "";
+    const datedVisits = relatedVisits
+      .map((row) => row[PERFORMANCE_VISIT_COL.VISIT_DATE] ?? "")
+      .filter(Boolean)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    if (datedVisits.length > 0) lastReview = datedVisits[0];
+
+    const relatedComplaints = complaintRows.filter((row) => {
+      const validity = String(row[COMPLAINT_COL.COMPLAINT_VALIDITY] ?? "").toLowerCase().trim();
+      if (validity === "no" || validity === "not valid" || validity === "invalid" || validity === "notvalid") {
+        return false;
+      }
+      return assignedAccountNames.has(normalizeAccountName(row[COMPLAINT_COL.ACCOUNT_NAME]));
+    });
+
+    const openComplaints = relatedComplaints.filter((row) => {
+      const status = String(row[COMPLAINT_COL.STATUS] ?? "").toLowerCase().trim();
+      return (
+        status === "" ||
+        status === "open" ||
+        status === "needs review" ||
+        status === "pending" ||
+        status === "in progress"
+      );
+    }).length;
+
+    let score = avgCondition !== null ? avgCondition : 10;
+    score = score - openComplaints * 0.5;
+    score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+
+    let scoreStatus: SubcontractorPerformance["scoreStatus"] = "Excellent";
+    if (score < 9) scoreStatus = "Good";
+    if (score < 8) scoreStatus = "Needs Attention";
+    if (score < 7) scoreStatus = "High Risk";
+
+    result.set(key, {
+      score,
+      scoreStatus,
+      openComplaints,
+      avgCondition,
+      lastReview,
+      accountsAssigned: assignedAccountNames.size,
+    });
+  }
+
+  return result;
+}

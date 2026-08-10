@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
-import { updateSubcontractor } from "@/lib/googleSheets";
+import {
+  updateSubcontractor,
+  getSubcontractorPerformanceMap,
+  buildSubcontractorPerformanceKey,
+} from "@/lib/googleSheets";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -438,13 +442,19 @@ export async function GET() {
     // Run in parallel: sequential awaits let two independent ~18s-worst-case
     // calls add up past this route's 45s maxDuration, which is exactly what
     // was timing out /sub-schedules and /subcontractors in production.
-    const [subcontractorData, accountData] = await Promise.all([
+    // performanceMap is a direct-Sheets-API read (not Apps Script), fetched
+    // uncached alongside these — see getSubcontractorPerformanceMap's
+    // comment in lib/googleSheets.ts for why the Apps Script-computed
+    // score/scoreStatus/complaints/avgCondition fields on subcontractorData
+    // are ignored in favor of it below.
+    const [subcontractorData, accountData, performanceMap] = await Promise.all([
       getOrFetch("subcontractors:getSubcontractors", () =>
         fetchGoogleScriptData("getSubcontractors")
       ),
       getOrFetch("subcontractors:getAccounts", () =>
         fetchGoogleScriptData("getAccounts")
       ),
+      getSubcontractorPerformanceMap(),
     ]);
 
     const subcontractors = getLoadedSubcontractors(subcontractorData);
@@ -453,7 +463,35 @@ export async function GET() {
     const enrichedSubcontractors = enrichSubcontractorsWithRevenue(
       subcontractors,
       accounts
-    );
+    ).map((sub) => {
+      // Not sub's own id field — see buildSubcontractorPerformanceKey's
+      // comment in lib/googleSheets.ts for why that field is unreliable.
+      const key = buildSubcontractorPerformanceKey(
+        rowValue(sub, ["companyName", "Company Name"]),
+        rowValue(sub, ["contactName", "Contact Name"])
+      );
+      const perf = performanceMap.get(key);
+      if (!perf) return sub;
+
+      const avgConditionText = perf.avgCondition !== null ? String(perf.avgCondition) : "";
+
+      return {
+        ...sub,
+        score: String(perf.score),
+        Score: String(perf.score),
+        scoreStatus: perf.scoreStatus,
+        ScoreStatus: perf.scoreStatus,
+        "Score Status": perf.scoreStatus,
+        complaints: String(perf.openComplaints),
+        Complaints: String(perf.openComplaints),
+        avgCondition: avgConditionText,
+        AvgCondition: avgConditionText,
+        "Avg Condition": avgConditionText,
+        lastReview: perf.lastReview,
+        LastReview: perf.lastReview,
+        "Last Review": perf.lastReview,
+      };
+    });
 
     return NextResponse.json(
       {
