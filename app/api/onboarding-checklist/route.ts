@@ -5,6 +5,7 @@ import {
   setOnboardingChecklistItem,
 } from "@/lib/googleSheets";
 import { createEmptyChecklistItems, isChecklistComplete } from "@/lib/onboardingChecklist";
+import { syncOnboardingFieldWrite } from "@/lib/onboardingFieldSync";
 
 export async function GET(request: NextRequest) {
   try {
@@ -52,13 +53,43 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const checklist = await setOnboardingChecklistItem({
-        accountId,
-        accountName: String(body.accountName ?? ""),
-        itemKey,
-        checked: Boolean(body.checked),
-        note: String(body.note ?? ""),
-      });
+      const accountName = String(body.accountName ?? "");
+      const checked = Boolean(body.checked);
+      const note = String(body.note ?? "");
+
+      let checklist = await setOnboardingChecklistItem({ accountId, accountName, itemKey, checked, note });
+
+      // Best-effort, silent field sync — never lets a field-write failure
+      // fail the checklist save itself (the item is already saved above by
+      // the time this runs), and never triggers account-updates/an email:
+      // see syncOnboardingFieldWrite's comment for why per-save history
+      // logging was removed. Only items in ONBOARDING_FIELD_WRITES /
+      // ONBOARDING_COMBINED_FIELD do anything here; every other item is a
+      // no-op.
+      try {
+        const sync = await syncOnboardingFieldWrite({
+          accountId,
+          itemKey,
+          items: checklist.items,
+          requestOrigin: new URL(request.url).origin,
+          cookieHeader: request.headers.get("cookie") ?? "",
+        });
+        if (sync.overwriteNote) {
+          checklist = await setOnboardingChecklistItem({
+            accountId,
+            accountName,
+            itemKey,
+            checked,
+            note,
+            fieldOverwriteNote: sync.overwriteNote,
+          });
+        }
+      } catch (err) {
+        console.error(
+          "[onboarding-checklist] field sync failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
 
       // True exactly once — the moment every item first becomes checked and
       // the completion side effect (Account Health -> Stable) hasn't run

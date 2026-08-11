@@ -1799,7 +1799,10 @@ function parseOnboardingItemsJson(raw: string): OnboardingChecklistItems {
   const items = createEmptyChecklistItems();
   if (!raw) return items;
   try {
-    const parsed = JSON.parse(raw) as Record<string, { checked?: unknown; note?: unknown; completedAt?: unknown }>;
+    const parsed = JSON.parse(raw) as Record<
+      string,
+      { checked?: unknown; note?: unknown; completedAt?: unknown; fieldOverwriteNote?: unknown }
+    >;
     for (const key of ONBOARDING_ITEM_KEYS) {
       const entry = parsed[key];
       if (!entry) continue;
@@ -1807,6 +1810,7 @@ function parseOnboardingItemsJson(raw: string): OnboardingChecklistItems {
         checked: Boolean(entry.checked),
         note: typeof entry.note === "string" ? entry.note : "",
         completedAt: typeof entry.completedAt === "string" ? entry.completedAt : null,
+        fieldOverwriteNote: typeof entry.fieldOverwriteNote === "string" ? entry.fieldOverwriteNote : null,
       };
     }
   } catch {
@@ -1858,6 +1862,11 @@ export async function setOnboardingChecklistItem(input: {
   itemKey: string;
   checked: boolean;
   note: string;
+  // See OnboardingItemState.fieldOverwriteNote — set by the API route after
+  // this same item's real-field sync detects it overwrote a pre-existing,
+  // different value, via a second call with the checked/note unchanged.
+  // Undefined leaves whatever was already stored untouched; null clears it.
+  fieldOverwriteNote?: string | null;
 }): Promise<OnboardingChecklistState> {
   const accountId = input.accountId.trim();
   if (!accountId) throw new Error("Missing accountId.");
@@ -1875,11 +1884,13 @@ export async function setOnboardingChecklistItem(input: {
   const now = new Date().toISOString();
   const items: OnboardingChecklistItems = existing ? { ...existing.items } : createEmptyChecklistItems();
   const previousCompletedAt = items[input.itemKey]?.completedAt ?? null;
+  const previousFieldOverwriteNote = items[input.itemKey]?.fieldOverwriteNote ?? null;
 
   items[input.itemKey] = {
     checked: input.checked,
     note: input.note,
     completedAt: input.checked ? previousCompletedAt ?? now : null,
+    fieldOverwriteNote: input.fieldOverwriteNote !== undefined ? input.fieldOverwriteNote : previousFieldOverwriteNote,
   };
 
   const startedAt = existing?.startedAt || now;

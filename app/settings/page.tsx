@@ -723,6 +723,21 @@ export default function SettingsPage() {
           <span className="ml-4 shrink-0 text-purple-500">→</span>
         </Link>
 
+        {/* Logs shortcut */}
+        <Link
+          href="/settings/logs"
+          className="mb-6 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 shadow-sm transition hover:bg-slate-100"
+        >
+          <div>
+            <p className="font-bold text-slate-900">Logs</p>
+            <p className="mt-0.5 text-sm text-slate-700">
+              Browse the account update history log across every account — Change Status notes,
+              onboarding-checklist completion summaries, and manual updates.
+            </p>
+          </div>
+          <span className="ml-4 shrink-0 text-slate-500">→</span>
+        </Link>
+
         <div className="mb-6 grid gap-4 md:grid-cols-4">
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Active Managers</p>
