@@ -2450,10 +2450,13 @@ const COMPLAINT_COL = {
   REPORTED_BY:         8, // I
   ASSIGNED_TO:         9, // J
   LAST_FOLLOW_UP_DATE: 10, // K
-  // RESOLUTION_DATE:  11, // L — set only by the (still Apps-Script-owned) close action
+  RESOLUTION_DATE:     11, // L — set only by the (still Apps-Script-owned) close action;
+                           // confirmed blank on every real row today (see scoring comment above) —
+                           // read defensively, UPDATED_AT is the practical fallback.
   NOTES:               12, // M
   // CREATED_AT:       13, // N — never populated by the old addComplaint either; left blank
-  // UPDATED_AT:       14, // O — set only by the close action
+  UPDATED_AT:          14, // O — set only by the close action; used as the resolution-date
+                           // fallback for scoring when RESOLUTION_DATE is blank.
   // LAST_FOLLOW_UP:   15, // P — unused in every row observed; left blank
 } as const;
 
@@ -2541,9 +2544,42 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
 // app/api/subcontractors/route.ts, and the subcontractorAccounts computation
 // in app/subcontractors/[id]/page.tsx), then match visits/complaints↔account
 // by exact Account Name — the same approach that page's relatedComplaints
-// already uses correctly. The formula itself (avg visit condition, minus 0.5
-// per open complaint, clamped 0-10) and the score-status thresholds are
-// unchanged from the original Apps Script.
+// already uses correctly.
+//
+// ── Scoring model (severity-weighted deductions + account-size
+// normalization + monthly recovery) ────────────────────────────────────────
+// Replaces the old flat formula (avg visit condition minus 0.5 per open
+// complaint). avgCondition/lastReview are still computed and returned below
+// exactly as before — they're their own displayed fields (Avg Condition /
+// Last Review columns) independent of the score — but the score itself no
+// longer factors avgCondition in at all; it now starts from a flat base of
+// 10 and is driven entirely by complaint severity, account-size
+// normalization, and time-based recovery. See computeSubcontractorScore
+// below for the full algorithm and its rollout behavior.
+//
+// Data-vocabulary notes (confirmed live against the real sheet + the
+// complaint form's actual dropdowns, not assumed):
+//   - Priority tiers are Low/Medium/High/Urgent (app/complaints/new/page.tsx)
+//     — there is no "Critical" tier anywhere in this app. "Urgent" is the
+//     real top tier and takes the weight that would otherwise be Critical's.
+//   - Complaint Validity options are Valid/Not Valid/Subjective/Needs Review
+//     — "Invalid"/"Unfounded" don't exist as values; only "Not Valid" (and
+//     the pre-existing "no"/"invalid"/"notvalid" synonyms this file already
+//     tolerated) exclude a complaint from scoring. "Subjective" and "Needs
+//     Review" both still count, unchanged from the prior behavior.
+//   - Status options are Open/Pending/Needs Attention/Closed — there is no
+//     "Resolved" status. "Closed" is this app's resolution state; "needs
+//     attention" is now treated as open (the prior code's open-status list
+//     checked for "needs review" and "in progress" instead, neither of
+//     which is an actual Status value here, while omitting the real "needs
+//     attention" option — corrected here to match the real dropdown).
+//   - Resolution Date (column L) is part of the schema but is 100% blank on
+//     every real row today, including Closed ones — the close action never
+//     populated it. Updated At (column O) IS populated by that close action
+//     for most Closed rows, so it's used as the resolution-timestamp
+//     fallback; a Closed complaint with neither date is unanchorable and is
+//     treated as legacy history (see below), not given a resolution date of
+//     "now".
 //
 // Reads Accounts/Visits/Subcontractors directly (not through the Complaints
 // tab's cache-relevant machinery above) and deliberately isn't cached — same
@@ -2557,7 +2593,18 @@ const ACCOUNTS_TAB = "Accounts";
 const PERFORMANCE_ACCOUNT_COL = {
   ACCOUNT_NAME: 1,
   SUBCONTRACTOR: 8,
+  STATUS: 16,
 } as const;
+
+// Same active/inactive rule as isActiveAccount in app/api/subcontractors/route.ts
+// (reused by name here, not reinvented — see computeSubcontractorScore's comment
+// on why account-size normalization needs its own active-only count rather than
+// reusing that route's own accountsAssigned field directly).
+function isActiveAccountStatus(status: unknown): boolean {
+  const clean = String(status ?? "").toLowerCase().trim();
+  if (!clean) return true;
+  return !["cancelled", "canceled", "inactive", "lost", "terminated", "closed"].includes(clean);
+}
 
 const PERFORMANCE_VISIT_COL = {
   ACCOUNT_NAME: 2,
@@ -2629,11 +2676,26 @@ function resolveAssignedSubKey(
 
 // One pass over the Accounts tab, resolving each distinct raw "Subcontractor"
 // value to at most one subcontractor key (see resolveAssignedSubKey), then
-// grouping account names by that key.
+// grouping account names by that key. Also tallies, in the same pass, how
+// many of those accounts are currently active — this is the count account-
+// size normalization uses (see computeSubcontractorScore), kept separate
+// from the Set of ALL-time account names (which visit/complaint matching and
+// the existing all-time accountsAssigned field both still rely on unchanged).
+//
+// Deliberately NOT the same count as route.ts's own accountsAssigned (also
+// active-only): that one resolves each subcontractor against the Accounts
+// tab in isolation via namesMatch, which — confirmed live — double-counts
+// accounts for short ambiguous contact names (e.g. an account whose raw
+// field is just "Giovanna" substring-matches both "Giovanna" at G & G Magic
+// Touch AND "Alonso & Giovanna Mendoza" at D&A Cleaning Multiple Service,
+// inflating the latter's displayed Accounts column from a true 3 to 20).
+// This function's global, ambiguity-safe resolution (already proven correct
+// by the d579bc5 fix, same one used for this map's own visit/complaint
+// matching above) doesn't have that bug, so normalization uses it instead.
 function buildAccountAssignmentsBySubKey(
   accountRows: string[][],
   subRows: string[][]
-): Map<string, Set<string>> {
+): { allBySubKey: Map<string, Set<string>>; activeCountBySubKey: Map<string, number> } {
   const subEntries = subRows.map((subRow) => {
     const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
     const contactName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.CONTACT_NAME] ?? "";
@@ -2645,7 +2707,8 @@ function buildAccountAssignmentsBySubKey(
   });
 
   const resolveCache = new Map<string, string>();
-  const bySubKey = new Map<string, Set<string>>();
+  const allBySubKey = new Map<string, Set<string>>();
+  const activeCountBySubKey = new Map<string, number>();
 
   for (const row of accountRows) {
     const raw = row[PERFORMANCE_ACCOUNT_COL.SUBCONTRACTOR] ?? "";
@@ -2659,11 +2722,15 @@ function buildAccountAssignmentsBySubKey(
     }
     if (!resolvedKey) continue;
 
-    if (!bySubKey.has(resolvedKey)) bySubKey.set(resolvedKey, new Set());
-    bySubKey.get(resolvedKey)!.add(accountName);
+    if (!allBySubKey.has(resolvedKey)) allBySubKey.set(resolvedKey, new Set());
+    allBySubKey.get(resolvedKey)!.add(accountName);
+
+    if (isActiveAccountStatus(row[PERFORMANCE_ACCOUNT_COL.STATUS])) {
+      activeCountBySubKey.set(resolvedKey, (activeCountBySubKey.get(resolvedKey) ?? 0) + 1);
+    }
   }
 
-  return bySubKey;
+  return { allBySubKey, activeCountBySubKey };
 }
 
 function normalizeAccountName(value: unknown): string {
@@ -2696,6 +2763,203 @@ export function buildSubcontractorPerformanceKey(companyName: unknown, contactNa
   return `${normalizeSubName(companyName)}|${normalizeSubName(contactName)}`;
 }
 
+// ── New scoring algorithm ────────────────────────────────────────────────
+//
+// Severity-weighted deduction per valid, non-excluded complaint. "Urgent" is
+// this app's real top Priority tier (see data-vocabulary notes above) and
+// takes the weight the original design called "Critical".
+const SEVERITY_WEIGHT: Record<string, number> = {
+  low: 0.5,
+  medium: 1.0,
+  high: 2.0,
+  urgent: 2.5,
+};
+
+function getSeverityWeight(priority: unknown): number {
+  const clean = String(priority ?? "").toLowerCase().trim();
+  return SEVERITY_WEIGHT[clean] ?? SEVERITY_WEIGHT.medium; // unrecognized/blank Priority: assume Medium rather than 0
+}
+
+// Same "is this complaint excluded from scoring" rule this file already
+// used before this change (Not Valid / the pre-existing "no"/"invalid"/
+// "notvalid" synonyms) — extracted to a named function so both the
+// existing relatedComplaints filter and the new score computation share it
+// instead of drifting apart. "Subjective" and "Needs Review" (the other two
+// real Complaint Validity options) are NOT excluded — unchanged behavior.
+function isExcludedComplaintValidity(validity: unknown): boolean {
+  const clean = String(validity ?? "").toLowerCase().trim();
+  return clean === "no" || clean === "not valid" || clean === "invalid" || clean === "notvalid";
+}
+
+// Status vocabulary is Open/Pending/Needs Attention/Closed (confirmed live
+// against app/complaints/new/page.tsx's actual dropdown) — there's no
+// "Resolved" status in this app. Treated as open: blank, Open, Pending,
+// Needs Attention. Everything else (Closed, or defensively "Resolved" if
+// that string ever shows up via another write path) counts as resolved.
+function isOpenComplaintStatus(status: unknown): boolean {
+  const clean = String(status ?? "").toLowerCase().trim();
+  return clean === "" || clean === "open" || clean === "pending" || clean === "needs attention";
+}
+
+function parseDateOrNull(value: unknown): Date | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+// Resolution Date (column L) is part of the schema but confirmed blank on
+// every real complaint row today, including Closed ones — the close action
+// never wrote it. Updated At (column O) IS stamped by that action for most
+// Closed rows, so it's the practical fallback. A Closed complaint with
+// neither populated has no knowable resolution time; computeSubcontractorScore
+// treats that as unanchored legacy history (contributes nothing) rather than
+// guessing "now".
+function getComplaintResolutionDate(row: string[]): Date | null {
+  return (
+    parseDateOrNull(row[COMPLAINT_COL.RESOLUTION_DATE]) ??
+    parseDateOrNull(row[COMPLAINT_COL.UPDATED_AT])
+  );
+}
+
+function monthIndex(date: Date): number {
+  return date.getFullYear() * 12 + date.getMonth();
+}
+
+// clamp(10 / accounts managed, 0.5, 2.0) — division by zero naturally
+// produces Infinity, which Math.min still clamps down to 2.0, so accountsManaged
+// of exactly 0 doesn't need a special case.
+function accountSizeMultiplier(activeAccountsManaged: number): number {
+  return Math.min(2.0, Math.max(0.5, 10 / activeAccountsManaged));
+}
+
+// The date this scoring model went live. Fixed on purpose: this is a fresh
+// start, not a retroactive replay of years of complaint history under a
+// formula that didn't exist when that history happened. A subcontractor
+// with no complaint currently open, the first time this runs, starts at a
+// clean 10 — their old resolved/closed complaints (all of which, in the
+// real data checked before writing this, predate this date) are done and
+// are not walked back through the recovery math below. A subcontractor
+// with a complaint that's STILL open gets that complaint's deduction
+// applied as of this date (not ignored, not backdated to when it was
+// actually filed) — seeing it counted is the whole point of the fix.
+// From this date forward, every event (new complaint, resolution, clean
+// month) is real and drives the monthly walk normally, with no further
+// special-casing — this constant only matters for classifying complaints
+// that already existed at rollout.
+const SCORING_ROLLOUT_DATE = new Date("2026-08-11");
+
+type ScoreableComplaint = {
+  complaintDate: Date | null;
+  resolutionDate: Date | null; // null unless status is resolved/closed AND a date could be determined
+  isOpenNow: boolean;
+  severityWeight: number;
+};
+
+// Walks a subcontractor's complaint history to the current score, entirely
+// from data (no persisted counters) — see the block comment above
+// getSubcontractorPerformanceMap for the full model, and SCORING_ROLLOUT_DATE
+// above for why the walk starts there instead of at each complaint's real
+// history.
+//
+// Algorithm:
+//  1. Every complaint still open today that predates rollout is a "carry-in"
+//     deduction, applied AT rollout (not at its real complaint date) — this
+//     is what gives a subcontractor with pre-existing open complaints a
+//     starting score below 10 the first time this runs, per the rollout
+//     rule above, without walking any recovery math for time that passed
+//     before rollout.
+//  2. Every complaint filed ON/AFTER rollout is a deduction applied at its
+//     real complaint date.
+//  3. Every complaint resolved ON/AFTER rollout (regardless of whether it
+//     was filed before or after rollout) is a resolution event at its real
+//     resolution date — this is what lets an old-but-still-open-at-rollout
+//     complaint that gets closed next month correctly start that month's
+//     recovery window, while a complaint closed before rollout is simply
+//     old history and produces no event at all.
+//  4. Walk calendar months from rollout to now:
+//       - a resolution event this month switches on 0.5/month recovery mode
+//         (persists until score reaches 10, then switches back off);
+//       - if any deduction(s) land this month, subtract them (summed, using
+//         the exact decimal severity × normalization amounts — no
+//         intermediate rounding) and skip this month's recovery tick
+//         (deductions and recovery don't both happen the same month, but a
+//         resolution event this month still turns recovery mode on for
+//         future months even if a deduction also landed this month);
+//       - otherwise (a genuinely clean month) add 1.0, or 0.5 if recovery
+//         mode is on;
+//       - clamp to [0, 10] after every step.
+//  5. Round only the final result to 1 decimal — matches this file's
+//     existing single-rounding-step convention.
+function computeSubcontractorScore(
+  complaints: ScoreableComplaint[],
+  activeAccountsManaged: number,
+  today: Date = new Date()
+): number {
+  const multiplier = accountSizeMultiplier(activeAccountsManaged);
+
+  type ScoreEvent = { monthIdx: number; kind: "deduction" | "resolution"; amount: number };
+  const events: ScoreEvent[] = [];
+
+  const rolloutMonth = monthIndex(SCORING_ROLLOUT_DATE);
+
+  for (const complaint of complaints) {
+    const amount = complaint.severityWeight * multiplier;
+    const predatesRollout =
+      complaint.complaintDate !== null && complaint.complaintDate.getTime() < SCORING_ROLLOUT_DATE.getTime();
+
+    // "Carry-in" means still open AS OF ROLLOUT, not "open right now" —
+    // this function is recomputed from scratch on every call, so basing it
+    // on current status would make the deduction vanish retroactively the
+    // moment a pre-existing open complaint gets resolved (confirmed live:
+    // a real carry-in complaint's score bounced back to a full 10, as if it
+    // had never happened, the instant it was marked resolved). A complaint
+    // still counts as having been open at rollout if it's open now, OR it
+    // was resolved on/after rollout (i.e. it was still open when rollout
+    // happened, even though it isn't anymore).
+    const wasOpenAtRollout =
+      complaint.isOpenNow ||
+      (complaint.resolutionDate !== null && complaint.resolutionDate.getTime() >= SCORING_ROLLOUT_DATE.getTime());
+
+    if (predatesRollout && wasOpenAtRollout) {
+      // Carry-in: open at rollout, deduction lands at rollout itself.
+      events.push({ monthIdx: rolloutMonth, kind: "deduction", amount });
+    } else if (!predatesRollout && complaint.complaintDate !== null) {
+      // Filed on/after rollout: deduction lands on its real date.
+      events.push({ monthIdx: monthIndex(complaint.complaintDate), kind: "deduction", amount });
+    }
+
+    if (
+      complaint.resolutionDate !== null &&
+      complaint.resolutionDate.getTime() >= SCORING_ROLLOUT_DATE.getTime()
+    ) {
+      events.push({ monthIdx: monthIndex(complaint.resolutionDate), kind: "resolution", amount: 0 });
+    }
+  }
+
+  const currentMonth = monthIndex(today);
+  let score = 10;
+  let inRecoveryMode = false;
+
+  for (let m = rolloutMonth; m <= currentMonth; m++) {
+    const monthEvents = events.filter((e) => e.monthIdx === m);
+    const deductions = monthEvents.filter((e) => e.kind === "deduction");
+    const hadResolution = monthEvents.some((e) => e.kind === "resolution");
+
+    if (hadResolution) inRecoveryMode = true;
+
+    if (deductions.length > 0) {
+      const total = deductions.reduce((sum, e) => sum + e.amount, 0);
+      score = Math.max(0, Math.min(10, score - total));
+    } else {
+      score = Math.max(0, Math.min(10, score + (inRecoveryMode ? 0.5 : 1.0)));
+      if (score >= 10) inRecoveryMode = false;
+    }
+  }
+
+  return Math.round(score * 10) / 10;
+}
+
 export async function getSubcontractorPerformanceMap(): Promise<Map<string, SubcontractorPerformance>> {
   const auth = getAuthClient();
   const sheets = google.sheets({ version: "v4", auth });
@@ -2721,7 +2985,7 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
   const subRows = ((subsRes.data.values ?? []) as string[][]).slice(1);
 
   const result = new Map<string, SubcontractorPerformance>();
-  const accountAssignmentsBySubKey = buildAccountAssignmentsBySubKey(accountRows, subRows);
+  const { allBySubKey, activeCountBySubKey } = buildAccountAssignmentsBySubKey(accountRows, subRows);
 
   for (const subRow of subRows) {
     const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
@@ -2729,7 +2993,8 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
     const key = buildSubcontractorPerformanceKey(companyName, contactName);
     if (!normalizeSubName(companyName) && !normalizeSubName(contactName)) continue;
 
-    const assignedAccountNames = accountAssignmentsBySubKey.get(key) ?? new Set<string>();
+    const assignedAccountNames = allBySubKey.get(key) ?? new Set<string>();
+    const activeAccountsManaged = activeCountBySubKey.get(key) ?? 0;
 
     const relatedVisits = visitRows.filter((row) =>
       assignedAccountNames.has(normalizeAccountName(row[PERFORMANCE_VISIT_COL.ACCOUNT_NAME]))
@@ -2752,27 +3017,25 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
     if (datedVisits.length > 0) lastReview = datedVisits[0];
 
     const relatedComplaints = complaintRows.filter((row) => {
-      const validity = String(row[COMPLAINT_COL.COMPLAINT_VALIDITY] ?? "").toLowerCase().trim();
-      if (validity === "no" || validity === "not valid" || validity === "invalid" || validity === "notvalid") {
-        return false;
-      }
+      if (isExcludedComplaintValidity(row[COMPLAINT_COL.COMPLAINT_VALIDITY])) return false;
       return assignedAccountNames.has(normalizeAccountName(row[COMPLAINT_COL.ACCOUNT_NAME]));
     });
 
-    const openComplaints = relatedComplaints.filter((row) => {
-      const status = String(row[COMPLAINT_COL.STATUS] ?? "").toLowerCase().trim();
-      return (
-        status === "" ||
-        status === "open" ||
-        status === "needs review" ||
-        status === "pending" ||
-        status === "in progress"
-      );
-    }).length;
+    const openComplaints = relatedComplaints.filter((row) =>
+      isOpenComplaintStatus(row[COMPLAINT_COL.STATUS])
+    ).length;
 
-    let score = avgCondition !== null ? avgCondition : 10;
-    score = score - openComplaints * 0.5;
-    score = Math.max(0, Math.min(10, Math.round(score * 10) / 10));
+    const scoreableComplaints: ScoreableComplaint[] = relatedComplaints.map((row) => {
+      const isOpenNow = isOpenComplaintStatus(row[COMPLAINT_COL.STATUS]);
+      return {
+        complaintDate: parseDateOrNull(row[COMPLAINT_COL.COMPLAINT_DATE]),
+        resolutionDate: isOpenNow ? null : getComplaintResolutionDate(row),
+        isOpenNow,
+        severityWeight: getSeverityWeight(row[COMPLAINT_COL.PRIORITY]),
+      };
+    });
+
+    const score = computeSubcontractorScore(scoreableComplaints, activeAccountsManaged);
 
     let scoreStatus: SubcontractorPerformance["scoreStatus"] = "Excellent";
     if (score < 9) scoreStatus = "Good";
