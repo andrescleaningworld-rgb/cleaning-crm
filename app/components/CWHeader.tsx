@@ -18,7 +18,6 @@ const adminNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts-center", label: "Accounts center" },
   { href: "/sub-center", label: "Sub Center" },
-  { href: "/activity-log", label: "Activity Log" },
   { href: "/sales", label: "Sales" },
   { href: "/reports", label: "Reports" },
   { href: "/settings", label: "Settings" },
