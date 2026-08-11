@@ -1503,6 +1503,7 @@ export default function AccountsPage() {
         body: JSON.stringify({
           action: "addToDos",
           accountNames: [accountName],
+          accountIds: [getAccountId(quickToDoAccount)],
           dueDate: quickToDoForm.dueDate,
           assignedTo: quickToDoForm.assignedTo,
           taskType: quickToDoForm.taskType,

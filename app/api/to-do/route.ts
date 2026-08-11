@@ -301,6 +301,7 @@ export async function POST(request: NextRequest) {
         calendarEventId: calendarEventId ?? "",
         calendarSyncFailed,
         priority,
+        accountId: typeof body.accountId === "string" ? body.accountId : "",
       });
 
       after(() => notifyManagerOfNewToDo(id, input, new URL(request.url).origin));
@@ -325,6 +326,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Parallel to accountNames (same index = same to-do) — optional, so
+      // callers that only know account names (the older bulk form) still
+      // work exactly as before with a blank AccountId per row.
+      const accountIds: string[] = Array.isArray(body.accountIds)
+        ? body.accountIds.map((id: unknown) => String(id ?? ""))
+        : [];
+
       const shared = {
         dueDate: String(body.dueDate ?? ""),
         assignedTo: String(body.assignedTo ?? ""),
@@ -337,11 +345,13 @@ export async function POST(request: NextRequest) {
       };
       const priority = normalizeToDoPriority(body.priority);
 
-      const entries: (ToDoCalendarInput & { groupId: string; priority: typeof priority })[] = accountNames.map((accountName) => ({
-        ...shared,
-        accountName,
-        priority,
-      }));
+      const entries: (ToDoCalendarInput & { groupId: string; priority: typeof priority; accountId: string })[] =
+        accountNames.map((accountName, index) => ({
+          ...shared,
+          accountName,
+          priority,
+          accountId: accountIds[index] ?? "",
+        }));
 
       // Independent Calendar API calls (unlike Sheets appends, creating N
       // separate events has no shared-row race to worry about), so these
@@ -352,7 +362,7 @@ export async function POST(request: NextRequest) {
       );
 
       const ids = await appendToDos(
-        entries.map((entry: ToDoCalendarInput & { groupId: string; priority: typeof priority }, index: number) => ({
+        entries.map((entry: ToDoCalendarInput & { groupId: string; priority: typeof priority; accountId: string }, index: number) => ({
           ...entry,
           calendarEventId: calendarResults[index].eventId ?? "",
           calendarSyncFailed: calendarResults[index].failed,

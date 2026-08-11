@@ -1,5 +1,12 @@
 import { google } from "googleapis";
 import { DEFAULT_TO_DO_PRIORITY, normalizeToDoPriority, type ToDoPriority } from "./toDoPriority";
+import {
+  createEmptyChecklistItems,
+  isChecklistComplete,
+  ONBOARDING_ITEM_KEYS,
+  type OnboardingChecklistItems,
+  type OnboardingChecklistState,
+} from "./onboardingChecklist";
 
 const SHEET_TAB = "customer-portal";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
@@ -1169,6 +1176,15 @@ const TO_DO_COL = {
   // column existed reads as "Medium" with no backfill needed. New rows
   // always write one of the three valid strings, never blank.
   PRIORITY: 14, // O
+  // Links this to-do to a specific account by id rather than by name alone
+  // (accountName above stays the human-facing/searchable field). Added for
+  // the onboarding-checklist wizard's to-do trigger: a "New Account
+  // Onboarding" to-do needs to open the checklist for ONE specific account
+  // without guessing from the name, which can collide or drift if the
+  // account is later renamed. Blank for every to-do created before this
+  // column existed and for to-dos with no account — callers fall back to
+  // resolving accountName against the loaded accounts list in that case.
+  ACCOUNT_ID: 15, // P
 } as const;
 
 export type ToDo = {
@@ -1188,6 +1204,7 @@ export type ToDo = {
   calendarSyncFailed: boolean;
   syncToCalendar: boolean;
   priority: ToDoPriority;
+  accountId: string;
 };
 
 // Unlike the other tabs in this file, To-Do reads deliberately skip the
@@ -1202,7 +1219,7 @@ async function fetchToDoRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:O`,
+      range: `${TO_DO_RANGE}!A:P`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -1230,6 +1247,7 @@ export async function fetchToDos(): Promise<ToDo[]> {
       calendarSyncFailed: r[TO_DO_COL.CALENDAR_SYNC_FAILED] === "TRUE",
       syncToCalendar:     r[TO_DO_COL.SYNC_TO_CALENDAR]     !== "FALSE",
       priority:           normalizeToDoPriority(r[TO_DO_COL.PRIORITY]),
+      accountId:          r[TO_DO_COL.ACCOUNT_ID]           ?? "",
     }))
     .filter((t) => t.id);
 }
@@ -1262,6 +1280,10 @@ type ToDoInput = {
   // normalizeToDoPriority (missing/invalid -> "Medium"), so a written row
   // never has a blank priority cell.
   priority?: ToDoPriority;
+  // See TO_DO_COL.ACCOUNT_ID above — optional, blank writes an empty cell
+  // (a Reminder or any to-do created before this field existed on the
+  // caller's form).
+  accountId?: string;
 };
 
 function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[] {
@@ -1281,6 +1303,7 @@ function buildToDoRow(id: string, createdDate: string, data: ToDoInput): string[
     data.calendarSyncFailed ? "TRUE" : "",
     data.syncToCalendar === false ? "FALSE" : "TRUE",
     normalizeToDoPriority(data.priority),
+    data.accountId ?? "",
   ];
 }
 
@@ -1328,7 +1351,7 @@ export async function appendToDo(data: ToDoInput): Promise<string> {
   // values.append() is unsafe here.
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A${targetRow}:O${targetRow}`,
+    range: `${TO_DO_RANGE}!A${targetRow}:P${targetRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [buildToDoRow(id, createdDate, data)] },
   });
@@ -1363,7 +1386,7 @@ export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
   // findNextToDoRow's comment.
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-    range: `${TO_DO_RANGE}!A${targetRow}:O${lastRow}`,
+    range: `${TO_DO_RANGE}!A${targetRow}:P${lastRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: entries.map((data, index) => buildToDoRow(ids[index], createdDate, data)) },
   });
@@ -1384,7 +1407,7 @@ async function findToDoRow(
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:O`,
+      range: `${TO_DO_RANGE}!A:P`,
     })
   );
 
@@ -1408,7 +1431,7 @@ async function findToDoRows(
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${TO_DO_RANGE}!A:O`,
+      range: `${TO_DO_RANGE}!A:P`,
     })
   );
 
@@ -1724,6 +1747,196 @@ export async function updateToDoOutcome(toDoId: string, outcome: string): Promis
     range: `${TO_DO_RANGE}!K${sheetRow}`,
     valueInputOption: "USER_ENTERED",
     requestBody: { values: [[outcome]] },
+  });
+}
+
+// ─── Onboarding Checklist ────────────────────────────────────────────────────
+// One row per account, not one row per item — 24 items x every account would
+// make this tab huge and every single checkbox toggle a full-table
+// scan-and-shift. A single ItemsJson blob per account keeps every save a
+// find-or-create-by-accountId + one-row write, and survives the checklist's
+// item list changing shape later (see lib/onboardingChecklist.ts) without a
+// sheet migration. Lives in the same spreadsheet as To Do/Managers/
+// Subcontractors (GOOGLE_MAIN_SHEET_ID), not the customer-portal one.
+
+const ONBOARDING_TAB = "OnboardingChecklist";
+const ONBOARDING_RANGE = `'${ONBOARDING_TAB}'`;
+
+const ONBOARDING_COL = {
+  ACCOUNT_ID:   0, // A
+  ACCOUNT_NAME: 1, // B
+  ITEMS_JSON:   2, // C
+  STARTED_AT:   3, // D — set once, the first time any item is touched.
+  LAST_UPDATED_AT: 4, // E
+  COMPLETED_AT: 5, // F — set once every item is checked; cleared back to ""
+                    //     if the row is re-fetched and something got
+                    //     unchecked again (see setOnboardingChecklistItem).
+  // Set once, right after the caller has successfully applied the
+  // completion side effect (Account Health -> Stable via the existing
+  // updateAccountFields/addAccountUpdate path) — so a later page reload
+  // never re-fires that side effect for an already-completed account, even
+  // if the checklist stays fully checked.
+  AUTO_STABLE_APPLIED_AT: 6, // G
+} as const;
+
+async function fetchOnboardingChecklistRows(): Promise<string[][]> {
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ONBOARDING_RANGE}!A:G`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+  return rows;
+}
+
+// Never throws on a corrupt/empty cell — falls back to all-unchecked so one
+// bad row can't take down the whole read, same posture as this file's other
+// JSON-ish fields.
+function parseOnboardingItemsJson(raw: string): OnboardingChecklistItems {
+  const items = createEmptyChecklistItems();
+  if (!raw) return items;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, { checked?: unknown; note?: unknown; completedAt?: unknown }>;
+    for (const key of ONBOARDING_ITEM_KEYS) {
+      const entry = parsed[key];
+      if (!entry) continue;
+      items[key] = {
+        checked: Boolean(entry.checked),
+        note: typeof entry.note === "string" ? entry.note : "",
+        completedAt: typeof entry.completedAt === "string" ? entry.completedAt : null,
+      };
+    }
+  } catch {
+    // Corrupt cell — keep the all-unchecked default rather than throwing.
+  }
+  return items;
+}
+
+function rowToOnboardingChecklist(row: string[]): OnboardingChecklistState {
+  return {
+    accountId:          row[ONBOARDING_COL.ACCOUNT_ID]           ?? "",
+    accountName:        row[ONBOARDING_COL.ACCOUNT_NAME]         ?? "",
+    items:              parseOnboardingItemsJson(row[ONBOARDING_COL.ITEMS_JSON] ?? ""),
+    startedAt:          row[ONBOARDING_COL.STARTED_AT]           ?? "",
+    lastUpdatedAt:      row[ONBOARDING_COL.LAST_UPDATED_AT]      ?? "",
+    completedAt:        row[ONBOARDING_COL.COMPLETED_AT]         ?? "",
+    autoStableAppliedAt: row[ONBOARDING_COL.AUTO_STABLE_APPLIED_AT] ?? "",
+  };
+}
+
+export async function fetchOnboardingChecklist(accountId: string): Promise<OnboardingChecklistState | null> {
+  const target = accountId.trim();
+  if (!target) return null;
+  const rows = await fetchOnboardingChecklistRows();
+  const row = rows.find((r) => (r[ONBOARDING_COL.ACCOUNT_ID] ?? "").trim() === target);
+  return row ? rowToOnboardingChecklist(row) : null;
+}
+
+// Same append-collision hazard as findNextToDoRow (see its comment) —
+// targeted find-next-row-then-update instead of values.append().
+async function findNextOnboardingRow(sheets: ReturnType<typeof google.sheets>): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ONBOARDING_RANGE}!A:Z`,
+    })
+  );
+  const rows = (res.data.values ?? []) as string[][];
+  return rows.length + 1;
+}
+
+// Read-modify-write a single item within one account's checklist row,
+// creating the row on first interaction with that account's checklist. A
+// checklist is only ever edited by one manager at a time in practice, so a
+// simple read-then-write is enough here — no optimistic locking.
+export async function setOnboardingChecklistItem(input: {
+  accountId: string;
+  accountName: string;
+  itemKey: string;
+  checked: boolean;
+  note: string;
+}): Promise<OnboardingChecklistState> {
+  const accountId = input.accountId.trim();
+  if (!accountId) throw new Error("Missing accountId.");
+  if (!ONBOARDING_ITEM_KEYS.includes(input.itemKey)) {
+    throw new Error(`Unknown checklist item "${input.itemKey}".`);
+  }
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const rows = await fetchOnboardingChecklistRows();
+  const rowIndex = rows.findIndex((r) => (r[ONBOARDING_COL.ACCOUNT_ID] ?? "").trim() === accountId);
+  const existing = rowIndex === -1 ? null : rowToOnboardingChecklist(rows[rowIndex]);
+
+  const now = new Date().toISOString();
+  const items: OnboardingChecklistItems = existing ? { ...existing.items } : createEmptyChecklistItems();
+  const previousCompletedAt = items[input.itemKey]?.completedAt ?? null;
+
+  items[input.itemKey] = {
+    checked: input.checked,
+    note: input.note,
+    completedAt: input.checked ? previousCompletedAt ?? now : null,
+  };
+
+  const startedAt = existing?.startedAt || now;
+  const nowComplete = isChecklistComplete(items);
+  const completedAt = nowComplete ? existing?.completedAt || now : "";
+
+  const values = [
+    accountId,
+    input.accountName || existing?.accountName || "",
+    JSON.stringify(items),
+    startedAt,
+    now,
+    completedAt,
+    existing?.autoStableAppliedAt ?? "",
+  ];
+
+  if (rowIndex === -1) {
+    const targetRow = await findNextOnboardingRow(sheets);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ONBOARDING_RANGE}!A${targetRow}:G${targetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [values] },
+    });
+  } else {
+    const sheetRow = rowIndex + 2;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ONBOARDING_RANGE}!A${sheetRow}:G${sheetRow}`,
+      valueInputOption: "USER_ENTERED",
+      requestBody: { values: [values] },
+    });
+  }
+
+  return rowToOnboardingChecklist(values);
+}
+
+// Marks the completion side effect as done — called once by the client,
+// right after it has successfully set Account Health to Stable via the
+// existing updateAccountFields/addAccountUpdate path, so a later reload of
+// an already-completed checklist never re-triggers that side effect again.
+export async function markOnboardingAutoStableApplied(accountId: string): Promise<void> {
+  const target = accountId.trim();
+  if (!target) return;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const rows = await fetchOnboardingChecklistRows();
+  const rowIndex = rows.findIndex((r) => (r[ONBOARDING_COL.ACCOUNT_ID] ?? "").trim() === target);
+  if (rowIndex === -1) return;
+
+  const sheetRow = rowIndex + 2;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${ONBOARDING_RANGE}!G${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[new Date().toISOString()]] },
   });
 }
 

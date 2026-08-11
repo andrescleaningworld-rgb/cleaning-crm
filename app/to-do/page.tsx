@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
@@ -64,6 +65,12 @@ export type ToDo = {
   // Shared by every to-do created together when multiple accounts are
   // selected on a Visit (see handleSubmit) — blank on ordinary to-dos.
   groupId?: string;
+  // Links this to-do to a specific account by id (see TO_DO_COL.ACCOUNT_ID
+  // in lib/googleSheets.ts) — blank for to-dos created before this field
+  // existed or with no account attached. Used by the "Open Onboarding
+  // Checklist" card action below to jump straight to the right account
+  // without guessing from accountName.
+  accountId?: string;
   // True when the most recent Calendar sync attempt (create or status
   // update) for this to-do failed — non-blocking: the to-do itself always
   // saves regardless. See lib/googleCalendar.ts.
@@ -80,10 +87,38 @@ export type ToDo = {
 };
 
 type Account = {
+  id?: string;
+  accountId?: string;
+  rowNumber?: number;
   name?: string;
   accountName?: string;
   status?: string;
 };
+
+// Same fallback chain as app/accounts/page.tsx's getAccountId and
+// app/accounts/[id]/page.tsx's — accountId first, falling back to id/
+// rowNumber/name for accounts whose record predates a stable id field.
+function getAccountId(account: Account): string {
+  return String(account.accountId ?? account.id ?? account.rowNumber ?? account.accountName ?? "").trim();
+}
+
+// Resolves the account-detail link for a "New Account Onboarding" to-do's
+// card action. Prefers the to-do's own accountId (set at creation time by
+// this page's and the Accounts page's to-do forms); falls back to matching
+// this to-do's accountName against the loaded accounts list for to-dos
+// created before that field existed. Returns null (renders no link) only
+// when neither resolves — never guesses via title text.
+function getOnboardingAccountHref(todo: ToDo, accounts: Account[]): string | null {
+  const directId = (todo.accountId ?? "").trim();
+  if (directId) return `/accounts/${encodeURIComponent(directId)}?onboarding=1`;
+
+  if (!todo.accountName) return null;
+  const match = accounts.find((account) => getAccountName(account) === todo.accountName);
+  if (!match) return null;
+
+  const matchedId = getAccountId(match);
+  return matchedId ? `/accounts/${encodeURIComponent(matchedId)}?onboarding=1` : null;
+}
 
 type Manager = {
   name?: string;
@@ -205,6 +240,11 @@ type ToDoCardProps = {
   // highlightId). Scrolls into view and rings the card, then fades on its
   // own — see the highlightId effect for the timeout.
   highlighted: boolean;
+  // Resolved by the parent (todo.accountId when present, else a same-page
+  // accountName lookup against the loaded accounts list) — null when this
+  // to-do's account couldn't be resolved at all. Only rendered as a card
+  // action for taskType === "New Account Onboarding".
+  onboardingAccountHref: string | null;
 };
 
 // Small/secondary by design (item 2's own requirement) — sits inline next
@@ -279,6 +319,7 @@ function ToDoCard({
   bulkSelected,
   onToggleBulkSelected,
   highlighted,
+  onboardingAccountHref,
 }: ToDoCardProps) {
   const cardRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -492,6 +533,21 @@ function ToDoCard({
           <h3 className="mt-3 text-lg font-bold">
             {todo.accountName || `${todo.taskType || "Reminder"} (no account)`}
           </h3>
+
+          {todo.taskType === "New Account Onboarding" ? (
+            onboardingAccountHref ? (
+              <Link
+                href={onboardingAccountHref}
+                className="mt-2 inline-block rounded-lg bg-indigo-100 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-200"
+              >
+                Open Onboarding Checklist →
+              </Link>
+            ) : (
+              <p className="mt-2 text-xs font-semibold text-slate-400">
+                Couldn&apos;t match this to-do to an account — open it from the account&apos;s own page instead.
+              </p>
+            )
+          ) : null}
 
           {editing ? (
             <div className="mt-2 space-y-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
@@ -1053,6 +1109,16 @@ export default function ToDoPage() {
   // (one account or many) through the same bulk endpoint keeps this as one
   // code path instead of two.
   async function submitToDos(accountNames: string[], groupId?: string) {
+    // Resolved in parallel with accountNames (same index = same to-do) —
+    // lets a "New Account Onboarding" to-do's card link straight to that
+    // account's onboarding checklist instead of guessing from its name.
+    // Blank when a name doesn't match any loaded account (e.g. the
+    // account-optional "Reminder" type's blank entry).
+    const accountIds = accountNames.map((name) => {
+      const match = accounts.find((account) => getAccountName(account) === name);
+      return match ? getAccountId(match) : "";
+    });
+
     const response = await fetch("/api/to-do", {
       method: "POST",
       headers: {
@@ -1062,6 +1128,7 @@ export default function ToDoPage() {
         action: "addToDos",
         ...form,
         accountNames,
+        accountIds,
         groupId,
       }),
     });
@@ -1907,6 +1974,7 @@ export default function ToDoPage() {
                 bulkSelected={selectedBulkEditIds.has(todo.id)}
                 onToggleBulkSelected={toggleBulkEditSelected}
                 highlighted={todo.id === highlightId}
+                onboardingAccountHref={getOnboardingAccountHref(todo, accounts)}
               />
             ))
           )}

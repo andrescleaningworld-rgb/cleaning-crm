@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
 import { AccountPacketPrintView } from "./account-packet-print-view";
+import OnboardingChecklist from "../../components/OnboardingChecklist";
+import OnboardingWizardModal from "../../components/OnboardingWizardModal";
 
 type Account = {
   id?: string;
@@ -288,6 +290,7 @@ async function readPortalActionResponse(
 
 export default function AccountDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const rawAccountIdFromUrl = String(params?.id || "");
   const decodedAccountIdFromUrl = decodeURIComponent(rawAccountIdFromUrl);
   const normalizedUrlValue = normalizeValue(decodedAccountIdFromUrl);
@@ -318,6 +321,20 @@ export default function AccountDetailPage() {
   const [portalAccess, setPortalAccess] = useState<"YES" | "NO">("NO");
   const [togglingPortalAccess, setTogglingPortalAccess] = useState(false);
   const [portalAccessError, setPortalAccessError] = useState("");
+
+  // Opens only via the "Start Onboarding"/"Continue Onboarding" button below
+  // or a `?onboarding=1` deep link from a "New Account Onboarding" to-do —
+  // never automatically on load otherwise (see the effect below).
+  const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
+  const hasAppliedOnboardingQueryTrigger = useRef(false);
+
+  useEffect(() => {
+    if (hasAppliedOnboardingQueryTrigger.current) return;
+    if (!account) return;
+    if (searchParams?.get("onboarding") !== "1") return;
+    hasAppliedOnboardingQueryTrigger.current = true;
+    setShowOnboardingWizard(true);
+  }, [account, searchParams]);
 
   async function fetchPortalAccountMatch(
     accountName: string
@@ -896,6 +913,84 @@ export default function AccountDetailPage() {
     }
   }
 
+  // Fired once by OnboardingChecklist the moment its last item becomes
+  // checked, with a consolidated summary of every note left on the
+  // checklist ("" if none). Reuses the exact same two-call path
+  // handleSaveStatusChange above uses (updateAccountFields, then
+  // addAccountUpdate for the history note) rather than a new update
+  // mechanism — just targeting Account Health, since "Stable" is a value of
+  // that field, not of Status (Status's valid values are Active/Cancelled/
+  // Paused/Over 90 Days/Inactive/Needs Review/Other — "Stable" was never one
+  // of them).
+  //
+  // The notes summary rides along in this SAME addAccountUpdate call rather
+  // than its own — account-updates emails info@/crm@ on every call
+  // regardless of the notifyEmail flag (confirmed live), so per-note-save
+  // history logging was removed entirely (see OnboardingChecklist's
+  // saveItem) in favor of exactly one call/email for the whole checklist,
+  // fired here at completion.
+  async function applyOnboardingCompletionStable(notesSummary: string) {
+    if (!account) return;
+
+    const accountId = getAccountId(account, rawAccountIdFromUrl);
+    const accountName = cleanText(account.accountName) || "Unnamed Account";
+
+    try {
+      const accountResponse = await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "updateAccountFields",
+          accountId,
+          fields: { accountHealth: "Stable" },
+        }),
+      });
+
+      const accountData = await readApiResponse(accountResponse);
+      if (!accountResponse.ok || accountData.success === false) {
+        throw new Error(accountData.error || "Could not update Account Health.");
+      }
+
+      setAccount((current) => (current ? { ...current, accountHealth: "Stable" } : current));
+
+      const completionNote = "Onboarding checklist completed — Account Health automatically set to Stable.";
+      const notes = notesSummary ? `${completionNote}\n\n${notesSummary}` : completionNote;
+
+      await fetch("/api/account-updates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addAccountUpdate",
+          accountId,
+          accountName,
+          updateType: "Onboarding",
+          manager: account.manager || "",
+          notes,
+          notifyEmail: "No",
+        }),
+      }).catch(() => {
+        // Best-effort — Account Health already saved above; a failed
+        // history write here isn't worth blocking the completion banner.
+      });
+
+      // Idempotency flag so a later reload of this (already-complete)
+      // checklist never re-fires this whole side effect again.
+      await fetch("/api/onboarding-checklist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "markAutoStableApplied", accountId }),
+      }).catch(() => {});
+
+      setStatusMessage("🎉 Onboarding complete — Account Health automatically set to Stable.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Onboarding checklist completed, but Account Health could not be updated automatically: ${err.message}`
+          : "Onboarding checklist completed, but Account Health could not be updated automatically."
+      );
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-3xl bg-white p-6 shadow-sm">
@@ -1012,6 +1107,14 @@ export default function AccountDetailPage() {
                 className="rounded-2xl bg-purple-200 px-4 py-3 text-center text-sm font-black text-purple-950 shadow-sm hover:bg-purple-100"
               >
                 Change Status
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowOnboardingWizard(true)}
+                className="rounded-2xl bg-indigo-200 px-4 py-3 text-center text-sm font-black text-indigo-950 shadow-sm hover:bg-indigo-100"
+              >
+                Onboarding Checklist
               </button>
 
               <button
@@ -1297,6 +1400,52 @@ export default function AccountDetailPage() {
           </section>
         </div>
       </section>
+
+      {/* --------------------------------------------------------------- */}
+      {/* Onboarding section — persistent, always editable, revisitable    */}
+      {/* even for accounts created before this feature existed. Renders   */}
+      {/* the exact same OnboardingChecklist component the wizard modal    */}
+      {/* uses, just inline rather than in a modal.                        */}
+      {/* --------------------------------------------------------------- */}
+      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 account-detail-print-hide">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-black text-slate-950">Onboarding</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              New Account Onboarding Checklist — autosaves as you go.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowOnboardingWizard(true)}
+            className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-indigo-500"
+          >
+            Open in Wizard View
+          </button>
+        </div>
+
+        <div className="mt-5">
+          <OnboardingChecklist
+            accountId={getAccountId(account, rawAccountIdFromUrl)}
+            accountName={account.accountName || "Unnamed Account"}
+            manager={account.manager}
+            accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
+            onAllItemsComplete={applyOnboardingCompletionStable}
+            variant="section"
+          />
+        </div>
+      </section>
+
+      {showOnboardingWizard ? (
+        <OnboardingWizardModal
+          accountId={getAccountId(account, rawAccountIdFromUrl)}
+          accountName={account.accountName || "Unnamed Account"}
+          manager={account.manager}
+          accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
+          onAllItemsComplete={applyOnboardingCompletionStable}
+          onClose={() => setShowOnboardingWizard(false)}
+        />
+      ) : null}
 
       {showFullAccountInfo ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
