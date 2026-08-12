@@ -5,14 +5,20 @@ import {
   updateSubcontractor,
   getSubcontractorPerformanceMap,
   buildSubcontractorPerformanceKey,
+  getAllSubcontractorsRaw,
+  getAllAccountsForSubEnrichment,
 } from "@/lib/googleSheets";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
-// Apps Script latency has been measured spiking to ~14s on a single call;
-// this must comfortably exceed the per-attempt timeout in fetchAppsScript
-// (18s) plus its one retry plus backoff, or Vercel would kill the function
-// before our own retry/error-handling logic gets a chance to run.
+// GET below no longer calls Apps Script (migrated to direct Sheets API reads
+// — see getAllSubcontractorsRaw/getAllAccountsForSubEnrichment in
+// lib/googleSheets.ts), but POST's fallback path here still forwards
+// unmigrated actions to it. Apps Script latency has been measured spiking to
+// ~14s on a single call; this must comfortably exceed the per-attempt
+// timeout in fetchAppsScript (18s) plus its one retry plus backoff, or
+// Vercel would kill the function before our own retry/error-handling logic
+// gets a chance to run.
 export const maxDuration = 45;
 
 type SheetRow = Record<string, string | number | boolean | null | undefined>;
@@ -240,13 +246,6 @@ function getLoadedSubcontractors(data: GoogleScriptResponse | SheetRow[]) {
   return [];
 }
 
-function getLoadedAccounts(data: GoogleScriptResponse | SheetRow[]) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.accounts)) return data.accounts;
-  if (Array.isArray(data.data)) return data.data;
-  return [];
-}
-
 async function fetchGoogleScriptData(action: string) {
   if (!SCRIPT_URL) {
     throw new Error("Missing GOOGLE_SCRIPT_URL in .env.local");
@@ -426,39 +425,22 @@ function enrichSubcontractorsWithRevenue(
 
 export async function GET() {
   try {
-    if (!SCRIPT_URL) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL in .env.local",
-        },
-        { status: 500 }
-      );
-    }
-
-    // Cached 60s per action — this route's own upstream calls, plus the
-    // "getAccounts" action /api/accounts also makes, were part of the load
-    // that overwhelmed the shared Apps Script backend during the incident.
-    // Run in parallel: sequential awaits let two independent ~18s-worst-case
-    // calls add up past this route's 45s maxDuration, which is exactly what
-    // was timing out /sub-schedules and /subcontractors in production.
-    // performanceMap is a direct-Sheets-API read (not Apps Script), fetched
-    // uncached alongside these — see getSubcontractorPerformanceMap's
-    // comment in lib/googleSheets.ts for why the Apps Script-computed
-    // score/scoreStatus/complaints/avgCondition fields on subcontractorData
-    // are ignored in favor of it below.
-    const [subcontractorData, accountData, performanceMap] = await Promise.all([
-      getOrFetch("subcontractors:getSubcontractors", () =>
-        fetchGoogleScriptData("getSubcontractors")
-      ),
-      getOrFetch("subcontractors:getAccounts", () =>
-        fetchGoogleScriptData("getAccounts")
-      ),
+    // Migrated off Apps Script's "getSubcontractors"/"getAccounts" actions:
+    // this route already discarded the score/scoreStatus/complaints/
+    // avgCondition fields Apps Script computed in favor of
+    // getSubcontractorPerformanceMap below, so the only thing still coming
+    // from Apps Script was raw contact/profile fields and the account-side
+    // assignment/revenue fields enrichSubcontractorsWithRevenue joins
+    // against — both now read directly via the Sheets API (see
+    // getAllSubcontractorsRaw/getAllAccountsForSubEnrichment in
+    // lib/googleSheets.ts). Run in parallel with performanceMap, which was
+    // already a direct-Sheets-API read fetched uncached alongside these —
+    // see getSubcontractorPerformanceMap's comment in lib/googleSheets.ts.
+    const [subcontractors, accounts, performanceMap] = await Promise.all([
+      getAllSubcontractorsRaw(),
+      getAllAccountsForSubEnrichment(),
       getSubcontractorPerformanceMap(),
     ]);
-
-    const subcontractors = getLoadedSubcontractors(subcontractorData);
-    const accounts = getLoadedAccounts(accountData);
 
     const enrichedSubcontractors = enrichSubcontractorsWithRevenue(
       subcontractors,

@@ -2570,6 +2570,60 @@ export async function updateSubcontractor(
   return updatedRow;
 }
 
+// Replaces the Apps Script "getSubcontractors" action for app/api/subcontractors
+// route.ts's GET handler. That route already discards the score/scoreStatus/
+// complaints/avgCondition fields Apps Script computed in favor of
+// getSubcontractorPerformanceMap below, so this only needs to supply the raw
+// contact/profile fields the old Apps Script response also carried — same
+// header-alias lookup updateSubcontractor above uses to find columns to
+// write, reused here read-only. "id" is the row-position id
+// ("SUB-ROW-<sheet row>"), matching what Apps Script's getSubcontractors
+// always returned (see updateSubcontractor's comment) and what
+// updateSubcontractor still parses back out of the frontend's save requests
+// — column A's ARRAYFORMULA-computed display ID is never read for this.
+export type RawSubcontractorRow = Record<string, string>;
+
+export async function getAllSubcontractorsRaw(): Promise<RawSubcontractorRow[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${SUBCONTRACTORS_TAB}!A:Z`,
+    })
+  );
+
+  const allRows = (res.data.values ?? []) as string[][];
+  const headerRow = allRows[0] ?? [];
+  const dataRows = allRows.slice(1);
+
+  const normalizedHeaderCols = new Map<string, number>();
+  headerRow.forEach((header, colIndex) => {
+    const normalized = String(header ?? "").trim().toLowerCase();
+    if (!normalized || normalizedHeaderCols.has(normalized)) return;
+    normalizedHeaderCols.set(normalized, colIndex);
+  });
+
+  return dataRows.map((row, rowIndex) => {
+    const sheetRow = rowIndex + 2; // header row + 1-based sheet rows
+    const result: RawSubcontractorRow = { id: `SUB-ROW-${sheetRow}` };
+
+    for (const [field, aliases] of Object.entries(SUBCONTRACTOR_FIELD_ALIASES)) {
+      let colIndex: number | undefined;
+      for (const alias of aliases) {
+        if (normalizedHeaderCols.has(alias)) {
+          colIndex = normalizedHeaderCols.get(alias);
+          break;
+        }
+      }
+      result[field] = colIndex === undefined ? "" : String(row[colIndex] ?? "").trim();
+    }
+
+    return result;
+  });
+}
+
 // ─── Geocode cache ───────────────────────────────────────────────────────────
 // Shared by the Map page (Leaflet -> Google Maps migration) and the Coverage
 // page's "nearby subcontractor" matching — both turn addresses/towns into
@@ -3277,4 +3331,42 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
   }
 
   return result;
+}
+
+// Replaces the Apps Script "getAccounts" action for app/api/subcontractors
+// route.ts's GET handler — that route only ever used the raw account list to
+// join assigned-subcontractor + revenue fields onto each subcontractor
+// (enrichSubcontractorsWithRevenue), so this returns just those columns
+// rather than the full row. Reuses PERFORMANCE_ACCOUNT_COL's SUBCONTRACTOR/
+// STATUS indices (same "Accounts" tab this function's sibling above already
+// reads) plus the two revenue columns from MAIN_COL's layout above. Field
+// names are chosen to match the first alias each of getAccountAssignedSub/
+// getAccountStatus/getAccountMonthlyRevenue/getAccountSubRevenue (route.ts)
+// checks, so the row is a drop-in for what those helpers expect.
+const ACCOUNTS_REVENUE_COL = {
+  MONTHLY_REVENUE: 7,  // H — internal Sub Center view only, never sent to the customer portal
+  MONTHLY_SUB_PAY: 10, // K
+} as const;
+
+export type RawAccountForSubEnrichment = Record<string, string>;
+
+export async function getAllAccountsForSubEnrichment(): Promise<RawAccountForSubEnrichment[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ACCOUNTS_TAB}!A:Z`,
+    })
+  );
+
+  const dataRows = ((res.data.values ?? []) as string[][]).slice(1);
+
+  return dataRows.map((row) => ({
+    Subcontractor: row[PERFORMANCE_ACCOUNT_COL.SUBCONTRACTOR] ?? "",
+    status: row[PERFORMANCE_ACCOUNT_COL.STATUS] ?? "",
+    "Monthly Revenue": row[ACCOUNTS_REVENUE_COL.MONTHLY_REVENUE] ?? "",
+    "Monthly Subcontractor Pay": row[ACCOUNTS_REVENUE_COL.MONTHLY_SUB_PAY] ?? "",
+  }));
 }
