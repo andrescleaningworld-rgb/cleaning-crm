@@ -2154,10 +2154,23 @@ export type SmsLogEntry = {
   quotaRemaining: string;
 };
 
-// Deliberately uncached, same reasoning as fetchToDoRows — a resend or a
-// status check must see the row it just wrote/updated, not a stale
-// per-instance cache serving another invocation's snapshot.
+// Cached (unlike fetchToDoRows) because of who calls this: /api/to-do/[id]/
+// sms-status is hit once per rendered to-do card, so an open-heavy to-do
+// list fires dozens of concurrent requests on one page load — confirmed
+// live as a burst of 500s from this read hitting Sheets' per-user rate
+// limit under that concurrency. A shared cache collapses that burst into
+// one real fetch. Staleness is a non-issue: the sms-status route already
+// only re-checks Textbelt (and only then calls updateSmsLogStatus) once per
+// RECHECK_INTERVAL_MS=60s per to-do, so this tab can't legitimately change
+// more often than that from this route's own writes anyway — and
+// appendSmsLog/updateSmsLogStatus both invalidate this cache key the
+// moment they write, so a fresh send or status change is never masked.
+const SMS_LOG_CACHE_KEY = `tab-${SMS_LOG_TAB}`;
+
 async function fetchSmsLogRows(): Promise<string[][]> {
+  const cached = getCached(SMS_LOG_CACHE_KEY);
+  if (cached) return cached;
+
   const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
     const auth = getAuthClient();
     const sheets = google.sheets({ version: "v4", auth });
@@ -2167,6 +2180,8 @@ async function fetchSmsLogRows(): Promise<string[][]> {
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
+
+  setCache(SMS_LOG_CACHE_KEY, rows);
   return rows;
 }
 
@@ -2249,6 +2264,8 @@ export async function appendSmsLog(entry: {
       ],
     },
   });
+
+  invalidateCache(SMS_LOG_CACHE_KEY);
 }
 
 // Most recent send that actually reported a quota (Textbelt only returns
@@ -2306,6 +2323,8 @@ export async function updateSmsLogStatus(textId: string, status: string): Promis
       values: [[status, rows[rowIndex][SMS_LOG_COL.SENT_AT] ?? "", lastCheckedAt]],
     },
   });
+
+  invalidateCache(SMS_LOG_CACHE_KEY);
 }
 
 // ─── Managers ──────────────────────────────────────────────────────────────

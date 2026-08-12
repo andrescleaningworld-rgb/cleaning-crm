@@ -85,7 +85,14 @@ export async function sendSms(
     if (!data.success) {
       const safeError = data.error ? redactUrls(data.error) : "Textbelt returned success:false";
       console.error(`[sms] failed (${routeContext}) to ***${last4}: ${safeError}`);
-      return { success: false };
+      // Textbelt includes quotaRemaining on failure responses too (confirmed
+      // live: an "Out of quota" error came back with quotaRemaining:0) — this
+      // was previously dropped here, which meant fetchLatestSmsQuota (the
+      // /to-do low-quota banner) could only ever see a number from a
+      // successful send. With quota actually at 0, every send has been
+      // failing, so that banner had no way to ever fire despite the account
+      // being fully depleted.
+      return { success: false, quotaRemaining: data.quotaRemaining };
     }
 
     console.log(
