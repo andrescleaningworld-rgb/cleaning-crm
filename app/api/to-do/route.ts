@@ -21,6 +21,7 @@ import {
 } from "@/lib/googleCalendar";
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
+import { sendPush } from "@/lib/push";
 
 // Best-effort SmsLog write — never lets a Sheets error mask the send
 // outcome that already happened (and was already logged via console by
@@ -40,12 +41,13 @@ async function logSmsAttempt(
   }
 }
 
-// Looks up a manager's phone by name (the same case-insensitive match
-// getManagerCalendarColorId uses — to-dos have no Manager ID field, only
-// the assignee's name). Shared core for every per-to-do (not batch) SMS
-// notification — creation and single reassignment both call this via the
-// two thin wrappers below, differing only in `label` (the message's
-// opening line) and `routeContext` (the SmsLog/log-line tag).
+// Looks up a manager's phone/managerId by name (the same case-insensitive
+// match getManagerCalendarColorId uses — to-dos have no Manager ID field on
+// their own row, only the assignee's name). Shared core for every
+// per-to-do (not batch) notification — creation and single reassignment
+// both call this via the two thin wrappers below, differing only in
+// `label` (the message's opening line) and `routeContext` (the SmsLog/
+// log-line tag).
 //
 // At every call site, the caller wraps this in after(), which keeps the
 // invocation alive until the returned promise settles instead of racing it
@@ -54,19 +56,19 @@ async function logSmsAttempt(
 // Textbelt call could be silently cut off with no trace — confirmed live
 // twice). Never throws: every failure is already logged and swallowed here.
 //
-// A logged row is only written once an actual send was attempted (manager
-// matched AND had a phone on file) or once a lookup error prevented even
-// getting that far — "no manager matched" / "no phone on file" are legit
-// silent skips (nothing was ever attempted), not failures, so they write
-// nothing and the UI shows no badge at all for those to-dos.
+// SMS and push are independent channels below (see sendToDoSms/sendToDoPush)
+// — a manager might have a phone on file, a linked OneSignal id, both, or
+// neither, so one channel having nothing to send to must never block the
+// other from trying.
 //
 // Body is title / full description / deep link, deliberately unsanitized-
-// for-length (sanitizeSmsText(..., Infinity) strips to ASCII but never
-// truncates) — the description is whatever the manager or the person who
-// filed the to-do actually wrote, so shortening it would drop real content.
-// "Description" here is `why` (the to-do's required, always-populated
-// description field, shown as "Why:" on the card) plus `notes` (a separate,
-// optional "latest update" field — usually blank at creation) when present.
+// for-length for SMS (sanitizeSmsText(..., Infinity) strips to ASCII but
+// never truncates) — the description is whatever the manager or the person
+// who filed the to-do actually wrote, so shortening it would drop real
+// content. "Description" here is `why` (the to-do's required, always-
+// populated description field, shown as "Why:" on the card) plus `notes`
+// (a separate, optional "latest update" field — usually blank at creation)
+// when present.
 async function sendToDoNotification(
   id: string,
   input: ToDoCalendarInput,
@@ -83,17 +85,13 @@ async function sendToDoNotification(
     const target = assignedTo.toLowerCase();
     manager = managers.find((m) => m.name.trim().toLowerCase() === target);
   } catch (error) {
-    console.error(`[sms] ${routeContext} lookup failed:`, error instanceof Error ? error.message : error);
+    console.error(`[notify] ${routeContext} lookup failed:`, error instanceof Error ? error.message : error);
     await logSmsAttempt(id, "", "", "failed");
     return;
   }
 
   if (!manager) {
-    console.debug(`[sms] skip ${routeContext}: no manager matching "${assignedTo}"`);
-    return;
-  }
-  if (!manager.phone.trim()) {
-    console.debug(`[sms] skip ${routeContext}: manager "${manager.name}" has no phone on file`);
+    console.debug(`[notify] skip ${routeContext}: no manager matching "${assignedTo}"`);
     return;
   }
 
@@ -104,11 +102,33 @@ async function sendToDoNotification(
     .join(" - ");
   const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
 
-  const rawMessage = [`${label}: ${title}, due ${input.dueDate}`, description, link]
+  const smsBody = [`${label}: ${title}, due ${input.dueDate}`, description, link]
     .filter(Boolean)
     .join("\n");
-  const message = sanitizeSmsText(rawMessage, Infinity);
+  const pushBody = description ? `Due ${input.dueDate} — ${description}` : `Due ${input.dueDate}`;
 
+  await Promise.all([
+    sendToDoSms(id, manager, smsBody, routeContext),
+    sendToDoPush(manager, `${label}: ${title}`, pushBody, link, routeContext),
+  ]);
+}
+
+// A logged SmsLog row is only written once an actual SMS send was attempted
+// (manager matched AND had a phone on file) — "no phone on file" is a legit
+// silent skip (nothing was ever attempted), not a failure, so it writes
+// nothing and the UI shows no badge at all for that to-do.
+async function sendToDoSms(
+  id: string,
+  manager: Awaited<ReturnType<typeof fetchManagers>>[number],
+  rawMessage: string,
+  routeContext: string
+): Promise<void> {
+  if (!manager.phone.trim()) {
+    console.debug(`[sms] skip ${routeContext}: manager "${manager.name}" has no phone on file`);
+    return;
+  }
+
+  const message = sanitizeSmsText(rawMessage, Infinity);
   const result = await sendSms(manager.phone, message, routeContext);
   await logSmsAttempt(
     id,
@@ -117,6 +137,29 @@ async function sendToDoNotification(
     result.success ? "sent" : "failed",
     result.quotaRemaining
   );
+}
+
+// Push has no SmsLog-style row/badge — there's no existing per-to-do push
+// status UI the way SmsLog drives the SMS delivery badge, so there's
+// nothing to persist here beyond what sendPush itself already logs. A
+// manager with no managerId (shouldn't happen for a real Managers-tab row,
+// but defensive since this is read straight off the fetched record) or no
+// linked OneSignal subscription (never opened the app in a browser and
+// picked "notify me" yet, or hasn't granted permission) is a silent skip —
+// see sendPush's own comment on why that's not surfaced as a failure.
+async function sendToDoPush(
+  manager: Awaited<ReturnType<typeof fetchManagers>>[number],
+  title: string,
+  body: string,
+  url: string,
+  routeContext: string
+): Promise<void> {
+  if (!manager.managerId.trim()) {
+    console.debug(`[push] skip ${routeContext}: manager "${manager.name}" has no managerId`);
+    return;
+  }
+
+  await sendPush(manager.managerId, title, body, url, routeContext);
 }
 
 // Exported so the resend endpoint (app/api/to-do/[id]/resend-notification/
@@ -135,14 +178,14 @@ async function notifyManagerOfReassignedToDo(id: string, input: ToDoCalendarInpu
 
 // Batch counterpart for addToDos (multi-account creation) and updateToDos
 // (bulk reassignment) — both apply ONE assignedTo value across N to-dos in
-// a single action, so this sends ONE summary text per action instead of
-// one per to-do (a large batch — this codebase has handled 27-account
-// batches before — would otherwise spam the manager with dozens of texts
-// at once). Logged against the batch's first to-do id: SmsLog is per-to-do,
-// and inventing a group-level tracking row for a summary text isn't worth
-// the schema/UI work this pass — the first card gets a real status badge,
-// the rest in the batch get none, an honest reflection of "one shared
-// notification was sent," not a bug.
+// a single action, so this sends ONE summary notification per action
+// instead of one per to-do (a large batch — this codebase has handled
+// 27-account batches before — would otherwise spam the manager with dozens
+// of texts/pushes at once). SMS is logged against the batch's first to-do
+// id: SmsLog is per-to-do, and inventing a group-level tracking row for a
+// summary text isn't worth the schema/UI work this pass — the first card
+// gets a real status badge, the rest in the batch get none, an honest
+// reflection of "one shared notification was sent," not a bug.
 async function notifyManagerOfToDoBatch(
   ids: string[],
   accountNames: string[],
@@ -161,17 +204,13 @@ async function notifyManagerOfToDoBatch(
     const lower = target.toLowerCase();
     manager = managers.find((m) => m.name.trim().toLowerCase() === lower);
   } catch (error) {
-    console.error(`[sms] ${routeContext} lookup failed:`, error instanceof Error ? error.message : error);
+    console.error(`[notify] ${routeContext} lookup failed:`, error instanceof Error ? error.message : error);
     await logSmsAttempt(ids[0], "", "", "failed");
     return;
   }
 
   if (!manager) {
-    console.debug(`[sms] skip ${routeContext}: no manager matching "${target}"`);
-    return;
-  }
-  if (!manager.phone.trim()) {
-    console.debug(`[sms] skip ${routeContext}: manager "${manager.name}" has no phone on file`);
+    console.debug(`[notify] skip ${routeContext}: no manager matching "${target}"`);
     return;
   }
 
@@ -184,22 +223,13 @@ async function notifyManagerOfToDoBatch(
   const accountsSummary = remaining > 0 ? `${preview}, and ${remaining} more` : preview;
 
   const countLabel = `${ids.length} to-do${ids.length === 1 ? "" : "s"}`;
-  const rawMessage = [
-    `${label}: ${countLabel}${accountsSummary ? ` (${accountsSummary})` : ""}, due ${dueDate}`,
-    link,
-  ]
-    .filter(Boolean)
-    .join("\n");
-  const message = sanitizeSmsText(rawMessage, Infinity);
+  const summary = `${countLabel}${accountsSummary ? ` (${accountsSummary})` : ""}, due ${dueDate}`;
+  const smsBody = [`${label}: ${summary}`, link].filter(Boolean).join("\n");
 
-  const result = await sendSms(manager.phone, message, routeContext);
-  await logSmsAttempt(
-    firstId,
-    manager.phone,
-    result.textId !== undefined ? String(result.textId) : "",
-    result.success ? "sent" : "failed",
-    result.quotaRemaining
-  );
+  await Promise.all([
+    sendToDoSms(firstId, manager, smsBody, routeContext),
+    sendToDoPush(manager, label, summary, link, routeContext),
+  ]);
 }
 
 // Shared by the single-edit and bulk-edit actions: given a to-do's

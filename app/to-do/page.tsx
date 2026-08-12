@@ -15,6 +15,7 @@ import {
   TO_DO_PRIORITIES,
   type ToDoPriority,
 } from "@/lib/toDoPriority";
+import { identifyManager, getStoredManagerId } from "@/app/components/OneSignalInit";
 
 // Shape returned by GET /api/to-do/[id]/sms-status — mirrors lib/googleSheets.ts's
 // SmsLogEntry closely enough for badge rendering without importing a server-only type.
@@ -121,6 +122,7 @@ function getOnboardingAccountHref(todo: ToDo, accounts: Account[]): string | nul
 }
 
 type Manager = {
+  managerId?: string;
   name?: string;
   status?: string;
 };
@@ -824,6 +826,18 @@ export default function ToDoPage() {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [managers, setManagers] = useState<string[]>([]);
   const [loadingManagers, setLoadingManagers] = useState(true);
+  // Name -> managerId, built from the same /api/admin/managers response
+  // `managers` above is derived from — used only to resolve the "notify me
+  // for my assignments" picker's choice to a stable id for OneSignal.login().
+  const [managerIdByName, setManagerIdByName] = useState<Record<string, string>>({});
+  // Which manager THIS BROWSER notifies as, for push. Not an auth concept —
+  // there's no per-manager login in this app (one shared admin password),
+  // so this is a self-declared identity, same pattern as sub-schedules'
+  // cwAdminName. Starts blank and is hydrated from localStorage in an
+  // effect below (not read directly in useState) to avoid an SSR/client
+  // hydration mismatch, matching getStoredAdminName's usage in
+  // app/sub-schedules/page.tsx.
+  const [notifyAsName, setNotifyAsName] = useState("");
   const [form, setForm] = useState<ToDoForm>(emptyForm);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -971,22 +985,52 @@ export default function ToDoPage() {
         ? data
         : data.managers || data.data || [];
 
+      const activeRows = rows.filter((row) => !row.status || row.status === "Active");
+
       const activeNames = Array.from(
-        new Set(
-          rows
-            .filter((row) => !row.status || row.status === "Active")
-            .map((row) => (row.name || "").trim())
-            .filter(Boolean)
-        )
+        new Set(activeRows.map((row) => (row.name || "").trim()).filter(Boolean))
       ).sort();
 
+      const idByName: Record<string, string> = {};
+      for (const row of activeRows) {
+        const name = (row.name || "").trim();
+        const id = (row.managerId || "").trim();
+        if (name && id) idByName[name] = id;
+      }
+
       setManagers(activeNames);
+      setManagerIdByName(idByName);
     } catch (error) {
       console.error("Failed to load managers:", error);
       setManagers([]);
+      setManagerIdByName({});
     } finally {
       setLoadingManagers(false);
     }
+  }
+
+  // OneSignalInit.tsx's localStorage only remembers a managerId, not a
+  // name (see identifyManager) — this reverse-resolves that id back to a
+  // display name once the managers list has loaded, so the "notify me for
+  // my assignments" picker shows the right selection without a second
+  // stored value that could drift out of sync with managerIdByName.
+  useEffect(() => {
+    const storedId = getStoredManagerId();
+    if (!storedId) return;
+
+    const match = Object.entries(managerIdByName).find(([, id]) => id === storedId);
+    if (match) setNotifyAsName(match[0]);
+  }, [managerIdByName]);
+
+  function handleNotifyAsChange(name: string) {
+    setNotifyAsName(name);
+
+    if (!name) return; // "Not set" — leaves any existing OneSignal identity as-is, just stops showing a selection here
+
+    const managerId = managerIdByName[name];
+    if (!managerId) return; // shouldn't happen (name came from this same map's keys), but never worth throwing over
+
+    identifyManager(managerId); // fire-and-forget — never throws, logs its own failures
   }
 
   useEffect(() => {
@@ -1472,6 +1516,25 @@ export default function ToDoPage() {
             </button>
           </div>
         ) : null}
+
+        <div className="no-print flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2">
+          <label htmlFor="notify-as-select" className="text-sm font-semibold text-slate-600">
+            🔔 Notify me (push) for assignments to:
+          </label>
+          <select
+            id="notify-as-select"
+            value={notifyAsName}
+            onChange={(event) => handleNotifyAsChange(event.target.value)}
+            className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+          >
+            <option value="">Not set</option>
+            {managers.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="no-print flex flex-wrap justify-end gap-2">
           <a
