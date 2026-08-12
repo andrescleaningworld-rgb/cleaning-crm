@@ -61,18 +61,10 @@ function StatusBadge({ status }: { status: string }) {
 
 export default async function PortalDashboardPage() {
   const cookieStore = await cookies();
-  const allCookies = cookieStore.getAll();
-  console.log("[dashboard] cookies received →", allCookies.map(c => c.name));
 
   const session = await getIronSession<PortalSessionData>(cookieStore, sessionOptions());
-  console.log("[dashboard] session →", {
-    accountId:   session.accountId,
-    accountName: session.accountName,
-    portalCode:  session.portalCode,
-  });
 
   if (!session.accountId || !session.portalCode || !session.accountName) {
-    console.log("[dashboard] REDIRECT — session missing fields");
     redirect("/portal/login");
   }
 
@@ -82,13 +74,6 @@ export default async function PortalDashboardPage() {
     getCustomerByPortalCode(session.portalCode).catch(() => null),
     getVisitsByAccountName(session.accountName).catch(() => []),
   ]);
-
-  console.log("[dashboard] account lookup →", account
-    ? { name: account.accountName, status: account.status }
-    : "NOT FOUND in main sheet");
-  console.log("[dashboard] portalData →", portalData
-    ? { nextScheduled: portalData.nextScheduledService, estimated: portalData.estimatedMonthlyTotal }
-    : "NOT FOUND in portal tab");
 
   async function logout() {
     "use server";
