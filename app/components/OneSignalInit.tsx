@@ -47,6 +47,12 @@ export default function OneSignalInit() {
       appId: ONESIGNAL_APP_ID,
       serviceWorkerPath: "push/onesignal/OneSignalSDKWorker.js",
       serviceWorkerParam: { scope: "/push/onesignal/" },
+      // Required alongside serviceWorkerPath/serviceWorkerParam above — the
+      // OneSignal dashboard's "Typical Site" integration (selected for this
+      // app) otherwise silently ignores a custom service worker path and
+      // registers at the default root OneSignalSDKWorker.js instead, which
+      // 404s since no worker is served from root here.
+      serviceWorkerOverrideForTypical: true,
       allowLocalhostAsSecureOrigin: true,
     })
       .then(() => {
