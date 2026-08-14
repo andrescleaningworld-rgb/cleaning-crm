@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
+import { distanceInMiles, formatMiles } from "@/app/lib/distance";
 
 type AccountForm = {
   accountName: string;
@@ -55,7 +56,52 @@ type Subcontractor = {
   dropdownLabel?: string;
   email?: string;
   status?: string;
+  score?: string;
+  scoreStatus?: string;
 };
+
+// Minimal shape pulled from the plain /api/accounts (getAllAccounts) list —
+// same fields/casing app/accounts/page.tsx already reads directly off that
+// response (see its Account type) — just enough to infer each subcontractor's
+// approximate location from their nearest currently-serviced account, since
+// subcontractors themselves don't carry a reliable geocoded address (their
+// free-text address field is often blank/a mailing address — see
+// app/sub-center/coverage-map.tsx's findClosestSubs comment for the same
+// reasoning applied there).
+type ProximityAccount = {
+  subcontractor?: string;
+  status?: string;
+  latitude?: string | number;
+  longitude?: string | number;
+};
+
+// Same tier values as app/accounts/page.tsx's NEAR_ACCOUNT_RADIUS_OPTIONS
+// ("Near Account" filter), applied here as an expanding search instead of a
+// manually-picked radius: try the tightest radius first and widen only if
+// nothing qualifies yet.
+const SUGGESTION_RADIUS_TIERS_MILES = [5, 10, 25, 50] as const;
+
+// Threshold for the "Below target score" badge: the score value below which
+// lib/googleSheets.ts's getSubcontractorPerformanceMap stops labeling a sub
+// "Good" and starts labeling them "Needs Attention" (see the scoreStatus
+// if-chain there, mirrored in app/subcontractors/[id]/page.tsx's score
+// legend: "8-8.9 Good, 7-7.9 Needs Attention"). Reused as-is rather than
+// inventing a new "at risk" number.
+const AT_RISK_SCORE_THRESHOLD = 8;
+
+// Mirrors coverage.tsx / coverage-map.tsx's isServicedStatus (each of those
+// already keeps its own local copy rather than sharing one — same pattern
+// followed here rather than introducing a new shared export).
+function isServicedStatus(status: unknown): boolean {
+  const value = String(status ?? "").trim().toLowerCase();
+  if (!value) return true;
+  if (value.includes("cancel") || value.includes("lost") || value.includes("terminated") || value.includes("closed")) {
+    return false;
+  }
+  if (value.includes("pause") || value.includes("hold") || value.includes("suspended")) return false;
+  if (value.includes("90") || value.includes("over ninety") || value.includes("old")) return false;
+  return true;
+}
 
 type SubcontractorOption = {
   value: string;
@@ -214,6 +260,7 @@ export default function NewAccountPage() {
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [proximityAccounts, setProximityAccounts] = useState<ProximityAccount[]>([]);
 
   useEffect(() => {
     async function loadManagers() {
@@ -264,8 +311,29 @@ export default function NewAccountPage() {
       }
     }
 
+    // Powers the nearest-subcontractor suggestion note only — read-only,
+    // fails silently like managers/subcontractors above so it never blocks
+    // the form itself.
+    async function loadProximityAccounts() {
+      try {
+        const response = await fetch("/api/accounts", { cache: "no-store" });
+
+        const data = await readJsonResponse<{
+          success?: boolean;
+          accounts?: ProximityAccount[];
+        }>(response);
+
+        if (!response.ok || data.success === false) return;
+
+        setProximityAccounts(data.accounts || []);
+      } catch {
+        // Suggestion note simply won't show if this fails.
+      }
+    }
+
     loadManagers();
     loadSubcontractors();
+    loadProximityAccounts();
   }, []);
 
   const managerOptions = useMemo(() => {
@@ -287,6 +355,86 @@ export default function NewAccountPage() {
       .filter((option) => option.value && option.label)
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [subcontractors]);
+
+  // Informational only — never writes to form.subcontractor. Reuses the same
+  // form.latitude/form.longitude the Full Address autocomplete already
+  // resolves (handlePlaceSelected below), the shared Haversine util, and the
+  // severity-weighted score already merged onto `subcontractors` by
+  // /api/subcontractors. See SUGGESTION_RADIUS_TIERS_MILES/AT_RISK_SCORE_THRESHOLD
+  // above for where those reused values come from.
+  const suggestedSubcontractor = useMemo(() => {
+    const originLatitude = Number(form.latitude);
+    const originLongitude = Number(form.longitude);
+
+    if (
+      !form.latitude ||
+      !form.longitude ||
+      !Number.isFinite(originLatitude) ||
+      !Number.isFinite(originLongitude)
+    ) {
+      return null;
+    }
+
+    // A subcontractor has no reliable geocoded home address of their own
+    // (see ProximityAccount's comment above), so their location is inferred
+    // from the single nearest currently-serviced account already assigned to
+    // them — same approach app/sub-center/coverage-map.tsx's findClosestSubs
+    // uses for the same reason.
+    const nearestDistanceBySub = new Map<string, number>();
+
+    for (const account of proximityAccounts) {
+      const subName = cleanText(account.subcontractor);
+      if (!subName || subName.toLowerCase() === "unassigned") continue;
+      if (!isServicedStatus(account.status)) continue;
+
+      const accountLatitude = Number(account.latitude);
+      const accountLongitude = Number(account.longitude);
+      if (!Number.isFinite(accountLatitude) || !Number.isFinite(accountLongitude)) {
+        continue;
+      }
+
+      const distance = distanceInMiles(
+        { latitude: originLatitude, longitude: originLongitude },
+        { latitude: accountLatitude, longitude: accountLongitude }
+      );
+      if (distance === null) continue;
+
+      const existing = nearestDistanceBySub.get(subName);
+      if (existing === undefined || distance < existing) {
+        nearestDistanceBySub.set(subName, distance);
+      }
+    }
+
+    let candidates: Array<{ name: string; distance: number }> = [];
+    for (const radius of SUGGESTION_RADIUS_TIERS_MILES) {
+      candidates = Array.from(nearestDistanceBySub.entries())
+        .filter(([, distance]) => distance <= radius)
+        .map(([name, distance]) => ({ name, distance }));
+      if (candidates.length > 0) break;
+    }
+
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => a.distance - b.distance);
+    const closest = candidates[0];
+
+    const matchedSubcontractor = subcontractors.find(
+      (subcontractor) =>
+        getSubcontractorSubmitName(subcontractor).toLowerCase() ===
+        closest.name.toLowerCase()
+    );
+    if (!matchedSubcontractor?.score) return null;
+
+    const numericScore = Number(matchedSubcontractor.score);
+    if (!Number.isFinite(numericScore)) return null;
+
+    return {
+      name: closest.name,
+      distanceLabel: formatMiles(closest.distance),
+      scoreLabel: matchedSubcontractor.score,
+      isAtRisk: numericScore < AT_RISK_SCORE_THRESHOLD,
+    };
+  }, [form.latitude, form.longitude, proximityAccounts, subcontractors]);
 
   function updateField(field: keyof AccountForm, value: string) {
     setForm((current) => ({
@@ -593,6 +741,24 @@ export default function NewAccountPage() {
                     list.
                   </p>
                 )}
+
+                {suggestedSubcontractor ? (
+                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold leading-5 text-slate-500">
+                    <span>
+                      Suggested: {suggestedSubcontractor.name} —{" "}
+                      {suggestedSubcontractor.distanceLabel}, score{" "}
+                      {suggestedSubcontractor.scoreLabel}
+                    </span>
+                    {suggestedSubcontractor.isAtRisk ? (
+                      <span
+                        title="Below target score."
+                        className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-800"
+                      >
+                        ⚠ Below target
+                      </span>
+                    ) : null}
+                  </p>
+                ) : null}
               </label>
 
               <label className="block">
