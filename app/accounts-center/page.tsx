@@ -50,13 +50,18 @@ export default function AccountsCenterPage() {
   return (
     <div>
       <div className="border-b border-slate-200 bg-white px-4 pt-4 sm:px-6">
-        <div className="mx-auto flex max-w-7xl gap-2">
+        {/* overflow-x-auto + shrink-0: on narrow screens the 5 tabs don't
+            fit in one row, and with no wrap they'd otherwise get clipped
+            by globals.css's html/body overflow-x:hidden with no way to
+            reach the cut-off tabs (e.g. Keys). Scrolling keeps the
+            folder-tab look intact instead of wrapping to a second row. */}
+        <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto">
           {TABS.map(({ id, label }) => (
             <button
               key={id}
               type="button"
               onClick={() => handleTabChange(id)}
-              className={`rounded-t-lg px-5 py-2.5 text-sm font-black transition ${
+              className={`shrink-0 rounded-t-lg px-5 py-2.5 text-sm font-black transition ${
                 activeTab === id
                   ? "bg-blue-700 text-white shadow-sm"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
