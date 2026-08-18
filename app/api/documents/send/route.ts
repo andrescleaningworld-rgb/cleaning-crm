@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDocumentById, getAllSubcontractorsRaw } from "@/lib/googleSheets";
+import {
+  appendDocumentSend,
+  fetchDocumentSends,
+  getDocumentById,
+  getAllSubcontractorsRaw,
+} from "@/lib/googleSheets";
 import { sendSubcontractorNotification } from "@/lib/email";
 
 // Matches the Phase 1 upload cap (app/api/documents/route.ts) — a document
@@ -7,17 +12,33 @@ import { sendSubcontractorNotification } from "@/lib/email";
 // separate limit to keep in sync.
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
+export async function GET(request: NextRequest) {
+  try {
+    const documentId = request.nextUrl.searchParams.get("documentId")?.trim() || undefined;
+    const sends = await fetchDocumentSends(documentId);
+    return NextResponse.json({ success: true, sends });
+  } catch (err) {
+    console.error("[documents/send GET]", err);
+    return NextResponse.json(
+      { success: false, error: "Failed to load send history." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as {
       documentId?: string;
       subcontractorId?: string;
       note?: string;
+      sentBy?: string;
     };
 
     const documentId = body.documentId?.trim();
     const subcontractorId = body.subcontractorId?.trim();
     const note = body.note?.trim() ?? "";
+    const sentBy = body.sentBy?.trim() ?? "";
 
     if (!documentId) {
       return NextResponse.json({ success: false, error: "Missing document id." }, { status: 400 });
@@ -106,6 +127,23 @@ export async function POST(request: NextRequest) {
         { success: false, error: "Email is not configured (missing provider credentials)." },
         { status: 500 }
       );
+    }
+
+    // Best-effort: the email already went out, so a logging failure
+    // shouldn't turn this into a reported failure (and risk a duplicate
+    // resend).
+    try {
+      await appendDocumentSend({
+        documentId: document.id,
+        documentName: document.name,
+        subcontractorId: subcontractor.id,
+        subcontractorName:
+          subcontractor.companyName || subcontractor.contactName || email,
+        sentBy,
+        note,
+      });
+    } catch (err) {
+      console.error("[documents/send] logging send failed", err);
     }
 
     return NextResponse.json({ success: true });

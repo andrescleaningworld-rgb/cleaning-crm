@@ -2263,6 +2263,107 @@ export async function deleteDocument(id: string): Promise<void> {
   });
 }
 
+// ─── Document Sends (log of "Send to Subcontractor" emails from the
+// Documents page) ────────────────────────────────────────────────────────
+// Lives in the main Accounts spreadsheet (GOOGLE_MAIN_SHEET_ID), matching
+// Documents — created by scripts/setup-document-sends-tab.js.
+
+const DOCUMENT_SENDS_TAB = "DocumentSends";
+
+const DOCUMENT_SEND_COL = {
+  ID:                  0, // A
+  DOCUMENT_ID:         1, // B
+  DOCUMENT_NAME:       2, // C
+  SUBCONTRACTOR_ID:    3, // D
+  SUBCONTRACTOR_NAME:  4, // E
+  SENT_BY:             5, // F
+  SENT_AT:             6, // G
+  NOTE:                7, // H
+} as const;
+
+export type DocumentSend = {
+  sheetRow: number;
+  id: string;
+  documentId: string;
+  documentName: string;
+  subcontractorId: string;
+  subcontractorName: string;
+  sentBy: string;
+  sentAt: string;
+  note: string;
+};
+
+async function fetchDocumentSendRows(): Promise<string[][]> {
+  const cacheKey = `tab-${DOCUMENT_SENDS_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${DOCUMENT_SENDS_TAB}!A:H`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+function rowToDocumentSend(row: string[], sheetRow: number): DocumentSend {
+  return {
+    sheetRow,
+    id:                row[DOCUMENT_SEND_COL.ID]                 ?? "",
+    documentId:        row[DOCUMENT_SEND_COL.DOCUMENT_ID]        ?? "",
+    documentName:      row[DOCUMENT_SEND_COL.DOCUMENT_NAME]      ?? "",
+    subcontractorId:   row[DOCUMENT_SEND_COL.SUBCONTRACTOR_ID]   ?? "",
+    subcontractorName: row[DOCUMENT_SEND_COL.SUBCONTRACTOR_NAME] ?? "",
+    sentBy:            row[DOCUMENT_SEND_COL.SENT_BY]            ?? "",
+    sentAt:            row[DOCUMENT_SEND_COL.SENT_AT]            ?? "",
+    note:              row[DOCUMENT_SEND_COL.NOTE]               ?? "",
+  };
+}
+
+// Most recent first, optionally scoped to one document — mirrors
+// fetchSmsLogForToDo's shape (full history, not just the latest row).
+export async function fetchDocumentSends(documentId?: string): Promise<DocumentSend[]> {
+  const targetId = documentId?.trim();
+  const rows = await fetchDocumentSendRows();
+  return rows
+    .map((r, i) => rowToDocumentSend(r, i + 2))
+    .filter((s) => s.id && (!targetId || s.documentId === targetId))
+    .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+}
+
+export type DocumentSendInput = {
+  documentId: string;
+  documentName: string;
+  subcontractorId: string;
+  subcontractorName: string;
+  sentBy: string;
+  note: string;
+};
+
+export async function appendDocumentSend(data: DocumentSendInput): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 6);
+  const id = `SEND-${stamp.slice(-8)}-${rand}`;
+  const sentAt = new Date().toISOString();
+  await appendToMainSheet(DOCUMENT_SENDS_TAB, [
+    id,
+    data.documentId,
+    data.documentName,
+    data.subcontractorId,
+    data.subcontractorName,
+    data.sentBy,
+    sentAt,
+    data.note,
+  ]);
+  return id;
+}
+
 // ─── SMS Log (per-to-do Textbelt notification attempts) ────────────────────
 
 const SMS_LOG_TAB = "SmsLog";

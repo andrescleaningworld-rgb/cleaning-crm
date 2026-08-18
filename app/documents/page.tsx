@@ -31,8 +31,29 @@ type SubcontractorOption = {
   email: string;
 };
 
+type DocumentSend = {
+  sheetRow: number;
+  id: string;
+  documentId: string;
+  documentName: string;
+  subcontractorId: string;
+  subcontractorName: string;
+  sentBy: string;
+  sentAt: string;
+  note: string;
+};
+
 const CATEGORIES = ["Contract", "Handbook", "Policy", "Other"] as const;
 const MAX_FILE_SIZE_MB = 10;
+
+// Same self-declared identity used by app/sub-schedules/page.tsx
+// ("cwAdminName") — there's no per-manager login in this app, so admin
+// actions are attributed to whatever name staff last typed in, shared via
+// localStorage across pages.
+function getStoredAdminName(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem("cwAdminName") ?? "";
+}
 
 function formatFileSize(bytes: number): string {
   if (!bytes) return "—";
@@ -195,10 +216,12 @@ function DocumentRow({
   document,
   onDeleted,
   onSend,
+  onHistory,
 }: {
   document: CwDocument;
   onDeleted: () => Promise<void>;
   onSend: (document: CwDocument) => void;
+  onHistory: (document: CwDocument) => void;
 }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
@@ -264,6 +287,13 @@ function DocumentRow({
           </button>
           <button
             type="button"
+            onClick={() => onHistory(document)}
+            className="font-semibold text-gray-700 hover:underline"
+          >
+            History
+          </button>
+          <button
+            type="button"
             onClick={handleDelete}
             disabled={deleting}
             className="font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
@@ -289,9 +319,21 @@ function SendDocumentModal({
 }) {
   const [subcontractorId, setSubcontractorId] = useState("");
   const [note, setNote] = useState("");
+  const [sentByName, setSentByName] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    setSentByName(getStoredAdminName());
+  }, []);
+
+  function handleSentByChange(value: string) {
+    setSentByName(value);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("cwAdminName", value);
+    }
+  }
 
   async function handleSend() {
     if (!subcontractorId) {
@@ -309,6 +351,7 @@ function SendDocumentModal({
           documentId: document.id,
           subcontractorId,
           note: note.trim() || undefined,
+          sentBy: sentByName.trim() || undefined,
         }),
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
@@ -353,6 +396,19 @@ function SendDocumentModal({
             ) : null}
 
             <div className="mt-4">
+              <label className="text-sm font-semibold text-gray-700">Your Name</label>
+              <input
+                type="text"
+                value={sentByName}
+                onChange={(event) => handleSentByChange(event.target.value)}
+                placeholder="Enter your name"
+                disabled={sending}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+              />
+              <p className="mt-1 text-xs text-gray-500">Recorded in this document&apos;s send history.</p>
+            </div>
+
+            <div className="mt-3">
               <label className="text-sm font-semibold text-gray-700">Subcontractor</label>
               <select
                 value={subcontractorId}
@@ -413,6 +469,120 @@ function SendDocumentModal({
   );
 }
 
+function formatDateTime(iso: string): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function SendHistoryModal({
+  document,
+  onClose,
+}: {
+  document: CwDocument;
+  onClose: () => void;
+}) {
+  const [sends, setSends] = useState<DocumentSend[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSends() {
+      setLoading(true);
+      setError("");
+      try {
+        const response = await fetch(
+          `/api/documents/send?documentId=${encodeURIComponent(document.id)}`,
+          { cache: "no-store" }
+        );
+        const data = (await response.json()) as { success?: boolean; sends?: DocumentSend[]; error?: string };
+
+        if (cancelled) return;
+        if (!data.success || !Array.isArray(data.sends)) {
+          setError(data.error || "Failed to load send history.");
+          return;
+        }
+        setSends(data.sends);
+      } catch {
+        if (!cancelled) setError("Network error loading send history.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadSends();
+    return () => {
+      cancelled = true;
+    };
+  }, [document.id]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3 className="text-lg font-bold text-gray-900">Send History — &quot;{document.name}&quot;</h3>
+
+        {error ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+            {error}
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div className="mt-4 p-6 text-center text-sm text-gray-600">Loading...</div>
+        ) : (
+          <div className="mt-4 max-h-96 overflow-y-auto">
+            {sends.length === 0 ? (
+              <p className="p-4 text-center text-sm text-gray-600">
+                This document hasn&apos;t been sent to a subcontractor yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {sends.map((send) => (
+                  <li key={send.id} className="py-3 text-sm">
+                    <p className="font-semibold text-gray-900">{send.subcontractorName}</p>
+                    <p className="mt-0.5 text-gray-600">
+                      {formatDateTime(send.sentAt)}
+                      {send.sentBy ? ` — sent by ${send.sentBy}` : ""}
+                    </p>
+                    {send.note ? (
+                      <p className="mt-1 text-gray-500 italic">&quot;{send.note}&quot;</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function subcontractorLabel(sub: RawSubcontractor): string {
   return sub.contactName?.trim() || sub.companyName?.trim() || sub.email?.trim() || "Unnamed subcontractor";
 }
@@ -426,6 +596,7 @@ export default function DocumentsPage() {
   const [subcontractors, setSubcontractors] = useState<SubcontractorOption[]>([]);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [sendingDocument, setSendingDocument] = useState<CwDocument | null>(null);
+  const [historyDocument, setHistoryDocument] = useState<CwDocument | null>(null);
 
   async function loadDocuments() {
     setLoadError("");
@@ -558,6 +729,7 @@ export default function DocumentsPage() {
                         document={document}
                         onDeleted={loadDocuments}
                         onSend={setSendingDocument}
+                        onHistory={setHistoryDocument}
                       />
                     ))}
                   </tbody>
@@ -581,6 +753,10 @@ export default function DocumentsPage() {
           loadingSubcontractors={loadingSubcontractors}
           onClose={() => setSendingDocument(null)}
         />
+      ) : null}
+
+      {historyDocument ? (
+        <SendHistoryModal document={historyDocument} onClose={() => setHistoryDocument(null)} />
       ) : null}
     </main>
   );
