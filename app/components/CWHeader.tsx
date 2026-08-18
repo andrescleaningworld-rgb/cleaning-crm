@@ -20,6 +20,7 @@ const adminNavItems = [
   { href: "/sub-center", label: "Sub Center" },
   { href: "/sales", label: "Sales" },
   { href: "/reports", label: "Reports" },
+  { href: "/documents", label: "Documents" },
   { href: "/settings", label: "Settings" },
   { href: "/map", label: "Map" },
 ];

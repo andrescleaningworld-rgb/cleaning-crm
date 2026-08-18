@@ -2118,6 +2118,151 @@ export async function updateExtraService(id: string, fields: ExtraServiceUpdateI
   });
 }
 
+// ─── Documents (company documents: contracts, handbooks, policies) ─────────
+// Lives in the main Accounts spreadsheet (GOOGLE_MAIN_SHEET_ID), matching
+// SubSchedules/ScheduleExceptions — created by scripts/setup-documents-tab.js.
+
+const DOCUMENTS_TAB = "Documents";
+
+export const DOCUMENT_CATEGORIES = ["Contract", "Handbook", "Policy", "Other"] as const;
+export type DocumentCategory = (typeof DOCUMENT_CATEGORIES)[number];
+
+const DOCUMENT_COL = {
+  ID:          0, // A
+  NAME:        1, // B
+  CATEGORY:    2, // C
+  FILE_NAME:   3, // D
+  FILE_URL:    4, // E
+  FILE_SIZE:   5, // F
+  UPLOADED_AT: 6, // G
+  UPLOADED_BY: 7, // H
+} as const;
+
+export type CwDocument = {
+  sheetRow: number;
+  id: string;
+  name: string;
+  category: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  uploadedAt: string;
+  uploadedBy: string;
+};
+
+async function fetchDocumentRows(): Promise<string[][]> {
+  const cacheKey = `tab-${DOCUMENTS_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${DOCUMENTS_TAB}!A:H`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+function rowToDocument(row: string[], sheetRow: number): CwDocument {
+  return {
+    sheetRow,
+    id:          row[DOCUMENT_COL.ID]          ?? "",
+    name:        row[DOCUMENT_COL.NAME]        ?? "",
+    category:    row[DOCUMENT_COL.CATEGORY]    ?? "",
+    fileName:    row[DOCUMENT_COL.FILE_NAME]   ?? "",
+    fileUrl:     row[DOCUMENT_COL.FILE_URL]    ?? "",
+    fileSize:    Number(row[DOCUMENT_COL.FILE_SIZE]) || 0,
+    uploadedAt:  row[DOCUMENT_COL.UPLOADED_AT] ?? "",
+    uploadedBy:  row[DOCUMENT_COL.UPLOADED_BY] ?? "",
+  };
+}
+
+export async function fetchDocuments(): Promise<CwDocument[]> {
+  const rows = await fetchDocumentRows();
+  return rows
+    .map((r, i) => rowToDocument(r, i + 2))
+    .filter((d) => d.id);
+}
+
+export async function getDocumentById(id: string): Promise<CwDocument | null> {
+  const targetId = id.trim();
+  if (!targetId) return null;
+  const documents = await fetchDocuments();
+  return documents.find((d) => d.id === targetId) ?? null;
+}
+
+export type DocumentInput = {
+  name: string;
+  category: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize: number;
+  uploadedBy: string;
+};
+
+export async function appendDocument(data: DocumentInput): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 6);
+  const id = `DOC-${stamp.slice(-8)}-${rand}`;
+  const uploadedAt = new Date().toISOString();
+  await appendToMainSheet(DOCUMENTS_TAB, [
+    id,
+    data.name,
+    data.category,
+    data.fileName,
+    data.fileUrl,
+    String(data.fileSize),
+    uploadedAt,
+    data.uploadedBy,
+  ]);
+  return id;
+}
+
+// Fresh (uncached) read, same reasoning as findExtraServiceRow — a row's
+// position can shift between requests.
+async function findDocumentRow(
+  sheets: ReturnType<typeof google.sheets>,
+  targetId: string
+): Promise<{ sheetRow: number; row: string[] }> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${DOCUMENTS_TAB}!A:H`,
+    })
+  );
+
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[DOCUMENT_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) {
+    throw new Error(`Document "${targetId}" not found.`);
+  }
+  return { sheetRow: rowIndex + 2, row: rows[rowIndex] };
+}
+
+// Hard delete (unlike ExtraServices' soft-delete) — the caller deletes the
+// underlying Blob first, so the row and file are removed together.
+export async function deleteDocument(id: string): Promise<void> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing document id.");
+
+  invalidateCache(`tab-${DOCUMENTS_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const { sheetRow } = await findDocumentRow(sheets, targetId);
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${DOCUMENTS_TAB}!A${sheetRow}:H${sheetRow}`,
+  });
+}
+
 // ─── SMS Log (per-to-do Textbelt notification attempts) ────────────────────
 
 const SMS_LOG_TAB = "SmsLog";

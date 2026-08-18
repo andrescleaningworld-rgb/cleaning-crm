@@ -6,7 +6,21 @@ import nodemailer, { type Transporter } from "nodemailer";
 // Set RESEND_FROM to your verified address, e.g. portal@cleaningworldinc.com
 // Until domain is verified you can use: onboarding@resend.dev (sends to your Resend account email only)
 
-async function sendViaResend(to: string[], subject: string, lines: string[]): Promise<boolean> {
+// Shared attachment shape between the Resend and Gmail/nodemailer transports
+// below — both accept a Buffer `content` directly, so callers (e.g.
+// /api/documents/send) don't need to know which provider is active.
+export type EmailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+};
+
+async function sendViaResend(
+  to: string[],
+  subject: string,
+  lines: string[],
+  attachments?: EmailAttachment[]
+): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false;
 
@@ -22,6 +36,7 @@ async function sendViaResend(to: string[], subject: string, lines: string[]): Pr
     to,
     subject,
     text: lines.join("\n"),
+    ...(attachments?.length ? { attachments } : {}),
   });
 
   if (result.error) {
@@ -59,7 +74,12 @@ function getGmailTransporter(): Transporter | null {
   return gmailTransporter;
 }
 
-async function sendViaGmail(to: string[], subject: string, lines: string[]): Promise<boolean> {
+async function sendViaGmail(
+  to: string[],
+  subject: string,
+  lines: string[],
+  attachments?: EmailAttachment[]
+): Promise<boolean> {
   const transporter = getGmailTransporter();
   if (!transporter) return false;
 
@@ -70,6 +90,7 @@ async function sendViaGmail(to: string[], subject: string, lines: string[]): Pro
     to: to.join(", "),
     subject,
     text: lines.join("\n"),
+    ...(attachments?.length ? { attachments } : {}),
   });
 
   return true;
@@ -80,9 +101,16 @@ async function sendViaGmail(to: string[], subject: string, lines: string[]): Pro
 // stopgap) when unset, so no env var needs to be added anywhere to use it.
 // Set EMAIL_PROVIDER=resend to switch back once the domain is verified.
 // sendPortalNotification is unaffected — it calls Resend directly.
-function sendPlainTextEmail(to: string[], subject: string, lines: string[]): Promise<boolean> {
+function sendPlainTextEmail(
+  to: string[],
+  subject: string,
+  lines: string[],
+  attachments?: EmailAttachment[]
+): Promise<boolean> {
   const provider = (process.env.EMAIL_PROVIDER || "gmail").trim().toLowerCase();
-  return provider === "resend" ? sendViaResend(to, subject, lines) : sendViaGmail(to, subject, lines);
+  return provider === "resend"
+    ? sendViaResend(to, subject, lines, attachments)
+    : sendViaGmail(to, subject, lines, attachments);
 }
 
 // Fixed-recipient internal ops notification — same two addresses the old
@@ -106,9 +134,10 @@ export async function sendInternalNotification(subject: string, lines: string[])
 export async function sendSubcontractorNotification(
   to: string,
   subject: string,
-  lines: string[]
+  lines: string[],
+  attachments?: EmailAttachment[]
 ): Promise<boolean> {
-  return sendPlainTextEmail([to], subject, lines);
+  return sendPlainTextEmail([to], subject, lines, attachments);
 }
 
 export async function sendPortalNotification({
