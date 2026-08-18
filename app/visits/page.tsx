@@ -88,6 +88,7 @@ export default function VisitsPage() {
   const [search, setSearch] = useState("");
   const [filterAccount, setFilterAccount] = useState("");
   const [filterSub, setFilterSub] = useState("");
+  const [filterManager, setFilterManager] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -130,6 +131,10 @@ export default function VisitsPage() {
     () => [...new Set(visits.map((v) => clean(v.subcontractor)).filter(Boolean))].sort(),
     [visits],
   );
+  const uniqueManagers = useMemo(
+    () => [...new Set(visits.map((v) => clean(v.manager)).filter(Boolean))].sort(),
+    [visits],
+  );
 
   const filteredVisits = useMemo(() => {
     const term = search.toLowerCase().trim();
@@ -137,6 +142,7 @@ export default function VisitsPage() {
       const iso = toISODate(visit.date);
       if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
       if (filterSub && clean(visit.subcontractor) !== filterSub) return false;
+      if (filterManager && clean(visit.manager) !== filterManager) return false;
       if (filterStatus && deriveStatus(visit) !== filterStatus) return false;
       if (dateFrom && iso && iso < dateFrom) return false;
       if (dateTo && iso && iso > dateTo) return false;
@@ -162,7 +168,7 @@ export default function VisitsPage() {
       if (da === db) return 0;
       return da > db ? -1 : 1;
     });
-  }, [visits, search, filterAccount, filterSub, filterStatus, dateFrom, dateTo, sortBy]);
+  }, [visits, search, filterAccount, filterSub, filterManager, filterStatus, dateFrom, dateTo, sortBy]);
 
   const followUpsNeeded = useMemo(
     () =>
@@ -174,13 +180,14 @@ export default function VisitsPage() {
   );
 
   const hasActiveFilters = !!(
-    search || filterAccount || filterSub || filterStatus || dateFrom || dateTo
+    search || filterAccount || filterSub || filterManager || filterStatus || dateFrom || dateTo
   );
 
   function clearFilters() {
     setSearch("");
     setFilterAccount("");
     setFilterSub("");
+    setFilterManager("");
     setFilterStatus("");
     setDateFrom("");
     setDateTo("");
@@ -294,6 +301,16 @@ export default function VisitsPage() {
               >
                 <option value="">Filter by Subcontractor</option>
                 {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <select
+                value={filterManager}
+                onChange={(e) => setFilterManager(e.target.value)}
+                title="Filter by Completed By"
+                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
+              >
+                <option value="">All Managers</option>
+                {uniqueManagers.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
 
               <select
