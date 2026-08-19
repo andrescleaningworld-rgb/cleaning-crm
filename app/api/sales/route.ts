@@ -1,125 +1,97 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { appendSale, fetchSales } from "@/lib/googleSheets";
+import { validateRecurringDates } from "@/lib/salesCommission";
 
-const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+// Migrated off the Apps Script backend (see lib/googleSheets.ts's Sales &
+// Commissions section) — direct Sheets API only, so the new
+// RecurringStartDate/RecurringEndDate columns can be written as part of the
+// same request that creates a sale.
 
 export async function GET() {
   try {
-    if (!SCRIPT_URL) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL environment variable.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const response = await fetch(`${SCRIPT_URL}?action=getSales`, {
-      cache: "no-store",
-    });
-
-    const text = await response.text();
-
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Google Script did not return valid JSON while loading sales.",
-          raw: text,
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(data, {
-      headers: {
-        "Cache-Control": "public, max-age=60, stale-while-revalidate=120",
-      },
-    });
-  } catch (error) {
+    const sales = await fetchSales();
     return NextResponse.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unknown error loading sales.",
-      },
+      { success: true, sales },
+      { headers: { "Cache-Control": "public, max-age=60, stale-while-revalidate=120" } }
+    );
+  } catch (err) {
+    console.error("[sales GET]", err);
+    return NextResponse.json(
+      { success: false, error: err instanceof Error ? err.message : "Failed to load sales." },
       { status: 500 }
     );
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    if (!SCRIPT_URL) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL environment variable.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const body = await request.json();
-
-    console.log("SALE BODY RECEIVED BY NEXT API:", body);
-
-    const payload = {
-      ...body,
-      action: "addSale",
+    const body = (await request.json()) as {
+      accountId?: string;
+      accountName?: string;
+      saleDate?: string;
+      serviceSold?: string;
+      workOrderEstimateNumber?: string;
+      soldBy?: string;
+      amountSold?: number;
+      commissionPercent?: number;
+      status?: string;
+      notes?: string;
+      serviceType?: string;
+      manager?: string;
+      recurringStartDate?: string;
+      recurringEndDate?: string;
     };
 
-    console.log("SALE PAYLOAD SENT TO APPS SCRIPT:", payload);
+    const accountName = body.accountName?.trim();
+    const saleDate = body.saleDate?.trim();
+    const serviceSold = body.serviceSold?.trim();
+    const soldBy = body.soldBy?.trim();
+    const amountSold = Number(body.amountSold);
+    const commissionPercent = Number(body.commissionPercent);
 
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const text = await response.text();
-
-    console.log("APPS SCRIPT RAW SALE RESPONSE:", text);
-
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
+    if (!accountName || !saleDate || !serviceSold || !soldBy || !Number.isFinite(amountSold)) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Google Script did not return valid JSON while saving sale.",
-          debugBodyReceivedByNextApi: body,
-          debugPayloadSentToAppsScript: payload,
-          raw: text,
-        },
-        { status: 500 }
+        { success: false, error: "Missing required sale fields (account, date, service, sold by, amount)." },
+        { status: 400 }
       );
     }
+    if (!Number.isFinite(commissionPercent)) {
+      return NextResponse.json({ success: false, error: "Commission % must be a number." }, { status: 400 });
+    }
 
-    return NextResponse.json({
-      ...data,
-      debugBodyReceivedByNextApi: body,
-      debugPayloadSentToAppsScript: payload,
+    const recurringStartDate = body.recurringStartDate?.trim() ?? "";
+    const recurringEndDate = body.recurringEndDate?.trim() ?? "";
+
+    const validationError = validateRecurringDates(commissionPercent, recurringStartDate, recurringEndDate);
+    if (validationError) {
+      return NextResponse.json({ success: false, error: validationError }, { status: 400 });
+    }
+
+    const id = await appendSale({
+      accountId: body.accountId?.trim() ?? "",
+      accountName,
+      saleDate,
+      serviceSold,
+      workOrderEstimateNumber: body.workOrderEstimateNumber?.trim() ?? "",
+      soldBy,
+      amountSold,
+      commissionPercent,
+      status: body.status?.trim() || "Pending",
+      notes: body.notes?.trim() ?? "",
+      serviceType: body.serviceType?.trim() ?? "",
+      manager: body.manager?.trim() ?? "",
+      // Blank for non-Recurring sales even if the client sent something —
+      // validateRecurringDates already confirmed these are only meaningful
+      // (and only required) when commissionPercent === 4.
+      recurringStartDate: commissionPercent === 4 ? recurringStartDate : "",
+      recurringEndDate: commissionPercent === 4 ? recurringEndDate : "",
     });
-  } catch (error) {
+
+    return NextResponse.json({ success: true, id });
+  } catch (err) {
+    console.error("[sales POST]", err);
     return NextResponse.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unknown error saving sale.",
-      },
+      { success: false, error: err instanceof Error ? err.message : "Failed to save sale." },
       { status: 500 }
     );
   }

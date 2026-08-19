@@ -3,6 +3,14 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import {
+  computePayPeriodTotals,
+  getCommissionType,
+  getCurrentPayPeriod,
+  MONTH_NAMES,
+  validateRecurringDates,
+  type CommissionType,
+} from "@/lib/salesCommission";
 
 type RawAccount = {
   "Account ID"?: string;
@@ -20,39 +28,26 @@ type RawAccount = {
   "Sub Contractor"?: string;
 };
 
+// Matches lib/googleSheets.ts's Sale type exactly — GET /api/sales now
+// reads the Sales & Commissions sheet directly (migrated off Apps Script),
+// so no more alias-guessing across old header-text/camelCase variants.
 type RawSale = {
-  "Sale ID"?: string;
   id?: string;
-  "Account ID"?: string;
   accountId?: string;
-  "Account Name"?: string;
   accountName?: string;
-  "Sale Date"?: string;
-  date?: string;
-  "Service Sold"?: string;
-  service?: string;
-  "Service Type"?: string;
-  type?: string;
-  "Sold By"?: string;
+  saleDate?: string;
+  serviceSold?: string;
+  workOrderEstimateNumber?: string;
   soldBy?: string;
-  Manager?: string;
   manager?: string;
-  "Amount Sold"?: string | number;
-  Amount?: string | number;
-  amount?: string | number;
-  "Commission %"?: string | number;
+  amountSold?: string | number;
   commissionPercent?: string | number;
-  "Commission $"?: string | number;
-  "Commission Amount"?: string | number;
   commissionAmount?: string | number;
-  Status?: string;
   status?: string;
-  "Work Order / Estimate #"?: string;
-  "Work Order / Estimate"?: string;
-  "Work Order / Est"?: string;
-  workOrder?: string;
-  Notes?: string;
+  serviceType?: string;
   notes?: string;
+  recurringStartDate?: string;
+  recurringEndDate?: string;
 };
 
 type Account = {
@@ -78,6 +73,9 @@ type Sale = {
   status: string;
   workOrderEstimateNumber: string;
   notes: string;
+  recurringStartDate: string;
+  recurringEndDate: string;
+  commissionType: CommissionType;
 };
 
 function cleanText(value: unknown, fallback = "") {
@@ -153,15 +151,6 @@ function getYearFromDate(value: string) {
   return String(date.getFullYear());
 }
 
-function createSaleId(raw: RawSale, index: number) {
-  const accountId = cleanText(raw["Account ID"] || raw.accountId, "sale");
-  const saleDate = cleanText(raw["Sale Date"] || raw.date, "no-date")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "-");
-
-  return `${accountId}-${saleDate}-${index + 1}`;
-}
-
 function mapRawAccount(raw: RawAccount): Account {
   const name = cleanText(
     raw["Account Name"] ||
@@ -188,45 +177,32 @@ function mapRawAccount(raw: RawAccount): Account {
   };
 }
 
-function mapRawSale(raw: RawSale, index: number): Sale {
-  const amount = toNumber(raw["Amount Sold"] || raw.Amount || raw.amount);
-
-  const commissionPercent = toNumber(
-    raw["Commission %"] || raw.commissionPercent
-  );
-
-  const commissionAmountFromSheet = toNumber(
-    raw["Commission $"] || raw["Commission Amount"] || raw.commissionAmount
-  );
-
+function mapRawSale(raw: RawSale): Sale {
+  const amount = toNumber(raw.amountSold);
+  const commissionPercent = toNumber(raw.commissionPercent);
+  const commissionAmountFromSheet = toNumber(raw.commissionAmount);
   const commissionAmount =
     commissionAmountFromSheet || amount * (commissionPercent / 100);
 
   return {
-    id: cleanText(raw["Sale ID"] || raw.id, createSaleId(raw, index)),
-    accountId: cleanText(raw["Account ID"] || raw.accountId, ""),
-    accountName: cleanText(
-      raw["Account Name"] || raw.accountName,
-      "Unnamed Account"
-    ),
-    saleDate: formatDate(cleanText(raw["Sale Date"] || raw.date)),
-    saleDateRaw: cleanText(raw["Sale Date"] || raw.date),
-    serviceSold: cleanText(raw["Service Sold"] || raw.service, "N/A"),
-    serviceType: cleanText(raw["Service Type"] || raw.type, "N/A"),
-    soldBy: cleanText(raw["Sold By"] || raw.soldBy, "N/A"),
-    manager: cleanText(raw.Manager || raw.manager, "N/A"),
+    id: cleanText(raw.id, `sale-${Math.random().toString(36).slice(2)}`),
+    accountId: cleanText(raw.accountId, ""),
+    accountName: cleanText(raw.accountName, "Unnamed Account"),
+    saleDate: formatDate(cleanText(raw.saleDate)),
+    saleDateRaw: cleanText(raw.saleDate),
+    serviceSold: cleanText(raw.serviceSold, "N/A"),
+    serviceType: cleanText(raw.serviceType, "N/A"),
+    soldBy: cleanText(raw.soldBy, "N/A"),
+    manager: cleanText(raw.manager, "N/A"),
     amount,
     commissionPercent,
     commissionAmount,
-    status: cleanText(raw.Status || raw.status, "Pending"),
-    workOrderEstimateNumber: cleanText(
-      raw["Work Order / Estimate #"] ||
-        raw["Work Order / Estimate"] ||
-        raw["Work Order / Est"] ||
-        raw.workOrder,
-      "N/A"
-    ),
-    notes: cleanText(raw.Notes || raw.notes, "N/A"),
+    status: cleanText(raw.status, "Pending"),
+    workOrderEstimateNumber: cleanText(raw.workOrderEstimateNumber, "N/A"),
+    notes: cleanText(raw.notes, "N/A"),
+    recurringStartDate: cleanText(raw.recurringStartDate),
+    recurringEndDate: cleanText(raw.recurringEndDate),
+    commissionType: getCommissionType(commissionPercent),
   };
 }
 
@@ -287,12 +263,17 @@ function SalesPageContent() {
   const [status, setStatus] = useState("Pending");
   const [workOrderEstimateNumber, setWorkOrderEstimateNumber] = useState("");
   const [notes, setNotes] = useState("");
+  const [recurringStartDate, setRecurringStartDate] = useState("");
+  const [recurringEndDate, setRecurringEndDate] = useState("");
 
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [isLoadingSales, setIsLoadingSales] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+
+  const [payPeriodYear, setPayPeriodYear] = useState(() => getCurrentPayPeriod().year);
+  const [payPeriodMonth, setPayPeriodMonth] = useState(() => getCurrentPayPeriod().month);
 
   useEffect(() => {
     async function loadAccounts() {
@@ -365,7 +346,7 @@ function SalesPageContent() {
           throw new Error(result.error || "Could not load sales.");
         }
 
-        const rawSales = result.data || result.sales || [];
+        const rawSales = result.sales || [];
 
         const mappedSales = rawSales
           .map(mapRawSale)
@@ -539,6 +520,30 @@ function SalesPageContent() {
   const calculatedCommissionAmount =
     toNumber(amount) * (toNumber(commissionPercent) / 100);
 
+  const isRecurringCommission = toNumber(commissionPercent) === 4;
+
+  // Pay Period Total: per Sold-By person, one-time commissions landing in
+  // the selected month plus recurring commissions whose date range covers
+  // it (prorated) — uses the FULL sales list, not filteredSales, since the
+  // pay period picker is its own independent filter (year/quarter above
+  // don't constrain it).
+  const payPeriodTotals = useMemo(
+    () =>
+      computePayPeriodTotals(
+        sales.map((sale) => ({
+          soldBy: sale.soldBy,
+          amountSold: sale.amount,
+          commissionPercent: sale.commissionPercent,
+          saleDate: sale.saleDateRaw,
+          recurringStartDate: sale.recurringStartDate,
+          recurringEndDate: sale.recurringEndDate,
+        })),
+        payPeriodYear,
+        payPeriodMonth
+      ),
+    [sales, payPeriodYear, payPeriodMonth]
+  );
+
   function handleAccountSelect(account: Account) {
     setSelectedAccountId(account.id);
     setSelectedAccountName(account.name);
@@ -565,6 +570,17 @@ function SalesPageContent() {
       return;
     }
 
+    const finalCommissionPercent = toNumber(commissionPercent);
+    const recurringValidationError = validateRecurringDates(
+      finalCommissionPercent,
+      recurringStartDate,
+      recurringEndDate
+    );
+    if (recurringValidationError) {
+      setSaveMessage(recurringValidationError);
+      return;
+    }
+
     setIsSaving(true);
     setSaveMessage("");
 
@@ -572,9 +588,12 @@ function SalesPageContent() {
       selectedAccountId || createIdFromName(selectedAccountName);
 
     const finalAmount = toNumber(amount);
-    const finalCommissionPercent = toNumber(commissionPercent);
     const finalCommissionAmount =
       finalAmount * (finalCommissionPercent / 100);
+    const finalRecurringStartDate =
+      finalCommissionPercent === 4 ? recurringStartDate : "";
+    const finalRecurringEndDate =
+      finalCommissionPercent === 4 ? recurringEndDate : "";
 
     try {
       const response = await fetch("/api/sales", {
@@ -584,42 +603,20 @@ function SalesPageContent() {
         },
         cache: "no-store",
         body: JSON.stringify({
-          action: "addSale",
-
           accountId: finalAccountId,
           accountName: selectedAccountName,
-          date: saleDate,
-          saleDate: saleDate,
-          service: serviceSold,
-          serviceSold: serviceSold,
-          type: serviceType,
-          serviceType: serviceType,
-          soldBy: soldBy,
-          manager: selectedManager,
-          amount: finalAmount,
+          saleDate,
+          serviceSold,
+          workOrderEstimateNumber,
+          soldBy,
           amountSold: finalAmount,
           commissionPercent: finalCommissionPercent,
-          commissionAmount: finalCommissionAmount,
-          status: status,
-          workOrder: workOrderEstimateNumber,
-          notes: notes,
-          quarter: getQuarterFromDate(saleDate),
-
-          "Account ID": finalAccountId,
-          "Account Name": selectedAccountName,
-          "Sale Date": saleDate,
-          "Service Sold": serviceSold,
-          "Service Type": serviceType,
-          "Sold By": soldBy,
-          Manager: selectedManager,
-          "Amount Sold": finalAmount,
-          Amount: finalAmount,
-          "Commission %": finalCommissionPercent,
-          "Commission $": finalCommissionAmount,
-          "Commission Amount": finalCommissionAmount,
-          Status: status,
-          "Work Order / Estimate #": workOrderEstimateNumber,
-          Notes: notes,
+          status,
+          notes,
+          serviceType,
+          manager: selectedManager,
+          recurringStartDate: finalRecurringStartDate,
+          recurringEndDate: finalRecurringEndDate,
         }),
       });
 
@@ -630,7 +627,7 @@ function SalesPageContent() {
       }
 
       const newSale: Sale = {
-        id: result.data?.saleId || result.id || `sale-${Date.now()}`,
+        id: result.id || `sale-${Date.now()}`,
         accountId: finalAccountId,
         accountName: selectedAccountName,
         saleDate: formatDate(saleDate),
@@ -645,6 +642,9 @@ function SalesPageContent() {
         status,
         workOrderEstimateNumber: workOrderEstimateNumber || "N/A",
         notes: notes || "N/A",
+        recurringStartDate: finalRecurringStartDate,
+        recurringEndDate: finalRecurringEndDate,
+        commissionType: getCommissionType(finalCommissionPercent),
       };
 
       setSales((currentSales) => [newSale, ...currentSales]);
@@ -667,6 +667,8 @@ function SalesPageContent() {
       setStatus("Pending");
       setWorkOrderEstimateNumber("");
       setNotes("");
+      setRecurringStartDate("");
+      setRecurringEndDate("");
 
       if (!openedFromAccountDetail) {
         setSelectedAccountId("");
@@ -911,6 +913,75 @@ function SalesPageContent() {
                 </div>
               )}
             </section>
+
+            <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:shadow-none">
+              <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Pay Period Total</h2>
+                  <p className="mt-1 text-sm text-gray-600 print:hidden">
+                    Per salesperson: one-time commissions landing in this month, plus recurring
+                    commissions whose date range covers it (prorated for partial months).
+                    Independent of the year/quarter filter above.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 print:hidden">
+                  <select
+                    value={payPeriodMonth}
+                    onChange={(event) => setPayPeriodMonth(Number(event.target.value))}
+                    className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  >
+                    {MONTH_NAMES.map((name, index) => (
+                      <option key={name} value={index + 1}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={payPeriodYear}
+                    onChange={(event) => setPayPeriodYear(Number(event.target.value))}
+                    className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  >
+                    {availableYears.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {payPeriodTotals.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                  No commissions land in {MONTH_NAMES[payPeriodMonth - 1]} {payPeriodYear}.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-left text-sm print:text-xs">
+                    <thead>
+                      <tr className="border-b bg-gray-50 text-gray-600">
+                        <th className="px-4 py-3 font-semibold">Salesperson</th>
+                        <th className="px-4 py-3 font-semibold">One-Time</th>
+                        <th className="px-4 py-3 font-semibold">Recurring</th>
+                        <th className="px-4 py-3 font-semibold">Pay Period Total</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {payPeriodTotals.map((person) => (
+                        <tr key={person.soldBy} className="border-b">
+                          <td className="px-4 py-3 font-semibold text-gray-900">{person.soldBy}</td>
+                          <td className="px-4 py-3 text-gray-700">{formatMoney(person.oneTimeTotal)}</td>
+                          <td className="px-4 py-3 text-gray-700">{formatMoney(person.recurringTotal)}</td>
+                          <td className="px-4 py-3 font-bold text-gray-900">{formatMoney(person.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           </>
         )}
 
@@ -1096,6 +1167,10 @@ function SalesPageContent() {
                   placeholder="5"
                   className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
                 />
+
+                <p className="mt-1 text-xs text-gray-500">
+                  4% = Recurring &middot; 10% = One-Time
+                </p>
               </div>
 
               <div>
@@ -1124,6 +1199,41 @@ function SalesPageContent() {
                 />
               </div>
             </div>
+
+            {isRecurringCommission && (
+              <div className="grid gap-4 rounded-xl border border-blue-200 bg-blue-50 p-4 md:grid-cols-2">
+                <div>
+                  <label className="text-sm font-semibold text-gray-700">
+                    Recurring Start Date
+                  </label>
+
+                  <input
+                    type="date"
+                    value={recurringStartDate}
+                    onChange={(event) => setRecurringStartDate(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-semibold text-gray-700">
+                    Recurring End Date
+                  </label>
+
+                  <input
+                    type="date"
+                    value={recurringEndDate}
+                    onChange={(event) => setRecurringEndDate(event.target.value)}
+                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+
+                <p className="md:col-span-2 text-xs font-semibold text-blue-800">
+                  Required for a 4% (Recurring) commission — the commission applies to every pay
+                  period within this range, prorated for partial first/last months.
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="text-sm font-semibold text-gray-700">
@@ -1235,7 +1345,13 @@ function SalesPageContent() {
                         {formatMoney(sale.commissionAmount)}
                         <span className="block text-xs text-gray-500">
                           {sale.commissionPercent}%
+                          {sale.commissionType !== "Other" ? ` · ${sale.commissionType === "Recurring" ? "Recurring" : "One-Time"}` : ""}
                         </span>
+                        {sale.commissionType === "Recurring" && sale.recurringStartDate && sale.recurringEndDate ? (
+                          <span className="block text-xs text-gray-400">
+                            {sale.recurringStartDate} – {sale.recurringEndDate}
+                          </span>
+                        ) : null}
                       </td>
 
                       <td className="px-4 py-3">

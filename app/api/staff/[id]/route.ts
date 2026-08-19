@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateStaff, type StaffRole } from "@/lib/googleSheets";
+import {
+  deleteStaff,
+  getStaffById,
+  staffHasEquipmentCheckoutHistory,
+  updateStaff,
+  type StaffRole,
+} from "@/lib/googleSheets";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -12,7 +18,7 @@ function errorStatus(err: unknown): number {
 // Editing/deactivating an existing Staff record — not in the original DO
 // list (only GET/POST were required), but needed so a mis-assigned Role or
 // a departed employee can be fixed without hand-editing the sheet. Soft
-// deactivate only (Active=No), matching this app's no-hard-delete convention.
+// deactivate (Active=No) — for a real removal, see DELETE below.
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
     const { id } = await params;
@@ -37,6 +43,45 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     console.error("[staff/[id] PATCH]", err);
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : "Failed to update staff record." },
+      { status: errorStatus(err) }
+    );
+  }
+}
+
+// Hard delete, unlike PATCH's Active=No deactivate above. Blocked whenever
+// this staff id appears as SignedOutByStaffId/SignedInByStaffId on any
+// EquipmentCheckouts row — deleting them would silently orphan that
+// sign-off audit trail, so deactivate is the only option once they have
+// history.
+export async function DELETE(_request: NextRequest, { params }: RouteContext) {
+  try {
+    const { id } = await params;
+
+    // Independent reads — different tabs, run in parallel.
+    const [staff, hasHistory] = await Promise.all([
+      getStaffById(id),
+      staffHasEquipmentCheckoutHistory(id),
+    ]);
+
+    if (!staff) {
+      return NextResponse.json({ success: false, error: "Staff record not found." }, { status: 404 });
+    }
+    if (hasHistory) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "This person has equipment sign-off history — deactivate instead of deleting.",
+        },
+        { status: 409 }
+      );
+    }
+
+    await deleteStaff(id);
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("[staff/[id] DELETE]", err);
+    return NextResponse.json(
+      { success: false, error: err instanceof Error ? err.message : "Failed to delete staff record." },
       { status: errorStatus(err) }
     );
   }

@@ -4036,6 +4036,38 @@ export async function updateStaff(
   });
 }
 
+// Guards deleteStaff below — EquipmentCheckouts' SignedOutByStaffId/
+// SignedInByStaffId reference a Staff id directly with no foreign-key
+// enforcement at the sheet level, so a hard delete could silently orphan
+// that audit trail. Checked before every delete (see app/api/staff/[id]/
+// route.ts's DELETE handler) — never checked for deactivate, which doesn't
+// touch history.
+export async function staffHasEquipmentCheckoutHistory(staffId: string): Promise<boolean> {
+  const checkouts = await fetchEquipmentCheckouts();
+  return checkouts.some((c) => c.signedOutByStaffId === staffId || c.signedInByStaffId === staffId);
+}
+
+// Hard delete — unlike updateStaff's Active=No soft-disable, this clears the
+// row entirely. Callers must run staffHasEquipmentCheckoutHistory first;
+// this function itself doesn't check, matching the low-level "clear a row"
+// pattern used by deleteScheduleException/deleteSubcontractorVisit
+// elsewhere in this file.
+export async function deleteStaff(id: string): Promise<void> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing staff id.");
+
+  invalidateCache(`tab-${STAFF_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetRow = await findStaffRow(sheets, targetId);
+
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${STAFF_TAB}!A${sheetRow}:D${sheetRow}`,
+  });
+}
+
 // ─── Equipment Categories ───────────────────────────────────────────────────
 // No hardcoded categories anywhere in the UI/API — always read from this
 // tab. Deactivating a category (Active=No) never deletes it, so equipment
@@ -4867,4 +4899,172 @@ export async function adjustEquipmentPartStock(
   const updated = parts.find((p) => p.id === targetId);
   if (!updated) throw new Error(`Equipment part "${targetId}" not found after update.`);
   return updated;
+}
+
+// ─── Sales & Commissions ─────────────────────────────────────────────────
+// Migrated off the Apps Script backend (strangler-fig, same as
+// updateSubcontractor above) — needed so app/api/sales/route.ts can write
+// the two new RecurringStartDate/RecurringEndDate columns as part of the
+// same request that creates the sale, rather than splitting one form
+// submission across two different backends. Confirmed against the live
+// sheet's actual header row before writing this (A:R already in production
+// use; S/T are new — see scripts/setup-sales-recurring-columns.js for how
+// they were added).
+//
+// Column Q ("Amount") is a second, older amount field the sheet already
+// had before this migration — this app doesn't know why it exists
+// separately from H ("Amount Sold"), but appendSale below writes the same
+// value to both so nothing that already reads Q (e.g. app/reports/page.tsx)
+// silently regresses. Column R ("Commission Amount") is the confirmed-dead
+// duplicate of J — appendSale never writes to it, matching the guardrail.
+
+const SALES_TAB = "Sales & Commissions";
+const SALES_RANGE = `'${SALES_TAB}'`; // has a space and "&", must be quoted in A1 notation
+
+const SALES_COL = {
+  SALE_ID: 0, // A
+  ACCOUNT_ID: 1, // B
+  ACCOUNT_NAME: 2, // C
+  SALE_DATE: 3, // D
+  SERVICE_SOLD: 4, // E
+  WORK_ORDER_ESTIMATE_NUMBER: 5, // F
+  SOLD_BY: 6, // G
+  AMOUNT_SOLD: 7, // H
+  COMMISSION_PERCENT: 8, // I
+  COMMISSION_AMOUNT: 9, // J
+  STATUS: 10, // K
+  NOTES: 11, // L
+  CREATED_AT: 12, // M
+  UPDATED_AT: 13, // N
+  SERVICE_TYPE: 14, // O
+  MANAGER: 15, // P
+  AMOUNT: 16, // Q — legacy duplicate of H, kept in sync, never the source of truth
+  // R = 17, "Commission Amount" — confirmed dead duplicate of J. NEVER
+  // written by this app going forward; index intentionally omitted from
+  // this map so nothing here can accidentally target it.
+  RECURRING_START_DATE: 18, // S — new; required only when commissionPercent === 4
+  RECURRING_END_DATE: 19, // T — new; required only when commissionPercent === 4
+} as const;
+
+export type Sale = {
+  sheetRow: number;
+  id: string;
+  accountId: string;
+  accountName: string;
+  saleDate: string;
+  serviceSold: string;
+  workOrderEstimateNumber: string;
+  soldBy: string;
+  amountSold: number;
+  commissionPercent: number;
+  commissionAmount: number;
+  status: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  serviceType: string;
+  manager: string;
+  amount: number;
+  recurringStartDate: string;
+  recurringEndDate: string;
+};
+
+async function fetchSalesRows(): Promise<string[][]> {
+  const cacheKey = `tab-${SALES_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${SALES_RANGE}!A:T`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+function rowToSale(r: string[], sheetRow: number): Sale {
+  return {
+    sheetRow,
+    id: r[SALES_COL.SALE_ID] ?? "",
+    accountId: r[SALES_COL.ACCOUNT_ID] ?? "",
+    accountName: r[SALES_COL.ACCOUNT_NAME] ?? "",
+    saleDate: r[SALES_COL.SALE_DATE] ?? "",
+    serviceSold: r[SALES_COL.SERVICE_SOLD] ?? "",
+    workOrderEstimateNumber: r[SALES_COL.WORK_ORDER_ESTIMATE_NUMBER] ?? "",
+    soldBy: r[SALES_COL.SOLD_BY] ?? "",
+    amountSold: Number(r[SALES_COL.AMOUNT_SOLD]) || 0,
+    commissionPercent: Number(r[SALES_COL.COMMISSION_PERCENT]) || 0,
+    commissionAmount: Number(r[SALES_COL.COMMISSION_AMOUNT]) || 0,
+    status: r[SALES_COL.STATUS] ?? "",
+    notes: r[SALES_COL.NOTES] ?? "",
+    createdAt: r[SALES_COL.CREATED_AT] ?? "",
+    updatedAt: r[SALES_COL.UPDATED_AT] ?? "",
+    serviceType: r[SALES_COL.SERVICE_TYPE] ?? "",
+    manager: r[SALES_COL.MANAGER] ?? "",
+    amount: Number(r[SALES_COL.AMOUNT]) || 0,
+    recurringStartDate: r[SALES_COL.RECURRING_START_DATE] ?? "",
+    recurringEndDate: r[SALES_COL.RECURRING_END_DATE] ?? "",
+  };
+}
+
+export async function fetchSales(): Promise<Sale[]> {
+  const rows = await fetchSalesRows();
+  return rows.map((r, i) => rowToSale(r, i + 2)).filter((s) => s.id);
+}
+
+export type SaleInput = {
+  accountId: string;
+  accountName: string;
+  saleDate: string;
+  serviceSold: string;
+  workOrderEstimateNumber: string;
+  soldBy: string;
+  amountSold: number;
+  commissionPercent: number;
+  status: string;
+  notes: string;
+  serviceType: string;
+  manager: string;
+  recurringStartDate: string;
+  recurringEndDate: string;
+};
+
+export async function appendSale(data: SaleInput): Promise<string> {
+  const stamp = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const id = `SALE-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`;
+
+  const commissionAmount = data.amountSold * (data.commissionPercent / 100);
+  const now = new Date().toISOString();
+
+  const row = Array(20).fill("") as string[];
+  row[SALES_COL.SALE_ID] = id;
+  row[SALES_COL.ACCOUNT_ID] = data.accountId;
+  row[SALES_COL.ACCOUNT_NAME] = data.accountName;
+  row[SALES_COL.SALE_DATE] = data.saleDate;
+  row[SALES_COL.SERVICE_SOLD] = data.serviceSold;
+  row[SALES_COL.WORK_ORDER_ESTIMATE_NUMBER] = data.workOrderEstimateNumber;
+  row[SALES_COL.SOLD_BY] = data.soldBy;
+  row[SALES_COL.AMOUNT_SOLD] = String(data.amountSold);
+  row[SALES_COL.COMMISSION_PERCENT] = String(data.commissionPercent);
+  row[SALES_COL.COMMISSION_AMOUNT] = String(commissionAmount);
+  row[SALES_COL.STATUS] = data.status;
+  row[SALES_COL.NOTES] = data.notes;
+  row[SALES_COL.CREATED_AT] = now;
+  row[SALES_COL.UPDATED_AT] = now;
+  row[SALES_COL.SERVICE_TYPE] = data.serviceType;
+  row[SALES_COL.MANAGER] = data.manager;
+  row[SALES_COL.AMOUNT] = String(data.amountSold); // kept in sync with H — see section header comment
+  row[SALES_COL.RECURRING_START_DATE] = data.recurringStartDate;
+  row[SALES_COL.RECURRING_END_DATE] = data.recurringEndDate;
+  // Index 17 (R, "Commission Amount") is left as "" — never written.
+
+  await appendToMainSheet(SALES_RANGE, row);
+  return id;
 }

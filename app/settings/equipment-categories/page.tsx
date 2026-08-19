@@ -307,6 +307,30 @@ function StaffSection() {
     }
   }
 
+  // Matches the confirm() pattern used elsewhere in the app (e.g.
+  // app/documents/page.tsx's handleDelete). The API blocks the delete with
+  // a 409 if this person has equipment sign-off history — that error is
+  // just surfaced here, not pre-checked client-side.
+  async function handleDelete(member: Staff) {
+    if (!window.confirm(`Delete ${member.name}? This cannot be undone.`)) return;
+
+    setSavingId(member.id);
+    setActionError("");
+    try {
+      const response = await fetch(`/api/staff/${member.id}`, { method: "DELETE" });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!data.success) {
+        setActionError(data.error || "Failed to delete staff.");
+        return;
+      }
+      await loadStaff();
+    } catch {
+      setActionError("Network error deleting staff.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <div className="mb-4">
@@ -386,14 +410,24 @@ function StaffSection() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => toggleActive(member)}
-                      disabled={savingId === member.id}
-                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {member.active ? "Deactivate" : "Activate"}
-                    </button>
+                    <div className="flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => toggleActive(member)}
+                        disabled={savingId === member.id}
+                        className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {member.active ? "Deactivate" : "Activate"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(member)}
+                        disabled={savingId === member.id}
+                        className="font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
