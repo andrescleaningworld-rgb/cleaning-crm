@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
+import { todayISO } from "@/lib/dateUtils";
 
 export type SubSchedule = {
   sheetRow: number;
@@ -32,18 +33,6 @@ const FREQUENCIES: { id: string; label: string }[] = [
   { id: "MONTHLY_2X", label: "2x per Month" },
   { id: "AS_NEEDED", label: "As Needed" },
 ];
-
-// Matches the Eastern-time-safe todayISO() used in sub-schedule-tab.tsx —
-// new Date().toISOString() reads UTC, which in the evening (US Eastern) has
-// already rolled to the next day and would default EffectiveDate to tomorrow.
-function todayISO(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 
 type Props = {
   target: SubSchedule;

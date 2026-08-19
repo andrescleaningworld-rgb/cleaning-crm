@@ -2,6 +2,13 @@
 // Sheets/Node dependencies — safe to import from both server code and
 // "use client" components.
 
+import { toISO, parseISO, todayISO } from "./dateUtils";
+
+// Re-exported so existing importers of toISO/parseISO/todayISO from this
+// module keep working unchanged — the canonical definitions now live in
+// lib/dateUtils.ts.
+export { toISO, parseISO, todayISO };
+
 export type ScheduleFrequency = "WEEKLY" | "BIWEEKLY" | "MONTHLY_1X" | "MONTHLY_2X" | "AS_NEEDED";
 
 export const SCHEDULE_FREQUENCIES: ScheduleFrequency[] = [
@@ -26,16 +33,6 @@ export type RecurrenceInput = {
 
 const DAYS_MON_FIRST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const ORDINALS = ["1st", "2nd", "3rd", "4th"];
-
-function toISO(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function parseISO(iso: string): Date {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
 
 function dayName(d: Date): string {
   return DAYS_MON_FIRST[(d.getDay() + 6) % 7];
@@ -177,18 +174,6 @@ export function generateScheduleDates(row: RecurrenceInput, rangeStart: Date, ra
     default:
       return [];
   }
-}
-
-// Eastern-time-safe "today" — matches the todayISO() helpers already used in
-// schedule-modal.tsx / sub-schedule-tab.tsx (new Date().toISOString() reads
-// UTC, which in the evening US Eastern has already rolled to the next day).
-export function todayISO(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 }
 
 // Defense-in-depth on top of the stored Status column: a pattern-change edit

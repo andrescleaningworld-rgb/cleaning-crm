@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { parseISO, toISO } from "@/lib/dateUtils";
 
 type Visit = {
   id?: string;
@@ -33,18 +34,22 @@ function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+// visit.date / visit.followUpDate come back as plain "YYYY-MM-DD" strings —
+// parsed via the shared parseISO() (local Date components) rather than
+// new Date(str), which JS treats as UTC midnight and would shift the date
+// back a day for anyone in a US timezone. Any other format (unexpected, but
+// defensive) falls back to generic Date parsing rather than failing outright.
 function toISODate(value: unknown): string {
   const text = clean(value);
   if (!text) return "";
-  const d = new Date(text);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(text) ? parseISO(text) : new Date(text);
+  return Number.isNaN(d.getTime()) ? "" : toISO(d);
 }
 
 function formatDate(value: unknown): string {
   const text = clean(value);
   if (!text) return "-";
-  const date = new Date(text);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(text) ? parseISO(text) : new Date(text);
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleDateString("en-US", {
     month: "short",
