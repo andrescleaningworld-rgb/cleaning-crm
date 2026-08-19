@@ -723,6 +723,21 @@ export default function SettingsPage() {
           <span className="ml-4 shrink-0 text-purple-500">→</span>
         </Link>
 
+        {/* Equipment Categories & Staff shortcut */}
+        <Link
+          href="/settings/equipment-categories"
+          className="mb-6 flex items-center justify-between rounded-xl border border-teal-200 bg-teal-50 px-5 py-4 shadow-sm transition hover:bg-teal-100"
+        >
+          <div>
+            <p className="font-bold text-teal-900">Equipment Categories &amp; Staff</p>
+            <p className="mt-0.5 text-sm text-teal-700">
+              Manage equipment categories and the Staff roster used for checkout/return sign-off. Full
+              equipment inventory lives on its own Equipment page.
+            </p>
+          </div>
+          <span className="ml-4 shrink-0 text-teal-500">→</span>
+        </Link>
+
         {/* Logs shortcut */}
         <Link
           href="/settings/logs"

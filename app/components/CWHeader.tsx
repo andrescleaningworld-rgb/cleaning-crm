@@ -21,12 +21,14 @@ const adminNavItems = [
   { href: "/sales", label: "Sales" },
   { href: "/reports", label: "Reports" },
   { href: "/documents", label: "Documents" },
+  { href: "/equipment", label: "Equipment" },
   { href: "/settings", label: "Settings" },
   { href: "/map", label: "Map" },
 ];
 
 const subcontractorNavItems = [
   { href: "/subcontractor-portal", label: "Home" },
+  { href: "/subcontractor-portal/equipment", label: "Equipment" },
 ];
 
 const customerNavItems = [

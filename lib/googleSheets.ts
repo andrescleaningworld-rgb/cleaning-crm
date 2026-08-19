@@ -3883,3 +3883,802 @@ export async function getAllAccountsForSubEnrichment(): Promise<RawAccountForSub
     "Monthly Subcontractor Pay": row[ACCOUNTS_REVENUE_COL.MONTHLY_SUB_PAY] ?? "",
   }));
 }
+
+// ─── Equipment Tracking ─────────────────────────────────────────────────────
+// New, isolated module. Five tabs, all in GOOGLE_MAIN_SHEET_ID (see
+// scripts/setup-equipment-tabs.js): Staff, EquipmentCategories, Equipment,
+// EquipmentCheckouts, EquipmentParts. Direct Sheets API only — no Apps
+// Script calls anywhere in this section.
+//
+// Equipment's Status/CurrentHolder*/CheckedOutAt/ExpectedReturnAt/
+// NeedsMaintenanceReview columns are kept denormalized onto the Equipment
+// row itself (written by checkout/return below) rather than requiring a
+// join against EquipmentCheckouts on every read. That's deliberate: the
+// list page (app/equipment/page.tsx) must be able to show status, holder,
+// and overdue state reading only the Equipment tab — EquipmentCheckouts is
+// read only by the per-item detail page's history view.
+
+function stampId(prefix: string): string {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `${prefix}-${stamp.slice(-8)}-${rand}`;
+}
+
+// ─── Staff ───────────────────────────────────────────────────────────────
+// Self-declared identity for equipment sign-off — no new login system.
+// Mirrors the Managers tab's shape/conventions.
+
+const STAFF_TAB = "Staff";
+const STAFF_COL = { ID: 0, NAME: 1, ROLE: 2, ACTIVE: 3 } as const;
+
+export type StaffRole = "Manager" | "OfficeStaff" | "InsideStaff";
+
+export type Staff = {
+  sheetRow: number;
+  id: string;
+  name: string;
+  role: StaffRole;
+  active: boolean;
+};
+
+function normalizeStaffRole(value: string): StaffRole {
+  const trimmed = value.trim();
+  if (trimmed === "Manager" || trimmed === "OfficeStaff" || trimmed === "InsideStaff") {
+    return trimmed;
+  }
+  return "InsideStaff";
+}
+
+async function fetchStaffRows(): Promise<string[][]> {
+  const cacheKey = `tab-${STAFF_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${STAFF_TAB}!A:D`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchStaff(): Promise<Staff[]> {
+  const rows = await fetchStaffRows();
+  return rows
+    .map((r, i) => ({
+      sheetRow: i + 2,
+      id: r[STAFF_COL.ID] ?? "",
+      name: r[STAFF_COL.NAME] ?? "",
+      role: normalizeStaffRole(r[STAFF_COL.ROLE] ?? ""),
+      active: (r[STAFF_COL.ACTIVE] ?? "").trim().toUpperCase() !== "NO",
+    }))
+    .filter((s) => s.id);
+}
+
+export async function getStaffById(id: string): Promise<Staff | null> {
+  const targetId = id.trim();
+  if (!targetId) return null;
+  const staff = await fetchStaff();
+  return staff.find((s) => s.id === targetId) ?? null;
+}
+
+// Enforces the checkout/return sign-off rule: only an Active Staff record
+// with Role Manager or OfficeStaff may authorize a checkout/return.
+// InsideStaff (regular crew) can be an equipment HOLDER but never a signer.
+export async function getActiveSigningStaffById(id: string): Promise<Staff | null> {
+  const staff = await getStaffById(id);
+  if (!staff || !staff.active) return null;
+  if (staff.role !== "Manager" && staff.role !== "OfficeStaff") return null;
+  return staff;
+}
+
+export async function appendStaff(data: {
+  name: string;
+  role: StaffRole;
+  active: boolean;
+}): Promise<string> {
+  const id = stampId("STF");
+  await appendToMainSheet(STAFF_TAB, [id, data.name, data.role, data.active ? "Yes" : "No"]);
+  return id;
+}
+
+async function findStaffRow(
+  sheets: ReturnType<typeof google.sheets>,
+  targetId: string
+): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${STAFF_TAB}!A:D`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[STAFF_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) throw new Error(`Staff "${targetId}" not found.`);
+  return rowIndex + 2;
+}
+
+export async function updateStaff(
+  id: string,
+  fields: Partial<{ name: string; role: StaffRole; active: boolean }>
+): Promise<void> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing staff id.");
+
+  invalidateCache(`tab-${STAFF_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetRow = await findStaffRow(sheets, targetId);
+
+  const data: { range: string; values: string[][] }[] = [];
+  if (fields.name !== undefined) {
+    data.push({ range: `${STAFF_TAB}!B${sheetRow}`, values: [[fields.name]] });
+  }
+  if (fields.role !== undefined) {
+    data.push({ range: `${STAFF_TAB}!C${sheetRow}`, values: [[fields.role]] });
+  }
+  if (fields.active !== undefined) {
+    data.push({ range: `${STAFF_TAB}!D${sheetRow}`, values: [[fields.active ? "Yes" : "No"]] });
+  }
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+// ─── Equipment Categories ───────────────────────────────────────────────────
+// No hardcoded categories anywhere in the UI/API — always read from this
+// tab. Deactivating a category (Active=No) never deletes it, so equipment
+// rows that already reference it keep resolving a label.
+
+const EQUIPMENT_CATEGORIES_TAB = "EquipmentCategories";
+const EQUIPMENT_CATEGORY_COL = { ID: 0, NAME: 1, ACTIVE: 2 } as const;
+
+export type EquipmentCategory = {
+  sheetRow: number;
+  id: string;
+  name: string;
+  active: boolean;
+};
+
+async function fetchEquipmentCategoryRows(): Promise<string[][]> {
+  const cacheKey = `tab-${EQUIPMENT_CATEGORIES_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_CATEGORIES_TAB}!A:C`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchEquipmentCategories(): Promise<EquipmentCategory[]> {
+  const rows = await fetchEquipmentCategoryRows();
+  return rows
+    .map((r, i) => ({
+      sheetRow: i + 2,
+      id: r[EQUIPMENT_CATEGORY_COL.ID] ?? "",
+      name: r[EQUIPMENT_CATEGORY_COL.NAME] ?? "",
+      active: (r[EQUIPMENT_CATEGORY_COL.ACTIVE] ?? "").trim().toUpperCase() !== "NO",
+    }))
+    .filter((c) => c.id);
+}
+
+export async function appendEquipmentCategory(name: string): Promise<string> {
+  const id = stampId("CAT");
+  await appendToMainSheet(EQUIPMENT_CATEGORIES_TAB, [id, name, "Yes"]);
+  return id;
+}
+
+async function findEquipmentCategoryRow(
+  sheets: ReturnType<typeof google.sheets>,
+  targetId: string
+): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_CATEGORIES_TAB}!A:C`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[EQUIPMENT_CATEGORY_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) throw new Error(`Equipment category "${targetId}" not found.`);
+  return rowIndex + 2;
+}
+
+export async function updateEquipmentCategory(
+  id: string,
+  fields: Partial<{ name: string; active: boolean }>
+): Promise<void> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing equipment category id.");
+
+  invalidateCache(`tab-${EQUIPMENT_CATEGORIES_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetRow = await findEquipmentCategoryRow(sheets, targetId);
+
+  const data: { range: string; values: string[][] }[] = [];
+  if (fields.name !== undefined) {
+    data.push({ range: `${EQUIPMENT_CATEGORIES_TAB}!B${sheetRow}`, values: [[fields.name]] });
+  }
+  if (fields.active !== undefined) {
+    data.push({ range: `${EQUIPMENT_CATEGORIES_TAB}!C${sheetRow}`, values: [[fields.active ? "Yes" : "No"]] });
+  }
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+// ─── Equipment ───────────────────────────────────────────────────────────
+// Columns N-P (CheckedOutAt/ExpectedReturnAt/NeedsMaintenanceReview) exist
+// only so the list page can compute status/overdue without reading
+// EquipmentCheckouts — see this section's header comment.
+
+const EQUIPMENT_TAB = "Equipment";
+const EQUIPMENT_COL = {
+  ID: 0,
+  NAME: 1,
+  CATEGORY_ID: 2,
+  SERIAL_NUMBER: 3,
+  PURCHASE_DATE: 4,
+  PURCHASE_COST: 5,
+  STATUS: 6,
+  CURRENT_HOLDER_TYPE: 7,
+  CURRENT_HOLDER_ID: 8,
+  CURRENT_HOLDER_NAME: 9,
+  CONDITION_NOTES: 10,
+  PHOTO_URL: 11,
+  CREATED_AT: 12,
+  CHECKED_OUT_AT: 13,
+  EXPECTED_RETURN_AT: 14,
+  NEEDS_MAINTENANCE_REVIEW: 15,
+} as const;
+
+export type EquipmentStatus = "Available" | "CheckedOut" | "InRepair" | "Retired";
+export type EquipmentHolderType = "InsideStaff" | "Sub";
+
+export type EquipmentItem = {
+  sheetRow: number;
+  id: string;
+  name: string;
+  categoryId: string;
+  serialNumber: string;
+  purchaseDate: string;
+  purchaseCost: number;
+  status: EquipmentStatus;
+  currentHolderType: EquipmentHolderType | "";
+  currentHolderId: string;
+  currentHolderName: string;
+  conditionNotes: string;
+  photoUrl: string;
+  createdAt: string;
+  checkedOutAt: string;
+  expectedReturnAt: string;
+  needsMaintenanceReview: boolean;
+  overdue: boolean; // computed, not stored
+};
+
+function normalizeEquipmentStatus(value: string): EquipmentStatus {
+  const trimmed = value.trim();
+  if (trimmed === "Available" || trimmed === "CheckedOut" || trimmed === "InRepair" || trimmed === "Retired") {
+    return trimmed;
+  }
+  return "Available";
+}
+
+function getOverdueThresholdDays(): number {
+  const raw = Number(process.env.EQUIPMENT_OVERDUE_DEFAULT_DAYS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 7;
+}
+
+function computeEquipmentOverdue(
+  status: EquipmentStatus,
+  checkedOutAt: string,
+  expectedReturnAt: string
+): boolean {
+  if (status !== "CheckedOut") return false;
+
+  if (expectedReturnAt) {
+    const expected = new Date(expectedReturnAt).getTime();
+    return Number.isFinite(expected) && expected < Date.now();
+  }
+
+  if (!checkedOutAt) return false;
+  const checkedOut = new Date(checkedOutAt).getTime();
+  if (!Number.isFinite(checkedOut)) return false;
+
+  const thresholdMs = getOverdueThresholdDays() * 24 * 60 * 60 * 1000;
+  return Date.now() - checkedOut > thresholdMs;
+}
+
+async function fetchEquipmentRows(): Promise<string[][]> {
+  const cacheKey = `tab-${EQUIPMENT_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_TAB}!A:P`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+function rowToEquipmentItem(r: string[], sheetRow: number): EquipmentItem {
+  const status = normalizeEquipmentStatus(r[EQUIPMENT_COL.STATUS] ?? "");
+  const checkedOutAt = r[EQUIPMENT_COL.CHECKED_OUT_AT] ?? "";
+  const expectedReturnAt = r[EQUIPMENT_COL.EXPECTED_RETURN_AT] ?? "";
+  const holderType = (r[EQUIPMENT_COL.CURRENT_HOLDER_TYPE] ?? "").trim();
+
+  return {
+    sheetRow,
+    id: r[EQUIPMENT_COL.ID] ?? "",
+    name: r[EQUIPMENT_COL.NAME] ?? "",
+    categoryId: r[EQUIPMENT_COL.CATEGORY_ID] ?? "",
+    serialNumber: r[EQUIPMENT_COL.SERIAL_NUMBER] ?? "",
+    purchaseDate: r[EQUIPMENT_COL.PURCHASE_DATE] ?? "",
+    purchaseCost: Number(r[EQUIPMENT_COL.PURCHASE_COST]) || 0,
+    status,
+    currentHolderType: holderType === "InsideStaff" || holderType === "Sub" ? holderType : "",
+    currentHolderId: r[EQUIPMENT_COL.CURRENT_HOLDER_ID] ?? "",
+    currentHolderName: r[EQUIPMENT_COL.CURRENT_HOLDER_NAME] ?? "",
+    conditionNotes: r[EQUIPMENT_COL.CONDITION_NOTES] ?? "",
+    photoUrl: r[EQUIPMENT_COL.PHOTO_URL] ?? "",
+    createdAt: r[EQUIPMENT_COL.CREATED_AT] ?? "",
+    checkedOutAt,
+    expectedReturnAt,
+    needsMaintenanceReview: (r[EQUIPMENT_COL.NEEDS_MAINTENANCE_REVIEW] ?? "").trim().toUpperCase() === "YES",
+    overdue: computeEquipmentOverdue(status, checkedOutAt, expectedReturnAt),
+  };
+}
+
+// Reads ONLY the Equipment tab — see app/equipment/page.tsx's guardrail.
+export async function fetchEquipmentList(): Promise<EquipmentItem[]> {
+  const rows = await fetchEquipmentRows();
+  return rows.map((r, i) => rowToEquipmentItem(r, i + 2)).filter((e) => e.id);
+}
+
+export async function getEquipmentById(id: string): Promise<EquipmentItem | null> {
+  const targetId = id.trim();
+  if (!targetId) return null;
+  const items = await fetchEquipmentList();
+  return items.find((e) => e.id === targetId) ?? null;
+}
+
+export async function appendEquipmentItem(data: {
+  name: string;
+  categoryId: string;
+  serialNumber: string;
+  purchaseDate: string;
+  purchaseCost: number;
+  conditionNotes: string;
+  photoUrl: string;
+}): Promise<string> {
+  const id = stampId("EQP");
+  const row = Array(16).fill("") as string[];
+  row[EQUIPMENT_COL.ID] = id;
+  row[EQUIPMENT_COL.NAME] = data.name;
+  row[EQUIPMENT_COL.CATEGORY_ID] = data.categoryId;
+  row[EQUIPMENT_COL.SERIAL_NUMBER] = data.serialNumber;
+  row[EQUIPMENT_COL.PURCHASE_DATE] = data.purchaseDate;
+  row[EQUIPMENT_COL.PURCHASE_COST] = String(data.purchaseCost || 0);
+  row[EQUIPMENT_COL.STATUS] = "Available";
+  row[EQUIPMENT_COL.CONDITION_NOTES] = data.conditionNotes;
+  row[EQUIPMENT_COL.PHOTO_URL] = data.photoUrl;
+  row[EQUIPMENT_COL.CREATED_AT] = new Date().toISOString();
+  await appendToMainSheet(EQUIPMENT_TAB, row);
+  return id;
+}
+
+async function findEquipmentRow(
+  sheets: ReturnType<typeof google.sheets>,
+  targetId: string
+): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_TAB}!A:P`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[EQUIPMENT_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) throw new Error(`Equipment "${targetId}" not found.`);
+  return rowIndex + 2;
+}
+
+const EQUIPMENT_COL_LETTERS: Record<string, string> = {
+  name: "B",
+  categoryId: "C",
+  serialNumber: "D",
+  purchaseDate: "E",
+  purchaseCost: "F",
+  status: "G",
+  currentHolderType: "H",
+  currentHolderId: "I",
+  currentHolderName: "J",
+  conditionNotes: "K",
+  photoUrl: "L",
+  checkedOutAt: "N",
+  expectedReturnAt: "O",
+  needsMaintenanceReview: "P",
+};
+
+export async function updateEquipmentFields(
+  id: string,
+  fields: Partial<{
+    name: string;
+    categoryId: string;
+    serialNumber: string;
+    purchaseDate: string;
+    purchaseCost: number;
+    status: EquipmentStatus;
+    currentHolderType: EquipmentHolderType | "";
+    currentHolderId: string;
+    currentHolderName: string;
+    conditionNotes: string;
+    photoUrl: string;
+    checkedOutAt: string;
+    expectedReturnAt: string;
+    needsMaintenanceReview: boolean;
+  }>
+): Promise<void> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing equipment id.");
+
+  invalidateCache(`tab-${EQUIPMENT_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetRow = await findEquipmentRow(sheets, targetId);
+
+  const data: { range: string; values: string[][] }[] = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    const colLetter = EQUIPMENT_COL_LETTERS[key];
+    if (!colLetter) continue;
+    const written =
+      key === "needsMaintenanceReview" ? (value ? "Yes" : "No") : String(value);
+    data.push({ range: `${EQUIPMENT_TAB}!${colLetter}${sheetRow}`, values: [[written]] });
+  }
+
+  if (data.length === 0) return;
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+// ─── Equipment Checkouts ─────────────────────────────────────────────────
+// Read only by app/equipment/[id]/page.tsx's history view — never by the
+// list page (see this section's header comment).
+
+const EQUIPMENT_CHECKOUTS_TAB = "EquipmentCheckouts";
+const EQUIPMENT_CHECKOUT_COL = {
+  ID: 0,
+  EQUIPMENT_ID: 1,
+  HOLDER_TYPE: 2,
+  HOLDER_ID: 3,
+  HOLDER_NAME: 4,
+  ACCOUNT_ID: 5,
+  CHECKED_OUT_AT: 6,
+  EXPECTED_RETURN_AT: 7,
+  RETURNED_AT: 8,
+  CONDITION_AT_CHECKOUT: 9,
+  CONDITION_AT_RETURN: 10,
+  SIGNED_OUT_BY_STAFF_ID: 11,
+  SIGNED_OUT_BY_STAFF_NAME: 12,
+  SIGNED_IN_BY_STAFF_ID: 13,
+  SIGNED_IN_BY_STAFF_NAME: 14,
+  NOTES: 15,
+} as const;
+
+export type EquipmentCheckout = {
+  sheetRow: number;
+  id: string;
+  equipmentId: string;
+  holderType: EquipmentHolderType | "";
+  holderId: string;
+  holderName: string;
+  accountId: string;
+  checkedOutAt: string;
+  expectedReturnAt: string;
+  returnedAt: string;
+  conditionAtCheckout: string;
+  conditionAtReturn: string;
+  signedOutByStaffId: string;
+  signedOutByStaffName: string;
+  signedInByStaffId: string;
+  signedInByStaffName: string;
+  notes: string;
+};
+
+function rowToEquipmentCheckout(r: string[], sheetRow: number): EquipmentCheckout {
+  const holderType = (r[EQUIPMENT_CHECKOUT_COL.HOLDER_TYPE] ?? "").trim();
+  return {
+    sheetRow,
+    id: r[EQUIPMENT_CHECKOUT_COL.ID] ?? "",
+    equipmentId: r[EQUIPMENT_CHECKOUT_COL.EQUIPMENT_ID] ?? "",
+    holderType: holderType === "InsideStaff" || holderType === "Sub" ? holderType : "",
+    holderId: r[EQUIPMENT_CHECKOUT_COL.HOLDER_ID] ?? "",
+    holderName: r[EQUIPMENT_CHECKOUT_COL.HOLDER_NAME] ?? "",
+    accountId: r[EQUIPMENT_CHECKOUT_COL.ACCOUNT_ID] ?? "",
+    checkedOutAt: r[EQUIPMENT_CHECKOUT_COL.CHECKED_OUT_AT] ?? "",
+    expectedReturnAt: r[EQUIPMENT_CHECKOUT_COL.EXPECTED_RETURN_AT] ?? "",
+    returnedAt: r[EQUIPMENT_CHECKOUT_COL.RETURNED_AT] ?? "",
+    conditionAtCheckout: r[EQUIPMENT_CHECKOUT_COL.CONDITION_AT_CHECKOUT] ?? "",
+    conditionAtReturn: r[EQUIPMENT_CHECKOUT_COL.CONDITION_AT_RETURN] ?? "",
+    signedOutByStaffId: r[EQUIPMENT_CHECKOUT_COL.SIGNED_OUT_BY_STAFF_ID] ?? "",
+    signedOutByStaffName: r[EQUIPMENT_CHECKOUT_COL.SIGNED_OUT_BY_STAFF_NAME] ?? "",
+    signedInByStaffId: r[EQUIPMENT_CHECKOUT_COL.SIGNED_IN_BY_STAFF_ID] ?? "",
+    signedInByStaffName: r[EQUIPMENT_CHECKOUT_COL.SIGNED_IN_BY_STAFF_NAME] ?? "",
+    notes: r[EQUIPMENT_CHECKOUT_COL.NOTES] ?? "",
+  };
+}
+
+async function fetchEquipmentCheckoutRows(): Promise<string[][]> {
+  const cacheKey = `tab-${EQUIPMENT_CHECKOUTS_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_CHECKOUTS_TAB}!A:P`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchEquipmentCheckouts(equipmentId?: string): Promise<EquipmentCheckout[]> {
+  const rows = await fetchEquipmentCheckoutRows();
+  const all = rows.map((r, i) => rowToEquipmentCheckout(r, i + 2)).filter((c) => c.id);
+  const filtered = equipmentId ? all.filter((c) => c.equipmentId === equipmentId) : all;
+  return filtered.sort((a, b) => (b.checkedOutAt || "").localeCompare(a.checkedOutAt || ""));
+}
+
+export async function appendEquipmentCheckout(data: {
+  equipmentId: string;
+  holderType: EquipmentHolderType;
+  holderId: string;
+  holderName: string;
+  accountId: string;
+  checkedOutAt: string;
+  expectedReturnAt: string;
+  conditionAtCheckout: string;
+  signedOutByStaffId: string;
+  signedOutByStaffName: string;
+}): Promise<string> {
+  const id = stampId("CHK");
+  const row = Array(16).fill("") as string[];
+  row[EQUIPMENT_CHECKOUT_COL.ID] = id;
+  row[EQUIPMENT_CHECKOUT_COL.EQUIPMENT_ID] = data.equipmentId;
+  row[EQUIPMENT_CHECKOUT_COL.HOLDER_TYPE] = data.holderType;
+  row[EQUIPMENT_CHECKOUT_COL.HOLDER_ID] = data.holderId;
+  row[EQUIPMENT_CHECKOUT_COL.HOLDER_NAME] = data.holderName;
+  row[EQUIPMENT_CHECKOUT_COL.ACCOUNT_ID] = data.accountId;
+  row[EQUIPMENT_CHECKOUT_COL.CHECKED_OUT_AT] = data.checkedOutAt;
+  row[EQUIPMENT_CHECKOUT_COL.EXPECTED_RETURN_AT] = data.expectedReturnAt;
+  row[EQUIPMENT_CHECKOUT_COL.CONDITION_AT_CHECKOUT] = data.conditionAtCheckout;
+  row[EQUIPMENT_CHECKOUT_COL.SIGNED_OUT_BY_STAFF_ID] = data.signedOutByStaffId;
+  row[EQUIPMENT_CHECKOUT_COL.SIGNED_OUT_BY_STAFF_NAME] = data.signedOutByStaffName;
+  await appendToMainSheet(EQUIPMENT_CHECKOUTS_TAB, row);
+  return id;
+}
+
+// Fresh (uncached) read — this feeds an immediate write (the return flow),
+// so it needs the current sheet row, not a possibly-stale cached one (same
+// reasoning as findExtraServiceRow above).
+export async function getOpenCheckoutForEquipment(equipmentId: string): Promise<EquipmentCheckout | null> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_CHECKOUTS_TAB}!A:P`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const open = rows
+    .map((r, i) => rowToEquipmentCheckout(r, i + 2))
+    .filter((c) => c.id && c.equipmentId === equipmentId && !c.returnedAt)
+    .sort((a, b) => b.sheetRow - a.sheetRow);
+  return open[0] ?? null;
+}
+
+export async function updateEquipmentCheckout(
+  sheetRow: number,
+  fields: Partial<{
+    returnedAt: string;
+    conditionAtReturn: string;
+    signedInByStaffId: string;
+    signedInByStaffName: string;
+  }>
+): Promise<void> {
+  invalidateCache(`tab-${EQUIPMENT_CHECKOUTS_TAB}`);
+  const colLetters: Record<string, string> = {
+    returnedAt: "I",
+    conditionAtReturn: "K",
+    signedInByStaffId: "L",
+    signedInByStaffName: "M",
+  };
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const data = Object.entries(fields)
+    .filter(([, v]) => v !== undefined)
+    .map(([key, value]) => ({
+      range: `${EQUIPMENT_CHECKOUTS_TAB}!${colLetters[key]}${sheetRow}`,
+      values: [[value]],
+    }));
+  if (data.length === 0) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+// ─── Equipment Parts ─────────────────────────────────────────────────────
+
+const EQUIPMENT_PARTS_TAB = "EquipmentParts";
+const EQUIPMENT_PART_COL = {
+  ID: 0,
+  PART_NAME: 1,
+  COMPATIBLE_EQUIPMENT_ID: 2,
+  SUPPLIER: 3,
+  UNIT_COST: 4,
+  STOCK_QTY: 5,
+  LOW_STOCK_THRESHOLD: 6,
+} as const;
+
+export type EquipmentPart = {
+  sheetRow: number;
+  id: string;
+  partName: string;
+  compatibleEquipmentId: string; // blank/"General" means not tied to one equipment item
+  supplier: string;
+  unitCost: number;
+  stockQty: number;
+  lowStockThreshold: number;
+  lowStock: boolean; // computed, not stored
+};
+
+async function fetchEquipmentPartRows(): Promise<string[][]> {
+  const cacheKey = `tab-${EQUIPMENT_PARTS_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_PARTS_TAB}!A:G`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchEquipmentParts(): Promise<EquipmentPart[]> {
+  const rows = await fetchEquipmentPartRows();
+  return rows
+    .map((r, i) => {
+      const stockQty = Number(r[EQUIPMENT_PART_COL.STOCK_QTY]) || 0;
+      const lowStockThreshold = Number(r[EQUIPMENT_PART_COL.LOW_STOCK_THRESHOLD]) || 0;
+      return {
+        sheetRow: i + 2,
+        id: r[EQUIPMENT_PART_COL.ID] ?? "",
+        partName: r[EQUIPMENT_PART_COL.PART_NAME] ?? "",
+        compatibleEquipmentId: r[EQUIPMENT_PART_COL.COMPATIBLE_EQUIPMENT_ID] ?? "",
+        supplier: r[EQUIPMENT_PART_COL.SUPPLIER] ?? "",
+        unitCost: Number(r[EQUIPMENT_PART_COL.UNIT_COST]) || 0,
+        stockQty,
+        lowStockThreshold,
+        lowStock: stockQty <= lowStockThreshold,
+      };
+    })
+    .filter((p) => p.id);
+}
+
+export async function appendEquipmentPart(data: {
+  partName: string;
+  compatibleEquipmentId: string;
+  supplier: string;
+  unitCost: number;
+  stockQty: number;
+  lowStockThreshold: number;
+}): Promise<string> {
+  const id = stampId("PRT");
+  await appendToMainSheet(EQUIPMENT_PARTS_TAB, [
+    id,
+    data.partName,
+    data.compatibleEquipmentId,
+    data.supplier,
+    String(data.unitCost || 0),
+    String(data.stockQty || 0),
+    String(data.lowStockThreshold || 0),
+  ]);
+  return id;
+}
+
+export type PartStockAdjustReason = "Used" | "Restocked" | "Correction";
+
+// delta is signed: negative for Used, positive for Restocked, either sign
+// for Correction. Resulting stock is clamped at 0 (never negative).
+export async function adjustEquipmentPartStock(
+  id: string,
+  delta: number,
+  reason: PartStockAdjustReason
+): Promise<EquipmentPart> {
+  void reason; // no adjustment-history tab yet — reason is validated by the route, not persisted
+  const targetId = id.trim();
+  if (!targetId) throw new Error("Missing equipment part id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_PARTS_TAB}!A:G`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex((r) => (r[EQUIPMENT_PART_COL.ID] ?? "").trim() === targetId);
+  if (rowIndex === -1) throw new Error(`Equipment part "${targetId}" not found.`);
+  const sheetRow = rowIndex + 2;
+
+  const currentQty = Number(rows[rowIndex][EQUIPMENT_PART_COL.STOCK_QTY]) || 0;
+  const newQty = Math.max(0, currentQty + delta);
+
+  invalidateCache(`tab-${EQUIPMENT_PARTS_TAB}`);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    range: `${EQUIPMENT_PARTS_TAB}!F${sheetRow}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values: [[String(newQty)]] },
+  });
+
+  const parts = await fetchEquipmentParts();
+  const updated = parts.find((p) => p.id === targetId);
+  if (!updated) throw new Error(`Equipment part "${targetId}" not found after update.`);
+  return updated;
+}
