@@ -4,11 +4,28 @@ import { useEffect, useMemo, useState } from "react";
 import type { EquipmentItem, Staff } from "./types";
 import { getStoredEquipmentStaffId, setStoredEquipmentStaffId } from "./staffIdentity";
 
-type SubcontractorOption = {
+// Raw shape returned by GET /api/subcontractors — the same source used by
+// the Subcontractor dropdown in app/accounts/new/page.tsx and
+// app/documents/page.tsx. Field names are already normalized by
+// getAllSubcontractorsRaw in lib/googleSheets.ts, so no alias-guessing is
+// needed here.
+type RawSubcontractor = {
   id: string;
   companyName?: string;
   contactName?: string;
+  email?: string;
 };
+
+type SubcontractorOption = {
+  id: string;
+  label: string;
+};
+
+// Matches app/documents/page.tsx's subcontractorLabel priority exactly, so
+// the same person shows the same way in every subcontractor picker.
+function subcontractorLabel(sub: RawSubcontractor): string {
+  return sub.contactName?.trim() || sub.companyName?.trim() || sub.email?.trim() || "Unnamed subcontractor";
+}
 
 type Props = {
   mode: "checkout" | "return";
@@ -32,9 +49,13 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
   const [holderId, setHolderId] = useState("");
   const [accountId, setAccountId] = useState("");
   const [expectedReturnAt, setExpectedReturnAt] = useState("");
+  const [workOrderNumber, setWorkOrderNumber] = useState("");
 
   const [conditionAtReturn, setConditionAtReturn] = useState("");
   const [damaged, setDamaged] = useState(false);
+  const [repairCost, setRepairCost] = useState("");
+  const [repairPerformedBy, setRepairPerformedBy] = useState("");
+  const [repairPartsUsed, setRepairPartsUsed] = useState("");
 
   const [signingStaffId, setSigningStaffId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -58,10 +79,13 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
         if (mode === "checkout" && responses[1]) {
           const subsData = (await responses[1].json()) as {
             success?: boolean;
-            subcontractors?: SubcontractorOption[];
+            subcontractors?: RawSubcontractor[];
           };
           if (!cancelled && subsData.success && Array.isArray(subsData.subcontractors)) {
-            setSubs(subsData.subcontractors);
+            const options = subsData.subcontractors
+              .map((sub) => ({ id: sub.id, label: subcontractorLabel(sub) }))
+              .sort((a, b) => a.label.localeCompare(b.label));
+            setSubs(options);
           }
         }
 
@@ -124,6 +148,7 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
             signedOutByStaffId: signingStaffId,
             accountId: accountId.trim() || undefined,
             expectedReturnAt: expectedReturnAt || undefined,
+            workOrderNumber: workOrderNumber.trim() || undefined,
           }),
         });
         const data = (await response.json()) as { success?: boolean; error?: string };
@@ -139,6 +164,9 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
             conditionAtReturn: conditionAtReturn.trim(),
             signedInByStaffId: signingStaffId,
             damaged,
+            repairCost: damaged && repairCost.trim() ? Number(repairCost) : undefined,
+            repairPerformedBy: damaged ? repairPerformedBy.trim() || undefined : undefined,
+            repairPartsUsed: damaged ? repairPartsUsed.trim() || undefined : undefined,
           }),
         });
         const data = (await response.json()) as { success?: boolean; error?: string };
@@ -217,7 +245,7 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
                         ))
                       : subs.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.companyName || s.contactName || s.id}
+                            {s.label}
                           </option>
                         ))}
                   </select>
@@ -243,6 +271,17 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
                   />
                 </div>
+
+                <div>
+                  <label className="text-sm font-semibold text-gray-700">Work Order # (Markate) (optional)</label>
+                  <input
+                    type="text"
+                    value={workOrderNumber}
+                    onChange={(e) => setWorkOrderNumber(e.target.value)}
+                    placeholder="e.g. WO-10234"
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
               </>
             ) : (
               <>
@@ -264,8 +303,46 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
                     onChange={(e) => setDamaged(e.target.checked)}
                     className="h-4 w-4"
                   />
-                  Flag for maintenance review
+                  Damaged — send to repair
                 </label>
+
+                {damaged ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-xs font-semibold text-amber-800">
+                      This will set the equipment to In Repair and open a repair record using the
+                      condition note above as its description. The details below are optional.
+                    </p>
+                    <div className="mt-3 grid gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">Estimated Repair Cost</label>
+                        <input
+                          type="number"
+                          value={repairCost}
+                          onChange={(e) => setRepairCost(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">Vendor / Performed By</label>
+                        <input
+                          type="text"
+                          value={repairPerformedBy}
+                          onChange={(e) => setRepairPerformedBy(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">Parts Used</label>
+                        <input
+                          type="text"
+                          value={repairPartsUsed}
+                          onChange={(e) => setRepairPartsUsed(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
               </>
             )}
 

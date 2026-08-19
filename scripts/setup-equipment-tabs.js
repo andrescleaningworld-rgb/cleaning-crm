@@ -87,6 +87,7 @@ const TABS = [
       "SignedInByStaffId",
       "SignedInByStaffName",
       "Notes",
+      "WorkOrderNumber",
     ],
   },
   {
@@ -99,6 +100,20 @@ const TABS = [
       "UnitCost",
       "StockQty",
       "LowStockThreshold",
+    ],
+  },
+  {
+    name: "EquipmentRepairs",
+    headers: [
+      "ID",
+      "EquipmentId",
+      "StartedAt",
+      "CompletedAt",
+      "Description",
+      "Cost",
+      "PerformedBy",
+      "PartsUsed",
+      "Status",
     ],
   },
 ];

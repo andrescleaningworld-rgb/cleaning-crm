@@ -20,6 +20,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       signedOutByStaffId?: string;
       accountId?: string;
       expectedReturnAt?: string;
+      workOrderNumber?: string;
     };
 
     const holderType = body.holderType?.trim();
@@ -99,6 +100,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       conditionAtCheckout: equipment.conditionNotes,
       signedOutByStaffId: signer.id,
       signedOutByStaffName: signer.name,
+      workOrderNumber: body.workOrderNumber?.trim() ?? "",
     });
 
     await updateEquipmentFields(equipment.id, {

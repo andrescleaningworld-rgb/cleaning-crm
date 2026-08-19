@@ -57,6 +57,22 @@ export type EquipmentCheckout = {
   signedInByStaffId: string;
   signedInByStaffName: string;
   notes: string;
+  workOrderNumber: string;
+};
+
+export type EquipmentRepairStatus = "Open" | "Completed";
+
+export type EquipmentRepair = {
+  sheetRow: number;
+  id: string;
+  equipmentId: string;
+  startedAt: string;
+  completedAt: string;
+  description: string;
+  cost: number;
+  performedBy: string;
+  partsUsed: string;
+  status: EquipmentRepairStatus;
 };
 
 export type EquipmentPart = {

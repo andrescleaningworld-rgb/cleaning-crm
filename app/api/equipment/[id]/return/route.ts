@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  appendEquipmentRepair,
   getActiveSigningStaffById,
   getEquipmentById,
   getOpenCheckoutForEquipment,
@@ -10,8 +11,7 @@ import {
 type RouteContext = { params: Promise<{ id: string }> };
 
 // Rough signal for "does this condition note describe damage" when the
-// caller doesn't pass an explicit `damaged` flag. Full maintenance CRUD is a
-// later phase — this only sets the NeedsMaintenanceReview flag for now.
+// caller doesn't pass an explicit `damaged` flag.
 const DAMAGE_KEYWORDS = /damag|broken|crack|not working|malfunction|leak|torn|dent/i;
 
 export async function POST(request: NextRequest, { params }: RouteContext) {
@@ -21,6 +21,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       conditionAtReturn?: string;
       signedInByStaffId?: string;
       damaged?: boolean;
+      repairCost?: number;
+      repairPerformedBy?: string;
+      repairPartsUsed?: string;
     };
 
     const conditionAtReturn = body.conditionAtReturn?.trim();
@@ -72,8 +75,25 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       signedInByStaffName: signer.name,
     });
 
+    // Damage on return sends the item straight to InRepair instead of
+    // Available, and opens a repair record — conditionAtReturn (already
+    // required above) doubles as the repair Description so the return flow
+    // doesn't need to ask for the same thing twice. Cost/PerformedBy/
+    // PartsUsed are optional extras the return modal can surface once
+    // "damaged" is checked.
+    if (isDamaged) {
+      await appendEquipmentRepair({
+        equipmentId: equipment.id,
+        description: conditionAtReturn,
+        cost: body.repairCost,
+        performedBy: body.repairPerformedBy?.trim(),
+        partsUsed: body.repairPartsUsed?.trim(),
+        startedAt: now,
+      });
+    }
+
     await updateEquipmentFields(equipment.id, {
-      status: "Available",
+      status: isDamaged ? "InRepair" : "Available",
       currentHolderType: "",
       currentHolderId: "",
       currentHolderName: "",

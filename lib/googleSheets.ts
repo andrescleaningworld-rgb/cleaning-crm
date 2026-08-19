@@ -4401,6 +4401,10 @@ const EQUIPMENT_CHECKOUT_COL = {
   SIGNED_IN_BY_STAFF_ID: 13,
   SIGNED_IN_BY_STAFF_NAME: 14,
   NOTES: 15,
+  // Markate work-order reference — Markate has no API integration here, this
+  // is just a free-text field for whatever WO# staff copy over. Optional,
+  // blank for every checkout row written before this column existed.
+  WORK_ORDER_NUMBER: 16,
 } as const;
 
 export type EquipmentCheckout = {
@@ -4421,6 +4425,7 @@ export type EquipmentCheckout = {
   signedInByStaffId: string;
   signedInByStaffName: string;
   notes: string;
+  workOrderNumber: string;
 };
 
 function rowToEquipmentCheckout(r: string[], sheetRow: number): EquipmentCheckout {
@@ -4443,6 +4448,7 @@ function rowToEquipmentCheckout(r: string[], sheetRow: number): EquipmentCheckou
     signedInByStaffId: r[EQUIPMENT_CHECKOUT_COL.SIGNED_IN_BY_STAFF_ID] ?? "",
     signedInByStaffName: r[EQUIPMENT_CHECKOUT_COL.SIGNED_IN_BY_STAFF_NAME] ?? "",
     notes: r[EQUIPMENT_CHECKOUT_COL.NOTES] ?? "",
+    workOrderNumber: r[EQUIPMENT_CHECKOUT_COL.WORK_ORDER_NUMBER] ?? "",
   };
 }
 
@@ -4456,7 +4462,7 @@ async function fetchEquipmentCheckoutRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${EQUIPMENT_CHECKOUTS_TAB}!A:P`,
+      range: `${EQUIPMENT_CHECKOUTS_TAB}!A:Q`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -4483,9 +4489,10 @@ export async function appendEquipmentCheckout(data: {
   conditionAtCheckout: string;
   signedOutByStaffId: string;
   signedOutByStaffName: string;
+  workOrderNumber: string;
 }): Promise<string> {
   const id = stampId("CHK");
-  const row = Array(16).fill("") as string[];
+  const row = Array(17).fill("") as string[];
   row[EQUIPMENT_CHECKOUT_COL.ID] = id;
   row[EQUIPMENT_CHECKOUT_COL.EQUIPMENT_ID] = data.equipmentId;
   row[EQUIPMENT_CHECKOUT_COL.HOLDER_TYPE] = data.holderType;
@@ -4497,6 +4504,7 @@ export async function appendEquipmentCheckout(data: {
   row[EQUIPMENT_CHECKOUT_COL.CONDITION_AT_CHECKOUT] = data.conditionAtCheckout;
   row[EQUIPMENT_CHECKOUT_COL.SIGNED_OUT_BY_STAFF_ID] = data.signedOutByStaffId;
   row[EQUIPMENT_CHECKOUT_COL.SIGNED_OUT_BY_STAFF_NAME] = data.signedOutByStaffName;
+  row[EQUIPMENT_CHECKOUT_COL.WORK_ORDER_NUMBER] = data.workOrderNumber;
   await appendToMainSheet(EQUIPMENT_CHECKOUTS_TAB, row);
   return id;
 }
@@ -4510,7 +4518,7 @@ export async function getOpenCheckoutForEquipment(equipmentId: string): Promise<
   const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
     sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${EQUIPMENT_CHECKOUTS_TAB}!A:P`,
+      range: `${EQUIPMENT_CHECKOUTS_TAB}!A:Q`,
     })
   );
   const rows = ((res.data.values ?? []) as string[][]).slice(1);
@@ -4547,6 +4555,184 @@ export async function updateEquipmentCheckout(
       values: [[value]],
     }));
   if (data.length === 0) return;
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+}
+
+// ─── Equipment Repairs ───────────────────────────────────────────────────
+// Read only by app/equipment/[id]/page.tsx's Repair History section — never
+// by the list page. A repair record is created whenever an Equipment row's
+// Status transitions to InRepair (see app/api/equipment/[id]/repairs/route.ts
+// for the manual trigger, and app/api/equipment/[id]/return/route.ts for the
+// damage-on-return trigger) — both go through appendEquipmentRepair below so
+// the "how did this repair start" logic lives in one place.
+
+const EQUIPMENT_REPAIRS_TAB = "EquipmentRepairs";
+const EQUIPMENT_REPAIR_COL = {
+  ID: 0,
+  EQUIPMENT_ID: 1,
+  STARTED_AT: 2,
+  COMPLETED_AT: 3,
+  DESCRIPTION: 4,
+  COST: 5,
+  PERFORMED_BY: 6,
+  PARTS_USED: 7,
+  STATUS: 8,
+} as const;
+
+export type EquipmentRepairStatus = "Open" | "Completed";
+
+export type EquipmentRepair = {
+  sheetRow: number;
+  id: string;
+  equipmentId: string;
+  startedAt: string;
+  completedAt: string;
+  description: string;
+  cost: number;
+  performedBy: string;
+  partsUsed: string;
+  status: EquipmentRepairStatus;
+};
+
+function normalizeEquipmentRepairStatus(value: string): EquipmentRepairStatus {
+  return value.trim() === "Completed" ? "Completed" : "Open";
+}
+
+function rowToEquipmentRepair(r: string[], sheetRow: number): EquipmentRepair {
+  return {
+    sheetRow,
+    id: r[EQUIPMENT_REPAIR_COL.ID] ?? "",
+    equipmentId: r[EQUIPMENT_REPAIR_COL.EQUIPMENT_ID] ?? "",
+    startedAt: r[EQUIPMENT_REPAIR_COL.STARTED_AT] ?? "",
+    completedAt: r[EQUIPMENT_REPAIR_COL.COMPLETED_AT] ?? "",
+    description: r[EQUIPMENT_REPAIR_COL.DESCRIPTION] ?? "",
+    cost: Number(r[EQUIPMENT_REPAIR_COL.COST]) || 0,
+    performedBy: r[EQUIPMENT_REPAIR_COL.PERFORMED_BY] ?? "",
+    partsUsed: r[EQUIPMENT_REPAIR_COL.PARTS_USED] ?? "",
+    status: normalizeEquipmentRepairStatus(r[EQUIPMENT_REPAIR_COL.STATUS] ?? ""),
+  };
+}
+
+async function fetchEquipmentRepairRows(): Promise<string[][]> {
+  const cacheKey = `tab-${EQUIPMENT_REPAIRS_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_REPAIRS_TAB}!A:I`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+export async function fetchEquipmentRepairs(equipmentId?: string): Promise<EquipmentRepair[]> {
+  const rows = await fetchEquipmentRepairRows();
+  const all = rows.map((r, i) => rowToEquipmentRepair(r, i + 2)).filter((rep) => rep.id);
+  const filtered = equipmentId ? all.filter((rep) => rep.equipmentId === equipmentId) : all;
+  return filtered.sort((a, b) => (b.startedAt || "").localeCompare(a.startedAt || ""));
+}
+
+// Fresh (uncached) read — used to enforce "at most one open repair per
+// equipment item" when creating a new one (same reasoning as
+// getOpenCheckoutForEquipment above).
+export async function getOpenRepairForEquipment(equipmentId: string): Promise<EquipmentRepair | null> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_REPAIRS_TAB}!A:I`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const open = rows
+    .map((r, i) => rowToEquipmentRepair(r, i + 2))
+    .filter((rep) => rep.id && rep.equipmentId === equipmentId && rep.status === "Open")
+    .sort((a, b) => b.sheetRow - a.sheetRow);
+  return open[0] ?? null;
+}
+
+export async function appendEquipmentRepair(data: {
+  equipmentId: string;
+  description: string;
+  cost?: number;
+  performedBy?: string;
+  partsUsed?: string;
+  startedAt?: string;
+}): Promise<string> {
+  const id = stampId("REP");
+  const row = Array(9).fill("") as string[];
+  row[EQUIPMENT_REPAIR_COL.ID] = id;
+  row[EQUIPMENT_REPAIR_COL.EQUIPMENT_ID] = data.equipmentId;
+  row[EQUIPMENT_REPAIR_COL.STARTED_AT] = data.startedAt || new Date().toISOString();
+  row[EQUIPMENT_REPAIR_COL.DESCRIPTION] = data.description;
+  row[EQUIPMENT_REPAIR_COL.COST] = data.cost ? String(data.cost) : "";
+  row[EQUIPMENT_REPAIR_COL.PERFORMED_BY] = data.performedBy ?? "";
+  row[EQUIPMENT_REPAIR_COL.PARTS_USED] = data.partsUsed ?? "";
+  row[EQUIPMENT_REPAIR_COL.STATUS] = "Open";
+  await appendToMainSheet(EQUIPMENT_REPAIRS_TAB, row);
+  return id;
+}
+
+async function findEquipmentRepairRow(
+  sheets: ReturnType<typeof google.sheets>,
+  equipmentId: string,
+  repairId: string
+): Promise<number> {
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${EQUIPMENT_REPAIRS_TAB}!A:I`,
+    })
+  );
+  const rows = ((res.data.values ?? []) as string[][]).slice(1);
+  const rowIndex = rows.findIndex(
+    (r) =>
+      (r[EQUIPMENT_REPAIR_COL.ID] ?? "").trim() === repairId &&
+      (r[EQUIPMENT_REPAIR_COL.EQUIPMENT_ID] ?? "").trim() === equipmentId
+  );
+  if (rowIndex === -1) throw new Error(`Equipment repair "${repairId}" not found.`);
+  return rowIndex + 2;
+}
+
+// Only ever used to mark a repair Completed — Description/StartedAt aren't
+// editable here (set once at creation), matching this app's convention of
+// keeping original submission fields read-only on later updates.
+export async function completeEquipmentRepair(
+  equipmentId: string,
+  repairId: string,
+  fields: Partial<{ cost: number; performedBy: string; partsUsed: string }>
+): Promise<void> {
+  invalidateCache(`tab-${EQUIPMENT_REPAIRS_TAB}`);
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const sheetRow = await findEquipmentRepairRow(sheets, equipmentId, repairId);
+
+  const data: { range: string; values: string[][] }[] = [
+    { range: `${EQUIPMENT_REPAIRS_TAB}!D${sheetRow}`, values: [[new Date().toISOString()]] },
+    { range: `${EQUIPMENT_REPAIRS_TAB}!I${sheetRow}`, values: [["Completed"]] },
+  ];
+  if (fields.cost !== undefined) {
+    data.push({ range: `${EQUIPMENT_REPAIRS_TAB}!F${sheetRow}`, values: [[String(fields.cost)]] });
+  }
+  if (fields.performedBy !== undefined) {
+    data.push({ range: `${EQUIPMENT_REPAIRS_TAB}!G${sheetRow}`, values: [[fields.performedBy]] });
+  }
+  if (fields.partsUsed !== undefined) {
+    data.push({ range: `${EQUIPMENT_REPAIRS_TAB}!H${sheetRow}`, values: [[fields.partsUsed]] });
+  }
+
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
     requestBody: { valueInputOption: "USER_ENTERED", data },

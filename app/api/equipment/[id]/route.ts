@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
 }
 
 // Edits catalog fields only — Status/CurrentHolder*/CheckedOutAt/
-// ExpectedReturnAt are exclusively owned by checkout/return above, never
+// ExpectedReturnAt are exclusively owned by checkout/return/repairs, never
 // writable through this route.
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
