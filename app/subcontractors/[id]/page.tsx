@@ -546,6 +546,10 @@ export default function SubcontractorDetailPage() {
     notes: "",
   });
 
+  function handlePrint() {
+    window.print();
+  }
+
   async function loadData() {
     try {
       setLoading(true);
@@ -840,12 +844,12 @@ export default function SubcontractorDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+    <main className="sub-detail-print-page min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
+      <div className="sub-detail-print mx-auto max-w-7xl space-y-6">
         <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
-              <div className="mb-3">
+              <div className="sub-detail-print-hide mb-3">
                 <Link
                   href="/subcontractors"
                   className="text-sm font-semibold text-blue-700 no-underline hover:underline"
@@ -885,7 +889,15 @@ export default function SubcontractorDetailPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row">
+            <div className="sub-detail-print-hide grid grid-cols-1 gap-2 sm:flex sm:flex-row">
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Print
+              </button>
+
               <button
                 type="button"
                 onClick={loadData}
@@ -905,19 +917,19 @@ export default function SubcontractorDetailPage() {
           </div>
 
           {successMessage && (
-            <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            <div className="sub-detail-print-hide mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
               {successMessage}
             </div>
           )}
 
           {error && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="sub-detail-print-hide mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
               {error}
             </div>
           )}
         </div>
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <section className="sub-detail-print-hide grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
           <StatCard label="Active Accounts" value={String(currentAccounts.length)} />
           <StatCard label="Past Accounts" value={String(pastAccounts.length)} />
           <StatCard
@@ -934,7 +946,7 @@ export default function SubcontractorDetailPage() {
           <StatCard label="Valid Complaints" value={String(validComplaints.length)} />
         </section>
 
-        <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
+        <section className="sub-detail-print-hide rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-lg font-bold">Automatic Performance Score</h2>
@@ -994,7 +1006,7 @@ export default function SubcontractorDetailPage() {
         ) : (
           <form
             onSubmit={handleSave}
-            className="rounded-2xl bg-white p-5 shadow-sm sm:p-6"
+            className="sub-detail-print-hide rounded-2xl bg-white p-5 shadow-sm sm:p-6"
           >
             <h2 className="text-lg font-bold">Edit Subcontractor</h2>
 
@@ -1180,6 +1192,54 @@ export default function SubcontractorDetailPage() {
           </div>
         </section>
       </div>
+
+      {/* Scoped to this page only via the .sub-detail-print/.sub-detail-print-hide
+          class names (see the matching additive exception in app/globals.css) —
+          <style jsx global> is the established pattern for page-local print CSS
+          in this codebase (see app/to-do/page.tsx, app/account-updates/[id]/page.tsx).
+          Nothing here can affect Accounts, To-Do, or any other page's print output. */}
+      <style jsx global>{`
+        @media print {
+          /* min-h-screen on the root <main> reserves a full viewport of height
+             regardless of content — once everything outside .sub-detail-print
+             is hidden via visibility, that reserved height is still there,
+             producing a spurious blank page (same issue documented on
+             app/account-updates/[id]/page.tsx's print CSS). */
+          .sub-detail-print-page {
+            min-height: 0;
+          }
+
+          .sub-detail-print-hide {
+            display: none !important;
+          }
+
+          /* overflow-x-auto would otherwise clip wide tables at the printed
+             page edge instead of wrapping/shrinking, since printed output
+             can't scroll. */
+          .sub-detail-print .overflow-x-auto {
+            overflow: visible !important;
+          }
+
+          .sub-detail-print table {
+            width: 100%;
+            font-size: 10px;
+          }
+
+          .sub-detail-print th,
+          .sub-detail-print td {
+            padding: 4px 6px !important;
+            white-space: normal !important;
+            word-break: break-word;
+          }
+
+          /* Long field values (address, notes, areas serviced) must wrap
+             instead of being cut off. */
+          .sub-detail-print p {
+            white-space: normal !important;
+            word-break: break-word;
+          }
+        }
+      `}</style>
     </main>
   );
 }

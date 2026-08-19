@@ -349,7 +349,15 @@ img {
   }
 
   .account-packet-print-view,
-  .account-packet-print-view * {
+  .account-packet-print-view *,
+  /* Additive opt-in for app/subcontractors/[id]/page.tsx's Print button —
+     same exception mechanism as .account-packet-print-view above (that
+     page's own content, unlike the packet view, is never display:none on
+     screen, so it needs no position/display overrides here, just this
+     visibility exception). Purely additive: only elements carrying this
+     class opt in, so no other page's print output is affected. */
+  .sub-detail-print,
+  .sub-detail-print * {
     visibility: visible;
   }
 
