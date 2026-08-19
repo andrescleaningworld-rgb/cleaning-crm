@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { toISO } from "./dateUtils";
 import { DEFAULT_TO_DO_PRIORITY, normalizeToDoPriority, type ToDoPriority } from "./toDoPriority";
 import {
   createEmptyChecklistItems,
@@ -2360,6 +2361,253 @@ export async function appendDocumentSend(data: DocumentSendInput): Promise<strin
     data.sentBy,
     sentAt,
     data.note,
+  ]);
+  return id;
+}
+
+// ─── Manager visit log (Visit List / Visit Detail pages) ───────────────────
+// Lives in the main Accounts spreadsheet (GOOGLE_MAIN_SHEET_ID) — this is
+// the exact same "Visits" tab the Google Apps Script backend's getVisits/
+// addVisit actions read and write (see app/api/visits/route.ts); confirmed
+// by comparing this tab's rows against a live getVisits response (identical
+// content, identical order). There is no "Subcontractor" column at all (the
+// Visit List UI's Subcontractor field is always blank in production; the
+// Add Visit form collects it but Apps Script has never had anywhere to
+// store it).
+//
+// Column A ("Visit ID") used to be unusable as a stable identifier — empty
+// for the vast majority of rows, "#REF!" for others. Root cause: A2 held a
+// legacy ARRAYFORMULA meant to spill a generated ID down the whole column,
+// but Apps Script's addVisit action has since been writing its own plain
+// "VISIT-<timestamp>" value directly into column A for every new row, and
+// one literal value inside an ARRAYFORMULA's target range permanently
+// blocks the entire spill — that's the "#REF!". scripts/backfill-visit-ids.js
+// fixed this once (overwrote A2's formula and every blank row's cell with a
+// plain generated id, same style as Apps Script's own), and Apps Script
+// already generates one for every new visit going forward, so column A is
+// now a real, stable, unique identifier and rows are keyed directly off it.
+const MANAGER_VISITS_TAB = "Visits";
+
+const MANAGER_VISIT_COL = {
+  ID:               0,  // A — real, stable, unique per scripts/backfill-visit-ids.js + Apps Script's addVisit
+  ACCOUNT_ID:       1,  // B — a different ID scheme than Accounts' own accountId; never matches it
+  ACCOUNT_NAME:     2,  // C
+  VISIT_DATE:       3,  // D
+  VISIT_TYPE:       4,  // E
+  COMPLETED_BY:     5,  // F
+  CONDITION:        6,  // G
+  FOLLOW_UP_NEEDED: 7,  // H
+  // I (index 8) is a duplicate, always-empty "Follow-up Date" header — the
+  // real value lives in column M. Never read/written.
+  NOTES:            9,  // J
+  CREATED_AT:       10, // K
+  UPDATED_AT:       11, // L
+  FOLLOW_UP_DATE:   12, // M
+} as const;
+
+export type ManagerVisit = {
+  id: string; // real "VISIT-..." value from column A
+  accountId: string;
+  accountName: string;
+  date: string; // normalized to YYYY-MM-DD where parseable
+  visitType: string;
+  completedBy: string;
+  condition: string;
+  followUpNeeded: string;
+  followUpDate: string; // normalized to YYYY-MM-DD, or ""
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// The sheet stores dates as whatever Sheets' auto-formatting produced
+// ("3/26/24") or, for some follow-up dates, an already-ISO string
+// ("2026-06-15"). Normalizing here means every consumer of ManagerVisit can
+// rely on lib/dateUtils.ts's parseISO()/toISO() working directly on these
+// fields, per this app's centralized date-handling convention.
+function normalizeSheetDate(raw: string | undefined): string {
+  const text = (raw ?? "").trim();
+  if (!text) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? text : toISO(d);
+}
+
+async function fetchManagerVisitRowsWithSheetRow(): Promise<{ sheetRow: number; row: string[] }[]> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${MANAGER_VISITS_TAB}!A:M`,
+    })
+  );
+  const allRows = (res.data.values ?? []) as string[][];
+  const dataRows = allRows.slice(1);
+  return dataRows
+    .map((row, i) => ({ sheetRow: i + 2, row })) // header row + 1-based sheet rows
+    .filter(({ row }) => (row[MANAGER_VISIT_COL.ACCOUNT_ID] ?? "").trim());
+}
+
+function rowToManagerVisit(row: string[]): ManagerVisit {
+  return {
+    id:             (row[MANAGER_VISIT_COL.ID] ?? "").trim(),
+    accountId:      row[MANAGER_VISIT_COL.ACCOUNT_ID]   ?? "",
+    accountName:    row[MANAGER_VISIT_COL.ACCOUNT_NAME] ?? "",
+    date:           normalizeSheetDate(row[MANAGER_VISIT_COL.VISIT_DATE]),
+    visitType:      row[MANAGER_VISIT_COL.VISIT_TYPE]   ?? "",
+    completedBy:    row[MANAGER_VISIT_COL.COMPLETED_BY] ?? "",
+    condition:      row[MANAGER_VISIT_COL.CONDITION]    ?? "",
+    followUpNeeded: row[MANAGER_VISIT_COL.FOLLOW_UP_NEEDED] ?? "",
+    followUpDate:   normalizeSheetDate(row[MANAGER_VISIT_COL.FOLLOW_UP_DATE]),
+    notes:          row[MANAGER_VISIT_COL.NOTES]        ?? "",
+    createdAt:      row[MANAGER_VISIT_COL.CREATED_AT]   ?? "",
+    updatedAt:      row[MANAGER_VISIT_COL.UPDATED_AT]   ?? "",
+  };
+}
+
+export async function getManagerVisitById(id: string): Promise<ManagerVisit | null> {
+  const targetId = id.trim();
+  if (!targetId) return null;
+  const rows = await fetchManagerVisitRowsWithSheetRow();
+  const entry = rows.find(({ row }) => (row[MANAGER_VISIT_COL.ID] ?? "").trim() === targetId);
+  if (!entry) return null;
+  return rowToManagerVisit(entry.row);
+}
+
+export type ManagerVisitUpdateInput = Partial<{
+  date: string;
+  visitType: string;
+  completedBy: string;
+  condition: string;
+  followUpNeeded: string;
+  followUpDate: string;
+  notes: string;
+}>;
+
+const MANAGER_VISIT_UPDATE_COL: Record<keyof ManagerVisitUpdateInput, number> = {
+  date:           MANAGER_VISIT_COL.VISIT_DATE,
+  visitType:      MANAGER_VISIT_COL.VISIT_TYPE,
+  completedBy:    MANAGER_VISIT_COL.COMPLETED_BY,
+  condition:      MANAGER_VISIT_COL.CONDITION,
+  followUpNeeded: MANAGER_VISIT_COL.FOLLOW_UP_NEEDED,
+  followUpDate:   MANAGER_VISIT_COL.FOLLOW_UP_DATE,
+  notes:          MANAGER_VISIT_COL.NOTES,
+};
+
+export async function updateManagerVisit(
+  id: string,
+  fields: ManagerVisitUpdateInput
+): Promise<ManagerVisit> {
+  const targetId = id.trim();
+  if (!targetId) throw new Error(`Visit "${id}" not found.`);
+
+  const rows = await fetchManagerVisitRowsWithSheetRow();
+  const entry = rows.find(({ row }) => (row[MANAGER_VISIT_COL.ID] ?? "").trim() === targetId);
+  if (!entry) throw new Error(`Visit "${id}" not found.`);
+  const { sheetRow } = entry;
+
+  const writes: { colIndex: number; value: string }[] = [];
+  for (const [key, value] of Object.entries(fields) as [keyof ManagerVisitUpdateInput, string | undefined][]) {
+    if (value === undefined) continue;
+    writes.push({ colIndex: MANAGER_VISIT_UPDATE_COL[key], value });
+  }
+  writes.push({ colIndex: MANAGER_VISIT_COL.UPDATED_AT, value: new Date().toISOString() });
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const data = writes.map(({ colIndex, value }) => ({
+    range: `${MANAGER_VISITS_TAB}!${columnIndexToLetter(colIndex)}${sheetRow}`,
+    values: [[value]],
+  }));
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+    requestBody: { valueInputOption: "USER_ENTERED", data },
+  });
+
+  const mergedRow = [...entry.row];
+  for (const { colIndex, value } of writes) mergedRow[colIndex] = value;
+  return rowToManagerVisit(mergedRow);
+}
+
+// ─── Visit edit log (audit trail for Visit Detail page edits) ──────────────
+// Lives in the main Accounts spreadsheet (GOOGLE_MAIN_SHEET_ID), matching
+// DocumentSends above — created by scripts/setup-visit-edit-log-tab.js.
+
+const VISIT_EDIT_LOG_TAB = "VisitEditLog";
+
+const VISIT_EDIT_LOG_COL = {
+  ID:              0, // A
+  VISIT_ID:        1, // B
+  EDITED_BY:       2, // C
+  EDITED_AT:       3, // D
+  CHANGE_SUMMARY:  4, // E
+} as const;
+
+export type VisitEditLogEntry = {
+  id: string;
+  visitId: string;
+  editedBy: string;
+  editedAt: string;
+  changeSummary: string;
+};
+
+async function fetchVisitEditLogRows(): Promise<string[][]> {
+  const cacheKey = `tab-${VISIT_EDIT_LOG_TAB}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const rows = await withTimeout(FETCH_TIMEOUT_MS, async () => {
+    const auth = getAuthClient();
+    const sheets = google.sheets({ version: "v4", auth });
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${VISIT_EDIT_LOG_TAB}!A:E`,
+    });
+    return (response.data.values ?? []).slice(1) as string[][];
+  });
+
+  setCache(cacheKey, rows);
+  return rows;
+}
+
+function rowToVisitEditLogEntry(row: string[]): VisitEditLogEntry {
+  return {
+    id:            row[VISIT_EDIT_LOG_COL.ID]             ?? "",
+    visitId:       row[VISIT_EDIT_LOG_COL.VISIT_ID]        ?? "",
+    editedBy:      row[VISIT_EDIT_LOG_COL.EDITED_BY]       ?? "",
+    editedAt:      row[VISIT_EDIT_LOG_COL.EDITED_AT]       ?? "",
+    changeSummary: row[VISIT_EDIT_LOG_COL.CHANGE_SUMMARY]  ?? "",
+  };
+}
+
+// Most recent first, scoped to one visit — mirrors fetchDocumentSends' shape.
+export async function fetchVisitEditLog(visitId: string): Promise<VisitEditLogEntry[]> {
+  const targetId = visitId.trim();
+  const rows = await fetchVisitEditLogRows();
+  return rows
+    .map(rowToVisitEditLogEntry)
+    .filter((e) => e.id && e.visitId === targetId)
+    .sort((a, b) => b.editedAt.localeCompare(a.editedAt));
+}
+
+export type VisitEditLogInput = {
+  visitId: string;
+  editedBy: string;
+  changeSummary: string;
+};
+
+export async function appendVisitEditLog(data: VisitEditLogInput): Promise<string> {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 6);
+  const id = `EDIT-${stamp.slice(-8)}-${rand}`;
+  const editedAt = new Date().toISOString();
+  await appendToMainSheet(VISIT_EDIT_LOG_TAB, [
+    id,
+    data.visitId,
+    data.editedBy,
+    editedAt,
+    data.changeSummary,
   ]);
   return id;
 }

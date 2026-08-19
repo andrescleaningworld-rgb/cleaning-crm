@@ -414,7 +414,7 @@ export default function VisitsPage() {
                   {filteredVisits.map((visit, index) => (
                     <div
                       key={`${visit.id || "visit"}-${index}-mobile`}
-                      onClick={() => visit.accountId && router.push(`/accounts/${visit.accountId}`)}
+                      onClick={() => visit.id && router.push(`/visits/${encodeURIComponent(visit.id)}`)}
                       className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-shadow"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -492,7 +492,7 @@ export default function VisitsPage() {
                       {filteredVisits.map((visit, index) => (
                         <tr
                           key={`${visit.id || "visit"}-${index}`}
-                          onClick={() => visit.accountId && router.push(`/accounts/${visit.accountId}`)}
+                          onClick={() => visit.id && router.push(`/visits/${encodeURIComponent(visit.id)}`)}
                           className="border-b last:border-b-0 cursor-pointer hover:bg-blue-50 transition-colors"
                         >
                           <td className="whitespace-nowrap p-3">{formatDate(visit.date)}</td>
