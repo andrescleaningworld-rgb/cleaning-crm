@@ -274,20 +274,8 @@ export default function EditAccountPage() {
           );
         }
 
-        // Start Date can arrive under any of these column names depending on
-        // how the row was created. Resolve to a single field once on load so
-        // the form has one source of truth to read from and write to.
-        const resolvedAccount: Account = {
-          ...foundAccount,
-          startDate:
-            foundAccount.accountStartDate ||
-            foundAccount.startDate ||
-            foundAccount.serviceStartDate ||
-            "",
-        };
-
-        setFormData(resolvedAccount);
-        originalDataRef.current = resolvedAccount;
+        setFormData(foundAccount);
+        originalDataRef.current = foundAccount;
       } catch (err) {
         setError(
           err instanceof Error
@@ -657,7 +645,12 @@ export default function EditAccountPage() {
                 </label>
                 <input
                   type="text"
-                  value={formData.startDate || ""}
+                  value={
+                    formData.accountStartDate ||
+                    formData.startDate ||
+                    formData.serviceStartDate ||
+                    ""
+                  }
                   onChange={(event) =>
                     updateField("startDate", event.target.value)
                   }
