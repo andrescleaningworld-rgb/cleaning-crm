@@ -368,30 +368,15 @@ export default function VisitsPage() {
               {/* Sort + filter bar */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Sort:</span>
-                <button
-                  type="button"
-                  onClick={() => setSortBy("recent")}
-                  className={`${pillBase} ${sortBy === "recent" ? pillActive : pillInactive}`}
-                >
-                  Most Recent
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSortBy("account")}
-                  className={`${pillBase} ${sortBy === "account" ? pillActive : pillInactive}`}
-                >
-                  Account A–Z
-                </button>
-                <span className="text-gray-200 select-none">|</span>
-                <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Filter:</span>
                 <select
-                  value={filterSub}
-                  onChange={(e) => setFilterSub(e.target.value)}
-                  className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as "recent" | "account")}
+                  className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
                 >
-                  <option value="">All Subcontractors</option>
-                  {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
+                  <option value="recent">Most Recent</option>
+                  <option value="account">Account A–Z</option>
                 </select>
+                <span className="text-gray-200 select-none">|</span>
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
