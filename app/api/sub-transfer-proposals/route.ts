@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
+import { fetchAppsScript } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the pattern in app/api/accounts/route.ts and app/api/subcontractors/route.ts.
+export const maxDuration = 45;
 
 export async function GET() {
   try {
@@ -108,17 +116,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
+    const response = await fetchAppsScript(
+      SCRIPT_URL,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: requestedAction,
+          proposal: body.proposal || body,
+        }),
+        cache: "no-store",
       },
-      body: JSON.stringify({
-        action: requestedAction,
-        proposal: body.proposal || body,
-      }),
-      cache: "no-store",
-    });
+      undefined,
+      // createSubTransferProposal/addSubTransferProposal append a new sheet
+      // row and sendSubTransferProposalEmail sends an email — neither is
+      // safe to retry blindly on a thrown/timeout error (risk of a
+      // duplicate proposal or a duplicate email), so only a confirmed 5xx
+      // (nothing was written) is retried here — same reasoning as
+      // addAccount's retryOnThrow in app/api/accounts/route.ts.
+      { retryOnThrow: false }
+    );
 
     const text = await response.text();
 
