@@ -56,7 +56,28 @@ export type OnboardingChecklistProps = {
   // Compact styling for use inside a modal vs. the account detail page's
   // persistent section.
   variant?: "section" | "modal";
+  // Renders the "Open in Wizard View" button in the section header — only
+  // meaningful (and only passed) for variant="section", since the modal is
+  // the wizard view and already has its own header/close button.
+  onOpenWizard?: () => void;
 };
+
+function ChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
 
 function formatTimestamp(iso: string): string {
   if (!iso) return "";
@@ -78,7 +99,12 @@ export default function OnboardingChecklist({
   accountStartDate,
   onAllItemsComplete,
   variant = "section",
+  onOpenWizard,
 }: OnboardingChecklistProps) {
+  // Collapsed by default so the account detail page starts shorter; staff
+  // can still see progress via the "X of Y complete" text next to the
+  // chevron without expanding.
+  const [collapsed, setCollapsed] = useState(true);
   const [items, setItems] = useState<OnboardingChecklistItems>(createEmptyChecklistItems());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -227,98 +253,145 @@ export default function OnboardingChecklist({
 
   const isComplete = isChecklistComplete(items);
   const compact = variant === "modal";
+  // Only the persistent account-detail-page section collapses — the wizard
+  // modal has its own header/close button and always shows full content.
+  const collapsible = variant === "section";
+  const expanded = !collapsible || !collapsed;
 
-  if (loading) {
+  if (loading && !collapsible) {
     return <p className="text-sm text-slate-500">Loading onboarding checklist…</p>;
   }
 
   return (
     <div className={compact ? "space-y-5" : "space-y-6"}>
-      <div className="grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-3">
-        <div>
-          <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Account</p>
-          <p className="mt-1 text-sm font-bold text-slate-900">{accountName || "Unnamed Account"}</p>
-        </div>
-        <div>
-          <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Date Started</p>
-          <p className="mt-1 text-sm font-bold text-slate-900">{accountStartDate || "N/A"}</p>
-        </div>
-        <div>
-          <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Assigned Manager</p>
-          <p className="mt-1 text-sm font-bold text-slate-900">{manager || "N/A"}</p>
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-          <span>
-            {progress.done} of {progress.total} complete
-          </span>
-          {lastUpdatedAt ? (
-            <span className="text-xs font-medium text-slate-400">Last saved {formatTimestamp(lastUpdatedAt)}</span>
+      {collapsible ? (
+        <div className="flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => setCollapsed((prev) => !prev)}
+            aria-expanded={expanded}
+            className="flex flex-1 items-center justify-between gap-4 text-left"
+          >
+            <div>
+              <h2 className="text-xl font-black text-slate-950">Onboarding</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                New Account Onboarding Checklist — autosaves as you go.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              {!expanded ? (
+                <span className="text-sm font-semibold text-slate-500 whitespace-nowrap">
+                  {progress.done} of {progress.total} complete
+                </span>
+              ) : null}
+              <ChevronDownIcon
+                className={`h-5 w-5 text-slate-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+              />
+            </div>
+          </button>
+          {onOpenWizard ? (
+            <button
+              type="button"
+              onClick={onOpenWizard}
+              className="shrink-0 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-indigo-500"
+            >
+              Open in Wizard View
+            </button>
           ) : null}
         </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-          <div
-            className="h-full rounded-full bg-blue-600 transition-all"
-            style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
-          />
-        </div>
-      </div>
-
-      {isComplete ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
-          {autoStableAppliedAt
-            ? `✓ Onboarding complete — Account Health was automatically set to Stable on ${formatTimestamp(autoStableAppliedAt)}.`
-            : "✓ All items complete."}
-        </div>
       ) : null}
 
-      {error ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-          {error}
-        </p>
-      ) : null}
+      {loading && expanded ? <p className="text-sm text-slate-500">Loading onboarding checklist…</p> : null}
 
-      <div className="space-y-6">
-        {ONBOARDING_CHECKLIST_SECTIONS.map((section) => (
-          <div key={section.key}>
-            <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">{section.title}</h3>
-            <div className="mt-3 space-y-3">
-              {section.items.map((item) => {
-                const state = items[item.key] ?? { checked: false, note: "", completedAt: null };
-                const saving = savingKeys.has(item.key);
-                return (
-                  <div key={item.key} className="rounded-xl border border-slate-200 p-3">
-                    <label className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={state.checked}
-                        onChange={() => handleToggle(item.key)}
-                        className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="flex-1 text-sm font-semibold text-slate-800">
-                        {getOnboardingItemLabel(item.key)}
-                        {saving ? <span className="ml-2 text-xs font-normal text-slate-400">Saving…</span> : null}
-                      </span>
-                    </label>
-                    <textarea
-                      value={noteDrafts[item.key] ?? ""}
-                      onChange={(event) => handleNoteChange(item.key, event.target.value)}
-                      placeholder="Optional note…"
-                      rows={compact ? 1 : 2}
-                      className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-                );
-              })}
+      {!loading && expanded ? (
+        <>
+          <div className="grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-3">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Account</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{accountName || "Unnamed Account"}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Date Started</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{accountStartDate || "N/A"}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Assigned Manager</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{manager || "N/A"}</p>
             </div>
           </div>
-        ))}
-      </div>
 
-      {completedAt ? (
-        <p className="text-xs font-medium text-slate-400">Checklist completed {formatTimestamp(completedAt)}</p>
+          <div>
+            <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
+              <span>
+                {progress.done} of {progress.total} complete
+              </span>
+              {lastUpdatedAt ? (
+                <span className="text-xs font-medium text-slate-400">Last saved {formatTimestamp(lastUpdatedAt)}</span>
+              ) : null}
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-blue-600 transition-all"
+                style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+
+          {isComplete ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
+              {autoStableAppliedAt
+                ? `✓ Onboarding complete — Account Health was automatically set to Stable on ${formatTimestamp(autoStableAppliedAt)}.`
+                : "✓ All items complete."}
+            </div>
+          ) : null}
+
+          {error ? (
+            <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+              {error}
+            </p>
+          ) : null}
+
+          <div className="space-y-6">
+            {ONBOARDING_CHECKLIST_SECTIONS.map((section) => (
+              <div key={section.key}>
+                <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">{section.title}</h3>
+                <div className="mt-3 space-y-3">
+                  {section.items.map((item) => {
+                    const state = items[item.key] ?? { checked: false, note: "", completedAt: null };
+                    const saving = savingKeys.has(item.key);
+                    return (
+                      <div key={item.key} className="rounded-xl border border-slate-200 p-3">
+                        <label className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={state.checked}
+                            onChange={() => handleToggle(item.key)}
+                            className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="flex-1 text-sm font-semibold text-slate-800">
+                            {getOnboardingItemLabel(item.key)}
+                            {saving ? <span className="ml-2 text-xs font-normal text-slate-400">Saving…</span> : null}
+                          </span>
+                        </label>
+                        <textarea
+                          value={noteDrafts[item.key] ?? ""}
+                          onChange={(event) => handleNoteChange(item.key, event.target.value)}
+                          placeholder="Optional note…"
+                          rows={compact ? 1 : 2}
+                          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {completedAt ? (
+            <p className="text-xs font-medium text-slate-400">Checklist completed {formatTimestamp(completedAt)}</p>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
