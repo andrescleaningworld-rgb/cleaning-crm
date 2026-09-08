@@ -522,7 +522,7 @@ export async function POST(request: Request) {
 
       try {
         const subcontractor = await updateSubcontractor(id, fields);
-        invalidateCached("subcontractors:getSubcontractors");
+        await invalidateCached("subcontractors:getSubcontractors");
         return NextResponse.json({ success: true, subcontractor });
       } catch (error) {
         return NextResponse.json(

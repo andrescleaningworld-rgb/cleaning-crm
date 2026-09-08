@@ -29,18 +29,16 @@ function getAccountFieldValue(account: Record<string, unknown>, fieldNames: stri
 }
 
 async function findAccountById(accountId: string): Promise<Record<string, unknown> | null> {
-  // Deliberately bypasses the TTL cache (getFreshAndCache, not getOrFetch)
-  // — confirmed live that this app's serverCache module can have its
-  // module-level cache Map split across more than one instance within the
-  // same dev server process (serverCache.ts's own INSTANCE_ID
-  // instrumentation exists for exactly this reason), so a write's
-  // invalidateCached() call on one instance doesn't guarantee a get on
-  // another sees it. Since this read decides whether an overwrite actually
-  // happened, staleness here isn't just cosmetic — a stale "before" value
-  // that happens to already equal the new value would suppress a real
-  // overwrite notice entirely, confirmed live during this feature's smoke
-  // test (see also app/api/accounts/route.ts's own updateAccountFields,
-  // which bypasses the cache the same way for the same correctness reason).
+  // Deliberately bypasses the TTL cache (getFreshAndCache, not getOrFetch).
+  // serverCache.ts now backs this with Vercel Runtime Cache (shared across
+  // instances) rather than the old per-instance in-memory Map, but even a
+  // shared cache can be up to its TTL stale — and since this read decides
+  // whether an overwrite actually happened, staleness here isn't just
+  // cosmetic. A stale "before" value that happens to already equal the new
+  // value would suppress a real overwrite notice entirely, confirmed live
+  // during this feature's smoke test (see also app/api/accounts/route.ts's
+  // own updateAccountFields, which bypasses the cache the same way for the
+  // same correctness reason).
   const accounts = (await getFreshAndCache("accounts:getAllAccounts", () =>
     fetchAccountsForAction("getAllAccounts")
   )) as Record<string, unknown>[];

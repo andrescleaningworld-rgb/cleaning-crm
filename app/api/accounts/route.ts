@@ -367,9 +367,11 @@ export async function POST(request: Request) {
     // A successful add/update means every cached GET action key is now
     // stale — without this, the accounts list/detail/edit pages keep
     // serving the pre-write data for up to the getOrFetch TTL (60s).
-    for (const cachedAction of ALLOWED_GET_ACTIONS) {
-      invalidateCached(`accounts:${cachedAction}`);
-    }
+    await Promise.all(
+      Array.from(ALLOWED_GET_ACTIONS).map((cachedAction) =>
+        invalidateCached(`accounts:${cachedAction}`)
+      )
+    );
 
     // Only when the sub is newly set or actually changed (see
     // newSubcontractorName/previousSubcontractorName above). Wrapped in
