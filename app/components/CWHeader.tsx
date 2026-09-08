@@ -14,6 +14,11 @@ type NotificationsResponse = {
   newCount?: number;
 };
 
+type PortalNewCountResponse = {
+  success?: boolean;
+  newCount?: number;
+};
+
 const adminNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts-center", label: "Accounts center" },
@@ -50,12 +55,13 @@ function getStoredRole(): UserRole {
   return null;
 }
 
-export default function CWHeader({ portalCount = 0 }: { portalCount?: number }) {
+export default function CWHeader() {
   const pathname = usePathname();
 
   const [role, setRole] = useState<UserRole>(null);
   const [mounted, setMounted] = useState(false);
   const [newNotificationCount, setNewNotificationCount] = useState(0);
+  const [portalCount, setPortalCount] = useState(0);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
@@ -97,6 +103,34 @@ export default function CWHeader({ portalCount = 0 }: { portalCount?: number }) 
     const interval = window.setInterval(loadNotifications, 60000);
 
     return () => {
+      window.clearInterval(interval);
+    };
+  }, [role]);
+
+  useEffect(() => {
+    if (role !== "admin") return;
+
+    let cancelled = false;
+
+    async function loadPortalCount() {
+      try {
+        const response = await fetch("/api/portal/new-count");
+        const data: PortalNewCountResponse = await response.json();
+
+        if (!cancelled && data.success) {
+          setPortalCount(Number(data.newCount || 0));
+        }
+      } catch {
+        if (!cancelled) setPortalCount(0);
+      }
+    }
+
+    loadPortalCount();
+
+    const interval = window.setInterval(loadPortalCount, 60000);
+
+    return () => {
+      cancelled = true;
       window.clearInterval(interval);
     };
   }, [role]);
