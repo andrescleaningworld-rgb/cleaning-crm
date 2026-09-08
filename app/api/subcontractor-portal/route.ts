@@ -1,9 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the budget used by /api/accounts and /api/subcontractors for the same
+// upstream.
+export const maxDuration = 45;
+
+// Only these actions are confirmed read-only against the Apps Script backend
+// — safe to retry after a throw (timeout/network failure), since a retry
+// can't duplicate a side effect it never had. Every other action here
+// (logSubcontractorActivity, submitSubPortalIssue, submitSupplyOrder,
+// resolveComplaint) writes a row and its Apps Script handler isn't in this
+// repo to confirm it upserts by id rather than appending — same reasoning
+// app/api/accounts/route.ts uses to withhold retryOnThrow from addAccount.
+const RETRY_ON_THROW_ACTIONS = new Set([
+  "getSubcontractorPortalByEmail",
+  "getSubcontractorPortalBySession",
+]);
 
 type ScriptResponse = {
   success?: boolean;
@@ -186,14 +207,33 @@ export async function POST(request: NextRequest) {
           }
         : body;
 
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(finalBody),
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetchAppsScript(
+        SCRIPT_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8",
+          },
+          body: JSON.stringify(finalBody),
+          cache: "no-store",
+        },
+        undefined,
+        {
+          retryOn5xx: true,
+          retryOnThrow: RETRY_ON_THROW_ACTIONS.has(action),
+        }
+      );
+    } catch (err) {
+      if (err instanceof AppsScriptFetchError) {
+        return NextResponse.json(
+          { success: false, error: err.message },
+          { status: err.status }
+        );
+      }
+      throw err;
+    }
 
     const text = await response.text();
 
