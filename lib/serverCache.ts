@@ -62,8 +62,16 @@ export async function getOrFetch<T>(
   fetcher: () => Promise<T>,
   ttlMs: number = DEFAULT_TTL_MS
 ): Promise<T> {
-  const cached = (await cache.get(key)) as T | undefined;
-  if (cached !== undefined) {
+  // RuntimeCache.get() resolves to null (not undefined) on a miss — see
+  // node_modules/@vercel/functions/cache/types.d.ts. Checking `!== undefined`
+  // here treated every miss as a hit returning null, skipping the fetcher
+  // entirely and never populating the cache: every getOrFetch call returned
+  // null instead of real data (the "Cannot read properties of null" crash
+  // this was found from). Guard against both null and undefined defensively,
+  // since a cached value's own contents could legitimately be undefined-typed
+  // in T but never null (fetchers here always resolve to arrays/objects).
+  const cached = (await cache.get(key)) as T | null | undefined;
+  if (cached !== null && cached !== undefined) {
     console.log(`[serverCache HIT] instance=${INSTANCE_ID} key=${key}`);
     return cached;
   }
