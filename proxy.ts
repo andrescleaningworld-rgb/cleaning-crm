@@ -34,6 +34,10 @@ const PUBLIC_PATHS = [
   // decide which content to show, rather than gating access to the page.
   "/help",
   "/api/session-role",
+  // Polled by VersionCheckBanner (rendered in the root layout) from every
+  // portal, including subcontractor and customer sessions with no admin
+  // cookie — must not redirect to /login like a gated API route would.
+  "/api/version",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action
