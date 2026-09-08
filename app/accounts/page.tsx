@@ -761,10 +761,11 @@ function useFocusTrap(active: boolean) {
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
-  // Full account list used only to build the Manager/Subcontractor
-  // filter dropdown options — kept separate from `accounts` (which is
-  // search-scoped and starts empty) so those dropdowns aren't empty until
-  // the user has already searched. See fetchFilterOptionAccounts below.
+  // Full account list used only to build the Manager/Subcontractor filter
+  // dropdown options — kept separate from `accounts` (which narrows to a
+  // search result once the user searches) so those dropdowns keep every
+  // option even after a search narrows the visible list. See fetchAccounts
+  // below, which populates this from its own empty-query result.
   const [filterOptionAccounts, setFilterOptionAccounts] = useState<Account[]>([]);
   const [allSubcontractors, setAllSubcontractors] = useState<Subcontractor[]>([]);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
@@ -898,22 +899,13 @@ export default function AccountsPage() {
     }
   }, []);
 
-  // Same "load independently on mount" pattern as fetchSubcontractors above —
-  // populates the Manager/Subcontractor/Frequency filter dropdowns from the
-  // full account list, decoupled from the search-scoped `accounts` state.
-  // Best-effort only: if it fails, those dropdowns just show fewer options
-  // rather than surfacing an error banner for a secondary data source.
-  const fetchFilterOptionAccounts = useCallback(async () => {
-    try {
-      const response = await fetch("/api/accounts", { cache: "no-store" });
-      const data = await readJson<ApiResponse>(response);
-      if (!response.ok || data.success === false) return;
-      const rawAccounts: Account[] = data.accounts ?? data.data ?? [];
-      setFilterOptionAccounts(enrichAccounts(rawAccounts, subcontractorsRef.current));
-    } catch {
-      // Filter dropdowns fall back to whatever options are already loaded.
-    }
-  }, []);
+  // Populates the Manager/Subcontractor/Frequency filter dropdowns from the
+  // full account list, decoupled from the search-scoped `accounts` state so
+  // those dropdowns aren't empty until the user has already searched — see
+  // fetchAccounts below, which derives this from its own empty-query result
+  // instead of firing a second /api/accounts request for the same data
+  // (/api/accounts treats a blank "q" as "return everything," so the
+  // mount-time fetchAccounts("") call already has the full list in hand).
 
   const fetchAccounts = useCallback(async (q: string) => {
     setLoading(true);
@@ -928,7 +920,16 @@ export default function AccountsPage() {
       }
 
       const rawAccounts: Account[] = accountsData.accounts ?? accountsData.data ?? [];
-      setAccounts(enrichAccounts(rawAccounts, subcontractorsRef.current));
+      const enriched = enrichAccounts(rawAccounts, subcontractorsRef.current);
+      setAccounts(enriched);
+
+      // Only an empty query is the full, unfiltered list — reuse it for the
+      // filter dropdowns too. A real text search (non-empty q) narrows
+      // `accounts` server-side and must not also narrow what options the
+      // dropdowns offer, so filterOptionAccounts is left untouched then.
+      if (!q.trim()) {
+        setFilterOptionAccounts(enriched);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong loading accounts.");
       setAccounts([]);
@@ -1007,14 +1008,15 @@ export default function AccountsPage() {
 
   useEffect(() => {
     void fetchSubcontractors();
-    void fetchFilterOptionAccounts();
     void loadBulkToDoManagers();
     // Auto-load with the default filters (Status: Active, etc.) immediately
     // on mount — same request handleSearch's empty-text Search click would
     // make, so the page arrives with data/metrics already populated instead
-    // of the old "click Search to get started" placeholder.
+    // of the old "click Search to get started" placeholder. This same
+    // empty-query call also populates the filter dropdowns — see
+    // fetchAccounts above.
     void fetchAccounts("");
-  }, [fetchSubcontractors, fetchFilterOptionAccounts, fetchAccounts]);
+  }, [fetchSubcontractors, fetchAccounts]);
 
   // Search only runs when the user explicitly asks for it (Search button or
   // Enter key) — not on every keystroke or filter-dropdown change. An empty
