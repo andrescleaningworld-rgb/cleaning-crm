@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the budget used by /api/accounts and /api/subcontractor-portal for the
+// same upstream.
+export const maxDuration = 45;
 
 type ScriptResponse = {
   success?: boolean;
@@ -41,10 +50,26 @@ export async function GET() {
       );
     }
 
-    const response = await fetch(`${SCRIPT_URL}?action=getVisits`, {
-      method: "GET",
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      // Read-only action — safe to retry after a throw (timeout/network
+      // failure), unlike addVisit in POST below.
+      response = await fetchAppsScript(
+        `${SCRIPT_URL}?action=getVisits`,
+        { method: "GET", cache: "no-store" },
+        undefined,
+        { retryOn5xx: true, retryOnThrow: true }
+      );
+    } catch (error) {
+      if (error instanceof AppsScriptFetchError) {
+        console.error("[visits] Apps Script call failed:", error.message);
+        return NextResponse.json(
+          { success: false, error: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
 
     const text = await response.text();
 
@@ -53,6 +78,10 @@ export async function GET() {
     try {
       data = JSON.parse(text) as ScriptResponse;
     } catch {
+      console.error(
+        `[visits] Apps Script did not return valid JSON (status=${response.status}):`,
+        text.slice(0, 500)
+      );
       return NextResponse.json(
         {
           success: false,
@@ -64,6 +93,10 @@ export async function GET() {
     }
 
     if (!response.ok || data.success === false) {
+      console.error(
+        `[visits] Apps Script returned a failure (status=${response.status}):`,
+        data.error || data
+      );
       return NextResponse.json(
         {
           success: false,
@@ -90,6 +123,10 @@ export async function GET() {
       }
     );
   } catch (error) {
+    console.error(
+      "[visits] unexpected error loading visits:",
+      error instanceof Error ? error.message : error
+    );
     return NextResponse.json(
       {
         success: false,
@@ -144,14 +181,44 @@ export async function POST(request: Request) {
 
     console.log("Saving visit payload:", payload);
 
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetchAppsScript(
+        SCRIPT_URL,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8",
+          },
+          body: JSON.stringify(payload),
+          cache: "no-store",
+        },
+        undefined,
+        {
+          retryOn5xx: true,
+          // addVisit's Apps Script handler isn't in this repo to confirm it
+          // upserts rather than appending a row — same reasoning
+          // app/api/accounts/route.ts uses to withhold retryOnThrow from
+          // addAccount. A blind retry on an ambiguous timeout risks a
+          // duplicate visit row.
+          retryOnThrow: false,
+        }
+      );
+    } catch (error) {
+      if (error instanceof AppsScriptFetchError) {
+        console.error(
+          "[visits] Apps Script addVisit call failed:",
+          error.message,
+          "payload:",
+          payload
+        );
+        return NextResponse.json(
+          { success: false, error: error.message, sentPayload: payload },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
 
     const text = await response.text();
 
@@ -160,6 +227,10 @@ export async function POST(request: Request) {
     try {
       data = JSON.parse(text) as ScriptResponse;
     } catch {
+      console.error(
+        `[visits] Apps Script did not return valid JSON on save (status=${response.status}):`,
+        text.slice(0, 500)
+      );
       return NextResponse.json(
         {
           success: false,
@@ -172,6 +243,10 @@ export async function POST(request: Request) {
     }
 
     if (!response.ok || data.success === false) {
+      console.error(
+        `[visits] Apps Script rejected addVisit (status=${response.status}):`,
+        data.error || data
+      );
       return NextResponse.json(
         {
           success: false,
@@ -191,6 +266,10 @@ export async function POST(request: Request) {
       scriptResponse: data,
     });
   } catch (error) {
+    console.error(
+      "[visits] unexpected error saving visit:",
+      error instanceof Error ? error.message : error
+    );
     return NextResponse.json(
       {
         success: false,

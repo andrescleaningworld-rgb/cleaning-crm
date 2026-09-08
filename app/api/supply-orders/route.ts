@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the budget used by /api/accounts and /api/subcontractor-portal for the
+// same upstream.
+export const maxDuration = 45;
 
 type SupplyOrder = {
   rowNumber?: number;
@@ -116,14 +125,39 @@ export async function GET() {
     const scriptUrl = getScriptUrl();
     const url = `${scriptUrl}?action=getSupplyOrders`;
 
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      // Read-only action — safe to retry after a throw (timeout/network
+      // failure), unlike createSupplyOrder in POST below.
+      response = await fetchAppsScript(
+        url,
+        { method: "GET", cache: "no-store" },
+        undefined,
+        { retryOn5xx: true, retryOnThrow: true }
+      );
+    } catch (error) {
+      if (error instanceof AppsScriptFetchError) {
+        console.error("[supply-orders] Apps Script call failed:", error.message);
+        return NextResponse.json(
+          {
+            success: false,
+            error: error.message,
+            supplyOrders: [],
+            orders: [],
+          },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
 
     const parsed = await readScriptJson(response);
 
     if (!parsed.isJson) {
+      console.error(
+        `[supply-orders] Apps Script did not return valid JSON (status=${response.status}):`,
+        parsed.rawText.slice(0, 500)
+      );
       return NextResponse.json(
         {
           success: false,
@@ -139,6 +173,10 @@ export async function GET() {
     const data = parsed.data as ScriptResponse;
 
     if (!response.ok || data.success === false) {
+      console.error(
+        `[supply-orders] Apps Script returned a failure (status=${response.status}):`,
+        data.error || data.message || data
+      );
       return NextResponse.json(
         {
           success: false,
@@ -166,6 +204,10 @@ export async function GET() {
       }
     );
   } catch (error) {
+    console.error(
+      "[supply-orders] unexpected error loading supply orders:",
+      error instanceof Error ? error.message : error
+    );
     return NextResponse.json(
       {
         success: false,
@@ -194,21 +236,53 @@ export async function POST(request: NextRequest) {
     */
     const action = body.action || "createSupplyOrder";
 
-    const response = await fetch(scriptUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify({
-        ...body,
-        action,
-      }),
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetchAppsScript(
+        scriptUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8",
+          },
+          body: JSON.stringify({
+            ...body,
+            action,
+          }),
+          cache: "no-store",
+        },
+        undefined,
+        {
+          retryOn5xx: true,
+          // updateSupplyOrderStatus is an update-by-id (status change on an
+          // existing order) — safe to retry after a throw, same reasoning
+          // app/api/accounts/route.ts applies to updateAccount. Any other
+          // action (createSupplyOrder appends a new row) isn't confirmed
+          // idempotent, so it isn't retried.
+          retryOnThrow: action === "updateSupplyOrderStatus",
+        }
+      );
+    } catch (error) {
+      if (error instanceof AppsScriptFetchError) {
+        console.error(
+          `[supply-orders] Apps Script ${action} call failed:`,
+          error.message
+        );
+        return NextResponse.json(
+          { success: false, error: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
 
     const parsed = await readScriptJson(response);
 
     if (!parsed.isJson) {
+      console.error(
+        `[supply-orders] Apps Script did not return valid JSON for ${action} (status=${response.status}):`,
+        parsed.rawText.slice(0, 500)
+      );
       return NextResponse.json(
         {
           success: false,
@@ -225,6 +299,10 @@ export async function POST(request: NextRequest) {
     const data = parsed.data;
 
     if (!response.ok || data.success === false) {
+      console.error(
+        `[supply-orders] Apps Script rejected ${action} (status=${response.status}):`,
+        data.error || data.message || data
+      );
       return NextResponse.json(
         {
           success: false,
@@ -244,6 +322,10 @@ export async function POST(request: NextRequest) {
       status: 200,
     });
   } catch (error) {
+    console.error(
+      "[supply-orders] unexpected error in POST:",
+      error instanceof Error ? error.message : error
+    );
     return NextResponse.json(
       {
         success: false,

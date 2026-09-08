@@ -6,8 +6,19 @@ import {
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import { appendComplaint } from "@/lib/googleSheets";
 import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the budget used by /api/accounts and /api/subcontractor-portal for the
+// same upstream. Only the GET here and the closeComplaint/
+// resendComplaintNotification POST branches still call Apps Script — new
+// complaint creation was already migrated to direct Sheets API below.
+export const maxDuration = 45;
 
 type ScriptResponse = {
   success?: boolean;
@@ -88,10 +99,26 @@ export async function GET() {
       );
     }
 
-    const response = await fetch(`${SCRIPT_URL}?action=getComplaints`, {
-      method: "GET",
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      // Read-only action — safe to retry after a throw (timeout/network
+      // failure), unlike the write branches in POST below.
+      response = await fetchAppsScript(
+        `${SCRIPT_URL}?action=getComplaints`,
+        { method: "GET", cache: "no-store" },
+        undefined,
+        { retryOn5xx: true, retryOnThrow: true }
+      );
+    } catch (error) {
+      if (error instanceof AppsScriptFetchError) {
+        console.error("[complaints] Apps Script call failed:", error.message);
+        return NextResponse.json(
+          { success: false, error: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
 
     const text = await response.text();
 
@@ -100,6 +127,10 @@ export async function GET() {
     try {
       data = JSON.parse(text) as ScriptResponse;
     } catch {
+      console.error(
+        `[complaints] Apps Script did not return valid JSON (status=${response.status}):`,
+        text.slice(0, 500)
+      );
       return NextResponse.json(
         {
           success: false,
@@ -112,6 +143,10 @@ export async function GET() {
     }
 
     if (!response.ok || data.success === false) {
+      console.error(
+        `[complaints] Apps Script returned a failure (status=${response.status}):`,
+        data.error || data
+      );
       return NextResponse.json(
         {
           success: false,
@@ -138,6 +173,10 @@ export async function GET() {
       }
     );
   } catch (error) {
+    console.error(
+      "[complaints] unexpected error loading complaints:",
+      error instanceof Error ? error.message : error
+    );
     return NextResponse.json(
       {
         success: false,
@@ -208,14 +247,43 @@ export async function POST(request: Request) {
         },
       };
 
-      const response = await fetch(SCRIPT_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      });
+      let response: Response;
+      try {
+        response = await fetchAppsScript(
+          SCRIPT_URL,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify(payload),
+            cache: "no-store",
+          },
+          undefined,
+          {
+            retryOn5xx: true,
+            // closeComplaint updates an existing complaint row by rowNumber/id
+            // (not an append), so a retry after an ambiguous timeout converges
+            // to the same end state — same reasoning app/api/accounts/route.ts
+            // applies to updateAccount.
+            retryOnThrow: true,
+          }
+        );
+      } catch (error) {
+        if (error instanceof AppsScriptFetchError) {
+          console.error(
+            "[complaints] Apps Script closeComplaint call failed:",
+            error.message,
+            "payload:",
+            payload
+          );
+          return NextResponse.json(
+            { success: false, error: error.message, sentPayload: payload },
+            { status: error.status }
+          );
+        }
+        throw error;
+      }
 
       const text = await response.text();
 
@@ -224,6 +292,10 @@ export async function POST(request: Request) {
       try {
         data = JSON.parse(text) as ScriptResponse;
       } catch {
+        console.error(
+          `[complaints] Apps Script did not return valid JSON on close (status=${response.status}):`,
+          text.slice(0, 500)
+        );
         return NextResponse.json(
           {
             success: false,
@@ -237,6 +309,10 @@ export async function POST(request: Request) {
       }
 
       if (!response.ok || data.success === false) {
+        console.error(
+          `[complaints] Apps Script rejected closeComplaint (status=${response.status}):`,
+          data.error || data
+        );
         return NextResponse.json(
           {
             success: false,
@@ -266,14 +342,42 @@ export async function POST(request: Request) {
         },
       };
 
-      const response = await fetch(SCRIPT_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      });
+      let response: Response;
+      try {
+        response = await fetchAppsScript(
+          SCRIPT_URL,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain;charset=utf-8",
+            },
+            body: JSON.stringify(payload),
+            cache: "no-store",
+          },
+          undefined,
+          {
+            retryOn5xx: true,
+            // This sends an email — retrying on an ambiguous timeout risks
+            // double-sending the subcontractor notification, a worse outcome
+            // than just failing this one attempt.
+            retryOnThrow: false,
+          }
+        );
+      } catch (error) {
+        if (error instanceof AppsScriptFetchError) {
+          console.error(
+            "[complaints] Apps Script resendComplaintNotification call failed:",
+            error.message,
+            "payload:",
+            payload
+          );
+          return NextResponse.json(
+            { success: false, error: error.message, sentPayload: payload },
+            { status: error.status }
+          );
+        }
+        throw error;
+      }
 
       const text = await response.text();
 
@@ -282,6 +386,10 @@ export async function POST(request: Request) {
       try {
         data = JSON.parse(text) as ScriptResponse;
       } catch {
+        console.error(
+          `[complaints] Apps Script did not return valid JSON on resend (status=${response.status}):`,
+          text.slice(0, 500)
+        );
         return NextResponse.json(
           {
             success: false,
@@ -295,6 +403,10 @@ export async function POST(request: Request) {
       }
 
       if (!response.ok || data.success === false) {
+        console.error(
+          `[complaints] Apps Script rejected resendComplaintNotification (status=${response.status}):`,
+          data.error || data
+        );
         return NextResponse.json(
           {
             success: false,
@@ -487,6 +599,10 @@ export async function POST(request: Request) {
       message: "Complaint saved successfully.",
     });
   } catch (error) {
+    console.error(
+      "[complaints] unexpected error in POST:",
+      error instanceof Error ? error.message : error
+    );
     return NextResponse.json(
       {
         success: false,
