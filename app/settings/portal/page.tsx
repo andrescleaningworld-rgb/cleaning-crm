@@ -2,6 +2,12 @@ import Link from "next/link";
 import { getMergedPortalAccounts } from "@/lib/googleSheets";
 import PortalTable from "./portal-table";
 
+// No cookies()/headers() call here (auth is enforced by proxy.ts, not read
+// in-page), so Next would otherwise statically freeze this page's account
+// list at build time -- admins enabling/disabling portal accounts wouldn't
+// see it reflected here until the next deploy.
+export const dynamic = "force-dynamic";
+
 export default async function PortalAccessPage() {
   const accounts = await getMergedPortalAccounts().catch(() => []);
 
