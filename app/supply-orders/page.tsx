@@ -286,6 +286,69 @@ function getDeliveryAddress(order: SupplyOrder, accounts: Account[]): string {
   return "N/A — picked up in person, no delivery address";
 }
 
+// Builds the request body for POST /api/supply-orders/po-pdf from data the
+// client already has loaded — same admin-only trust boundary as the rest of
+// this page, so there's no need for the server to re-look-up the group by ID
+// the way app/api/accounts/[id]/pdf/route.ts re-fetches account data.
+function buildPoPdfRequestBody(group: OrderGroupSummary, accounts: Account[]) {
+  const first = group.items[0];
+  const orderIds = Array.from(
+    new Set(group.items.map((item) => cleanText(item.orderId)).filter(Boolean))
+  );
+
+  return {
+    poNumber: getPoNumber(group),
+    orderDate: cleanText(first?.timestamp),
+    accountName: cleanText(first?.accountName),
+    accountId: cleanText(first?.accountId),
+    subcontractor: cleanText(first?.subcontractor),
+    subcontractorEmail: cleanText(first?.subcontractorEmail),
+    deliveryMode: cleanText(first?.deliveryMode),
+    deliveryAddress: first ? getDeliveryAddress(first, accounts) : "",
+    orderIds,
+    items: group.items.map((item) => ({
+      supplyItem: cleanText(item.supplyItem),
+      description: getOrderDescription(item),
+      category: cleanText(item.category),
+      quantity: [cleanText(item.quantity), cleanText(item.unit)].filter(Boolean).join(" "),
+      notes: cleanText(item.notes),
+    })),
+  };
+}
+
+// Matches the server's own slugify-and-join naming (see
+// app/api/supply-orders/po-pdf/route.ts) so a downloaded file and a shared
+// one look the same regardless of which path generated it — the Content-
+// Disposition filename the server sets doesn't apply to a blob: URL
+// (no real HTTP response at save time), so the download path needs its own
+// client-side name via the anchor's download attribute.
+function buildPoFilename(group: OrderGroupSummary): string {
+  const poNumber = getPoNumber(group);
+  const accountPart = cleanText(group.accountName) ? ` - ${cleanText(group.accountName)}` : "";
+  return `${poNumber}${accountPart}.pdf`.replace(/[^a-zA-Z0-9 _.-]/g, "");
+}
+
+async function generatePoPdfBlob(group: OrderGroupSummary, accounts: Account[]): Promise<Blob> {
+  const response = await fetch("/api/supply-orders/po-pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildPoPdfRequestBody(group, accounts)),
+  });
+
+  if (!response.ok) {
+    let message = "Could not generate the PO PDF.";
+    try {
+      const data = (await response.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // Response body wasn't JSON — fall back to the generic message above.
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
 function parseOrderDate(order: SupplyOrder) {
   const value = cleanText(order.timestamp);
 
@@ -417,6 +480,83 @@ export default function SupplyOrdersPage() {
     preloadImage.src = "/cw-logo.jpg";
     if (preloadImage.complete) setLogoReady(true);
   }, []);
+
+  // Web Share Level 2 (file sharing) support varies by browser/platform —
+  // strong on mobile Safari/Chrome, present on desktop Chrome/Edge/Safari,
+  // absent on Firefox (any platform) and Chrome on Linux. navigator.share
+  // existing isn't enough to check — some browsers implement it for text/
+  // URLs only and report false from canShare() specifically for files, so
+  // this probes with a real (tiny, throwaway) File the same shape as what
+  // handleSharePo will actually share.
+  const [canShareFiles, setCanShareFiles] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || typeof navigator.canShare !== "function") {
+      return;
+    }
+    try {
+      const probeFile = new File(["po"], "po-support-check.pdf", { type: "application/pdf" });
+      setCanShareFiles(navigator.canShare({ files: [probeFile] }));
+    } catch {
+      setCanShareFiles(false);
+    }
+  }, []);
+
+  // Shared by handleSharePo and handleDownloadPo — only one of the two
+  // buttons is ever rendered (see canShareFiles above), so one pending/error
+  // pair covers both.
+  const [poActionPending, setPoActionPending] = useState(false);
+  const [poError, setPoError] = useState("");
+
+  async function handleSharePo() {
+    if (!selectedGroup) return;
+
+    try {
+      setPoError("");
+      setPoActionPending(true);
+      const blob = await generatePoPdfBlob(selectedGroup, accounts);
+      const file = new File([blob], buildPoFilename(selectedGroup), { type: "application/pdf" });
+
+      await navigator.share({
+        files: [file],
+        title: `Purchase Order ${getPoNumber(selectedGroup)}`,
+        text: `Purchase order for ${selectedGroup.accountName || "account"} — ${
+          selectedGroup.subcontractor || "subcontractor"
+        }`,
+      });
+    } catch (err) {
+      // AbortError means the user closed the native share sheet without
+      // picking anything — not a failure worth surfacing.
+      if (err instanceof Error && err.name === "AbortError") return;
+      setPoError(err instanceof Error ? err.message : "Could not share the PO.");
+    } finally {
+      setPoActionPending(false);
+    }
+  }
+
+  async function handleDownloadPo() {
+    if (!selectedGroup) return;
+
+    try {
+      setPoError("");
+      setPoActionPending(true);
+      const blob = await generatePoPdfBlob(selectedGroup, accounts);
+      const objectUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = buildPoFilename(selectedGroup);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (err) {
+      setPoError(err instanceof Error ? err.message : "Could not download the PO.");
+    } finally {
+      setPoActionPending(false);
+    }
+  }
 
   async function loadAccounts() {
     try {
@@ -752,6 +892,26 @@ export default function SupplyOrdersPage() {
                 Generate PO
               </button>
 
+              {canShareFiles ? (
+                <button
+                  type="button"
+                  onClick={handleSharePo}
+                  disabled={!selectedGroup || poActionPending}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {poActionPending ? "Preparing..." : "Share"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDownloadPo}
+                  disabled={!selectedGroup || poActionPending}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {poActionPending ? "Preparing..." : "Download PDF"}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={loadOrders}
@@ -779,6 +939,12 @@ export default function SupplyOrdersPage() {
           {successMessage ? (
             <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
               {successMessage}
+            </div>
+          ) : null}
+
+          {poError ? (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+              {poError}
             </div>
           ) : null}
         </section>
