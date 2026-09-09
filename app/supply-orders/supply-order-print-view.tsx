@@ -20,10 +20,15 @@ function getItemDescription(item: PrintOrderItem): string {
 // Rendered into the .supply-order-print-view opt-in container (see the
 // @media print rules in page.tsx) so it's the only thing visible when
 // window.print() runs, regardless of what's on screen. All items passed in
-// share the same date/account/subcontractor (see getPrintGroupForOrder in
+// share the same date/account/subcontractor (see buildOrderGroups in
 // page.tsx) — order date, account, subcontractor, delivery mode, and address
-// come from the group as a whole rather than per line item.
+// come from the group as a whole rather than per line item. Header styling
+// (logo box, dark blue banner) mirrors app/accounts/[id]/account-packet-
+// print-view.tsx's branded packet, reusing the same /cw-logo.jpg asset and
+// --cw-blue-dark/--cw-border CSS variables from globals.css rather than
+// introducing a new logo or color.
 export default function SupplyOrderPrintView({
+  poReference,
   orderDate,
   accountName,
   accountId,
@@ -31,9 +36,9 @@ export default function SupplyOrderPrintView({
   subcontractorEmail,
   deliveryMode,
   deliveryAddress,
-  orderGroupId,
   items,
 }: {
+  poReference: string;
   orderDate: string;
   accountName: string;
   accountId: string;
@@ -41,7 +46,6 @@ export default function SupplyOrderPrintView({
   subcontractorEmail: string;
   deliveryMode: string;
   deliveryAddress: string;
-  orderGroupId: string;
   items: PrintOrderItem[];
 }) {
   const orderIds = Array.from(
@@ -50,8 +54,32 @@ export default function SupplyOrderPrintView({
 
   return (
     <div className="supply-order-print-view">
-      <div className="mb-4 flex items-baseline justify-between border-b-2 border-slate-800 pb-2">
-        <h1 className="text-xl font-bold">Cleaning World — Supply Order</h1>
+      <div
+        className="mb-5 flex items-center justify-between gap-4 px-1 py-4"
+        style={{ background: "var(--cw-blue-dark)", color: "#fff" }}
+      >
+        <div className="flex items-center gap-3 rounded-lg bg-white px-3 py-2">
+          {/* eslint-disable-next-line @next/next/no-img-element -- print-only static image, next/image adds no value here */}
+          <img src="/cw-logo.jpg" alt="Cleaning World Inc." className="h-9 w-auto" />
+        </div>
+
+        <div className="text-right">
+          <h1 className="text-lg font-black">Purchase Order</h1>
+          <p className="mt-1 text-xs font-semibold opacity-90">Cleaning World Inc.</p>
+        </div>
+      </div>
+
+      <div
+        className="mb-4 flex items-baseline justify-between border-b pb-2"
+        style={{ borderColor: "var(--cw-border)" }}
+      >
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+            PO Reference #
+          </p>
+          <p className="text-sm font-semibold">{poReference || "-"}</p>
+        </div>
+
         <div className="text-right text-xs text-slate-600">
           <p>Generated {new Date().toLocaleDateString()}</p>
           <p>
@@ -100,17 +128,14 @@ export default function SupplyOrderPrintView({
           <p className="font-semibold">{deliveryAddress || "-"}</p>
         </div>
 
-        <div className="col-span-2">
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-            Reference Order ID{orderIds.length === 1 ? "" : "s"}
-          </p>
-          <p className="font-semibold">
-            {orderIds.length > 0 ? orderIds.join(", ") : "-"}
-          </p>
-          {orderGroupId ? (
-            <p className="text-xs text-slate-500">Order group: {orderGroupId}</p>
-          ) : null}
-        </div>
+        {orderIds.length > 0 ? (
+          <div className="col-span-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+              Line Item Order ID{orderIds.length === 1 ? "" : "s"}
+            </p>
+            <p className="font-semibold">{orderIds.join(", ")}</p>
+          </div>
+        ) : null}
       </div>
 
       <table className="w-full border-collapse text-sm">
@@ -151,6 +176,17 @@ export default function SupplyOrderPrintView({
           ) : null}
         </tbody>
       </table>
+
+      <div
+        className="mt-6 flex items-end justify-between border-t pt-3 text-[8.5px] text-slate-500"
+        style={{ borderColor: "var(--cw-border)" }}
+      >
+        <div>
+          <p className="font-bold text-slate-700">Cleaning World Inc.</p>
+          <p>90 Burlews Ct, Hackensack, NJ 07601</p>
+          <p>201-487-1313</p>
+        </div>
+      </div>
     </div>
   );
 }

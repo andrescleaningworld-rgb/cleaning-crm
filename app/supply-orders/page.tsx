@@ -170,12 +170,57 @@ function getOrderGroupKey(order: SupplyOrder): string {
   ).toLowerCase()}|${cleanText(order.timestamp)}`;
 }
 
-// Searches the full unfiltered order list (not filteredOrders) so an active
+type OrderGroupSummary = {
+  key: string;
+  items: SupplyOrder[];
+  timestamp: string;
+  timestampMs: number;
+  accountName: string;
+  subcontractor: string;
+};
+
+// Groups the full unfiltered order list (not filteredOrders) so an active
 // search/status/delivery filter can't hide sibling line items out of a
-// group's printed report.
-function getPrintGroupForOrder(order: SupplyOrder, allOrders: SupplyOrder[]): SupplyOrder[] {
-  const key = getOrderGroupKey(order);
-  return allOrders.filter((candidate) => getOrderGroupKey(candidate) === key);
+// group's PO, sorted newest first so callers can default to [0] for "latest".
+function buildOrderGroups(allOrders: SupplyOrder[]): OrderGroupSummary[] {
+  const groupsByKey = new Map<string, SupplyOrder[]>();
+
+  for (const order of allOrders) {
+    const key = getOrderGroupKey(order);
+    const existing = groupsByKey.get(key);
+    if (existing) {
+      existing.push(order);
+    } else {
+      groupsByKey.set(key, [order]);
+    }
+  }
+
+  const groups: OrderGroupSummary[] = Array.from(groupsByKey.entries()).map(([key, items]) => {
+    const first = items[0];
+    return {
+      key,
+      items,
+      timestamp: cleanText(first.timestamp),
+      timestampMs: parseOrderDate(first),
+      accountName: cleanText(first.accountName),
+      subcontractor: cleanText(first.subcontractor),
+    };
+  });
+
+  return groups.sort((a, b) => b.timestampMs - a.timestampMs);
+}
+
+// A group's PO reference is its shared orderGroupId when present; legacy
+// groups without one (matched by account + subcontractor + timestamp) fall
+// back to the joined set of individual line-item order IDs instead.
+function getPoReference(group: OrderGroupSummary): string {
+  const groupId = cleanText(group.items[0]?.orderGroupId);
+  if (groupId) return groupId;
+
+  const orderIds = Array.from(
+    new Set(group.items.map((item) => cleanText(item.orderId)).filter(Boolean))
+  );
+  return orderIds.join(", ");
 }
 
 function getFullAccountAddress(account: Account): string {
@@ -324,9 +369,15 @@ export default function SupplyOrdersPage() {
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   // Off-screen print-only view (see .supply-order-print-view below), null
-  // when nothing is queued to print. Set by handlePrintOrder, which gathers
-  // every line item sharing this order's group before printing.
-  const [printGroup, setPrintGroup] = useState<SupplyOrder[] | null>(null);
+  // when nothing is queued to print. Set by handleGeneratePO to the selected
+  // order group as a whole (not just its items), so the PO reference can be
+  // derived the same way (getPoReference) as the picker's own dropdown.
+  const [printGroup, setPrintGroup] = useState<OrderGroupSummary | null>(null);
+  // Which order group the PO picker currently has selected — defaults to
+  // the latest group and stays put across a refresh as long as that group
+  // still exists (see the effect below), letting an admin generate a PO for
+  // an older group without it snapping back to "latest" on every reload.
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
 
   async function loadAccounts() {
     try {
@@ -373,8 +424,31 @@ export default function SupplyOrdersPage() {
     loadAccounts();
   }, []);
 
-  function handlePrintOrder(order: SupplyOrder) {
-    setPrintGroup(getPrintGroupForOrder(order, orders));
+  const orderGroups = useMemo(() => buildOrderGroups(orders), [orders]);
+
+  // Defaults the PO picker to the latest group on first load, and keeps it
+  // there on every subsequent refresh unless the admin has manually picked
+  // a different (still-existing) group in the meantime.
+  useEffect(() => {
+    if (orderGroups.length === 0) {
+      setSelectedGroupKey(null);
+      return;
+    }
+
+    setSelectedGroupKey((current) => {
+      if (current && orderGroups.some((group) => group.key === current)) {
+        return current;
+      }
+      return orderGroups[0].key;
+    });
+  }, [orderGroups]);
+
+  const selectedGroup =
+    orderGroups.find((group) => group.key === selectedGroupKey) || orderGroups[0] || null;
+
+  function handleGeneratePO() {
+    if (!selectedGroup) return;
+    setPrintGroup(selectedGroup);
   }
 
   // Fires once the print-only view has committed to the DOM (this effect
@@ -607,7 +681,35 @@ export default function SupplyOrdersPage() {
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <select
+                value={selectedGroupKey || ""}
+                onChange={(event) => setSelectedGroupKey(event.target.value)}
+                disabled={orderGroups.length === 0}
+                className="min-h-[48px] rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm outline-none focus:border-blue-600 disabled:opacity-60 sm:min-w-[260px]"
+              >
+                {orderGroups.length === 0 ? (
+                  <option value="">No order groups yet</option>
+                ) : (
+                  orderGroups.map((group) => (
+                    <option key={group.key} value={group.key}>
+                      {group.timestamp || "Unknown date"} — {group.accountName || "Unknown account"} (
+                      {group.subcontractor || "Unknown sub"}) · {group.items.length} item
+                      {group.items.length === 1 ? "" : "s"}
+                    </option>
+                  ))
+                )}
+              </select>
+
+              <button
+                type="button"
+                onClick={handleGeneratePO}
+                disabled={!selectedGroup}
+                className="rounded-lg bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                Generate PO
+              </button>
+
               <button
                 type="button"
                 onClick={loadOrders}
@@ -763,7 +865,6 @@ export default function SupplyOrdersPage() {
                       Status / Approval
                     </th>
                     <th className="px-4 py-3 font-semibold">Notes</th>
-                    <th className="px-4 py-3 font-semibold">Print</th>
                   </tr>
                 </thead>
 
@@ -878,19 +979,6 @@ export default function SupplyOrdersPage() {
 
                         <td className="max-w-xs px-4 py-3 align-top text-slate-600">
                           {order.notes || "-"}
-                        </td>
-
-                        <td
-                          className="px-4 py-3 align-top"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handlePrintOrder(order)}
-                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Print
-                          </button>
                         </td>
                       </tr>
                     );
@@ -1067,17 +1155,17 @@ export default function SupplyOrdersPage() {
         </div>
       ) : null}
 
-      {printGroup && printGroup.length > 0 ? (
+      {printGroup && printGroup.items.length > 0 ? (
         <SupplyOrderPrintView
-          orderDate={printGroup[0].timestamp || ""}
-          accountName={printGroup[0].accountName || ""}
-          accountId={printGroup[0].accountId || ""}
-          subcontractor={printGroup[0].subcontractor || ""}
-          subcontractorEmail={printGroup[0].subcontractorEmail || ""}
-          deliveryMode={printGroup[0].deliveryMode || ""}
-          deliveryAddress={getDeliveryAddress(printGroup[0], accounts)}
-          orderGroupId={printGroup[0].orderGroupId || ""}
-          items={printGroup}
+          poReference={getPoReference(printGroup)}
+          orderDate={printGroup.items[0].timestamp || ""}
+          accountName={printGroup.items[0].accountName || ""}
+          accountId={printGroup.items[0].accountId || ""}
+          subcontractor={printGroup.items[0].subcontractor || ""}
+          subcontractorEmail={printGroup.items[0].subcontractorEmail || ""}
+          deliveryMode={printGroup.items[0].deliveryMode || ""}
+          deliveryAddress={getDeliveryAddress(printGroup.items[0], accounts)}
+          items={printGroup.items}
         />
       ) : null}
     </main>
