@@ -28,7 +28,7 @@ function getItemDescription(item: PrintOrderItem): string {
 // --cw-blue-dark/--cw-border CSS variables from globals.css rather than
 // introducing a new logo or color.
 export default function SupplyOrderPrintView({
-  poReference,
+  poNumber,
   orderDate,
   accountName,
   accountId,
@@ -38,7 +38,7 @@ export default function SupplyOrderPrintView({
   deliveryAddress,
   items,
 }: {
-  poReference: string;
+  poNumber: string;
   orderDate: string;
   accountName: string;
   accountId: string;
@@ -60,7 +60,7 @@ export default function SupplyOrderPrintView({
       >
         <div className="flex items-center gap-3 rounded-lg bg-white px-3 py-2">
           {/* eslint-disable-next-line @next/next/no-img-element -- print-only static image, next/image adds no value here */}
-          <img src="/cw-logo.jpg" alt="Cleaning World Inc." className="h-9 w-auto" />
+          <img src="/cw-logo.jpg" alt="Cleaning World Inc." className="block h-9 w-auto" />
         </div>
 
         <div className="text-right">
@@ -75,9 +75,9 @@ export default function SupplyOrderPrintView({
       >
         <div>
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-            PO Reference #
+            PO Number
           </p>
-          <p className="text-sm font-semibold">{poReference || "-"}</p>
+          <p className="text-sm font-semibold">{poNumber || "-"}</p>
         </div>
 
         <div className="text-right text-xs text-slate-600">

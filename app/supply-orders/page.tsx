@@ -210,17 +210,38 @@ function buildOrderGroups(allOrders: SupplyOrder[]): OrderGroupSummary[] {
   return groups.sort((a, b) => b.timestampMs - a.timestampMs);
 }
 
-// A group's PO reference is its shared orderGroupId when present; legacy
-// groups without one (matched by account + subcontractor + timestamp) fall
-// back to the joined set of individual line-item order IDs instead.
-function getPoReference(group: OrderGroupSummary): string {
-  const groupId = cleanText(group.items[0]?.orderGroupId);
-  if (groupId) return groupId;
+function formatPoDate(timestampMs: number): string {
+  if (!timestampMs) return "00000000";
+  const date = new Date(timestampMs);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}`;
+}
 
-  const orderIds = Array.from(
-    new Set(group.items.map((item) => cleanText(item.orderId)).filter(Boolean))
-  );
-  return orderIds.join(", ");
+// Small deterministic (non-cryptographic) string hash, so the same order
+// group always produces the same short PO number rather than a new one
+// every time the PO is regenerated — needed to tell same-day groups apart
+// without printing their full underlying SUPORD line-item ID list.
+function shortHash(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36).toUpperCase().padStart(4, "0").slice(-4);
+}
+
+// No short-PO-number format exists elsewhere in the app to reuse (checked:
+// the only related pattern, app/subcontractor-portal/page.tsx's
+// orderGroupId = `SUPORD-GROUP-${Date.now()}`, is itself a 13-digit epoch
+// timestamp, not short) — so this generates one from the group's date plus
+// a short hash of its orderGroupId/key, instead of the concatenated SUPORD
+// ID list previously shown at the top of the PO. Those full IDs still
+// appear further down in the "Line Item Order ID(s)" section.
+function getPoNumber(group: OrderGroupSummary): string {
+  const datePart = formatPoDate(group.timestampMs);
+  const hashSource = cleanText(group.items[0]?.orderGroupId) || group.key;
+  return `PO-${datePart}-${shortHash(hashSource)}`;
 }
 
 function getFullAccountAddress(account: Account): string {
@@ -371,13 +392,31 @@ export default function SupplyOrdersPage() {
   // Off-screen print-only view (see .supply-order-print-view below), null
   // when nothing is queued to print. Set by handleGeneratePO to the selected
   // order group as a whole (not just its items), so the PO reference can be
-  // derived the same way (getPoReference) as the picker's own dropdown.
+  // derived the same way (getPoNumber) as the picker's own dropdown.
   const [printGroup, setPrintGroup] = useState<OrderGroupSummary | null>(null);
   // Which order group the PO picker currently has selected — defaults to
   // the latest group and stays put across a refresh as long as that group
   // still exists (see the effect below), letting an admin generate a PO for
   // an older group without it snapping back to "latest" on every reload.
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
+  // True once /cw-logo.jpg has actually finished loading. SupplyOrderPrintView
+  // (and its <img>) only mounts at the moment a PO is generated, and an <img>
+  // just inserted into the DOM has not loaded yet -- confirmed empirically:
+  // immediately after insertion it reports complete:false, naturalWidth:0,
+  // which is why the logo printed blank despite the img tag/path being
+  // correct. Preloading here, well before any click, and gating window.print()
+  // on this flag (see the effect below) closes that race.
+  const [logoReady, setLogoReady] = useState(false);
+
+  useEffect(() => {
+    const preloadImage = new window.Image();
+    preloadImage.onload = () => setLogoReady(true);
+    // Don't block PO generation forever if the asset ever 404s — print
+    // without the logo rather than not at all.
+    preloadImage.onerror = () => setLogoReady(true);
+    preloadImage.src = "/cw-logo.jpg";
+    if (preloadImage.complete) setLogoReady(true);
+  }, []);
 
   async function loadAccounts() {
     try {
@@ -454,10 +493,13 @@ export default function SupplyOrdersPage() {
   // Fires once the print-only view has committed to the DOM (this effect
   // runs after that render), so window.print() always sees the finished
   // layout instead of a stale/empty one — same pattern as app/to-do/page.tsx.
+  // Also waits on logoReady: if a click somehow beat the logo preload (very
+  // unlikely — it starts on mount, long before any click is possible), this
+  // effect re-fires once logoReady flips true instead of printing without it.
   useEffect(() => {
-    if (!printGroup) return;
+    if (!printGroup || !logoReady) return;
     window.print();
-  }, [printGroup]);
+  }, [printGroup, logoReady]);
 
   // 'afterprint' fires once the print dialog closes, whether the user
   // printed or cancelled — either way, unmount the print-only view so it's
@@ -1157,7 +1199,7 @@ export default function SupplyOrdersPage() {
 
       {printGroup && printGroup.items.length > 0 ? (
         <SupplyOrderPrintView
-          poReference={getPoReference(printGroup)}
+          poNumber={getPoNumber(printGroup)}
           orderDate={printGroup.items[0].timestamp || ""}
           accountName={printGroup.items[0].accountName || ""}
           accountId={printGroup.items[0].accountId || ""}
