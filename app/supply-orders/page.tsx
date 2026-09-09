@@ -2,6 +2,20 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import SupplyOrderPrintView from "./supply-order-print-view";
+
+type Account = {
+  accountId?: string;
+  accountName?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+};
+
+type AccountsApiResponse = {
+  accounts?: Account[];
+};
 
 type SupplyOrder = {
   rowNumber?: number;
@@ -143,6 +157,69 @@ function getOrderDescription(order: SupplyOrder) {
   return cleanText(order.description || order.itemDescription);
 }
 
+// Line items submitted together share orderGroupId; older rows written
+// before that field existed fall back to same account + subcontractor +
+// timestamp, which Apps Script writes identically across a single
+// submission's lines.
+function getOrderGroupKey(order: SupplyOrder): string {
+  const groupId = cleanText(order.orderGroupId);
+  if (groupId) return `group:${groupId}`;
+
+  return `fallback:${cleanText(order.accountName).toLowerCase()}|${cleanText(
+    order.subcontractor
+  ).toLowerCase()}|${cleanText(order.timestamp)}`;
+}
+
+// Searches the full unfiltered order list (not filteredOrders) so an active
+// search/status/delivery filter can't hide sibling line items out of a
+// group's printed report.
+function getPrintGroupForOrder(order: SupplyOrder, allOrders: SupplyOrder[]): SupplyOrder[] {
+  const key = getOrderGroupKey(order);
+  return allOrders.filter((candidate) => getOrderGroupKey(candidate) === key);
+}
+
+function getFullAccountAddress(account: Account): string {
+  return [account.address, account.city, account.state, account.zip]
+    .map((part) => cleanText(part))
+    .filter(Boolean)
+    .join(", ");
+}
+
+function findMatchingAccount(order: SupplyOrder, accounts: Account[]): Account | null {
+  const accountId = cleanText(order.accountId);
+  const accountName = cleanText(order.accountName).toLowerCase();
+
+  if (accountId) {
+    const byId = accounts.find((account) => cleanText(account.accountId) === accountId);
+    if (byId) return byId;
+  }
+
+  if (accountName) {
+    const byName = accounts.find(
+      (account) => cleanText(account.accountName).toLowerCase() === accountName
+    );
+    if (byName) return byName;
+  }
+
+  return null;
+}
+
+// Only two delivery modes exist today (Pick Up, Deliver to Account) — there's
+// no stored address for any mode other than delivering to the account itself,
+// so anything else (including future modes) reports that plainly instead of
+// guessing at an address that doesn't exist anywhere in the data.
+function getDeliveryAddress(order: SupplyOrder, accounts: Account[]): string {
+  const mode = cleanText(order.deliveryMode).toLowerCase();
+
+  if (mode.includes("account")) {
+    const account = findMatchingAccount(order, accounts);
+    const address = account ? getFullAccountAddress(account) : "";
+    return address || "Address not on file for this account";
+  }
+
+  return "N/A — picked up in person, no delivery address";
+}
+
 function parseOrderDate(order: SupplyOrder) {
   const value = cleanText(order.timestamp);
 
@@ -245,6 +322,24 @@ export default function SupplyOrdersPage() {
 
   const [selectedOrder, setSelectedOrder] = useState<SupplyOrder | null>(null);
 
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  // Off-screen print-only view (see .supply-order-print-view below), null
+  // when nothing is queued to print. Set by handlePrintOrder, which gathers
+  // every line item sharing this order's group before printing.
+  const [printGroup, setPrintGroup] = useState<SupplyOrder[] | null>(null);
+
+  async function loadAccounts() {
+    try {
+      const res = await fetch("/api/accounts", { cache: "no-store" });
+      const data = (await res.json()) as AccountsApiResponse;
+      setAccounts(Array.isArray(data.accounts) ? data.accounts : []);
+    } catch {
+      // Best-effort only — the print report still works without it, just
+      // falling back to "Address not on file" for Deliver to Account orders.
+      setAccounts([]);
+    }
+  }
+
   async function loadOrders() {
     try {
       setLoading(true);
@@ -275,6 +370,30 @@ export default function SupplyOrdersPage() {
 
   useEffect(() => {
     loadOrders();
+    loadAccounts();
+  }, []);
+
+  function handlePrintOrder(order: SupplyOrder) {
+    setPrintGroup(getPrintGroupForOrder(order, orders));
+  }
+
+  // Fires once the print-only view has committed to the DOM (this effect
+  // runs after that render), so window.print() always sees the finished
+  // layout instead of a stale/empty one — same pattern as app/to-do/page.tsx.
+  useEffect(() => {
+    if (!printGroup) return;
+    window.print();
+  }, [printGroup]);
+
+  // 'afterprint' fires once the print dialog closes, whether the user
+  // printed or cancelled — either way, unmount the print-only view so it's
+  // not left sitting in the DOM.
+  useEffect(() => {
+    function handleAfterPrint() {
+      setPrintGroup(null);
+    }
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
   }, []);
 
   async function updateOrderStatus(order: SupplyOrder, newStatus: string) {
@@ -430,7 +549,47 @@ export default function SupplyOrdersPage() {
 
   return (
     <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <style jsx global>{`
+        .supply-order-print-view {
+          display: none;
+        }
+
+        @media print {
+          /* Same opt-in contract as .todo-print-view in app/to-do/page.tsx:
+             the shared body * { visibility: hidden } rule in globals.css
+             hides everything, and this re-shows only this page's own
+             print-view container — no edit to the shared rule needed. */
+          .supply-order-print-view,
+          .supply-order-print-view * {
+            visibility: visible;
+          }
+
+          .supply-order-print-view {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background: #fff;
+            color: #000;
+            padding: 24px;
+          }
+
+          .supply-order-print-row {
+            break-inside: avoid;
+          }
+
+          /* visibility: hidden doesn't collapse layout height — left alone,
+             the full interactive page still occupies its normal height
+             off-screen, producing blank pages after the real print view.
+             display: none removes it from the layout entirely. */
+          .supply-orders-page-content {
+            display: none !important;
+          }
+        }
+      `}</style>
+
+      <div className="supply-orders-page-content mx-auto max-w-7xl space-y-6">
         <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -604,6 +763,7 @@ export default function SupplyOrdersPage() {
                       Status / Approval
                     </th>
                     <th className="px-4 py-3 font-semibold">Notes</th>
+                    <th className="px-4 py-3 font-semibold">Print</th>
                   </tr>
                 </thead>
 
@@ -718,6 +878,19 @@ export default function SupplyOrdersPage() {
 
                         <td className="max-w-xs px-4 py-3 align-top text-slate-600">
                           {order.notes || "-"}
+                        </td>
+
+                        <td
+                          className="px-4 py-3 align-top"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handlePrintOrder(order)}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Print
+                          </button>
                         </td>
                       </tr>
                     );
@@ -892,6 +1065,20 @@ export default function SupplyOrdersPage() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {printGroup && printGroup.length > 0 ? (
+        <SupplyOrderPrintView
+          orderDate={printGroup[0].timestamp || ""}
+          accountName={printGroup[0].accountName || ""}
+          accountId={printGroup[0].accountId || ""}
+          subcontractor={printGroup[0].subcontractor || ""}
+          subcontractorEmail={printGroup[0].subcontractorEmail || ""}
+          deliveryMode={printGroup[0].deliveryMode || ""}
+          deliveryAddress={getDeliveryAddress(printGroup[0], accounts)}
+          orderGroupId={printGroup[0].orderGroupId || ""}
+          items={printGroup}
+        />
       ) : null}
     </main>
   );
