@@ -70,7 +70,7 @@ export default function VersionCheckBanner({
 
   return (
     <div className="no-print flex w-full items-center justify-center gap-4 bg-blue-700 px-4 py-2 text-sm font-semibold text-white">
-      <span>A new version of Cleaning World is available.</span>
+      <span>New update available — click Refresh to install.</span>
       <button
         type="button"
         onClick={() => window.location.reload()}
