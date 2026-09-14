@@ -159,15 +159,22 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
   try {
     const { id } = await params;
 
+    // Fired together (not sequential) so a slow upstream doesn't cost twice,
+    // but awaited separately below: accounts is essential to the PDF and
+    // must fail loudly, while the subcontractors lookup only decorates one
+    // field (subcontractorCompany) and should degrade gracefully instead of
+    // taking the whole PDF down with it. This split is a direct fix for a
+    // production incident where accounts resolved in ~3s but this secondary
+    // call hit fetchAppsScript's double-timeout (~37s) and failed the entire
+    // request over a field that's allowed to just be blank.
+    const accountsPromise = getOrFetch("accounts:getAllAccounts", () =>
+      fetchAccountsForAction("getAllAccounts")
+    ) as Promise<Record<string, unknown>[]>;
+    const subsPromise = getOrFetch("accounts-pdf-admin:subcontractors", fetchRawSubcontractors);
+
     let accounts: Record<string, unknown>[];
-    let subs: Record<string, unknown>[];
     try {
-      [accounts, subs] = await Promise.all([
-        getOrFetch("accounts:getAllAccounts", () =>
-          fetchAccountsForAction("getAllAccounts")
-        ) as Promise<Record<string, unknown>[]>,
-        getOrFetch("accounts-pdf-admin:subcontractors", fetchRawSubcontractors),
-      ]);
+      accounts = await accountsPromise;
     } catch (err) {
       if (err instanceof AccountsFetchError) {
         return NextResponse.json(
@@ -177,6 +184,14 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       }
       throw err;
     }
+
+    const subs = await subsPromise.catch((err) => {
+      console.warn(
+        "[accounts/[id]/pdf/admin GET] subcontractor lookup failed, omitting company name:",
+        err instanceof Error ? err.message : err
+      );
+      return [] as Record<string, unknown>[];
+    });
 
     const account = findAccountByUrlId(accounts, id);
     if (!account) {

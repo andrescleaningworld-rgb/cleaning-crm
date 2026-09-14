@@ -432,6 +432,33 @@ export async function getPortalNewCount(): Promise<number> {
   return counts.reduce((a, b) => a + b, 0);
 }
 
+// ─── Changelog ("What's new") ───────────────────────────────────────────────
+
+const CHANGELOG_TAB = "ChangeLog";
+
+export type ChangelogEntry = {
+  date: string;
+  version: string;
+  description: string;
+};
+
+// Rows are appended in chronological order (oldest first — same convention
+// as every other appendToSheet-based tab in this file), so the most recent
+// entries are the last rows, not the first.
+export async function getRecentChangelogEntries(limit = 3): Promise<ChangelogEntry[]> {
+  const rows = await fetchTabRows(CHANGELOG_TAB);
+
+  return rows
+    .slice(-limit)
+    .reverse()
+    .map((row) => ({
+      date: row[0]?.trim() ?? "",
+      version: row[1]?.trim() ?? "",
+      description: row[2]?.trim() ?? "",
+    }))
+    .filter((entry) => entry.description);
+}
+
 export type PortalSubmission = {
   sheetRow: number;
   tab: PortalTabName;
