@@ -289,6 +289,7 @@ function AccountScheduleForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           accountId,
+          accountName: getAccountName(account),
           subId,
           submittedBy,
           frequency,

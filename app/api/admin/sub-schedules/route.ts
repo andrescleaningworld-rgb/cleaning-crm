@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { applySchedulePatternChange, fetchSubSchedules, updateSubSchedule } from "@/lib/googleSheets";
-import { SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import { sendSubcontractorNotification } from "@/lib/email";
 
 export async function GET() {
   try {
@@ -56,9 +57,27 @@ export async function PATCH(request: NextRequest) {
 // versioned rather than patched in place — see applySchedulePatternChange in
 // lib/googleSheets.ts. Non-pattern edits (Status, a manual
 // EffectiveStart/EffectiveEnd adjustment) keep using PATCH above.
+
+// e.g. "Monday (Morning)" or "1st Tuesday (Evening)" — mirrors describeEntries
+// in app/api/subcontractor-schedules/route.ts, but for a single new pattern
+// rather than a list of entries.
+function describeNewPattern(newPattern: {
+  dayOfWeek?: string;
+  timeWindow?: string;
+  frequency?: string;
+  monthlyOccurrence?: string;
+}): string {
+  if (newPattern.frequency === "MONTHLY_1X" || newPattern.frequency === "MONTHLY_2X") {
+    const [position, weekday] = (newPattern.monthlyOccurrence ?? "").split(":");
+    return `${position || "-"} ${weekday || "-"} (${newPattern.timeWindow || "-"})`;
+  }
+  return `${newPattern.dayOfWeek || "-"} (${newPattern.timeWindow || "-"})`;
+}
+
 export async function POST(request: NextRequest) {
   let body: {
     scheduleId?: string;
+    accountName?: string;
     lastEditedBy?: string;
     effectiveDate?: string;
     newPattern?: {
@@ -76,6 +95,7 @@ export async function POST(request: NextRequest) {
   }
 
   const scheduleId = body.scheduleId?.trim() ?? "";
+  const accountName = body.accountName?.trim() ?? "";
   const lastEditedBy = body.lastEditedBy?.trim() ?? "";
   const effectiveDate = body.effectiveDate?.trim() ?? "";
   const newPattern = body.newPattern;
@@ -108,7 +128,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const newScheduleId = await applySchedulePatternChange(
+    const result = await applySchedulePatternChange(
       scheduleId,
       {
         dayOfWeek: newPattern.dayOfWeek?.trim() ?? "",
@@ -120,7 +140,33 @@ export async function POST(request: NextRequest) {
       effectiveDate,
       lastEditedBy
     );
-    return NextResponse.json({ success: true, scheduleId: newScheduleId });
+
+    // Best-effort — runs after the response is already sent, so a slow/failed
+    // send never delays or fails the schedule save. Same pattern as the
+    // complaint-assignment notify in app/api/complaints/route.ts.
+    after(async () => {
+      try {
+        if (!result.subId.includes("@")) {
+          console.debug(`[email] skip schedule-change notify: SubID "${result.subId}" is not an email`);
+          return;
+        }
+        await sendSubcontractorNotification(
+          result.subId,
+          `Schedule Updated - ${accountName || result.accountId}`,
+          [
+            `Account: ${accountName || result.accountId}`,
+            `New Frequency: ${FREQUENCY_LABELS[frequency] || frequency}`,
+            frequency === "AS_NEEDED" ? null : `New Schedule: ${describeNewPattern(newPattern)}`,
+            `Effective Date: ${effectiveDate}`,
+            `Updated By: ${lastEditedBy}`,
+          ].filter((line): line is string => line !== null)
+        );
+      } catch (error) {
+        console.error("[email] schedule-change notify failed:", error instanceof Error ? error.message : error);
+      }
+    });
+
+    return NextResponse.json({ success: true, scheduleId: result.scheduleId });
   } catch (err) {
     console.error("[admin/sub-schedules POST pattern change]", err);
     const message = err instanceof Error ? err.message : "Failed to apply schedule pattern change";

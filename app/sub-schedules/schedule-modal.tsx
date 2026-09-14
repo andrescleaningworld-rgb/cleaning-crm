@@ -36,12 +36,13 @@ const FREQUENCIES: { id: string; label: string }[] = [
 
 type Props = {
   target: SubSchedule;
+  accountName: string;
   adminName: string;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function ScheduleModal({ target, adminName, onClose, onSaved }: Props) {
+export default function ScheduleModal({ target, accountName, adminName, onClose, onSaved }: Props) {
   const targetOccurrence = parseMonthlyOccurrence(target.monthlyOccurrence);
 
   const [frequency, setFrequency] = useState(target.frequency);
@@ -107,6 +108,7 @@ export default function ScheduleModal({ target, adminName, onClose, onSaved }: P
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             scheduleId: target.scheduleId,
+            accountName,
             lastEditedBy: adminName.trim(),
             effectiveDate,
             newPattern: {

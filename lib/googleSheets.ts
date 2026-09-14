@@ -918,7 +918,7 @@ export async function applySchedulePatternChange(
   },
   effectiveDate: string,
   editedBy: string
-): Promise<string> {
+): Promise<{ scheduleId: string; accountId: string; subId: string }> {
   const schedules = await fetchSubSchedules();
   const current = schedules.find((s) => s.scheduleId === scheduleId);
   if (!current) {
@@ -957,7 +957,7 @@ export async function applySchedulePatternChange(
     monthlyOccurrence: newPattern.monthlyOccurrence,
   });
 
-  return newScheduleId;
+  return { scheduleId: newScheduleId, accountId: current.accountId, subId: current.subId };
 }
 
 // ─── Schedule exceptions ───────────────────────────────────────────────────────

@@ -19,6 +19,17 @@ export const SCHEDULE_FREQUENCIES: ScheduleFrequency[] = [
   "AS_NEEDED",
 ];
 
+// Shared with app/sub-schedules/page.tsx's own (client-only) copy — kept
+// here too so server-side code (schedule-change notification emails) can
+// use the same human-readable labels without importing a "use client" file.
+export const FREQUENCY_LABELS: Record<string, string> = {
+  WEEKLY: "Weekly",
+  BIWEEKLY: "Every Other Week",
+  MONTHLY_1X: "1x per Month",
+  MONTHLY_2X: "2x per Month",
+  AS_NEEDED: "As Needed",
+};
+
 // Subset of SubSchedule's fields that recurrence generation needs. Each
 // MONTHLY_1X/MONTHLY_2X schedule is one row per occurrence (e.g. a "2x per
 // month" schedule is two SubSchedule rows, each with its own

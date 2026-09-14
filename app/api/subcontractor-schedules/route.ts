@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { appendSubSchedule, fetchSubSchedules } from "@/lib/googleSheets";
-import { SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import { sendSubcontractorNotification } from "@/lib/email";
 
 export async function GET() {
   try {
@@ -14,9 +15,24 @@ export async function GET() {
 
 type ScheduleEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
 
+// One line per entry, e.g. "Monday (Morning)" or "1st Tuesday (Evening)" —
+// AS_NEEDED has no entries, so it isn't described here.
+function describeEntries(frequency: string, entries: ScheduleEntry[]): string {
+  if (frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") {
+    return entries
+      .map((e) => {
+        const [position, weekday] = (e.monthlyOccurrence ?? "").split(":");
+        return `${position || "-"} ${weekday || "-"} (${e.timeWindow || "-"})`;
+      })
+      .join(", ");
+  }
+  return entries.map((e) => `${e.dayOfWeek || "-"} (${e.timeWindow || "-"})`).join(", ");
+}
+
 export async function POST(request: NextRequest) {
   let body: {
     accountId?: string;
+    accountName?: string;
     subId?: string;
     submittedBy?: string;
     frequency?: string;
@@ -31,6 +47,7 @@ export async function POST(request: NextRequest) {
   }
 
   const accountId = body.accountId?.trim() ?? "";
+  const accountName = body.accountName?.trim() ?? "";
   const subId = body.subId?.trim() ?? "";
   const submittedBy = body.submittedBy?.trim() ?? "";
   const frequency = body.frequency?.trim() ?? "";
@@ -94,6 +111,31 @@ export async function POST(request: NextRequest) {
       });
       scheduleIds.push(id);
     }
+
+    // Best-effort — runs after the response is already sent, so a slow/failed
+    // send never delays or fails the schedule save. Same pattern as the
+    // complaint-assignment notify in app/api/complaints/route.ts.
+    after(async () => {
+      try {
+        if (!subId.includes("@")) {
+          console.debug(`[email] skip new-schedule notify: SubID "${subId}" is not an email`);
+          return;
+        }
+        await sendSubcontractorNotification(
+          subId,
+          `New Recurring Schedule - ${accountName || accountId}`,
+          [
+            `Account: ${accountName || accountId}`,
+            `Frequency: ${FREQUENCY_LABELS[frequency] || frequency}`,
+            frequency === "AS_NEEDED" ? null : `Schedule: ${describeEntries(frequency, rowsToCreate)}`,
+            `Effective Start: ${effectiveStart || "-"}`,
+          ].filter((line): line is string => line !== null)
+        );
+      } catch (error) {
+        console.error("[email] new-schedule notify failed:", error instanceof Error ? error.message : error);
+      }
+    });
+
     return NextResponse.json({ success: true, scheduleIds });
   } catch (err) {
     console.error("[subcontractor-schedules POST]", err);

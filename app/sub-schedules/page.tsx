@@ -609,6 +609,7 @@ export default function SubSchedulesPage() {
       {scheduleModal ? (
         <ScheduleModal
           target={scheduleModal}
+          accountName={resolveAccountName(scheduleModal.accountId)}
           adminName={adminName}
           onClose={() => setScheduleModal(null)}
           onSaved={loadSchedules}
