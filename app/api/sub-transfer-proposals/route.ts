@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchAppsScript } from "@/lib/appsScriptFetch";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -22,13 +22,27 @@ export async function GET() {
       );
     }
 
-    const response = await fetch(
-      `${SCRIPT_URL}?action=getSubTransferProposals`,
-      {
+    // Was a bare fetch() with no timeout of its own — on a slow upstream it
+    // just hung until Vercel's platform-level maxDuration (45s) killed the
+    // whole function, which returns a platform error page (not JSON) and
+    // crashed the client's JSON.parse. fetchAppsScript gives this the same
+    // 18s-per-attempt timeout + retry the POST handler below already has,
+    // so a slow upstream now fails fast with a real JSON error instead.
+    let response: Response;
+    try {
+      response = await fetchAppsScript(`${SCRIPT_URL}?action=getSubTransferProposals`, {
         method: "GET",
         cache: "no-store",
-      }
-    );
+      });
+    } catch (err) {
+      const message =
+        err instanceof AppsScriptFetchError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Unknown error loading transfer proposals.";
+      return NextResponse.json({ success: false, error: message }, { status: 500 });
+    }
 
     const text = await response.text();
 
