@@ -67,18 +67,18 @@ Rules:
 - Do not invent items that are not in the document. Do not summarize or merge distinct items together.
 - If the document does not appear to contain a checklist at all, return an empty items array rather than guessing.`;
 
-function getClient(): Anthropic {
-  return new Anthropic();
-}
-
 async function runExtraction(
   content: Anthropic.Messages.ContentBlockParam[],
   sourceLabel: string
 ): Promise<DocumentExtractResult> {
-  const client = getClient();
-
   let message;
   try {
+    // Constructed inside the try block on purpose — with no credentials
+    // resolvable (missing/misnamed ANTHROPIC_API_KEY, no other credential
+    // source), `new Anthropic()` throws synchronously rather than at the
+    // API-call site, and that needs the same clear message as an
+    // AuthenticationError from a live call, not a raw SDK internals string.
+    const client = new Anthropic();
     message = await client.messages.parse({
       model: "claude-opus-5",
       max_tokens: 8000,
@@ -88,8 +88,8 @@ async function runExtraction(
     });
   } catch (err) {
     console.error(`[checklist-extract] Claude API call failed for "${sourceLabel}":`, err);
-    if (err instanceof AuthenticationError) {
-      return { ok: false, error: "Checklist extraction is not configured correctly (invalid Anthropic API key)." };
+    if (err instanceof AuthenticationError || (err instanceof Error && /credential|api.?key/i.test(err.message))) {
+      return { ok: false, error: "Checklist extraction is not configured correctly (missing or invalid Anthropic API key)." };
     }
     if (err instanceof RateLimitError) {
       return { ok: false, error: "Checklist extraction is temporarily rate-limited — try again in a minute." };
