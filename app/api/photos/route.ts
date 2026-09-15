@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the budget used by /api/accounts and /api/subcontractor-portal for the
+// same upstream.
+export const maxDuration = 45;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown error.";
@@ -23,10 +32,14 @@ export async function GET() {
     const url = new URL(GOOGLE_SCRIPT_URL);
     url.searchParams.set("action", "getPhotos");
 
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      cache: "no-store",
-    });
+    // Read-only action — safe to retry after a throw (timeout/network
+    // failure).
+    const response = await fetchAppsScript(
+      url.toString(),
+      { method: "GET", cache: "no-store" },
+      undefined,
+      { retryOn5xx: true, retryOnThrow: true }
+    );
 
     const text = await response.text();
 
@@ -67,6 +80,12 @@ export async function GET() {
       data: photos,
     });
   } catch (error) {
+    if (error instanceof AppsScriptFetchError) {
+      return NextResponse.json(
+        { success: false, message: error.message, photos: [], data: [] },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       {
         success: false,
@@ -93,16 +112,25 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const response = await fetch(GOOGLE_SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
+    // uploadPhoto appends a new record — not idempotent, so a thrown error
+    // (timeout/network failure) is not retried here to avoid risking a
+    // duplicate upload. A 5xx means the Apps Script explicitly rejected the
+    // request (safe to retry, nothing was written).
+    const response = await fetchAppsScript(
+      GOOGLE_SCRIPT_URL,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify({
+          action: "uploadPhoto",
+          photo: body,
+        }),
       },
-      body: JSON.stringify({
-        action: "uploadPhoto",
-        photo: body,
-      }),
-    });
+      undefined,
+      { retryOn5xx: true, retryOnThrow: false }
+    );
 
     const text = await response.text();
 
@@ -126,6 +154,12 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch (error) {
+    if (error instanceof AppsScriptFetchError) {
+      return NextResponse.json(
+        { success: false, message: error.message },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       {
         success: false,

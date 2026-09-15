@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { getCustomerByPhone, getMainAccountByName, fetchManagers } from "@/lib/googleSheets";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
+
+// Apps Script latency has been measured spiking to ~14s on a single call;
+// this must comfortably exceed the per-attempt timeout in fetchAppsScript
+// (18s) plus its one retry plus backoff, or Vercel would kill the function
+// before our own retry/error-handling logic gets a chance to run. Matches
+// the budget used by /api/accounts and /api/subcontractor-portal for the
+// same upstream.
+export const maxDuration = 45;
 
 type ScriptResponse = {
   success?: boolean;
@@ -84,14 +93,25 @@ export async function POST(request: Request) {
       action: body.action || "getCustomerData",
     };
 
-    const response = await fetch(SCRIPT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
+    // This forwards a mix of actions (some reads, some writes — e.g. a new
+    // service request/complaint submission) through one generic path, so a
+    // thrown error (timeout/network failure) is NOT retried here: a 5xx
+    // response means the Apps Script explicitly rejected the request (safe
+    // to retry, nothing was written), but a throw is ambiguous, and blindly
+    // retrying a non-idempotent write risks duplicating it.
+    const response = await fetchAppsScript(
+      SCRIPT_URL,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify(scriptPayload),
+        cache: "no-store",
       },
-      body: JSON.stringify(scriptPayload),
-      cache: "no-store",
-    });
+      undefined,
+      { retryOn5xx: true, retryOnThrow: false }
+    );
 
     const text = await response.text();
 
@@ -142,6 +162,12 @@ export async function POST(request: Request) {
       status: data.status || "",
     });
   } catch (error) {
+    if (error instanceof AppsScriptFetchError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       {
         success: false,
@@ -169,9 +195,13 @@ export async function GET(request: Request) {
       );
     }
 
-    const response = await fetch(
+    // Read-only action — safe to retry after a throw (timeout/network
+    // failure).
+    const response = await fetchAppsScript(
       `${SCRIPT_URL}?action=${action}&customerId=${customerId}`,
-      { method: "GET", cache: "no-store" }
+      { method: "GET", cache: "no-store" },
+      undefined,
+      { retryOn5xx: true, retryOnThrow: true }
     );
 
     const text = await response.text();
@@ -179,6 +209,12 @@ export async function GET(request: Request) {
 
     return NextResponse.json(data);
   } catch (error) {
+    if (error instanceof AppsScriptFetchError) {
+      return NextResponse.json(
+        { success: false, error: error.message },
+        { status: error.status }
+      );
+    }
     return NextResponse.json(
       { success: false, error: "Failed customer GET" },
       { status: 500 }
