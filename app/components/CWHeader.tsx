@@ -68,8 +68,12 @@ export default function CWHeader() {
     // eagerly (lazy initializer) would mismatch the server-rendered nav.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
-    setRole(getStoredRole());
 
+    // "storage" only fires in OTHER tabs/windows, never the one that made the
+    // write — so it does nothing for the tab that just logged in. Kept for
+    // genuine cross-tab sync (e.g. logging out in one tab while another is
+    // open), but is not sufficient on its own — see the pathname-keyed
+    // effect below for the same-tab case.
     const handleStorageChange = () => {
       setRole(getStoredRole());
     };
@@ -80,6 +84,19 @@ export default function CWHeader() {
       window.removeEventListener("storage", handleStorageChange);
     };
   }, []);
+
+  // Re-reads role on every client-side navigation, not just on mount. Every
+  // login page (admin/subcontractor/customer) writes to localStorage then
+  // calls router.push() — a same-tab client-side navigation, not a full page
+  // load — so a mount-only read here left this header showing signed-out nav
+  // (no links, no notification/portal badges) until a hard refresh remounted
+  // the component and re-read the now-current localStorage value. pathname
+  // changes on every such navigation, giving a reliable re-check point
+  // without needing a full reload.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRole(getStoredRole());
+  }, [pathname]);
 
   useEffect(() => {
     if (role !== "admin") return;

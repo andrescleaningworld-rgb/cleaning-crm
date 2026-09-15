@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { getOrFetch } from "@/lib/serverCache";
 
 const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// CWHeader polls this from every open admin tab every 60s (see
+// app/components/CWHeader.tsx), uncached, straight through to the shared
+// Apps Script backend — by far the single highest-volume caller of that
+// backend (338 timeout errors over 7 days vs. 28-85 for pages people
+// actually navigate to, per production runtime-error data). A short TTL
+// well under the poll interval keeps the badge reasonably fresh while
+// collapsing concurrent/duplicate polls (multiple tabs, multiple admins)
+// into far fewer real upstream calls, reducing load on a backend that's
+// already timing out regularly on its own.
+const NOTIFICATIONS_CACHE_TTL_MS = 30_000;
 
 // Apps Script latency has been measured spiking to ~14s on a single call;
 // this must comfortably exceed the per-attempt timeout in fetchAppsScript
@@ -10,6 +22,43 @@ const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 // the budget used by /api/accounts and /api/subcontractor-portal for the
 // same upstream.
 export const maxDuration = 45;
+
+type NotificationsPayload = {
+  success: boolean;
+  message: string;
+  issues: unknown[];
+  newCount: number;
+};
+
+async function fetchNotificationsFromAppsScript(): Promise<NotificationsPayload> {
+  // Read-only action — safe to retry after a throw (timeout/network
+  // failure), unlike the write actions in POST below.
+  const response = await fetchAppsScript(
+    `${GOOGLE_SCRIPT_URL}?action=getSubPortalIssues`,
+    { cache: "no-store" },
+    undefined,
+    { retryOn5xx: true, retryOnThrow: true }
+  );
+
+  const text = await response.text();
+  let data: { success?: boolean; message?: string; issues?: unknown[]; newCount?: number };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    console.error(
+      `[notifications] Apps Script did not return valid JSON (status=${response.status}):`,
+      text.slice(0, 500)
+    );
+    throw new Error("Google Script did not return valid JSON for notifications.");
+  }
+
+  return {
+    success: Boolean(data.success),
+    message: data.message || "",
+    issues: Array.isArray(data.issues) ? data.issues : [],
+    newCount: Number(data.newCount || 0),
+  };
+}
 
 export async function GET() {
   if (!GOOGLE_SCRIPT_URL) {
@@ -24,16 +73,18 @@ export async function GET() {
     );
   }
 
-  let response: Response;
   try {
-    // Read-only action — safe to retry after a throw (timeout/network
-    // failure), unlike the write actions in POST below.
-    response = await fetchAppsScript(
-      `${GOOGLE_SCRIPT_URL}?action=getSubPortalIssues`,
-      { cache: "no-store" },
-      undefined,
-      { retryOn5xx: true, retryOnThrow: true }
+    const payload = await getOrFetch(
+      "notifications:getSubPortalIssues",
+      fetchNotificationsFromAppsScript,
+      NOTIFICATIONS_CACHE_TTL_MS
     );
+
+    return NextResponse.json(payload, {
+      headers: {
+        "Cache-Control": "public, max-age=15, stale-while-revalidate=30",
+      },
+    });
   } catch (error) {
     if (error instanceof AppsScriptFetchError) {
       console.error("[notifications] Apps Script call failed:", error.message);
@@ -58,41 +109,6 @@ export async function GET() {
           error instanceof Error
             ? error.message
             : "Unknown error loading notifications.",
-        issues: [],
-        newCount: 0,
-      },
-      { status: 500 }
-    );
-  }
-
-  const text = await response.text();
-
-  try {
-    const data = JSON.parse(text);
-
-    return NextResponse.json(
-      {
-        success: Boolean(data.success),
-        message: data.message || "",
-        issues: Array.isArray(data.issues) ? data.issues : [],
-        newCount: Number(data.newCount || 0),
-      },
-      {
-        headers: {
-          "Cache-Control": "public, max-age=15, stale-while-revalidate=30",
-        },
-      }
-    );
-  } catch {
-    console.error(
-      `[notifications] Apps Script did not return valid JSON (status=${response.status}):`,
-      text.slice(0, 500)
-    );
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Google Script did not return valid JSON for notifications.",
-        rawResponse: text,
         issues: [],
         newCount: 0,
       },
