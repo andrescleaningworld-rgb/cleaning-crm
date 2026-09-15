@@ -35,6 +35,10 @@ function makeEmptyItem(): ChecklistItemDef {
   return { key: `${slugifyKey(`item-${Date.now()}-${Math.random()}`)}`, label: "New item", subNote: "" };
 }
 
+// Mirrors MAX_UPLOAD_BYTES in lib/checklistDocumentExtract.ts — checked here
+// too so an oversized file never even reaches the network.
+const MAX_DOCUMENT_BYTES = 3 * 1024 * 1024;
+
 function moveInArray<T>(arr: T[], index: number, direction: -1 | 1): T[] {
   const target = index + direction;
   if (target < 0 || target >= arr.length) return arr;
@@ -54,6 +58,11 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
   const [savedMessage, setSavedMessage] = useState("");
   const [shareState, setShareState] = useState<"idle" | "copied">("idle");
   const [collapsed, setCollapsed] = useState(true);
+  const [extracting, setExtracting] = useState(false);
+  const [extractPreview, setExtractPreview] = useState<{
+    locationName: string;
+    sections: ChecklistSectionDef[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,10 +143,80 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
     }
   }
 
+  // PDF/DOCX go through server-side extraction + an LLM structuring step,
+  // which is inherently interpretive (unlike deterministic CSV/JSON
+  // parsing) — so the result is shown as a preview for staff to review and
+  // explicitly apply, never saved directly. See handleApplyExtractPreview.
+  async function handleDocumentFileSelected(file: File) {
+    setError("");
+    setSavedMessage("");
+    setExtractPreview(null);
+
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      setError(
+        `This file is too large (max ${Math.floor(MAX_DOCUMENT_BYTES / (1024 * 1024))} MB) — try exporting a smaller or simpler version.`
+      );
+      return;
+    }
+
+    setExtracting(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("Could not read the selected file."));
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.split(",")[1] ?? "";
+      if (!base64) throw new Error("Could not read the selected file.");
+
+      const response = await fetch("/api/checklist-templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "extractTemplateFromDocument",
+          accountId,
+          filename: file.name,
+          mimeType: file.type,
+          fileBase64: base64,
+        }),
+      });
+      const data = (await response.json()) as TemplateApiResponse & {
+        preview?: { locationName: string; sections: ChecklistSectionDef[] };
+      };
+      if (!response.ok || data.success === false || !data.preview) {
+        throw new Error(data.error ?? "Could not extract a checklist from this document.");
+      }
+      setExtractPreview(data.preview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not extract a checklist from this document.");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function handleApplyExtractPreview() {
+    if (!extractPreview) return;
+    setSections(extractPreview.sections);
+    if (extractPreview.locationName) setLocationName(extractPreview.locationName);
+    setExtractPreview(null);
+    setSavedMessage("Loaded into the editor below — review, adjust if needed, and click Save Template to publish.");
+  }
+
+  function handleDiscardExtractPreview() {
+    setExtractPreview(null);
+  }
+
   function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = ""; // allow re-selecting the same filename later
     if (!file) return;
+
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith(".pdf") || lowerName.endsWith(".docx")) {
+      handleDocumentFileSelected(file);
+      return;
+    }
 
     setError("");
     setSavedMessage("");
@@ -322,13 +401,65 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
 
           <div>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-              Upload Checklist (.csv or .json)
-              <input type="file" accept=".csv,.json,text/csv,application/json" onChange={handleFileSelected} className="hidden" />
+              {extracting ? "Reading document…" : "Upload Checklist (.csv, .json, .pdf, .docx)"}
+              <input
+                type="file"
+                accept=".csv,.json,.pdf,.docx,text/csv,application/json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={handleFileSelected}
+                disabled={extracting}
+                className="hidden"
+              />
             </label>
             <p className="mt-1 text-xs text-slate-400">
-              CSV columns: section, item, sub_note — or a JSON array of {"{"}section, item, sub_note{"}"} objects. Replaces the current checklist in one step.
+              CSV columns: section, item, sub_note — or a JSON array of {"{"}section, item, sub_note{"}"} objects — replaces the current checklist in one step.
+              A PDF or Word document is read and interpreted by AI, then shown below for you to review before it is applied.
+              Have a Google Doc? File → Download → Word (.docx) or PDF, then upload here.
             </p>
           </div>
+
+          {extractPreview ? (
+            <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4">
+              <h3 className="text-sm font-black uppercase tracking-wide text-indigo-700">
+                Extracted from document — review before applying
+              </h3>
+              <p className="mt-1 text-sm text-indigo-900">
+                {extractPreview.locationName ? `Location: ${extractPreview.locationName} — ` : ""}
+                {extractPreview.sections.reduce((sum, s) => sum + s.items.length, 0)} item(s) across{" "}
+                {extractPreview.sections.length} section(s). Nothing has been saved yet.
+              </p>
+              <div className="mt-3 max-h-80 space-y-3 overflow-y-auto rounded-xl bg-white p-3">
+                {extractPreview.sections.map((section) => (
+                  <div key={section.key}>
+                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">{section.title}</p>
+                    <ul className="mt-1 space-y-1">
+                      {section.items.map((item) => (
+                        <li key={item.key} className="text-sm text-slate-700">
+                          • {item.label}
+                          {item.subNote ? <span className="text-slate-400"> — {item.subNote}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleApplyExtractPreview}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-indigo-500"
+                >
+                  Apply to Editor
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardExtractPreview}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+                >
+                  Discard
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="space-y-6">
             {sections.map((section, sectionIndex) => (
