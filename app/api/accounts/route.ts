@@ -3,6 +3,7 @@ import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCach
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
+import { setAccountChecklistNeeded } from "@/lib/googleSheets";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -373,6 +374,34 @@ export async function POST(request: Request) {
       )
     );
 
+    const effectiveAccountId = String(
+      (data as { accountId?: unknown; id?: unknown }).accountId ??
+        (data as { accountId?: unknown; id?: unknown }).id ??
+        accountIdForSmsCheck ??
+        ""
+    ).trim();
+
+    // Direct-Sheets-API write for "Checklist Needed" — bypasses the Apps
+    // Script backend entirely (see setAccountChecklistNeeded's comment in
+    // lib/googleSheets.ts for why: Apps Script's addAccount/updateAccount
+    // handlers aren't in this repo and their generic-field-passthrough
+    // behavior for a brand-new column can't be verified). Only runs when
+    // the caller actually sent the field, and never fails the whole account
+    // save — but also never swallows the failure silently, so the form can
+    // surface it instead of falsely reporting success.
+    let checklistFlagWarning: string | null = null;
+    const checklistNeededRaw = (accountPayload as Record<string, unknown>).checklistNeeded;
+    if (checklistNeededRaw !== undefined && effectiveAccountId) {
+      try {
+        await setAccountChecklistNeeded(effectiveAccountId, String(checklistNeededRaw) === "Yes");
+      } catch (err) {
+        checklistFlagWarning =
+          `Account saved, but "Checklist Needed" failed to save: ` +
+          (err instanceof Error ? err.message : "unknown error");
+        console.error("[accounts] setAccountChecklistNeeded failed:", err);
+      }
+    }
+
     // Only when the sub is newly set or actually changed (see
     // newSubcontractorName/previousSubcontractorName above). Wrapped in
     // after() so the invocation stays alive until the lookup + send
@@ -394,12 +423,6 @@ export async function POST(request: Request) {
       const address = String(
         (accountPayload as Record<string, unknown>).address ??
           (accountPayload as Record<string, unknown>).Address ??
-          ""
-      ).trim();
-      const effectiveAccountId = String(
-        (data as { accountId?: unknown; id?: unknown }).accountId ??
-          (data as { accountId?: unknown; id?: unknown }).id ??
-          accountIdForSmsCheck ??
           ""
       ).trim();
       const origin = new URL(request.url).origin;
@@ -433,6 +456,7 @@ export async function POST(request: Request) {
       message: data.message || "Account saved successfully.",
       account: data.account || null,
       accountId: data.accountId || data.id || null,
+      checklistFlagWarning,
     });
   } catch (error) {
     return NextResponse.json(

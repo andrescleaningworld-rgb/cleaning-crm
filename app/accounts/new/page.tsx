@@ -34,6 +34,7 @@ type AccountForm = {
   keyAlarmAccessInfo: string;
   scopeOfWork: string;
   notes: string;
+  checklistNeeded: string;
 };
 
 type Manager = {
@@ -121,6 +122,7 @@ type SaveAccountResponse = {
   error?: string;
   message?: string;
   accountId?: string;
+  checklistFlagWarning?: string | null;
 };
 
 const emptyForm: AccountForm = {
@@ -149,6 +151,7 @@ const emptyForm: AccountForm = {
   keyAlarmAccessInfo: "",
   scopeOfWork: "",
   notes: "",
+  checklistNeeded: "No",
 };
 
 function cleanText(value: unknown) {
@@ -513,7 +516,7 @@ export default function NewAccountPage() {
         }
       }
 
-      setMessage("Account saved successfully.");
+      setMessage(data.checklistFlagWarning || "Account saved successfully.");
 
       setTimeout(() => {
         router.push("/accounts");
@@ -904,6 +907,22 @@ export default function NewAccountPage() {
                   <option>Yes</option>
                   <option>No</option>
                   <option>N/A</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-black text-slate-700">
+                  Checklist Needed?
+                </span>
+                <select
+                  value={form.checklistNeeded}
+                  onChange={(event) =>
+                    updateField("checklistNeeded", event.target.value)
+                  }
+                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
+                >
+                  <option>No</option>
+                  <option>Yes</option>
                 </select>
               </label>
 

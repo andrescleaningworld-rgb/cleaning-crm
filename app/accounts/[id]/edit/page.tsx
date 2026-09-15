@@ -42,6 +42,7 @@ type Account = {
   cleaningDays?: string;
   scopeOfWork?: string;
   notes?: string;
+  checklistNeeded?: string;
 };
 
 type Subcontractor = {
@@ -274,8 +275,31 @@ export default function EditAccountPage() {
           );
         }
 
-        setFormData(foundAccount);
-        originalDataRef.current = foundAccount;
+        // "Checklist Needed" is read via the direct-Sheets path (see
+        // lib/googleSheets.ts's getMainAccountById), not the Apps-Script
+        // account object above — best-effort, defaults to "No" if this
+        // fetch fails rather than blocking the rest of the page load.
+        let checklistNeeded = "No";
+        try {
+          const accountIdForChecklist =
+            foundAccount.accountId || foundAccount.id || "";
+          if (accountIdForChecklist) {
+            const checklistResp = await fetch(
+              `/api/checklist-templates?accountId=${encodeURIComponent(String(accountIdForChecklist))}`,
+              { cache: "no-store" }
+            );
+            const checklistData = await readJsonResponse<{ checklistNeeded?: boolean }>(checklistResp);
+            if (checklistResp.ok && checklistData.checklistNeeded) {
+              checklistNeeded = "Yes";
+            }
+          }
+        } catch {
+          // Best-effort only — leave default "No" if this lookup fails.
+        }
+
+        const accountWithChecklist: Account = { ...foundAccount, checklistNeeded };
+        setFormData(accountWithChecklist);
+        originalDataRef.current = accountWithChecklist;
       } catch (err) {
         setError(
           err instanceof Error
@@ -459,6 +483,7 @@ export default function EditAccountPage() {
       const data = await readJsonResponse<{
         success?: boolean;
         error?: string;
+        checklistFlagWarning?: string | null;
       }>(response);
 
       if (!response.ok || !data.success) {
@@ -466,7 +491,7 @@ export default function EditAccountPage() {
       }
 
       originalDataRef.current = { ...original, ...fields };
-      setSavedMessage("Account updated successfully.");
+      setSavedMessage(data.checklistFlagWarning || "Account updated successfully.");
       setSaveError("");
     } catch (err) {
       setSavedMessage("");
@@ -952,6 +977,20 @@ export default function EditAccountPage() {
                   <option value="Yes">Yes</option>
                   <option value="No">No</option>
                   <option value="N/A">N/A</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  Checklist Needed?
+                </label>
+                <select
+                  value={formData.checklistNeeded || "No"}
+                  onChange={(event) => updateField("checklistNeeded", event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="No">No</option>
+                  <option value="Yes">Yes</option>
                 </select>
               </div>
 

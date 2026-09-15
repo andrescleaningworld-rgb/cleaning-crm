@@ -7,6 +7,7 @@ import { getGoogleMapsUrl } from "../../lib/backend";
 import { AccountPacketPrintView } from "./account-packet-print-view";
 import OnboardingChecklist from "../../components/OnboardingChecklist";
 import OnboardingWizardModal from "../../components/OnboardingWizardModal";
+import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 
 type Account = {
   id?: string;
@@ -1416,6 +1417,18 @@ export default function AccountDetailPage() {
           onAllItemsComplete={applyOnboardingCompletionStable}
           variant="section"
           onOpenWizard={() => setShowOnboardingWizard(true)}
+        />
+      </section>
+
+      {/* --------------------------------------------------------------- */}
+      {/* Porter Checklist template editor — the component itself fetches  */}
+      {/* the account's live "Checklist Needed" flag and renders nothing   */}
+      {/* when it's off, so no gating is needed here.                      */}
+      {/* --------------------------------------------------------------- */}
+      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 account-detail-print-hide">
+        <ChecklistTemplateEditor
+          accountId={getAccountId(account, rawAccountIdFromUrl)}
+          accountName={account.accountName || "Unnamed Account"}
         />
       </section>
 

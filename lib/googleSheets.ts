@@ -145,6 +145,8 @@ const MAIN_COL = {
   // V=21 Gross Margin — NEVER expose
   // W=22 Gross Margin % — NEVER expose
   LAST_VISIT_DATE: 23, // X
+  // Y..AH = 24..33 unused/reserved by other features — not modeled here.
+  CHECKLIST_NEEDED: 34, // AI — added by scripts/add-checklist-needed-column.js
 } as const;
 
 function getMainAuthClient() {
@@ -166,7 +168,7 @@ async function fetchMainRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth: getMainAuthClient() });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: "Accounts!A:X",
+      range: "Accounts!A:AI",
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -190,6 +192,7 @@ function rowToMainAccount(row: string[]) {
     scopeOfWork:   row[MAIN_COL.SCOPE_OF_WORK]  ?? "",
     status:        row[MAIN_COL.STATUS]         ?? "",
     lastVisitDate: row[MAIN_COL.LAST_VISIT_DATE] ?? "",
+    checklistNeeded: (row[MAIN_COL.CHECKLIST_NEEDED] ?? "").trim() === "Yes",
   };
 }
 
@@ -197,6 +200,43 @@ export async function getMainAccountById(accountId: string) {
   const rows = await fetchMainRows();
   const row = rows.find((r) => r[MAIN_COL.ACCOUNT_ID]?.trim() === accountId.trim());
   return row ? rowToMainAccount(row) : null;
+}
+
+export async function fetchAllMainAccounts() {
+  const rows = await fetchMainRows();
+  return rows.filter((r) => r[MAIN_COL.ACCOUNT_ID]?.trim()).map(rowToMainAccount);
+}
+
+// Direct-Sheets-API write for the "Checklist Needed" flag — deliberately
+// bypasses the Apps Script backend entirely (see app/api/accounts/route.ts,
+// which calls this alongside the normal Apps Script save) since Apps
+// Script's addAccount/updateAccount handlers aren't in this repo and their
+// generic-field-passthrough behavior for a brand-new column can't be
+// verified. This is the one authoritative write path for the flag; reads
+// go through getMainAccountById above, not the Apps Script account object.
+export async function setAccountChecklistNeeded(accountId: string, needed: boolean): Promise<void> {
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+  const spreadsheetId = process.env.GOOGLE_MAIN_SHEET_ID!;
+
+  const idColResp = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({ spreadsheetId, range: "Accounts!A:A" })
+  );
+  const idRows = idColResp.data.values ?? [];
+  const rowIndex = idRows.findIndex((r) => (r[0] ?? "").trim() === accountId.trim());
+  if (rowIndex === -1) {
+    throw new Error(`setAccountChecklistNeeded: account "${accountId}" not found in Accounts sheet`);
+  }
+
+  const sheetRow = rowIndex + 1; // values.get is 0-indexed, sheet rows are 1-indexed
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `Accounts!AI${sheetRow}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[needed ? "Yes" : "No"]] },
+  });
+
+  invalidateCache("main-accounts");
 }
 
 export async function getMainAccountByName(name: string) {

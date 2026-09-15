@@ -38,6 +38,13 @@ const PUBLIC_PATHS = [
   // portal, including subcontractor and customer sessions with no admin
   // cookie — must not redirect to /login like a gated API route would.
   "/api/version",
+  // Porter Checklist submission form — no-login link handed to porters
+  // directly (text/email/WhatsApp). Deliberately isolated under its own
+  // "/porter" prefix (not "/porter-checklist") so it can never collide with
+  // "/porter-checklist/submissions", the password-gated admin view, which
+  // must stay behind the normal admin cookie gate.
+  "/porter",
+  "/api/porter-checklist",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action

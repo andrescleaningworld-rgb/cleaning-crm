@@ -811,6 +811,7 @@ export default function DashboardPage() {
             badgeCount={dashboard.openComplaints.length}
           />
           <DashboardButton href="/supplies" label="Supplies" />
+          <DashboardButton href="/porter-checklist/submissions" label="Porter Checklists" />
           <DashboardButton
             href="/supply-orders"
             label="Supply Orders"
