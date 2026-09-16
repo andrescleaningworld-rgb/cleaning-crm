@@ -197,6 +197,33 @@ function ManagersSettingsSection({
   const [actionError, setActionError] = useState("");
   const [phoneDrafts, setPhoneDrafts] = useState<Record<number, string>>({});
   const [savingRow, setSavingRow] = useState<number | null>(null);
+  const [resetNotice, setResetNotice] = useState<number | null>(null);
+
+  async function resetPassword(manager: Manager) {
+    if (!window.confirm(`Reset ${manager.name}'s password? They'll need to set a new one at their next login.`)) {
+      return;
+    }
+    setSavingRow(manager.sheetRow);
+    setActionError("");
+    try {
+      const response = await fetch("/api/admin/manager-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheetManagerId: manager.managerId, action: "reset-password" }),
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !data.success) {
+        setActionError(data.error ?? "Failed to reset password.");
+        return;
+      }
+      setResetNotice(manager.sheetRow);
+      setTimeout(() => setResetNotice((current) => (current === manager.sheetRow ? null : current)), 4000);
+    } catch {
+      setActionError("Network error resetting password.");
+    } finally {
+      setSavingRow(null);
+    }
+  }
 
   async function handleAdd() {
     const name = newManagerName.trim();
@@ -413,6 +440,7 @@ function ManagersSettingsSection({
                 <th className="px-4 py-3 font-semibold">Phone</th>
                 <th className="px-4 py-3 font-semibold">Calendar Color</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Login</th>
                 <th className="px-4 py-3 font-semibold">Action</th>
               </tr>
             </thead>
@@ -474,6 +502,20 @@ function ManagersSettingsSection({
                     >
                       {manager.status}
                     </span>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => resetPassword(manager)}
+                      disabled={savingRow === manager.sheetRow}
+                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Reset Password
+                    </button>
+                    {resetNotice === manager.sheetRow ? (
+                      <p className="mt-1 text-xs font-semibold text-green-700">Password cleared.</p>
+                    ) : null}
                   </td>
 
                   <td className="px-4 py-3">
@@ -569,6 +611,7 @@ function SupplySettingsSection() {
 }
 
 export default function SettingsPage() {
+  const [isOwner, setIsOwner] = useState(false);
   const [managers, setManagers] = useState<Manager[]>([]);
   const [managersLoading, setManagersLoading] = useState(true);
   const [managersError, setManagersError] = useState("");
@@ -585,6 +628,13 @@ export default function SettingsPage() {
   );
   const [complaintValidityOptions, setComplaintValidityOptions] =
     useState<SettingItem[]>(startingComplaintValidityOptions);
+
+  useEffect(() => {
+    fetch("/api/session-role", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { role?: string }) => setIsOwner(data.role === "owner"))
+      .catch(() => setIsOwner(false));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -738,6 +788,22 @@ export default function SettingsPage() {
           <span className="ml-4 shrink-0 text-teal-500">→</span>
         </Link>
 
+        {/* Activity Log shortcut — owner-only */}
+        {isOwner ? (
+          <Link
+            href="/settings/activity-log"
+            className="mb-6 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-sm transition hover:bg-amber-100"
+          >
+            <div>
+              <p className="font-bold text-amber-900">Activity Log</p>
+              <p className="mt-0.5 text-sm text-amber-700">
+                Audit trail of who created, edited, or deleted records across the app, plus logins/logouts.
+              </p>
+            </div>
+            <span className="ml-4 shrink-0 text-amber-500">→</span>
+          </Link>
+        ) : null}
+
         {/* Logs shortcut */}
         <Link
           href="/settings/logs"
@@ -788,12 +854,14 @@ export default function SettingsPage() {
         <div className="grid gap-6">
           <SupplySettingsSection />
 
-          <ManagersSettingsSection
-            managers={managers}
-            setManagers={setManagers}
-            loading={managersLoading}
-            loadError={managersError}
-          />
+          {isOwner ? (
+            <ManagersSettingsSection
+              managers={managers}
+              setManagers={setManagers}
+              loading={managersLoading}
+              loadError={managersError}
+            />
+          ) : null}
 
           <SettingsSection
             title="Complaint Validity Options"

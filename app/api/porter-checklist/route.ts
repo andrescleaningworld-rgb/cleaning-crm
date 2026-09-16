@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
 import { getTemplateByPorterCode, insertSubmission } from "@/lib/checklistDb";
 import { countSubmissionProgress, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET(request: NextRequest) {
   try {
@@ -86,6 +87,16 @@ export async function POST(request: NextRequest) {
       sections,
       completedCount: done,
       totalCount: total,
+    });
+
+    await logActivity({
+      actorAccountId: null,
+      actorRole: "porter",
+      actorName: porterName,
+      action: "create",
+      entityType: "checklist_submission",
+      entityId: String(id),
+      detail: template.accountName,
     });
 
     return NextResponse.json({ success: true, id, completedCount: done, totalCount: total });

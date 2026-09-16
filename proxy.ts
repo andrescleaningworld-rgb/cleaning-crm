@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
-
-const ADMIN_SESSION_TOKEN = process.env.ADMIN_SESSION_TOKEN || "";
+import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
 
 // No cookie of any kind required. /api/subcontractor-portal stays here even
 // though most of its actions require a logged-in sub — it's a single POST
@@ -17,6 +16,10 @@ const PUBLIC_PATHS = [
   "/api/customer-portal",
   "/subcontractor-portal",
   "/subcontractor-page",
+  // Covers /api/login, /api/login/identities, /api/login/owner, and
+  // /api/login/setup-password (prefix match) — all must be reachable while
+  // logged out, since they're how a login session gets created in the
+  // first place.
   "/api/login",
   "/api/logout",
   "/api/subcontractor-portal",
@@ -62,23 +65,35 @@ const SUB_PATHS = [
 ];
 
 // Shared between staff pages and the subcontractor portal — accept either a
-// valid admin cookie or a valid sub session.
+// valid admin session or a valid sub session.
 const SUB_OR_ADMIN_PATHS = ["/api/photos", "/api/supplies"];
+
+// Owner-only — requires the admin identity session's role to be "owner",
+// not just any logged-in manager. Checked after the general admin gate.
+const OWNER_ONLY_PATHS = [
+  "/settings/activity-log",
+  "/api/admin/audit-log",
+  "/api/admin/manager-accounts",
+];
 
 function matchesPath(pathname: string, list: string[]) {
   return list.some((path) => pathname === path || pathname.startsWith(`${path}/`));
 }
 
-function hasValidAdminSession(request: NextRequest) {
-  const possibleCookies = [
-    "admin_session",
-    "cw_admin_session",
-    "cleaning_world_admin_session",
-  ];
-
-  return possibleCookies.some((cookieName) => {
-    return request.cookies.get(cookieName)?.value === ADMIN_SESSION_TOKEN;
-  });
+// Decrypts the individual manager/owner login session (see
+// lib/adminSession.ts). Replaces the old static-shared-secret cookie check —
+// any manager or owner who has completed login satisfies this, matching
+// today's "all managers get full existing access" requirement; only
+// OWNER_ONLY_PATHS further narrows by role.
+async function getAdminIdentity(request: NextRequest): Promise<AdminIdentitySession | null> {
+  try {
+    const response = NextResponse.next();
+    const session = await getIronSession<AdminIdentitySession>(request, response, adminSessionOptions());
+    if (!session.accountId || !session.role) return null;
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 async function hasValidSubSession(request: NextRequest) {
@@ -115,13 +130,26 @@ export async function proxy(request: NextRequest) {
   }
 
   if (matchesPath(pathname, SUB_OR_ADMIN_PATHS)) {
-    if (hasValidAdminSession(request) || (await hasValidSubSession(request))) {
+    if ((await getAdminIdentity(request)) || (await hasValidSubSession(request))) {
       return NextResponse.next();
     }
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (hasValidAdminSession(request)) {
+  if (matchesPath(pathname, OWNER_ONLY_PATHS)) {
+    const identity = await getAdminIdentity(request);
+    if (identity?.role === "owner") {
+      return NextResponse.next();
+    }
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: identity ? 403 : 401 });
+    }
+    const homeUrl = request.nextUrl.clone();
+    homeUrl.pathname = identity ? "/" : "/login";
+    return NextResponse.redirect(homeUrl);
+  }
+
+  if (await getAdminIdentity(request)) {
     return NextResponse.next();
   }
 

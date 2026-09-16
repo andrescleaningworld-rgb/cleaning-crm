@@ -1,5 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { logActivity } from "@/lib/activityLog";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -97,7 +99,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -187,10 +189,23 @@ export async function POST(request: Request) {
       );
     }
 
+    const proposalId = data.proposalId || data.id || null;
+    const actor = await getAdminIdentity(request);
+    if (actor?.accountId) {
+      await logActivity({
+        actorAccountId: actor.accountId,
+        actorRole: actor.role ?? "manager",
+        actorName: actor.name || "",
+        action: requestedAction === "updateSubTransferProposalStatus" ? "update" : "create",
+        entityType: "sub_transfer_proposal",
+        entityId: proposalId,
+      });
+    }
+
     return NextResponse.json({
       success: true,
       message: data.message || "Transfer proposal request completed.",
-      proposalId: data.proposalId || data.id || null,
+      proposalId,
       sentTo: data.sentTo || null,
       data,
     });

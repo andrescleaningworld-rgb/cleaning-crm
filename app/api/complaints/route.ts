@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import {
   findSubcontractorEmailByName,
   findSubcontractorPhoneByName,
@@ -7,6 +7,8 @@ import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import { appendComplaint } from "@/lib/googleSheets";
 import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { logActivity } from "@/lib/activityLog";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -190,7 +192,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -322,6 +324,18 @@ export async function POST(request: Request) {
           },
           { status: 500 }
         );
+      }
+
+      const closeActor = await getAdminIdentity(request);
+      if (closeActor?.accountId) {
+        await logActivity({
+          actorAccountId: closeActor.accountId,
+          actorRole: closeActor.role ?? "manager",
+          actorName: closeActor.name || "",
+          action: "update",
+          entityType: "complaint",
+          entityId: String(data.rowNumber || payload.complaint.rowNumber || payload.complaint.id || "") || null,
+        });
       }
 
       return NextResponse.json({
@@ -589,6 +603,18 @@ export async function POST(request: Request) {
             error instanceof Error ? error.message : error
           );
         }
+      });
+    }
+
+    const createActor = await getAdminIdentity(request);
+    if (createActor?.accountId) {
+      await logActivity({
+        actorAccountId: createActor.accountId,
+        actorRole: createActor.role ?? "manager",
+        actorName: createActor.name || "",
+        action: "create",
+        entityType: "complaint",
+        entityId: complaintId,
       });
     }
 

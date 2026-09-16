@@ -7,6 +7,15 @@ export default function LogoutButton() {
 
   async function handleLogout() {
     await fetch("/api/logout", { method: "POST" });
+    // Clear stale per-device identity flags so a shared/kiosk device doesn't
+    // leak the previous person's identity into the next login.
+    for (const key of ["cwRole", "cwUserRole", "userRole", "cwAdminLoggedIn", "isAdminLoggedIn", "cwManagerId"]) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // ignore — localStorage may be unavailable (private browsing, etc.)
+      }
+    }
     router.push("/login");
   }
 

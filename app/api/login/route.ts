@@ -1,59 +1,61 @@
+// Individual manager login — replaces the old single shared-ADMIN_PASSWORD
+// check. Body is { sheetManagerId, password }; the owner logs in via the
+// separate app/api/login/owner route instead. A manager with no password set
+// yet gets a distinct `needsSetup: true` response (200, not 401) so the
+// client can switch to the create-password form instead of showing
+// "Incorrect password" for someone who was never wrong.
 import { NextRequest, NextResponse } from "next/server";
-
-const COOKIE_NAME = "cw_admin_session";
+import { getIronSession } from "iron-session";
+import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
+import { getAccountBySheetManagerId, touchLastLogin, verifyManagerPassword } from "@/lib/managerAccounts";
+import { fetchManagers } from "@/lib/googleSheets";
+import { logActivity } from "@/lib/activityLog";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as {
-      password?: string;
-    };
+    const body = (await request.json()) as { sheetManagerId?: string; password?: string };
+    const sheetManagerId = String(body.sheetManagerId || "").trim();
+    const password = String(body.password || "").trim();
 
-    const password = String(body.password || "");
-    const expectedPassword = process.env.ADMIN_PASSWORD || "";
-    const sessionToken = process.env.ADMIN_SESSION_TOKEN || "";
-
-    if (!expectedPassword || !sessionToken) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Login is not configured. Missing ADMIN_PASSWORD or ADMIN_SESSION_TOKEN.",
-        },
-        { status: 500 }
-      );
+    if (!sheetManagerId) {
+      return NextResponse.json({ success: false, error: "Choose your name." }, { status: 400 });
     }
 
-    if (password !== expectedPassword) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Incorrect password.",
-        },
-        { status: 401 }
-      );
+    const managers = await fetchManagers();
+    const managerRow = managers.find((m) => m.managerId === sheetManagerId);
+    if (!managerRow || (managerRow.status && managerRow.status !== "Active")) {
+      return NextResponse.json({ success: false, error: "Manager not found or inactive." }, { status: 404 });
     }
 
-    const response = NextResponse.json({
-      success: true,
-      message: "Logged in.",
+    const account = await getAccountBySheetManagerId(sheetManagerId);
+    if (!account || !account.passwordHash) {
+      return NextResponse.json({ success: false, needsSetup: true, error: "No password set yet." });
+    }
+
+    const valid = await verifyManagerPassword(account, password);
+    if (!valid) {
+      return NextResponse.json({ success: false, error: "Incorrect password." }, { status: 401 });
+    }
+
+    const finalResponse = NextResponse.json({ success: true, name: managerRow.name });
+    const session = await getIronSession<AdminIdentitySession>(request, finalResponse, adminSessionOptions());
+    session.accountId = account.id;
+    session.role = "manager";
+    session.sheetManagerId = sheetManagerId;
+    session.name = managerRow.name;
+    await session.save();
+
+    await touchLastLogin(account.id);
+    await logActivity({
+      actorAccountId: account.id,
+      actorRole: "manager",
+      actorName: managerRow.name,
+      action: "login",
+      entityType: "session",
     });
 
-    response.cookies.set(COOKIE_NAME, sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 12,
-    });
-
-    return response;
+    return finalResponse;
   } catch {
-    return NextResponse.json(
-      {
-        success: false,
-        message: "Login failed.",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Login failed." }, { status: 500 });
   }
 }

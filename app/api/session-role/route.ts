@@ -1,25 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-
-const ADMIN_SESSION_TOKEN = process.env.ADMIN_SESSION_TOKEN || "";
-
-const ADMIN_COOKIE_NAMES = [
-  "admin_session",
-  "cw_admin_session",
-  "cleaning_world_admin_session",
-];
-
-function hasValidAdminSession(request: NextRequest) {
-  return ADMIN_COOKIE_NAMES.some(
-    (cookieName) => request.cookies.get(cookieName)?.value === ADMIN_SESSION_TOKEN
-  );
-}
+import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
 
 // Read-only: reports which session (if any) is active so client pages like
-// /help can decide what to show. Never sets or modifies any cookie.
+// /help and Settings can decide what to show. Never sets or modifies any
+// cookie. Kept in lockstep with proxy.ts's admin-session check — both read
+// the same AdminIdentitySession now, so update both together.
 export async function GET(request: NextRequest) {
-  const isAdmin = Boolean(ADMIN_SESSION_TOKEN) && hasValidAdminSession(request);
+  let isAdmin = false;
+  let role: "manager" | "owner" | null = null;
+  let name = "";
+  try {
+    const response = NextResponse.json({});
+    const session = await getIronSession<AdminIdentitySession>(request, response, adminSessionOptions());
+    if (session.accountId && session.role) {
+      isAdmin = true;
+      role = session.role;
+      name = session.name || "";
+    }
+  } catch {
+    isAdmin = false;
+  }
 
   let isCustomer = false;
   try {
@@ -30,5 +32,5 @@ export async function GET(request: NextRequest) {
     isCustomer = false;
   }
 
-  return NextResponse.json({ isAdmin, isCustomer });
+  return NextResponse.json({ isAdmin, isCustomer, role, name });
 }

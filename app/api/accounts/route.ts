@@ -4,6 +4,8 @@ import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import { setAccountChecklistNeeded } from "@/lib/googleSheets";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { logActivity } from "@/lib/activityLog";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -142,7 +144,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -448,6 +450,18 @@ export async function POST(request: Request) {
             error instanceof Error ? error.message : error
           );
         }
+      });
+    }
+
+    const actor = await getAdminIdentity(request);
+    if (actor?.accountId) {
+      await logActivity({
+        actorAccountId: actor.accountId,
+        actorRole: actor.role ?? "manager",
+        actorName: actor.name || "",
+        action: resolvedAction === "updateAccount" ? "update" : "create",
+        entityType: "account",
+        entityId: effectiveAccountId || null,
       });
     }
 

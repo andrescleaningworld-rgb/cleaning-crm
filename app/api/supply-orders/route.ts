@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { logActivity } from "@/lib/activityLog";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -316,6 +318,19 @@ export async function POST(request: NextRequest) {
         },
         { status: 500 }
       );
+    }
+
+    const actor = await getAdminIdentity(request);
+    if (actor?.accountId) {
+      const orderData = data as { orderId?: string; id?: string };
+      await logActivity({
+        actorAccountId: actor.accountId,
+        actorRole: actor.role ?? "manager",
+        actorName: actor.name || "",
+        action: action === "updateSupplyOrderStatus" ? "update" : "create",
+        entityType: "supply_order",
+        entityId: orderData.orderId || orderData.id || null,
+      });
     }
 
     return NextResponse.json(data, {

@@ -22,6 +22,8 @@ import {
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import { sendPush } from "@/lib/push";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { logActivity } from "@/lib/activityLog";
 
 // Best-effort SmsLog write — never lets a Sheets error mask the send
 // outcome that already happened (and was already logged via console by
@@ -299,6 +301,20 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    const actor = await getAdminIdentity(request);
+
+    async function logToDoActivity(input: { action: "create" | "update"; entityId?: string | null; detail?: string }) {
+      if (!actor?.accountId) return;
+      await logActivity({
+        actorAccountId: actor.accountId,
+        actorRole: actor.role ?? "manager",
+        actorName: actor.name || "",
+        action: input.action,
+        entityType: "to_do",
+        entityId: input.entityId ?? null,
+        detail: input.detail,
+      });
+    }
 
     const action =
       typeof body.action === "string" && body.action
@@ -335,6 +351,8 @@ export async function POST(request: NextRequest) {
       });
 
       after(() => notifyManagerOfNewToDo(id, input, new URL(request.url).origin));
+
+      await logToDoActivity({ action: "create", entityId: id });
 
       return NextResponse.json({ success: true, id, calendarSyncFailed });
     }
@@ -411,6 +429,8 @@ export async function POST(request: NextRequest) {
         )
       );
 
+      await logToDoActivity({ action: "create", detail: `${ids.length} to-dos created` });
+
       return NextResponse.json({
         success: true,
         ids,
@@ -442,6 +462,8 @@ export async function POST(request: NextRequest) {
         calendarSyncFailed = result.failed;
         await setToDoCalendarSyncFailed(toDoId, calendarSyncFailed);
       }
+
+      await logToDoActivity({ action: "update", entityId: toDoId, detail: `status -> ${status}` });
 
       return NextResponse.json({ success: true, calendarSyncFailed });
     }
@@ -508,6 +530,8 @@ export async function POST(request: NextRequest) {
           )
         );
       }
+
+      await logToDoActivity({ action: "update", entityId: toDoId });
 
       return NextResponse.json({ success: true, calendarSyncFailed });
     }
@@ -593,6 +617,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      await logToDoActivity({ action: "update", detail: `${found.length} to-dos updated` });
+
       return NextResponse.json({
         success: true,
         updated: found.length,
@@ -612,6 +638,8 @@ export async function POST(request: NextRequest) {
       }
 
       await updateToDoOutcome(toDoId, String(body.outcome ?? ""));
+
+      await logToDoActivity({ action: "update", entityId: toDoId, detail: "outcome recorded" });
 
       return NextResponse.json({ success: true });
     }

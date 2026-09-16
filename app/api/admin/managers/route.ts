@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchManagers, appendManager, updateManager } from "@/lib/googleSheets";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { logActivity } from "@/lib/activityLog";
 
 export async function GET() {
   try {
@@ -23,6 +25,20 @@ export async function POST(request: NextRequest) {
       phone: body.phone?.trim() ?? "",
       status: body.status?.trim() || "Active",
     });
+
+    const actor = await getAdminIdentity(request);
+    if (actor?.accountId) {
+      await logActivity({
+        actorAccountId: actor.accountId,
+        actorRole: actor.role ?? "owner",
+        actorName: actor.name || "",
+        action: "create",
+        entityType: "manager",
+        entityId: managerId,
+        detail: `added ${name}`,
+      });
+    }
+
     return NextResponse.json({ success: true, managerId });
   } catch (err) {
     console.error("[managers POST]", err);
@@ -47,6 +63,20 @@ export async function PATCH(request: NextRequest) {
     if (!sheetRow || !fields) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
     await updateManager(sheetRow, fields);
+
+    const actor = await getAdminIdentity(request);
+    if (actor?.accountId) {
+      await logActivity({
+        actorAccountId: actor.accountId,
+        actorRole: actor.role ?? "owner",
+        actorName: actor.name || "",
+        action: "update",
+        entityType: "manager",
+        entityId: String(sheetRow),
+        detail: Object.keys(fields).join(", "),
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[managers PATCH]", err);
