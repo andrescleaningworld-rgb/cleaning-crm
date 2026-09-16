@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import type { ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 
 const PASSWORD_STORAGE_KEY = "cwChecklistSubmissionsPassword";
@@ -62,6 +63,12 @@ export default function PorterChecklistSubmissionsPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<(SubmissionSummary & { sections: ChecklistSubmissionSection[] }) | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const [rangePreset, setRangePreset] = useState<"7" | "30" | "custom">("30");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [reportPending, setReportPending] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     try {
@@ -161,6 +168,51 @@ export default function PorterChecklistSubmissionsPage() {
     }
   }
 
+  function getReportRange(): { start: string; end: string } {
+    if (rangePreset === "custom") {
+      return { start: customStart, end: customEnd };
+    }
+    const days = rangePreset === "7" ? 7 : 30;
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  }
+
+  async function handleDownloadReport() {
+    if (!accountFilter) return;
+    const { start, end } = getReportRange();
+    if (!start || !end) {
+      setReportError("Choose a start and end date.");
+      return;
+    }
+    setReportError("");
+    setReportPending(true);
+    try {
+      const url = `/api/porter-checklist-report?accountId=${encodeURIComponent(accountFilter)}&start=${start}&end=${end}`;
+      const response = await fetch(url, { headers: { "x-checklist-password": unlockedPassword } });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({} as { error?: string }));
+        throw new Error(data.error || "Could not generate the report.");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = match ? match[1] : "report.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Could not generate the report.");
+    } finally {
+      setReportPending(false);
+    }
+  }
+
   if (!unlockedPassword) {
     return (
       <div className="mx-auto max-w-sm py-16">
@@ -192,7 +244,10 @@ export default function PorterChecklistSubmissionsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-black text-slate-950">Porter Checklist Submissions</h1>
+        <div className="flex items-center gap-2">
+          <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={36} height={36} className="h-9 w-9 object-contain" />
+          <h1 className="text-2xl font-black text-slate-950">Porter Checklist Submissions</h1>
+        </div>
         <select
           value={accountFilter}
           onChange={(event) => setAccountFilter(event.target.value)}
@@ -206,6 +261,58 @@ export default function PorterChecklistSubmissionsPage() {
           ))}
         </select>
       </div>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <span className="text-xs font-black uppercase tracking-wide text-slate-500">Report Range</span>
+        <div className="flex gap-1">
+          {(["7", "30", "custom"] as const).map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setRangePreset(preset)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-black ${
+                rangePreset === preset ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {preset === "7" ? "Last 7 days" : preset === "30" ? "Last 30 days" : "Custom"}
+            </button>
+          ))}
+        </div>
+        {rangePreset === "custom" ? (
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(event) => setCustomStart(event.target.value)}
+              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none focus:border-blue-500"
+            />
+            <span className="text-xs text-slate-400">to</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(event) => setCustomEnd(event.target.value)}
+              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none focus:border-blue-500"
+            />
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={handleDownloadReport}
+          disabled={!accountFilter || reportPending}
+          title={!accountFilter ? "Choose a specific account to download a report" : undefined}
+          className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {reportPending ? "Generating…" : "Download Report"}
+        </button>
+      </div>
+      {!accountFilter ? (
+        <p className="text-xs text-slate-400">Choose a specific account above to download its report.</p>
+      ) : null}
+      {reportError ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {reportError}
+        </p>
+      ) : null}
 
       {listError ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">

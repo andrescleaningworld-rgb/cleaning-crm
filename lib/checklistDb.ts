@@ -174,6 +174,26 @@ export async function listSubmissions(accountId?: string): Promise<SubmissionSum
   return rows.map((r) => rowToSummary(r as Record<string, unknown>));
 }
 
+export async function listSubmissionsForReport(
+  accountId: string,
+  startISO: string,
+  endISO: string
+): Promise<SubmissionDetail[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM checklist_submissions
+    WHERE account_id = ${accountId}
+      AND submitted_at >= ${startISO}
+      AND submitted_at < ${endISO}
+    ORDER BY submitted_at ASC
+    LIMIT 200
+  `;
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { ...rowToSummary(row), sections: (row.items_snapshot_json as ChecklistSubmissionSection[]) ?? [] };
+  });
+}
+
 export async function getSubmissionDetail(id: number): Promise<SubmissionDetail | null> {
   const sql = getSql();
   const rows = await sql`SELECT * FROM checklist_submissions WHERE id = ${id} LIMIT 1`;

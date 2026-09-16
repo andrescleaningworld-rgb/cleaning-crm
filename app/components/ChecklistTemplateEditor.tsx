@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import {
   slugifyKey,
   validateSections,
@@ -348,11 +349,14 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
         aria-expanded={!collapsed}
         className="flex w-full items-center justify-between gap-4 text-left"
       >
-        <div>
-          <h2 className="text-xl font-black text-slate-950">Porter Checklist</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {sections.reduce((sum, s) => sum + s.items.length, 0)} item(s) across {sections.length} section(s).
-          </p>
+        <div className="flex items-center gap-2">
+          <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={32} height={32} className="h-8 w-8 object-contain" />
+          <div>
+            <h2 className="text-xl font-black text-slate-950">Porter Checklist</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {sections.reduce((sum, s) => sum + s.items.length, 0)} item(s) across {sections.length} section(s).
+            </p>
+          </div>
         </div>
         <span className="shrink-0 text-sm font-semibold text-slate-500">{collapsed ? "Show" : "Hide"}</span>
       </button>

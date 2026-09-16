@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import Image from "next/image";
 import { countTemplateProgress, type ChecklistSectionDef } from "@/lib/checklistTemplate";
 
 type LoadResponse = {
@@ -176,7 +177,10 @@ export default function PorterChecklistPage() {
     <div className="min-h-screen bg-slate-50 px-4 py-6 sm:py-10">
       <form onSubmit={handleSubmit} className="mx-auto max-w-xl space-y-5">
         <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Cleaning World</p>
+          <div className="flex items-center gap-2">
+            <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={28} height={28} className="h-7 w-7 object-contain" />
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Cleaning World</p>
+          </div>
           <h1 className="mt-1 text-2xl font-black text-slate-950">{locationName || "Cleaning Checklist"}</h1>
 
           <div className="mt-4">
