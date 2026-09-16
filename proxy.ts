@@ -22,6 +22,11 @@ const PUBLIC_PATHS = [
   "/api/subcontractor-portal",
   "/favicon.ico",
   "/cw-logo.jpg",
+  // The header/branding logo (CWHeader, customer portal login, and the
+  // Porter Checklist module) — served as a static /public asset and must be
+  // fetchable on every logged-out page (customer portal, subcontractor
+  // portal, the no-login porter link), not just admin-authenticated ones.
+  "/logo-CW-single-phone-optimized.png",
   "/sw.js",
   "/manifest.json",
   "/manifest.webmanifest",
@@ -128,5 +133,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|cw-logo.jpg).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|cw-logo.jpg|logo-CW-single-phone-optimized.png).*)"],
 };
