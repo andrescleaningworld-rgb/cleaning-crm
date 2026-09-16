@@ -197,33 +197,6 @@ function ManagersSettingsSection({
   const [actionError, setActionError] = useState("");
   const [phoneDrafts, setPhoneDrafts] = useState<Record<number, string>>({});
   const [savingRow, setSavingRow] = useState<number | null>(null);
-  const [resetNotice, setResetNotice] = useState<number | null>(null);
-
-  async function resetPassword(manager: Manager) {
-    if (!window.confirm(`Reset ${manager.name}'s password? They'll need to set a new one at their next login.`)) {
-      return;
-    }
-    setSavingRow(manager.sheetRow);
-    setActionError("");
-    try {
-      const response = await fetch("/api/admin/manager-accounts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sheetManagerId: manager.managerId, action: "reset-password" }),
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-      if (!response.ok || !data.success) {
-        setActionError(data.error ?? "Failed to reset password.");
-        return;
-      }
-      setResetNotice(manager.sheetRow);
-      setTimeout(() => setResetNotice((current) => (current === manager.sheetRow ? null : current)), 4000);
-    } catch {
-      setActionError("Network error resetting password.");
-    } finally {
-      setSavingRow(null);
-    }
-  }
 
   async function handleAdd() {
     const name = newManagerName.trim();
@@ -440,7 +413,6 @@ function ManagersSettingsSection({
                 <th className="px-4 py-3 font-semibold">Phone</th>
                 <th className="px-4 py-3 font-semibold">Calendar Color</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Login</th>
                 <th className="px-4 py-3 font-semibold">Action</th>
               </tr>
             </thead>
@@ -507,20 +479,6 @@ function ManagersSettingsSection({
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      onClick={() => resetPassword(manager)}
-                      disabled={savingRow === manager.sheetRow}
-                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Reset Password
-                    </button>
-                    {resetNotice === manager.sheetRow ? (
-                      <p className="mt-1 text-xs font-semibold text-green-700">Password cleared.</p>
-                    ) : null}
-                  </td>
-
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
                       onClick={() => toggleStatus(manager)}
                       disabled={savingRow === manager.sheetRow}
                       className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
@@ -536,6 +494,170 @@ function ManagersSettingsSection({
           {managers.length === 0 && (
             <div className="p-6 text-center text-gray-600">
               No managers found.
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type ManagerLoginAccount = {
+  staffId: string;
+  name: string;
+  needsSetup: boolean;
+  accountId?: string;
+};
+
+// Owner-only. Individual admin-login passwords are keyed off the Staff
+// table (role === "Manager" && active), NOT the Managers Sheet tab above —
+// see lib/managerAccounts.ts. Deliberately a separate section rather than a
+// column grafted onto ManagersSettingsSection, since these can be different
+// people/ids entirely.
+function ManagerLoginAccountsSection() {
+  const [accounts, setAccounts] = useState<ManagerLoginAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const response = await fetch("/api/admin/manager-accounts");
+        const data = (await response.json()) as {
+          success?: boolean;
+          identities?: ManagerLoginAccount[];
+          error?: string;
+        };
+        if (!response.ok || data.success === false) {
+          if (!cancelled) setLoadError(data.error || "Failed to load manager login accounts.");
+          return;
+        }
+        if (!cancelled) setAccounts(data.identities ?? []);
+      } catch {
+        if (!cancelled) setLoadError("Network error loading manager login accounts.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function resetPassword(account: ManagerLoginAccount) {
+    if (
+      !window.confirm(
+        `Reset ${account.name}'s login password? They'll need to set a new one at their next login.`
+      )
+    ) {
+      return;
+    }
+    setSavingId(account.staffId);
+    setActionError("");
+    try {
+      const response = await fetch("/api/admin/manager-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId: account.staffId, action: "reset-password" }),
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !data.success) {
+        setActionError(data.error ?? "Failed to reset password.");
+        return;
+      }
+      setAccounts((current) =>
+        current.map((a) => (a.staffId === account.staffId ? { ...a, needsSetup: true } : a))
+      );
+      setResetNotice(account.staffId);
+      setTimeout(() => setResetNotice((current) => (current === account.staffId ? null : current)), 4000);
+    } catch {
+      setActionError("Network error resetting password.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="mb-4">
+        <h2 className="text-xl font-bold text-gray-900">Manager Login Accounts</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Individual admin-login passwords for Active, Manager-role Staff (Equipment
+          Categories &amp; Staff page). Office/Inside Staff never appear here and can&apos;t
+          log in as a manager.
+        </p>
+      </div>
+
+      {loadError ? (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          {loadError}
+        </div>
+      ) : null}
+
+      {actionError ? (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          {actionError}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="p-6 text-center text-gray-600">Loading...</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-600">
+                <th className="px-4 py-3 font-semibold">Name</th>
+                <th className="px-4 py-3 font-semibold">Login Status</th>
+                <th className="px-4 py-3 font-semibold">Action</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {accounts.map((account) => (
+                <tr key={account.staffId} className="border-b">
+                  <td className="px-4 py-3 font-semibold text-gray-900">{account.name}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                        account.needsSetup
+                          ? "border-amber-200 bg-amber-100 text-amber-800"
+                          : "border-green-200 bg-green-100 text-green-800"
+                      }`}
+                    >
+                      {account.needsSetup ? "Setup pending" : "Active"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => resetPassword(account)}
+                      disabled={savingId === account.staffId || account.needsSetup}
+                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Reset Password
+                    </button>
+                    {resetNotice === account.staffId ? (
+                      <p className="mt-1 text-xs font-semibold text-green-700">Password cleared.</p>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {accounts.length === 0 && (
+            <div className="p-6 text-center text-gray-600">
+              No active Manager-role Staff found.
             </div>
           )}
         </div>
@@ -862,6 +984,8 @@ export default function SettingsPage() {
               loadError={managersError}
             />
           ) : null}
+
+          {isOwner ? <ManagerLoginAccountsSection /> : null}
 
           <SettingsSection
             title="Complaint Validity Options"

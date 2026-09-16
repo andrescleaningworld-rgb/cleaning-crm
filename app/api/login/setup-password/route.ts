@@ -8,13 +8,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
 import { getOwnerAccount, setInitialPassword } from "@/lib/managerAccounts";
-import { fetchManagers } from "@/lib/googleSheets";
+import { fetchStaff } from "@/lib/googleSheets";
 import { logActivity } from "@/lib/activityLog";
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as {
-      sheetManagerId?: string;
+      staffId?: string;
       role?: "manager" | "owner";
       newPassword?: string;
     };
@@ -32,17 +32,17 @@ export async function POST(request: NextRequest) {
     let account;
 
     if (role === "manager") {
-      const sheetManagerId = String(body.sheetManagerId || "").trim();
-      if (!sheetManagerId) {
+      const staffId = String(body.staffId || "").trim();
+      if (!staffId) {
         return NextResponse.json({ success: false, error: "Missing manager." }, { status: 400 });
       }
-      const managers = await fetchManagers();
-      const managerRow = managers.find((m) => m.managerId === sheetManagerId);
-      if (!managerRow || (managerRow.status && managerRow.status !== "Active")) {
+      const staff = await fetchStaff();
+      const staffRow = staff.find((s) => s.id === staffId);
+      if (!staffRow || staffRow.role !== "Manager" || !staffRow.active) {
         return NextResponse.json({ success: false, error: "Manager not found or inactive." }, { status: 404 });
       }
-      name = managerRow.name;
-      account = await setInitialPassword({ sheetManagerId }, newPassword);
+      name = staffRow.name;
+      account = await setInitialPassword({ staffId }, newPassword);
     } else {
       const owner = await getOwnerAccount();
       if (!owner) {
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     const session = await getIronSession<AdminIdentitySession>(request, finalResponse, adminSessionOptions());
     session.accountId = account.id;
     session.role = role;
-    session.sheetManagerId = account.sheetManagerId ?? undefined;
+    session.staffId = account.staffId ?? undefined;
     session.name = name;
     await session.save();
 

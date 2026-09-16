@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type ManagerOption = { sheetManagerId: string; name: string; accountId?: string };
+type ManagerOption = { staffId: string; name: string; accountId?: string };
 
 type ActivityLogEntry = {
   id: number;

@@ -2,15 +2,24 @@
 // credentials (manager_accounts table — see scripts/setup-manager-auth-db.js).
 // Mirrors the one-file-per-feature, typed-function convention used in
 // lib/checklistDb.ts. Deliberately holds ONLY auth state (password hash,
-// role) — a manager's name/phone/status/calendar color stay in the Managers
-// Google Sheet (lib/googleSheets.ts, fetchManagers) as the single source of
-// truth for that roster data; sheet_manager_id is the join key back to it.
+// role) — identity/role data (name, Manager vs Office/Inside Staff, active)
+// stays in the Staff Google Sheet tab (lib/googleSheets.ts, fetchStaff) as
+// the single source of truth; staff_id is the join key back to it.
+//
+// This intentionally does NOT use the separate "Managers" Sheet tab
+// (fetchManagers) — that tab is a different, unrelated roster used for
+// phone numbers / calendar colors / to-do assignment, and is not gated by
+// any role at all. Login eligibility is decided here, at the query level,
+// by Staff.role === "Manager" && Staff.active — an "InsideStaff" or
+// "OfficeStaff" row can never appear in the roster this returns, no matter
+// what the UI does.
+//
 // Rows are created lazily on first password setup, so there's no fixed list
-// of managers to pre-seed and new Sheet managers get the same flow for free.
+// of managers to pre-seed and new Staff managers get the same flow for free.
 
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
-import { fetchManagers } from "@/lib/googleSheets";
+import { fetchStaff } from "@/lib/googleSheets";
 
 const BCRYPT_ROUNDS = 10;
 
@@ -18,7 +27,7 @@ export type ManagerAccountRole = "manager" | "owner";
 
 export type ManagerAccountRow = {
   id: string;
-  sheetManagerId: string | null;
+  staffId: string | null;
   role: ManagerAccountRole;
   displayName: string | null;
   passwordHash: string | null;
@@ -30,7 +39,7 @@ export type ManagerAccountRow = {
 function rowToAccount(row: Record<string, unknown>): ManagerAccountRow {
   return {
     id: row.id as string,
-    sheetManagerId: (row.sheet_manager_id as string | null) ?? null,
+    staffId: (row.staff_id as string | null) ?? null,
     role: row.role as ManagerAccountRole,
     displayName: (row.display_name as string | null) ?? null,
     passwordHash: (row.password_hash as string | null) ?? null,
@@ -40,9 +49,9 @@ function rowToAccount(row: Record<string, unknown>): ManagerAccountRow {
   };
 }
 
-export async function getAccountBySheetManagerId(sheetManagerId: string): Promise<ManagerAccountRow | null> {
+export async function getAccountByStaffId(staffId: string): Promise<ManagerAccountRow | null> {
   const sql = getSql();
-  const rows = await sql`SELECT * FROM manager_accounts WHERE sheet_manager_id = ${sheetManagerId} LIMIT 1`;
+  const rows = await sql`SELECT * FROM manager_accounts WHERE staff_id = ${staffId} LIMIT 1`;
   return rows.length > 0 ? rowToAccount(rows[0] as Record<string, unknown>) : null;
 }
 
@@ -62,7 +71,7 @@ export async function getOwnerAccount(): Promise<ManagerAccountRow | null> {
 }
 
 export type ManagerIdentity = {
-  sheetManagerId: string;
+  staffId: string;
   name: string;
   needsSetup: boolean;
   // manager_accounts.id — undefined until the manager has completed
@@ -71,30 +80,34 @@ export type ManagerIdentity = {
   accountId?: string;
 };
 
-// Active managers from the Sheet, joined with whether they've set a
-// password yet. A manager with no manager_accounts row at all (brand new,
-// never logged in) also reads as needsSetup — no pre-seeding required.
+// Active Manager-role Staff, joined with whether they've set a password
+// yet. A manager with no manager_accounts row at all (brand new, never
+// logged in) also reads as needsSetup — no pre-seeding required. Anyone
+// whose Staff role isn't exactly "Manager", or whose Staff row isn't
+// active, is filtered out here — before it ever reaches an API response —
+// so Office/Inside Staff can never authenticate as a manager even if a
+// client bypassed the picker UI entirely.
 export async function getIdentityRoster(): Promise<ManagerIdentity[]> {
-  const [managers, sql] = [await fetchManagers(), getSql()];
-  const active = managers.filter((m) => !m.status || m.status === "Active");
-  if (active.length === 0) return [];
+  const [staff, sql] = [await fetchStaff(), getSql()];
+  const activeManagers = staff.filter((s) => s.role === "Manager" && s.active);
+  if (activeManagers.length === 0) return [];
 
-  const rows = await sql`SELECT id, sheet_manager_id, password_hash FROM manager_accounts WHERE role = 'manager'`;
-  const accountsBySheetId = new Map<string, { id: string; hasPassword: boolean }>();
+  const rows = await sql`SELECT id, staff_id, password_hash FROM manager_accounts WHERE role = 'manager'`;
+  const accountsByStaffId = new Map<string, { id: string; hasPassword: boolean }>();
   for (const row of rows as Record<string, unknown>[]) {
-    accountsBySheetId.set(row.sheet_manager_id as string, {
+    accountsByStaffId.set(row.staff_id as string, {
       id: row.id as string,
       hasPassword: Boolean(row.password_hash),
     });
   }
 
-  return active
-    .filter((m) => m.managerId && m.name)
-    .map((m) => {
-      const account = accountsBySheetId.get(m.managerId);
+  return activeManagers
+    .filter((s) => s.id && s.name)
+    .map((s) => {
+      const account = accountsByStaffId.get(s.id);
       return {
-        sheetManagerId: m.managerId,
-        name: m.name,
+        staffId: s.id,
+        name: s.name,
         needsSetup: !account?.hasPassword,
         accountId: account?.id,
       };
@@ -107,18 +120,18 @@ export async function getIdentityRoster(): Promise<ManagerIdentity[]> {
 // a no-op (password already set), which the caller should surface as an
 // error distinct from a normal server failure.
 export async function setInitialPassword(
-  target: { sheetManagerId: string } | { role: "owner" },
+  target: { staffId: string } | { role: "owner" },
   newPassword: string
 ): Promise<ManagerAccountRow | null> {
   const sql = getSql();
   const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
-  if ("sheetManagerId" in target) {
+  if ("staffId" in target) {
     const id = crypto.randomUUID();
     const rows = await sql`
-      INSERT INTO manager_accounts (id, sheet_manager_id, role, password_hash)
-      VALUES (${id}, ${target.sheetManagerId}, 'manager', ${hash})
-      ON CONFLICT (sheet_manager_id) DO UPDATE
+      INSERT INTO manager_accounts (id, staff_id, role, password_hash)
+      VALUES (${id}, ${target.staffId}, 'manager', ${hash})
+      ON CONFLICT (staff_id) DO UPDATE
         SET password_hash = EXCLUDED.password_hash, updated_at = now()
         WHERE manager_accounts.password_hash IS NULL
       RETURNING *
@@ -145,9 +158,9 @@ export async function verifyManagerPassword(account: ManagerAccountRow, plainPas
 
 // Owner-only action (enforced by the calling route, not here) — clears the
 // hash so the manager goes through first-time setup again next login.
-export async function resetPasswordBySheetManagerId(sheetManagerId: string): Promise<void> {
+export async function resetPasswordByStaffId(staffId: string): Promise<void> {
   const sql = getSql();
-  await sql`UPDATE manager_accounts SET password_hash = NULL, updated_at = now() WHERE sheet_manager_id = ${sheetManagerId}`;
+  await sql`UPDATE manager_accounts SET password_hash = NULL, updated_at = now() WHERE staff_id = ${staffId}`;
 }
 
 export async function touchLastLogin(accountId: string): Promise<void> {

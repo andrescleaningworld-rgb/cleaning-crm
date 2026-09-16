@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 export interface AdminIdentitySession {
   accountId?: string;
   role?: "manager" | "owner";
-  sheetManagerId?: string;
+  staffId?: string;
   name?: string;
 }
 

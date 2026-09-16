@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { identifyManager } from "@/app/components/OneSignalInit";
 
 type Identity = {
-  sheetManagerId: string;
+  staffId: string;
   name: string;
   needsSetup: boolean;
 };
@@ -54,10 +54,10 @@ function LoginForm() {
   // the old separate post-login "which manager are you" picker, since login
   // now already establishes exactly who this is. identifyManager never
   // throws (see OneSignalInit.tsx).
-  async function completeLogin(sheetManagerId: string | undefined) {
+  async function completeLogin(staffId: string | undefined) {
     setAdminLocalStorageFlags();
-    if (sheetManagerId) {
-      await identifyManager(sheetManagerId);
+    if (staffId) {
+      await identifyManager(staffId);
     }
     router.push(nextPath);
     router.refresh();
@@ -83,7 +83,7 @@ function LoginForm() {
       const response = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sheetManagerId: selected.sheetManagerId, password: password.trim() }),
+        body: JSON.stringify({ staffId: selected.staffId, password: password.trim() }),
       });
 
       const data = (await response.json()) as { success?: boolean; needsSetup?: boolean; error?: string };
@@ -96,7 +96,7 @@ function LoginForm() {
         throw new Error(data.error || "Login failed.");
       }
 
-      await completeLogin(selected.sheetManagerId);
+      await completeLogin(selected.staffId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed.");
     } finally {
@@ -125,7 +125,7 @@ function LoginForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sheetManagerId: selected.sheetManagerId,
+          staffId: selected.staffId,
           role: "manager",
           newPassword: newPassword.trim(),
         }),
@@ -136,7 +136,7 @@ function LoginForm() {
         throw new Error(data.error || "Could not set up password.");
       }
 
-      await completeLogin(selected.sheetManagerId);
+      await completeLogin(selected.staffId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not set up password.");
     } finally {
@@ -250,7 +250,7 @@ function LoginForm() {
               ) : (
                 identities.map((identity) => (
                   <button
-                    key={identity.sheetManagerId}
+                    key={identity.staffId}
                     type="button"
                     onClick={() => handlePickIdentity(identity)}
                     className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 hover:border-blue-500 hover:bg-blue-50"

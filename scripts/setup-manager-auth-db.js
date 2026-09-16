@@ -53,7 +53,7 @@ async function main() {
   await sql`
     CREATE TABLE IF NOT EXISTS manager_accounts (
       id TEXT PRIMARY KEY,
-      sheet_manager_id TEXT UNIQUE,
+      staff_id TEXT UNIQUE,
       role TEXT NOT NULL CHECK (role IN ('manager','owner')),
       display_name TEXT,
       password_hash TEXT,
@@ -63,6 +63,33 @@ async function main() {
     )
   `;
   console.log("manager_accounts ready.");
+
+  // Migration for installs created before the switch from the Managers Sheet
+  // tab to the Staff tab as the login source of truth (2026-09-16) — the
+  // join column was renamed accordingly. No-op if already renamed or if the
+  // table was just created fresh above with the new name.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'manager_accounts' AND column_name = 'sheet_manager_id'
+      ) THEN
+        ALTER TABLE manager_accounts RENAME COLUMN sheet_manager_id TO staff_id;
+      END IF;
+    END $$;
+  `;
+  console.log("staff_id column migration checked.");
+
+  // Any pre-existing 'manager' rows predate this rename and are keyed to the
+  // old Managers-tab ids, which never match a real Staff id — inert, but
+  // clearing them lets managers show a clean "Setup pending" state instead
+  // of a dangling orphaned row. None had a real password in production use.
+  const staleManagerRows = await sql`SELECT count(*) FROM manager_accounts WHERE role = 'manager'`;
+  if (Number(staleManagerRows[0].count) > 0) {
+    await sql`DELETE FROM manager_accounts WHERE role = 'manager'`;
+    console.log(`Cleared ${staleManagerRows[0].count} pre-rename manager row(s) keyed to the old Managers-tab id scheme.`);
+  }
 
   await sql`CREATE INDEX IF NOT EXISTS idx_manager_accounts_role ON manager_accounts(role)`;
 
@@ -90,7 +117,7 @@ async function main() {
   if (existingOwner.length === 0) {
     const id = crypto.randomUUID();
     await sql`
-      INSERT INTO manager_accounts (id, sheet_manager_id, role, display_name, password_hash)
+      INSERT INTO manager_accounts (id, staff_id, role, display_name, password_hash)
       VALUES (${id}, NULL, 'owner', 'Andres', NULL)
     `;
     console.log(`Seeded owner row (id ${id}) with no password yet — complete first-time setup via the hidden owner login route.`);
