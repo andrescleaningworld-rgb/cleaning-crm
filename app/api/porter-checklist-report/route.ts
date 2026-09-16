@@ -1,20 +1,12 @@
 // Admin-gated exactly like app/api/checklist-submissions/route.ts (default
-// proxy.ts admin-cookie check, PLUS the explicit CHECKLIST_SUBMISSIONS_PASSWORD
-// header) — this exposes the same sensitive submission data, just packaged as
-// a PDF instead of JSON, so it gets the same gate.
+// proxy.ts admin-cookie check) — this exposes the same sensitive submission
+// data, just packaged as a PDF instead of JSON, so it gets the same gate.
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
 import { listSubmissionsForReport } from "@/lib/checklistDb";
 import { renderPorterChecklistReportPdf } from "@/lib/pdf/porter-checklist-report";
 
 export const maxDuration = 45;
-
-function isAuthorized(request: NextRequest): boolean {
-  const expected = process.env.CHECKLIST_SUBMISSIONS_PASSWORD || "";
-  if (!expected) return false;
-  const provided = request.headers.get("x-checklist-password") || "";
-  return provided === expected;
-}
 
 function slugifyUnderscore(value: string): string {
   return value
@@ -37,10 +29,6 @@ function formatDateLabel(dateOnly: string): string {
 }
 
 export async function GET(request: NextRequest) {
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ success: false, error: "Incorrect password." }, { status: 401 });
-  }
-
   const url = new URL(request.url);
   const accountId = url.searchParams.get("accountId")?.trim() || "";
   const start = url.searchParams.get("start")?.trim() || "";

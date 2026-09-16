@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import type { ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 
-const PASSWORD_STORAGE_KEY = "cwChecklistSubmissionsPassword";
-
 type SubmissionSummary = {
   id: number;
   accountId: string;
@@ -49,11 +47,6 @@ function formatTimestamp(iso: string): string {
 }
 
 export default function PorterChecklistSubmissionsPage() {
-  const [passwordInput, setPasswordInput] = useState("");
-  const [unlockedPassword, setUnlockedPassword] = useState("");
-  const [unlockError, setUnlockError] = useState("");
-  const [unlocking, setUnlocking] = useState(false);
-
   const [accountFilter, setAccountFilter] = useState("");
   const [submissions, setSubmissions] = useState<SubmissionSummary[]>([]);
   const [flaggedAccounts, setFlaggedAccounts] = useState<FlaggedAccount[]>([]);
@@ -70,33 +63,33 @@ export default function PorterChecklistSubmissionsPage() {
   const [reportPending, setReportPending] = useState(false);
   const [reportError, setReportError] = useState("");
 
+  // canShare() existing isn't enough — some browsers implement navigator.share
+  // for text/URLs only and report false from canShare() specifically for
+  // files, so this probes with a real (throwaway) File the same shape as
+  // what handleShareReport will actually share. Mirrors app/supply-orders.
+  const [canShareFiles, setCanShareFiles] = useState(false);
+
   useEffect(() => {
+    if (typeof navigator === "undefined" || typeof navigator.canShare !== "function") {
+      return;
+    }
     try {
-      const stored = window.sessionStorage.getItem(PASSWORD_STORAGE_KEY);
-      if (stored) setUnlockedPassword(stored);
+      const probeFile = new File(["report"], "report-support-check.pdf", { type: "application/pdf" });
+      setCanShareFiles(navigator.canShare({ files: [probeFile] }));
     } catch {
-      // ignore — sessionStorage may be unavailable (private browsing, etc.)
+      setCanShareFiles(false);
     }
   }, []);
 
-  async function loadSubmissions(password: string, accountId: string) {
+  async function loadSubmissions(accountId: string) {
     setLoading(true);
     setListError("");
     try {
       const url = accountId
         ? `/api/checklist-submissions?accountId=${encodeURIComponent(accountId)}`
         : "/api/checklist-submissions";
-      const response = await fetch(url, {
-        cache: "no-store",
-        headers: { "x-checklist-password": password },
-      });
+      const response = await fetch(url, { cache: "no-store" });
       const data = (await response.json()) as ListResponse;
-      if (response.status === 401) {
-        setUnlockedPassword("");
-        try { window.sessionStorage.removeItem(PASSWORD_STORAGE_KEY); } catch { /* ignore */ }
-        setUnlockError("Incorrect password.");
-        return;
-      }
       if (!response.ok || data.success === false) {
         throw new Error(data.error ?? "Could not load submissions.");
       }
@@ -110,37 +103,8 @@ export default function PorterChecklistSubmissionsPage() {
   }
 
   useEffect(() => {
-    if (!unlockedPassword) return;
-    loadSubmissions(unlockedPassword, accountFilter);
-  }, [unlockedPassword, accountFilter]);
-
-  async function handleUnlock(event: React.FormEvent) {
-    event.preventDefault();
-    setUnlocking(true);
-    setUnlockError("");
-    try {
-      const response = await fetch("/api/checklist-submissions", {
-        cache: "no-store",
-        headers: { "x-checklist-password": passwordInput },
-      });
-      if (response.status === 401) {
-        setUnlockError("Incorrect password.");
-        return;
-      }
-      const data = (await response.json()) as ListResponse;
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error ?? "Could not unlock submissions.");
-      }
-      setUnlockedPassword(passwordInput);
-      try { window.sessionStorage.setItem(PASSWORD_STORAGE_KEY, passwordInput); } catch { /* ignore */ }
-      setSubmissions(data.submissions ?? []);
-      setFlaggedAccounts(data.flaggedAccounts ?? []);
-    } catch (err) {
-      setUnlockError(err instanceof Error ? err.message : "Could not unlock submissions.");
-    } finally {
-      setUnlocking(false);
-    }
-  }
+    loadSubmissions(accountFilter);
+  }, [accountFilter]);
 
   async function handleExpand(id: number) {
     if (expandedId === id) {
@@ -152,10 +116,7 @@ export default function PorterChecklistSubmissionsPage() {
     setDetail(null);
     setDetailLoading(true);
     try {
-      const response = await fetch(`/api/checklist-submissions?id=${id}`, {
-        cache: "no-store",
-        headers: { "x-checklist-password": unlockedPassword },
-      });
+      const response = await fetch(`/api/checklist-submissions?id=${id}`, { cache: "no-store" });
       const data = (await response.json()) as DetailResponse;
       if (!response.ok || data.success === false || !data.detail) {
         throw new Error(data.error ?? "Could not load submission detail.");
@@ -179,66 +140,74 @@ export default function PorterChecklistSubmissionsPage() {
     return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
   }
 
-  async function handleDownloadReport() {
-    if (!accountFilter) return;
+  function validateReportRange(): { start: string; end: string } | null {
     const { start, end } = getReportRange();
     if (!start || !end) {
       setReportError("Choose a start and end date.");
-      return;
+      return null;
     }
+    return { start, end };
+  }
+
+  async function fetchReportPdf(start: string, end: string): Promise<{ blob: Blob; filename: string }> {
+    const url = `/api/porter-checklist-report?accountId=${encodeURIComponent(accountFilter)}&start=${start}&end=${end}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({} as { error?: string }));
+      throw new Error(data.error || "Could not generate the report.");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    return { blob, filename: match ? match[1] : "report.pdf" };
+  }
+
+  async function handleShareReport() {
+    if (!accountFilter) return;
+    const range = validateReportRange();
+    if (!range) return;
     setReportError("");
     setReportPending(true);
     try {
-      const url = `/api/porter-checklist-report?accountId=${encodeURIComponent(accountFilter)}&start=${start}&end=${end}`;
-      const response = await fetch(url, { headers: { "x-checklist-password": unlockedPassword } });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({} as { error?: string }));
-        throw new Error(data.error || "Could not generate the report.");
-      }
-      const blob = await response.blob();
-      const disposition = response.headers.get("Content-Disposition") || "";
-      const match = disposition.match(/filename="([^"]+)"/);
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = match ? match[1] : "report.pdf";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      const { blob, filename } = await fetchReportPdf(range.start, range.end);
+      const file = new File([blob], filename, { type: "application/pdf" });
+      const accountName = flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName || "account";
+      await navigator.share({
+        files: [file],
+        title: `Porter Checklist Report — ${accountName}`,
+        text: `Porter checklist report for ${accountName}`,
+      });
     } catch (err) {
-      setReportError(err instanceof Error ? err.message : "Could not generate the report.");
+      // AbortError means the user closed the native share sheet without
+      // picking anything — not a failure worth surfacing.
+      if (err instanceof Error && err.name === "AbortError") return;
+      setReportError(err instanceof Error ? err.message : "Could not share the report.");
     } finally {
       setReportPending(false);
     }
   }
 
-  if (!unlockedPassword) {
-    return (
-      <div className="mx-auto max-w-sm py-16">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-black text-slate-950">Porter Checklist Submissions</h1>
-          <p className="mt-2 text-sm text-slate-500">Enter the shared password to view submissions.</p>
-          <form onSubmit={handleUnlock} className="mt-4 space-y-3">
-            <input
-              type="password"
-              value={passwordInput}
-              onChange={(event) => setPasswordInput(event.target.value)}
-              placeholder="Password"
-              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold outline-none focus:border-blue-500"
-            />
-            {unlockError ? <p className="text-sm font-semibold text-red-600">{unlockError}</p> : null}
-            <button
-              type="submit"
-              disabled={unlocking}
-              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-500 disabled:opacity-60"
-            >
-              {unlocking ? "Checking…" : "Unlock"}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
+  async function handleDownloadReport() {
+    if (!accountFilter) return;
+    const range = validateReportRange();
+    if (!range) return;
+    setReportError("");
+    setReportPending(true);
+    try {
+      const { blob, filename } = await fetchReportPdf(range.start, range.end);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Could not download the report.");
+    } finally {
+      setReportPending(false);
+    }
   }
 
   return (
@@ -295,18 +264,30 @@ export default function PorterChecklistSubmissionsPage() {
             />
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={handleDownloadReport}
-          disabled={!accountFilter || reportPending}
-          title={!accountFilter ? "Choose a specific account to download a report" : undefined}
-          className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {reportPending ? "Generating…" : "Download Report"}
-        </button>
+        {canShareFiles ? (
+          <button
+            type="button"
+            onClick={handleShareReport}
+            disabled={!accountFilter || reportPending}
+            title={!accountFilter ? "Choose a specific account to share a report" : undefined}
+            className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {reportPending ? "Preparing…" : "Share Report"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleDownloadReport}
+            disabled={!accountFilter || reportPending}
+            title={!accountFilter ? "Choose a specific account to download a report" : undefined}
+            className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {reportPending ? "Generating…" : "Download Report"}
+          </button>
+        )}
       </div>
       {!accountFilter ? (
-        <p className="text-xs text-slate-400">Choose a specific account above to download its report.</p>
+        <p className="text-xs text-slate-400">Choose a specific account above to share or download its report.</p>
       ) : null}
       {reportError ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
