@@ -21,6 +21,7 @@ export type SubSchedule = {
   lastEditedDate: string;
   frequency: string;
   monthlyOccurrence: string;
+  submittedVia: string;
 };
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -322,6 +323,7 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
 
           <p className="text-xs text-slate-500">
             Submitted by {target.submittedBy || "—"} on {target.submittedDate || "—"}
+            {target.submittedVia ? ` via ${target.submittedVia}` : ""}
             {target.lastEditedBy ? ` · last edited by ${target.lastEditedBy} on ${target.lastEditedDate}` : ""}
           </p>
 

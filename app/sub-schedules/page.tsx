@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
+import AddScheduleModal from "./add-schedule-modal";
 import FullCalendar from "./full-calendar";
 import { isScheduleEffectivelyActive, parseMonthlyOccurrence, todayISO } from "@/lib/scheduleRecurrence";
 import {
@@ -74,6 +76,14 @@ function describeDayOrOccurrence(schedule: SubSchedule): string {
 }
 
 export default function SubSchedulesPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-gray-50 px-4 py-8 text-slate-500">Loading...</main>}>
+      <SubSchedulesPageInner />
+    </Suspense>
+  );
+}
+
+function SubSchedulesPageInner() {
   const [adminTab, setAdminTab] = useState<AdminTab>("schedules");
   const [adminName, setAdminName] = useState("");
 
@@ -107,6 +117,26 @@ export default function SubSchedulesPage() {
 
   const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
+  const [addScheduleModalOpen, setAddScheduleModalOpen] = useState(false);
+
+  // Deep-link support for the Subs list page's "Add Schedule" action
+  // (/sub-schedules?subId=<email>&addSchedule=1) — resolved against the
+  // subcontractor list once it's loaded, since the URL only carries the id.
+  const searchParams = useSearchParams();
+  const deepLinkHandledRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    if (searchParams.get("addSchedule") !== "1") return;
+    const subId = searchParams.get("subId");
+    if (!subId || allTeamLeaders.length === 0) return;
+    deepLinkHandledRef.current = true;
+    const match = allTeamLeaders.find((r) => normalizeForMatch(r.id) === normalizeForMatch(subId));
+    if (match) {
+      setSelectedTeamLeader({ id: match.id, label: formatTeamLeaderLabel(match) });
+      setTeamLeaderQuery(formatTeamLeaderLabel(match));
+    }
+    setAddScheduleModalOpen(true);
+  }, [searchParams, allTeamLeaders]);
 
   useEffect(() => {
     setAdminName(getStoredAdminName());
@@ -457,6 +487,16 @@ export default function SubSchedulesPage() {
               </div>
             </div>
 
+            {adminTab === "schedules" && (
+              <button
+                type="button"
+                onClick={() => setAddScheduleModalOpen(true)}
+                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+              >
+                + Add Schedule
+              </button>
+            )}
+
             {adminTab === "exceptions" && (
               <button
                 type="button"
@@ -517,7 +557,14 @@ export default function SubSchedulesPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-xs font-semibold text-slate-700">{s.submittedBy || "—"}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-700">{s.submittedBy || "—"}</span>
+                            {s.submittedVia === "Admin" ? (
+                              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-black uppercase text-blue-800">
+                                Admin
+                              </span>
+                            ) : null}
+                          </div>
                           {s.submittedDate && (
                             <div className="text-[11px] text-slate-400">{s.submittedDate}</div>
                           )}
@@ -623,6 +670,25 @@ export default function SubSchedulesPage() {
           accountName={exceptionModal !== "new" ? resolveAccountName(exceptionModal.accountId) : undefined}
           onClose={() => setExceptionModal(null)}
           onSaved={loadExceptions}
+        />
+      ) : null}
+
+      {addScheduleModalOpen ? (
+        <AddScheduleModal
+          initialAccount={customer.selected}
+          initialSub={selectedTeamLeader}
+          allAccountOptions={allAccountOptions}
+          allTeamLeaders={allTeamLeaders}
+          adminName={adminName}
+          onClose={() => setAddScheduleModalOpen(false)}
+          onCreated={({ account, sub }) => {
+            setAddScheduleModalOpen(false);
+            // Selecting these triggers the page's own search effect, which
+            // reloads schedules — no separate loadSchedules() call needed.
+            customer.select(account);
+            setSelectedTeamLeader(sub);
+            setTeamLeaderQuery(sub.label);
+          }}
         />
       ) : null}
     </main>

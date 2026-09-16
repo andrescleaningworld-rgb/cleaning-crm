@@ -1,7 +1,22 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { applySchedulePatternChange, fetchSubSchedules, updateSubSchedule } from "@/lib/googleSheets";
-import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import { appendSubSchedule, applySchedulePatternChange, fetchSubSchedules, updateSubSchedule } from "@/lib/googleSheets";
+import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, validateScheduleEntries, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
 import { sendSubcontractorNotification } from "@/lib/email";
+
+type CreateScheduleEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
+
+// Mirrors describeEntries in app/api/subcontractor-schedules/route.ts.
+function describeCreateEntries(frequency: string, entries: CreateScheduleEntry[]): string {
+  if (frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") {
+    return entries
+      .map((e) => {
+        const [position, weekday] = (e.monthlyOccurrence ?? "").split(":");
+        return `${position || "-"} ${weekday || "-"} (${e.timeWindow || "-"})`;
+      })
+      .join(", ");
+  }
+  return entries.map((e) => `${e.dayOfWeek || "-"} (${e.timeWindow || "-"})`).join(", ");
+}
 
 export async function GET() {
   try {
@@ -76,10 +91,18 @@ function describeNewPattern(newPattern: {
 
 export async function POST(request: NextRequest) {
   let body: {
+    action?: string;
     scheduleId?: string;
+    accountId?: string;
     accountName?: string;
+    subId?: string;
+    submittedBy?: string;
     lastEditedBy?: string;
     effectiveDate?: string;
+    effectiveStart?: string;
+    effectiveEnd?: string;
+    frequency?: string;
+    entries?: CreateScheduleEntry[];
     newPattern?: {
       dayOfWeek?: string;
       timeWindow?: string;
@@ -92,6 +115,86 @@ export async function POST(request: NextRequest) {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Admin-side "create a schedule for a sub with none on file" — a sibling
+  // to the subcontractor portal's own POST /api/subcontractor-schedules,
+  // same validation (validateScheduleEntries), just tagged submittedVia:
+  // "Admin" instead of "Sub Portal" and using the admin's own name (the
+  // page's "Your Name (for edits)" field) as submittedBy. No `action` field
+  // at all is the existing pattern-change request shape below — kept fully
+  // backward compatible.
+  if (body.action === "createSchedule") {
+    const accountId = body.accountId?.trim() ?? "";
+    const accountName = body.accountName?.trim() ?? "";
+    const subId = body.subId?.trim() ?? "";
+    const submittedBy = body.submittedBy?.trim() ?? "";
+    const frequency = body.frequency?.trim() ?? "";
+    const effectiveStart = body.effectiveStart?.trim() ?? "";
+    const effectiveEnd = body.effectiveEnd?.trim() ?? "";
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+
+    if (!accountId || !subId || !submittedBy) {
+      return NextResponse.json({ error: "accountId, subId, and submittedBy are required" }, { status: 400 });
+    }
+    const validationError = validateScheduleEntries(frequency, entries);
+    if (validationError) {
+      return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+
+    const recurring = frequency === "AS_NEEDED" ? "N" : "Y";
+    const rowsToCreate: CreateScheduleEntry[] = frequency === "AS_NEEDED" ? [{}] : entries;
+
+    try {
+      const scheduleIds: string[] = [];
+      for (const entry of rowsToCreate) {
+        const id = await appendSubSchedule({
+          accountId,
+          subId,
+          dayOfWeek: entry.dayOfWeek?.trim() ?? "",
+          timeWindow: entry.timeWindow?.trim() ?? "",
+          recurring,
+          effectiveStart,
+          effectiveEnd,
+          status: "Active",
+          submittedBy,
+          submittedVia: "Admin",
+          frequency,
+          monthlyOccurrence: entry.monthlyOccurrence?.trim() ?? "",
+        });
+        scheduleIds.push(id);
+      }
+
+      // Best-effort — lets the sub know a schedule now exists for them to
+      // review, mirroring the sub-facing route's own creation email.
+      after(async () => {
+        try {
+          if (!subId.includes("@")) {
+            console.debug(`[email] skip admin-created-schedule notify: SubID "${subId}" is not an email`);
+            return;
+          }
+          await sendSubcontractorNotification(
+            subId,
+            `New Recurring Schedule Set Up For You - ${accountName || accountId}`,
+            [
+              `Account: ${accountName || accountId}`,
+              `Frequency: ${FREQUENCY_LABELS[frequency] || frequency}`,
+              frequency === "AS_NEEDED" ? null : `Schedule: ${describeCreateEntries(frequency, rowsToCreate)}`,
+              `Effective Start: ${effectiveStart || "-"}`,
+              `Set up by: ${submittedBy} (admin)`,
+              `Log into your portal to review or update it.`,
+            ].filter((line): line is string => line !== null)
+          );
+        } catch (error) {
+          console.error("[email] admin-created-schedule notify failed:", error instanceof Error ? error.message : error);
+        }
+      });
+
+      return NextResponse.json({ success: true, scheduleIds });
+    } catch (err) {
+      console.error("[admin/sub-schedules POST createSchedule]", err);
+      return NextResponse.json({ error: "Failed to create schedule" }, { status: 500 });
+    }
   }
 
   const scheduleId = body.scheduleId?.trim() ?? "";

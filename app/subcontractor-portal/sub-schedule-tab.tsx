@@ -39,6 +39,7 @@ type SubScheduleRecord = {
   lastEditedDate: string;
   frequency: string;
   monthlyOccurrence: string;
+  submittedVia: string;
 };
 
 type Occurrence = { position: string; weekday: string; timeWindow: string };
@@ -317,6 +318,7 @@ function AccountScheduleForm({
         lastEditedBy: "",
         lastEditedDate: "",
         frequency,
+        submittedVia: "Sub Portal",
       };
       const records: SubScheduleRecord[] =
         frequency === "AS_NEEDED"
@@ -533,6 +535,14 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
           const accountId = getAccountId(account);
           const existing = schedulesByAccount[accountId];
           const hasSchedule = Boolean(existing && existing.length > 0);
+          // An admin-created schedule isn't locked the way a sub's own
+          // submission is — the sub can open the same form below to update
+          // it (staff get notified server-side when they do; see
+          // POST /api/subcontractor-schedules). All rows from one
+          // submission share the same origin, so checking the first is
+          // enough.
+          const isAdminCreated = hasSchedule && existing![0]?.submittedVia === "Admin";
+          const isEditingExisting = expandedAccountId === accountId && isAdminCreated;
 
           return (
             <div key={accountId || getAccountName(account)} className="rounded-2xl border border-slate-200 p-4">
@@ -544,21 +554,25 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                   ) : null}
                 </div>
 
-                {hasSchedule ? (
-                  <span className="inline-flex w-fit items-center rounded-full bg-green-100 px-3 py-1 text-xs font-black uppercase text-green-800">
-                    Submitted
-                  </span>
-                ) : (
+                {!hasSchedule ? (
                   <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-black uppercase text-amber-800">
                     Not set
+                  </span>
+                ) : isAdminCreated ? (
+                  <span className="inline-flex w-fit items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-black uppercase text-blue-800">
+                    Set up by admin
+                  </span>
+                ) : (
+                  <span className="inline-flex w-fit items-center rounded-full bg-green-100 px-3 py-1 text-xs font-black uppercase text-green-800">
+                    Submitted
                   </span>
                 )}
               </div>
 
-              {hasSchedule ? (
+              {hasSchedule && !isEditingExisting ? (
                 <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
                   <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Submitted — contact admin for changes
+                    {isAdminCreated ? "Set up by your admin" : "Submitted — contact admin for changes"}
                   </p>
                   <div className="mt-2 space-y-1">
                     {existing!.map((record, i) => (
@@ -567,15 +581,37 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                       </p>
                     ))}
                   </div>
+                  {isAdminCreated ? (
+                    <button
+                      type="button"
+                      onClick={() => setExpandedAccountId(accountId)}
+                      className="mt-3 w-full rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-black text-indigo-800 hover:border-indigo-400 hover:bg-indigo-100"
+                    >
+                      Update Schedule
+                    </button>
+                  ) : null}
                 </div>
-              ) : expandedAccountId === accountId ? (
+              ) : !hasSchedule && expandedAccountId === accountId ? (
                 <AccountScheduleForm
                   account={account}
                   subId={subId}
                   submittedBy={submittedBy}
                   onSaved={handleSaved}
                 />
-              ) : (
+              ) : isEditingExisting ? (
+                <>
+                  <p className="mt-3 text-xs font-semibold text-indigo-700">
+                    Set up by your admin — update below if this isn&apos;t accurate. The office will be notified
+                    when you make a change.
+                  </p>
+                  <AccountScheduleForm
+                    account={account}
+                    subId={subId}
+                    submittedBy={submittedBy}
+                    onSaved={handleSaved}
+                  />
+                </>
+              ) : !hasSchedule ? (
                 <button
                   type="button"
                   onClick={() => setExpandedAccountId(accountId)}
@@ -583,7 +619,7 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                 >
                   Set Your Schedule
                 </button>
-              )}
+              ) : null}
             </div>
           );
         })}

@@ -1,7 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { appendSubSchedule, fetchSubSchedules } from "@/lib/googleSheets";
-import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
-import { sendSubcontractorNotification } from "@/lib/email";
+import { appendSubSchedule, fetchSubSchedules, supersedeActiveSubSchedulesForSub } from "@/lib/googleSheets";
+import { FREQUENCY_LABELS, validateScheduleEntries } from "@/lib/scheduleRecurrence";
+import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
 
 export async function GET() {
   try {
@@ -58,42 +58,23 @@ export async function POST(request: NextRequest) {
   if (!accountId || !subId || !submittedBy) {
     return NextResponse.json({ error: "accountId, subId, and submittedBy are required" }, { status: 400 });
   }
-  if (!SCHEDULE_FREQUENCIES.includes(frequency as ScheduleFrequency)) {
-    return NextResponse.json(
-      { error: "frequency must be one of WEEKLY, BIWEEKLY, MONTHLY_1X, MONTHLY_2X, AS_NEEDED" },
-      { status: 400 }
-    );
+  const validationError = validateScheduleEntries(frequency, entries);
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 });
   }
-
-  if (frequency === "WEEKLY" || frequency === "BIWEEKLY") {
-    if (entries.length === 0) {
-      return NextResponse.json({ error: "At least one day/time-window entry is required" }, { status: 400 });
-    }
-    for (const entry of entries) {
-      if (!entry.dayOfWeek?.trim() || !entry.timeWindow?.trim()) {
-        return NextResponse.json({ error: "Each entry needs a dayOfWeek and timeWindow" }, { status: 400 });
-      }
-    }
-  } else if (frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") {
-    const expected = frequency === "MONTHLY_1X" ? 1 : 2;
-    if (entries.length !== expected) {
-      return NextResponse.json(
-        { error: `${frequency} requires exactly ${expected} occurrence entr${expected === 1 ? "y" : "ies"}` },
-        { status: 400 }
-      );
-    }
-    for (const entry of entries) {
-      if (!entry.monthlyOccurrence?.trim() || !entry.timeWindow?.trim()) {
-        return NextResponse.json({ error: "Each occurrence needs a week/weekday and a time window" }, { status: 400 });
-      }
-    }
-  }
-  // AS_NEEDED requires no entries.
 
   const recurring = frequency === "AS_NEEDED" ? "N" : "Y";
   const rowsToCreate: ScheduleEntry[] = frequency === "AS_NEEDED" ? [{}] : entries;
 
   try {
+    // A sub can overwrite a prior schedule for this account (most notably
+    // one an admin set up for them) — close out whatever's currently Active
+    // for this exact account+sub pair before appending the new rows, or
+    // this submission would just pile up as a second co-active schedule.
+    // No-op when there's nothing to supersede (the normal first-time-
+    // submission case).
+    const superseded = await supersedeActiveSubSchedulesForSub(accountId, subId, submittedBy);
+
     const scheduleIds: string[] = [];
     for (const entry of rowsToCreate) {
       const id = await appendSubSchedule({
@@ -106,6 +87,7 @@ export async function POST(request: NextRequest) {
         effectiveEnd,
         status: "Active",
         submittedBy,
+        submittedVia: "Sub Portal",
         frequency,
         monthlyOccurrence: entry.monthlyOccurrence?.trim() ?? "",
       });
@@ -135,6 +117,34 @@ export async function POST(request: NextRequest) {
         console.error("[email] new-schedule notify failed:", error instanceof Error ? error.message : error);
       }
     });
+
+    // Staff never see this happen otherwise — an admin-entered schedule
+    // getting silently changed by the sub is worth knowing about. Only
+    // fires when the schedule being replaced was admin-created; a sub
+    // overwriting their own prior sub-submitted schedule doesn't notify
+    // staff (nothing surprising there).
+    const supersededAdminRows = superseded.filter((s) => s.submittedVia === "Admin");
+    if (supersededAdminRows.length > 0) {
+      const oldFrequency = supersededAdminRows[0].frequency;
+      after(async () => {
+        try {
+          await sendInternalNotification(
+            `Sub Changed an Admin-Created Schedule - ${accountName || accountId}`,
+            [
+              `Account: ${accountName || accountId}`,
+              `Subcontractor: ${submittedBy} (${subId})`,
+              `This schedule was originally set up by an admin and has now been changed by the subcontractor.`,
+              `Previous: ${FREQUENCY_LABELS[oldFrequency] || oldFrequency} — ${describeEntries(oldFrequency, supersededAdminRows)}`,
+              frequency === "AS_NEEDED"
+                ? `New: ${FREQUENCY_LABELS[frequency] || frequency}`
+                : `New: ${FREQUENCY_LABELS[frequency] || frequency} — ${describeEntries(frequency, rowsToCreate)}`,
+            ]
+          );
+        } catch (error) {
+          console.error("[email] admin-schedule-overwritten notify failed:", error instanceof Error ? error.message : error);
+        }
+      });
+    }
 
     return NextResponse.json({ success: true, scheduleIds });
   } catch (err) {

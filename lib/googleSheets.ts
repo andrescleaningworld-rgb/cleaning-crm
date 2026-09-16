@@ -786,6 +786,7 @@ const SUB_SCHEDULE_COL = {
   LAST_EDITED_DATE:    12, // M
   FREQUENCY:           13, // N
   MONTHLY_OCCURRENCE:  14, // O
+  SUBMITTED_VIA:       15, // P — added by scripts/add-sub-schedule-submitted-via-column.js
 } as const;
 
 // Recurring ("Y"/"N") is kept as a legacy field for historical rows and is
@@ -808,6 +809,10 @@ export type SubSchedule = {
   lastEditedDate: string;
   frequency: string;
   monthlyOccurrence: string;
+  // "Sub Portal" | "Admin" — who/where the schedule was created, distinct
+  // from submittedBy (the person's name). Pure metadata: nothing that
+  // generates or evaluates schedule dates reads this field.
+  submittedVia: string;
 };
 
 async function fetchSubScheduleRows(): Promise<string[][]> {
@@ -820,7 +825,7 @@ async function fetchSubScheduleRows(): Promise<string[][]> {
     const sheets = google.sheets({ version: "v4", auth });
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
-      range: `${SUB_SCHEDULES_TAB}!A:O`,
+      range: `${SUB_SCHEDULES_TAB}!A:P`,
     });
     return (response.data.values ?? []).slice(1) as string[][];
   });
@@ -848,6 +853,9 @@ export async function fetchSubSchedules(): Promise<SubSchedule[]> {
     lastEditedDate: r[SUB_SCHEDULE_COL.LAST_EDITED_DATE] ?? "",
     frequency:         r[SUB_SCHEDULE_COL.FREQUENCY]           ?? "",
     monthlyOccurrence: r[SUB_SCHEDULE_COL.MONTHLY_OCCURRENCE] ?? "",
+    // Historical rows predate this column — default to "Sub Portal" since
+    // every schedule before this feature existed was sub-submitted.
+    submittedVia: r[SUB_SCHEDULE_COL.SUBMITTED_VIA]?.trim() || "Sub Portal",
   }));
 }
 
@@ -861,6 +869,7 @@ export async function appendSubSchedule(data: {
   effectiveEnd: string;
   status: string;
   submittedBy: string;
+  submittedVia: string;
   frequency?: string;
   monthlyOccurrence?: string;
 }): Promise<string> {
@@ -884,6 +893,7 @@ export async function appendSubSchedule(data: {
     "",
     data.frequency ?? "",
     data.monthlyOccurrence ?? "",
+    data.submittedVia,
   ]);
   return scheduleId;
 }
@@ -993,11 +1003,51 @@ export async function applySchedulePatternChange(
     effectiveEnd: current.effectiveEnd, // carries the account's original end date forward unchanged
     status: newPattern.status ?? current.status,
     submittedBy: current.submittedBy,
+    // Carried forward exactly like submittedBy — a pattern change to an
+    // admin-created schedule is still an admin-created schedule.
+    submittedVia: current.submittedVia,
     frequency: newPattern.frequency,
     monthlyOccurrence: newPattern.monthlyOccurrence,
   });
 
   return { scheduleId: newScheduleId, accountId: current.accountId, subId: current.subId };
+}
+
+// Closes out any Active schedule row(s) for this exact (accountId, subId)
+// pair before a fresh submission replaces them — without this, resubmitting
+// (e.g. a sub overwriting a schedule) would blindly append on top and leave
+// two co-active schedules for the same account+sub, which the Full Calendar
+// and coverage views don't expect. Same close-out shape as
+// applySchedulePatternChange (Status: "Superseded", EffectiveEnd set to the
+// day before), just scoped by account+sub instead of a single scheduleId.
+// Returns the rows it closed (empty if there was nothing to supersede) so
+// the caller can describe what changed and decide whether to notify staff.
+export async function supersedeActiveSubSchedulesForSub(
+  accountId: string,
+  subId: string,
+  editedBy: string
+): Promise<SubSchedule[]> {
+  const schedules = await fetchSubSchedules();
+  const active = schedules.filter(
+    (s) => s.accountId === accountId && s.subId === subId && s.status === "Active"
+  );
+  if (active.length === 0) return [];
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const effectiveEnd = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
+
+  for (const row of active) {
+    await updateSubSchedule(row.sheetRow, {
+      effectiveEnd,
+      status: "Superseded",
+      lastEditedBy: editedBy,
+      lastEditedDate: new Date().toISOString(),
+    });
+  }
+
+  return active;
 }
 
 // ─── Schedule exceptions ───────────────────────────────────────────────────────

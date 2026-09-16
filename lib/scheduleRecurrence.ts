@@ -187,6 +187,41 @@ export function generateScheduleDates(row: RecurrenceInput, rangeStart: Date, ra
   }
 }
 
+export type ScheduleEntryInput = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
+
+// Shared by both places a schedule can be created — the subcontractor
+// portal's own submission (app/api/subcontractor-schedules/route.ts) and the
+// admin "Add Schedule" action (app/api/admin/sub-schedules/route.ts) — so the
+// two paths can never validate a frequency's entries differently. Returns an
+// error message, or null when the entries are valid for that frequency.
+export function validateScheduleEntries(frequency: string, entries: ScheduleEntryInput[]): string | null {
+  if (!SCHEDULE_FREQUENCIES.includes(frequency as ScheduleFrequency)) {
+    return "frequency must be one of WEEKLY, BIWEEKLY, MONTHLY_1X, MONTHLY_2X, AS_NEEDED";
+  }
+
+  if (frequency === "WEEKLY" || frequency === "BIWEEKLY") {
+    if (entries.length === 0) return "At least one day/time-window entry is required";
+    for (const entry of entries) {
+      if (!entry.dayOfWeek?.trim() || !entry.timeWindow?.trim()) {
+        return "Each entry needs a dayOfWeek and timeWindow";
+      }
+    }
+  } else if (frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") {
+    const expected = frequency === "MONTHLY_1X" ? 1 : 2;
+    if (entries.length !== expected) {
+      return `${frequency} requires exactly ${expected} occurrence entr${expected === 1 ? "y" : "ies"}`;
+    }
+    for (const entry of entries) {
+      if (!entry.monthlyOccurrence?.trim() || !entry.timeWindow?.trim()) {
+        return "Each occurrence needs a week/weekday and a time window";
+      }
+    }
+  }
+  // AS_NEEDED requires no entries.
+
+  return null;
+}
+
 // Defense-in-depth on top of the stored Status column: a pattern-change edit
 // closes out the superseded row by setting EffectiveEnd and Status =
 // "Superseded" (see applySchedulePatternChange in lib/googleSheets.ts), but

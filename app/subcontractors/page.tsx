@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
+import { isScheduleEffectivelyActive } from "@/lib/scheduleRecurrence";
 
 const SubVisitLog = dynamic(() => import("../visits/sub-visit-log"), { ssr: false });
+
+type SubScheduleForJoin = { subId: string; status: string; effectiveEnd: string };
 
 type Subcontractor = {
   id?: string;
@@ -237,7 +240,13 @@ export default function SubcontractorsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [performanceFilter, setPerformanceFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
+  const [scheduleFilter, setScheduleFilter] = useState("all");
   const [sortBy, setSortBy] = useState("nameAsc");
+  // Emails (SubID in the SubSchedules sheet is the subcontractor's email —
+  // same convention app/sub-schedules/page.tsx relies on) with at least one
+  // effectively-active schedule. Loaded once, best-effort — a failure here
+  // just means the "No Schedule" filter/badge can't tell, not a page error.
+  const [scheduledSubEmails, setScheduledSubEmails] = useState<Set<string> | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
@@ -294,6 +303,37 @@ export default function SubcontractorsPage() {
     loadSubcontractors();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/sub-schedules");
+        const data = (await res.json()) as { schedules?: SubScheduleForJoin[] };
+        if (cancelled || !res.ok) return;
+        const emails = new Set(
+          (data.schedules ?? [])
+            .filter((s) => isScheduleEffectivelyActive(s))
+            .map((s) => s.subId.trim().toLowerCase())
+            .filter(Boolean)
+        );
+        setScheduledSubEmails(emails);
+      } catch {
+        // Best-effort — leave scheduledSubEmails null, which the filter/badge
+        // below treat as "unknown" rather than "no schedule".
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hasSchedule = useCallback((sub: Subcontractor): boolean | null => {
+    if (!scheduledSubEmails) return null;
+    const email = getEmail(sub).trim().toLowerCase();
+    if (!email) return null;
+    return scheduledSubEmails.has(email);
+  }, [scheduledSubEmails]);
+
   const filteredSubcontractors = useMemo(() => {
     const q = search.toLowerCase().trim();
 
@@ -332,11 +372,18 @@ export default function SubcontractorsPage() {
         (accountFilter === "hasAccounts" && accountsAssigned > 0) ||
         (accountFilter === "noAccounts" && accountsAssigned <= 0);
 
+      const subHasSchedule = hasSchedule(sub);
+      const matchesScheduleFilter =
+        scheduleFilter === "all" ||
+        (scheduleFilter === "hasSchedule" && subHasSchedule === true) ||
+        (scheduleFilter === "noSchedule" && subHasSchedule === false);
+
       return (
         matchesSearch &&
         matchesStatus &&
         matchesPerformance &&
-        matchesAccountFilter
+        matchesAccountFilter &&
+        matchesScheduleFilter
       );
     });
 
@@ -413,6 +460,8 @@ export default function SubcontractorsPage() {
     statusFilter,
     performanceFilter,
     accountFilter,
+    scheduleFilter,
+    hasSchedule,
     sortBy,
   ]);
 
@@ -585,6 +634,21 @@ export default function SubcontractorsPage() {
                 <option value="all">All accounts</option>
                 <option value="hasAccounts">Has accounts</option>
                 <option value="noAccounts">No accounts</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Schedule
+              </label>
+              <select
+                value={scheduleFilter}
+                onChange={(e) => setScheduleFilter(e.target.value)}
+                className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
+              >
+                <option value="all">All</option>
+                <option value="hasSchedule">Has schedule</option>
+                <option value="noSchedule">No schedule</option>
               </select>
             </div>
 
@@ -908,6 +972,7 @@ export default function SubcontractorsPage() {
                     <th className="px-4 py-3 font-semibold">CW Revenue</th>
                     <th className="px-4 py-3 font-semibold">Complaints</th>
                     <th className="px-4 py-3 font-semibold">Accounts</th>
+                    <th className="px-4 py-3 font-semibold">Schedule</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold">Actions</th>
                   </tr>
@@ -921,6 +986,7 @@ export default function SubcontractorsPage() {
                     const scoreStatus = getScoreStatus(score);
                     const subRevenue = getSubRevenue(sub);
                     const cleaningWorldRevenue = getCleaningWorldRevenue(sub);
+                    const subHasSchedule = hasSchedule(sub);
 
                     return (
                       <tr
@@ -971,24 +1037,48 @@ export default function SubcontractorsPage() {
                         </td>
 
                         <td className="px-4 py-3">
+                          {subHasSchedule === null ? (
+                            <span className="text-xs text-slate-400">—</span>
+                          ) : subHasSchedule ? (
+                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800">
+                              Has Schedule
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                              No Schedule
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
                           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
                             {getStatus(sub)}
                           </span>
                         </td>
 
                         <td className="px-4 py-3">
-                          {id ? (
-                            <Link
-                              href={`/subcontractors/${safeId}`}
-                              className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800"
-                            >
-                              View / Edit
-                            </Link>
-                          ) : (
-                            <span className="text-xs text-red-600">
-                              Missing ID
-                            </span>
-                          )}
+                          <div className="flex flex-wrap gap-2">
+                            {id ? (
+                              <Link
+                                href={`/subcontractors/${safeId}`}
+                                className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800"
+                              >
+                                View / Edit
+                              </Link>
+                            ) : (
+                              <span className="text-xs text-red-600">
+                                Missing ID
+                              </span>
+                            )}
+                            {subHasSchedule === false && getEmail(sub) ? (
+                              <Link
+                                href={`/sub-schedules?subId=${encodeURIComponent(getEmail(sub))}&addSchedule=1`}
+                                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100"
+                              >
+                                Add Schedule
+                              </Link>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );

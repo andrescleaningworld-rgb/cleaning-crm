@@ -101,6 +101,9 @@ export async function POST(request: NextRequest) {
         effectiveEnd,
         status: "Active",
         submittedBy,
+        // Distinct from "Sub Portal"/"Admin" — this row originates from the
+        // customer portal's own scheduling flow, not the sub or an admin.
+        submittedVia: "Customer Portal",
       });
       scheduleIds.push(scheduleId);
     }
