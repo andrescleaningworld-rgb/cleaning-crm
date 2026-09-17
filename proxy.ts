@@ -16,9 +16,9 @@ const PUBLIC_PATHS = [
   "/api/customer-portal",
   "/subcontractor-portal",
   "/subcontractor-page",
-  // Covers /api/login, /api/login/identities, /api/login/owner, and
-  // /api/login/setup-password (prefix match) — all must be reachable while
-  // logged out, since they're how a login session gets created in the
+  // Covers /api/login, /api/login/identities, and /api/login/setup-password
+  // (prefix match) — all must be reachable while logged out, since they're
+  // how a login session gets created in the
   // first place.
   "/api/login",
   "/api/logout",

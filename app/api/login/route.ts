@@ -1,10 +1,13 @@
-// Individual manager login — replaces the old single shared-ADMIN_PASSWORD
-// check. Body is { staffId, password } (staffId = Staff-tab id, role must be
-// exactly "Manager" and active); the owner logs in via the separate
-// app/api/login/owner route instead. A manager with no password set yet
-// gets a distinct `needsSetup: true` response (200, not 401) so the client
-// can switch to the create-password form instead of showing "Incorrect
-// password" for someone who was never wrong.
+// Unified manager/owner login — one flow for everyone. Body is
+// { staffId, password } where staffId is a Staff-tab id (role must be
+// exactly "Manager" and active — this is what the picker at /login shows).
+// Whether the granted session is "manager" or "owner" comes entirely from
+// the existing manager_accounts row for this staffId (see
+// lib/managerAccounts.ts) — there is no separate owner login path, and this
+// route never decides or accepts a role from the request. A manager with no
+// password set yet gets a distinct `needsSetup: true` response (200, not
+// 401) so the client can switch to the create-password form instead of
+// showing "Incorrect password" for someone who was never wrong.
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
@@ -38,10 +41,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Incorrect password." }, { status: 401 });
     }
 
-    const finalResponse = NextResponse.json({ success: true, name: staffRow.name });
+    const finalResponse = NextResponse.json({ success: true, name: staffRow.name, role: account.role });
     const session = await getIronSession<AdminIdentitySession>(request, finalResponse, adminSessionOptions());
     session.accountId = account.id;
-    session.role = "manager";
+    session.role = account.role;
     session.staffId = staffId;
     session.name = staffRow.name;
     await session.save();
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
     await touchLastLogin(account.id);
     await logActivity({
       actorAccountId: account.id,
-      actorRole: "manager",
+      actorRole: account.role,
       actorName: staffRow.name,
       action: "login",
       entityType: "session",

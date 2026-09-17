@@ -2,11 +2,13 @@
 /**
  * One-time setup script: creates the manager_accounts and activity_log
  * tables in the Neon Postgres database (DATABASE_URL), used by the manager/
- * owner login + audit-trail system. Also seeds the single owner row
- * (role='owner', password blank) if one doesn't already exist yet, so the
- * owner can complete first-time password setup via the hidden owner login
- * route. Safe to re-run — every statement is CREATE ... IF NOT EXISTS /
- * INSERT ... only when missing.
+ * owner login + audit-trail system. Also ensures the pre-designated
+ * owner's manager_accounts row (keyed to their real Staff-tab id) has
+ * role='owner', with password blank if not yet set — there is only one
+ * unified login flow (app/api/login), so the owner completes first-time
+ * setup the exact same way any manager does, from the same /login picker.
+ * Safe to re-run — every statement is CREATE ... IF NOT EXISTS / idempotent
+ * upsert-style logic.
  *
  * Usage:
  *   node scripts/setup-manager-auth-db.js
@@ -81,13 +83,15 @@ async function main() {
   `;
   console.log("staff_id column migration checked.");
 
-  // Any pre-existing 'manager' rows predate this rename and are keyed to the
-  // old Managers-tab ids, which never match a real Staff id — inert, but
-  // clearing them lets managers show a clean "Setup pending" state instead
-  // of a dangling orphaned row. None had a real password in production use.
-  const staleManagerRows = await sql`SELECT count(*) FROM manager_accounts WHERE role = 'manager'`;
+  // One-time cleanup for the sheet_manager_id -> staff_id rename: any row
+  // still keyed to an old Managers-tab id (format "MGR-...") predates the
+  // switch to the Staff tab and can never match a real Staff id — inert,
+  // but clearing it lets that manager show a clean "Setup pending" state.
+  // Scoped specifically to the old "MGR-" prefix so this never touches a
+  // real, current Staff-tab-keyed row ("STF-...") on a later re-run.
+  const staleManagerRows = await sql`SELECT count(*) FROM manager_accounts WHERE role = 'manager' AND staff_id LIKE 'MGR-%'`;
   if (Number(staleManagerRows[0].count) > 0) {
-    await sql`DELETE FROM manager_accounts WHERE role = 'manager'`;
+    await sql`DELETE FROM manager_accounts WHERE role = 'manager' AND staff_id LIKE 'MGR-%'`;
     console.log(`Cleared ${staleManagerRows[0].count} pre-rename manager row(s) keyed to the old Managers-tab id scheme.`);
   }
 
@@ -113,16 +117,42 @@ async function main() {
   await sql`CREATE INDEX IF NOT EXISTS idx_activity_log_entity ON activity_log(entity_type, entity_id)`;
   console.log("Indexes ready.");
 
-  const existingOwner = await sql`SELECT id FROM manager_accounts WHERE role = 'owner' LIMIT 1`;
-  if (existingOwner.length === 0) {
+  // There is exactly ONE login flow now (see app/api/login) — the owner is
+  // not a separate identity, just whichever Staff-tab person's
+  // manager_accounts row already has role='owner'. This id is Andrés's real
+  // Staff-tab id, confirmed live via GET /api/staff on 2026-09-16. He still
+  // picks his name from the same /login picker as any manager and sets/
+  // enters a password the same way; this only pre-marks which row grants
+  // owner-level access once he does.
+  const OWNER_STAFF_ID = "STF-18-27-58-wgy2";
+
+  const existingForStaffId = await sql`SELECT id, role FROM manager_accounts WHERE staff_id = ${OWNER_STAFF_ID} LIMIT 1`;
+  // Leftover from the pre-unification design, where the owner was a
+  // separate staff_id-less row — migrate it onto the real Staff id instead
+  // of keeping two records around.
+  const orphanedOwnerRow = await sql`SELECT id FROM manager_accounts WHERE role = 'owner' AND staff_id IS NULL LIMIT 1`;
+
+  if (existingForStaffId.length > 0) {
+    if (existingForStaffId[0].role !== "owner") {
+      await sql`UPDATE manager_accounts SET role = 'owner', updated_at = now() WHERE staff_id = ${OWNER_STAFF_ID}`;
+      console.log(`Promoted the existing manager_accounts row for ${OWNER_STAFF_ID} to role='owner'.`);
+    } else {
+      console.log("Owner row already correctly linked to the Staff id — left as-is.");
+    }
+    if (orphanedOwnerRow.length > 0 && orphanedOwnerRow[0].id !== existingForStaffId[0].id) {
+      await sql`DELETE FROM manager_accounts WHERE id = ${orphanedOwnerRow[0].id}`;
+      console.log("Removed the old separate staff_id-less owner row (now redundant).");
+    }
+  } else if (orphanedOwnerRow.length > 0) {
+    await sql`UPDATE manager_accounts SET staff_id = ${OWNER_STAFF_ID}, updated_at = now() WHERE id = ${orphanedOwnerRow[0].id}`;
+    console.log(`Linked the existing owner row to Staff id ${OWNER_STAFF_ID}.`);
+  } else {
     const id = crypto.randomUUID();
     await sql`
-      INSERT INTO manager_accounts (id, staff_id, role, display_name, password_hash)
-      VALUES (${id}, NULL, 'owner', 'Andres', NULL)
+      INSERT INTO manager_accounts (id, staff_id, role, password_hash)
+      VALUES (${id}, ${OWNER_STAFF_ID}, 'owner', NULL)
     `;
-    console.log(`Seeded owner row (id ${id}) with no password yet — complete first-time setup via the hidden owner login route.`);
-  } else {
-    console.log("Owner row already exists — left as-is.");
+    console.log(`Seeded owner row for Staff id ${OWNER_STAFF_ID} with no password yet.`);
   }
 
   console.log("Done.");

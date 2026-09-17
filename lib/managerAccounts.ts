@@ -14,6 +14,19 @@
 // "OfficeStaff" row can never appear in the roster this returns, no matter
 // what the UI does.
 //
+// There is exactly ONE login flow (see app/api/login and app/api/login/
+// setup-password) — everyone, including the owner, picks their name from
+// the same Staff-sourced picker and sets/enters a password the same way.
+// "Owner" is not a separate identity or a separate route: it's just
+// whatever manager_accounts.role a person's row already holds. A row is
+// pre-provisioned with role='owner' (via scripts/setup-manager-auth-db.js,
+// never self-service) for whoever should get owner-level access; everyone
+// else's row is created lazily on first setup with role='manager'. This is
+// why setInitialPassword below never lets the CALLER choose a role — the
+// role a person ends up with is entirely a function of what's already in
+// the database for their staff_id, never something a login request can
+// specify.
+//
 // Rows are created lazily on first password setup, so there's no fixed list
 // of managers to pre-seed and new Staff managers get the same flow for free.
 
@@ -61,15 +74,6 @@ export async function getAccountById(id: string): Promise<ManagerAccountRow | nu
   return rows.length > 0 ? rowToAccount(rows[0] as Record<string, unknown>) : null;
 }
 
-// Single-owner assumption for v1 (per plan) — the schema supports more than
-// one 'owner' row later without a migration, this just always takes the
-// first one.
-export async function getOwnerAccount(): Promise<ManagerAccountRow | null> {
-  const sql = getSql();
-  const rows = await sql`SELECT * FROM manager_accounts WHERE role = 'owner' ORDER BY created_at ASC LIMIT 1`;
-  return rows.length > 0 ? rowToAccount(rows[0] as Record<string, unknown>) : null;
-}
-
 export type ManagerIdentity = {
   staffId: string;
   name: string;
@@ -92,7 +96,10 @@ export async function getIdentityRoster(): Promise<ManagerIdentity[]> {
   const activeManagers = staff.filter((s) => s.role === "Manager" && s.active);
   if (activeManagers.length === 0) return [];
 
-  const rows = await sql`SELECT id, staff_id, password_hash FROM manager_accounts WHERE role = 'manager'`;
+  // Every manager_accounts row, regardless of role — the owner's row is
+  // keyed to their staff_id exactly like everyone else's, and needs to
+  // match here too so their needsSetup/accountId show correctly.
+  const rows = await sql`SELECT id, staff_id, password_hash FROM manager_accounts`;
   const accountsByStaffId = new Map<string, { id: string; hasPassword: boolean }>();
   for (const row of rows as Record<string, unknown>[]) {
     accountsByStaffId.set(row.staff_id as string, {
@@ -119,33 +126,23 @@ export async function getIdentityRoster(): Promise<ManagerIdentity[]> {
 // existing manager's password without proof of the old one. Returns null on
 // a no-op (password already set), which the caller should surface as an
 // error distinct from a normal server failure.
-export async function setInitialPassword(
-  target: { staffId: string } | { role: "owner" },
-  newPassword: string
-): Promise<ManagerAccountRow | null> {
+//
+// If a row already exists for this staffId (pre-provisioned with
+// role='owner', or left over from an earlier partial setup), ON CONFLICT
+// only touches password_hash/updated_at — it never overwrites role — so a
+// pre-designated owner keeps their role automatically, with no special
+// case needed here or in any caller. A brand-new staffId gets role='manager'
+// by default, the only role this function can ever assign on its own.
+export async function setInitialPassword(staffId: string, newPassword: string): Promise<ManagerAccountRow | null> {
   const sql = getSql();
   const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-
-  if ("staffId" in target) {
-    const id = crypto.randomUUID();
-    const rows = await sql`
-      INSERT INTO manager_accounts (id, staff_id, role, password_hash)
-      VALUES (${id}, ${target.staffId}, 'manager', ${hash})
-      ON CONFLICT (staff_id) DO UPDATE
-        SET password_hash = EXCLUDED.password_hash, updated_at = now()
-        WHERE manager_accounts.password_hash IS NULL
-      RETURNING *
-    `;
-    return rows.length > 0 ? rowToAccount(rows[0] as Record<string, unknown>) : null;
-  }
-
-  // Owner row must already exist (seeded by scripts/setup-manager-auth-db.js)
-  // — never created on the fly here, since that would let anyone who finds
-  // the hidden owner login route self-provision owner access.
+  const id = crypto.randomUUID();
   const rows = await sql`
-    UPDATE manager_accounts
-    SET password_hash = ${hash}, updated_at = now()
-    WHERE role = 'owner' AND password_hash IS NULL
+    INSERT INTO manager_accounts (id, staff_id, role, password_hash)
+    VALUES (${id}, ${staffId}, 'manager', ${hash})
+    ON CONFLICT (staff_id) DO UPDATE
+      SET password_hash = EXCLUDED.password_hash, updated_at = now()
+      WHERE manager_accounts.password_hash IS NULL
     RETURNING *
   `;
   return rows.length > 0 ? rowToAccount(rows[0] as Record<string, unknown>) : null;

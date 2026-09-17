@@ -126,7 +126,6 @@ function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           staffId: selected.staffId,
-          role: "manager",
           newPassword: newPassword.trim(),
         }),
       });
