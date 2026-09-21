@@ -8,6 +8,16 @@ import {
   type OnboardingChecklistItems,
   type OnboardingChecklistState,
 } from "./onboardingChecklist";
+import {
+  normalizeSubName,
+  resolveAssignedSubKey,
+  buildSubcontractorPerformanceKey,
+} from "./subAccountMatching";
+// Re-exported (not just imported) so app/api/subcontractors/route.ts's
+// existing `import { buildSubcontractorPerformanceKey } from "@/lib/googleSheets"`
+// keeps working unchanged — the implementation itself now lives in
+// ./subAccountMatching (see that file's comment for why).
+export { buildSubcontractorPerformanceKey };
 
 const SHEET_TAB = "customer-portal";
 const SHEET_ID = process.env.GOOGLE_SHEET_ID!;
@@ -3526,62 +3536,6 @@ const PERFORMANCE_SUBCONTRACTOR_COL = {
   COMPANY_NAME: 2,
 } as const;
 
-function normalizeSubName(value: unknown): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/\bllc\b/g, "")
-    .replace(/\binc\b/g, "")
-    .replace(/\bcorp\b/g, "")
-    .replace(/\bcorporation\b/g, "")
-    .replace(/\bcompany\b/g, "")
-    .replace(/\bco\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Base match shape is the same as namesMatch (app/api/subcontractors/route.ts)
-// and subcontractorAccounts (app/subcontractors/[id]/page.tsx) — substring
-// match both directions against company name AND contact name, length-guarded
-// so a short fragment (e.g. "co") doesn't loosely match everything. But
-// unlike those two (which each test one known subcontractor in isolation),
-// this is resolved globally across ALL subcontractors per distinct raw
-// Accounts-tab value below, because the roster has real contact-name
-// prefix collisions (e.g. "Cesar" vs "Cesar Decarvalho", "Giovanna" vs
-// "Alonso & Giovanna Mendoza"): an account whose field is literally "Cesar"
-// is a substring-match against both, and resolving each subcontractor
-// independently — the first version of this fix did — silently
-// double-counted every one of that subcontractor's accounts, visits, and
-// complaints onto the unrelated one too. An exact match always wins over a
-// substring one; if either the exact or the fallback substring pass still
-// resolves to more than one subcontractor, the account is left unassigned
-// rather than guessed.
-function subAssignmentMatches(assignedSub: string, candidate: string): boolean {
-  if (!assignedSub || !candidate) return false;
-  if (assignedSub === candidate) return true;
-  if (assignedSub.length >= 4 && candidate.includes(assignedSub)) return true;
-  if (candidate.length >= 4 && assignedSub.includes(candidate)) return true;
-  return false;
-}
-
-function resolveAssignedSubKey(
-  assignedSubRaw: string,
-  subEntries: { key: string; company: string; contact: string }[]
-): string {
-  const assignedSub = normalizeSubName(assignedSubRaw);
-  if (!assignedSub) return "";
-
-  const exact = subEntries.filter((e) => assignedSub === e.company || assignedSub === e.contact);
-  if (exact.length === 1) return exact[0].key;
-  if (exact.length > 1) return "";
-
-  const fuzzy = subEntries.filter(
-    (e) => subAssignmentMatches(assignedSub, e.company) || subAssignmentMatches(assignedSub, e.contact)
-  );
-  return fuzzy.length === 1 ? fuzzy[0].key : "";
-}
-
 // One pass over the Accounts tab, resolving each distinct raw "Subcontractor"
 // value to at most one subcontractor key (see resolveAssignedSubKey), then
 // grouping account names by that key. Also tallies, in the same pass, how
@@ -3653,23 +3607,6 @@ export type SubcontractorPerformance = {
   lastReview: string;
   accountsAssigned: number;
 };
-
-// Join key for merging this map onto the Apps Script's getSubcontractors
-// list. NOT the Subcontractors sheet's own "Subcontractor ID" column
-// (confirmed live: the sheet also has a defunct duplicate "ID" header at
-// column P, blank on most rows; the Apps Script's own id lookup checks
-// "ID" before "Subcontractor ID" and — because of how its header-map
-// building silently lets a later duplicate header win — picks up that
-// blank column first, so its id/subcontractorId fields are actually
-// "SUB-ROW-<n>" row-position fallbacks for most rows, not the real
-// Subcontractor ID, and unpredictably the real one for a handful of others
-// with legacy data in column P. Company name + contact name are each
-// read via a single unambiguous header on both sides, so composing a key
-// from both (handles the few subcontractors that share a company name
-// across multiple contacts, e.g. "Cleaning World") is the reliable join.
-export function buildSubcontractorPerformanceKey(companyName: unknown, contactName: unknown): string {
-  return `${normalizeSubName(companyName)}|${normalizeSubName(contactName)}`;
-}
 
 // ── New scoring algorithm ────────────────────────────────────────────────
 //

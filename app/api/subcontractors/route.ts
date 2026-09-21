@@ -8,6 +8,11 @@ import {
   getAllSubcontractorsRaw,
   getAllAccountsForSubEnrichment,
 } from "@/lib/googleSheets";
+import {
+  resolveAssignedSubKey,
+  resolveAssignedSubKeyWithCandidateCount,
+  normalizeSubName,
+} from "@/lib/subAccountMatching";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -41,21 +46,6 @@ function rowValue(row: SheetRow, possibleKeys: string[]) {
   }
 
   return "";
-}
-
-function normalizeName(value: string) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/\bllc\b/g, "")
-    .replace(/\binc\b/g, "")
-    .replace(/\bcorp\b/g, "")
-    .replace(/\bcorporation\b/g, "")
-    .replace(/\bcompany\b/g, "")
-    .replace(/\bco\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function getMoneyValue(value: string) {
@@ -283,43 +273,23 @@ async function fetchGoogleScriptData(action: string) {
   return data;
 }
 
-function namesMatch(sub: SheetRow, account: SheetRow) {
-  const accountAssignedSubRaw = getAccountAssignedSub(account);
-  const accountAssignedSub = normalizeName(accountAssignedSubRaw);
-
-  if (!accountAssignedSub) return false;
-
-  const possibleSubNames = [
-    getSubCompanyName(sub),
-    getSubContactName(sub),
-    getSubEmail(sub),
-  ]
-    .map((value) => normalizeName(value))
-    .filter(Boolean);
-
-  return possibleSubNames.some((subName) => {
-    if (subName === accountAssignedSub) return true;
-
-    if (subName.length >= 4 && accountAssignedSub.includes(subName)) {
-      return true;
-    }
-
-    if (accountAssignedSub.length >= 4 && subName.includes(accountAssignedSub)) {
-      return true;
-    }
-
-    return false;
-  });
-}
-
-// Used by the accounts/complaints SMS notifications to resolve a free-text
-// subcontractor name (the only linkage those routes have — see namesMatch's
-// comment) to a phone number, via the same cached Apps Script subcontractor
-// list and fuzzy company/contact-name matching namesMatch uses for an
-// account row. Returns "" if there's no match or no phone on file.
-export async function findSubcontractorPhoneByName(name: string): Promise<string> {
-  const target = normalizeName(name);
-  if (!target || !SCRIPT_URL) return "";
+// Shared resolution behind findSubcontractorPhoneByName/EmailByName below —
+// same cached Apps Script subcontractor list those two always used, now
+// resolved with the same ambiguity-safe resolveAssignedSubKey the
+// Accounts-tab join uses (lib/subAccountMatching.ts) instead of each
+// function's own fuzzy-substring loop, so a name like "Cesar" or "Giovanna"
+// that plausibly refers to more than one subcontractor no longer silently
+// picks whichever one Array.find() hit first. An unresolved or ambiguous
+// name logs one line (name + candidate count, never a phone/email) and
+// returns null — the caller already treats a null match as "no phone/email
+// on file" and skips the notification without failing the account or
+// complaint save that triggered the lookup.
+async function resolveSubcontractorByName(
+  name: string,
+  callerLabel: string
+): Promise<SheetRow | null> {
+  const trimmedName = name.trim();
+  if (!trimmedName || !SCRIPT_URL) return null;
 
   let data: GoogleScriptResponse;
   try {
@@ -327,77 +297,97 @@ export async function findSubcontractorPhoneByName(name: string): Promise<string
       fetchGoogleScriptData("getSubcontractors")
     );
   } catch {
-    return "";
+    return null;
   }
 
   const subcontractors = getLoadedSubcontractors(data);
 
-  const match = subcontractors.find((sub) => {
-    const possibleNames = [getSubCompanyName(sub), getSubContactName(sub)]
-      .map((value) => normalizeName(value))
-      .filter(Boolean);
+  const subEntries = subcontractors.map((sub, index) => ({
+    key: String(index),
+    company: normalizeSubName(getSubCompanyName(sub)),
+    contact: normalizeSubName(getSubContactName(sub)),
+  }));
 
-    return possibleNames.some((subName) => {
-      if (subName === target) return true;
-      if (subName.length >= 4 && target.includes(subName)) return true;
-      if (target.length >= 4 && subName.includes(target)) return true;
-      return false;
-    });
-  });
+  const { key, candidateCount } = resolveAssignedSubKeyWithCandidateCount(trimmedName, subEntries);
 
+  if (!key) {
+    console.warn(
+      `[subcontractors] ${callerLabel}: unresolved name "${trimmedName}" (${candidateCount} candidate subcontractor(s)) — no notification sent.`
+    );
+    return null;
+  }
+
+  return subcontractors[Number(key)] ?? null;
+}
+
+// Used by the accounts/complaints SMS notifications to resolve a free-text
+// subcontractor name (the only linkage those routes have) to a phone number.
+// Returns "" if there's no unambiguous match or no phone on file.
+export async function findSubcontractorPhoneByName(name: string): Promise<string> {
+  const match = await resolveSubcontractorByName(name, "findSubcontractorPhoneByName");
   return match ? getSubPhone(match) : "";
 }
 
 // Same lookup as findSubcontractorPhoneByName above, for the complaint-
 // notification email instead of SMS.
 export async function findSubcontractorEmailByName(name: string): Promise<string> {
-  const target = normalizeName(name);
-  if (!target || !SCRIPT_URL) return "";
-
-  let data: GoogleScriptResponse;
-  try {
-    data = await getOrFetch("subcontractors:getSubcontractors", () =>
-      fetchGoogleScriptData("getSubcontractors")
-    );
-  } catch {
-    return "";
-  }
-
-  const subcontractors = getLoadedSubcontractors(data);
-
-  const match = subcontractors.find((sub) => {
-    const possibleNames = [getSubCompanyName(sub), getSubContactName(sub)]
-      .map((value) => normalizeName(value))
-      .filter(Boolean);
-
-    return possibleNames.some((subName) => {
-      if (subName === target) return true;
-      if (subName.length >= 4 && target.includes(subName)) return true;
-      if (target.length >= 4 && subName.includes(target)) return true;
-      return false;
-    });
-  });
-
+  const match = await resolveSubcontractorByName(name, "findSubcontractorEmailByName");
   return match ? getSubEmail(match) : "";
 }
 
+// One pass over accounts, resolving each active account's raw Subcontractor
+// value to at most one subcontractor (same ambiguity-safe resolveAssignedSubKey
+// the Accounts-tab join uses elsewhere — see lib/subAccountMatching.ts),
+// instead of the old per-(sub, account) pair namesMatch loop. That loop
+// tested each subcontractor against every account in isolation, so an
+// account whose raw field fuzzy-matched more than one subcontractor (e.g.
+// "Cesar" substring-matching both "Cesar" and "Cesar Decarvalho") was
+// counted — with its full revenue — onto every one of them; this resolves
+// each account to at most one key first, so it can only ever land on one
+// subcontractor's tally, never double-counted or duplicated onto an
+// unrelated one. Company/contact are the only signals used (unlike the old
+// namesMatch, which also matched on email) — see resolveAssignedSubKey's
+// contract: its subEntries.company/contact must already be normalized via
+// normalizeSubName, which this does before calling it.
 function enrichSubcontractorsWithRevenue(
   subcontractors: SheetRow[],
   accounts: SheetRow[]
 ) {
-  return subcontractors.map((sub) => {
-    let accountsAssigned = 0;
-    let subRevenue = 0;
-    let cleaningWorldRevenue = 0;
+  const subEntries = subcontractors.map((sub, index) => ({
+    key: String(index),
+    company: normalizeSubName(getSubCompanyName(sub)),
+    contact: normalizeSubName(getSubContactName(sub)),
+  }));
 
-    accounts.forEach((account) => {
-      if (!isActiveAccount(account)) return;
-      if (!namesMatch(sub, account)) return;
+  type SubStats = { accountsAssigned: number; subRevenue: number; cleaningWorldRevenue: number };
+  const statsByKey = new Map<string, SubStats>();
+  const resolveCache = new Map<string, string>();
 
-      accountsAssigned += 1;
-      subRevenue += getAccountSubRevenue(account);
-      cleaningWorldRevenue += getAccountMonthlyRevenue(account);
-    });
+  for (const account of accounts) {
+    if (!isActiveAccount(account)) continue;
+
+    const raw = getAccountAssignedSub(account);
+    if (!raw) continue;
+
+    let key = resolveCache.get(raw);
+    if (key === undefined) {
+      key = resolveAssignedSubKey(raw, subEntries);
+      resolveCache.set(raw, key);
+    }
+    if (!key) continue;
+
+    if (!statsByKey.has(key)) {
+      statsByKey.set(key, { accountsAssigned: 0, subRevenue: 0, cleaningWorldRevenue: 0 });
+    }
+    const stats = statsByKey.get(key)!;
+    stats.accountsAssigned += 1;
+    stats.subRevenue += getAccountSubRevenue(account);
+    stats.cleaningWorldRevenue += getAccountMonthlyRevenue(account);
+  }
+
+  return subcontractors.map((sub, index) => {
+    const { accountsAssigned, subRevenue, cleaningWorldRevenue }: SubStats =
+      statsByKey.get(String(index)) ?? { accountsAssigned: 0, subRevenue: 0, cleaningWorldRevenue: 0 };
 
     return {
       ...sub,
