@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
+import {
+  normalizeSubName,
+  resolveAssignedSubKey,
+  buildSubcontractorPerformanceKey,
+} from "@/lib/subAccountMatching";
 
 type AnyRow = Record<string, unknown>;
 
@@ -710,27 +715,46 @@ export default function SubcontractorDetailPage() {
   const subcontractorAccounts = useMemo(() => {
     if (!subcontractor) return [];
 
-    const subId = normalize(getSubId(subcontractor));
-    const companyName = normalize(getCompanyName(subcontractor));
-    const contactName = normalize(
+    // Ambiguity-safe resolution (see lib/subAccountMatching.ts): each
+    // account's raw Subcontractor string resolves to at most one sub —
+    // exact company/contact match wins outright, a substring match only
+    // counts if it's unambiguous, and anything still ambiguous resolves to
+    // no one rather than being guessed onto every fuzzy-matching sub. Built
+    // from ALL loaded subs (not just this page's), since ambiguity can only
+    // be detected against the full roster — the previous per-account
+    // substring check tested this one sub in isolation and had no way to
+    // know another sub's name also matched.
+    const subEntries = subcontractors.map((sub) => ({
+      key: buildSubcontractorPerformanceKey(
+        getCompanyName(sub),
+        getValue(sub, "contactName", "ContactName", "Contact Name")
+      ),
+      company: normalizeSubName(getCompanyName(sub)),
+      contact: normalizeSubName(
+        getValue(sub, "contactName", "ContactName", "Contact Name")
+      ),
+    }));
+
+    const currentSubKey = buildSubcontractorPerformanceKey(
+      getCompanyName(subcontractor),
       getValue(subcontractor, "contactName", "ContactName", "Contact Name")
     );
 
+    const resolveCache = new Map<string, string>();
+
     return accounts.filter((account) => {
-      const assignedSub = normalize(getAccountSubcontractor(account));
+      const raw = getAccountSubcontractor(account);
+      if (!raw) return false;
 
-      if (!assignedSub) return false;
+      let resolvedKey = resolveCache.get(raw);
+      if (resolvedKey === undefined) {
+        resolvedKey = resolveAssignedSubKey(raw, subEntries);
+        resolveCache.set(raw, resolvedKey);
+      }
 
-      return (
-        assignedSub === subId ||
-        assignedSub === companyName ||
-        assignedSub === contactName ||
-        assignedSub.includes(companyName) ||
-        companyName.includes(assignedSub) ||
-        assignedSub.includes(contactName)
-      );
+      return resolvedKey === currentSubKey;
     });
-  }, [accounts, subcontractor]);
+  }, [accounts, subcontractors, subcontractor]);
 
   const currentAccounts = useMemo(() => {
     return subcontractorAccounts.filter((account) => {
