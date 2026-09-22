@@ -676,9 +676,30 @@ export default function EditAccountPage() {
                     formData.serviceStartDate ||
                     ""
                   }
-                  onChange={(event) =>
-                    updateField("startDate", event.target.value)
-                  }
+                  onChange={(event) => {
+                    // Written to all three aliases (the read side already
+                    // falls back between them, meaning existing data can
+                    // land under any one name) so a manual edit can't end up
+                    // saved under a field the load path isn't preferring —
+                    // same fix as Subcontractor Pay below, which hits the
+                    // same class of bug: without this, accountStartDate
+                    // (read first) stays at its stale loaded value and masks
+                    // every keystroke on the next render, so the field looks
+                    // impossible to edit.
+                    const value = event.target.value;
+                    setFormData((current) =>
+                      current
+                        ? {
+                            ...current,
+                            accountStartDate: value,
+                            startDate: value,
+                            serviceStartDate: value,
+                          }
+                        : current
+                    );
+                    setSavedMessage("");
+                    setSaveError("");
+                  }}
                   placeholder="Example: 6/10/2026"
                   className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
