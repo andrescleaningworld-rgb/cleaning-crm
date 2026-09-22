@@ -3938,6 +3938,173 @@ export async function getAllAccountsForSubEnrichment(): Promise<RawAccountForSub
   }));
 }
 
+// ─── Direct-Sheets account field updates (bypasses Apps Script) ───────────
+// Added for app/accounts/[id]/edit/page.tsx's Save button, which was
+// routing through action:"updateAccountFields" in app/api/accounts/route.ts
+// — that path does a full fresh Apps-Script fetch of every account
+// (getFreshAndCache, deliberately never cached) to merge onto, then a
+// second Apps-Script POST to actually write it. Apps Script latency has
+// been measured spiking to ~14s per call (see lib/appsScriptFetch.ts), so
+// two sequential calls routinely pushed a single Save past the 18s
+// per-attempt timeout ("request timed out, please retry" — confirmed
+// live). This reads and writes the same underlying Google Sheet directly
+// instead, in one round trip.
+//
+// Deliberately NOT wired into every action:"updateAccountFields" caller —
+// app/accounts-center/keys.tsx sends "KeyCode"/"Copy" fields that match no
+// column on this 35-column sheet (confirmed live via a full-width header
+// read), and lib/onboardingFieldSync.ts maps ~24 checklist items to fields
+// not yet individually audited against this alias list. Both keep using
+// the slower but already-working Apps-Script path until those are
+// checked; only the edit page's own save
+// (action:"updateAccountFieldsDirect") uses this.
+
+// Column A — "Account ID", a stable slug. Confirmed live: identical to
+// what Apps Script's own id/accountId fields return for the same account
+// — unlike Subcontractor ID, this is not an ARRAYFORMULA/row-position
+// artifact, so matching directly against it is safe.
+const ACCOUNTS_ID_COL = 0;
+
+const ACCOUNT_FIELD_ALIASES: Record<string, string[]> = {
+  accountName: ["account name"],
+  startDate: ["start date"],
+  serviceType: ["service type"],
+  frequency: ["frequency"],
+  cleaningDays: ["cleaning days"],
+  keyAlarmAccessInfo: ["key / alarm / access info"],
+  monthlyRevenue: ["monthly revenue"],
+  subcontractor: ["subcontractor"],
+  manager: ["manager"],
+  monthlySubcontractorPay: ["monthly subcontractor pay"],
+  address: ["address"],
+  contactName: ["contact name"],
+  phone: ["phone"],
+  scopeOfWork: ["scope of work"],
+  notes: ["notes"],
+  status: ["status"],
+  cancelledDate: ["cancelled date"],
+  accountHealth: ["account health"],
+  email: ["email"],
+  grossMargin: ["gross margin"],
+  grossMarginPercent: ["gross margin %"],
+  latitude: ["latitude"],
+  longitude: ["longitude"],
+  hasKey: ["has key"],
+  alarmCode: ["alarm code"],
+  city: ["city"],
+  zip: ["zip"],
+};
+
+export type AccountFieldsUpdateResult = {
+  before: Record<string, string>;
+  after: Record<string, string>;
+};
+
+export async function updateAccountFieldsDirect(
+  accountId: string,
+  fields: Record<string, unknown>
+): Promise<AccountFieldsUpdateResult> {
+  const targetId = accountId.trim();
+  if (!targetId) throw new Error("Missing account id.");
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ACCOUNTS_TAB}!A:AZ`,
+    })
+  );
+
+  const allRows = (res.data.values ?? []) as string[][];
+  const headerRow = allRows[0] ?? [];
+  const dataRows = allRows.slice(1);
+
+  const rowIndex = dataRows.findIndex(
+    (r) => (r[ACCOUNTS_ID_COL] ?? "").trim() === targetId
+  );
+  if (rowIndex < 0) {
+    throw new Error(`Account "${targetId}" not found.`);
+  }
+  const sheetRow = rowIndex + 2; // header row + 1-based sheet rows
+
+  const normalizedHeaderCols = new Map<string, number>();
+  headerRow.forEach((header, colIndex) => {
+    const normalized = String(header ?? "").trim().toLowerCase();
+    if (!normalized || normalizedHeaderCols.has(normalized)) return;
+    normalizedHeaderCols.set(normalized, colIndex);
+  });
+
+  // Only one real "Start Date" column and one real "Monthly Subcontractor
+  // Pay" column exist — accountStartDate/startDate/serviceStartDate and
+  // subcontractorPay/monthlySubcontractorPay are client-side aliases for
+  // the same field (see the edit page's own fallback chain), not distinct
+  // sheet columns. Whichever alias the caller actually set wins; both
+  // unmapped aliases fall straight through the "unrecognized field" skip
+  // below since neither has an ACCOUNT_FIELD_ALIASES entry of its own.
+  const resolvedFields: Record<string, unknown> = { ...fields };
+  if (resolvedFields.startDate === undefined) {
+    if (fields.accountStartDate !== undefined) resolvedFields.startDate = fields.accountStartDate;
+    else if (fields.serviceStartDate !== undefined) resolvedFields.startDate = fields.serviceStartDate;
+  }
+  if (resolvedFields.monthlySubcontractorPay === undefined && fields.subcontractorPay !== undefined) {
+    resolvedFields.monthlySubcontractorPay = fields.subcontractorPay;
+  }
+
+  const writes: { colIndex: number; value: string }[] = [];
+  for (const [key, rawValue] of Object.entries(resolvedFields)) {
+    if (rawValue === undefined) continue;
+    if (key === "id" || key === "accountId" || key === "rowNumber") continue;
+
+    const aliases = ACCOUNT_FIELD_ALIASES[key];
+    if (!aliases) continue; // unrecognized field — ignore rather than guess a column
+
+    let colIndex: number | undefined;
+    for (const alias of aliases) {
+      if (normalizedHeaderCols.has(alias)) {
+        colIndex = normalizedHeaderCols.get(alias);
+        break;
+      }
+    }
+    if (colIndex === undefined) continue;
+
+    writes.push({ colIndex, value: String(rawValue ?? "") });
+  }
+
+  const beforeRow = dataRows[rowIndex] ?? [];
+  const before: Record<string, string> = {};
+  headerRow.forEach((header, colIndex) => {
+    const key = String(header ?? "").trim();
+    if (!key || key in before) return;
+    before[key] = beforeRow[colIndex] ?? "";
+  });
+
+  if (writes.length > 0) {
+    const data = writes.map(({ colIndex, value }) => ({
+      range: `${ACCOUNTS_TAB}!${columnIndexToLetter(colIndex)}${sheetRow}`,
+      values: [[value]],
+    }));
+
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
+  }
+
+  const mergedRow = [...beforeRow];
+  for (const { colIndex, value } of writes) mergedRow[colIndex] = value;
+
+  const after: Record<string, string> = {};
+  headerRow.forEach((header, colIndex) => {
+    const key = String(header ?? "").trim();
+    if (!key || key in after) return;
+    after[key] = mergedRow[colIndex] ?? "";
+  });
+
+  return { before, after };
+}
+
 // ─── Equipment Tracking ─────────────────────────────────────────────────────
 // New, isolated module. Five tabs, all in GOOGLE_MAIN_SHEET_ID (see
 // scripts/setup-equipment-tabs.js): Staff, EquipmentCategories, Equipment,

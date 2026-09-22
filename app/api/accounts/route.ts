@@ -3,7 +3,7 @@ import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCach
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
-import { setAccountChecklistNeeded } from "@/lib/googleSheets";
+import { setAccountChecklistNeeded, updateAccountFieldsDirect } from "@/lib/googleSheets";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 
@@ -146,15 +146,148 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.json();
+    let action = String(body.action || "").trim();
+
+    // Fast path for the account edit page's Save button — reads and
+    // writes the Accounts sheet directly instead of routing through Apps
+    // Script (see updateAccountFieldsDirect's comment in
+    // lib/googleSheets.ts for why: that path was doing two sequential
+    // Apps-Script round trips per save, each vulnerable to the ~14s
+    // latency spikes documented in lib/appsScriptFetch.ts, and users were
+    // hitting its 18s timeout — "request timed out, please retry" —
+    // confirmed live). Self-contained (own try/catch/return) and doesn't
+    // touch Apps Script at all, so it's handled before the SCRIPT_URL
+    // guard below. Deliberately scoped to only this action name — see
+    // updateAccountFieldsDirect's comment for why the other
+    // action:"updateAccountFields" callers (Key Code/Copy toggle,
+    // onboarding field sync) aren't switched over yet.
+    if (action === "updateAccountFieldsDirect") {
+      const accountId = String(body.accountId ?? "").trim();
+      const fields =
+        body.fields && typeof body.fields === "object" ? body.fields : {};
+
+      if (!accountId) {
+        return NextResponse.json(
+          { success: false, error: "accountId is required." },
+          { status: 400 }
+        );
+      }
+
+      let result: Awaited<ReturnType<typeof updateAccountFieldsDirect>>;
+      try {
+        result = await updateAccountFieldsDirect(accountId, fields);
+      } catch (err) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              err instanceof Error ? err.message : "Failed to update account.",
+          },
+          { status: 500 }
+        );
+      }
+
+      // Same "Checklist Needed" handling the Apps-Script path uses — see
+      // its comment further below in this file for why it's a separate
+      // direct-Sheets call rather than folded into the generic field map.
+      let checklistFlagWarning: string | null = null;
+      const checklistNeededRaw = (fields as Record<string, unknown>)
+        .checklistNeeded;
+      if (checklistNeededRaw !== undefined) {
+        try {
+          await setAccountChecklistNeeded(
+            accountId,
+            String(checklistNeededRaw) === "Yes"
+          );
+        } catch (err) {
+          checklistFlagWarning =
+            `Account saved, but "Checklist Needed" failed to save: ` +
+            (err instanceof Error ? err.message : "unknown error");
+          console.error("[accounts] setAccountChecklistNeeded failed:", err);
+        }
+      }
+
+      // Same cache keys the Apps-Script-based path invalidates after a
+      // write — Apps Script reads the same underlying sheet this just
+      // wrote to directly, so without this, other pages keep serving the
+      // pre-write data for up to getOrFetch's TTL.
+      await Promise.all(
+        Array.from(ALLOWED_GET_ACTIONS).map((cachedAction) =>
+          invalidateCached(`accounts:${cachedAction}`)
+        )
+      );
+
+      // Same sub-assignment-changed SMS notify as the Apps-Script path
+      // below — before/after come straight from the write itself, so no
+      // extra fetch is needed to detect the change.
+      const newSubcontractorName = String(
+        result.after["Subcontractor"] ?? ""
+      ).trim();
+      const previousSubcontractorName = String(
+        result.before["Subcontractor"] ?? ""
+      ).trim();
+
+      if (
+        newSubcontractorName &&
+        newSubcontractorName.toLowerCase() !==
+          previousSubcontractorName.toLowerCase()
+      ) {
+        const accountName = result.after["Account Name"] ?? "";
+        const address = result.after["Address"] ?? "";
+        const origin = new URL(request.url).origin;
+
+        after(async () => {
+          try {
+            const phone = await findSubcontractorPhoneByName(
+              newSubcontractorName
+            );
+            if (!phone) {
+              console.debug(
+                `[sms] skip account-assignment notify: no phone on file for subcontractor "${newSubcontractorName}"`
+              );
+              return;
+            }
+            const link = `${origin}/accounts/${encodeURIComponent(accountId)}`;
+            const rawMessage = [`New account assigned: ${accountName}`, address, link]
+              .filter(Boolean)
+              .join("\n");
+            const message = sanitizeSmsText(rawMessage, Infinity);
+            await sendSms(phone, message, "accounts/updateAccountFieldsDirect");
+          } catch (error) {
+            console.error(
+              "[sms] account-assignment notify lookup failed:",
+              error instanceof Error ? error.message : error
+            );
+          }
+        });
+      }
+
+      const actor = await getAdminIdentity(request);
+      if (actor?.accountId) {
+        await logActivity({
+          actorAccountId: actor.accountId,
+          actorRole: actor.role ?? "manager",
+          actorName: actor.name || "",
+          action: "update",
+          entityType: "account",
+          entityId: accountId,
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Account updated successfully.",
+        checklistFlagWarning,
+      });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
         { status: 500 }
       );
     }
-
-    const body = await request.json();
-    let action = String(body.action || "").trim();
 
     // Partial field update: merge the caller's changed fields onto a fresh
     // account record fetched right now, instead of trusting whatever full

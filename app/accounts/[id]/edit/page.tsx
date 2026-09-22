@@ -468,13 +468,17 @@ export default function EditAccountPage() {
       fields.grossMargin = String(grossMargin);
       fields.grossMarginPercent = grossMarginPercent.toFixed(1);
 
+      // Direct-Sheets write (bypasses Apps Script entirely) — see
+      // updateAccountFieldsDirect's comment in lib/googleSheets.ts. The old
+      // action:"updateAccountFields" path did two sequential Apps Script
+      // round trips per save and was routinely hitting its 18s timeout.
       const response = await fetch("/api/accounts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "updateAccountFields",
+          action: "updateAccountFieldsDirect",
           accountId: formData.id || formData.accountId,
           fields,
         }),
