@@ -30,5 +30,13 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // Uncommitted Site Supply Link code, superseded by the Team Hub
+    // spec — kept for reference until Phase 4 lands, then deleted. Not
+    // part of the app (outside app/), just excluded here too so an
+    // editor/tsc pass over it doesn't report errors for code nothing
+    // imports.
+    "_archive"
+  ]
 }

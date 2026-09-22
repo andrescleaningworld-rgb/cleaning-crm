@@ -4,7 +4,7 @@
 
 import { getSql } from "@/lib/db";
 
-export type ActivityActorRole = "manager" | "owner" | "porter";
+export type ActivityActorRole = "manager" | "owner" | "porter" | "team-hub";
 export type ActivityAction = "create" | "update" | "delete" | "login" | "logout";
 
 export type LogActivityInput = {
