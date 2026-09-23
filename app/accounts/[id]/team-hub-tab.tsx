@@ -37,6 +37,17 @@ type CrewItem = {
   enabled: boolean;
 };
 
+type TeamHubWorker = {
+  id: number;
+  crewId: number;
+  firstName: string;
+  active: boolean;
+  failedAttempts: number;
+  lockedUntil: string | null;
+  lastSignInAt: string | null;
+  lastDevice: string | null;
+};
+
 export default function AccountTeamHubTab({
   accountId,
   accountName,
@@ -228,6 +239,7 @@ function CrewsSection({
   const [creating, setCreating] = useState(false);
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [expandedCrewId, setExpandedCrewId] = useState<number | null>(null);
+  const [workersCrewId, setWorkersCrewId] = useState<number | null>(null);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -278,9 +290,6 @@ function CrewsSection({
   }
 
   function handleCopy(crew: TeamHubCrew) {
-    // /team-hub/[token] doesn't exist until Phase 1 — the link is created
-    // and copyable now so admin setup isn't blocked on that phase, but it
-    // won't resolve to anything yet.
     const url = `${window.location.origin}/team-hub/${crew.token}`;
     navigator.clipboard?.writeText(url).then(() => {
       setCopiedId(crew.id);
@@ -381,6 +390,13 @@ function CrewsSection({
                   </button>
                   <button
                     type="button"
+                    onClick={() => setWorkersCrewId(workersCrewId === crew.id ? null : crew.id)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    {workersCrewId === crew.id ? "Hide Workers" : "Workers"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setExpandedCrewId(expandedCrewId === crew.id ? null : crew.id)}
                     className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
                   >
@@ -389,9 +405,198 @@ function CrewsSection({
                 </div>
               </div>
 
+              {workersCrewId === crew.id && <WorkersSetup crewId={crew.id} />}
               {expandedCrewId === crew.id && <VisibilitySetup crewId={crew.id} />}
             </div>
           ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WorkersSetup({ crewId }: { crewId: number }) {
+  const [loading, setLoading] = useState(true);
+  const [workers, setWorkers] = useState<TeamHubWorker[]>([]);
+  const [error, setError] = useState("");
+
+  const [newFirstName, setNewFirstName] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const [pinDrafts, setPinDrafts] = useState<Record<number, string>>({});
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/admin/team-hub/workers?crewId=${crewId}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to load workers.");
+      setWorkers(data.workers ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load workers.");
+    } finally {
+      setLoading(false);
+    }
+  }, [crewId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newFirstName.trim() || !/^\d{4,6}$/.test(newPin.trim())) {
+      setError("Name and a 4-6 digit PIN are required.");
+      return;
+    }
+    try {
+      setCreating(true);
+      setError("");
+      const res = await fetch("/api/admin/team-hub/workers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "create", crewId, firstName: newFirstName.trim(), pin: newPin.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Could not add worker.");
+      setNewFirstName("");
+      setNewPin("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add worker.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleSetActive(worker: TeamHubWorker) {
+    await fetch("/api/admin/team-hub/workers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "setActive", id: worker.id, active: !worker.active }),
+    });
+    await load();
+  }
+
+  async function handleResetPin(worker: TeamHubWorker) {
+    const pin = (pinDrafts[worker.id] ?? "").trim();
+    if (!/^\d{4,6}$/.test(pin)) {
+      setError("Enter a 4-6 digit PIN to reset to.");
+      return;
+    }
+    setError("");
+    const res = await fetch("/api/admin/team-hub/workers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "resetPin", id: worker.id, pin }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      setError(data.error || "Could not reset PIN.");
+      return;
+    }
+    setPinDrafts((current) => ({ ...current, [worker.id]: "" }));
+    await load();
+  }
+
+  if (loading) return <p className="mt-3 text-sm text-slate-500">Loading workers…</p>;
+
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <h4 className="text-sm font-bold text-slate-900">Workers</h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Each worker signs in to this crew&apos;s link with their first name and a 4-6 digit PIN.
+      </p>
+
+      {error && (
+        <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{error}</div>
+      )}
+
+      <form onSubmit={handleCreate} className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-4">
+        <input
+          type="text"
+          value={newFirstName}
+          onChange={(e) => setNewFirstName(e.target.value)}
+          placeholder="First name"
+          required
+          className="min-h-[40px] rounded-lg border border-gray-300 px-3 text-sm sm:col-span-2"
+        />
+        <input
+          type="text"
+          inputMode="numeric"
+          value={newPin}
+          onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          placeholder="PIN (4-6 digits)"
+          required
+          className="min-h-[40px] rounded-lg border border-gray-300 px-3 text-sm"
+        />
+        <button
+          type="submit"
+          disabled={creating}
+          className="min-h-[40px] rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {creating ? "Adding…" : "Add Worker"}
+        </button>
+      </form>
+
+      <div className="mt-4 divide-y divide-gray-200 rounded-lg bg-white">
+        {workers.length === 0 ? (
+          <p className="p-3 text-sm text-slate-500">No workers yet.</p>
+        ) : (
+          workers.map((worker) => {
+            const locked = worker.lockedUntil && new Date(worker.lockedUntil).getTime() > Date.now();
+            return (
+              <div key={worker.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {worker.firstName}{" "}
+                    <span
+                      className={`ml-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        worker.active ? "bg-green-100 text-green-800" : "bg-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {worker.active ? "Active" : "Deactivated"}
+                    </span>
+                    {locked && (
+                      <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                        Locked
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {worker.lastSignInAt ? `Last signed in ${new Date(worker.lastSignInAt).toLocaleString()}` : "Never signed in"}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={pinDrafts[worker.id] ?? ""}
+                    onChange={(e) =>
+                      setPinDrafts((current) => ({ ...current, [worker.id]: e.target.value.replace(/\D/g, "").slice(0, 6) }))
+                    }
+                    placeholder="New PIN"
+                    className="min-h-[36px] w-24 rounded-lg border border-gray-300 px-2 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleResetPin(worker)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Reset PIN
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetActive(worker)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    {worker.active ? "Deactivate" : "Reactivate"}
+                  </button>
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
@@ -574,11 +779,11 @@ function LibraryPicker({
   );
 }
 
-// Phase 0 note: /team-hub/[token] (the real public rendering path) doesn't
-// exist until Phase 1, so this can't yet "render the exact crew view
-// through the real public rendering path" as the spec describes for later
-// phases — it's a read-only summary of what's currently enabled instead.
-// Revisit once Phase 1 ships the real page.
+// /team-hub/[token] now exists (Phase 1) but has no module content behind
+// login yet (checklist/rounds tap-to-complete is Phase 2+) — this stays a
+// read-only summary of what's currently enabled rather than an iframe/link
+// to the real page, so it keeps working even for crews with no workers set
+// up yet to log in with. Revisit once Phase 2 ships real module content.
 function PreviewAsCrew({
   enabledModules,
   crewItems,
@@ -596,7 +801,7 @@ function PreviewAsCrew({
   return (
     <div className="mt-3 rounded-lg bg-white p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Placeholder preview — real crew rendering ships in Phase 1
+        Summary preview — module content behind login ships in Phase 2
       </p>
       <p className="mt-2 text-sm font-semibold text-slate-900">Enabled modules</p>
       <p className="text-sm text-slate-600">{enabledModules.length ? enabledModules.join(", ") : "None"}</p>

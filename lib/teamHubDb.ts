@@ -7,8 +7,13 @@
 // sanctioned choke point. Never stores account name/address/anything
 // Sheets-sourced (direction 8) — only account_id/sub_id.
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
+
+const PIN_BCRYPT_ROUNDS = 10;
+export const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
 
 function generateCrewToken(): string {
   // Same construction as the archived Site Supply Link token (24 random
@@ -143,6 +148,37 @@ export async function getTeamHubCrewById(id: number): Promise<TeamHubCrew | null
   const sql = getSql();
   const rows = await sql`SELECT * FROM hub_crews WHERE id = ${id} LIMIT 1`;
   return rows.length > 0 ? rowToCrew(rows[0] as Record<string, unknown>) : null;
+}
+
+// Public lookup for /team-hub/[token] and /api/team-hub/[token]/* — only
+// returns a crew when both the crew AND its site are active, so a revoked
+// crew or a deactivated Team Hub site both read identically to "no such
+// link" (same no-distinguishing-signal reasoning as the archived Site
+// Supply Link's getActiveSiteLinkByToken).
+export async function getActiveTeamHubCrewByToken(token: string): Promise<{ crew: TeamHubCrew; site: TeamHubSite } | null> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT hub_crews.*,
+      hub_sites.id AS site_id_full, hub_sites.account_id AS site_account_id, hub_sites.label AS site_label,
+      hub_sites.supervisor_phone AS site_supervisor_phone, hub_sites.active AS site_active, hub_sites.created_at AS site_created_at
+    FROM hub_crews
+    JOIN hub_sites ON hub_sites.id = hub_crews.site_id
+    WHERE hub_crews.token = ${token} AND hub_crews.active = true AND hub_sites.active = true
+    LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    crew: rowToCrew(row),
+    site: {
+      id: row.site_id_full as number,
+      accountId: row.site_account_id as string,
+      label: row.site_label as string,
+      supervisorPhone: (row.site_supervisor_phone as string | null) ?? null,
+      active: row.site_active as boolean,
+      createdAt: toIso(row.site_created_at),
+    },
+  };
 }
 
 export async function createTeamHubCrew(input: {
@@ -346,4 +382,171 @@ export async function setTeamHubCrewItems(crewId: number, items: SetCrewItemInpu
       )
     `;
   }
+}
+
+// ─── hub_workers (Phase 1: PIN login) ───────────────────────────────────
+
+export type TeamHubWorker = {
+  id: number;
+  crewId: number;
+  firstName: string;
+  active: boolean;
+  failedAttempts: number;
+  lockedUntil: string | null;
+  lastSignInAt: string | null;
+  lastDevice: string | null;
+};
+
+function rowToWorker(row: Record<string, unknown>): TeamHubWorker {
+  return {
+    id: row.id as number,
+    crewId: row.crew_id as number,
+    firstName: row.first_name as string,
+    active: row.active as boolean,
+    failedAttempts: row.failed_attempts as number,
+    lockedUntil: row.locked_until ? toIso(row.locked_until) : null,
+    lastSignInAt: row.last_sign_in_at ? toIso(row.last_sign_in_at) : null,
+    lastDevice: (row.last_device as string | null) ?? null,
+  };
+}
+
+export async function listTeamHubWorkersForCrew(crewId: number): Promise<TeamHubWorker[]> {
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM hub_workers WHERE crew_id = ${crewId} ORDER BY first_name ASC, id ASC`;
+  return rows.map((r) => rowToWorker(r as Record<string, unknown>));
+}
+
+// Public-facing roster (worker picker on the PIN login screen) — id + name
+// only, active workers of an active crew only. Never include pin_hash,
+// failed_attempts, or lock state here; those stay admin- and login-route-only.
+export async function listActiveTeamHubWorkerNames(crewId: number): Promise<{ id: number; firstName: string }[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT id, first_name FROM hub_workers WHERE crew_id = ${crewId} AND active = true ORDER BY first_name ASC, id ASC
+  `;
+  return rows.map((r) => ({ id: (r as Record<string, unknown>).id as number, firstName: (r as Record<string, unknown>).first_name as string }));
+}
+
+export async function getTeamHubWorkerById(id: number): Promise<TeamHubWorker | null> {
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM hub_workers WHERE id = ${id} LIMIT 1`;
+  return rows.length > 0 ? rowToWorker(rows[0] as Record<string, unknown>) : null;
+}
+
+function isPinFormatValid(pin: string): boolean {
+  return /^\d{4,6}$/.test(pin);
+}
+
+export async function createTeamHubWorker(input: { crewId: number; firstName: string; pin: string }): Promise<TeamHubWorker> {
+  if (!isPinFormatValid(input.pin)) {
+    throw new Error("PIN must be 4-6 digits.");
+  }
+  const pinHash = await bcrypt.hash(input.pin, PIN_BCRYPT_ROUNDS);
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_workers (crew_id, first_name, pin_hash) VALUES (${input.crewId}, ${input.firstName}, ${pinHash})
+    RETURNING *
+  `;
+  return rowToWorker(rows[0] as Record<string, unknown>);
+}
+
+export async function renameTeamHubWorker(id: number, firstName: string): Promise<TeamHubWorker | null> {
+  const sql = getSql();
+  const rows = await sql`UPDATE hub_workers SET first_name = ${firstName} WHERE id = ${id} RETURNING *`;
+  return rows.length > 0 ? rowToWorker(rows[0] as Record<string, unknown>) : null;
+}
+
+export async function setTeamHubWorkerActive(id: number, active: boolean): Promise<TeamHubWorker | null> {
+  const sql = getSql();
+  const rows = await sql`UPDATE hub_workers SET active = ${active} WHERE id = ${id} RETURNING *`;
+  return rows.length > 0 ? rowToWorker(rows[0] as Record<string, unknown>) : null;
+}
+
+// Admin-driven reset: also clears any existing lockout, since an admin
+// handing out a fresh PIN implies the worker should be able to sign in
+// immediately, not wait out a lock from PIN-guessing on the old one.
+export async function resetTeamHubWorkerPin(id: number, pin: string): Promise<TeamHubWorker | null> {
+  if (!isPinFormatValid(pin)) {
+    throw new Error("PIN must be 4-6 digits.");
+  }
+  const pinHash = await bcrypt.hash(pin, PIN_BCRYPT_ROUNDS);
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE hub_workers SET pin_hash = ${pinHash}, failed_attempts = 0, locked_until = NULL WHERE id = ${id} RETURNING *
+  `;
+  return rows.length > 0 ? rowToWorker(rows[0] as Record<string, unknown>) : null;
+}
+
+export type VerifyWorkerPinResult =
+  | { outcome: "ok"; worker: TeamHubWorker }
+  // justLocked distinguishes "this attempt just tripped the lock" from
+  // "already locked from an earlier attempt" — the caller (the login route)
+  // uses this to send the admin lockout alert exactly once per lockout
+  // instead of once per attempt during the lock window.
+  | { outcome: "locked"; lockedUntil: string; worker: { id: number; firstName: string }; justLocked: boolean }
+  | { outcome: "invalid" }
+  | { outcome: "not-found" };
+
+// Self-contained login check: validates crew membership + active + lockout
+// + PIN in one call, and updates failed_attempts/locked_until/last_sign_in_at
+// as a side effect — mirrors lib/managerAccounts.ts's split of
+// verifyManagerPassword (read-only) from the caller's own state updates,
+// except here the lockout bookkeeping is common enough to every caller
+// (there's only ever one: the login route) that it belongs inside the query
+// layer rather than duplicated at the route. Neon's serverless tagged-
+// template driver doesn't support nested sql fragments as interpolated
+// values (unlike postgres.js) — the lock-vs-no-lock branch is therefore two
+// separate plain UPDATEs, not one query built with a conditional fragment.
+export async function verifyTeamHubWorkerPin(
+  crewId: number,
+  workerId: number,
+  pin: string,
+  device: string | null
+): Promise<VerifyWorkerPinResult> {
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM hub_workers WHERE id = ${workerId} AND crew_id = ${crewId} LIMIT 1`;
+  if (rows.length === 0) return { outcome: "not-found" };
+  const worker = rowToWorker(rows[0] as Record<string, unknown>);
+  if (!worker.active) return { outcome: "not-found" };
+
+  if (worker.lockedUntil && new Date(worker.lockedUntil).getTime() > Date.now()) {
+    return {
+      outcome: "locked",
+      lockedUntil: worker.lockedUntil,
+      worker: { id: worker.id, firstName: worker.firstName },
+      justLocked: false,
+    };
+  }
+
+  const pinHash = (rows[0] as Record<string, unknown>).pin_hash as string;
+  const matches = await bcrypt.compare(pin, pinHash);
+
+  if (!matches) {
+    const nextAttempts = worker.failedAttempts + 1;
+    const lock = nextAttempts >= MAX_FAILED_ATTEMPTS;
+
+    if (lock) {
+      const lockedUntilIso = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000).toISOString();
+      await sql`
+        UPDATE hub_workers SET failed_attempts = ${nextAttempts}, locked_until = ${lockedUntilIso} WHERE id = ${workerId}
+      `;
+      return {
+        outcome: "locked",
+        lockedUntil: lockedUntilIso,
+        worker: { id: worker.id, firstName: worker.firstName },
+        justLocked: true,
+      };
+    }
+
+    await sql`UPDATE hub_workers SET failed_attempts = ${nextAttempts} WHERE id = ${workerId}`;
+    return { outcome: "invalid" };
+  }
+
+  const updatedRows = await sql`
+    UPDATE hub_workers
+    SET failed_attempts = 0, locked_until = NULL, last_sign_in_at = now(), last_device = ${device}
+    WHERE id = ${workerId}
+    RETURNING *
+  `;
+  return { outcome: "ok", worker: rowToWorker(updatedRows[0] as Record<string, unknown>) };
 }

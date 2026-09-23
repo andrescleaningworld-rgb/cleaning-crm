@@ -219,7 +219,7 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   the account-page Team Hub tab, and a placeholder "preview as crew" (real
   rendering doesn't exist until Phase 1). No public/crew-facing routes
   exist yet.
-- **Phase 1 — login.** Workers as authenticatable identities (PIN-based),
+- **Phase 1 — done.** Workers as authenticatable identities (PIN-based),
   the crew token + worker PIN session (a fourth iron-session cookie,
   `cw_team_hub_session`, alongside `adminSession`/`subSession`/
   `portalSession`), the real public `/team-hub/[token]` rendering path,
@@ -228,6 +228,106 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   bumps `token_version` specifically so Phase 1 sessions can bind to
   `token_version` (forcing re-auth) rather than the token string, which
   never appears in a session.
+
+  Implementation notes:
+  - New files: `lib/teamHubWorkerSession.ts` (session config),
+    `app/api/team-hub/[token]/route.ts` (public pre-login GET: site label,
+    crew name, active worker roster — no account/sub data, same
+    non-distinguishing "not active" shape for missing/revoked/deactivated),
+    `app/api/team-hub/[token]/session/route.ts` (GET whoami / POST PIN
+    login / DELETE logout), `app/team-hub/layout.tsx` +
+    `app/team-hub/[token]/page.tsx` (worker picker → PIN keypad → "Today"
+    screen listing enabled modules as "Coming soon" tiles — module content
+    itself is Phase 2), `app/api/admin/team-hub/workers/route.ts` (admin
+    CRUD, audit-logged like manager password resets).
+  - `lib/teamHubDb.ts` gained the `hub_workers` query layer (bcryptjs PIN
+    hashing, 5-attempt/15-minute lockout via `failed_attempts`/
+    `locked_until`) and `getActiveTeamHubCrewByToken` (crew+site join,
+    active-only). PIN format is 4-6 digits, enforced at the query layer.
+  - `proxy.ts`: added `/team-hub` and `/api/team-hub` to `PUBLIC_PATHS`
+    (exact-or-subpath, per the §6 warning — doesn't collide with
+    `/api/admin/team-hub/*`, which stays behind the default admin gate).
+  - New env var `TEAM_HUB_SESSION_PASSWORD` (32+ chars, same shape as
+    `ADMIN_SESSION_PASSWORD`) — set in `.env.local` for local dev; **not
+    yet set in Vercel preview/production**, needs `vercel env add
+    TEAM_HUB_SESSION_PASSWORD` before this ships live.
+  - Rate limiting on the login endpoint reuses `lib/siteLinkRateLimit.ts`
+    as-is (kept generic in the §6 archive table for exactly this).
+  - Verified end-to-end against a throwaway crew/worker in the dev DATABASE_URL
+    (not a fixture in source): pre-login roster fetch, correct-PIN login +
+    cookie-backed whoami, wrong-PIN rejection, 5th-attempt lockout blocking
+    even a correct PIN, logout clearing the session, and a revoked crew
+    reading identically to a nonexistent token. Test rows were deleted
+    afterward — no seed data left in the database.
+  - Sheets touch points from this phase: none. Every new file goes through
+    the same `lib/teamHubAccountLookup.ts` choke point rule as Phase 0 (no
+    new direct `lib/googleSheets.ts` imports — the worker/session layer
+    never reads account data at all).
+
+  PWA + install gate + switch-worker + lockout alert (same Phase 1, added
+  in a follow-up pass):
+  - **Install gate.** `/team-hub/[token]` checks `display-mode: standalone`
+    (and `navigator.standalone` for iOS) client-side before showing
+    anything else. Not standalone → renders `InstallGate` only (iOS/Android/
+    other step-by-step "Add to Home Screen" instructions, no worker picker,
+    no PIN pad). This gates both the login screen and an already-valid
+    session — a crew can only use Team Hub from the installed icon, never a
+    plain browser tab, by design.
+  - **Manifest**, scoped: `app/team-hub/manifest.webmanifest/route.ts`
+    (NOT `app/manifest.ts`, which is root-only and untouched), `scope:
+    "/team-hub/"`, `start_url` set per-request from a required `?token=`
+    query param (a bare `/team-hub` isn't a real page, so the manifest is
+    useless without it). `app/team-hub/[token]/page.tsx` injects
+    `<link rel="manifest" href="/team-hub/manifest.webmanifest?token=...">`
+    itself once it knows its token — this can't be static layout metadata.
+  - **Icons**: `public/team-hub-icons/` (`icon-192.png`, `icon-512.png`,
+    `icon-512-maskable.png`, `apple-touch-icon.png`), generated via `sharp`
+    from the existing `public/icon-512.png` / `maskable-icon-512.png` /
+    `apple-touch-icon.png` (already solid-background and safe-zone padded
+    for the main app) — reused rather than fabricating new artwork.
+    Referenced from the manifest and from `app/team-hub/layout.tsx`'s
+    `icons.apple` (static — doesn't vary by token).
+  - **Service worker**, scoped: `public/team-hub-sw.js` (pass-through
+    `fetch` handler only, no offline caching yet — just enough for
+    installability), registered by `app/team-hub/TeamHubServiceWorkerRegister.tsx`
+    with explicit `{ scope: "/team-hub/" }`. The main app's `/sw.js` (scope
+    `/`, `app/components/ServiceWorkerRegister.tsx`) is untouched; the
+    browser resolves which SW controls a given page by longest matching
+    scope, so `/team-hub/*` ends up on this one.
+  - **proxy.ts**: `/team-hub-icons` and `/team-hub-sw.js` needed their own
+    `PUBLIC_PATHS` entries — they're sibling paths of `/team-hub`, not
+    sub-paths (no `/team-hub/` prefix), so the existing entry didn't cover
+    them. Found via a real 307-to-`/login` in manual testing, not by
+    inspection — same explicit-per-asset convention the file already used
+    for `/sw.js`, `/manifest.json`, etc.
+  - **Switch worker.** The Today screen's "Switch worker" button re-renders
+    the same `LoginScreen` (worker picker → PIN) *without* calling
+    `DELETE .../session` first — a second successful `POST .../session`
+    simply overwrites the existing cookie's `workerId`. `LoginScreen` grew
+    an optional `onCancel` for this path (back to Today without switching);
+    the original sign-out flow (`DELETE` then re-login) is unchanged.
+  - **Lockout email alert.** `verifyTeamHubWorkerPin`'s `"locked"` result
+    now carries `{ worker, justLocked }` — `justLocked` is true only on the
+    attempt that trips the lock, false on every subsequent attempt while
+    already locked, so the login route (`app/api/team-hub/[token]/session/route.ts`)
+    fires the alert exactly once per lockout via
+    `waitUntil(sendInternalNotification(...))` (fire-and-forget, doesn't
+    block the PIN-entry response; `sendInternalNotification` already no-ops
+    if email credentials aren't configured).
+  - **Rate limiting** now also covers the two GET routes
+    (`GET /api/team-hub/[token]` and `GET /api/team-hub/[token]/session`),
+    not just login — same `lib/siteLinkRateLimit.ts` helper, distinct keys
+    (`teamhub-get:`, `teamhub-whoami:`, `teamhub-login:`) so one crew's
+    heavy polling can't exhaust another action's budget.
+  - New env var: none beyond `TEAM_HUB_SESSION_PASSWORD` (already flagged
+    above as not yet set in Vercel preview/production).
+  - **Caution for whoever reviews this**: verifying the lockout alert live
+    (5 wrong PINs against a throwaway test worker) sent a real email via
+    the "gmail" `EMAIL_PROVIDER` to `info@cleaningworldinc.com` and
+    `crm@cleaningworldinc.com` ("Team Hub: Sam locked out — PWA Crew").
+    That's expected real-world behavior for this alert (not a bug), but it
+    means those inboxes have one genuine test artifact from this build —
+    flagged here in case anyone goes looking for why.
 - **Phase 2 — not yet scoped in detail.** Expected to cover the
   `checklist`/`rounds` modules' actual crew-facing run flow (tap-to-
   complete, autosave), building on `hub_checklist_runs` /

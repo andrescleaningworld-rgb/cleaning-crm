@@ -4105,6 +4105,82 @@ export async function updateAccountFieldsDirect(
   return { before, after };
 }
 
+// Minimal single-account lookup for the Site Supply Link feature (see
+// lib/siteLinkDb.ts) — admin display (resolving account_id -> a real name
+// for the Site Links/Queue pages) and email notifications only. Deliberately
+// its own small direct-Sheets read rather than reusing
+// getAllAccountsForSubEnrichment/fetchAccountsForAction, since those either
+// return a narrower field set or go through the slower Apps Script path;
+// this needs just name/address/manager for exactly one row. NEVER call this
+// from a public (no-login) route — see lib/siteLinkDb.ts's file comment.
+export type AccountSummary = {
+  accountId: string;
+  accountName: string;
+  address: string;
+  managerName: string;
+};
+
+export async function getAccountSummaryById(accountId: string): Promise<AccountSummary | null> {
+  const targetId = accountId.trim();
+  if (!targetId) return null;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ACCOUNTS_TAB}!A:L`,
+    })
+  );
+
+  const dataRows = ((res.data.values ?? []) as string[][]).slice(1);
+  const row = dataRows.find((r) => (r[ACCOUNTS_ID_COL] ?? "").trim() === targetId);
+  if (!row) return null;
+
+  return {
+    accountId: targetId,
+    accountName: row[1] ?? "",
+    managerName: row[9] ?? "",
+    address: row[11] ?? "",
+  };
+}
+
+// Batched version of getAccountSummaryById — one sheet read instead of one
+// per id, for admin list views (e.g. the Site Links table) that need to
+// resolve many account_ids to names at once.
+export async function getAccountSummariesByIds(
+  accountIds: string[]
+): Promise<Map<string, AccountSummary>> {
+  const targetIds = new Set(accountIds.map((id) => id.trim()).filter(Boolean));
+  const result = new Map<string, AccountSummary>();
+  if (targetIds.size === 0) return result;
+
+  const auth = getAuthClient();
+  const sheets = google.sheets({ version: "v4", auth });
+
+  const res = await withTimeout(FETCH_TIMEOUT_MS, () =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_MAIN_SHEET_ID!,
+      range: `${ACCOUNTS_TAB}!A:L`,
+    })
+  );
+
+  const dataRows = ((res.data.values ?? []) as string[][]).slice(1);
+  for (const row of dataRows) {
+    const id = (row[ACCOUNTS_ID_COL] ?? "").trim();
+    if (!id || !targetIds.has(id)) continue;
+    result.set(id, {
+      accountId: id,
+      accountName: row[1] ?? "",
+      managerName: row[9] ?? "",
+      address: row[11] ?? "",
+    });
+  }
+
+  return result;
+}
+
 // ─── Equipment Tracking ─────────────────────────────────────────────────────
 // New, isolated module. Five tabs, all in GOOGLE_MAIN_SHEET_ID (see
 // scripts/setup-equipment-tabs.js): Staff, EquipmentCategories, Equipment,

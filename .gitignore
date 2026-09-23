@@ -42,3 +42,8 @@ next-env.d.ts
 
 # generated script output (may contain real account/business data)
 /scripts/output/
+
+# local Claude Code settings — can contain real secrets pasted into
+# permission allowlist entries (e.g. a curl command with an API key baked
+# in); never meant to be shared/committed
+.claude/settings.local.json

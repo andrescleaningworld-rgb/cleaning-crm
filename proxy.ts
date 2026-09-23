@@ -53,6 +53,21 @@ const PUBLIC_PATHS = [
   // must stay behind the normal admin cookie gate.
   "/porter",
   "/api/porter-checklist",
+  // Team Hub crew-facing link (Phase 1) — no-login, token+PIN gated inside
+  // the route/page itself (self-checking, same pattern as
+  // /api/subcontractor-portal above). Exact-or-subpath via matchesPath, so
+  // this can never also make "/settings", "/site-links", etc. public (the
+  // "/s" startsWith bug flagged in docs/team-hub-spec.md §6 doesn't apply
+  // here since matchesPath already requires an exact match or a "/" boundary).
+  "/team-hub",
+  "/api/team-hub",
+  // Static PWA assets for the above — sibling paths, not sub-paths of
+  // "/team-hub" (no "/team-hub/" prefix match), so they need their own
+  // entries. Same reasoning as the existing individual /sw.js,
+  // /manifest.json, and logo entries above: this app lists each public
+  // static asset explicitly rather than allowlisting all of /public.
+  "/team-hub-icons",
+  "/team-hub-sw.js",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action
