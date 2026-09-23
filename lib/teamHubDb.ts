@@ -10,6 +10,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
+import { TEAM_HUB_TIMEZONE, startOfDayInTimeZone, startOfWeekInTimeZone, startOfMonthInTimeZone } from "@/lib/teamHubTimezone";
 
 const PIN_BCRYPT_ROUNDS = 10;
 export const MAX_FAILED_ATTEMPTS = 5;
@@ -475,6 +476,329 @@ export async function resetTeamHubWorkerPin(id: number, pin: string): Promise<Te
     UPDATE hub_workers SET pin_hash = ${pinHash}, failed_attempts = 0, locked_until = NULL WHERE id = ${id} RETURNING *
   `;
   return rows.length > 0 ? rowToWorker(rows[0] as Record<string, unknown>) : null;
+}
+
+// ─── Enabled item lists (Phase 2: crew-facing checklist + rounds) ──────────
+// Joins hub_crew_items against the specific library table for its item_type
+// — item_id is intentionally not an FK (see hub_crew_items comment above),
+// so the join target is chosen by item_type here rather than by Postgres.
+
+export type TeamHubChecklistCrewItem = {
+  crewItemId: number;
+  sortOrder: number;
+  instanceLabel: string | null;
+  area: string;
+  text: string;
+  isNote: boolean;
+  frequency: "visit" | "weekly" | "monthly";
+};
+
+export async function listEnabledTeamHubChecklistItemsForCrew(crewId: number): Promise<TeamHubChecklistCrewItem[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ci.id AS crew_item_id, ci.sort_order, ci.instance_label, ci.frequency_override,
+           cl.area, cl.text, cl.is_note, cl.default_frequency
+    FROM hub_crew_items ci
+    JOIN hub_checklist_library cl ON cl.id = ci.item_id
+    WHERE ci.crew_id = ${crewId} AND ci.item_type = 'checklist' AND ci.enabled = true
+    ORDER BY ci.sort_order ASC, ci.id ASC
+  `;
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      crewItemId: row.crew_item_id as number,
+      sortOrder: row.sort_order as number,
+      instanceLabel: (row.instance_label as string | null) ?? null,
+      area: row.area as string,
+      text: row.text as string,
+      isNote: row.is_note as boolean,
+      frequency: ((row.frequency_override as string | null) ?? (row.default_frequency as string)) as TeamHubChecklistCrewItem["frequency"],
+    };
+  });
+}
+
+// What a run actually shows: all 'visit' items and notes every time, but
+// 'weekly'/'monthly' items only once they're due again — i.e. not yet
+// completed (any status counts: done/na/problem) in a *submitted* run
+// since the current week/month started, per TEAM_HUB_TIMEZONE. An item
+// tapped earlier in the SAME still-open run doesn't count as "done" here
+// (only submitted runs do), so it can't disappear out from under the
+// worker mid-run.
+export async function listDueTeamHubChecklistItemsForCrew(crewId: number, atInstant: Date = new Date()): Promise<TeamHubChecklistCrewItem[]> {
+  const items = await listEnabledTeamHubChecklistItemsForCrew(crewId);
+  const periodic = items.filter((item) => !item.isNote && item.frequency !== "visit");
+  if (periodic.length === 0) return items;
+
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ri.crew_item_id, MAX(r.submitted_at) AS last_done
+    FROM hub_checklist_run_items ri
+    JOIN hub_checklist_runs r ON r.id = ri.run_id
+    JOIN hub_crew_items ci ON ci.id = ri.crew_item_id
+    WHERE ci.crew_id = ${crewId} AND r.submitted_at IS NOT NULL
+    GROUP BY ri.crew_item_id
+  `;
+  const lastDoneByItem = new Map<number, Date>();
+  for (const r of rows) {
+    const row = r as Record<string, unknown>;
+    lastDoneByItem.set(row.crew_item_id as number, new Date(toIso(row.last_done)));
+  }
+
+  const weekStart = startOfWeekInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+  const monthStart = startOfMonthInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+
+  return items.filter((item) => {
+    if (item.isNote || item.frequency === "visit") return true;
+    const lastDone = lastDoneByItem.get(item.crewItemId);
+    if (!lastDone) return true;
+    const boundary = item.frequency === "weekly" ? weekStart : monthStart;
+    return lastDone.getTime() < boundary.getTime();
+  });
+}
+
+export type TeamHubRoundCrewItem = {
+  crewItemId: number;
+  sortOrder: number;
+  instanceLabel: string | null;
+  name: string;
+  intervalMinutes: number;
+};
+
+export async function listEnabledTeamHubRoundItemsForCrew(crewId: number): Promise<TeamHubRoundCrewItem[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ci.id AS crew_item_id, ci.sort_order, ci.instance_label,
+           rl.name, rl.default_interval_minutes
+    FROM hub_crew_items ci
+    JOIN hub_round_library rl ON rl.id = ci.item_id
+    WHERE ci.crew_id = ${crewId} AND ci.item_type = 'round' AND ci.enabled = true
+    ORDER BY ci.sort_order ASC, ci.id ASC
+  `;
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      crewItemId: row.crew_item_id as number,
+      sortOrder: row.sort_order as number,
+      instanceLabel: (row.instance_label as string | null) ?? null,
+      name: row.name as string,
+      intervalMinutes: row.default_interval_minutes as number,
+    };
+  });
+}
+
+// Shared crew-item ownership check used by both the checklist run-item
+// upsert and the round check-in — item_id isn't an FK (see above), so this
+// is the only thing standing between a tampered crewItemId in a request
+// body and writing a row against another crew's item. Returns false rather
+// than throwing so callers can produce their own 400/404 shape.
+async function isEnabledTeamHubCrewItem(crewId: number, crewItemId: number, itemType: "checklist" | "round"): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT 1 FROM hub_crew_items WHERE id = ${crewItemId} AND crew_id = ${crewId} AND item_type = ${itemType} AND enabled = true LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+// ─── hub_checklist_runs / hub_checklist_run_items (Phase 2) ───────────────
+// One "run" is one pass through the crew's checklist (e.g. one visit or
+// shift) — open (submitted_at IS NULL) until the crew taps Submit. Only one
+// open run per crew at a time; tapping an item autosaves a row immediately
+// rather than waiting for Submit, so progress survives a dropped connection
+// or a worker switch mid-run.
+
+export type TeamHubChecklistRun = {
+  id: number;
+  crewId: number;
+  startedAt: string;
+  submittedAt: string | null;
+  startedByWorkerId: number | null;
+};
+
+function rowToChecklistRun(row: Record<string, unknown>): TeamHubChecklistRun {
+  return {
+    id: row.id as number,
+    crewId: row.crew_id as number,
+    startedAt: toIso(row.started_at),
+    submittedAt: row.submitted_at ? toIso(row.submitted_at) : null,
+    startedByWorkerId: (row.started_by_worker_id as number | null) ?? null,
+  };
+}
+
+export async function getOpenTeamHubChecklistRun(crewId: number): Promise<TeamHubChecklistRun | null> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM hub_checklist_runs WHERE crew_id = ${crewId} AND submitted_at IS NULL ORDER BY started_at DESC LIMIT 1
+  `;
+  return rows.length > 0 ? rowToChecklistRun(rows[0] as Record<string, unknown>) : null;
+}
+
+// Idempotent: returns the existing open run rather than starting a second
+// one if the crew already has one going (e.g. a second worker opens the
+// checklist tile mid-shift).
+export async function startTeamHubChecklistRun(crewId: number, workerId: number): Promise<TeamHubChecklistRun> {
+  const existing = await getOpenTeamHubChecklistRun(crewId);
+  if (existing) return existing;
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_checklist_runs (crew_id, started_by_worker_id) VALUES (${crewId}, ${workerId}) RETURNING *
+  `;
+  return rowToChecklistRun(rows[0] as Record<string, unknown>);
+}
+
+export type TeamHubChecklistRunItem = {
+  id: number;
+  runId: number;
+  crewItemId: number;
+  status: "done" | "na" | "problem";
+  note: string;
+  workerId: number | null;
+  workerFirstName: string | null;
+  updatedAt: string;
+};
+
+export async function listTeamHubChecklistRunItems(runId: number): Promise<TeamHubChecklistRunItem[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ri.*, w.first_name AS worker_first_name
+    FROM hub_checklist_run_items ri
+    LEFT JOIN hub_workers w ON w.id = ri.worker_id
+    WHERE ri.run_id = ${runId}
+  `;
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      id: row.id as number,
+      runId: row.run_id as number,
+      crewItemId: row.crew_item_id as number,
+      status: row.status as TeamHubChecklistRunItem["status"],
+      note: row.note as string,
+      workerId: (row.worker_id as number | null) ?? null,
+      workerFirstName: (row.worker_first_name as string | null) ?? null,
+      updatedAt: toIso(row.updated_at),
+    };
+  });
+}
+
+// Tap-to-complete autosave — one row per (run, crew_item), overwritten on
+// re-tap (e.g. Done -> Problem). Throws if the run is already submitted or
+// crewItemId isn't an enabled checklist item on this crew, so a route can
+// turn either into a plain 400.
+export async function upsertTeamHubChecklistRunItem(input: {
+  crewId: number;
+  runId: number;
+  crewItemId: number;
+  workerId: number;
+  status: TeamHubChecklistRunItem["status"];
+  note: string;
+}): Promise<TeamHubChecklistRunItem> {
+  const validItem = await isEnabledTeamHubCrewItem(input.crewId, input.crewItemId, "checklist");
+  if (!validItem) {
+    throw new Error("Checklist item not found for this crew.");
+  }
+  const sql = getSql();
+  const runRows = await sql`SELECT submitted_at FROM hub_checklist_runs WHERE id = ${input.runId} AND crew_id = ${input.crewId} LIMIT 1`;
+  if (runRows.length === 0) {
+    throw new Error("Checklist run not found.");
+  }
+  if ((runRows[0] as Record<string, unknown>).submitted_at) {
+    throw new Error("This checklist has already been submitted.");
+  }
+
+  const rows = await sql`
+    INSERT INTO hub_checklist_run_items (run_id, crew_item_id, status, note, worker_id, updated_at)
+    VALUES (${input.runId}, ${input.crewItemId}, ${input.status}, ${input.note}, ${input.workerId}, now())
+    ON CONFLICT (run_id, crew_item_id)
+    DO UPDATE SET status = EXCLUDED.status, note = EXCLUDED.note, worker_id = EXCLUDED.worker_id, updated_at = now()
+    RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    id: row.id as number,
+    runId: row.run_id as number,
+    crewItemId: row.crew_item_id as number,
+    status: row.status as TeamHubChecklistRunItem["status"],
+    note: row.note as string,
+    workerId: (row.worker_id as number | null) ?? null,
+    workerFirstName: null,
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+// Idempotent — submitting an already-submitted run just returns it as-is
+// rather than erroring, so a double-tap or a retried request can't fail.
+export async function submitTeamHubChecklistRun(crewId: number, runId: number): Promise<TeamHubChecklistRun | null> {
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE hub_checklist_runs SET submitted_at = now()
+    WHERE id = ${runId} AND crew_id = ${crewId} AND submitted_at IS NULL
+    RETURNING *
+  `;
+  if (rows.length > 0) return rowToChecklistRun(rows[0] as Record<string, unknown>);
+  const existing = await sql`SELECT * FROM hub_checklist_runs WHERE id = ${runId} AND crew_id = ${crewId} LIMIT 1`;
+  return existing.length > 0 ? rowToChecklistRun(existing[0] as Record<string, unknown>) : null;
+}
+
+// ─── hub_round_checks (Phase 2) ─────────────────────────────────────────
+// No "run" concept for rounds — a round recurs all shift (e.g. "restrooms
+// every 2 hours"), so each check-in is just a standalone timestamped row.
+// The crew view shows, per round, the most recent check-in *today* (per
+// TEAM_HUB_TIMEZONE) and how long ago it was against
+// default_interval_minutes — a check-in from a previous calendar day
+// doesn't count, so a round nobody has walked yet today reads as
+// "Not checked today," not as a stale multi-day-old timestamp.
+
+export type TeamHubRoundCheck = {
+  crewItemId: number;
+  checkedAt: string;
+  note: string;
+  workerFirstName: string | null;
+};
+
+export async function getLatestTeamHubRoundChecksForCrew(crewId: number, atInstant: Date = new Date()): Promise<Map<number, TeamHubRoundCheck>> {
+  const todayStart = startOfDayInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+  const sql = getSql();
+  const rows = await sql`
+    SELECT DISTINCT ON (rc.crew_item_id) rc.crew_item_id, rc.checked_at, rc.note, w.first_name AS worker_first_name
+    FROM hub_round_checks rc
+    JOIN hub_crew_items ci ON ci.id = rc.crew_item_id
+    LEFT JOIN hub_workers w ON w.id = rc.worker_id
+    WHERE ci.crew_id = ${crewId} AND rc.checked_at >= ${todayStart.toISOString()}
+    ORDER BY rc.crew_item_id, rc.checked_at DESC
+  `;
+  const map = new Map<number, TeamHubRoundCheck>();
+  for (const r of rows) {
+    const row = r as Record<string, unknown>;
+    map.set(row.crew_item_id as number, {
+      crewItemId: row.crew_item_id as number,
+      checkedAt: toIso(row.checked_at),
+      note: (row.note as string) ?? "",
+      workerFirstName: (row.worker_first_name as string | null) ?? null,
+    });
+  }
+  return map;
+}
+
+export async function recordTeamHubRoundCheck(input: {
+  crewId: number;
+  crewItemId: number;
+  workerId: number;
+  note: string;
+}): Promise<TeamHubRoundCheck> {
+  const validItem = await isEnabledTeamHubCrewItem(input.crewId, input.crewItemId, "round");
+  if (!validItem) {
+    throw new Error("Round not found for this crew.");
+  }
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_round_checks (crew_item_id, worker_id, note) VALUES (${input.crewItemId}, ${input.workerId}, ${input.note}) RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    crewItemId: row.crew_item_id as number,
+    checkedAt: toIso(row.checked_at),
+    note: (row.note as string) ?? "",
+    workerFirstName: null,
+  };
 }
 
 export type VerifyWorkerPinResult =

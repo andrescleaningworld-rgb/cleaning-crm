@@ -328,19 +328,128 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
     That's expected real-world behavior for this alert (not a bug), but it
     means those inboxes have one genuine test artifact from this build —
     flagged here in case anyone goes looking for why.
-- **Phase 2 — not yet scoped in detail.** Expected to cover the
-  `checklist`/`rounds` modules' actual crew-facing run flow (tap-to-
-  complete, autosave), building on `hub_checklist_runs` /
-  `hub_checklist_run_items` / `hub_round_checks`, which already exist in
-  the schema.
+- **Phase 2 — done.** Crew-facing `checklist`/`rounds` run flow.
+
+  Checklist: `hub_checklist_runs` is "one pass through the crew's
+  checklist" (a visit/shift) — at most one open run per crew
+  (`submitted_at IS NULL`) at a time; a second worker opening the tile
+  mid-shift resumes the same open run rather than starting a second one
+  (`startTeamHubChecklistRun` is idempotent). Each tap PATCHes
+  `hub_checklist_run_items` immediately (optimistic UI, upsert on
+  `(run_id, crew_item_id)`) — no separate Save step, so progress survives a
+  dropped connection or a worker switch mid-run. `is_note` library items
+  (the 2 pinned notes from seed data) render as a non-interactive banner,
+  not a checkable row, and aren't counted in the progress bar. Submitting
+  (`submitted_at = now()`) is idempotent — a double-tap or retried request
+  can't fail or overwrite a later submission. `frequency = 'visit'` items
+  (and notes) appear on every run; `'weekly'`/`'monthly'` items only appear
+  once due again — not yet completed (any status: done/na/problem) in a
+  *submitted* run since the current calendar week/month started
+  (`listDueTeamHubChecklistItemsForCrew`). An item already tapped earlier
+  in the SAME still-open run stays visible regardless, since only
+  submitted runs count toward "done" for this purpose.
+
+  Rounds: **no run concept** — `hub_round_checks` rows are standalone
+  timestamped check-ins. The crew view shows each round's most recent
+  check-in **today** and how long ago, flagged overdue once that exceeds
+  `default_interval_minutes`; a check-in from a previous calendar day
+  doesn't count, so it reads as "Not checked today" rather than a stale
+  timestamp (`getLatestTeamHubRoundChecksForCrew` filters to
+  `checked_at >= startOfDayInTimeZone(now)`).
+
+  Both modules validate every `crewItemId` from the client against
+  `hub_crew_items` (`crew_id` + `item_type` + `enabled`) before writing —
+  `item_id` isn't an FK (see §7), so this is the only thing stopping a
+  tampered id from writing against another crew's item.
+
+  Items with `instance_label` set (e.g. multiple crew_item rows pointing at
+  the same library item, one per instance — "Suite A"/"Suite B"/"Suite C")
+  already render as fully separate blocks: `instance_label` lives on
+  `hub_crew_items`, not the library row, so each instance is its own
+  `crew_item_id` and therefore its own independent `<li>` with its own
+  status buttons/note/progress accounting — confirmed by direct-SQL test in
+  the end-to-end pass below (no crew-facing code change needed). Note: the
+  Phase 0 admin crew-item picker (`app/accounts/[id]/team-hub-tab.tsx`)
+  currently toggles at most one `hub_crew_items` row per
+  `(crew, item_type, item_id)` and has no UI to set `instance_label` at
+  all — so today, multiple instances of one item can only be created by a
+  direct DB write, not through the admin UI. Flagged as a gap for whichever
+  phase builds out the admin picker further, not fixed here (out of Phase
+  2's scope).
+
+  Implementation notes:
+  - New files: `lib/teamHubWorkerSession.ts` gained
+    `requireTeamHubWorkerSession()` (crew/site/worker validity in one call,
+    same checks `GET .../session` already did inline — factored out for
+    the two new module routes rather than retrofitted into the Phase 1
+    session route, to keep this a Phase 2 diff only), used by the two new
+    route files: `app/api/team-hub/[token]/checklist/route.ts` (GET items +
+    open run + run items; POST `{action:"start"|"submit"}`; PATCH one
+    item's status/note) and `app/api/team-hub/[token]/rounds/route.ts` (GET
+    items + latest check per item; POST a check-in). `app/team-hub/[token]
+    /ChecklistView.tsx` and `.../RoundsView.tsx` are new client components;
+    `app/team-hub/[token]/page.tsx`'s `TodayScreen` module tiles for
+    `checklist`/`rounds` are now tappable ("Open →" instead of "Coming
+    soon") and open these in place of Today via a new `openModule` state,
+    the other four modules are unchanged.
+  - `lib/teamHubDb.ts` gained the read layer for enabled items
+    (`listEnabledTeamHubChecklistItemsForCrew`,
+    `listEnabledTeamHubRoundItemsForCrew` — joins `hub_crew_items` against
+    the library table matching its `item_type`, since that join target
+    isn't FK-enforceable), `listDueTeamHubChecklistItemsForCrew` (the
+    weekly/monthly due filter — what the checklist route actually returns),
+    the checklist run query layer (start/get-open/list-items/upsert-item/
+    submit), and the round check-in layer (record + latest-per-item, now
+    day-bounded).
+  - New file `lib/teamHubTimezone.ts`: `TEAM_HUB_TIMEZONE = "America/New_York"`
+    — one fixed constant, plus `startOfDayInTimeZone`/`startOfWeekInTimeZone`
+    (Monday)/`startOfMonthInTimeZone` helpers (built on
+    `Intl.DateTimeFormat` offset math, no date library dependency added).
+    Every "today"/"this week"/"this month" boundary in Team Hub goes
+    through this one constant so a later phase can replace it with a
+    per-`hub_sites` timezone column without hunting through call sites.
+  - Same rate-limit convention as Phase 1 (`lib/siteLinkRateLimit.ts`,
+    distinct keys per route+method: `teamhub-checklist-get:`,
+    `-post:`, `-patch:`, `teamhub-rounds-get:`, `-post:`).
+  - No new env vars, no proxy.ts changes (`/api/team-hub` was already a
+    public-path entry as of Phase 1, and both new routes self-check the
+    worker session same as every other Team Hub route).
+  - No photo upload in this phase — `hub_photos` supports `'run_item'` and
+    `'round_check'` `parent_type`s already, but attaching a photo to a
+    checklist item or round check wasn't part of Phase 2's scope. Deferred
+    to Phase 4 (see below), which is where blob upload plumbing gets built
+    first for supply delivery photos anyway.
+  - No `hub_issues` row is created when a checklist item is marked
+    "problem" — `status` just records the tap. Wiring that into an actual
+    issue (via `hub_issues.run_item_id`) is also deferred to Phase 4 (see
+    below), bundled with the photo-upload work rather than Phase 2.
+  - Verified via `tsc --noEmit`, `next lint` (scoped to the changed files),
+    a full `next build`, and a throwaway-row test against the dev
+    `DATABASE_URL` (site/crew/worker/5 crew_items, including two instances
+    of the same checklist library item with different `instance_label`s):
+    started a run, tapped a 'visit' item, tapped one instance twice to
+    confirm upsert-overwrite (not a duplicate row), tapped the other
+    instance to 'problem' with a note, submitted (and confirmed re-submit
+    is a no-op), confirmed a 'weekly'/'monthly' item drops out of "due"
+    only after a *submitted* completion, logged a round check-in and
+    confirmed it lands in "today" (ET) while a synthetic 25-hours-ago
+    check-in on the same round does not. 18/18 assertions passed; all test
+    rows deleted afterward and independently confirmed gone (0 leftover).
+  - Sheets touch points from this phase: none — no new file imports
+    `lib/googleSheets.ts`.
 - **Phase 3 — requests.** "Convert to Team Hub request" from the customer
   portal inbox. Must resolve the `portal_request_id` stable-id question
   flagged in §7 deviation #3 before writing to it.
-- **Phase 4 — supplies/delivery.** Order workflow against
-  `supply_orders`/`supply_order_lines`; "Delivered" status decrements
-  stock through `adjustEquipmentPartStock()` (§3). `_archive/site-link/`
-  is deleted once this phase ships and nothing needs to reference it for
-  porting logic anymore.
+- **Phase 4 — supplies/delivery, plus photos + issue linkage.** Order
+  workflow against `supply_orders`/`supply_order_lines`; "Delivered" status
+  decrements stock through `adjustEquipmentPartStock()` (§3).
+  `_archive/site-link/` is deleted once this phase ships and nothing needs
+  to reference it for porting logic anymore. Also where `hub_photos`
+  upload actually gets wired up (first use: supply delivery confirmation
+  photos) — bundled into the same phase: attaching a photo to a Phase 2
+  checklist item marked "problem" (`parent_type = 'run_item'`) and creating
+  the corresponding `hub_issues` row via `hub_issues.run_item_id`, both
+  flagged as deferred-to-here in Phase 2's notes above.
 - **Phase 5 — not yet scoped in detail.**
 - **Phase 6 — full library editors.** Admin CRUD for
   `hub_checklist_library`, `hub_round_library`, and `supply_items` (Phase

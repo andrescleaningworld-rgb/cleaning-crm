@@ -7,6 +7,13 @@
 import { getIronSession, type SessionOptions } from "iron-session";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import {
+  getActiveTeamHubCrewByToken,
+  getTeamHubWorkerById,
+  type TeamHubCrew,
+  type TeamHubSite,
+  type TeamHubWorker,
+} from "@/lib/teamHubDb";
 
 export interface TeamHubWorkerSessionData {
   crewId?: number;
@@ -50,4 +57,28 @@ export async function getTeamHubWorkerIdentity(request: NextRequest): Promise<Te
   } catch {
     return null;
   }
+}
+
+export type TeamHubWorkerSessionContext = { crew: TeamHubCrew; site: TeamHubSite; worker: TeamHubWorker };
+
+// Full self-check for Phase 2's module routes (checklist, rounds) — same
+// checks GET /api/team-hub/[token]/session already does inline (crew+site
+// active, session bound to the crew's current token_version, worker still
+// active and still on this crew), factored out here so each new module
+// route doesn't re-duplicate the logic. Deliberately not retrofitted into
+// the existing session route to keep this a Phase 2 addition, not a Phase 1
+// diff.
+export async function requireTeamHubWorkerSession(request: NextRequest, token: string): Promise<TeamHubWorkerSessionContext | null> {
+  const found = await getActiveTeamHubCrewByToken(token);
+  if (!found) return null;
+
+  const identity = await getTeamHubWorkerIdentity(request);
+  if (!identity || !identity.workerId || identity.crewId !== found.crew.id || identity.tokenVersion !== found.crew.tokenVersion) {
+    return null;
+  }
+
+  const worker = await getTeamHubWorkerById(identity.workerId);
+  if (!worker || !worker.active || worker.crewId !== found.crew.id) return null;
+
+  return { crew: found.crew, site: found.site, worker };
 }

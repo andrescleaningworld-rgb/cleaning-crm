@@ -10,6 +10,8 @@
 // path", not the module content behind it).
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import ChecklistView from "./ChecklistView";
+import RoundsView from "./RoundsView";
 
 type Worker = { id: number; firstName: string };
 
@@ -42,6 +44,11 @@ const MODULE_LABELS: Record<string, string> = {
 };
 
 const MAX_PIN_LENGTH = 6;
+
+// Only these two modules have real Phase 2 content; the rest still render
+// as "Coming soon" tiles on the Today screen until their own phase lands.
+type OpenableModule = "checklist" | "rounds";
+const OPENABLE_MODULES = new Set<string>(["checklist", "rounds"]);
 
 // Both branches iOS Safari and Chrome-on-Android expose for "are we running
 // as the installed PWA, not a regular browser tab" — neither alone is
@@ -104,6 +111,7 @@ export default function TeamHubPage() {
 
   const [session, setSession] = useState<SessionResponse | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [openModule, setOpenModule] = useState<OpenableModule | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -143,6 +151,7 @@ export default function TeamHubPage() {
   async function handleLogout() {
     await fetch(`/api/team-hub/${encodeURIComponent(token)}/session`, { method: "DELETE" });
     setSession(null);
+    setOpenModule(null);
   }
 
   if (standalone === undefined) {
@@ -188,7 +197,18 @@ export default function TeamHubPage() {
 
         <div className="px-3">
           {session && !switching ? (
-            <TodayScreen session={session} onLogout={handleLogout} onSwitchWorker={() => setSwitching(true)} />
+            openModule === "checklist" ? (
+              <ChecklistView token={token} onBack={() => setOpenModule(null)} />
+            ) : openModule === "rounds" ? (
+              <RoundsView token={token} onBack={() => setOpenModule(null)} />
+            ) : (
+              <TodayScreen
+                session={session}
+                onLogout={handleLogout}
+                onSwitchWorker={() => setSwitching(true)}
+                onOpenModule={(moduleName) => setOpenModule(moduleName)}
+              />
+            )
           ) : (
             <LoginScreen
               token={token}
@@ -196,6 +216,7 @@ export default function TeamHubPage() {
               onLoggedIn={(s) => {
                 setSession(s);
                 setSwitching(false);
+                setOpenModule(null);
               }}
               onCancel={switching ? () => setSwitching(false) : undefined}
             />
@@ -263,10 +284,12 @@ function TodayScreen({
   session,
   onLogout,
   onSwitchWorker,
+  onOpenModule,
 }: {
   session: SessionResponse;
   onLogout: () => void;
   onSwitchWorker: () => void;
+  onOpenModule: (moduleName: OpenableModule) => void;
 }) {
   const modules = session.modules ?? [];
   return (
@@ -282,12 +305,26 @@ function TodayScreen({
           <p className="mt-2 text-sm text-slate-500">No modules are turned on for this crew yet.</p>
         ) : (
           <ul className="mt-3 divide-y divide-gray-100">
-            {modules.map((moduleName) => (
-              <li key={moduleName} className="flex items-center justify-between py-3">
-                <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[moduleName] ?? moduleName}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">Coming soon</span>
-              </li>
-            ))}
+            {modules.map((moduleName) => {
+              const openable = OPENABLE_MODULES.has(moduleName);
+              return (
+                <li key={moduleName}>
+                  <button
+                    type="button"
+                    disabled={!openable}
+                    onClick={() => openable && onOpenModule(moduleName as OpenableModule)}
+                    className="flex w-full items-center justify-between py-3 text-left disabled:cursor-default"
+                  >
+                    <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[moduleName] ?? moduleName}</span>
+                    {openable ? (
+                      <span className="text-xs font-semibold text-blue-700">Open →</span>
+                    ) : (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">Coming soon</span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
