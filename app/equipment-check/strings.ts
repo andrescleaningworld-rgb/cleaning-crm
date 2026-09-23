@@ -80,3 +80,31 @@ export const EQUIPMENT_CHECK_STRINGS = {
 export function equipmentCheckStrings(lang: TeamHubLang) {
   return EQUIPMENT_CHECK_STRINGS[lang];
 }
+
+// "Add to Home Screen" steps — shown to managers in "Set up a tablet" (both
+// languages, all devices) and on the tablet itself as a dismissible banner
+// (device language, that device's steps only).
+export type InstallPlatform = "ios" | "android" | "other";
+
+export const INSTALL_STEPS: Record<TeamHubLang, { title: string; all: string[]; byPlatform: Record<InstallPlatform, string[]>; gotIt: string }> = {
+  en: {
+    title: "Add this app to the Home Screen",
+    all: ["1. Scan with the tablet camera.", "2. Tap Share (iPad) or ⋮ (Android).", "3. Tap Add to Home Screen."],
+    byPlatform: {
+      ios: ["1. Tap Share (the square with an arrow).", "2. Tap Add to Home Screen."],
+      android: ["1. Tap ⋮ (top right).", "2. Tap Add to Home screen."],
+      other: ["1. Tap Share (iPad) or ⋮ (Android).", "2. Tap Add to Home Screen."],
+    },
+    gotIt: "Got it",
+  },
+  es: {
+    title: "Agrega esta app a la pantalla de inicio",
+    all: ["1. Escanea con la cámara de la tableta.", "2. Toca Compartir (iPad) o ⋮ (Android).", "3. Toca Agregar a inicio."],
+    byPlatform: {
+      ios: ["1. Toca Compartir (el cuadro con la flecha).", "2. Toca Agregar a inicio."],
+      android: ["1. Toca ⋮ (arriba a la derecha).", "2. Toca Agregar a la pantalla principal."],
+      other: ["1. Toca Compartir (iPad) o ⋮ (Android).", "2. Toca Agregar a inicio."],
+    },
+    gotIt: "Entendido",
+  },
+};

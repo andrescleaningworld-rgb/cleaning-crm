@@ -2,11 +2,13 @@
 
 // Manager-side pieces of the Equipment Check tablet app
 // (docs/equipment-check-spec.md §3, §7, §8), dropped into the existing
-// Equipment pages as additions only: the "Open tablet app" button, report
+// Equipment pages as additions only: the "Set up a tablet" panel, report
 // history (per item and per staff member), and the per-person PIN controls
 // in the Staff list. Reads only its own /api/equipment-check-link,
 // /api/equipment-pins and /api/equipment-reports routes.
 import { useCallback, useEffect, useState } from "react";
+import QRCode from "qrcode";
+import { INSTALL_STEPS } from "@/app/equipment-check/strings";
 import TranslatedText from "@/app/components/TranslatedText";
 import type { Staff } from "./types";
 
@@ -186,32 +188,129 @@ function useTabletLinkPath() {
   return { path, error, regenerate: () => load("POST") };
 }
 
-// §7 — "Open tablet app" at the top of Equipment, plus "New link" in case
-// the link ever gets out (old link stops working, tablets sign out).
-export function OpenTabletAppButton() {
+function useCopiedFlag(): [boolean, () => void] {
+  const [copied, setCopied] = useState(false);
+  const flash = useCallback(() => {
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  }, []);
+  return [copied, flash];
+}
+
+// §7 — "Set up a tablet" at the top of Equipment: a panel with a QR code of
+// the tablet link (generated in the browser by the `qrcode` package — no
+// external service ever sees the link), the link with Copy, an "Email link"
+// mailto for the tablet's own inbox, and the EN/ES Add to Home Screen steps.
+// "New link" lives here too, in case the link ever gets out (old link stops
+// working, tablets sign out).
+export function SetUpTabletButton() {
   const { path, error, regenerate } = useTabletLinkPath();
+  const [open, setOpen] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [copied, flashCopied] = useCopiedFlag();
+
+  const linkUrl = path && typeof window !== "undefined" ? `${window.location.origin}${path}` : "";
+
+  useEffect(() => {
+    if (!open || !linkUrl) return;
+    let cancelled = false;
+    QRCode.toDataURL(linkUrl, { width: 320, margin: 2, errorCorrectionLevel: "M" })
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, linkUrl]);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(linkUrl);
+      flashCopied();
+    } catch {
+      window.prompt("Copy this link:", linkUrl);
+    }
+  }
 
   function newLink() {
-    if (!window.confirm("Make a new tablet link? The old link stops working — tablets and staff phones will need the new one.")) return;
+    if (!window.confirm("Make a new tablet link? The old link stops working — every tablet (and any staff phone) has to be set up again.")) return;
     regenerate();
   }
 
+  const mailto = `mailto:?subject=${encodeURIComponent("Equipment Check tablet link")}&body=${encodeURIComponent(
+    `Open this on the tablet, then add it to the Home Screen:\n${linkUrl}\n\nÁbrelo en la tableta y agrégalo a la pantalla de inicio:\n${linkUrl}`
+  )}`;
+
   return (
-    <div className="flex items-center gap-2">
-      <a
-        href={path || undefined}
-        target="_blank"
-        rel="noreferrer"
-        aria-disabled={!path}
-        className={`rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 ${path ? "" : "pointer-events-none opacity-60"}`}
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={!path}
+        className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
       >
-        Open tablet app
-      </a>
-      <button type="button" onClick={newLink} className="text-xs font-semibold text-gray-500 hover:underline">
-        New link
+        Set up a tablet
       </button>
       {error && <span className="text-xs font-semibold text-red-700">{error}</span>}
-    </div>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Set up a tablet"
+            className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <h2 className="text-2xl font-bold text-gray-900">Set up a tablet</h2>
+              <button type="button" onClick={() => setOpen(false)} className="text-2xl leading-none text-gray-400 hover:text-gray-600" aria-label="Close">
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 flex justify-center">
+              {qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- data: URL generated in the browser
+                <img src={qrDataUrl} alt="QR code of the tablet link" className="h-72 w-72 rounded-lg border border-gray-200" />
+              ) : (
+                <div className="flex h-72 w-72 items-center justify-center rounded-lg border border-gray-200 text-sm text-gray-500">Loading…</div>
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center gap-2">
+              <input readOnly value={linkUrl} onFocus={(e) => e.target.select()} className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800" />
+              <button type="button" onClick={copyLink} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <a href={mailto} className="mt-3 inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+              Email link
+            </a>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              {(["en", "es"] as const).map((lang) => (
+                <div key={lang} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+                  <p className="mb-1 font-semibold">{INSTALL_STEPS[lang].title}</p>
+                  {INSTALL_STEPS[lang].all.map((step) => (
+                    <p key={step}>{step}</p>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-5 border-t border-gray-100 pt-3 text-right">
+              <button type="button" onClick={newLink} className="text-xs font-semibold text-gray-500 hover:underline">
+                Make a new link (old one stops working)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -225,7 +324,7 @@ export type EquipmentPinStatus = {
 };
 
 // Loads PIN status for the whole Staff list plus the tablet link (for the
-// "Text invite" message) — used once by StaffSection.
+// "Copy invite" message) — used once by StaffSection.
 export function useEquipmentPinStatuses() {
   const [pins, setPins] = useState<Record<string, EquipmentPinStatus>>({});
   const { path } = useTabletLinkPath();
@@ -250,18 +349,50 @@ export function useEquipmentPinStatuses() {
   return { pins, linkPath: path, reload };
 }
 
-function inviteSmsHref(name: string, linkUrl: string): string {
+function inviteText(name: string, linkUrl: string): string {
   const firstName = name.trim().split(/\s+/)[0] || name;
-  const body =
+  return (
     `Hi ${firstName}, here's the equipment app: ${linkUrl}. The first time, tap your name and create your own 4-digit PIN.\n\n` +
-    `Hola ${firstName}, aquí está la app de equipo: ${linkUrl}. La primera vez, toca tu nombre y crea tu propio PIN de 4 dígitos.`;
-  // "sms:?&body=" opens Messages with the text filled in on both iOS and
-  // Android; Staff records have no phone number, so the manager picks the
-  // recipient in Messages.
-  return `sms:?&body=${encodeURIComponent(body)}`;
+    `Hola ${firstName}, aquí está la app de equipo: ${linkUrl}. La primera vez, toca tu nombre y crea tu propio PIN de 4 dígitos.`
+  );
 }
 
-// §3 — one Staff row's PIN status + actions.
+// Only for someone who wants the app on their OWN phone — shared tablets
+// don't need an invite (they just tap their name). sms: links do nothing on
+// Windows, so this copies the message; on a phone/tablet with the share
+// sheet it opens that instead (Messages, WhatsApp, …).
+function CopyInviteButton({ name, linkUrl }: { name: string; linkUrl: string }) {
+  const [copied, flashCopied] = useCopiedFlag();
+
+  async function invite() {
+    const text = inviteText(name, linkUrl);
+    const isTouchDevice = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+    if (isTouchDevice && typeof navigator.share === "function") {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // fall through to copying
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      flashCopied();
+    } catch {
+      window.prompt("Copy this invite:", text);
+    }
+  }
+
+  return (
+    <button type="button" onClick={invite} className="text-xs font-semibold text-blue-700 hover:underline" title="Only needed if they want the app on their own phone">
+      {copied ? "Invite copied!" : "Copy invite (own phone)"}
+    </button>
+  );
+}
+
+// §3 — one Staff row's PIN status + actions. "Allow PIN setup" is the main
+// action; once it's open the person just taps their name on the tablet.
 export function StaffPinControls({
   member,
   pin,
@@ -298,43 +429,68 @@ export function StaffPinControls({
     }
   }
 
-  let status: string;
-  if (pin?.lockedUntil) status = `Locked until ${new Date(pin.lockedUntil).toLocaleTimeString()}`;
-  else if (pin?.hasPin) status = "PIN set";
-  else if (pin?.setupOpen && pin.setupAllowedUntil) status = `Setup open until ${new Date(pin.setupAllowedUntil).toLocaleString()}`;
-  else if (pin?.setupAllowedUntil) status = "Setup expired";
-  else status = "No PIN";
-
   const linkUrl = linkPath && typeof window !== "undefined" ? `${window.location.origin}${linkPath}` : "";
+  const reportsButton = (
+    <button type="button" onClick={onToggleHistory} className="self-start text-xs font-semibold text-blue-700 hover:underline">
+      {historyOpen ? "Hide reports" : "Reports"}
+    </button>
+  );
+
+  if (!member.active) {
+    return <div className="flex flex-col gap-1">{reportsButton}</div>;
+  }
+
+  let body: React.ReactNode;
+  if (pin?.lockedUntil) {
+    body = (
+      <>
+        <span className="text-xs font-semibold text-red-700">Locked until {new Date(pin.lockedUntil).toLocaleTimeString()}</span>
+        <button type="button" onClick={allowSetup} disabled={saving} className="self-start text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60">
+          Reset PIN
+        </button>
+      </>
+    );
+  } else if (pin?.hasPin) {
+    body = (
+      <>
+        <span className="text-xs font-semibold text-green-700">PIN set</span>
+        <button type="button" onClick={allowSetup} disabled={saving} className="self-start text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60">
+          Reset PIN
+        </button>
+      </>
+    );
+  } else if (pin?.setupOpen && pin.setupAllowedUntil) {
+    body = (
+      <>
+        <span className="rounded-lg bg-green-50 px-2 py-1 text-xs font-semibold text-green-800">
+          They can now tap their name on the tablet to create a PIN.
+        </span>
+        <span className="text-xs text-gray-500">Open until {new Date(pin.setupAllowedUntil).toLocaleString()}</span>
+        {linkUrl && <CopyInviteButton name={member.name} linkUrl={linkUrl} />}
+      </>
+    );
+  } else {
+    body = (
+      <>
+        {pin?.setupAllowedUntil && <span className="text-xs text-gray-500">Setup expired</span>}
+        <button
+          type="button"
+          onClick={allowSetup}
+          disabled={saving}
+          className="self-start rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+        >
+          {saving ? "Allowing…" : "Allow PIN setup"}
+        </button>
+      </>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs font-semibold text-gray-600">{status}</span>
-      {member.active ? (
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={allowSetup}
-            disabled={saving}
-            className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {pin?.hasPin || pin?.lockedUntil ? "Reset PIN" : "Allow PIN setup"}
-          </button>
-          {pin?.setupOpen && linkUrl && (
-            <a href={inviteSmsHref(member.name, linkUrl)} className="font-semibold text-blue-700 hover:underline">
-              Text invite
-            </a>
-          )}
-          <button type="button" onClick={onToggleHistory} className="font-semibold text-blue-700 hover:underline">
-            {historyOpen ? "Hide reports" : "Reports"}
-          </button>
-        </div>
-      ) : (
-        <button type="button" onClick={onToggleHistory} className="self-start font-semibold text-blue-700 hover:underline">
-          {historyOpen ? "Hide reports" : "Reports"}
-        </button>
-      )}
+      {body}
+      {reportsButton}
       {error && <span className="text-xs font-semibold text-red-700">{error}</span>}
     </div>
   );
 }
+

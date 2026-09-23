@@ -9,9 +9,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import PinKeypad from "@/app/components/PinKeypad";
 import LangToggle from "@/app/team-hub/[token]/LangToggle";
-import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
+import { useTeamHubLang, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { resizeImageForUpload } from "@/lib/imageResize";
-import { equipmentCheckStrings } from "../strings";
+import { equipmentCheckStrings, INSTALL_STEPS, type InstallPlatform } from "../strings";
 
 type Person = { staffId: string; name: string; isNew: boolean };
 type EquipmentCard = { id: string; name: string; tag: string; photoUrl: string };
@@ -161,6 +161,7 @@ export default function EquipmentCheckPage() {
       </header>
 
       <main className="flex-1 p-4">
+        <InstallBanner lang={lang} />
         {notice && (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-lg font-semibold text-amber-900">
             {notice}
@@ -237,6 +238,69 @@ export default function EquipmentCheckPage() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+const INSTALL_HINT_DISMISSED_KEY = "equipment-check-install-hint-dismissed";
+
+function isRunningStandalone(): boolean {
+  const mediaStandalone = window.matchMedia?.("(display-mode: standalone)").matches ?? false;
+  const iosStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+  return mediaStandalone || iosStandalone;
+}
+
+function detectInstallPlatform(): InstallPlatform {
+  const ua = navigator.userAgent || "";
+  if (/iphone|ipad|ipod/i.test(ua)) return "ios";
+  // iPadOS Safari reports itself as a Mac; a touch screen gives it away.
+  if (/macintosh/i.test(ua) && navigator.maxTouchPoints > 1) return "ios";
+  if (/android/i.test(ua)) return "android";
+  return "other";
+}
+
+// First time the app is opened in a plain browser tab (not from the Home
+// Screen): a dismissible banner with that device's Add to Home Screen
+// steps. Dismissal is remembered on this device (best-effort storage).
+function InstallBanner({ lang }: { lang: TeamHubLang }) {
+  const [platform, setPlatform] = useState<InstallPlatform | null>(null);
+
+  useEffect(() => {
+    if (isRunningStandalone()) return;
+    try {
+      if (localStorage.getItem(INSTALL_HINT_DISMISSED_KEY) === "1") return;
+    } catch {
+      // storage blocked — still show the hint
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only checks, can't run during SSR
+    setPlatform(detectInstallPlatform());
+  }, []);
+
+  if (!platform) return null;
+  const steps = INSTALL_STEPS[lang];
+
+  function dismiss() {
+    setPlatform(null);
+    try {
+      localStorage.setItem(INSTALL_HINT_DISMISSED_KEY, "1");
+    } catch {
+      // best-effort only
+    }
+  }
+
+  return (
+    <div className="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950">
+      <div>
+        <p className="text-lg font-bold">📲 {steps.title}</p>
+        {steps.byPlatform[platform].map((step) => (
+          <p key={step} className="text-base">
+            {step}
+          </p>
+        ))}
+      </div>
+      <button type="button" onClick={dismiss} className="shrink-0 rounded-xl bg-blue-700 px-4 py-2 text-base font-bold text-white active:bg-blue-800">
+        {steps.gotIt}
+      </button>
     </div>
   );
 }

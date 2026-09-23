@@ -100,9 +100,17 @@ lines max. Do not commit.
   re-checks the key version and that the person is still Active in Staff.
 - **No nav**: the layout draws a full-screen layer over the root layout's CRM
   header instead of changing the shared header.
-- **Text invite**: Staff has no phone column, so "Text invite" opens Messages
-  (`sms:?&body=`) with the EN + ES text and the manager picks the recipient.
-  Shown while a setup window is open.
+- **Tablet setup** (2026-09-23 follow-up): "Open tablet app" became "Set up a
+  tablet" — a panel with a QR code of the link (generated in the browser by the
+  `qrcode` npm package, no external service), the link + Copy, "Email link"
+  (mailto), EN/ES Add to Home Screen steps, and "Make a new link". The tablet
+  shows a dismissible Add to Home Screen banner (that device's steps) until it
+  runs from the Home Screen.
+- **Invites**: shared tablets need no invite — "Allow PIN setup" is the main
+  action, then the Staff row says "They can now tap their name on the tablet to
+  create a PIN." "Copy invite (own phone)" is only for someone who wants the app
+  on their own phone: copies the EN + ES message, or opens the share sheet on a
+  phone/tablet. (`sms:` links were dropped — they do nothing on Windows.)
 - **Email** (Yellow/Red only): plain-text like the other internal emails, photos
   as attachments (new optional `attachments` param on `sendInternalNotification`)
   plus their links, English notes then original, link to `/equipment/<id>`,
