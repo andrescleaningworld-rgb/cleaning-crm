@@ -398,6 +398,15 @@ async function main() {
   await sql`ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS note_language TEXT`;
   console.log("Phase 4 Part 2 columns ready (hub_issues.run_id/note_english/note_language, supply_orders.note_english/note_language).");
 
+  // ── Phase 6 Part 3 addition ──────────────────────────────────────────
+  // How many checklist items were due when the run was submitted, so the
+  // activity feed can say "Night crew finished 28 of 30" from a real
+  // snapshot instead of the crew's current item count. NULL for runs
+  // submitted before this column existed (the feed then says "finished 28
+  // items").
+  await sql`ALTER TABLE hub_checklist_runs ADD COLUMN IF NOT EXISTS total_items INT`;
+  console.log("Phase 6 Part 3 column ready (hub_checklist_runs.total_items).");
+
   console.log("Done.");
 }
 

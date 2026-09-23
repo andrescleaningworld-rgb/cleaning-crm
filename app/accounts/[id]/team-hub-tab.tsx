@@ -208,7 +208,7 @@ export default function AccountTeamHubTab({ accountId, accountName }: { accountI
 
       <OrdersAndProblems site={site} accountId={accountId} accountName={accountName} />
 
-      <SiteActivityFeed siteId={site.id} />
+      <SiteActivityFeed siteId={site.id} crews={crews} />
     </div>
   );
 }
@@ -312,36 +312,96 @@ function NightChecklistAlertSettings({ site, onChanged }: { site: TeamHubSite; o
 
 // ─── Activity feed (Phase 6) ─────────────────────────────────────────────
 
+type ActivityBase = { id: string; at: string; crewId: number; crewName: string; workerFirstName: string | null; photos: string[] };
 type ActivityEvent =
-  | { kind: "checklist_submitted"; at: string; crewName: string; doneCount: number }
-  | { kind: "round_check"; at: string; crewName: string; roundName: string; workerFirstName: string | null }
-  | { kind: "issue_reported"; at: string; crewName: string; category: string; workerFirstName: string | null }
-  | { kind: "supply_order"; at: string; crewName: string; itemCount: number; workerFirstName: string | null };
+  | (ActivityBase & { kind: "checklist_submitted"; doneCount: number; totalCount: number | null; problemCount: number })
+  | (ActivityBase & { kind: "round_check"; roundName: string; note: string })
+  | (ActivityBase & {
+      kind: "issue_reported";
+      category: string;
+      status: "open" | "resolved";
+      note: string;
+      noteEnglish: string | null;
+      noteLanguage: string | null;
+    })
+  | (ActivityBase & {
+      kind: "supply_order";
+      itemCount: number;
+      status: "new" | "ordered" | "delivered" | "cancelled";
+      note: string;
+      noteEnglish: string | null;
+      noteLanguage: string | null;
+    });
 
+type ActivityKindFilter = "all" | ActivityEvent["kind"];
+
+const ACTIVITY_KIND_OPTIONS: { value: ActivityKindFilter; label: string }[] = [
+  { value: "all", label: "Everything" },
+  { value: "checklist_submitted", label: "Checklists" },
+  { value: "round_check", label: "Round checks" },
+  { value: "issue_reported", label: "Problems" },
+  { value: "supply_order", label: "Supply orders" },
+];
+
+const ISSUE_CATEGORY_LABELS: Record<string, string> = {
+  restroom: "restroom",
+  trash: "trash",
+  damage: "damage",
+  leak: "leak",
+  access: "access/lock",
+  supplies: "supplies",
+  safety: "safety",
+  other: "other",
+};
+
+const ORDER_STATUS_WORDS: Record<string, string> = { new: "not ordered yet", ordered: "ordered", delivered: "delivered", cancelled: "cancelled" };
+
+// "Night" -> "Night crew", "Night crew" stays as-is.
+function crewLabel(crewName: string): string {
+  return /crew/i.test(crewName) ? crewName : `${crewName} crew`;
+}
+
+// Plain-language line, e.g. "Night crew finished 28 of 30".
 function describeActivityEvent(event: ActivityEvent): string {
+  const crew = crewLabel(event.crewName);
+  const who = event.workerFirstName ? `${event.workerFirstName} (${crew})` : crew;
   switch (event.kind) {
-    case "checklist_submitted":
-      return `${event.crewName}: checklist submitted (${event.doneCount} items)`;
+    case "checklist_submitted": {
+      const count = event.totalCount !== null ? `${event.doneCount} of ${event.totalCount}` : `${event.doneCount} item${event.doneCount === 1 ? "" : "s"}`;
+      const problems = event.problemCount > 0 ? ` — ${event.problemCount} problem${event.problemCount === 1 ? "" : "s"} marked` : "";
+      return `${crew} finished ${count}${problems}`;
+    }
     case "round_check":
-      return `${event.crewName}: ${event.roundName} checked${event.workerFirstName ? ` by ${event.workerFirstName}` : ""}`;
+      return `${who} checked ${event.roundName}`;
     case "issue_reported":
-      return `${event.crewName}: problem reported (${event.category})${event.workerFirstName ? ` by ${event.workerFirstName}` : ""}`;
+      return `${who} reported a ${ISSUE_CATEGORY_LABELS[event.category] ?? event.category} problem — ${event.status === "open" ? "still open" : "resolved"}`;
     case "supply_order":
-      return `${event.crewName}: supply order sent (${event.itemCount} item${event.itemCount === 1 ? "" : "s"})${event.workerFirstName ? ` by ${event.workerFirstName}` : ""}`;
+      return `${who} ordered ${event.itemCount} suppl${event.itemCount === 1 ? "y" : "ies"} — ${ORDER_STATUS_WORDS[event.status] ?? event.status}`;
   }
 }
 
-function SiteActivityFeed({ siteId }: { siteId: number }) {
+function SiteActivityFeed({ siteId, crews }: { siteId: number; crews: TeamHubCrew[] }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [error, setError] = useState("");
+  const [kind, setKind] = useState<ActivityKindFilter>("all");
+  const [status, setStatus] = useState<"" | "open" | "closed">("");
+  const [crewId, setCrewId] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    const params = new URLSearchParams({ siteId: String(siteId) });
+    if (kind !== "all") params.set("kind", kind);
+    if (status) params.set("status", status);
+    if (crewId) params.set("crewId", crewId);
+    if (fromDate) params.set("from", fromDate);
+    if (toDate) params.set("to", toDate);
     try {
-      const res = await fetch(`/api/admin/team-hub/activity?siteId=${siteId}`, { cache: "no-store" });
+      const res = await fetch(`/api/admin/team-hub/activity?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Failed to load activity.");
       setEvents(data.events ?? []);
@@ -350,7 +410,15 @@ function SiteActivityFeed({ siteId }: { siteId: number }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [siteId, kind, status, crewId, fromDate, toDate]);
+
+  // Reload whenever a filter changes while the feed is open.
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  const selectClass = "rounded-lg border border-slate-300 px-2 py-1.5 text-xs text-slate-800";
+  const statusApplies = kind === "all" || kind === "issue_reported" || kind === "supply_order";
 
   return (
     <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -358,11 +426,7 @@ function SiteActivityFeed({ siteId }: { siteId: number }) {
         <h3 className="text-base font-bold text-slate-900">Activity</h3>
         <button
           type="button"
-          onClick={() => {
-            const next = !open;
-            setOpen(next);
-            if (next) load();
-          }}
+          onClick={() => setOpen((v) => !v)}
           className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         >
           {open ? "Hide" : "Show"}
@@ -371,14 +435,64 @@ function SiteActivityFeed({ siteId }: { siteId: number }) {
 
       {open && (
         <div className="mt-3">
+          <div className="mb-3 flex flex-wrap items-end gap-2">
+            <select value={kind} onChange={(e) => setKind(e.target.value as ActivityKindFilter)} className={selectClass} aria-label="Type">
+              {ACTIVITY_KIND_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            {statusApplies && (
+              <select value={status} onChange={(e) => setStatus(e.target.value as "" | "open" | "closed")} className={selectClass} aria-label="Status">
+                <option value="">Any status</option>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
+            )}
+            {crews.length > 1 && (
+              <select value={crewId} onChange={(e) => setCrewId(e.target.value)} className={selectClass} aria-label="Crew">
+                <option value="">All crews</option>
+                {crews.map((c) => (
+                  <option key={c.id} value={String(c.id)}>{c.name}</option>
+                ))}
+              </select>
+            )}
+            <label className="text-xs text-slate-500">
+              From <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={selectClass} />
+            </label>
+            <label className="text-xs text-slate-500">
+              To <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={selectClass} />
+            </label>
+          </div>
+          {status && statusApplies && kind === "all" && (
+            <p className="mb-2 text-xs text-slate-500">Status only applies to problems and supply orders, so checklists and round checks are hidden.</p>
+          )}
+
           {loading && <p className="text-sm text-slate-500">Loading...</p>}
           {error && <p className="text-sm font-semibold text-red-700">{error}</p>}
-          {!loading && events.length === 0 && !error && <p className="text-sm text-slate-500">No activity yet.</p>}
+          {!loading && events.length === 0 && !error && <p className="text-sm text-slate-500">No activity matches.</p>}
           <ul className="divide-y divide-slate-100">
-            {events.map((event, i) => (
-              <li key={i} className="flex items-center justify-between gap-4 py-2 text-sm">
-                <span className="text-slate-700">{describeActivityEvent(event)}</span>
-                <span className="shrink-0 text-xs text-slate-400">{new Date(event.at).toLocaleString()}</span>
+            {events.map((event) => (
+              <li key={event.id} className="py-2 text-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <span className="text-slate-700">{describeActivityEvent(event)}</span>
+                  <span className="shrink-0 text-xs text-slate-400">{new Date(event.at).toLocaleString()}</span>
+                </div>
+                {(event.kind === "issue_reported" || event.kind === "supply_order") && event.note && (
+                  <p className="mt-1 text-xs text-slate-600">
+                    <TranslatedText original={event.note} english={event.noteEnglish} language={event.noteLanguage} />
+                  </p>
+                )}
+                {event.kind === "round_check" && event.note && <p className="mt-1 text-xs text-slate-600">{event.note}</p>}
+                {event.photos.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {event.photos.map((url) => (
+                      <a key={url} href={url} target="_blank" rel="noreferrer">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- Vercel Blob URL */}
+                        <img src={url} alt="Activity photo" className="h-16 w-16 rounded-lg border border-slate-200 object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                )}
               </li>
             ))}
           </ul>

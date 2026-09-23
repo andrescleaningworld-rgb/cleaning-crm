@@ -1,13 +1,24 @@
 "use client";
 
-// Phase 6 (docs/team-hub-spec.md): Sub Center's read-only list of open
-// Team Hub problems/orders for a sub's own accounts. Deliberately
+// Phase 6 (docs/team-hub-spec.md): Sub Center's read-only list of the Team
+// Hub sites each sub's crews work (with open problem/order counts, and the
+// open items themselves one tap away). Deliberately
 // read-only — no status-change actions here; that stays on the staff-only
 // Accounts Center Team Hub tab and each account's own Team Hub tab.
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
 
-type SubWithOpenItems = { subId: string; name: string };
+type SubSite = {
+  siteId: number;
+  accountId: string;
+  accountName: string;
+  siteLabel: string;
+  siteActive: boolean;
+  crews: { id: number; name: string; crewType: string; active: boolean }[];
+  openProblems: number;
+  openOrders: number;
+};
+type SubWithSites = { subId: string; name: string; sites: SubSite[] };
 
 type QueueIssue = {
   id: number;
@@ -74,24 +85,17 @@ function SubOpenItems({ subId, accountNames }: { subId: string; accountNames: Re
 export default function SubCenterTeamHub() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [subs, setSubs] = useState<SubWithOpenItems[]>([]);
-  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  const [subs, setSubs] = useState<SubWithSites[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/admin/team-hub/subs-with-open-items", { cache: "no-store" });
+        const res = await fetch("/api/admin/team-hub/sub-sites", { cache: "no-store" });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || "Failed to load.");
         if (!cancelled) setSubs(data.subs ?? []);
-
-        // Account names come from the (unscoped) queue response so this
-        // page doesn't need its own account-lookup route.
-        const queueRes = await fetch("/api/admin/team-hub/queue", { cache: "no-store" });
-        const queueData = await queueRes.json();
-        if (!cancelled) setAccountNames(queueData.accountNamesById ?? {});
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load.");
       } finally {
@@ -108,26 +112,68 @@ export default function SubCenterTeamHub() {
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
-      <h2 className="text-xl font-bold text-gray-900">Team Hub — open items by sub</h2>
-      <p className="mt-1 text-sm text-gray-600">Read-only. Manage status from Accounts Center → Team Hub or the account&apos;s own Team Hub tab.</p>
+      <h2 className="text-xl font-bold text-gray-900">Team Hub — sites by sub</h2>
+      <p className="mt-1 text-sm text-gray-600">
+        Read-only. Every Team Hub site each sub&apos;s crews work. Manage status from Accounts Center → Team Hub or the account&apos;s own
+        Team Hub tab.
+      </p>
 
       {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>}
 
-      <div className="mt-4 divide-y divide-gray-200 rounded-xl border border-gray-200 bg-white shadow-sm">
-        {subs.map((sub) => (
-          <div key={sub.subId}>
-            <button
-              type="button"
-              onClick={() => setExpanded((current) => (current === sub.subId ? null : sub.subId))}
-              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-gray-50"
-            >
-              <span className="font-semibold text-gray-900">{sub.name}</span>
-              <span className="text-sm text-blue-700">{expanded === sub.subId ? "Hide" : "Show"}</span>
-            </button>
-            {expanded === sub.subId && <SubOpenItems subId={sub.subId} accountNames={accountNames} />}
-          </div>
-        ))}
-        {subs.length === 0 && <p className="p-6 text-center text-sm text-gray-500">No subs with open Team Hub items.</p>}
+      <div className="mt-4 space-y-4">
+        {subs.map((sub) => {
+          const accountNames = Object.fromEntries(sub.sites.map((s) => [s.accountId, s.accountName]));
+          const openTotal = sub.sites.reduce((sum, s) => sum + s.openProblems + s.openOrders, 0);
+          return (
+            <div key={sub.subId} className="rounded-xl border border-gray-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="font-semibold text-gray-900">{sub.name}</span>
+                <span className="text-sm text-gray-500">
+                  {sub.sites.length} site{sub.sites.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <ul className="divide-y divide-gray-100 border-t border-gray-100">
+                {sub.sites.map((site) => (
+                  <li key={site.siteId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
+                    <div>
+                      <span className="font-semibold text-gray-900">{site.accountName}</span>
+                      {site.siteLabel && site.siteLabel !== site.accountName && <span className="text-gray-500"> · {site.siteLabel}</span>}
+                      <p className="text-xs text-gray-500">
+                        {site.crews.map((c) => `${c.name}${c.active ? "" : " (inactive)"}`).join(", ")}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                      {!site.siteActive && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">Team Hub off</span>}
+                      {site.openProblems > 0 && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-800">
+                          {site.openProblems} open problem{site.openProblems === 1 ? "" : "s"}
+                        </span>
+                      )}
+                      {site.openOrders > 0 && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+                          {site.openOrders} open order{site.openOrders === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {openTotal > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded((current) => (current === sub.subId ? null : sub.subId))}
+                    className="w-full border-t border-gray-100 px-4 py-2 text-left text-sm font-semibold text-blue-700 hover:bg-gray-50"
+                  >
+                    {expanded === sub.subId ? "Hide open items" : "Show open items"}
+                  </button>
+                  {expanded === sub.subId && <SubOpenItems subId={sub.subId} accountNames={accountNames} />}
+                </>
+              )}
+            </div>
+          );
+        })}
+        {subs.length === 0 && <p className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">No sub crews on Team Hub yet.</p>}
       </div>
     </div>
   );

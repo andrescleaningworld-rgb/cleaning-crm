@@ -862,6 +862,22 @@ export default function AccountsPage() {
     };
   }, []);
 
+  // Team Hub Phase 6: red "open problems" badge per account row. Best-effort
+  // — a failed load just shows no badges.
+  const [openTeamHubProblems, setOpenTeamHubProblems] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/team-hub/open-counts", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { countsByAccountId?: Record<string, number> }) => {
+        if (!cancelled) setOpenTeamHubProblems(data.countsByAccountId ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function showToast(message: string) {
     setToast(message);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
@@ -3527,6 +3543,11 @@ async function handleSaveTransferProposal() {
                           <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
                             {account.accountName || "Unnamed Account"}
                           </p>
+                          {(openTeamHubProblems[accountId] ?? 0) > 0 && (
+                            <span className="mt-1 inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
+                              {openTeamHubProblems[accountId]} open problem{openTeamHubProblems[accountId] === 1 ? "" : "s"}
+                            </span>
+                          )}
                           <span
                             role="link"
                             tabIndex={0}

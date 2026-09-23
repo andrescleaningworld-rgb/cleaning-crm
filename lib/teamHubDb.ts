@@ -943,10 +943,13 @@ export async function upsertTeamHubChecklistRunItem(input: {
 
 // Idempotent — submitting an already-submitted run just returns it as-is
 // rather than erroring, so a double-tap or a retried request can't fail.
+// Also snapshots how many (non-note) items were due, for the activity
+// feed's "finished 28 of 30" line.
 export async function submitTeamHubChecklistRun(crewId: number, runId: number): Promise<TeamHubChecklistRun | null> {
   const sql = getSql();
+  const totalItems = (await listDueTeamHubChecklistItemsForCrew(crewId)).filter((item) => !item.isNote).length;
   const rows = await sql`
-    UPDATE hub_checklist_runs SET submitted_at = now()
+    UPDATE hub_checklist_runs SET submitted_at = now(), total_items = ${totalItems}
     WHERE id = ${runId} AND crew_id = ${crewId} AND submitted_at IS NULL
     RETURNING *
   `;
@@ -1476,92 +1479,228 @@ export async function verifyTeamHubWorkerPin(
 // logs separate on purpose, same reasoning as Sub Center's activity log
 // staying separate from Settings' Activity Log.
 
-export type TeamHubActivityEvent =
-  | { kind: "checklist_submitted"; at: string; crewId: number; crewName: string; doneCount: number }
-  | { kind: "round_check"; at: string; crewId: number; crewName: string; roundName: string; workerFirstName: string | null }
-  | { kind: "issue_reported"; at: string; crewId: number; crewName: string; category: TeamHubIssueCategory; workerFirstName: string | null }
-  | { kind: "supply_order"; at: string; crewId: number; crewName: string; itemCount: number; workerFirstName: string | null };
+export type TeamHubActivityKind = "checklist_submitted" | "round_check" | "issue_reported" | "supply_order";
+export const TEAM_HUB_ACTIVITY_KINDS: TeamHubActivityKind[] = ["checklist_submitted", "round_check", "issue_reported", "supply_order"];
 
-export async function getTeamHubActivityFeedForSite(siteId: number, limit = 50): Promise<TeamHubActivityEvent[]> {
+type TeamHubActivityBase = {
+  id: string;
+  at: string;
+  crewId: number;
+  crewName: string;
+  workerFirstName: string | null;
+  photos: string[];
+};
+
+export type TeamHubActivityEvent =
+  | (TeamHubActivityBase & { kind: "checklist_submitted"; doneCount: number; totalCount: number | null; problemCount: number })
+  | (TeamHubActivityBase & { kind: "round_check"; roundName: string; note: string })
+  | (TeamHubActivityBase & {
+      kind: "issue_reported";
+      issueId: number;
+      category: TeamHubIssueCategory;
+      status: TeamHubIssue["status"];
+      note: string;
+      noteEnglish: string | null;
+      noteLanguage: string | null;
+    })
+  | (TeamHubActivityBase & {
+      kind: "supply_order";
+      orderId: number;
+      itemCount: number;
+      status: TeamHubSupplyOrderStatus;
+      note: string;
+      noteEnglish: string | null;
+      noteLanguage: string | null;
+    });
+
+// Every filter is optional. `status` only applies to problems and orders
+// (open = open problem / new or ordered order; closed = everything else),
+// so setting it leaves checklist runs and round checks out. Dates are
+// YYYY-MM-DD calendar days in TEAM_HUB_TIMEZONE, both ends inclusive.
+export type TeamHubActivityFilters = {
+  kinds?: TeamHubActivityKind[];
+  crewId?: number | null;
+  status?: "open" | "closed" | null;
+  fromDate?: string | null;
+  toDate?: string | null;
+};
+
+function dayStartInTeamHubTimeZone(date: string, addDays = 0): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const noonUtc = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(noonUtc.getTime())) return null;
+  noonUtc.setUTCDate(noonUtc.getUTCDate() + addDays);
+  return startOfDayInTimeZone(noonUtc, TEAM_HUB_TIMEZONE).toISOString();
+}
+
+// Neon's tagged-template driver can't splice optional SQL fragments (see
+// verifyTeamHubWorkerPin's comment), so each optional filter is written as
+// "(param IS NULL OR condition)" with the param passed as NULL when unset.
+export async function getTeamHubActivityFeedForSite(
+  siteId: number,
+  filters: TeamHubActivityFilters = {},
+  limit = 100
+): Promise<TeamHubActivityEvent[]> {
   const sql = getSql();
   const perKindLimit = Math.min(limit, 200);
+  const kinds = new Set(filters.kinds && filters.kinds.length > 0 ? filters.kinds : TEAM_HUB_ACTIVITY_KINDS);
+  const status = filters.status ?? null;
+  if (status) {
+    kinds.delete("checklist_submitted");
+    kinds.delete("round_check");
+  }
+  const crewId = filters.crewId ?? null;
+  const from = filters.fromDate ? dayStartInTeamHubTimeZone(filters.fromDate) : null;
+  const to = filters.toDate ? dayStartInTeamHubTimeZone(filters.toDate, 1) : null;
+  const wantOpen = status === null ? null : status === "open";
 
+  const none = Promise.resolve([] as Record<string, unknown>[]);
   const [checklistRows, roundRows, issueRows, orderRows] = await Promise.all([
-    sql`
-      SELECT r.submitted_at AS at, c.id AS crew_id, c.name AS crew_name, COUNT(ri.id)::int AS done_count
-      FROM hub_checklist_runs r
-      JOIN hub_crews c ON c.id = r.crew_id
-      LEFT JOIN hub_checklist_run_items ri ON ri.run_id = r.id
-      WHERE c.site_id = ${siteId} AND r.submitted_at IS NOT NULL
-      GROUP BY r.id, c.id, c.name
-      ORDER BY r.submitted_at DESC LIMIT ${perKindLimit}
-    `,
-    sql`
-      SELECT rc.checked_at AS at, c.id AS crew_id, c.name AS crew_name, rl.name AS round_name, w.first_name AS worker_first_name
-      FROM hub_round_checks rc
-      JOIN hub_crew_items ci ON ci.id = rc.crew_item_id
-      JOIN hub_crews c ON c.id = ci.crew_id
-      JOIN hub_round_library rl ON rl.id = ci.item_id
-      LEFT JOIN hub_workers w ON w.id = rc.worker_id
-      WHERE c.site_id = ${siteId}
-      ORDER BY rc.checked_at DESC LIMIT ${perKindLimit}
-    `,
-    sql`
-      SELECT i.created_at AS at, c.id AS crew_id, c.name AS crew_name, i.category, w.first_name AS worker_first_name
-      FROM hub_issues i
-      JOIN hub_crews c ON c.id = i.crew_id
-      LEFT JOIN hub_workers w ON w.id = i.worker_id
-      WHERE i.site_id = ${siteId}
-      ORDER BY i.created_at DESC LIMIT ${perKindLimit}
-    `,
-    sql`
-      SELECT so.created_at AS at, c.id AS crew_id, c.name AS crew_name, w.first_name AS worker_first_name, COUNT(sol.id)::int AS item_count
-      FROM supply_orders so
-      JOIN hub_crews c ON c.id = so.crew_id
-      LEFT JOIN hub_workers w ON w.id = so.worker_id
-      LEFT JOIN supply_order_lines sol ON sol.order_id = so.id
-      WHERE so.site_id = ${siteId}
-      GROUP BY so.id, c.id, c.name, w.first_name
-      ORDER BY so.created_at DESC LIMIT ${perKindLimit}
-    `,
+    kinds.has("checklist_submitted")
+      ? sql`
+          SELECT r.id, r.submitted_at AS at, r.total_items, c.id AS crew_id, c.name AS crew_name,
+                 w.first_name AS worker_first_name,
+                 COUNT(ri.id)::int AS done_count,
+                 COUNT(ri.id) FILTER (WHERE ri.status = 'problem')::int AS problem_count
+          FROM hub_checklist_runs r
+          JOIN hub_crews c ON c.id = r.crew_id
+          LEFT JOIN hub_workers w ON w.id = r.started_by_worker_id
+          LEFT JOIN hub_checklist_run_items ri ON ri.run_id = r.id
+          WHERE c.site_id = ${siteId} AND r.submitted_at IS NOT NULL
+            AND (${crewId}::int IS NULL OR c.id = ${crewId})
+            AND (${from}::timestamptz IS NULL OR r.submitted_at >= ${from})
+            AND (${to}::timestamptz IS NULL OR r.submitted_at < ${to})
+          GROUP BY r.id, c.id, c.name, w.first_name
+          ORDER BY r.submitted_at DESC LIMIT ${perKindLimit}
+        `
+      : none,
+    kinds.has("round_check")
+      ? sql`
+          SELECT rc.id, rc.checked_at AS at, rc.note, c.id AS crew_id, c.name AS crew_name, rl.name AS round_name,
+                 ci.instance_label, w.first_name AS worker_first_name
+          FROM hub_round_checks rc
+          JOIN hub_crew_items ci ON ci.id = rc.crew_item_id
+          JOIN hub_crews c ON c.id = ci.crew_id
+          JOIN hub_round_library rl ON rl.id = ci.item_id
+          LEFT JOIN hub_workers w ON w.id = rc.worker_id
+          WHERE c.site_id = ${siteId}
+            AND (${crewId}::int IS NULL OR c.id = ${crewId})
+            AND (${from}::timestamptz IS NULL OR rc.checked_at >= ${from})
+            AND (${to}::timestamptz IS NULL OR rc.checked_at < ${to})
+          ORDER BY rc.checked_at DESC LIMIT ${perKindLimit}
+        `
+      : none,
+    kinds.has("issue_reported")
+      ? sql`
+          SELECT i.id, i.created_at AS at, i.category, i.status, i.note, i.note_english, i.note_language,
+                 c.id AS crew_id, c.name AS crew_name, w.first_name AS worker_first_name
+          FROM hub_issues i
+          JOIN hub_crews c ON c.id = i.crew_id
+          LEFT JOIN hub_workers w ON w.id = i.worker_id
+          WHERE i.site_id = ${siteId}
+            AND (${crewId}::int IS NULL OR c.id = ${crewId})
+            AND (${from}::timestamptz IS NULL OR i.created_at >= ${from})
+            AND (${to}::timestamptz IS NULL OR i.created_at < ${to})
+            AND (${wantOpen}::boolean IS NULL OR (i.status = 'open') = ${wantOpen})
+          ORDER BY i.created_at DESC LIMIT ${perKindLimit}
+        `
+      : none,
+    kinds.has("supply_order")
+      ? sql`
+          SELECT so.id, so.created_at AS at, so.status, so.note, so.note_english, so.note_language,
+                 c.id AS crew_id, c.name AS crew_name, w.first_name AS worker_first_name,
+                 COUNT(sol.order_id)::int AS item_count
+          FROM supply_orders so
+          JOIN hub_crews c ON c.id = so.crew_id
+          LEFT JOIN hub_workers w ON w.id = so.worker_id
+          LEFT JOIN supply_order_lines sol ON sol.order_id = so.id
+          WHERE so.site_id = ${siteId}
+            AND (${crewId}::int IS NULL OR c.id = ${crewId})
+            AND (${from}::timestamptz IS NULL OR so.created_at >= ${from})
+            AND (${to}::timestamptz IS NULL OR so.created_at < ${to})
+            AND (${wantOpen}::boolean IS NULL OR (so.status IN ('new','ordered')) = ${wantOpen})
+          GROUP BY so.id, c.id, c.name, w.first_name
+          ORDER BY so.created_at DESC LIMIT ${perKindLimit}
+        `
+      : none,
   ]);
+
+  const runIds = checklistRows.map((r) => (r as Record<string, unknown>).id as number);
+  const [runPhotoRows, roundPhotos, issuePhotos] = await Promise.all([
+    runIds.length > 0
+      ? sql`
+          SELECT ri.run_id, p.blob_url
+          FROM hub_photos p
+          JOIN hub_checklist_run_items ri ON p.parent_type = 'run_item' AND p.parent_id = ri.id
+          WHERE ri.run_id = ANY(${runIds})
+          ORDER BY p.created_at ASC
+        `
+      : none,
+    getTeamHubPhotosForParents("round_check", roundRows.map((r) => (r as Record<string, unknown>).id as number)),
+    getTeamHubPhotosForParents("issue", issueRows.map((r) => (r as Record<string, unknown>).id as number)),
+  ]);
+  const runPhotos = new Map<number, string[]>();
+  for (const r of runPhotoRows) {
+    const row = r as Record<string, unknown>;
+    const runId = row.run_id as number;
+    if (!runPhotos.has(runId)) runPhotos.set(runId, []);
+    runPhotos.get(runId)!.push(row.blob_url as string);
+  }
+
+  const base = (row: Record<string, unknown>, prefix: string, photos: string[]): TeamHubActivityBase => ({
+    id: `${prefix}-${row.id as number}`,
+    at: toIso(row.at),
+    crewId: row.crew_id as number,
+    crewName: row.crew_name as string,
+    workerFirstName: (row.worker_first_name as string | null) ?? null,
+    photos,
+  });
 
   const events: TeamHubActivityEvent[] = [];
   for (const r of checklistRows) {
     const row = r as Record<string, unknown>;
-    events.push({ kind: "checklist_submitted", at: toIso(row.at), crewId: row.crew_id as number, crewName: row.crew_name as string, doneCount: row.done_count as number });
+    events.push({
+      ...base(row, "run", runPhotos.get(row.id as number) ?? []),
+      kind: "checklist_submitted",
+      doneCount: row.done_count as number,
+      totalCount: (row.total_items as number | null) ?? null,
+      problemCount: row.problem_count as number,
+    });
   }
   for (const r of roundRows) {
     const row = r as Record<string, unknown>;
+    const label = row.instance_label as string | null;
     events.push({
+      ...base(row, "round", roundPhotos.get(row.id as number) ?? []),
       kind: "round_check",
-      at: toIso(row.at),
-      crewId: row.crew_id as number,
-      crewName: row.crew_name as string,
-      roundName: row.round_name as string,
-      workerFirstName: (row.worker_first_name as string | null) ?? null,
+      roundName: label ? `${row.round_name as string} (${label})` : (row.round_name as string),
+      note: (row.note as string) ?? "",
     });
   }
   for (const r of issueRows) {
     const row = r as Record<string, unknown>;
     events.push({
+      ...base(row, "issue", issuePhotos.get(row.id as number) ?? []),
       kind: "issue_reported",
-      at: toIso(row.at),
-      crewId: row.crew_id as number,
-      crewName: row.crew_name as string,
+      issueId: row.id as number,
       category: row.category as TeamHubIssueCategory,
-      workerFirstName: (row.worker_first_name as string | null) ?? null,
+      status: row.status as TeamHubIssue["status"],
+      note: (row.note as string) ?? "",
+      noteEnglish: (row.note_english as string | null) ?? null,
+      noteLanguage: (row.note_language as string | null) ?? null,
     });
   }
   for (const r of orderRows) {
     const row = r as Record<string, unknown>;
     events.push({
+      ...base(row, "order", []),
       kind: "supply_order",
-      at: toIso(row.at),
-      crewId: row.crew_id as number,
-      crewName: row.crew_name as string,
+      orderId: row.id as number,
       itemCount: row.item_count as number,
-      workerFirstName: (row.worker_first_name as string | null) ?? null,
+      status: row.status as TeamHubSupplyOrderStatus,
+      note: (row.note as string) ?? "",
+      noteEnglish: (row.note_english as string | null) ?? null,
+      noteLanguage: (row.note_language as string | null) ?? null,
     });
   }
 
@@ -1664,21 +1803,62 @@ export async function listOpenTeamHubSupplyOrdersForSub(subId: string, limit = 2
   return orders;
 }
 
-// Every distinct sub_id (Team Hub's own scheme — see
-// lib/teamHubAccountLookup.ts) that currently owns at least one open issue
-// or open order — lets the Sub Center tab list only subs with something to
-// show, without the caller needing to know the full sub roster up front.
-export async function listTeamHubSubIdsWithOpenItems(): Promise<string[]> {
+// Sub Center read-only list (Phase 6): every Team Hub site a sub's crews
+// work — one row per (sub, site), with that sub's crews there and the
+// site's open problem / open order counts for those crews. sub_id is Team
+// Hub's own scheme (see lib/teamHubAccountLookup.ts). Returns account_id
+// only; the route resolves names through lib/teamHubAccountLookup.ts.
+export type TeamHubSubCrewSite = {
+  subId: string;
+  siteId: number;
+  accountId: string;
+  siteLabel: string;
+  siteActive: boolean;
+  crews: { id: number; name: string; crewType: TeamHubCrew["crewType"]; active: boolean }[];
+  openProblems: number;
+  openOrders: number;
+};
+
+export async function listTeamHubSubCrewSites(): Promise<TeamHubSubCrewSite[]> {
   const sql = getSql();
   const rows = await sql`
-    SELECT DISTINCT c.sub_id
+    SELECT c.sub_id, s.id AS site_id, s.account_id, s.label AS site_label, s.active AS site_active,
+           c.id AS crew_id, c.name AS crew_name, c.crew_type, c.active AS crew_active,
+           (SELECT COUNT(*)::int FROM hub_issues i WHERE i.crew_id = c.id AND i.status = 'open') AS open_problems,
+           (SELECT COUNT(*)::int FROM supply_orders so WHERE so.crew_id = c.id AND so.status IN ('new', 'ordered')) AS open_orders
     FROM hub_crews c
-    WHERE c.crew_kind = 'sub' AND c.sub_id IS NOT NULL AND (
-      EXISTS (SELECT 1 FROM hub_issues i WHERE i.crew_id = c.id AND i.status = 'open')
-      OR EXISTS (SELECT 1 FROM supply_orders so WHERE so.crew_id = c.id AND so.status IN ('new', 'ordered'))
-    )
+    JOIN hub_sites s ON s.id = c.site_id
+    WHERE c.crew_kind = 'sub' AND c.sub_id IS NOT NULL
+    ORDER BY c.sub_id, s.label, c.name
   `;
-  return rows.map((r) => (r as Record<string, unknown>).sub_id as string);
+  const bySubSite = new Map<string, TeamHubSubCrewSite>();
+  for (const r of rows) {
+    const row = r as Record<string, unknown>;
+    const key = `${row.sub_id as string}|${row.site_id as number}`;
+    let entry = bySubSite.get(key);
+    if (!entry) {
+      entry = {
+        subId: row.sub_id as string,
+        siteId: row.site_id as number,
+        accountId: row.account_id as string,
+        siteLabel: row.site_label as string,
+        siteActive: row.site_active as boolean,
+        crews: [],
+        openProblems: 0,
+        openOrders: 0,
+      };
+      bySubSite.set(key, entry);
+    }
+    entry.crews.push({
+      id: row.crew_id as number,
+      name: row.crew_name as string,
+      crewType: row.crew_type as TeamHubCrew["crewType"],
+      active: row.crew_active as boolean,
+    });
+    entry.openProblems += row.open_problems as number;
+    entry.openOrders += row.open_orders as number;
+  }
+  return Array.from(bySubSite.values());
 }
 
 // Accounts Center badge (Phase 6): open-issue count per account_id, for

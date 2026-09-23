@@ -66,9 +66,8 @@ export async function lookupAssignedSubForAccount(accountId: string): Promise<Te
 
 // Phase 6 (Sub Center read-only list): resolves hub_crews.sub_id values
 // (getAllSubcontractorsRaw's own "SUB-ROW-<n>" id scheme — see that
-// function's comment) back to display names, for subIds already known to
-// have open Team Hub issues/orders (lib/teamHubDb.ts's
-// listTeamHubSubIdsWithOpenItems). Not scoped/filtered — a small, rarely-
+// function's comment) back to display names, for the subIds that own a
+// Team Hub crew (lib/teamHubDb.ts's listTeamHubSubCrewSites). Not scoped/filtered — a small, rarely-
 // called admin list, same cost tradeoff already accepted for
 // lookupAssignedSubForAccount.
 export async function lookupSubcontractorNames(subIds: string[]): Promise<Map<string, string>> {

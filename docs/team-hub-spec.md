@@ -947,6 +947,33 @@ below and neither Phase 4 nor Phase 6 depends on them.
   cookies, the cron's own `CRON_SECRET` check) or the cron on its real
   Vercel schedule — same gap Phase 4 flagged for its own routes.
 
+  **Phase 6 gap pass (Part 3, 2026-09-23)** — closes the gaps between the
+  first Phase 6 build and the brief:
+  - **Activity feed bug**: the supply-order query counted
+    `supply_order_lines.id`, a column that doesn't exist (that table's key
+    is `(order_id, item_id)`), so the feed errored on every load. Now
+    counts `order_id`.
+  - **"Night crew finished 28 of 30"**: new nullable
+    `hub_checklist_runs.total_items`, snapshotted by
+    `submitTeamHubChecklistRun()` from `listDueTeamHubChecklistItemsForCrew()`
+    (notes excluded). Runs submitted before this column read "finished N
+    items". Plain-language lines for every event ("Ana (Night crew)
+    reported a leak problem — still open").
+  - **Feed photos + filters**: run-item, round-check and issue photos are
+    attached to events; `GET /api/admin/team-hub/activity` takes
+    `kind`, `status` (open|closed — problems/orders only), `crewId`,
+    `from`/`to` (America/New_York days). Worker notes use TranslatedText
+    (English first, "Show original").
+  - **Accounts Center**: besides the tab total, each account row in the
+    accounts list now shows a red "N open problems" badge (same
+    `/api/admin/team-hub/open-counts`).
+  - **Sub Center**: the tab now lists every Team Hub site each sub's crews
+    work (account name, site, crews, open problem/order counts) via
+    `listTeamHubSubCrewSites()` + `GET /api/admin/team-hub/sub-sites`
+    (replaces `subs-with-open-items`, which only listed subs with open
+    items). The open items stay one tap away, still read-only.
+  - Staff queue and night-checklist alert were already complete; unchanged.
+
   Sheets touch points from this phase: `lookupAccountSummary()` (cron
   route's email account name) and the new `lookupSubcontractorNames()`
   (Sub Center tab's sub display names), both via the existing
