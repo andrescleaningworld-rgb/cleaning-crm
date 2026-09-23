@@ -8,12 +8,15 @@
 // either way (not back to the checklist specifically — simplest, and
 // consistent with every other module screen's Back behavior).
 //
-// "Links the problem to the current run" (the original brief) doesn't map
-// onto hub_issues.run_item_id — that FK points at one specific checklist
-// item's run_item row, and this button is deliberately NOT per-item
-// (the simplicity pass removed per-item Problem status entirely). Nothing
-// here sets run_item_id; the report is tied to the crew/site/timestamp,
-// which is enough for an admin to tell which visit it happened during.
+// "Links the problem to the current run" (Part 2): handled entirely
+// server-side in reportTeamHubIssue() (lib/teamHubDb.ts), which looks up
+// the crew's own currently-open checklist run and stores it on
+// hub_issues.run_id — a separate, whole-run column from run_item_id (a
+// per-item FK this button was never going to set; the simplicity pass
+// already removed per-item Problem status). Nothing in this file needs to
+// know about it — the linkage is automatic whenever a run happens to be
+// open at report time, regardless of which of the two entry points
+// (Today's "issues" tile, or the checklist screen's button below) sent it.
 import { useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings, TEAM_HUB_STRINGS } from "../teamHubStrings";

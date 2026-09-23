@@ -5,11 +5,17 @@
 // account_id/accountName — only site label (already known client-side) and
 // the caller's own order history.
 import { NextRequest, NextResponse } from "next/server";
-import { listEnabledTeamHubSupplyItemsForCrew, listRecentTeamHubSupplyOrdersForCrew, createTeamHubSupplyOrder } from "@/lib/teamHubDb";
+import {
+  listEnabledTeamHubSupplyItemsForCrew,
+  listRecentTeamHubSupplyOrdersForCrew,
+  createTeamHubSupplyOrder,
+  setTeamHubSupplyOrderNoteTranslation,
+} from "@/lib/teamHubDb";
 import { requireTeamHubWorkerSession } from "@/lib/teamHubWorkerSession";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { sendInternalNotification } from "@/lib/email";
+import { translateToEnglish } from "@/lib/translate";
 import { waitUntil } from "@vercel/functions";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -66,15 +72,33 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const order = await createTeamHubSupplyOrder({ siteId: ctx.site.id, crewId: ctx.crew.id, workerId: ctx.worker.id, note, lines });
 
     const origin = new URL(request.url).origin;
-    const account = await lookupAccountSummary(ctx.site.accountId);
+
+    // SHARED TRANSLATION (docs/team-hub-spec.md §12) — same
+    // translate-then-email sequencing as the issues route.
     waitUntil(
-      sendInternalNotification(`Team Hub: new supply order — ${ctx.site.label}`, [
-        `Account: ${account?.accountName ?? ctx.site.accountId}`,
-        `Crew: ${ctx.crew.name}`,
-        ...order.lines.map((l) => `${l.itemName} x${l.qty} ${l.unit}`),
-        order.note ? `Note: ${order.note}` : "No note.",
-        `Team Hub tab: ${origin}/accounts/${encodeURIComponent(ctx.site.accountId)}?tab=team-hub`,
-      ]).catch((error) => console.error("[team-hub supplies email]", error))
+      (async () => {
+        let englishNote = order.note;
+        if (order.note) {
+          const translated = await translateToEnglish(order.note);
+          if (translated) {
+            await setTeamHubSupplyOrderNoteTranslation(order.id, translated.english, translated.detectedLanguage);
+            englishNote = translated.english;
+          }
+        }
+
+        const account = await lookupAccountSummary(ctx.site.accountId);
+        const noteLine = order.note ? `Note: ${englishNote}` : "No note.";
+        const originalLine = order.note && englishNote !== order.note ? `Original: ${order.note}` : null;
+
+        await sendInternalNotification(`Team Hub: new supply order — ${ctx.site.label}`, [
+          `Account: ${account?.accountName ?? ctx.site.accountId}`,
+          `Crew: ${ctx.crew.name}`,
+          ...order.lines.map((l) => `${l.itemName} x${l.qty} ${l.unit}`),
+          noteLine,
+          ...(originalLine ? [originalLine] : []),
+          `Team Hub tab: ${origin}/accounts/${encodeURIComponent(ctx.site.accountId)}?tab=team-hub`,
+        ]);
+      })().catch((error) => console.error("[team-hub supplies email]", error))
     );
 
     return NextResponse.json({ success: true, orderId: order.id });

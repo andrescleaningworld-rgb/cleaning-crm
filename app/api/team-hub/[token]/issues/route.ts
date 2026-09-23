@@ -6,11 +6,18 @@
 // direct model) — only success + the issue id/photo count.
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
-import { reportTeamHubIssue, addTeamHubPhoto, TEAM_HUB_ISSUE_CATEGORIES, type TeamHubIssueCategory } from "@/lib/teamHubDb";
+import {
+  reportTeamHubIssue,
+  addTeamHubPhoto,
+  setTeamHubIssueNoteTranslation,
+  TEAM_HUB_ISSUE_CATEGORIES,
+  type TeamHubIssueCategory,
+} from "@/lib/teamHubDb";
 import { requireTeamHubWorkerSession } from "@/lib/teamHubWorkerSession";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { sendInternalNotification } from "@/lib/email";
+import { translateToEnglish } from "@/lib/translate";
 import { waitUntil } from "@vercel/functions";
 
 const MAX_NOTE_LENGTH = 2000;
@@ -77,16 +84,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const origin = new URL(request.url).origin;
-    const account = await lookupAccountSummary(ctx.site.accountId);
+
+    // SHARED TRANSLATION (docs/team-hub-spec.md §12): translated first, then
+    // the email — never in parallel with it — so the email always carries
+    // the English text, not a race against whichever finishes first. Kept
+    // inside one waitUntil so neither step delays the "Send" response.
     waitUntil(
-      sendInternalNotification(`Team Hub: new problem reported — ${ctx.site.label}`, [
-        `Account: ${account?.accountName ?? ctx.site.accountId}`,
-        `Crew: ${ctx.crew.name}`,
-        `Category: ${category}`,
-        note ? `Note: ${note}` : "No note.",
-        photoUrls.length > 0 ? `Photos: ${photoUrls.join(", ")}` : "No photos.",
-        `Team Hub tab: ${origin}/accounts/${encodeURIComponent(ctx.site.accountId)}?tab=team-hub`,
-      ]).catch((error) => console.error("[team-hub issues email]", error))
+      (async () => {
+        let englishNote = note;
+        if (note) {
+          const translated = await translateToEnglish(note);
+          if (translated) {
+            await setTeamHubIssueNoteTranslation(issue.id, translated.english, translated.detectedLanguage);
+            englishNote = translated.english;
+          }
+        }
+
+        const account = await lookupAccountSummary(ctx.site.accountId);
+        const noteLine = note ? `Note: ${englishNote}` : "No note.";
+        const originalLine = note && englishNote !== note ? `Original: ${note}` : null;
+
+        await sendInternalNotification(`Team Hub: new problem reported — ${ctx.site.label}`, [
+          `Account: ${account?.accountName ?? ctx.site.accountId}`,
+          `Crew: ${ctx.crew.name}`,
+          `Category: ${category}`,
+          noteLine,
+          ...(originalLine ? [originalLine] : []),
+          photoUrls.length > 0 ? `Photos: ${photoUrls.join(", ")}` : "No photos.",
+          `Team Hub tab: ${origin}/accounts/${encodeURIComponent(ctx.site.accountId)}?tab=team-hub`,
+        ]);
+      })().catch((error) => console.error("[team-hub issues email]", error))
     );
 
     return NextResponse.json({ success: true, issueId: issue.id, photosUploaded: photoUrls.length });

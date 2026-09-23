@@ -377,6 +377,27 @@ async function main() {
   `;
   console.log("hub_checklist_alerts_sent ready.");
 
+  // ── Phase 4 Part 2 additions ─────────────────────────────────────────
+  // "Links the problem to the current run": reportTeamHubIssue() now looks
+  // up the crew's own open checklist run (if any) and stores it here — a
+  // separate column from run_item_id (which points at one specific
+  // checklist item's run_item row and stays null for whole-run reports;
+  // see the original hub_issues comment above).
+  await sql`ALTER TABLE hub_issues ADD COLUMN IF NOT EXISTS run_id INT REFERENCES hub_checklist_runs(id)`;
+  // SHARED TRANSLATION (docs/team-hub-spec.md §12): every worker-written
+  // note stores original + English + detected language. `note` (above)
+  // stays the original as typed; these two are filled in asynchronously
+  // after the row is created (translation shouldn't block the crew's
+  // "Send" response), so both start NULL, not empty string, to distinguish
+  // "not translated yet / translation failed" from "translated to an empty
+  // string" (an empty original note translates to English "" immediately,
+  // with no API call — see lib/translate.ts).
+  await sql`ALTER TABLE hub_issues ADD COLUMN IF NOT EXISTS note_english TEXT`;
+  await sql`ALTER TABLE hub_issues ADD COLUMN IF NOT EXISTS note_language TEXT`;
+  await sql`ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS note_english TEXT`;
+  await sql`ALTER TABLE supply_orders ADD COLUMN IF NOT EXISTS note_language TEXT`;
+  console.log("Phase 4 Part 2 columns ready (hub_issues.run_id/note_english/note_language, supply_orders.note_english/note_language).");
+
   console.log("Done.");
 }
 

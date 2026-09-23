@@ -1070,10 +1070,20 @@ export async function recordTeamHubRoundCheck(input: {
 // needed a real, always-visible "Report a problem" action rather than a
 // dead button. Phase 4 replaces it with the full version: a real category,
 // photos (via hub_photos, parent_type='issue'), and admin status/complaint
-// linkage. run_item_id is still always null — see the file comment on
-// IssueReportView.tsx (crew UI) for why "links the problem to the current
-// run" doesn't map onto a per-item FK the simplified checklist screen no
-// longer has a natural anchor for.
+// linkage.
+//
+// "Links the problem to the current run" (Part 2): reportTeamHubIssue looks
+// up the crew's own currently-open checklist run (if any) and stores its id
+// in `run_id` — a separate, whole-run-level column from `run_item_id`
+// (which points at one specific checklist item's run_item row and always
+// stays null here; there's no single item to anchor a whole-run problem
+// report to since the simplicity pass removed the per-item Problem status).
+// This is server-determined, not client-supplied: the report is reached
+// two ways (the checklist screen's always-visible button, and the Today
+// "issues" tile directly), and either one links automatically whenever the
+// crew happens to have an open run at report time — simpler and more
+// robust than threading a runId through the client/route contract, and
+// semantically the same thing ("this happened during this run").
 
 export const TEAM_HUB_ISSUE_CATEGORIES = ["restroom", "trash", "damage", "leak", "access", "supplies", "safety", "other"] as const;
 export type TeamHubIssueCategory = (typeof TEAM_HUB_ISSUE_CATEGORIES)[number];
@@ -1086,7 +1096,13 @@ export type TeamHubIssue = {
   workerFirstName: string | null;
   category: TeamHubIssueCategory;
   note: string;
+  // SHARED TRANSLATION (docs/team-hub-spec.md §12) — both null until the
+  // async translation (fired from the route, after the row is created)
+  // completes; null also means "translation failed," not "empty."
+  noteEnglish: string | null;
+  noteLanguage: string | null;
   status: "open" | "resolved";
+  runId: number | null;
   complaintId: string | null;
   createdAt: string;
   resolvedAt: string | null;
@@ -1102,7 +1118,10 @@ function rowToIssue(row: Record<string, unknown>): TeamHubIssue {
     workerFirstName: (row.worker_first_name as string | null) ?? null,
     category: row.category as TeamHubIssueCategory,
     note: (row.note as string) ?? "",
+    noteEnglish: (row.note_english as string | null) ?? null,
+    noteLanguage: (row.note_language as string | null) ?? null,
     status: row.status as TeamHubIssue["status"],
+    runId: (row.run_id as number | null) ?? null,
     complaintId: (row.complaint_id as string | null) ?? null,
     createdAt: toIso(row.created_at),
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
@@ -1121,13 +1140,23 @@ export async function reportTeamHubIssue(input: {
     throw new Error("Invalid category.");
   }
   const note = input.note.trim().slice(0, 2000);
+  const openRun = await getOpenTeamHubChecklistRun(input.crewId);
   const sql = getSql();
   const rows = await sql`
-    INSERT INTO hub_issues (site_id, crew_id, worker_id, category, note)
-    VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, ${input.category}, ${note})
+    INSERT INTO hub_issues (site_id, crew_id, worker_id, category, note, run_id)
+    VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, ${input.category}, ${note}, ${openRun?.id ?? null})
     RETURNING *
   `;
   return rowToIssue(rows[0] as Record<string, unknown>);
+}
+
+// Fills in the async translation (see the type comment above) once
+// lib/translate.ts's call resolves — called from the route, not awaited by
+// reportTeamHubIssue itself, so a slow/failed translation never delays the
+// crew's "Send" response.
+export async function setTeamHubIssueNoteTranslation(issueId: number, noteEnglish: string, noteLanguage: string): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE hub_issues SET note_english = ${noteEnglish}, note_language = ${noteLanguage} WHERE id = ${issueId}`;
 }
 
 // Admin: every issue for one site (across all its crews), newest first,
@@ -1225,6 +1254,10 @@ export type TeamHubSupplyOrder = {
   workerFirstName: string | null;
   status: TeamHubSupplyOrderStatus;
   note: string;
+  // SHARED TRANSLATION (docs/team-hub-spec.md §12) — see the matching
+  // TeamHubIssue fields' comment; same null-until-translated contract.
+  noteEnglish: string | null;
+  noteLanguage: string | null;
   createdAt: string;
   updatedAt: string;
   lines: TeamHubSupplyOrderLine[];
@@ -1239,10 +1272,19 @@ function rowToSupplyOrder(row: Record<string, unknown>): TeamHubSupplyOrder {
     workerFirstName: (row.worker_first_name as string | null) ?? null,
     status: row.status as TeamHubSupplyOrderStatus,
     note: (row.note as string) ?? "",
+    noteEnglish: (row.note_english as string | null) ?? null,
+    noteLanguage: (row.note_language as string | null) ?? null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
     lines: [],
   };
+}
+
+// Fills in the async translation (route-driven, same pattern as
+// setTeamHubIssueNoteTranslation) once lib/translate.ts's call resolves.
+export async function setTeamHubSupplyOrderNoteTranslation(orderId: number, noteEnglish: string, noteLanguage: string): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE supply_orders SET note_english = ${noteEnglish}, note_language = ${noteLanguage} WHERE id = ${orderId}`;
 }
 
 async function getSupplyOrderLines(orderIds: number[]): Promise<Map<number, TeamHubSupplyOrderLine[]>> {

@@ -10,6 +10,7 @@
 // otherwise unchanged from before this pass, just re-homed under
 // Customize instead of always being visible.
 import { useEffect, useState, useCallback } from "react";
+import TranslatedText from "../../components/TranslatedText";
 
 type TeamHubSite = {
   id: number;
@@ -929,6 +930,8 @@ type SupplyOrder = {
   id: number;
   status: "new" | "ordered" | "delivered" | "cancelled";
   note: string;
+  noteEnglish: string | null;
+  noteLanguage: string | null;
   workerFirstName: string | null;
   createdAt: string;
   lines: SupplyOrderLine[];
@@ -938,7 +941,10 @@ type Issue = {
   id: number;
   category: string;
   note: string;
+  noteEnglish: string | null;
+  noteLanguage: string | null;
   status: "open" | "resolved";
+  runId: number | null;
   workerFirstName: string | null;
   complaintId: string | null;
   createdAt: string;
@@ -1010,7 +1016,12 @@ function OrdersAndProblems({ site, accountId, accountName }: { site: TeamHubSite
                   <p className="text-sm text-slate-800">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</p>
                   <p className="text-xs text-slate-500">
                     {order.workerFirstName ?? "Unknown"} · {new Date(order.createdAt).toLocaleString()}
-                    {order.note ? ` · "${order.note}"` : ""}
+                    {order.note ? (
+                      <>
+                        {" · "}
+                        <TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />
+                      </>
+                    ) : null}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1083,15 +1094,18 @@ function IssueRow({
   }
 
   const promoteUrl = `/complaints/new?accountId=${encodeURIComponent(accountId)}&accountName=${encodeURIComponent(accountName)}&issue=${encodeURIComponent(
-    `[Team Hub] ${issue.category}: ${issue.note}`
+    `[Team Hub] ${issue.category}: ${issue.noteEnglish || issue.note}`
   )}`;
 
   return (
     <div className="py-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold capitalize text-slate-900">{issue.category}</p>
-          {issue.note && <p className="text-sm text-slate-700">{issue.note}</p>}
+          <p className="text-sm font-semibold capitalize text-slate-900">
+            {issue.category}
+            {issue.runId ? <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">during a checklist run</span> : null}
+          </p>
+          {issue.note && <p className="text-sm text-slate-700"><TranslatedText original={issue.note} english={issue.noteEnglish} language={issue.noteLanguage} /></p>}
           <p className="text-xs text-slate-500">
             {issue.workerFirstName ?? "Unknown"} · {new Date(issue.createdAt).toLocaleString()}
           </p>

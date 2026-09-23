@@ -8,6 +8,7 @@
 // already work by id regardless of which site/account the row belongs to.
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import TranslatedText from "../components/TranslatedText";
 
 type QueueIssue = {
   id: number;
@@ -16,6 +17,9 @@ type QueueIssue = {
   crewName: string;
   category: string;
   note: string;
+  noteEnglish: string | null;
+  noteLanguage: string | null;
+  runId: number | null;
   workerFirstName: string | null;
   createdAt: string;
   photos: string[];
@@ -28,6 +32,8 @@ type QueueOrder = {
   crewName: string;
   status: "new" | "ordered" | "delivered" | "cancelled";
   note: string;
+  noteEnglish: string | null;
+  noteLanguage: string | null;
   workerFirstName: string | null;
   createdAt: string;
   lines: { itemName: string; unit: string; qty: number }[];
@@ -109,8 +115,15 @@ export default function TeamHubStaffQueue() {
                   <Link href={`/accounts/${issue.accountId}?tab=team-hub`} className="font-bold text-blue-700 hover:underline">
                     {accountNames[issue.accountId] ?? issue.accountId}
                   </Link>
-                  <p className="text-sm text-gray-500">{issue.siteLabel} · {issue.crewName} · {issue.category}</p>
-                  {issue.note && <p className="mt-1 text-sm text-gray-700">{issue.note}</p>}
+                  <p className="text-sm text-gray-500">
+                    {issue.siteLabel} · {issue.crewName} · {issue.category}
+                    {issue.runId ? " · during a checklist run" : ""}
+                  </p>
+                  {issue.note && (
+                    <p className="mt-1 text-sm text-gray-700">
+                      <TranslatedText original={issue.note} english={issue.noteEnglish} language={issue.noteLanguage} />
+                    </p>
+                  )}
                   {issue.photos.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {issue.photos.map((url) => (
@@ -147,7 +160,11 @@ export default function TeamHubStaffQueue() {
                       <li key={i}>{line.qty} × {line.itemName} ({line.unit})</li>
                     ))}
                   </ul>
-                  {order.note && <p className="mt-1 text-sm italic text-gray-500">&quot;{order.note}&quot;</p>}
+                  {order.note && (
+                    <p className="mt-1 text-sm italic text-gray-500">
+                      &quot;<TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />&quot;
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-gray-400">{new Date(order.createdAt).toLocaleString()}{order.workerFirstName ? ` · by ${order.workerFirstName}` : ""}</p>
                 </div>
                 <div className="flex shrink-0 gap-2">

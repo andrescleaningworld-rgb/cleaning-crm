@@ -5,10 +5,21 @@
 // read-only — no status-change actions here; that stays on the staff-only
 // Accounts Center Team Hub tab and each account's own Team Hub tab.
 import { useEffect, useState } from "react";
+import TranslatedText from "../components/TranslatedText";
 
 type SubWithOpenItems = { subId: string; name: string };
 
-type QueueIssue = { id: number; accountId: string; siteLabel: string; crewName: string; category: string; note: string; createdAt: string };
+type QueueIssue = {
+  id: number;
+  accountId: string;
+  siteLabel: string;
+  crewName: string;
+  category: string;
+  note: string;
+  noteEnglish: string | null;
+  noteLanguage: string | null;
+  createdAt: string;
+};
 type QueueOrder = { id: number; accountId: string; siteLabel: string; crewName: string; status: string; createdAt: string; lines: { itemName: string; unit: string; qty: number }[] };
 
 function SubOpenItems({ subId, accountNames }: { subId: string; accountNames: Record<string, string> }) {
@@ -40,7 +51,14 @@ function SubOpenItems({ subId, accountNames }: { subId: string; accountNames: Re
       {issues.map((issue) => (
         <div key={`issue-${issue.id}`} className="text-sm text-gray-700">
           <span className="font-semibold">{accountNames[issue.accountId] ?? issue.accountId}</span> — {issue.siteLabel} · {issue.category}
-          {issue.note ? `: ${issue.note}` : ""}
+          {issue.note ? (
+            <>
+              {": "}
+              <TranslatedText original={issue.note} english={issue.noteEnglish} language={issue.noteLanguage} />
+            </>
+          ) : (
+            ""
+          )}
         </div>
       ))}
       {orders.map((order) => (

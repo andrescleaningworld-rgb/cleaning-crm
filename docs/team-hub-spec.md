@@ -190,7 +190,7 @@ Full column lists and FKs live in the script itself — this is a summary.
 - `hub_handoffs` — `site_id, from_crew_id, to_crew_id, worker_id, text, needs_action, status CHECK IN ('open','closed'), closed_by_worker_id, closed_at, close_note, read_at`.
 - `hub_requests` — `site_id, crew_id, title, details, due_at, photo_required, status CHECK IN ('open','done','cancelled'), todo_id, portal_request_id, created_by, completed_by_worker_id, completed_at, completion_note`. See §9 (Phase 3) re: `portal_request_id`.
 - `supply_orders` / `supply_order_lines` *(unrenamed)* — order header + line items against `supply_items`.
-- `hub_issues` — `site_id, crew_id, worker_id, category CHECK IN ('restroom','trash','damage','leak','access','supplies','safety','other'), note, status CHECK IN ('open','resolved'), run_item_id → hub_checklist_run_items, complaint_id, created_at, resolved_at`.
+- `hub_issues` — `site_id, crew_id, worker_id, category CHECK IN ('restroom','trash','damage','leak','access','supplies','safety','other'), note, status CHECK IN ('open','resolved'), run_item_id → hub_checklist_run_items, complaint_id, created_at, resolved_at`. Part 2 added `run_id → hub_checklist_runs` (whole-run linkage — see §9 Phase 4) and `note_english`/`note_language` (§12 SHARED TRANSLATION). `supply_orders` also gained `note_english`/`note_language`.
 - `hub_photos` — `parent_type CHECK IN ('issue','run_item','round_check','handoff','request_completion'), parent_id, blob_url, worker_id, created_at`. `parent_id` is **intentionally not an FK**, same reasoning as `hub_crew_items.item_id`.
 
 **Flagged deviations from the literal field lists** (confirmed during
@@ -653,14 +653,22 @@ below and neither Phase 4 nor Phase 6 depends on them.
     on Today, and the always-visible button at the bottom of
     `ChecklistView` (now a prop, `onReportProblem`, calling the parent's
     `setOpenModule("issues")` instead of rendering an inline form).
-    **"Links the problem to the current run"**: `hub_issues.run_item_id`
-    is a per-*item* FK, and the simplicity pass already removed the
-    per-item Problem status this button used to set — there's no single
-    checklist item to anchor a whole-run problem report to anymore.
-    Interpreted as: the report ties to crew/site/timestamp (already true
-    of every `hub_issues` row), which is enough for an admin to tell which
-    visit it happened during; `run_item_id` stays null. Flagged as a
-    judgment call, not a literal per-item linkage.
+    **"Links the problem to the current run" (resolved for real in Part
+    2 — see below).** `hub_issues.run_item_id` is a per-*item* FK, and the
+    simplicity pass already removed the per-item Problem status this
+    button used to set, so there was never a single checklist item to
+    anchor a whole-run report to; `run_item_id` stays null, always.
+    Originally (Phase 4) this was interpreted as "the report ties to
+    crew/site/timestamp, which is enough" and left there. **Part 2 added a
+    real whole-run link**: `reportTeamHubIssue()` now looks up the crew's
+    own currently-open checklist run (`getOpenTeamHubChecklistRun`) and
+    stores its id in a new column, `hub_issues.run_id` (separate from
+    `run_item_id`) — server-determined, not threaded through the client,
+    so it applies identically whether the report was opened from the
+    checklist screen's button or the Today "issues" tile, whenever a run
+    happens to be open at report time. The admin Team Hub tab, staff
+    queue, and Sub Center list all show a small "during a checklist run"
+    tag on issues where `run_id` is set.
   - **No offline queue.** The simplicity pass's in-memory "retry once on
     reconnect" was removed (Phase 5 owns real offline support, deferred —
     see above). A failed checklist tap or round check-in now reverts its
@@ -780,6 +788,55 @@ below and neither Phase 4 nor Phase 6 depends on them.
   (new direct import, `app/api/admin/team-hub/supply-orders/route.ts`
   only) and `lookupAccountSummary()` via the existing choke point (email
   notifications' real account name) — no other new Sheets reads.
+
+  **Part 2 additions (build-order Part 2 of the 4-part instruction that
+  also produced §12 SHARED TRANSLATION and Phase 6):**
+  - **Run linkage** — see the updated "Links the problem to the current
+    run" note above.
+  - **Notes now go through `lib/translate.ts`.** Both
+    `app/api/team-hub/[token]/issues/route.ts` and `.../supplies/route.ts`
+    insert the row first (fast, `note_english`/`note_language` still
+    null), then — inside the same `waitUntil` that already sent the
+    email, sequenced translate-then-email rather than in parallel — call
+    `translateToEnglish(note)`, persist it via the new
+    `setTeamHubIssueNoteTranslation`/`setTeamHubSupplyOrderNoteTranslation`,
+    and use the English text (falling back to the original if translation
+    failed) in the outbound email, with an `Original: ...` line appended
+    only when the two differ. New shared component
+    `app/components/TranslatedText.tsx` renders English-first with a
+    "Show original" toggle everywhere a translated note is shown: the
+    account Team Hub tab (`IssueRow`, the orders list), the Accounts
+    Center staff queue, and the Sub Center read-only list.
+  - **Sample response** — `POST /api/team-hub/[token]/issues` (unchanged
+    shape from Phase 4 — still no account fields):
+    ```json
+    { "success": true, "issueId": 42, "photosUploaded": 2 }
+    ```
+  - **Verified**: `tsc --noEmit`, `eslint` (scoped to every changed file),
+    a full `next build` — all clean. A throwaway-row test against the dev
+    `DATABASE_URL` (mirroring the SQL directly, plus a real call into
+    `lib/translate.ts`, which has no `@/...` aliases and so can be
+    imported directly): confirmed a report with no open run gets
+    `run_id = null`, a report during an open run gets `run_id` set to
+    that run, and a report after the run is submitted goes back to
+    `run_id = null`; translated a Spanish `hub_issues.note` and a Spanish
+    `supply_orders.note` end-to-end (real Anthropic calls, correct
+    `detectedLanguage`, sensible English text), confirmed the original
+    column is never overwritten, confirmed an empty note short-circuits to
+    `english: "", detectedLanguage: "en"` with no API call, exercised
+    `translateTo` for the manager→crew direction, and checked the
+    display-contract condition (`TranslatedText`'s toggle logic) against
+    both a real translation and an already-English pair. 19/19 assertions
+    passed; all test rows deleted and independently confirmed gone (0
+    leftover). **Skipped, as instructed**: the "promote to complaint"
+    round trip — still no `deleteComplaint()` in this codebase to clean up
+    a test complaint afterward, same gap Phase 4 flagged. **Not
+    exercised**: a live HTTP request through the actual routes (session
+    cookies, multipart parsing, the real `waitUntil` timing) — same gap
+    Phase 4 flagged for itself.
+  - Sheets touch points from Part 2: none beyond what Phase 4 already had
+    — `lib/translate.ts` calls Anthropic, not Sheets, and reuses the
+    existing `lookupAccountSummary()` call already in both routes.
 - **Phase 5 — offline mode — DEFERRED, not yet scoped in detail.** True
   persistent offline support (survives a page reload while offline —
   e.g. an IndexedDB-backed write queue) for the crew app. The simplicity
