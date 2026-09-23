@@ -9,13 +9,10 @@ import {
   listEnabledTeamHubSupplyItemsForCrew,
   listRecentTeamHubSupplyOrdersForCrew,
   createTeamHubSupplyOrder,
-  setTeamHubSupplyOrderNoteTranslation,
 } from "@/lib/teamHubDb";
 import { requireTeamHubWorkerSession } from "@/lib/teamHubWorkerSession";
-import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
-import { sendInternalNotification } from "@/lib/email";
-import { translateToEnglish } from "@/lib/translate";
+import { notifyNewSupplyOrder } from "@/lib/crewNotifications";
 import { waitUntil } from "@vercel/functions";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -73,32 +70,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const origin = new URL(request.url).origin;
 
-    // SHARED TRANSLATION (docs/team-hub-spec.md §12) — same
-    // translate-then-email sequencing as the issues route.
+    // Shared translate-then-email path (lib/crewNotifications.ts), same one
+    // Crew Link uses — inside waitUntil so "Send" doesn't wait on it.
     waitUntil(
-      (async () => {
-        let englishNote = order.note;
-        if (order.note) {
-          const translated = await translateToEnglish(order.note);
-          if (translated) {
-            await setTeamHubSupplyOrderNoteTranslation(order.id, translated.english, translated.detectedLanguage);
-            englishNote = translated.english;
-          }
-        }
-
-        const account = await lookupAccountSummary(ctx.site.accountId);
-        const noteLine = order.note ? `Note: ${englishNote}` : "No note.";
-        const originalLine = order.note && englishNote !== order.note ? `Original: ${order.note}` : null;
-
-        await sendInternalNotification(`Team Hub: new supply order — ${ctx.site.label}`, [
-          `Account: ${account?.accountName ?? ctx.site.accountId}`,
-          `Crew: ${ctx.crew.name}`,
-          ...order.lines.map((l) => `${l.itemName} x${l.qty} ${l.unit}`),
-          noteLine,
-          ...(originalLine ? [originalLine] : []),
-          `Team Hub tab: ${origin}/accounts/${encodeURIComponent(ctx.site.accountId)}?tab=team-hub`,
-        ]);
-      })().catch((error) => console.error("[team-hub supplies email]", error))
+      notifyNewSupplyOrder({
+        source: { kind: "team-hub", siteLabel: ctx.site.label, crewName: ctx.crew.name },
+        orderId: order.id,
+        accountId: ctx.site.accountId,
+        note: order.note,
+        lines: order.lines,
+        origin,
+      }).catch((error) => console.error("[team-hub supplies email]", error))
     );
 
     return NextResponse.json({ success: true, orderId: order.id });

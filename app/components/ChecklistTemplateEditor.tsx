@@ -9,6 +9,8 @@ import {
   type ChecklistSectionDef,
   type ChecklistItemDef,
 } from "@/lib/checklistTemplate";
+import SharePanel from "@/app/components/SharePanel";
+import { OrdersAndProblems } from "@/app/accounts/[id]/team-hub-tab";
 
 type TemplateApiResponse = {
   success?: boolean;
@@ -20,6 +22,8 @@ type TemplateApiResponse = {
     locationName: string;
     porterCode: string;
     sections: ChecklistSectionDef[];
+    supplyOrdersEnabled?: boolean;
+    problemReportsEnabled?: boolean;
   } | null;
 };
 
@@ -57,7 +61,11 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState("");
-  const [shareState, setShareState] = useState<"idle" | "copied">("idle");
+  // Crew Link (docs/crew-link-spec.md): the other two modules, switched on
+  // from the account edit page. The checklist itself stays on checklistNeeded.
+  const [supplyOrdersEnabled, setSupplyOrdersEnabled] = useState(false);
+  const [problemReportsEnabled, setProblemReportsEnabled] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
   const [extracting, setExtracting] = useState(false);
   const [extractPreview, setExtractPreview] = useState<{
@@ -83,7 +91,11 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
         if (cancelled) return;
 
         setChecklistNeeded(Boolean(data.checklistNeeded));
-        if (!data.checklistNeeded) return;
+        const ordersOn = data.template?.supplyOrdersEnabled === true;
+        const problemsOn = data.template?.problemReportsEnabled === true;
+        setSupplyOrdersEnabled(ordersOn);
+        setProblemReportsEnabled(problemsOn);
+        if (!data.checklistNeeded && !ordersOn && !problemsOn) return;
 
         let template = data.template ?? null;
         if (!template) {
@@ -268,28 +280,10 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
   const porterUrl =
     typeof window !== "undefined" && porterCode ? `${window.location.origin}/porter/${porterCode}` : "";
 
-  async function handleShare() {
-    if (!porterUrl) return;
-    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-      try {
-        await navigator.share({
-          title: `${accountName} Porter Checklist`,
-          text: `Cleaning checklist link for ${locationName || accountName}`,
-          url: porterUrl,
-        });
-      } catch {
-        // AbortError (user closed the share sheet) — not an error worth surfacing.
-      }
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(porterUrl);
-      setShareState("copied");
-      setTimeout(() => setShareState("idle"), 2000);
-    } catch {
-      setError("Could not copy the link — copy it manually: " + porterUrl);
-    }
-  }
+  const place = locationName || accountName;
+  const shareMessage =
+    `Crew Link for ${place}: ${porterUrl}\nOpen it on your phone to do the checklist, order supplies, or report a problem.\n\n` +
+    `Crew Link para ${place}: ${porterUrl}\nÁbrelo en tu teléfono para hacer la lista, pedir suministros o reportar un problema.`;
 
   function updateSectionTitle(sectionIndex: number, title: string) {
     setSections((prev) => prev.map((s, i) => (i === sectionIndex ? { ...s, title } : s)));
@@ -334,12 +328,18 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
   }
 
   if (loading) {
-    return <p className="text-sm text-slate-500">Loading porter checklist…</p>;
+    return <p className="text-sm text-slate-500">Loading Crew Link…</p>;
   }
 
-  if (!checklistNeeded) {
+  if (!checklistNeeded && !supplyOrdersEnabled && !problemReportsEnabled) {
     return null;
   }
+
+  const moduleNames = [
+    checklistNeeded ? "Checklist" : null,
+    supplyOrdersEnabled ? "Supply orders" : null,
+    problemReportsEnabled ? "Problem reports" : null,
+  ].filter(Boolean);
 
   return (
     <div className="space-y-5">
@@ -352,9 +352,10 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
         <div className="flex items-center gap-2">
           <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={32} height={32} className="h-8 w-8 object-contain" />
           <div>
-            <h2 className="text-xl font-black text-slate-950">Porter Checklist</h2>
+            <h2 className="text-xl font-black text-slate-950">Crew Link</h2>
             <p className="mt-1 text-sm text-slate-500">
-              {sections.reduce((sum, s) => sum + s.items.length, 0)} item(s) across {sections.length} section(s).
+              {moduleNames.join(" · ")}
+              {checklistNeeded ? ` — ${sections.reduce((sum, s) => sum + s.items.length, 0)} item(s) across ${sections.length} section(s).` : ""}
             </p>
           </div>
         </div>
@@ -375,6 +376,7 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
           ) : null}
 
           <div className="grid gap-4 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2">
+            {checklistNeeded ? (
             <label className="block">
               <span className="text-[11px] font-black uppercase tracking-wide text-slate-400">Location Name</span>
               <input
@@ -383,8 +385,9 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
                 className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
             </label>
+            ) : null}
             <div>
-              <span className="text-[11px] font-black uppercase tracking-wide text-slate-400">Porter Link</span>
+              <span className="text-[11px] font-black uppercase tracking-wide text-slate-400">Crew Link</span>
               <div className="mt-1 flex items-center gap-2">
                 <input
                   readOnly
@@ -393,15 +396,26 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
                 />
                 <button
                   type="button"
-                  onClick={handleShare}
+                  onClick={() => setShareOpen(true)}
                   disabled={!porterUrl}
                   className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-black text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60"
                 >
-                  {shareState === "copied" ? "Copied!" : "Share Link"}
+                  Share
                 </button>
               </div>
             </div>
           </div>
+
+          {shareOpen && porterUrl ? (
+            <SharePanel title={`Share Crew Link — ${place}`} url={porterUrl} message={shareMessage} onClose={() => setShareOpen(false)} />
+          ) : null}
+
+          {supplyOrdersEnabled || problemReportsEnabled ? (
+            <OrdersAndProblems crewLinkAccountId={accountId} accountId={accountId} accountName={accountName} />
+          ) : null}
+
+          {checklistNeeded ? (
+          <>
 
           <div>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -545,6 +559,8 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
               {saving ? "Saving…" : "Save Template"}
             </button>
           </div>
+          </>
+          ) : null}
         </>
       ) : null}
     </div>

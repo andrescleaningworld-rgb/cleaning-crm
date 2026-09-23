@@ -1072,22 +1072,37 @@ const ORDER_STATUS_STYLES: Record<SupplyOrder["status"], string> = {
   cancelled: "bg-slate-200 text-slate-600",
 };
 
-function OrdersAndProblems({ site, accountId, accountName }: { site: TeamHubSite; accountId: string; accountName: string }) {
+// Used for a Team Hub site (site) and, on the account page's Crew Link
+// section, for that account's Crew Link rows (crewLinkAccountId) — same
+// one-tap status, photos, English-first notes and "Promote to complaint".
+export function OrdersAndProblems({
+  site,
+  crewLinkAccountId,
+  accountId,
+  accountName,
+}: {
+  site?: TeamHubSite;
+  crewLinkAccountId?: string;
+  accountId: string;
+  accountName: string;
+}) {
   const [orders, setOrders] = useState<SupplyOrder[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
+  const query = site ? `siteId=${site.id}` : `crewLinkAccountId=${encodeURIComponent(crewLinkAccountId ?? "")}`;
+  const sourceLabel = site ? "Team Hub" : "Crew Link";
 
   const load = useCallback(async () => {
     const [ordersRes, issuesRes] = await Promise.all([
-      fetch(`/api/admin/team-hub/supply-orders?siteId=${site.id}`, { cache: "no-store" }),
-      fetch(`/api/admin/team-hub/issues?siteId=${site.id}`, { cache: "no-store" }),
+      fetch(`/api/admin/team-hub/supply-orders?${query}`, { cache: "no-store" }),
+      fetch(`/api/admin/team-hub/issues?${query}`, { cache: "no-store" }),
     ]);
     const ordersData = await ordersRes.json();
     const issuesData = await issuesRes.json();
     setOrders(ordersData.orders ?? []);
     setIssues(issuesData.issues ?? []);
     setLoading(false);
-  }, [site.id]);
+  }, [query]);
 
   useEffect(() => {
     // Initial data load, same pattern used elsewhere in this file.
@@ -1169,7 +1184,15 @@ function OrdersAndProblems({ site, accountId, accountName }: { site: TeamHubSite
         ) : (
           <div className="mt-2 divide-y divide-gray-100">
             {issues.map((issue) => (
-              <IssueRow key={issue.id} issue={issue} accountId={accountId} accountName={accountName} onSetStatus={setIssueStatus} onChanged={load} />
+              <IssueRow
+                key={issue.id}
+                issue={issue}
+                accountId={accountId}
+                accountName={accountName}
+                sourceLabel={sourceLabel}
+                onSetStatus={setIssueStatus}
+                onChanged={load}
+              />
             ))}
           </div>
         )}
@@ -1182,12 +1205,14 @@ function IssueRow({
   issue,
   accountId,
   accountName,
+  sourceLabel,
   onSetStatus,
   onChanged,
 }: {
   issue: Issue;
   accountId: string;
   accountName: string;
+  sourceLabel: string;
   onSetStatus: (id: number, status: Issue["status"]) => void;
   onChanged: () => void;
 }) {
@@ -1208,7 +1233,7 @@ function IssueRow({
   }
 
   const promoteUrl = `/complaints/new?accountId=${encodeURIComponent(accountId)}&accountName=${encodeURIComponent(accountName)}&issue=${encodeURIComponent(
-    `[Team Hub] ${issue.category}: ${issue.noteEnglish || issue.note}`
+    `[${sourceLabel}] ${issue.category}: ${issue.noteEnglish || issue.note}`
   )}`;
 
   return (

@@ -19,7 +19,7 @@ const TABS: { id: CenterTab; label: string }[] = [
   { id: "complaints", label: "Complaints" },
   { id: "updates", label: "Updates" },
   { id: "keys", label: "Keys" },
-  { id: "team-hub", label: "Team Hub" },
+  { id: "team-hub", label: "Team Hub & Crew Link" },
 ];
 
 function getStoredTab(): CenterTab {

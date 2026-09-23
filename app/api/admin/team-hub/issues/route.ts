@@ -4,13 +4,21 @@
 // through the existing /complaints/new flow — never auto-created, never
 // touches the sub score). No Sheets reads/writes in this file.
 import { NextRequest, NextResponse } from "next/server";
-import { listTeamHubIssuesForSite, setTeamHubIssueStatus, setTeamHubIssueComplaintId } from "@/lib/teamHubDb";
+import { listTeamHubIssuesForSite, listCrewLinkIssuesForAccount, setTeamHubIssueStatus, setTeamHubIssueComplaintId } from "@/lib/teamHubDb";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 
 export async function GET(request: NextRequest) {
   try {
-    const siteId = Number(new URL(request.url).searchParams.get("siteId"));
+    const params = new URL(request.url).searchParams;
+    // Crew Link (docs/crew-link-spec.md): ?crewLinkAccountId= lists one
+    // account's Crew Link problems instead of a Team Hub site's.
+    const crewLinkAccountId = params.get("crewLinkAccountId")?.trim();
+    if (crewLinkAccountId) {
+      const issues = await listCrewLinkIssuesForAccount(crewLinkAccountId);
+      return NextResponse.json({ success: true, issues });
+    }
+    const siteId = Number(params.get("siteId"));
     if (!Number.isInteger(siteId)) {
       return NextResponse.json({ success: false, error: "A valid siteId is required." }, { status: 400 });
     }

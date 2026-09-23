@@ -313,7 +313,7 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
 
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.tableHeaderCell, styles.colDate]}>Date</Text>
-              <Text style={[styles.tableHeaderCell, styles.colPorter]}>Porter</Text>
+              <Text style={[styles.tableHeaderCell, styles.colPorter]}>Crew member</Text>
               <Text style={[styles.tableHeaderCell, styles.colCompletion]}>Completion</Text>
               <Text style={[styles.tableHeaderCell, styles.colNotes]}>Notes</Text>
             </View>
@@ -367,7 +367,7 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
                       <View style={styles.checklistItemText}>
                         <Text style={styles.checklistItemLabel}>{item.label}</Text>
                         {item.subNote ? <Text style={styles.checklistItemSubNote}>{item.subNote}</Text> : null}
-                        {item.note ? <Text style={styles.checklistItemSubNote}>Porter note: {item.note}</Text> : null}
+                        {item.note ? <Text style={styles.checklistItemSubNote}>Note: {item.note}</Text> : null}
                       </View>
                     </View>
                   ))}

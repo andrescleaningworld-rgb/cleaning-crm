@@ -18,7 +18,23 @@ const STATUS_STYLES: Record<RecentOrder["status"], string> = {
   cancelled: "bg-slate-200 text-slate-600",
 };
 
-export default function SuppliesView({ token, lang, onBack }: { token: string; lang: TeamHubLang; onBack: () => void }) {
+// apiBase lets Crew Link (docs/crew-link-spec.md) reuse this exact screen
+// against its own public route; Team Hub keeps using its token route.
+export default function SuppliesView({
+  token,
+  lang,
+  onBack,
+  apiBase,
+  reporterName,
+}: {
+  token: string;
+  lang: TeamHubLang;
+  onBack: () => void;
+  apiBase?: string;
+  // Crew Link only: the name the person typed (Team Hub knows its worker).
+  reporterName?: string;
+}) {
+  const suppliesUrl = `${apiBase ?? `/api/team-hub/${encodeURIComponent(token)}`}/supplies`;
   const s = teamHubStrings(lang).supplies;
   const common = teamHubStrings(lang).common;
 
@@ -33,7 +49,7 @@ export default function SuppliesView({ token, lang, onBack }: { token: string; l
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/supplies`, { cache: "no-store" });
+      const res = await fetch(suppliesUrl, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
         setBanner(data.error || common.somethingWrong);
@@ -46,7 +62,7 @@ export default function SuppliesView({ token, lang, onBack }: { token: string; l
     } finally {
       setLoading(false);
     }
-  }, [token, common.somethingWrong]);
+  }, [suppliesUrl, common.somethingWrong]);
 
   useEffect(() => {
     load();
@@ -71,10 +87,10 @@ export default function SuppliesView({ token, lang, onBack }: { token: string; l
     setSending(true);
     setBanner("");
     try {
-      const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/supplies`, {
+      const res = await fetch(suppliesUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note, lines }),
+        body: JSON.stringify({ note, lines, ...(reporterName ? { reporterName } : {}) }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {

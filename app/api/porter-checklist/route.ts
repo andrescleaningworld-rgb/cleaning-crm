@@ -8,6 +8,7 @@ import { getMainAccountById } from "@/lib/googleSheets";
 import { getTemplateByPorterCode, insertSubmission } from "@/lib/checklistDb";
 import { countSubmissionProgress, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 import { logActivity } from "@/lib/activityLog";
+import { resolveCrewLink, crewLinkIsLive } from "@/lib/crewLink";
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,25 +17,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "code is required." }, { status: 400 });
     }
 
-    const template = await getTemplateByPorterCode(code);
-    if (!template) {
-      return NextResponse.json({ success: true, available: false });
-    }
-
-    // Re-check the live flag on every load — an account that's since had
+    // Re-check the live flags on every load — an account that's since had
     // "Checklist Needed" unchecked should stop accepting new visits from
     // this link without deleting anything already submitted against it.
-    const account = await getMainAccountById(template.accountId);
-    if (!account?.checklistNeeded) {
+    // Crew Link (docs/crew-link-spec.md): the link is also live when only
+    // supply orders and/or problem reports are switched on; `modules` tells
+    // the page which buttons to show. Checklist-only links return exactly
+    // what they always did (plus `modules`).
+    const link = await resolveCrewLink(code);
+    if (!link || !crewLinkIsLive(link.modules)) {
       return NextResponse.json({ success: true, available: false });
     }
+    const { template, modules } = link;
 
     return NextResponse.json({
       success: true,
       available: true,
       accountName: template.accountName,
       locationName: template.locationName,
-      sections: template.sections,
+      sections: modules.checklist ? template.sections : [],
+      modules,
     });
   } catch (error) {
     return NextResponse.json(

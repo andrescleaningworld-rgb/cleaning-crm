@@ -1,9 +1,22 @@
 "use client";
 
+// Crew Link (docs/crew-link-spec.md) — the Porter Checklist link, now with
+// "Order supplies" and "Report a problem" when the account has them on.
+// Route, porter codes and the checklist submit are unchanged: a link with
+// only the checklist switched on opens straight into the same checklist
+// form as before. With more than one module, a home screen shows one big
+// button per switched-on module.
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import { countTemplateProgress, type ChecklistSectionDef } from "@/lib/checklistTemplate";
+import SuppliesView from "@/app/team-hub/[token]/SuppliesView";
+import IssueReportView from "@/app/team-hub/[token]/IssueReportView";
+import LangToggle from "@/app/team-hub/[token]/LangToggle";
+import { useTeamHubLang, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
+import { crewLinkStrings } from "./strings";
+
+type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
 
 type LoadResponse = {
   success?: boolean;
@@ -12,30 +25,50 @@ type LoadResponse = {
   accountName?: string;
   locationName?: string;
   sections?: ChecklistSectionDef[];
+  modules?: Modules;
 };
 
 type ItemState = { checked: boolean; note: string };
+type Screen = "home" | "checklist" | "supplies" | "issues";
+type Strings = ReturnType<typeof crewLinkStrings>;
 
-export default function PorterChecklistPage() {
+const NAME_STORAGE_KEY = "crew-link-name";
+
+function readStoredName(): string {
+  try {
+    return localStorage.getItem(NAME_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function storeName(name: string) {
+  try {
+    localStorage.setItem(NAME_STORAGE_KEY, name);
+  } catch {
+    // best-effort only — the name still applies for this visit
+  }
+}
+
+export default function CrewLinkPage() {
   const params = useParams<{ code: string }>();
   const code = typeof params?.code === "string" ? params.code : "";
+  const [lang, setLang] = useTeamHubLang();
+  const s = crewLinkStrings(lang);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [available, setAvailable] = useState(false);
   const [locationName, setLocationName] = useState("");
   const [sections, setSections] = useState<ChecklistSectionDef[]>([]);
+  // Older API responses (before Crew Link) had no modules — treat as checklist-only.
+  const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
+  const [screen, setScreen] = useState<Screen>("home");
+  const [name, setName] = useState("");
 
-  const [itemStates, setItemStates] = useState<Record<string, ItemState>>({});
-  const [porterName, setPorterName] = useState("");
-  const [weekOf, setWeekOf] = useState("");
-  const [timeIn, setTimeIn] = useState("");
-  const [timeOut, setTimeOut] = useState("");
-  const [generalNotes, setGeneralNotes] = useState("");
-
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  useEffect(() => {
+    setName(readStoredName());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,14 +90,7 @@ export default function PorterChecklistPage() {
         setAvailable(Boolean(data.available));
         setLocationName(data.locationName ?? "");
         setSections(data.sections ?? []);
-
-        const initial: Record<string, ItemState> = {};
-        for (const section of data.sections ?? []) {
-          for (const item of section.items) {
-            initial[item.key] = { checked: false, note: "" };
-          }
-        }
-        setItemStates(initial);
+        if (data.modules) setModules(data.modules);
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this checklist.");
       } finally {
@@ -77,6 +103,178 @@ export default function PorterChecklistPage() {
       cancelled = true;
     };
   }, [code]);
+
+  const enabledCount = Number(modules.checklist) + Number(modules.supplyOrders) + Number(modules.problemReports);
+  const checklistOnly = modules.checklist && enabledCount === 1;
+
+  function updateName(next: string) {
+    setName(next);
+    storeName(next.trim());
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <p className="text-sm font-semibold text-slate-500">{s.loading}</p>
+      </div>
+    );
+  }
+
+  if (loadError || !available) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-lg font-black text-slate-950">{s.unavailableTitle}</h1>
+          <p className="mt-2 text-sm text-slate-500">{loadError || s.unavailableBody}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (checklistOnly || screen === "checklist") {
+    return (
+      <ChecklistForm
+        code={code}
+        s={s}
+        lang={lang}
+        onLangChange={setLang}
+        locationName={locationName}
+        sections={sections}
+        initialName={name}
+        onNameChange={updateName}
+        onBackHome={checklistOnly ? null : () => setScreen("home")}
+      />
+    );
+  }
+
+  const apiBase = `/api/porter-checklist/${encodeURIComponent(code)}`;
+
+  return (
+    <div className="min-h-screen bg-slate-50 px-4 py-6">
+      <div className="mx-auto max-w-xl">
+        <CrewLinkHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName} />
+
+        {screen === "supplies" ? (
+          <SuppliesView token="" apiBase={apiBase} reporterName={name.trim()} lang={lang} onBack={() => setScreen("home")} />
+        ) : screen === "issues" ? (
+          <IssueReportView token="" apiBase={apiBase} reporterName={name.trim()} lang={lang} onBack={() => setScreen("home")} />
+        ) : (
+          <div className="mt-4 space-y-4">
+            <label className="block rounded-2xl bg-white p-4 shadow-sm">
+              <span className="text-base font-bold text-slate-700">{s.yourName}</span>
+              <input
+                value={name}
+                onChange={(event) => updateName(event.target.value)}
+                autoComplete="name"
+                className="mt-2 min-h-[56px] w-full rounded-xl border border-slate-300 px-4 text-xl font-semibold outline-none focus:border-blue-500"
+              />
+            </label>
+            {!name.trim() && <p className="text-base font-semibold text-amber-700">{s.typeNameFirst}</p>}
+
+            <div className="grid gap-3">
+              {modules.checklist && (
+                <HomeButton icon="✅" label={s.checklist} disabled={false} onClick={() => setScreen("checklist")} />
+              )}
+              {modules.supplyOrders && (
+                <HomeButton icon="📦" label={s.orderSupplies} disabled={!name.trim()} onClick={() => setScreen("supplies")} />
+              )}
+              {modules.problemReports && (
+                <HomeButton icon="⚠️" label={s.reportProblem} disabled={!name.trim()} onClick={() => setScreen("issues")} />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CrewLinkHeader({
+  s,
+  lang,
+  onLangChange,
+  locationName,
+}: {
+  s: Strings;
+  lang: TeamHubLang;
+  onLangChange: (lang: TeamHubLang) => void;
+  locationName: string;
+}) {
+  return (
+    <div className="rounded-2xl bg-blue-700 p-4 text-white shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={28} height={28} className="h-7 w-7 rounded bg-white object-contain" />
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-100">{s.appName}</p>
+        </div>
+        <LangToggle lang={lang} onChange={onLangChange} />
+      </div>
+      <h1 className="mt-1 text-2xl font-black">{locationName || s.defaultTitle}</h1>
+    </div>
+  );
+}
+
+function HomeButton({ icon, label, disabled, onClick }: { icon: string; label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex min-h-[96px] items-center gap-4 rounded-2xl bg-white px-5 text-left text-2xl font-bold text-slate-900 shadow-sm active:bg-gray-100 disabled:opacity-40"
+    >
+      <span className="text-4xl">{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+// The original Porter Checklist form — same fields, same submit body, same
+// API. Only the labels are now EN/ES, the name is prefilled from the device,
+// and (when the link has other modules) there's a way back to the home screen.
+function ChecklistForm({
+  code,
+  s,
+  lang,
+  onLangChange,
+  locationName,
+  sections,
+  initialName,
+  onNameChange,
+  onBackHome,
+}: {
+  code: string;
+  s: Strings;
+  lang: TeamHubLang;
+  onLangChange: (lang: TeamHubLang) => void;
+  locationName: string;
+  sections: ChecklistSectionDef[];
+  initialName: string;
+  onNameChange: (name: string) => void;
+  onBackHome: (() => void) | null;
+}) {
+  const [itemStates, setItemStates] = useState<Record<string, ItemState>>(() => {
+    const initial: Record<string, ItemState> = {};
+    for (const section of sections) {
+      for (const item of section.items) {
+        initial[item.key] = { checked: false, note: "" };
+      }
+    }
+    return initial;
+  });
+  const [porterName, setPorterName] = useState(initialName);
+  const [weekOf, setWeekOf] = useState("");
+  const [timeIn, setTimeIn] = useState("");
+  const [timeOut, setTimeOut] = useState("");
+  const [generalNotes, setGeneralNotes] = useState("");
+
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    // The stored name loads after first render; fill it in if the field is still empty.
+    if (initialName) setPorterName((current) => current || initialName);
+  }, [initialName]);
 
   const progress = useMemo(
     () => countTemplateProgress(sections, new Set(Object.keys(itemStates).filter((k) => itemStates[k]?.checked))),
@@ -94,7 +292,7 @@ export default function PorterChecklistPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!porterName.trim()) {
-      setSubmitError("Please enter your name.");
+      setSubmitError(s.pleaseEnterName);
       return;
     }
 
@@ -131,6 +329,7 @@ export default function PorterChecklistPage() {
       if (!response.ok || data.success === false) {
         throw new Error(data.error ?? "Could not submit this checklist.");
       }
+      onNameChange(porterName.trim());
       setSubmitted(true);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Could not submit this checklist.");
@@ -139,35 +338,17 @@ export default function PorterChecklistPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <p className="text-sm font-semibold text-slate-500">Loading checklist…</p>
-      </div>
-    );
-  }
-
-  if (loadError || !available) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-lg font-black text-slate-950">Checklist Unavailable</h1>
-          <p className="mt-2 text-sm text-slate-500">
-            {loadError || "This checklist link is not currently active. Contact your manager for an updated link."}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   if (submitted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
         <div className="max-w-sm rounded-2xl border border-green-200 bg-green-50 p-6 text-center shadow-sm">
-          <h1 className="text-lg font-black text-green-900">Checklist Submitted</h1>
-          <p className="mt-2 text-sm text-green-800">
-            Thanks, {porterName || "porter"} — your checklist for {locationName} has been recorded.
-          </p>
+          <h1 className="text-lg font-black text-green-900">{s.submittedTitle}</h1>
+          <p className="mt-2 text-sm text-green-800">{s.submittedBody(porterName || "porter", locationName)}</p>
+          {onBackHome && (
+            <button type="button" onClick={onBackHome} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-base font-bold text-white">
+              {s.backHome}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -176,16 +357,26 @@ export default function PorterChecklistPage() {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6 sm:py-10">
       <form onSubmit={handleSubmit} className="mx-auto max-w-xl space-y-5">
+        {onBackHome && (
+          <button type="button" onClick={onBackHome} className="text-base font-semibold text-blue-700">
+            ← {s.back}
+          </button>
+        )}
         <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
-          <div className="flex items-center gap-2">
-            <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={28} height={28} className="h-7 w-7 object-contain" />
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Cleaning World</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={28} height={28} className="h-7 w-7 object-contain" />
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">{s.appName}</p>
+            </div>
+            <div className="rounded-full bg-blue-700">
+              <LangToggle lang={lang} onChange={onLangChange} />
+            </div>
           </div>
-          <h1 className="mt-1 text-2xl font-black text-slate-950">{locationName || "Cleaning Checklist"}</h1>
+          <h1 className="mt-1 text-2xl font-black text-slate-950">{locationName || s.defaultTitle}</h1>
 
           <div className="mt-4">
             <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-              <span>{progress.done} of {progress.total} complete</span>
+              <span>{s.progress(progress.done, progress.total)}</span>
             </div>
             <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
               <div
@@ -197,7 +388,7 @@ export default function PorterChecklistPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">Porter Name</span>
+              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.name}</span>
               <input
                 required
                 value={porterName}
@@ -206,7 +397,7 @@ export default function PorterChecklistPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">Week Of</span>
+              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.weekOf}</span>
               <input
                 type="date"
                 value={weekOf}
@@ -215,7 +406,7 @@ export default function PorterChecklistPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">Time In</span>
+              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.timeIn}</span>
               <input
                 type="time"
                 value={timeIn}
@@ -224,7 +415,7 @@ export default function PorterChecklistPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">Time Out</span>
+              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.timeOut}</span>
               <input
                 type="time"
                 value={timeOut}
@@ -256,7 +447,7 @@ export default function PorterChecklistPage() {
                   <textarea
                     value={itemStates[item.key]?.note ?? ""}
                     onChange={(event) => setItemNote(item.key, event.target.value)}
-                    placeholder="Optional note…"
+                    placeholder={s.optionalNote}
                     rows={1}
                     className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                   />
@@ -268,12 +459,12 @@ export default function PorterChecklistPage() {
 
         <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
           <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-slate-400">General Notes</span>
+            <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.generalNotes}</span>
             <textarea
               value={generalNotes}
               onChange={(event) => setGeneralNotes(event.target.value)}
               rows={3}
-              placeholder="Anything else to report…"
+              placeholder={s.generalNotesPlaceholder}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
             />
           </label>
@@ -290,7 +481,7 @@ export default function PorterChecklistPage() {
           disabled={submitting}
           className="w-full rounded-2xl bg-blue-600 px-5 py-4 text-center text-base font-black text-white shadow-sm hover:bg-blue-500 disabled:opacity-60"
         >
-          {submitting ? "Submitting…" : "Submit Checklist"}
+          {submitting ? s.submitting : s.submit}
         </button>
       </form>
     </div>

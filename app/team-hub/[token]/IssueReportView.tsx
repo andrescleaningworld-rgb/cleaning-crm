@@ -38,7 +38,21 @@ const MAX_PHOTOS = 5;
 
 type PendingPhoto = { id: string; blob: Blob; previewUrl: string };
 
-export default function IssueReportView({ token, lang, onBack }: { token: string; lang: TeamHubLang; onBack: () => void }) {
+// apiBase: see SuppliesView — lets Crew Link reuse this screen.
+export default function IssueReportView({
+  token,
+  lang,
+  onBack,
+  apiBase,
+  reporterName,
+}: {
+  token: string;
+  lang: TeamHubLang;
+  onBack: () => void;
+  apiBase?: string;
+  // Crew Link only: the name the person typed (Team Hub knows its worker).
+  reporterName?: string;
+}) {
   const s = teamHubStrings(lang).issues;
   const common = teamHubStrings(lang).common;
 
@@ -83,9 +97,10 @@ export default function IssueReportView({ token, lang, onBack }: { token: string
       const formData = new FormData();
       formData.set("category", category);
       formData.set("note", note);
+      if (reporterName) formData.set("reporterName", reporterName);
       photos.forEach((p, i) => formData.append("photos", p.blob, `photo-${i}.jpg`));
 
-      const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/issues`, { method: "POST", body: formData });
+      const res = await fetch(`${apiBase ?? `/api/team-hub/${encodeURIComponent(token)}`}/issues`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) {
         setError(data.error || common.somethingWrong);

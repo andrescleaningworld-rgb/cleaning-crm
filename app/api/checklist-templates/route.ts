@@ -4,7 +4,7 @@
 // public and can't reach any of these actions.
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
-import { ensureTemplate, getTemplateByAccountId, saveTemplateSections } from "@/lib/checklistDb";
+import { ensureTemplate, getTemplateByAccountId, saveTemplateSections, setCrewLinkModules } from "@/lib/checklistDb";
 import { parseUploadedChecklistFile, validateSections } from "@/lib/checklistTemplate";
 import { extractChecklistFromDocx, extractChecklistFromPdf, MAX_UPLOAD_BYTES } from "@/lib/checklistDocumentExtract";
 
@@ -50,6 +50,18 @@ export async function POST(request: NextRequest) {
     if (action === "ensureTemplate") {
       const accountName = String(body.accountName ?? accountId);
       const template = await ensureTemplate(accountId, accountName);
+      return NextResponse.json({ success: true, template });
+    }
+
+    // Crew Link (docs/crew-link-spec.md): the two new module switches —
+    // Postgres only. The Checklist switch stays the Sheets "Checklist
+    // Needed" flag, saved through the account edit form exactly as before.
+    if (action === "setCrewLinkModules") {
+      const accountName = String(body.accountName ?? accountId);
+      const template = await setCrewLinkModules(accountId, accountName, {
+        supplyOrders: body.supplyOrders === true,
+        problemReports: body.problemReports === true,
+      });
       return NextResponse.json({ success: true, template });
     }
 

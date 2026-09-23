@@ -174,8 +174,8 @@ export default function PorterChecklistSubmissionsPage() {
       const accountName = flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName || "account";
       await navigator.share({
         files: [file],
-        title: `Porter Checklist Report — ${accountName}`,
-        text: `Porter checklist report for ${accountName}`,
+        title: `Crew Link Checklist Report — ${accountName}`,
+        text: `Crew Link checklist report for ${accountName}`,
       });
     } catch (err) {
       // AbortError means the user closed the native share sheet without
@@ -215,7 +215,7 @@ export default function PorterChecklistSubmissionsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={36} height={36} className="h-9 w-9 object-contain" />
-          <h1 className="text-2xl font-black text-slate-950">Porter Checklist Submissions</h1>
+          <h1 className="text-2xl font-black text-slate-950">Crew Link — Checklist Submissions</h1>
         </div>
         <select
           value={accountFilter}

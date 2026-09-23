@@ -7,14 +7,27 @@
 // stock changes have their own sanctioned path, separate from the
 // account-data choke point).
 import { NextRequest, NextResponse } from "next/server";
-import { listTeamHubSupplyOrdersForSite, setTeamHubSupplyOrderStatus, type TeamHubSupplyOrderStatus } from "@/lib/teamHubDb";
+import {
+  listTeamHubSupplyOrdersForSite,
+  listCrewLinkSupplyOrdersForAccount,
+  setTeamHubSupplyOrderStatus,
+  type TeamHubSupplyOrderStatus,
+} from "@/lib/teamHubDb";
 import { adjustEquipmentPartStock } from "@/lib/googleSheets";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 
 export async function GET(request: NextRequest) {
   try {
-    const siteId = Number(new URL(request.url).searchParams.get("siteId"));
+    const params = new URL(request.url).searchParams;
+    // Crew Link (docs/crew-link-spec.md): ?crewLinkAccountId= lists one
+    // account's Crew Link orders instead of a Team Hub site's.
+    const crewLinkAccountId = params.get("crewLinkAccountId")?.trim();
+    if (crewLinkAccountId) {
+      const orders = await listCrewLinkSupplyOrdersForAccount(crewLinkAccountId);
+      return NextResponse.json({ success: true, orders });
+    }
+    const siteId = Number(params.get("siteId"));
     if (!Number.isInteger(siteId)) {
       return NextResponse.json({ success: false, error: "A valid siteId is required." }, { status: 400 });
     }

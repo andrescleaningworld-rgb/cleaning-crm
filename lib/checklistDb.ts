@@ -22,6 +22,10 @@ export type ChecklistTemplateRow = {
   locationName: string;
   porterCode: string;
   sections: ChecklistSectionDef[];
+  // Crew Link modules (docs/crew-link-spec.md) — stored here, never in
+  // Sheets. The checklist module itself stays on the Sheets flag above.
+  supplyOrdersEnabled: boolean;
+  problemReportsEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -33,6 +37,8 @@ function rowToTemplate(row: Record<string, unknown>): ChecklistTemplateRow {
     locationName: row.location_name as string,
     porterCode: row.porter_code as string,
     sections: (row.sections_json as ChecklistSectionDef[]) ?? [],
+    supplyOrdersEnabled: row.supply_orders_enabled === true,
+    problemReportsEnabled: row.problem_reports_enabled === true,
     createdAt: (row.created_at as Date | string) instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
     updatedAt: (row.updated_at as Date | string) instanceof Date ? (row.updated_at as Date).toISOString() : String(row.updated_at),
   };
@@ -63,6 +69,25 @@ export async function ensureTemplate(accountId: string, accountName: string): Pr
     INSERT INTO checklist_templates (account_id, account_name, location_name, porter_code, sections_json)
     VALUES (${accountId}, ${accountName}, ${accountName}, ${porterCode}, '[]'::jsonb)
     ON CONFLICT (account_id) DO UPDATE SET account_name = EXCLUDED.account_name
+    RETURNING *
+  `;
+  return rowToTemplate(rows[0] as Record<string, unknown>);
+}
+
+// Crew Link module switches. Creates the template row first if needed so
+// an account can turn on orders/problems without the checklist (the link's
+// porter_code lives on this row).
+export async function setCrewLinkModules(
+  accountId: string,
+  accountName: string,
+  modules: { supplyOrders: boolean; problemReports: boolean }
+): Promise<ChecklistTemplateRow> {
+  await ensureTemplate(accountId, accountName);
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE checklist_templates
+    SET supply_orders_enabled = ${modules.supplyOrders}, problem_reports_enabled = ${modules.problemReports}, updated_at = now()
+    WHERE account_id = ${accountId}
     RETURNING *
   `;
   return rowToTemplate(rows[0] as Record<string, unknown>);

@@ -216,6 +216,10 @@ export default function EditAccountPage() {
   // submit can tell which fields the user actually changed in this form
   // vs. which were merely carried along from a possibly-stale page load.
   const originalDataRef = useRef<Account | null>(null);
+  // Crew Link modules (docs/crew-link-spec.md) — saved to Postgres through
+  // /api/checklist-templates, separate from the Sheets account fields.
+  const [crewLinkModules, setCrewLinkModules] = useState({ supplyOrders: false, problemReports: false });
+  const originalCrewLinkModulesRef = useRef({ supplyOrders: false, problemReports: false });
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
@@ -288,9 +292,20 @@ export default function EditAccountPage() {
               `/api/checklist-templates?accountId=${encodeURIComponent(String(accountIdForChecklist))}`,
               { cache: "no-store" }
             );
-            const checklistData = await readJsonResponse<{ checklistNeeded?: boolean }>(checklistResp);
+            const checklistData = await readJsonResponse<{
+              checklistNeeded?: boolean;
+              template?: { supplyOrdersEnabled?: boolean; problemReportsEnabled?: boolean } | null;
+            }>(checklistResp);
             if (checklistResp.ok && checklistData.checklistNeeded) {
               checklistNeeded = "Yes";
+            }
+            if (checklistResp.ok) {
+              const modules = {
+                supplyOrders: checklistData.template?.supplyOrdersEnabled === true,
+                problemReports: checklistData.template?.problemReportsEnabled === true,
+              };
+              setCrewLinkModules(modules);
+              originalCrewLinkModulesRef.current = modules;
             }
           }
         } catch {
@@ -495,7 +510,33 @@ export default function EditAccountPage() {
       }
 
       originalDataRef.current = { ...original, ...fields };
-      setSavedMessage(data.checklistFlagWarning || "Account updated successfully.");
+
+      let crewLinkWarning = "";
+      const originalModules = originalCrewLinkModulesRef.current;
+      if (
+        crewLinkModules.supplyOrders !== originalModules.supplyOrders ||
+        crewLinkModules.problemReports !== originalModules.problemReports
+      ) {
+        try {
+          const modulesResponse = await fetch("/api/checklist-templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "setCrewLinkModules",
+              accountId: formData.accountId || formData.id,
+              accountName: formData.accountName,
+              ...crewLinkModules,
+            }),
+          });
+          const modulesData = await readJsonResponse<{ success?: boolean; error?: string }>(modulesResponse);
+          if (!modulesResponse.ok || !modulesData.success) throw new Error(modulesData.error || "failed");
+          originalCrewLinkModulesRef.current = { ...crewLinkModules };
+        } catch {
+          crewLinkWarning = " Crew Link supply orders / problem reports could not be saved — try again.";
+        }
+      }
+
+      setSavedMessage((data.checklistFlagWarning || "Account updated successfully.") + crewLinkWarning);
       setSaveError("");
     } catch (err) {
       setSavedMessage("");
@@ -1006,17 +1047,38 @@ export default function EditAccountPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Checklist Needed?
-                </label>
-                <select
-                  value={formData.checklistNeeded || "No"}
-                  onChange={(event) => updateField("checklistNeeded", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                </select>
+                <span className="text-sm font-medium text-gray-700">
+                  Crew Link
+                </span>
+                <div className="mt-1 space-y-1 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-800">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.checklistNeeded === "Yes"}
+                      onChange={(event) => updateField("checklistNeeded", event.target.checked ? "Yes" : "No")}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    Checklist
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={crewLinkModules.supplyOrders}
+                      onChange={(event) => setCrewLinkModules((m) => ({ ...m, supplyOrders: event.target.checked }))}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    Supply orders
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={crewLinkModules.problemReports}
+                      onChange={(event) => setCrewLinkModules((m) => ({ ...m, problemReports: event.target.checked }))}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    Problem reports
+                  </label>
+                </div>
               </div>
 
               <div>

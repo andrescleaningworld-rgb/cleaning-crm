@@ -7,7 +7,7 @@
 // in the Staff list. Reads only its own /api/equipment-check-link,
 // /api/equipment-pins and /api/equipment-reports routes.
 import { useCallback, useEffect, useState } from "react";
-import QRCode from "qrcode";
+import SharePanel from "@/app/components/SharePanel";
 import { INSTALL_STEPS } from "@/app/equipment-check/strings";
 import TranslatedText from "@/app/components/TranslatedText";
 import type { Staff } from "./types";
@@ -197,43 +197,16 @@ function useCopiedFlag(): [boolean, () => void] {
   return [copied, flash];
 }
 
-// §7 — "Set up a tablet" at the top of Equipment: a panel with a QR code of
-// the tablet link (generated in the browser by the `qrcode` package — no
-// external service ever sees the link), the link with Copy, an "Email link"
-// mailto for the tablet's own inbox, and the EN/ES Add to Home Screen steps.
-// "New link" lives here too, in case the link ever gets out (old link stops
-// working, tablets sign out).
+// §7 — "Set up a tablet" at the top of Equipment: the shared SharePanel
+// (QR code generated in the browser, link + Copy) plus an "Email link"
+// mailto for the tablet's own inbox and the EN/ES Add to Home Screen steps.
+// "Make a new link" lives here too, in case the link ever gets out (old link
+// stops working, tablets sign out).
 export function SetUpTabletButton() {
   const { path, error, regenerate } = useTabletLinkPath();
   const [open, setOpen] = useState(false);
-  const [qrDataUrl, setQrDataUrl] = useState("");
-  const [copied, flashCopied] = useCopiedFlag();
 
   const linkUrl = path && typeof window !== "undefined" ? `${window.location.origin}${path}` : "";
-
-  useEffect(() => {
-    if (!open || !linkUrl) return;
-    let cancelled = false;
-    QRCode.toDataURL(linkUrl, { width: 320, margin: 2, errorCorrectionLevel: "M" })
-      .then((url) => {
-        if (!cancelled) setQrDataUrl(url);
-      })
-      .catch(() => {
-        if (!cancelled) setQrDataUrl("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, linkUrl]);
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(linkUrl);
-      flashCopied();
-    } catch {
-      window.prompt("Copy this link:", linkUrl);
-    }
-  }
 
   function newLink() {
     if (!window.confirm("Make a new tablet link? The old link stops working — every tablet (and any staff phone) has to be set up again.")) return;
@@ -256,59 +229,29 @@ export function SetUpTabletButton() {
       </button>
       {error && <span className="text-xs font-semibold text-red-700">{error}</span>}
 
-      {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)}>
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Set up a tablet"
-            className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <h2 className="text-2xl font-bold text-gray-900">Set up a tablet</h2>
-              <button type="button" onClick={() => setOpen(false)} className="text-2xl leading-none text-gray-400 hover:text-gray-600" aria-label="Close">
-                ✕
-              </button>
-            </div>
+      {open && linkUrl && (
+        <SharePanel title="Set up a tablet" url={linkUrl} onClose={() => setOpen(false)}>
+          <a href={mailto} className="mt-3 inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+            Email link
+          </a>
 
-            <div className="mt-4 flex justify-center">
-              {qrDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element -- data: URL generated in the browser
-                <img src={qrDataUrl} alt="QR code of the tablet link" className="h-72 w-72 rounded-lg border border-gray-200" />
-              ) : (
-                <div className="flex h-72 w-72 items-center justify-center rounded-lg border border-gray-200 text-sm text-gray-500">Loading…</div>
-              )}
-            </div>
-
-            <div className="mt-4 flex items-center gap-2">
-              <input readOnly value={linkUrl} onFocus={(e) => e.target.select()} className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-800" />
-              <button type="button" onClick={copyLink} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-                {copied ? "Copied!" : "Copy"}
-              </button>
-            </div>
-            <a href={mailto} className="mt-3 inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-              Email link
-            </a>
-
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              {(["en", "es"] as const).map((lang) => (
-                <div key={lang} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
-                  <p className="mb-1 font-semibold">{INSTALL_STEPS[lang].title}</p>
-                  {INSTALL_STEPS[lang].all.map((step) => (
-                    <p key={step}>{step}</p>
-                  ))}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 border-t border-gray-100 pt-3 text-right">
-              <button type="button" onClick={newLink} className="text-xs font-semibold text-gray-500 hover:underline">
-                Make a new link (old one stops working)
-              </button>
-            </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {(["en", "es"] as const).map((lang) => (
+              <div key={lang} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+                <p className="mb-1 font-semibold">{INSTALL_STEPS[lang].title}</p>
+                {INSTALL_STEPS[lang].all.map((step) => (
+                  <p key={step}>{step}</p>
+                ))}
+              </div>
+            ))}
           </div>
-        </div>
+
+          <div className="mt-5 border-t border-gray-100 pt-3 text-right">
+            <button type="button" onClick={newLink} className="text-xs font-semibold text-gray-500 hover:underline">
+              Make a new link (old one stops working)
+            </button>
+          </div>
+        </SharePanel>
       )}
     </>
   );

@@ -7,6 +7,7 @@
 // minutes with no taps.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import PinKeypad from "@/app/components/PinKeypad";
 import LangToggle from "@/app/team-hub/[token]/LangToggle";
 import { useTeamHubLang, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
@@ -62,6 +63,22 @@ export default function EquipmentCheckPage() {
   const [screen, setScreen] = useState<Screen>({ kind: "people" });
   const [signedInName, setSignedInName] = useState("");
   const [notice, setNotice] = useState("");
+  // Only true when this browser also has a manager/owner login — shows
+  // "Exit to Equipment". Employees never see it.
+  const [isManager, setIsManager] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/manager`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { isManager?: boolean }) => {
+        if (!cancelled) setIsManager(data.isManager === true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   const loadPeople = useCallback(async () => {
     try {
@@ -139,6 +156,31 @@ export default function EquipmentCheckPage() {
 
   const signedIn = screen.kind === "equipment" || screen.kind === "condition" || screen.kind === "details";
 
+  // "← Back" = previous step; "Home" = cancel the report, sign out, back to
+  // the name grid (nothing is saved). Going back from the equipment grid
+  // leaves the person's session, so it signs out too.
+  function goBack() {
+    switch (screen.kind) {
+      case "pin":
+        setScreen({ kind: "people" });
+        return;
+      case "create":
+        if (screen.firstPin !== null) setScreen({ kind: "create", person: screen.person, firstPin: null });
+        else setScreen({ kind: "people" });
+        return;
+      case "equipment":
+        signOut();
+        return;
+      case "condition":
+        setScreen({ kind: "equipment" });
+        return;
+      case "details":
+        setScreen({ kind: "condition", item: screen.item });
+        return;
+    }
+  }
+  const showStepNav = screen.kind !== "people" && screen.kind !== "done";
+
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col">
       <header className="flex items-center justify-between gap-3 bg-blue-700 px-4 py-3 text-white">
@@ -147,14 +189,10 @@ export default function EquipmentCheckPage() {
           {signedIn && signedInName && <p className="truncate text-base text-blue-100">{signedInName}</p>}
         </div>
         <div className="flex items-center gap-3">
-          {signedIn && (
-            <button
-              type="button"
-              onClick={() => signOut()}
-              className="rounded-xl bg-white/15 px-4 py-2 text-base font-bold text-white active:bg-white/25"
-            >
-              ✕ {s.cancel}
-            </button>
+          {isManager && (
+            <Link href="/equipment" className="rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white active:bg-white/25">
+              Exit to Equipment
+            </Link>
           )}
           <LangToggle lang={lang} onChange={setLang} />
         </div>
@@ -162,6 +200,24 @@ export default function EquipmentCheckPage() {
 
       <main className="flex-1 p-4">
         <InstallBanner lang={lang} />
+        {showStepNav && (
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={goBack}
+              className="min-h-[64px] rounded-2xl bg-white text-2xl font-bold text-blue-700 shadow-sm active:bg-gray-100"
+            >
+              ← {s.back}
+            </button>
+            <button
+              type="button"
+              onClick={() => signOut()}
+              className="min-h-[64px] rounded-2xl bg-white text-2xl font-bold text-slate-700 shadow-sm active:bg-gray-100"
+            >
+              🏠 {s.home}
+            </button>
+          </div>
+        )}
         {notice && (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-lg font-semibold text-amber-900">
             {notice}
@@ -186,7 +242,6 @@ export default function EquipmentCheckPage() {
             apiBase={apiBase}
             person={screen.person}
             s={s}
-            onBack={() => setScreen({ kind: "people" })}
             onSignedIn={onSignedIn}
           />
         ) : screen.kind === "create" ? (
@@ -196,7 +251,6 @@ export default function EquipmentCheckPage() {
             person={screen.person}
             firstPin={screen.firstPin}
             s={s}
-            onBack={() => setScreen({ kind: "people" })}
             onFirstPin={(pin) => setScreen({ kind: "create", person: screen.person, firstPin: pin })}
             onMismatch={() => {
               setNotice(s.pinMismatch);
@@ -216,7 +270,6 @@ export default function EquipmentCheckPage() {
             apiBase={apiBase}
             item={screen.item}
             s={s}
-            onBack={() => setScreen({ kind: "equipment" })}
             onExpired={() => signOut(s.signedOut)}
             onPickProblem={(condition) => setScreen({ kind: "details", item: screen.item, condition })}
             onSent={finishReport}
@@ -227,7 +280,6 @@ export default function EquipmentCheckPage() {
             item={screen.item}
             condition={screen.condition}
             s={s}
-            onBack={() => setScreen({ kind: "condition", item: screen.item })}
             onExpired={() => signOut(s.signedOut)}
             onSent={finishReport}
           />
@@ -307,14 +359,6 @@ function InstallBanner({ lang }: { lang: TeamHubLang }) {
 
 type Strings = ReturnType<typeof equipmentCheckStrings>;
 
-function BackButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="rounded-xl bg-white px-4 py-3 text-lg font-bold text-blue-700 shadow-sm active:bg-gray-100">
-      ← {label}
-    </button>
-  );
-}
-
 function PeopleGrid({ people, s, onPick }: { people: Person[]; s: Strings; onPick: (person: Person) => void }) {
   return (
     <div className="space-y-4">
@@ -362,13 +406,11 @@ function PinScreen({
   apiBase,
   person,
   s,
-  onBack,
   onSignedIn,
 }: {
   apiBase: string;
   person: Person;
   s: Strings;
-  onBack: () => void;
   onSignedIn: (name: string) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -407,9 +449,6 @@ function PinScreen({
         <h1 className="text-2xl font-bold text-slate-900">
           {s.enterPin}, {person.name}
         </h1>
-        <button type="button" onClick={onBack} className="text-lg font-semibold text-blue-700">
-          {s.notYou}
-        </button>
       </div>
       {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-lg font-semibold text-red-800">{error}</div>}
       <PinKeypad
@@ -428,7 +467,6 @@ function CreatePinScreen({
   person,
   firstPin,
   s,
-  onBack,
   onFirstPin,
   onMismatch,
   onSignedIn,
@@ -437,7 +475,6 @@ function CreatePinScreen({
   person: Person;
   firstPin: string | null;
   s: Strings;
-  onBack: () => void;
   onFirstPin: (pin: string) => void;
   onMismatch: () => void;
   onSignedIn: (name: string) => void;
@@ -488,9 +525,6 @@ function CreatePinScreen({
           </h1>
           {firstPin === null && <p className="mt-1 text-lg text-slate-500">{s.createPinHint}</p>}
         </div>
-        <button type="button" onClick={onBack} className="text-lg font-semibold text-blue-700">
-          {s.notYou}
-        </button>
       </div>
       {error && <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-lg font-semibold text-red-800">{error}</div>}
       <PinKeypad
@@ -606,7 +640,6 @@ function ConditionScreen({
   apiBase,
   item,
   s,
-  onBack,
   onExpired,
   onPickProblem,
   onSent,
@@ -614,7 +647,6 @@ function ConditionScreen({
   apiBase: string;
   item: EquipmentCard;
   s: Strings;
-  onBack: () => void;
   onExpired: () => void;
   onPickProblem: (condition: Exclude<Condition, "good">) => void;
   onSent: () => void;
@@ -635,7 +667,6 @@ function ConditionScreen({
 
   return (
     <div className="space-y-4">
-      <BackButton label={s.back} onClick={onBack} />
       <p className="text-xl font-semibold text-slate-600">
         {item.tag ? `${item.tag} · ` : ""}
         {item.name}
@@ -680,7 +711,6 @@ function DetailsScreen({
   item,
   condition,
   s,
-  onBack,
   onExpired,
   onSent,
 }: {
@@ -688,7 +718,6 @@ function DetailsScreen({
   item: EquipmentCard;
   condition: Exclude<Condition, "good">;
   s: Strings;
-  onBack: () => void;
   onExpired: () => void;
   onSent: () => void;
 }) {
@@ -748,7 +777,6 @@ function DetailsScreen({
 
   return (
     <div className="space-y-4">
-      <BackButton label={s.back} onClick={onBack} />
       <p className="text-xl font-semibold text-slate-600">
         {item.tag ? `${item.tag} · ` : ""}
         {item.name}

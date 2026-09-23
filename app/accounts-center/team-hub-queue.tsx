@@ -6,12 +6,26 @@
 // the existing per-issue/per-order admin actions
 // (/api/admin/team-hub/issues, /api/admin/team-hub/supply-orders) — those
 // already work by id regardless of which site/account the row belongs to.
+// Crew Link rows (docs/crew-link-spec.md) share this one queue; they're
+// tagged "Crew Link" and link to the account page instead of its Team Hub tab.
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
 
+type QueueSource = "team-hub" | "crew-link";
+
+function accountHref(accountId: string, source: QueueSource): string {
+  const base = `/accounts/${encodeURIComponent(accountId)}`;
+  return source === "crew-link" ? base : `${base}?tab=team-hub`;
+}
+
+function sourceLine(row: { source: QueueSource; siteLabel: string; crewName: string }): string {
+  return row.source === "crew-link" ? "Crew Link" : `${row.siteLabel} · ${row.crewName}`;
+}
+
 type QueueIssue = {
   id: number;
+  source: QueueSource;
   accountId: string;
   siteLabel: string;
   crewName: string;
@@ -27,6 +41,7 @@ type QueueIssue = {
 
 type QueueOrder = {
   id: number;
+  source: QueueSource;
   accountId: string;
   siteLabel: string;
   crewName: string;
@@ -112,11 +127,11 @@ export default function TeamHubStaffQueue() {
             <div key={issue.id} className="rounded-lg border border-gray-200 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <Link href={`/accounts/${issue.accountId}?tab=team-hub`} className="font-bold text-blue-700 hover:underline">
+                  <Link href={accountHref(issue.accountId, issue.source)} className="font-bold text-blue-700 hover:underline">
                     {accountNames[issue.accountId] ?? issue.accountId}
                   </Link>
                   <p className="text-sm text-gray-500">
-                    {issue.siteLabel} · {issue.crewName} · {issue.category}
+                    {sourceLine(issue)} · {issue.category}
                     {issue.runId ? " · during a checklist run" : ""}
                   </p>
                   {issue.note && (
@@ -151,10 +166,10 @@ export default function TeamHubStaffQueue() {
             <div key={order.id} className="rounded-lg border border-gray-200 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <Link href={`/accounts/${order.accountId}?tab=team-hub`} className="font-bold text-blue-700 hover:underline">
+                  <Link href={accountHref(order.accountId, order.source)} className="font-bold text-blue-700 hover:underline">
                     {accountNames[order.accountId] ?? order.accountId}
                   </Link>
-                  <p className="text-sm text-gray-500">{order.siteLabel} · {order.crewName} · {ORDER_STATUS_LABEL[order.status]}</p>
+                  <p className="text-sm text-gray-500">{sourceLine(order)} · {ORDER_STATUS_LABEL[order.status]}</p>
                   <ul className="mt-1 text-sm text-gray-700">
                     {order.lines.map((line, i) => (
                       <li key={i}>{line.qty} × {line.itemName} ({line.unit})</li>

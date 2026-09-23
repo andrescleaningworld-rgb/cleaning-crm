@@ -1094,9 +1094,14 @@ export type TeamHubIssueCategory = (typeof TEAM_HUB_ISSUE_CATEGORIES)[number];
 
 export type TeamHubIssue = {
   id: number;
-  siteId: number;
-  crewId: number;
+  // Crew Link rows (docs/crew-link-spec.md) have no Team Hub site/crew —
+  // they carry crewLinkAccountId + the typed reporterName instead.
+  siteId: number | null;
+  crewId: number | null;
+  crewLinkAccountId: string | null;
+  reporterName: string | null;
   workerId: number | null;
+  // Team Hub worker's first name, or the Crew Link reporter's typed name.
   workerFirstName: string | null;
   category: TeamHubIssueCategory;
   note: string;
@@ -1116,10 +1121,12 @@ export type TeamHubIssue = {
 function rowToIssue(row: Record<string, unknown>): TeamHubIssue {
   return {
     id: row.id as number,
-    siteId: row.site_id as number,
-    crewId: row.crew_id as number,
+    siteId: (row.site_id as number | null) ?? null,
+    crewId: (row.crew_id as number | null) ?? null,
+    crewLinkAccountId: (row.crew_link_account_id as string | null) ?? null,
+    reporterName: (row.reporter_name as string | null) ?? null,
     workerId: (row.worker_id as number | null) ?? null,
-    workerFirstName: (row.worker_first_name as string | null) ?? null,
+    workerFirstName: (row.worker_first_name as string | null) ?? (row.reporter_name as string | null) ?? null,
     category: row.category as TeamHubIssueCategory,
     note: (row.note as string) ?? "",
     noteEnglish: (row.note_english as string | null) ?? null,
@@ -1252,8 +1259,11 @@ export type TeamHubSupplyOrderLine = { itemId: number; itemName: string; unit: s
 
 export type TeamHubSupplyOrder = {
   id: number;
-  siteId: number;
-  crewId: number;
+  // See TeamHubIssue: Crew Link rows have no site/crew.
+  siteId: number | null;
+  crewId: number | null;
+  crewLinkAccountId: string | null;
+  reporterName: string | null;
   workerId: number | null;
   workerFirstName: string | null;
   status: TeamHubSupplyOrderStatus;
@@ -1270,10 +1280,12 @@ export type TeamHubSupplyOrder = {
 function rowToSupplyOrder(row: Record<string, unknown>): TeamHubSupplyOrder {
   return {
     id: row.id as number,
-    siteId: row.site_id as number,
-    crewId: row.crew_id as number,
+    siteId: (row.site_id as number | null) ?? null,
+    crewId: (row.crew_id as number | null) ?? null,
+    crewLinkAccountId: (row.crew_link_account_id as string | null) ?? null,
+    reporterName: (row.reporter_name as string | null) ?? null,
     workerId: (row.worker_id as number | null) ?? null,
-    workerFirstName: (row.worker_first_name as string | null) ?? null,
+    workerFirstName: (row.worker_first_name as string | null) ?? (row.reporter_name as string | null) ?? null,
     status: row.status as TeamHubSupplyOrderStatus,
     note: (row.note as string) ?? "",
     noteEnglish: (row.note_english as string | null) ?? null,
@@ -1708,30 +1720,132 @@ export async function getTeamHubActivityFeedForSite(
   return events.slice(0, limit);
 }
 
+// ─── Crew Link orders + problems (docs/crew-link-spec.md) ───────────────
+// Crew Link reuses supply_orders / hub_issues / hub_photos (approved plan):
+// rows carry crew_link_account_id + the typed reporter_name and have no
+// site/crew/worker. Every Team Hub crew/site query joins hub_sites/hub_crews
+// with inner joins, so these rows never show inside a Team Hub crew app or
+// per-site view — only in the staff queue, badges, and the account page's
+// Crew Link section.
+
+export async function createCrewLinkIssue(input: {
+  accountId: string;
+  reporterName: string;
+  category: TeamHubIssueCategory;
+  note: string;
+}): Promise<TeamHubIssue> {
+  if (!TEAM_HUB_ISSUE_CATEGORIES.includes(input.category)) {
+    throw new Error("Invalid category.");
+  }
+  const note = input.note.trim().slice(0, 2000);
+  const reporterName = input.reporterName.trim().slice(0, 80);
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_issues (crew_link_account_id, reporter_name, category, note)
+    VALUES (${input.accountId}, ${reporterName}, ${input.category}, ${note})
+    RETURNING *
+  `;
+  return rowToIssue(rows[0] as Record<string, unknown>);
+}
+
+// Crew Link has no per-crew picker: the catalog is every active supply item.
+export async function createCrewLinkSupplyOrder(input: {
+  accountId: string;
+  reporterName: string;
+  note: string;
+  lines: { itemId: number; qty: number }[];
+}): Promise<TeamHubSupplyOrder> {
+  const catalog = await listSupplyItemsLibrary(true);
+  const byId = new Map(catalog.map((item) => [item.id, item]));
+  const lines = input.lines
+    .filter((l) => Number.isInteger(l.itemId) && byId.has(l.itemId) && Number.isInteger(l.qty) && l.qty > 0)
+    .map((l) => ({ itemId: l.itemId, qty: Math.min(l.qty, 999) }));
+  if (lines.length === 0) {
+    throw new Error("Add at least one item before sending.");
+  }
+
+  const note = input.note.trim().slice(0, 1000);
+  const reporterName = input.reporterName.trim().slice(0, 80);
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO supply_orders (crew_link_account_id, reporter_name, note)
+    VALUES (${input.accountId}, ${reporterName}, ${note})
+    RETURNING *
+  `;
+  const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
+  for (const line of lines) {
+    await sql`INSERT INTO supply_order_lines (order_id, item_id, qty) VALUES (${order.id}, ${line.itemId}, ${line.qty})`;
+  }
+  order.lines = lines.map((l) => {
+    const item = byId.get(l.itemId)!;
+    return { itemId: l.itemId, itemName: item.name, unit: item.unit, qty: l.qty, equipmentPartId: item.equipmentPartId };
+  });
+  return order;
+}
+
+export async function listCrewLinkSupplyOrdersForAccount(accountId: string, limit = 200): Promise<TeamHubSupplyOrder[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM supply_orders WHERE crew_link_account_id = ${accountId}
+    ORDER BY created_at DESC LIMIT ${limit}
+  `;
+  const orders = rows.map((r) => rowToSupplyOrder(r as Record<string, unknown>));
+  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
+  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
+  return orders;
+}
+
+export async function listCrewLinkIssuesForAccount(accountId: string, limit = 200): Promise<TeamHubIssue[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM hub_issues WHERE crew_link_account_id = ${accountId}
+    ORDER BY created_at DESC LIMIT ${limit}
+  `;
+  const issues = rows.map((r) => rowToIssue(r as Record<string, unknown>));
+  const photosByIssueId = await getTeamHubPhotosForParents("issue", issues.map((i) => i.id));
+  for (const issue of issues) issue.photos = photosByIssueId.get(issue.id) ?? [];
+  return issues;
+}
+
 // ─── Cross-site staff queue (Phase 6) ────────────────────────────────────
 // Everything below returns hub_sites.account_id alongside the row (never
 // name/address — direction 8) so the caller can attach real account names
 // via lib/teamHubAccountLookup.ts, the one sanctioned choke point. No
 // Sheets reads in this file.
 
-export type TeamHubQueueIssue = TeamHubIssue & { accountId: string; siteLabel: string; crewName: string };
-export type TeamHubQueueOrder = TeamHubSupplyOrder & { accountId: string; siteLabel: string; crewName: string };
+// source tells the staff queue whether a row came from a Team Hub crew or a
+// Crew Link (docs/crew-link-spec.md). Crew Link rows have no site/crew, so
+// siteLabel/crewName read "Crew Link" and accountId comes from
+// crew_link_account_id.
+export type TeamHubQueueSource = "team-hub" | "crew-link";
+export type TeamHubQueueIssue = TeamHubIssue & { accountId: string; siteLabel: string; crewName: string; source: TeamHubQueueSource };
+export type TeamHubQueueOrder = TeamHubSupplyOrder & { accountId: string; siteLabel: string; crewName: string; source: TeamHubQueueSource };
+
+function queueFields(row: Record<string, unknown>) {
+  const isCrewLink = row.site_id === null || row.site_id === undefined;
+  return {
+    accountId: (row.account_id as string | null) ?? (row.crew_link_account_id as string),
+    siteLabel: (row.site_label as string | null) ?? "Crew Link",
+    crewName: (row.crew_name as string | null) ?? "Crew Link",
+    source: (isCrewLink ? "crew-link" : "team-hub") as TeamHubQueueSource,
+  };
+}
 
 export async function listOpenTeamHubIssuesAcrossSites(limit = 200): Promise<TeamHubQueueIssue[]> {
   const sql = getSql();
   const rows = await sql`
     SELECT i.*, w.first_name AS worker_first_name, s.account_id, s.label AS site_label, c.name AS crew_name
     FROM hub_issues i
-    JOIN hub_sites s ON s.id = i.site_id
-    JOIN hub_crews c ON c.id = i.crew_id
+    LEFT JOIN hub_sites s ON s.id = i.site_id
+    LEFT JOIN hub_crews c ON c.id = i.crew_id
     LEFT JOIN hub_workers w ON w.id = i.worker_id
-    WHERE i.status = 'open'
+    WHERE i.status = 'open' AND (s.id IS NOT NULL OR i.crew_link_account_id IS NOT NULL)
     ORDER BY i.created_at DESC
     LIMIT ${limit}
   `;
   const issues = rows.map((r) => {
     const row = r as Record<string, unknown>;
-    return { ...rowToIssue(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+    return { ...rowToIssue(row), ...queueFields(row) };
   });
   const photosByIssueId = await getTeamHubPhotosForParents("issue", issues.map((i) => i.id));
   for (const issue of issues) issue.photos = photosByIssueId.get(issue.id) ?? [];
@@ -1743,16 +1857,16 @@ export async function listOpenTeamHubSupplyOrdersAcrossSites(limit = 200): Promi
   const rows = await sql`
     SELECT so.*, w.first_name AS worker_first_name, s.account_id, s.label AS site_label, c.name AS crew_name
     FROM supply_orders so
-    JOIN hub_sites s ON s.id = so.site_id
-    JOIN hub_crews c ON c.id = so.crew_id
+    LEFT JOIN hub_sites s ON s.id = so.site_id
+    LEFT JOIN hub_crews c ON c.id = so.crew_id
     LEFT JOIN hub_workers w ON w.id = so.worker_id
-    WHERE so.status IN ('new', 'ordered')
+    WHERE so.status IN ('new', 'ordered') AND (s.id IS NOT NULL OR so.crew_link_account_id IS NOT NULL)
     ORDER BY so.created_at DESC
     LIMIT ${limit}
   `;
   const orders = rows.map((r) => {
     const row = r as Record<string, unknown>;
-    return { ...rowToSupplyOrder(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+    return { ...rowToSupplyOrder(row), ...queueFields(row) };
   });
   const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
   for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
@@ -1775,7 +1889,7 @@ export async function listOpenTeamHubIssuesForSub(subId: string, limit = 200): P
   `;
   const issues = rows.map((r) => {
     const row = r as Record<string, unknown>;
-    return { ...rowToIssue(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+    return { ...rowToIssue(row), ...queueFields(row) };
   });
   const photosByIssueId = await getTeamHubPhotosForParents("issue", issues.map((i) => i.id));
   for (const issue of issues) issue.photos = photosByIssueId.get(issue.id) ?? [];
@@ -1796,7 +1910,7 @@ export async function listOpenTeamHubSupplyOrdersForSub(subId: string, limit = 2
   `;
   const orders = rows.map((r) => {
     const row = r as Record<string, unknown>;
-    return { ...rowToSupplyOrder(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+    return { ...rowToSupplyOrder(row), ...queueFields(row) };
   });
   const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
   for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
@@ -1867,11 +1981,11 @@ export async function listTeamHubSubCrewSites(): Promise<TeamHubSubCrewSite[]> {
 export async function getOpenTeamHubIssueCountsByAccount(): Promise<Map<string, number>> {
   const sql = getSql();
   const rows = await sql`
-    SELECT s.account_id, COUNT(*)::int AS n
+    SELECT COALESCE(s.account_id, i.crew_link_account_id) AS account_id, COUNT(*)::int AS n
     FROM hub_issues i
-    JOIN hub_sites s ON s.id = i.site_id
-    WHERE i.status = 'open'
-    GROUP BY s.account_id
+    LEFT JOIN hub_sites s ON s.id = i.site_id
+    WHERE i.status = 'open' AND COALESCE(s.account_id, i.crew_link_account_id) IS NOT NULL
+    GROUP BY COALESCE(s.account_id, i.crew_link_account_id)
   `;
   const map = new Map<string, number>();
   for (const r of rows) {
