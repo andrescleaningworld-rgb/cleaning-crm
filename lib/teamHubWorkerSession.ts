@@ -37,9 +37,14 @@ export function teamHubSessionOptions(): SessionOptions {
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      // A work shift, not a login-once day — same reasoning as sub_session's
-      // 8h maxAge (lib/subSession.ts).
-      maxAge: 60 * 60 * 8,
+      // Simplicity pass (see docs/team-hub-spec.md "GLOBAL RULES"): a
+      // non-tech-savvy crew should never have to log in again — "remember
+      // me for 90 days," not an 8h shift window like sub_session. Explicit,
+      // deliberate change from Phase 1's shift-length reasoning; the
+      // session is still fully revocable (regenerateTeamHubCrewToken's
+      // token_version bump forces re-auth regardless of maxAge, and an
+      // admin deactivating the worker/crew invalidates it on next check).
+      maxAge: 60 * 60 * 24 * 90,
     },
   };
 }

@@ -7,7 +7,12 @@
 // directly here).
 import { NextRequest, NextResponse } from "next/server";
 import { getTeamHubSiteByAccountId, createTeamHubSite, updateTeamHubSite, setTeamHubSiteActive } from "@/lib/teamHubDb";
+import { lookupAssignedSubForAccount } from "@/lib/teamHubAccountLookup";
 
+// Simplicity-pass addition: assignedSub rides along on the same GET the
+// admin tab already calls on load (accountId is already the query param),
+// rather than a separate round trip — see lookupAssignedSubForAccount's
+// comment for what "matched" vs "unmatched" means.
 export async function GET(request: NextRequest) {
   try {
     const accountId = new URL(request.url).searchParams.get("accountId")?.trim();
@@ -15,8 +20,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "accountId is required." }, { status: 400 });
     }
 
-    const site = await getTeamHubSiteByAccountId(accountId);
-    return NextResponse.json({ success: true, site });
+    const [site, assignedSub] = await Promise.all([getTeamHubSiteByAccountId(accountId), lookupAssignedSubForAccount(accountId)]);
+    return NextResponse.json({ success: true, site, assignedSub });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to load Team Hub site." },

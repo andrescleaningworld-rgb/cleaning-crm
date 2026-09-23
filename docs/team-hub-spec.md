@@ -61,6 +61,11 @@ tsc/ESLint/build. It gets deleted after Phase 4, not renamed.
   whenever it migrates off Sheets.
 - Each phase's report to the user must list every place that phase's new
   code touches Sheets.
+- **Every crew-facing screen follows §11's GLOBAL UI RULES** (one main
+  action per screen, big buttons, plain EN/ES labels, no hidden menus,
+  instant tap feedback, 18px+ text) — added in the simplicity pass, binding
+  on every phase from here on, not just the screens that existed when it
+  was written.
 - Do not modify `app/visits/page.tsx`, `app/subcontractor-portal/page.tsx`,
   or staff login without separate, explicit approval for that specific
   change.
@@ -437,6 +442,161 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
     rows deleted afterward and independently confirmed gone (0 leftover).
   - Sheets touch points from this phase: none — no new file imports
     `lib/googleSheets.ts`.
+- **Simplicity pass (between Phase 2 and Phase 3) — done.** UI-only pass
+  across the crew app and the admin tab, driven by one rule: a non-tech-
+  savvy person must be able to use every screen without help. Data model,
+  APIs, and security model unchanged **except** two explicit, deliberate
+  exceptions called out below. Established §11's GLOBAL UI RULES, binding
+  on every phase from here on.
+
+  **Crew app:**
+  - **Install gate removed.** `/team-hub/[token]` no longer blocks on
+    `display-mode: standalone` — it works directly in a browser tab from
+    the texted link. A small dismissible "Add to Home Screen" banner shows
+    once (`localStorage`, never re-shown once dismissed or once already
+    standalone) instead of gating the whole app. The manifest/service
+    worker/icons from Phase 1's PWA work are untouched — still there for
+    whoever does install.
+  - **90-day session (deliberate security-adjacent exception).**
+    `lib/teamHubWorkerSession.ts`'s `maxAge` went from 8 hours (a shift) to
+    90 days — "opening the link goes straight to Today," no re-login. Still
+    fully revocable: `regenerateTeamHubCrewToken`'s `token_version` bump
+    forces re-auth regardless of `maxAge` (unchanged from Phase 1), and an
+    admin deactivating the worker or crew invalidates the session on its
+    next check.
+  - **Today screen redesigned**: big icon+label+one-status-line tiles
+    (`checklist`/`rounds`/`issues` openable, `handoff`/`requests`/`supplies`
+    still "Coming soon" — no module content exists for those yet, only the
+    tile label changed). Worker identity moved to a small "Not you?" link;
+    the old two full-width Switch Worker/Sign Out buttons are gone (Not
+    you? reuses the existing overwrite-the-session-on-relogin mechanism
+    Phase 1 built, not a new one).
+  - **Checklist redesigned**: one area at a time (`Area N of M` + a
+    progress bar), tap = done / tap again = undo, big "Next area" ->
+    "Finish". The old per-item Done/N-A/Problem three-button row and
+    always-expanded full item list are gone. "Undo" needed a genuinely new
+    capability — there's no "not done" value in
+    `hub_checklist_run_items.status`'s CHECK constraint — so
+    `deleteTeamHubChecklistRunItem` (removes the row) and a new
+    `DELETE` handler on `/api/team-hub/[token]/checklist` were added.
+    `PATCH`'s status values are unchanged (still `done`/`na`/`problem`);
+    the simplified UI just never sends anything but `done` now.
+  - **"Report a problem" (deliberate scope exception, moved up from Phase
+    4).** An always-visible button at the bottom of the checklist screen,
+    plus its own crew-facing screen behind the `issues` module tile (same
+    `ReportProblemButton` component both places). Free-text note only, no
+    photo (Phase 4 still owns photo attachment). This needed a real write
+    path that didn't exist before this pass: `reportTeamHubIssue()` in
+    `lib/teamHubDb.ts` (inserts a `hub_issues` row, `category = 'other'`,
+    `run_item_id` always null — it's not tied to one checklist item) and a
+    new `POST /api/team-hub/[token]/issues` route. This is the one place
+    this pass added a genuinely new write capability rather than only
+    reshaping existing ones — called out explicitly since the pass's own
+    brief said "keep the APIs as they are."
+  - **Rounds redesigned**: one big button per round, colored green (well
+    within interval) / amber (past 50% of interval) / red (overdue or not
+    checked today), tap = checked. The old per-item detail card and note
+    field are gone — check-ins are always empty-note now from this screen
+    (the API still accepts a note; nothing sends one anymore).
+  - **EN/ES.** New `app/team-hub/teamHubStrings.ts` — a plain nested-string
+    dictionary (not an i18n library; the screen set is small and fixed) —
+    plus `useTeamHubLang()` (detects `navigator.language`, overridable via
+    a small flag-icon toggle, `localStorage`-remembered per device) and
+    `LangToggle.tsx`. Every crew-facing string introduced or touched by
+    this pass goes through it; nothing server-rendered depends on language
+    (it's resolved client-side after mount, same deferred-read pattern as
+    the install-hint dismissal, to avoid an SSR/hydration mismatch).
+  - **Light offline handling.** "No signal — saved, will send later":
+    checklist taps and round check-ins apply optimistically and stay
+    applied even if the network call fails; a failed write is queued
+    in-memory and retried once on the browser's `online` event. This is
+    *not* a persistent offline queue — a full page reload while offline
+    still loses an unsent tap. Flagged as a deliberate scope cut, not an
+    oversight; full offline persistence (e.g. IndexedDB) is unscoped.
+  - **Instant feedback**: `navigator.vibrate()` (feature-detected, no-ops
+    silently where unsupported, e.g. iOS Safari) on every successful tap,
+    plus the existing green/checkmark visual state changes.
+
+  **Admin (account page Team Hub tab):**
+  - **3-step wizard replaces the old always-visible "create site" +
+    freeform "add crew" form**, shown only on first-time setup (no crews
+    yet for the site). Step 1 ("Who cleans here?") is two checkboxes (Day
+    porter / Night crew, both checked by default) plus an auto-resolved
+    sub. Step 2 ("Add workers") is a first-name-only field per checked
+    crew with "+ Add another" — **no PIN entry field**: each worker's PIN
+    is generated client-side (`crypto.getRandomValues`, 4 digits) at
+    creation time and only ever shown once, on the Step 3 screen. Step 3
+    ("Send invites") is one "Text invite" button per worker
+    (`navigator.share` first, `sms:` link fallback) plus a "Copy" button —
+    the message text is bilingual (English then Spanish in the same
+    message, not a language picker) and names only the site label, never
+    the account name. Once any crew exists for the site, the tab always
+    shows the summary view instead (one status line + "Customize" per
+    crew) — the wizard never reappears.
+  - **Defaults, applied automatically, no picking needed**: Day porter gets
+    `rounds`/`handoff`/`supplies`/`issues` modules + every active round;
+    Night crew gets `checklist`/`handoff`/`issues` modules + every active
+    checklist item and pinned note. Applied via the *existing*
+    `/api/admin/team-hub/crew-items` `setModules`/`setCrewItems` actions
+    (client-orchestrated — no new endpoint needed for this part).
+  - **Sub auto-fill (deliberate scope exception #2 — extends the account
+    lookup, per explicit instruction).**
+    `lib/teamHubAccountLookup.ts` gained `lookupAssignedSubForAccount()`,
+    which resolves an account's raw `Subcontractor` text (a new
+    `AccountSummary.subcontractorRaw` field — free, since
+    `getAccountSummaryById`/`getAccountSummariesByIds` already read that
+    row) against the Subcontractors roster using the *same*
+    ambiguity-safe matching `lib/subAccountMatching.ts` already uses
+    elsewhere (`resolveAssignedSubKeyWithCandidateCount`) — an exact or
+    single fuzzy match auto-fills the sub (`status: "matched"`); anything
+    else (`status: "unmatched"` — no raw name, no match, or more than one
+    candidate) shows a "Pick the sub" dropdown instead of guessing,
+    defaulting to In-house if the admin doesn't touch it. `subId` stored
+    on `hub_crews.sub_id` is `getAllSubcontractorsRaw()`'s own `id` field —
+    almost always `SUB-ROW-<n>`, a row-position id (see that function's
+    comment in `lib/googleSheets.ts`) — reusing the **same** id scheme the
+    rest of the app already treats as "the" subcontractor id, not
+    inventing a new one. `GET /api/admin/team-hub/sites` now returns
+    `assignedSub` alongside `site` (one extra Sheets read on every load of
+    the tab, matched/unmatched/site-existing or not — accepted as cheap
+    for an admin-only, low-traffic page).
+  - **Status line data**: new `getLastSubmittedTeamHubChecklistRunSummary()`
+    in `lib/teamHubDb.ts` (last *submitted* run's done/total —
+    `totalCount` is the crew's *current* enabled-item count, not a
+    historical snapshot, a deliberate simplification) plus reuse of the
+    existing `listEnabledTeamHubRoundItemsForCrew`/
+    `getLatestTeamHubRoundChecksForCrew` for a rounds-based crew, both
+    served by a new `GET /api/admin/team-hub/crew-summary?crewId=`.
+  - **Customize** collapses the *entire* original Phase 0/1 editor
+    (module toggles, item picker, "Preview as crew", regenerate link,
+    reset PIN, deactivate/reactivate worker or crew) behind one
+    per-crew toggle — that editor's own code
+    (`WorkersSetup`/`VisibilitySetup`/`LibraryPicker`/`PreviewAsCrew`) is
+    unchanged by this pass, only re-homed. A small "+ Add another crew"
+    (collapsed, off by default) keeps the freeform create-crew form
+    available for `crewType: 'other'` or additional instances beyond the
+    two wizard defaults.
+  - **Not done in this pass** (flagged, not silently skipped): per-worker
+    phone numbers are still never stored anywhere (the invite flow reads
+    the PIN/link out of component state, not a database column); the
+    wizard's site-label field still has to be typed once, prefilled to the
+    account name as a *starting point* only — it is never sent anywhere
+    until the admin confirms/edits it, so the "site label only, never the
+    account name" rule for crew-facing text still holds for what actually
+    gets stored and texted.
+  - Verified via `tsc --noEmit`, `next lint` (scoped to changed files), and
+    a full `next build` — all clean; the new routes (`.../issues`,
+    `/api/admin/team-hub/crew-summary`) appear in the build's route list.
+    Not exercised against a live crew/admin session in the dev database
+    this pass (no new database tables — every write path re-tested here
+    reuses Phase 0-2's already-live-tested query layer, plus two small new
+    functions built on the same patterns) — flagged as a gap relative to
+    Phase 1/2's own live-DB verification.
+  - Sheets touch points from this pass: `lib/teamHubAccountLookup.ts`
+    (the sanctioned choke point) gained `lookupAssignedSubForAccount()`,
+    which reads `getAccountSummaryById()` (existing, one new field) and
+    `getAllSubcontractorsRaw()` (existing function, newly called from Team
+    Hub) — no other Team Hub file imports `lib/googleSheets.ts` directly.
 - **Phase 3 — requests.** "Convert to Team Hub request" from the customer
   portal inbox. Must resolve the `portal_request_id` stable-id question
   flagged in §7 deviation #3 before writing to it.
@@ -467,4 +627,51 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   `lib/googleSheets.ts` back the customer-portal inbox that Phase 3's
   "convert to request" reads from — entirely Sheets-backed, row-indexed by
   `sheetRow`, not a stable id (see §7 deviation #3).
+- `getAllSubcontractorsRaw()` in `lib/googleSheets.ts` — read by
+  `lib/teamHubAccountLookup.ts`'s `lookupAssignedSubForAccount()` (the
+  simplicity pass's sub auto-fill) — is otherwise a Subcontractors-page
+  function, now also a Team Hub dependency. If its `id` scheme
+  (`SUB-ROW-<n>`, row-position-based) ever changes, `hub_crews.sub_id`
+  values already stored under the old scheme become stale and won't
+  re-match; nothing currently re-validates them after creation.
 - No other Team Hub file may import `lib/googleSheets.ts` directly.
+
+## 11. GLOBAL UI RULES (simplicity pass — binding on every phase)
+
+Added mid-project, after Phase 2, driven by one test: **a non-tech-savvy
+person must be able to use every crew-facing screen without help or
+instructions.** If a phase's design is in doubt on any of these, remove
+the thing in doubt rather than add an explainer for it.
+
+- **One main action per screen.** Big buttons, minimum 64px tall, full
+  width. Secondary/utility actions (e.g. "Report a problem" on the
+  checklist screen) don't count against this — the rule is about the
+  screen's primary job, not every button on it.
+- **Icons + one or two plain words.** No paragraphs, no jargon, no
+  explanations of what a button does — the label and icon have to carry
+  it alone.
+- **Plain labels, fixed regardless of internal module name**: `checklist`
+  → "Checklist", `rounds` → "Checks", `handoff` → "Notes for other shift",
+  `requests` → "Tasks", `supplies` → "Order supplies", `issues` → "Report
+  a problem". Internal code (`TeamHubModule`, table/column names, API
+  payloads) keeps the original module names — only crew-facing display
+  text uses these.
+- **No hidden menus.** No "...", no long-press, no swipe-to-reveal.
+  Everything is either visible on screen or doesn't exist yet as a
+  feature.
+- **Instant feedback on every tap**: a visible state change (checkmark,
+  color change) plus `navigator.vibrate()` where supported (feature-
+  detected, silently no-ops where it isn't, e.g. iOS Safari). Errors are
+  plain words, not technical messages — "No signal — saved, will send
+  later," never a raw fetch error or HTTP status.
+- **Minimum 18px text, high contrast.**
+- **Language follows the phone (EN/ES)**, with a small flag icon to
+  override — see `app/team-hub/teamHubStrings.ts` /
+  `useTeamHubLang()` / `LangToggle.tsx`. New crew-facing strings always go
+  through this dictionary, in both languages, never hardcoded English.
+
+These rules apply to `/team-hub/[token]` and its sub-screens specifically.
+The admin account-page tab follows the spirit (prefilled wizard, plain
+status lines, collapsed advanced options) but isn't held to the same
+letter — an admin using it is CleaningWorld staff, not the "non-tech-savvy
+person without help or instructions" the rule is protecting.

@@ -1,5 +1,14 @@
 "use client";
 
+// Simplicity pass rewrite (docs/team-hub-spec.md "GLOBAL RULES" + "ADMIN"):
+// first-time setup is now a single-screen, 3-numbered-step wizard with
+// everything prefilled (crews as checkboxes, sub auto-filled, workers by
+// first name only, one "Text invite" button per worker). Once any crew
+// exists, the tab shows a one-line-per-crew summary with a "Customize"
+// toggle that reveals the original Phase 0/1 editor (module toggles, item
+// pickers, regenerate link, reset PIN, deactivate) — that editor's code is
+// otherwise unchanged from before this pass, just re-homed under
+// Customize instead of always being visible.
 import { useEffect, useState, useCallback } from "react";
 
 type TeamHubSite = {
@@ -48,31 +57,48 @@ type TeamHubWorker = {
   lastDevice: string | null;
 };
 
-export default function AccountTeamHubTab({
-  accountId,
-  accountName,
-}: {
-  accountId: string;
-  accountName: string;
-}) {
+type AssignedSub = { status: "matched"; subId: string; subName: string } | { status: "unmatched"; options: { subId: string; name: string }[] };
+
+// Which modules + library items each wizard crew type gets automatically —
+// see docs/team-hub-spec.md "ADMIN" for the source of these defaults.
+const CREW_TYPE_LABELS: Record<"porter" | "night", string> = { porter: "Day porter", night: "Night crew" };
+const CREW_TYPE_MODULES: Record<"porter" | "night", TeamHubModule[]> = {
+  porter: ["rounds", "handoff", "supplies", "issues"],
+  night: ["checklist", "handoff", "issues"],
+};
+
+function generatePin(): string {
+  const bytes = new Uint8Array(2);
+  crypto.getRandomValues(bytes);
+  const num = (bytes[0] * 256 + bytes[1]) % 10000;
+  return String(num).padStart(4, "0");
+}
+
+function buildInviteText(firstName: string, siteLabel: string, link: string, pin: string): string {
+  return (
+    `Hi ${firstName}, here's your Team Hub for ${siteLabel}: ${link}\n` +
+    `Tap the link, pick your name, and enter your PIN: ${pin}\n\n` +
+    `Hola ${firstName}, aquí está tu Team Hub para ${siteLabel}: ${link}\n` +
+    `Toca el enlace, elige tu nombre, y escribe tu PIN: ${pin}`
+  );
+}
+
+export default function AccountTeamHubTab({ accountId, accountName }: { accountId: string; accountName: string }) {
   const [loading, setLoading] = useState(true);
   const [site, setSite] = useState<TeamHubSite | null>(null);
+  const [assignedSub, setAssignedSub] = useState<AssignedSub | null>(null);
   const [crews, setCrews] = useState<TeamHubCrew[]>([]);
   const [error, setError] = useState("");
-
-  const [newLabel, setNewLabel] = useState("");
-  const [newPhone, setNewPhone] = useState("");
-  const [creatingSite, setCreatingSite] = useState(false);
+  const [wizardDone, setWizardDone] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const siteRes = await fetch(`/api/admin/team-hub/sites?accountId=${encodeURIComponent(accountId)}`, {
-        cache: "no-store",
-      });
+      const siteRes = await fetch(`/api/admin/team-hub/sites?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" });
       const siteData = await siteRes.json();
       const loadedSite: TeamHubSite | null = siteData.site ?? null;
       setSite(loadedSite);
+      setAssignedSub(siteData.assignedSub ?? null);
 
       if (loadedSite) {
         const crewsRes = await fetch(`/api/admin/team-hub/crews?siteId=${loadedSite.id}`, { cache: "no-store" });
@@ -91,32 +117,6 @@ export default function AccountTeamHubTab({
   useEffect(() => {
     load();
   }, [load]);
-
-  async function handleCreateSite(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newLabel.trim()) return;
-    try {
-      setCreatingSite(true);
-      setError("");
-      const res = await fetch("/api/admin/team-hub/sites", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          accountId,
-          label: newLabel.trim(),
-          supervisorPhone: newPhone.trim() || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Could not create Team Hub.");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create Team Hub.");
-    } finally {
-      setCreatingSite(false);
-    }
-  }
 
   async function handleSetSiteActive(active: boolean) {
     if (!site) return;
@@ -138,57 +138,33 @@ export default function AccountTeamHubTab({
     return <p className="rounded-2xl bg-white p-6 text-sm text-slate-500 shadow-sm">Loading Team Hub…</p>;
   }
 
-  if (error && !site) {
+  if (error && crews.length === 0 && !site) {
     return <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>;
   }
 
-  if (!site) {
+  if (crews.length === 0 && !wizardDone) {
     return (
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">Set up Team Hub for {accountName}</h2>
-        <p className="mt-1 text-sm text-slate-600">
-          Creates a Team Hub for this account — crews can then be added, each with their own no-login link.
-        </p>
-        <form onSubmit={handleCreateSite} className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="text-sm font-medium text-slate-700">Site label (crews see only this)</label>
-            <input
-              type="text"
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="e.g. Site 14"
-              required
-              className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700">Supervisor phone (optional)</label>
-            <input
-              type="tel"
-              value={newPhone}
-              onChange={(e) => setNewPhone(e.target.value)}
-              className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-sm"
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <button
-              type="submit"
-              disabled={creatingSite}
-              className="min-h-[44px] rounded-lg bg-blue-700 px-5 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {creatingSite ? "Creating…" : "Create Team Hub"}
-            </button>
-          </div>
-        </form>
-      </section>
+      <SetupWizard
+        accountId={accountId}
+        accountName={accountName}
+        site={site}
+        assignedSub={assignedSub}
+        onFinished={() => {
+          setWizardDone(true);
+          load();
+        }}
+      />
     );
+  }
+
+  if (!site) {
+    // Wizard finished but the reload hasn't landed yet (race-safe fallback).
+    return <p className="rounded-2xl bg-white p-6 text-sm text-slate-500 shadow-sm">Loading Team Hub…</p>;
   }
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
-      )}
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -217,29 +193,479 @@ export default function AccountTeamHubTab({
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h3 className="text-base font-bold text-slate-900">Crews</h3>
-        <CrewsSection siteId={site.id} crews={crews} onChanged={load} />
+        <div className="mt-3 space-y-3">
+          {crews.map((crew) => (
+            <CrewSummaryRow key={crew.id} site={site} crew={crew} onChanged={load} />
+          ))}
+        </div>
+        <AddAnotherCrew siteId={site.id} onChanged={load} />
       </section>
     </div>
   );
 }
 
-function CrewsSection({
-  siteId,
-  crews,
-  onChanged,
+// ─── Step 1-3 wizard (first-time setup) ────────────────────────────────────
+
+type WizardWorker = { key: number; firstName: string };
+type CreatedInvite = { crewName: string; firstName: string; pin: string; link: string };
+
+function SetupWizard({
+  accountId,
+  accountName,
+  site,
+  assignedSub,
+  onFinished,
 }: {
-  siteId: number;
-  crews: TeamHubCrew[];
-  onChanged: () => void;
+  accountId: string;
+  accountName: string;
+  site: TeamHubSite | null;
+  assignedSub: AssignedSub | null;
+  onFinished: () => void;
 }) {
+  const [siteLabel, setSiteLabel] = useState(site?.label || accountName);
+  const [checked, setChecked] = useState<Record<"porter" | "night", boolean>>({ porter: true, night: true });
+  const [subChoice, setSubChoice] = useState<string>(""); // "" = auto/in-house, "inhouse", or a subId
+  const [workers, setWorkers] = useState<Record<"porter" | "night", WizardWorker[]>>({
+    porter: [{ key: 1, firstName: "" }],
+    night: [{ key: 2, firstName: "" }],
+  });
+  const [nextKey, setNextKey] = useState(3);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+  const [invites, setInvites] = useState<CreatedInvite[] | null>(null);
+
+  const matched = assignedSub?.status === "matched" ? assignedSub : null;
+  const [showPicker, setShowPicker] = useState(assignedSub?.status === "unmatched");
+
+  function toggleCrew(type: "porter" | "night") {
+    setChecked((prev) => ({ ...prev, [type]: !prev[type] }));
+  }
+
+  function addWorker(type: "porter" | "night") {
+    setWorkers((prev) => ({ ...prev, [type]: [...prev[type], { key: nextKey, firstName: "" }] }));
+    setNextKey((k) => k + 1);
+  }
+
+  function setWorkerName(type: "porter" | "night", key: number, firstName: string) {
+    setWorkers((prev) => ({ ...prev, [type]: prev[type].map((w) => (w.key === key ? { ...w, firstName } : w)) }));
+  }
+
+  async function handleCreate() {
+    const crewTypes = (Object.keys(checked) as ("porter" | "night")[]).filter((t) => checked[t]);
+    if (crewTypes.length === 0) {
+      setError("Pick at least one crew.");
+      return;
+    }
+    if (!siteLabel.trim()) {
+      setError("A site label is required.");
+      return;
+    }
+
+    setCreating(true);
+    setError("");
+    try {
+      let currentSite = site;
+      if (!currentSite) {
+        const res = await fetch("/api/admin/team-hub/sites", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "create", accountId, label: siteLabel.trim(), supervisorPhone: null }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Could not create Team Hub.");
+        currentSite = data.site;
+      }
+      if (!currentSite) {
+        throw new Error("Could not create Team Hub.");
+      }
+      const siteId = currentSite.id;
+
+      // subChoice is "" until the admin touches the dropdown (it's only
+      // shown at all when unmatched, or after "Change" on a matched sub) —
+      // "" means "use whatever's already decided": the matched sub if
+      // there is one, in-house otherwise. Any non-empty subChoice is an
+      // explicit admin pick and always wins, including "inhouse" itself.
+      let crewKind: "sub" | "inhouse" = "inhouse";
+      let subId: string | null = null;
+      if (subChoice && subChoice !== "inhouse") {
+        crewKind = "sub";
+        subId = subChoice;
+      } else if (!subChoice && matched) {
+        crewKind = "sub";
+        subId = matched.subId;
+      }
+
+      const createdInvites: CreatedInvite[] = [];
+
+      for (const crewType of crewTypes) {
+        const crewRes = await fetch("/api/admin/team-hub/crews", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "create",
+            siteId,
+            name: CREW_TYPE_LABELS[crewType],
+            crewType,
+            crewKind,
+            subId,
+          }),
+        });
+        const crewData = await crewRes.json();
+        if (!crewRes.ok || !crewData.success) throw new Error(crewData.error || "Could not create crew.");
+        const crew: TeamHubCrew = crewData.crew;
+
+        const libRes = await fetch(`/api/admin/team-hub/crew-items?crewId=${crew.id}`, { cache: "no-store" });
+        const libData = await libRes.json();
+        const libraries = libData.libraries ?? { checklist: [], rounds: [], supplies: [] };
+
+        const moduleFlags: Partial<Record<TeamHubModule, boolean>> = {};
+        for (const m of TEAM_HUB_MODULES) moduleFlags[m] = CREW_TYPE_MODULES[crewType].includes(m);
+        await fetch("/api/admin/team-hub/crew-items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "setModules", crewId: crew.id, modules: moduleFlags }),
+        });
+
+        const defaultItems =
+          crewType === "night"
+            ? (libraries.checklist as LibraryItem[]).map((item, index) => ({ itemType: "checklist", itemId: item.id, enabled: true, sortOrder: index }))
+            : (libraries.rounds as LibraryItem[]).map((item, index) => ({ itemType: "round", itemId: item.id, enabled: true, sortOrder: index }));
+        if (defaultItems.length > 0) {
+          await fetch("/api/admin/team-hub/crew-items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "setCrewItems", crewId: crew.id, items: defaultItems }),
+          });
+        }
+
+        const link = `${window.location.origin}/team-hub/${crew.token}`;
+        for (const w of workers[crewType]) {
+          const firstName = w.firstName.trim();
+          if (!firstName) continue;
+          const pin = generatePin();
+          const workerRes = await fetch("/api/admin/team-hub/workers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "create", crewId: crew.id, firstName, pin }),
+          });
+          const workerData = await workerRes.json();
+          if (!workerRes.ok || !workerData.success) throw new Error(workerData.error || `Could not add worker "${firstName}".`);
+          createdInvites.push({ crewName: CREW_TYPE_LABELS[crewType], firstName, pin, link });
+        }
+      }
+
+      setInvites(createdInvites);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not finish setup.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  if (invites) {
+    return <SendInvitesStep siteLabel={siteLabel} invites={invites} onDone={onFinished} />;
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">Set up Team Hub for {accountName}</h2>
+
+      {error && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+      )}
+
+      {!site && (
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700">Site label (crews see only this, never the account name)</label>
+          <input
+            type="text"
+            value={siteLabel}
+            onChange={(e) => setSiteLabel(e.target.value)}
+            className="mt-1 min-h-[44px] w-full max-w-sm rounded-lg border border-gray-300 px-3 text-sm"
+          />
+        </div>
+      )}
+
+      <div className="mt-6">
+        <h3 className="text-sm font-bold text-slate-900">1. Who cleans here?</h3>
+        <div className="mt-3 flex flex-wrap gap-3">
+          {(["porter", "night"] as const).map((type) => (
+            <label
+              key={type}
+              className={`flex min-h-[56px] cursor-pointer items-center gap-2 rounded-xl border-2 px-4 text-sm font-semibold ${
+                checked[type] ? "border-blue-600 bg-blue-50 text-blue-800" : "border-gray-200 text-slate-600"
+              }`}
+            >
+              <input type="checkbox" checked={checked[type]} onChange={() => toggleCrew(type)} className="h-5 w-5" />
+              {CREW_TYPE_LABELS[type]}
+            </label>
+          ))}
+        </div>
+
+        <div className="mt-3 text-sm">
+          {matched && !showPicker ? (
+            <p className="text-slate-600">
+              Cleaned by: <span className="font-semibold text-slate-900">{matched.subName}</span>{" "}
+              <button type="button" onClick={() => setShowPicker(true)} className="text-xs font-semibold text-blue-700 underline">
+                Change
+              </button>
+            </p>
+          ) : (
+            <div>
+              <p className="text-slate-600">
+                {assignedSub?.status === "unmatched" && assignedSub.options.length > 0
+                  ? "We couldn't confirm the sub on this account — pick below, or leave as in-house:"
+                  : "In-house crew:"}
+              </p>
+              <select
+                value={subChoice}
+                onChange={(e) => setSubChoice(e.target.value)}
+                className="mt-1 min-h-[44px] w-full max-w-sm rounded-lg border border-gray-300 px-3 text-sm"
+              >
+                <option value="inhouse">In-house</option>
+                {(assignedSub?.status === "unmatched" ? assignedSub.options : []).map((o) => (
+                  <option key={o.subId} value={o.subId}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <h3 className="text-sm font-bold text-slate-900">2. Add workers</h3>
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {(["porter", "night"] as const)
+            .filter((t) => checked[t])
+            .map((type) => (
+              <div key={type} className="rounded-xl border border-gray-200 p-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{CREW_TYPE_LABELS[type]}</p>
+                <div className="mt-2 space-y-2">
+                  {workers[type].map((w) => (
+                    <input
+                      key={w.key}
+                      type="text"
+                      value={w.firstName}
+                      onChange={(e) => setWorkerName(type, w.key, e.target.value)}
+                      placeholder="First name"
+                      className="min-h-[44px] w-full rounded-lg border border-gray-300 px-3 text-sm"
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => addWorker(type)}
+                  className="mt-2 text-xs font-semibold text-blue-700"
+                >
+                  + Add another
+                </button>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleCreate}
+        disabled={creating}
+        className="mt-6 min-h-[52px] w-full rounded-lg bg-blue-700 text-base font-semibold text-white disabled:opacity-60 sm:w-auto sm:px-8"
+      >
+        {creating ? "Setting up…" : "Create Team Hub"}
+      </button>
+    </section>
+  );
+}
+
+function SendInvitesStep({ siteLabel, invites, onDone }: { siteLabel: string; invites: CreatedInvite[]; onDone: () => void }) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  function textInvite(invite: CreatedInvite) {
+    const message = buildInviteText(invite.firstName, siteLabel, invite.link, invite.pin);
+    if (navigator.share) {
+      navigator.share({ text: message }).catch(() => {
+        window.open(`sms:?&body=${encodeURIComponent(message)}`);
+      });
+      return;
+    }
+    window.open(`sms:?&body=${encodeURIComponent(message)}`);
+  }
+
+  function copyInvite(invite: CreatedInvite, key: string) {
+    const message = buildInviteText(invite.firstName, siteLabel, invite.link, invite.pin);
+    navigator.clipboard?.writeText(message).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    });
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold text-slate-900">3. Send invites</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Each worker&apos;s PIN is only shown here, once. Text it to them now, or use &quot;Reset PIN&quot; later under Customize.
+      </p>
+
+      <div className="mt-4 divide-y divide-gray-100">
+        {invites.length === 0 ? (
+          <p className="py-3 text-sm text-slate-500">No workers were added.</p>
+        ) : (
+          invites.map((invite, index) => {
+            const key = `${invite.crewName}-${invite.firstName}-${index}`;
+            return (
+              <div key={key} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{invite.firstName}</p>
+                  <p className="text-xs text-slate-500">
+                    {invite.crewName} · PIN {invite.pin}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => textInvite(invite)}
+                    className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
+                  >
+                    Text invite
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => copyInvite(invite, key)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    {copiedKey === key ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onDone}
+        className="mt-6 min-h-[52px] w-full rounded-lg bg-blue-700 text-base font-semibold text-white sm:w-auto sm:px-8"
+      >
+        Done
+      </button>
+    </section>
+  );
+}
+
+// ─── Summary view (after first-time setup) ─────────────────────────────────
+
+type CrewSummary = { checklist: { doneCount: number; totalCount: number; submittedAt: string } | null; rounds: { checkedCount: number; totalCount: number } | null };
+
+function CrewSummaryRow({ site, crew, onChanged }: { site: TeamHubSite; crew: TeamHubCrew; onChanged: () => void }) {
+  const [summary, setSummary] = useState<CrewSummary | null>(null);
+  const [customizing, setCustomizing] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const res = await fetch(`/api/admin/team-hub/crew-summary?crewId=${crew.id}`, { cache: "no-store" });
+      const data = await res.json();
+      if (res.ok && data.success) setSummary({ checklist: data.checklist, rounds: data.rounds });
+    })();
+  }, [crew.id]);
+
+  let statusLine = "No activity yet";
+  if (summary?.checklist) {
+    statusLine = `Finished ${summary.checklist.doneCount} of ${summary.checklist.totalCount} last visit`;
+  } else if (summary?.rounds) {
+    statusLine = `${summary.rounds.checkedCount} of ${summary.rounds.totalCount} checks today`;
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            {crew.name}{" "}
+            <span
+              className={`ml-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                crew.active ? "bg-green-100 text-green-800" : "bg-slate-200 text-slate-600"
+              }`}
+            >
+              {crew.active ? "Active" : "Revoked"}
+            </span>
+          </p>
+          <p className="text-sm text-slate-500">{statusLine}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setCustomizing((c) => !c)}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          {customizing ? "Hide" : "Customize"}
+        </button>
+      </div>
+
+      {customizing && <CrewCustomize site={site} crew={crew} onChanged={onChanged} />}
+    </div>
+  );
+}
+
+function CrewCustomize({ site, crew, onChanged }: { site: TeamHubSite; crew: TeamHubCrew; onChanged: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleSetActive() {
+    await fetch("/api/admin/team-hub/crews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "setActive", id: crew.id, active: !crew.active }),
+    });
+    onChanged();
+  }
+
+  async function handleRegenerate() {
+    await fetch("/api/admin/team-hub/crews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "regenerateToken", id: crew.id }),
+    });
+    onChanged();
+  }
+
+  function handleCopy() {
+    const url = `${window.location.origin}/team-hub/${crew.token}`;
+    navigator.clipboard?.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-gray-100 pt-3">
+      <p className="text-xs text-slate-500">
+        {crew.crewType} · {crew.crewKind === "sub" ? `sub ${crew.subId}` : "in-house"} · site: {site.label}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={handleCopy} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          {copied ? "Copied!" : "Copy Link"}
+        </button>
+        <button type="button" onClick={handleRegenerate} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          Regenerate Link
+        </button>
+        <button type="button" onClick={handleSetActive} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          {crew.active ? "Revoke" : "Reactivate"}
+        </button>
+      </div>
+
+      <WorkersSetup crewId={crew.id} />
+      <VisibilitySetup crewId={crew.id} />
+    </div>
+  );
+}
+
+function AddAnotherCrew({ siteId, onChanged }: { siteId: number; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [crewType, setCrewType] = useState<TeamHubCrew["crewType"]>("porter");
+  const [crewType, setCrewType] = useState<TeamHubCrew["crewType"]>("other");
   const [crewKind, setCrewKind] = useState<TeamHubCrew["crewKind"]>("inhouse");
   const [subId, setSubId] = useState("");
   const [creating, setCreating] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [expandedCrewId, setExpandedCrewId] = useState<number | null>(null);
-  const [workersCrewId, setWorkersCrewId] = useState<number | null>(null);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -249,171 +675,71 @@ function CrewsSection({
       const res = await fetch("/api/admin/team-hub/crews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "create",
-          siteId,
-          name: name.trim(),
-          crewType,
-          crewKind,
-          subId: crewKind === "sub" ? subId.trim() : null,
-        }),
+        body: JSON.stringify({ action: "create", siteId, name: name.trim(), crewType, crewKind, subId: crewKind === "sub" ? subId.trim() : null }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Could not create crew.");
       setName("");
       setSubId("");
+      setOpen(false);
       onChanged();
     } catch {
-      // Surfaced via the parent's error state on next load if it recurs;
-      // kept local/minimal here since crew creation is a small, retryable action.
+      // Retryable, low-stakes action — no separate error UI needed here.
     } finally {
       setCreating(false);
     }
   }
 
-  async function handleSetActive(crew: TeamHubCrew) {
-    await fetch("/api/admin/team-hub/crews", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "setActive", id: crew.id, active: !crew.active }),
-    });
-    onChanged();
-  }
-
-  async function handleRegenerate(crew: TeamHubCrew) {
-    await fetch("/api/admin/team-hub/crews", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "regenerateToken", id: crew.id }),
-    });
-    onChanged();
-  }
-
-  function handleCopy(crew: TeamHubCrew) {
-    const url = `${window.location.origin}/team-hub/${crew.token}`;
-    navigator.clipboard?.writeText(url).then(() => {
-      setCopiedId(crew.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className="mt-4 text-sm font-semibold text-blue-700">
+        + Add another crew
+      </button>
+    );
   }
 
   return (
-    <div className="mt-3 space-y-4">
-      <form onSubmit={handleCreate} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+    <form onSubmit={handleCreate} className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-gray-200 p-4 sm:grid-cols-4">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Crew name"
+        required
+        className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm sm:col-span-2"
+      />
+      <select value={crewType} onChange={(e) => setCrewType(e.target.value as TeamHubCrew["crewType"])} className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm">
+        <option value="porter">Porter</option>
+        <option value="night">Night</option>
+        <option value="other">Other</option>
+      </select>
+      <select value={crewKind} onChange={(e) => setCrewKind(e.target.value as TeamHubCrew["crewKind"])} className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm">
+        <option value="inhouse">In-house</option>
+        <option value="sub">Subcontractor</option>
+      </select>
+      {crewKind === "sub" && (
         <input
           type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Crew name"
+          value={subId}
+          onChange={(e) => setSubId(e.target.value)}
+          placeholder="Sub ID"
           required
           className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm sm:col-span-2"
         />
-        <select
-          value={crewType}
-          onChange={(e) => setCrewType(e.target.value as TeamHubCrew["crewType"])}
-          className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm"
-        >
-          <option value="porter">Porter</option>
-          <option value="night">Night</option>
-          <option value="other">Other</option>
-        </select>
-        <select
-          value={crewKind}
-          onChange={(e) => setCrewKind(e.target.value as TeamHubCrew["crewKind"])}
-          className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm"
-        >
-          <option value="inhouse">In-house</option>
-          <option value="sub">Subcontractor</option>
-        </select>
-        {crewKind === "sub" && (
-          <input
-            type="text"
-            value={subId}
-            onChange={(e) => setSubId(e.target.value)}
-            placeholder="Sub ID"
-            required
-            className="min-h-[44px] rounded-lg border border-gray-300 px-3 text-sm sm:col-span-2"
-          />
-        )}
-        <button
-          type="submit"
-          disabled={creating}
-          className="min-h-[44px] rounded-lg bg-blue-700 px-5 text-sm font-semibold text-white disabled:opacity-60"
-        >
+      )}
+      <div className="flex gap-2 sm:col-span-4">
+        <button type="submit" disabled={creating} className="min-h-[44px] rounded-lg bg-blue-700 px-5 text-sm font-semibold text-white disabled:opacity-60">
           {creating ? "Adding…" : "Add Crew"}
         </button>
-      </form>
-
-      <div className="divide-y divide-gray-100">
-        {crews.length === 0 ? (
-          <p className="py-4 text-sm text-slate-500">No crews yet.</p>
-        ) : (
-          crews.map((crew) => (
-            <div key={crew.id} className="py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {crew.name}{" "}
-                    <span className="font-normal text-slate-500">
-                      ({crew.crewType} · {crew.crewKind === "sub" ? `sub ${crew.subId}` : "in-house"})
-                    </span>
-                  </p>
-                  <span
-                    className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                      crew.active ? "bg-green-100 text-green-800" : "bg-slate-200 text-slate-600"
-                    }`}
-                  >
-                    {crew.active ? "Active" : "Revoked"}
-                  </span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleCopy(crew)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    {copiedId === crew.id ? "Copied!" : "Copy Link"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRegenerate(crew)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Regenerate
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSetActive(crew)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    {crew.active ? "Revoke" : "Reactivate"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWorkersCrewId(workersCrewId === crew.id ? null : crew.id)}
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    {workersCrewId === crew.id ? "Hide Workers" : "Workers"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedCrewId(expandedCrewId === crew.id ? null : crew.id)}
-                    className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800"
-                  >
-                    {expandedCrewId === crew.id ? "Hide Visibility" : "Visibility Setup"}
-                  </button>
-                </div>
-              </div>
-
-              {workersCrewId === crew.id && <WorkersSetup crewId={crew.id} />}
-              {expandedCrewId === crew.id && <VisibilitySetup crewId={crew.id} />}
-            </div>
-          ))
-        )}
+        <button type="button" onClick={() => setOpen(false)} className="min-h-[44px] rounded-lg border border-slate-300 px-5 text-sm font-semibold text-slate-700">
+          Cancel
+        </button>
       </div>
-    </div>
+    </form>
   );
 }
+
+// ─── Workers + Visibility editors (Phase 0/1, unchanged by this pass) ─────
 
 function WorkersSetup({ crewId }: { crewId: number }) {
   const [loading, setLoading] = useState(true);
@@ -503,7 +829,7 @@ function WorkersSetup({ crewId }: { crewId: number }) {
   if (loading) return <p className="mt-3 text-sm text-slate-500">Loading workers…</p>;
 
   return (
-    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <h4 className="text-sm font-bold text-slate-900">Workers</h4>
       <p className="mt-1 text-xs text-slate-500">
         Each worker signs in to this crew&apos;s link with their first name and a 4-6 digit PIN.
@@ -614,11 +940,6 @@ function VisibilitySetup({ crewId }: { crewId: number }) {
   });
   const [preview, setPreview] = useState(false);
 
-  // Inlined directly in the effect (not a separate useCallback) — this has
-  // exactly one caller (mount) and nothing else in the component needs to
-  // re-trigger it, so there's no reason to name/memoize it, and inlining
-  // avoids react-hooks/set-state-in-effect's concern about an effect
-  // synchronously invoking a callback that sets state.
   useEffect(() => {
     (async () => {
       const res = await fetch(`/api/admin/team-hub/crew-items?crewId=${crewId}`, { cache: "no-store" });
@@ -647,9 +968,7 @@ function VisibilitySetup({ crewId }: { crewId: number }) {
   async function toggleItem(itemType: CrewItem["itemType"], itemId: number) {
     const existing = crewItems.filter((ci) => !(ci.itemType === itemType && ci.itemId === itemId));
     const wasEnabled = isEnabled(itemType, itemId);
-    const nextItems = wasEnabled
-      ? existing
-      : [...existing, { id: 0, crewId, itemType, itemId, enabled: true }];
+    const nextItems = wasEnabled ? existing : [...existing, { id: 0, crewId, itemType, itemId, enabled: true }];
     setCrewItems(nextItems);
 
     await fetch("/api/admin/team-hub/crew-items", {
@@ -658,12 +977,7 @@ function VisibilitySetup({ crewId }: { crewId: number }) {
       body: JSON.stringify({
         action: "setCrewItems",
         crewId,
-        items: nextItems.map((ci, index) => ({
-          itemType: ci.itemType,
-          itemId: ci.itemId,
-          enabled: ci.enabled,
-          sortOrder: index,
-        })),
+        items: nextItems.map((ci, index) => ({ itemType: ci.itemType, itemId: ci.itemId, enabled: ci.enabled, sortOrder: index })),
       }),
     });
   }
@@ -673,7 +987,7 @@ function VisibilitySetup({ crewId }: { crewId: number }) {
   const enabledModules = TEAM_HUB_MODULES.filter((m) => modules[m]);
 
   return (
-    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-bold text-slate-900">Modules</h4>
         <button
@@ -763,12 +1077,7 @@ function LibraryPicker({
         {filtered.map((item) => (
           <li key={item.id}>
             <label className="flex items-center gap-2 text-xs text-slate-700">
-              <input
-                type="checkbox"
-                checked={isEnabled(item.id)}
-                onChange={() => onToggle(item.id)}
-                className="h-4 w-4"
-              />
+              <input type="checkbox" checked={isEnabled(item.id)} onChange={() => onToggle(item.id)} className="h-4 w-4" />
               {item.area ? <span className="text-slate-400">{item.area}:</span> : null}
               {item[labelKey]}
             </label>
@@ -779,11 +1088,6 @@ function LibraryPicker({
   );
 }
 
-// /team-hub/[token] now exists (Phase 1) but has no module content behind
-// login yet (checklist/rounds tap-to-complete is Phase 2+) — this stays a
-// read-only summary of what's currently enabled rather than an iframe/link
-// to the real page, so it keeps working even for crews with no workers set
-// up yet to log in with. Revisit once Phase 2 ships real module content.
 function PreviewAsCrew({
   enabledModules,
   crewItems,
@@ -800,9 +1104,7 @@ function PreviewAsCrew({
 
   return (
     <div className="mt-3 rounded-lg bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Summary preview — module content behind login ships in Phase 2
-      </p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Summary preview</p>
       <p className="mt-2 text-sm font-semibold text-slate-900">Enabled modules</p>
       <p className="text-sm text-slate-600">{enabledModules.length ? enabledModules.join(", ") : "None"}</p>
 

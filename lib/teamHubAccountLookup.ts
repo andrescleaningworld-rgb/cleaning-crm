@@ -11,7 +11,8 @@
 // never call this from a public (no-login, crew-facing) code path. Team Hub
 // tables themselves never store any of these fields (direction 8), only
 // the account_id used to look them up here on demand.
-import { getAccountSummaryById, getAccountSummariesByIds, type AccountSummary } from "@/lib/googleSheets";
+import { getAccountSummaryById, getAccountSummariesByIds, getAllSubcontractorsRaw, type AccountSummary } from "@/lib/googleSheets";
+import { normalizeSubName, resolveAssignedSubKeyWithCandidateCount } from "@/lib/subAccountMatching";
 
 export type { AccountSummary };
 
@@ -21,4 +22,44 @@ export async function lookupAccountSummary(accountId: string): Promise<AccountSu
 
 export async function lookupAccountSummaries(accountIds: string[]): Promise<Map<string, AccountSummary>> {
   return getAccountSummariesByIds(accountIds);
+}
+
+// Simplicity-pass admin wizard ("Who cleans here?" — see
+// docs/team-hub-spec.md): resolves an account's free-text Subcontractor
+// name (AccountSummary.subcontractorRaw) to a real sub, the same
+// ambiguity-safe way lib/subAccountMatching.ts already resolves it
+// elsewhere (ties/near-matches never get silently guessed). subId here is
+// getAllSubcontractorsRaw's own `id` (usually "SUB-ROW-<n>", a row-position
+// id — see that function's comment in lib/googleSheets.ts for why; this
+// reuses the SAME id the rest of the app already treats as "the"
+// subcontractor id, not a new scheme). "unmatched" covers both "no raw
+// name at all" and "raw name present but ambiguous/no fuzzy match" — the
+// wizard shows "Pick the sub" for both, so the caller doesn't need to tell
+// them apart.
+export type TeamHubAssignedSub =
+  | { status: "matched"; subId: string; subName: string }
+  | { status: "unmatched"; options: { subId: string; name: string }[] };
+
+export async function lookupAssignedSubForAccount(accountId: string): Promise<TeamHubAssignedSub> {
+  const account = await getAccountSummaryById(accountId);
+  const subs = await getAllSubcontractorsRaw();
+  const options = subs
+    .map((s) => ({ subId: s.id, name: s.companyName || s.contactName }))
+    .filter((o) => o.name);
+
+  if (!account?.subcontractorRaw) {
+    return { status: "unmatched", options };
+  }
+
+  const entries = subs.map((s) => ({ key: s.id, company: normalizeSubName(s.companyName), contact: normalizeSubName(s.contactName) }));
+  const resolved = resolveAssignedSubKeyWithCandidateCount(account.subcontractorRaw, entries);
+
+  if (resolved.candidateCount === 1) {
+    const match = subs.find((s) => s.id === resolved.key);
+    if (match) {
+      return { status: "matched", subId: match.id, subName: match.companyName || match.contactName };
+    }
+  }
+
+  return { status: "unmatched", options };
 }

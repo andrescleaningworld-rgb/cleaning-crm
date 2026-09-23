@@ -4118,6 +4118,13 @@ export type AccountSummary = {
   accountName: string;
   address: string;
   managerName: string;
+  // Raw, unresolved "Subcontractor" column text (column I) — free text,
+  // not a stable id. Added for Team Hub's admin wizard (see
+  // lib/teamHubAccountLookup.ts's lookupAssignedSubForAccount), which
+  // resolves it against the Subcontractors roster the same
+  // ambiguity-safe way lib/subAccountMatching.ts already does elsewhere.
+  // Costs nothing extra to read — same row this function already fetches.
+  subcontractorRaw: string;
 };
 
 export async function getAccountSummaryById(accountId: string): Promise<AccountSummary | null> {
@@ -4143,6 +4150,7 @@ export async function getAccountSummaryById(accountId: string): Promise<AccountS
     accountName: row[1] ?? "",
     managerName: row[9] ?? "",
     address: row[11] ?? "",
+    subcontractorRaw: row[8] ?? "",
   };
 }
 
@@ -4175,6 +4183,7 @@ export async function getAccountSummariesByIds(
       accountName: row[1] ?? "",
       managerName: row[9] ?? "",
       address: row[11] ?? "",
+      subcontractorRaw: row[8] ?? "",
     });
   }
 

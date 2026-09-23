@@ -1,17 +1,19 @@
 "use client";
 
-// Real public /team-hub/[token] rendering path (Phase 1). Covers: the PWA
-// install gate, token validity, the worker PIN login screen, and a
-// post-login "Today" landing screen listing this crew's enabled modules.
-// The modules themselves (checklist tap-to-complete, rounds, etc.) are
-// Phase 2+ scope — this page only proves install + login + session
-// persistence end-to-end, matching the Phase 1 line in
-// docs/team-hub-spec.md §9 ("the real public /team-hub/[token] rendering
-// path", not the module content behind it).
-import { useCallback, useEffect, useState } from "react";
+// Simplicity pass rewrite (docs/team-hub-spec.md "GLOBAL RULES"): removes
+// the blocking install gate (now a small dismissible hint), redesigns the
+// Today screen as big icon+label+status tiles, moves worker-switching to a
+// small "Not you?" link, and wires EN/ES via useTeamHubLang. The 90-day
+// "remembered" session is a lib/teamHubWorkerSession.ts config change, not
+// something this file has to implement — GET .../session already runs on
+// every load and just now stays valid for 90 days instead of 8 hours.
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import ChecklistView from "./ChecklistView";
 import RoundsView from "./RoundsView";
+import ReportProblemButton from "./ReportProblemButton";
+import LangToggle from "./LangToggle";
+import { useTeamHubLang, teamHubStrings, type TeamHubLang } from "../teamHubStrings";
 
 type Worker = { id: number; firstName: string };
 
@@ -34,25 +36,13 @@ type SessionResponse = {
   lockedUntil?: string;
 };
 
-const MODULE_LABELS: Record<string, string> = {
-  checklist: "Checklist",
-  rounds: "Rounds",
-  handoff: "Handoff",
-  requests: "Requests",
-  supplies: "Supplies",
-  issues: "Issues",
-};
-
 const MAX_PIN_LENGTH = 6;
 
-// Only these two modules have real Phase 2 content; the rest still render
-// as "Coming soon" tiles on the Today screen until their own phase lands.
-type OpenableModule = "checklist" | "rounds";
-const OPENABLE_MODULES = new Set<string>(["checklist", "rounds"]);
+type OpenableModule = "checklist" | "rounds" | "issues";
+const OPENABLE_MODULES = new Set<string>(["checklist", "rounds", "issues"]);
 
-// Both branches iOS Safari and Chrome-on-Android expose for "are we running
-// as the installed PWA, not a regular browser tab" — neither alone is
-// reliable across both platforms, so this checks both.
+const INSTALL_HINT_DISMISSED_KEY = "team-hub-install-hint-dismissed";
+
 function isRunningStandalone(): boolean {
   if (typeof window === "undefined") return false;
   const mediaStandalone = window.matchMedia?.("(display-mode: standalone)").matches ?? false;
@@ -69,9 +59,8 @@ function detectInstallPlatform(): "ios" | "android" | "other" {
 }
 
 // Injects (or updates) the <link rel="manifest"> for this specific token —
-// can't be a static Metadata field in app/team-hub/layout.tsx because the
-// manifest's start_url has to be THIS worker's own crew link (see
-// app/team-hub/manifest.webmanifest/route.ts's file comment).
+// still useful for the "Add to Home Screen" hint even though it's no
+// longer required to use the app.
 function useTeamHubManifestLink(token: string) {
   useEffect(() => {
     if (!token) return;
@@ -92,16 +81,8 @@ export default function TeamHubPage() {
   const token = Array.isArray(params.token) ? params.token[0] : (params.token ?? "");
 
   useTeamHubManifestLink(token);
-
-  // undefined = not yet determined (avoids a standalone/non-standalone
-  // flash before the client-only check runs); this gate applies BEFORE the
-  // login form is ever shown, per the approved spec — a crew logs in only
-  // from the installed app, never a plain browser tab.
-  const [standalone, setStandalone] = useState<boolean | undefined>(undefined);
-
-  useEffect(() => {
-    setStandalone(isRunningStandalone());
-  }, []);
+  const [lang, setLang] = useTeamHubLang();
+  const s = teamHubStrings(lang);
 
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<boolean | null>(null);
@@ -126,10 +107,6 @@ export default function TeamHubPage() {
       setCrewName(linkData.crewName ?? "");
       setWorkers(linkData.workers ?? []);
 
-      // Session is only meaningful once installed — see the standalone gate
-      // below — but fetching it here (once we know we ARE standalone,
-      // below) rather than skipping it entirely keeps this one load()
-      // function simple for both first load and post-login refresh.
       const sessionRes = await fetch(`/api/team-hub/${encodeURIComponent(token)}/session`, { cache: "no-store" });
       const sessionData: SessionResponse = await sessionRes.json();
       setSession(sessionData.authenticated ? sessionData : null);
@@ -141,35 +118,13 @@ export default function TeamHubPage() {
   }, [token]);
 
   useEffect(() => {
-    // Wait for the standalone check to resolve before loading — an install-
-    // gated view has no use for link/session data on first paint, and this
-    // avoids an extra fetch for a tab that's about to see install
-    // instructions only.
-    if (token && standalone) load();
-  }, [token, standalone, load]);
-
-  async function handleLogout() {
-    await fetch(`/api/team-hub/${encodeURIComponent(token)}/session`, { method: "DELETE" });
-    setSession(null);
-    setOpenModule(null);
-  }
-
-  if (standalone === undefined) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-        <p className="text-base text-slate-500">Loading…</p>
-      </main>
-    );
-  }
-
-  if (!standalone) {
-    return <InstallGate />;
-  }
+    if (token) load();
+  }, [token, load]);
 
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-        <p className="text-base text-slate-500">Loading…</p>
+        <p className="text-lg text-slate-500">{s.common.loading}</p>
       </main>
     );
   }
@@ -178,10 +133,8 @@ export default function TeamHubPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
         <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm">
-          <h1 className="text-xl font-bold text-slate-900">Link not active</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            This link is no longer active. Please contact your office for a new one.
-          </p>
+          <h1 className="text-xl font-bold text-slate-900">Team Hub</h1>
+          <p className="mt-2 text-lg leading-6 text-slate-600">{s.common.linkNotActive}</p>
         </div>
       </main>
     );
@@ -190,21 +143,34 @@ export default function TeamHubPage() {
   return (
     <main className="min-h-screen bg-gray-50 pb-10">
       <div className="mx-auto max-w-lg">
-        <header className="bg-blue-700 px-4 py-5 text-white">
-          <h1 className="text-lg font-bold">{siteLabel}</h1>
-          <p className="text-sm text-blue-100">{crewName}</p>
+        <header className="flex items-center justify-between bg-blue-700 px-4 py-5 text-white">
+          <div>
+            <h1 className="text-lg font-bold">{siteLabel}</h1>
+            <p className="text-sm text-blue-100">{crewName}</p>
+          </div>
+          <LangToggle lang={lang} onChange={setLang} />
         </header>
+
+        <InstallHint lang={lang} />
 
         <div className="px-3">
           {session && !switching ? (
             openModule === "checklist" ? (
-              <ChecklistView token={token} onBack={() => setOpenModule(null)} />
+              <ChecklistView token={token} lang={lang} onBack={() => setOpenModule(null)} />
             ) : openModule === "rounds" ? (
-              <RoundsView token={token} onBack={() => setOpenModule(null)} />
+              <RoundsView token={token} lang={lang} onBack={() => setOpenModule(null)} />
+            ) : openModule === "issues" ? (
+              <div className="mt-3 space-y-3">
+                <button type="button" onClick={() => setOpenModule(null)} className="text-base font-semibold text-blue-700">
+                  ← {s.common.back}
+                </button>
+                <ReportProblemButton token={token} lang={lang} />
+              </div>
             ) : (
               <TodayScreen
+                token={token}
+                lang={lang}
                 session={session}
-                onLogout={handleLogout}
                 onSwitchWorker={() => setSwitching(true)}
                 onOpenModule={(moduleName) => setOpenModule(moduleName)}
               />
@@ -212,9 +178,10 @@ export default function TeamHubPage() {
           ) : (
             <LoginScreen
               token={token}
+              lang={lang}
               workers={workers}
-              onLoggedIn={(s) => {
-                setSession(s);
+              onLoggedIn={(sessionData) => {
+                setSession(sessionData);
                 setSwitching(false);
                 setOpenModule(null);
               }}
@@ -227,137 +194,202 @@ export default function TeamHubPage() {
   );
 }
 
-function InstallGate() {
+// Non-blocking, dismiss-once hint — replaces the old blocking InstallGate.
+// Never shown again on this device once dismissed (or once already
+// running standalone).
+function InstallHint({ lang }: { lang: TeamHubLang }) {
+  const s = teamHubStrings(lang).install;
+  const [dismissed, setDismissed] = useState(true);
   const [platform] = useState(detectInstallPlatform);
 
+  useEffect(() => {
+    // Deferred read, same reasoning as useTeamHubLang: standalone-mode
+    // detection and localStorage are both browser-only.
+    if (isRunningStandalone()) return;
+    try {
+      if (localStorage.getItem(INSTALL_HINT_DISMISSED_KEY) === "1") return;
+    } catch {
+      // if storage is blocked, just show the hint every time — never block
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDismissed(false);
+  }, []);
+
+  function dismiss() {
+    setDismissed(true);
+    try {
+      localStorage.setItem(INSTALL_HINT_DISMISSED_KEY, "1");
+    } catch {
+      // best-effort only
+    }
+  }
+
+  if (dismissed) return null;
+
+  const steps = platform === "ios" ? s.iosSteps : platform === "android" ? s.androidSteps : s.otherSteps;
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-sm">
-        <h1 className="text-center text-xl font-bold text-slate-900">Add Team Hub to your Home Screen</h1>
-        <p className="mt-2 text-center text-sm leading-6 text-slate-600">
-          Team Hub only works after it&apos;s added to your phone. Follow the steps below, then open it from your
-          Home Screen.
-        </p>
-
-        {platform === "ios" && (
-          <ol className="mt-5 list-decimal space-y-3 pl-5 text-sm text-slate-700">
-            <li>
-              Tap the <strong>Share</strong> icon (square with an arrow pointing up) in Safari&apos;s toolbar.
-            </li>
-            <li>
-              Scroll down and tap <strong>Add to Home Screen</strong>.
-            </li>
-            <li>
-              Tap <strong>Add</strong> in the top right.
-            </li>
-            <li>Open Team Hub from the new icon on your Home Screen.</li>
-          </ol>
-        )}
-
-        {platform === "android" && (
-          <ol className="mt-5 list-decimal space-y-3 pl-5 text-sm text-slate-700">
-            <li>
-              Tap the <strong>⋮</strong> menu in the top right of Chrome.
-            </li>
-            <li>
-              Tap <strong>Add to Home screen</strong> (or <strong>Install app</strong>).
-            </li>
-            <li>
-              Tap <strong>Add</strong> / <strong>Install</strong>.
-            </li>
-            <li>Open Team Hub from the new icon on your Home Screen.</li>
-          </ol>
-        )}
-
-        {platform === "other" && (
-          <p className="mt-5 text-sm leading-6 text-slate-700">
-            Open this link on your phone (in Safari on iPhone, or Chrome on Android) to add Team Hub to your Home
-            Screen.
-          </p>
-        )}
-      </div>
-    </main>
+    <div className="flex items-center justify-between gap-3 bg-blue-50 px-4 py-2.5 text-sm text-blue-900">
+      <span>
+        📲 {s.hint} — {steps}
+      </span>
+      <button type="button" onClick={dismiss} className="shrink-0 font-bold text-blue-700">
+        {s.gotIt}
+      </button>
+    </div>
   );
 }
 
 function TodayScreen({
+  token,
+  lang,
   session,
-  onLogout,
   onSwitchWorker,
   onOpenModule,
 }: {
+  token: string;
+  lang: TeamHubLang;
   session: SessionResponse;
-  onLogout: () => void;
   onSwitchWorker: () => void;
   onOpenModule: (moduleName: OpenableModule) => void;
 }) {
-  const modules = session.modules ?? [];
+  const s = teamHubStrings(lang);
+  // Memoized so the two effects below (keyed on `modules`) don't refire on
+  // every render — session.modules ?? [] would otherwise be a new array
+  // identity each time.
+  const modules = useMemo(() => session.modules ?? [], [session.modules]);
+
+  const [checklistStatus, setChecklistStatus] = useState<string | null>(null);
+  const [roundsStatus, setRoundsStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!modules.includes("checklist")) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/checklist`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || !data.success) return;
+        const checkable = (data.items ?? []).filter((i: { isNote: boolean }) => !i.isNote);
+        if (checkable.length === 0) return;
+        if (!data.run) {
+          setChecklistStatus(s.today.checklistNotStarted);
+          return;
+        }
+        const doneIds = new Set((data.runItems ?? []).map((ri: { crewItemId: number }) => ri.crewItemId));
+        const done = checkable.filter((i: { crewItemId: number }) => doneIds.has(i.crewItemId)).length;
+        setChecklistStatus(done >= checkable.length ? s.today.checklistAllDone : s.today.checklistDone(done, checkable.length));
+      } catch {
+        // Today tile just omits a status line if this fails — non-critical.
+      }
+    })();
+  }, [token, modules, s]);
+
+  useEffect(() => {
+    if (!modules.includes("rounds")) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/rounds`, { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok || !data.success || !Array.isArray(data.items) || data.items.length === 0) return;
+        type RoundItem = { name: string; intervalMinutes: number; lastCheck: { checkedAt: string } | null };
+        let worst: RoundItem | null = null;
+        let worstRatio = -Infinity;
+        for (const item of data.items as RoundItem[]) {
+          const ago = item.lastCheck ? Math.max(0, Math.round((Date.now() - new Date(item.lastCheck.checkedAt).getTime()) / 60000)) : null;
+          const ratio = ago === null ? Infinity : ago / item.intervalMinutes;
+          if (ratio > worstRatio) {
+            worstRatio = ratio;
+            worst = item;
+          }
+        }
+        if (!worst) return;
+        if (worstRatio >= 1) {
+          setRoundsStatus(s.today.roundCheckNow(worst.name));
+        } else if (worst.lastCheck) {
+          const ago = Math.max(0, Math.round((Date.now() - new Date(worst.lastCheck.checkedAt).getTime()) / 60000));
+          const agoText = ago < 60 ? s.rounds.minAgo(ago) : s.rounds.hoursAgo(Math.round(ago / 60));
+          setRoundsStatus(s.today.roundAgo(worst.name, agoText));
+        } else {
+          setRoundsStatus(s.today.roundsAllChecked);
+        }
+      } catch {
+        // non-critical
+      }
+    })();
+  }, [token, modules, s]);
+
+  const statusByModule: Partial<Record<string, string>> = {
+    checklist: checklistStatus ?? "",
+    rounds: roundsStatus ?? "",
+  };
+
+  const ICONS: Record<string, string> = {
+    checklist: "📋",
+    rounds: "🕒",
+    handoff: "📝",
+    requests: "✅",
+    supplies: "📦",
+    issues: "⚠️",
+  };
+
   return (
     <div className="mt-3 space-y-3">
-      <div className="rounded-2xl bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-500">Signed in as</p>
-        <p className="text-lg font-bold text-slate-900">{session.worker?.firstName}</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-slate-500">{s.common.signedInAs}</p>
+          <p className="text-xl font-bold text-slate-900">{session.worker?.firstName}</p>
+        </div>
+        <button type="button" onClick={onSwitchWorker} className="text-base font-semibold text-blue-700">
+          {s.common.notYou}
+        </button>
       </div>
 
-      <div className="rounded-2xl bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-bold text-slate-900">Today</h2>
-        {modules.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">No modules are turned on for this crew yet.</p>
-        ) : (
-          <ul className="mt-3 divide-y divide-gray-100">
-            {modules.map((moduleName) => {
-              const openable = OPENABLE_MODULES.has(moduleName);
-              return (
-                <li key={moduleName}>
-                  <button
-                    type="button"
-                    disabled={!openable}
-                    onClick={() => openable && onOpenModule(moduleName as OpenableModule)}
-                    className="flex w-full items-center justify-between py-3 text-left disabled:cursor-default"
-                  >
-                    <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[moduleName] ?? moduleName}</span>
-                    {openable ? (
-                      <span className="text-xs font-semibold text-blue-700">Open →</span>
-                    ) : (
-                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">Coming soon</span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={onSwitchWorker}
-        className="min-h-[52px] w-full rounded-xl bg-blue-700 text-sm font-bold text-white"
-      >
-        Switch worker
-      </button>
-      <button
-        type="button"
-        onClick={onLogout}
-        className="min-h-[52px] w-full rounded-xl border border-slate-300 bg-white text-sm font-bold text-slate-700"
-      >
-        Sign out
-      </button>
+      {modules.length === 0 ? (
+        <p className="mt-2 text-lg text-slate-500">{s.today.noModules}</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-3">
+          {modules.map((moduleName) => {
+            const openable = OPENABLE_MODULES.has(moduleName);
+            const label = s.modules[moduleName as keyof typeof s.modules] ?? moduleName;
+            const status = statusByModule[moduleName];
+            return (
+              <button
+                key={moduleName}
+                type="button"
+                disabled={!openable}
+                onClick={() => openable && onOpenModule(moduleName as OpenableModule)}
+                className={`flex min-h-[88px] w-full items-center gap-4 rounded-2xl px-5 text-left shadow-sm disabled:opacity-60 ${
+                  openable ? "bg-white active:bg-slate-50" : "bg-white"
+                }`}
+              >
+                <span className="text-3xl">{ICONS[moduleName] ?? "•"}</span>
+                <span className="flex-1">
+                  <span className="block text-xl font-bold text-slate-900">{label}</span>
+                  <span className="block text-base text-slate-500">{status || s.today.comingSoon}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 function LoginScreen({
   token,
+  lang,
   workers,
   onLoggedIn,
   onCancel,
 }: {
   token: string;
+  lang: TeamHubLang;
   workers: Worker[];
   onLoggedIn: (session: SessionResponse) => void;
   onCancel?: () => void;
 }) {
+  const s = teamHubStrings(lang);
   const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
   const [pin, setPin] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -382,27 +414,27 @@ function LoginScreen({
         });
         const data: SessionResponse = await res.json();
         if (!res.ok || !data.success) {
-          setError(data.error || "Something went wrong. Please try again.");
+          setError(res.status === 423 ? s.login.lockedOut : s.login.wrongPin);
           setPin("");
+          navigator.vibrate?.([15, 40, 15]);
           return;
         }
+        navigator.vibrate?.(15);
         onLoggedIn({ ...data, authenticated: true });
       } catch {
-        setError("Something went wrong. Please try again.");
+        setError(s.common.somethingWrong);
         setPin("");
       } finally {
         setSubmitting(false);
       }
     },
-    [selectedWorker, token, onLoggedIn]
+    [selectedWorker, token, onLoggedIn, s]
   );
 
   function tapDigit(digit: string) {
     if (submitting || pin.length >= MAX_PIN_LENGTH) return;
     const next = pin + digit;
     setPin(next);
-    // 4-digit PINs are the common case — auto-submit there; a 5-6 digit PIN
-    // still needs the Enter key since we can't tell it's "done" early.
     if (next.length === 4) {
       submitPin(next);
     }
@@ -416,25 +448,25 @@ function LoginScreen({
 
   if (!selectedWorker) {
     return (
-      <div className="mt-3 rounded-2xl bg-white p-4 shadow-sm">
+      <div className="mt-3 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-900">Who&apos;s signing in?</h2>
+          <h2 className="text-xl font-bold text-slate-900">{s.login.whoIsSigningIn}</h2>
           {onCancel && (
-            <button type="button" onClick={onCancel} className="text-xs font-semibold text-blue-700">
-              Cancel
+            <button type="button" onClick={onCancel} className="text-base font-semibold text-blue-700">
+              {s.common.back}
             </button>
           )}
         </div>
         {workers.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No workers set up for this crew yet. Contact your office.</p>
+          <p className="mt-3 text-lg text-slate-500">{s.login.noWorkers}</p>
         ) : (
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             {workers.map((worker) => (
               <button
                 key={worker.id}
                 type="button"
                 onClick={() => selectWorker(worker)}
-                className="min-h-[56px] rounded-xl bg-gray-100 text-base font-semibold text-slate-800 active:bg-gray-200"
+                className="min-h-[72px] rounded-2xl bg-white text-xl font-bold text-slate-800 shadow-sm active:bg-gray-100"
               >
                 {worker.firstName}
               </button>
@@ -448,22 +480,23 @@ function LoginScreen({
   return (
     <div className="mt-3 rounded-2xl bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-slate-900">Enter your PIN, {selectedWorker.firstName}</h2>
-        <button type="button" onClick={() => setSelectedWorker(null)} className="text-xs font-semibold text-blue-700">
-          Not you?
+        <h2 className="text-xl font-bold text-slate-900">
+          {s.login.enterPin}, {selectedWorker.firstName}
+        </h2>
+        <button type="button" onClick={() => setSelectedWorker(null)} className="text-base font-semibold text-blue-700">
+          {s.common.notYou}
         </button>
       </div>
 
       {error && (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</div>
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-base font-semibold text-red-800">
+          {error}
+        </div>
       )}
 
       <div className="mt-4 flex justify-center gap-3">
         {Array.from({ length: Math.max(4, pin.length) }).map((_, i) => (
-          <span
-            key={i}
-            className={`h-4 w-4 rounded-full ${i < pin.length ? "bg-blue-700" : "bg-gray-200"}`}
-          />
+          <span key={i} className={`h-5 w-5 rounded-full ${i < pin.length ? "bg-blue-700" : "bg-gray-200"}`} />
         ))}
       </div>
 
@@ -474,7 +507,7 @@ function LoginScreen({
             type="button"
             onClick={() => tapDigit(digit)}
             disabled={submitting}
-            className="min-h-[56px] rounded-xl bg-gray-100 text-xl font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
+            className="min-h-[72px] rounded-2xl bg-gray-100 text-2xl font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
           >
             {digit}
           </button>
@@ -483,15 +516,15 @@ function LoginScreen({
           type="button"
           onClick={() => (pin.length >= 4 ? submitPin(pin) : undefined)}
           disabled={submitting || pin.length < 4}
-          className="min-h-[56px] rounded-xl bg-blue-700 text-sm font-bold text-white disabled:opacity-40"
+          className="min-h-[72px] rounded-2xl bg-blue-700 text-lg font-bold text-white disabled:opacity-40"
         >
-          Enter
+          ✓
         </button>
         <button
           type="button"
           onClick={() => tapDigit("0")}
           disabled={submitting}
-          className="min-h-[56px] rounded-xl bg-gray-100 text-xl font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
+          className="min-h-[72px] rounded-2xl bg-gray-100 text-2xl font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
         >
           0
         </button>
@@ -499,7 +532,7 @@ function LoginScreen({
           type="button"
           onClick={backspace}
           disabled={submitting}
-          className="min-h-[56px] rounded-xl bg-gray-100 text-sm font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
+          className="min-h-[72px] rounded-2xl bg-gray-100 text-lg font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
         >
           ⌫
         </button>

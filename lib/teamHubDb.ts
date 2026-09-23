@@ -738,6 +738,53 @@ export async function submitTeamHubChecklistRun(crewId: number, runId: number): 
   return existing.length > 0 ? rowToChecklistRun(existing[0] as Record<string, unknown>) : null;
 }
 
+// Simplicity pass: tap = done, tap again = undo — there's no "not done"
+// value in hub_checklist_run_items.status's CHECK constraint (done/na/
+// problem only), so "undo" removes the row entirely rather than writing a
+// new status. Scoped to the crew's open run the same way the upsert is.
+export async function deleteTeamHubChecklistRunItem(crewId: number, runId: number, crewItemId: number): Promise<void> {
+  const sql = getSql();
+  const runRows = await sql`SELECT submitted_at FROM hub_checklist_runs WHERE id = ${runId} AND crew_id = ${crewId} LIMIT 1`;
+  if (runRows.length === 0) {
+    throw new Error("Checklist run not found.");
+  }
+  if ((runRows[0] as Record<string, unknown>).submitted_at) {
+    throw new Error("This checklist has already been submitted.");
+  }
+  await sql`DELETE FROM hub_checklist_run_items WHERE run_id = ${runId} AND crew_item_id = ${crewItemId}`;
+}
+
+export type TeamHubChecklistRunSummary = { submittedAt: string; doneCount: number; totalCount: number };
+
+// Admin "status line" (simplicity pass) — the most recently SUBMITTED run
+// for a crew, with how many items got tapped vs. how many checklist items
+// are enabled for the crew right now. totalCount is the crew's CURRENT
+// enabled-item count, not a historical snapshot of what the run actually
+// offered — a deliberate simplification (admins rarely reshuffle the
+// checklist mid-week, and storing a historical total would need a new
+// column) flagged in docs/team-hub-spec.md.
+export async function getLastSubmittedTeamHubChecklistRunSummary(crewId: number): Promise<TeamHubChecklistRunSummary | null> {
+  const sql = getSql();
+  const runRows = await sql`
+    SELECT id, submitted_at FROM hub_checklist_runs
+    WHERE crew_id = ${crewId} AND submitted_at IS NOT NULL
+    ORDER BY submitted_at DESC LIMIT 1
+  `;
+  if (runRows.length === 0) return null;
+  const run = runRows[0] as Record<string, unknown>;
+
+  const [doneRows, totalRows] = await Promise.all([
+    sql`SELECT COUNT(*)::int AS n FROM hub_checklist_run_items WHERE run_id = ${run.id as number}`,
+    sql`SELECT COUNT(*)::int AS n FROM hub_crew_items WHERE crew_id = ${crewId} AND item_type = 'checklist' AND enabled = true`,
+  ]);
+
+  return {
+    submittedAt: toIso(run.submitted_at),
+    doneCount: (doneRows[0] as Record<string, unknown>).n as number,
+    totalCount: (totalRows[0] as Record<string, unknown>).n as number,
+  };
+}
+
 // ─── hub_round_checks (Phase 2) ─────────────────────────────────────────
 // No "run" concept for rounds — a round recurs all shift (e.g. "restrooms
 // every 2 hours"), so each check-in is just a standalone timestamped row.
@@ -799,6 +846,31 @@ export async function recordTeamHubRoundCheck(input: {
     note: (row.note as string) ?? "",
     workerFirstName: null,
   };
+}
+
+// ─── hub_issues (simplicity pass: "Report a problem" button) ──────────────
+// Minimal write path added ahead of Phase 4 (which owns the full issues
+// module + photo attachment, see docs/team-hub-spec.md) because the
+// simplicity pass's checklist screen needs a real, always-visible "Report a
+// problem" action, not a dead button. category is always 'other' and
+// run_item_id always null — this isn't tied to one checklist item, it's a
+// free-text note from whatever's in front of the worker. No photo (Phase 4).
+
+export type TeamHubIssue = { id: number; note: string; createdAt: string };
+
+export async function reportTeamHubIssue(input: { siteId: number; crewId: number; workerId: number; note: string }): Promise<TeamHubIssue> {
+  const note = input.note.trim().slice(0, 2000);
+  if (!note) {
+    throw new Error("A note is required.");
+  }
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_issues (site_id, crew_id, worker_id, category, note)
+    VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, 'other', ${note})
+    RETURNING id, created_at
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return { id: row.id as number, note, createdAt: toIso(row.created_at) };
 }
 
 export type VerifyWorkerPinResult =

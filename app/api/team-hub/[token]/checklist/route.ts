@@ -11,6 +11,7 @@ import {
   listTeamHubChecklistRunItems,
   upsertTeamHubChecklistRunItem,
   submitTeamHubChecklistRun,
+  deleteTeamHubChecklistRunItem,
 } from "@/lib/teamHubDb";
 import { requireTeamHubWorkerSession } from "@/lib/teamHubWorkerSession";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
@@ -120,6 +121,41 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const message = error instanceof Error ? error.message : "Something went wrong.";
     const status = message.includes("not found") || message.includes("already been submitted") ? 400 : 500;
     if (status === 500) console.error("[team-hub checklist PATCH]", error);
+    return NextResponse.json({ success: false, error: message }, { status });
+  }
+}
+
+// DELETE { crewItemId } — simplicity pass "tap again = undo": removes the
+// run_item row for this item on the crew's open run (there's no "not done"
+// status value to PATCH to — see deleteTeamHubChecklistRunItem's comment).
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  try {
+    const { token } = await params;
+    const allowed = await checkRateLimit(`teamhub-checklist-delete:${token}`);
+    if (!allowed) {
+      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+    }
+
+    const ctx = await requireTeamHubWorkerSession(request, token);
+    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+
+    const body = (await request.json().catch(() => ({}))) as { crewItemId?: number };
+    const crewItemId = Number(body.crewItemId);
+    if (!Number.isInteger(crewItemId)) {
+      return NextResponse.json({ success: false, error: "Missing item." }, { status: 400 });
+    }
+
+    const open = await getOpenTeamHubChecklistRun(ctx.crew.id);
+    if (!open) {
+      return NextResponse.json({ success: false, error: "No checklist is in progress." }, { status: 400 });
+    }
+
+    await deleteTeamHubChecklistRunItem(ctx.crew.id, open.id, crewItemId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Something went wrong.";
+    const status = message.includes("not found") || message.includes("already been submitted") ? 400 : 500;
+    if (status === 500) console.error("[team-hub checklist DELETE]", error);
     return NextResponse.json({ success: false, error: message }, { status });
   }
 }
