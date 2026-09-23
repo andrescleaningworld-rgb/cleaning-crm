@@ -77,6 +77,17 @@ it contained.
   commands. Build uses
   `NODE_OPTIONS="--max-old-space-size=4096" CIRCLE_NODE_TOTAL=3`.
 - No commits unless explicitly requested for that turn.
+- **No offline mode.** Nothing is ever queued client-side. A failed
+  crew-facing write reverts any optimistic UI change and shows the plain
+  message **"No signal — try again"** (`common.noSignal` in
+  `teamHubStrings.ts`) — never a raw fetch error, never "will send later."
+  True offline support is Phase 5, explicitly deferred (see §9) — this
+  bullet is the standing behavior until/unless that phase is picked up.
+- **SHARED TRANSLATION is a global rule** — see §12. It applies to every
+  Team Hub phase from here on **and** to the Equipment Check app (a
+  separate, non-Team-Hub app under the same repo) — `lib/translate.ts` is
+  deliberately a plain shared utility, not namespaced under `teamHub*`,
+  for exactly that reason.
 
 ## 4. Porter Checklist — kept separate, not reused
 
@@ -224,6 +235,11 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   given reasonable defaults, flagged as inferred.
 
 ## 9. Phase breakdown
+
+**Build order: Phase 0 → 1 → 2 → simplicity pass → Phase 4 → Phase 6.**
+Phase 3 (`handoff`/`requests` — "Notes for other shift"/"Tasks") and Phase 5
+(true offline mode) are **deferred**, not skipped — both are marked as such
+below and neither Phase 4 nor Phase 6 depends on them.
 
 - **Phase 0 — done.** Admin setup only: `hub_sites` (create/deactivate/edit
   per account), `hub_crews` (create/revoke/regenerate-token), module
@@ -778,12 +794,15 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   not just one — the Phase 4 admin UI is scoped to one account's Team Hub
   tab only), an **Accounts Center badge for open problems**, a **Sub
   Center read-only list** (orders/problems for a sub's own accounts), and
-  a **night-checklist cutoff email alert**. Per-worker OneSignal push
-  registration (crew alerts) is still **dropped** from this phase's scope —
-  it was originally going to notify on new handoffs/requests, both deferred
-  with Phase 3; nothing currently needs it. Team Hub workers still have no
+  a **night-checklist cutoff email alert**. Two things Phase 6 explicitly
+  does **not** do, both dropped specifically because Phase 3 is deferred:
+  per-worker OneSignal **push alerts to crews** (it was originally going to
+  notify on new handoffs/requests — Team Hub workers still have no
   `externalUserId` identity for `sendPush()` to target if a future phase
-  revives it.
+  revives it), and **To-Do/customer-portal-inbox wiring** ("convert to Team
+  Hub request" was Phase 3's own scope — Phase 6 never reads
+  `listPortalSubmissions()` or writes a `hub_requests`/To-Do row). Nothing
+  in Phase 6 currently needs either.
 
   **Library CRUD** (`lib/teamHubDb.ts`): `create`/`update`/`set*Active` for
   all three libraries — no delete anywhere (an item can already be
@@ -944,3 +963,66 @@ The admin account-page tab follows the spirit (prefilled wizard, plain
 status lines, collapsed advanced options) but isn't held to the same
 letter — an admin using it is CleaningWorld staff, not the "non-tech-savvy
 person without help or instructions" the rule is protecting.
+
+## 12. SHARED TRANSLATION (global rule — added for Phase 4/6, binding beyond Team Hub)
+
+Workers write notes in whichever language they're comfortable in (mostly
+Spanish); managers/admins write in English but crews should see it in their
+own device language. One shared helper handles both directions, used
+everywhere text crosses that boundary — not a Team Hub-only concept, which
+is why it lives in a plain `lib/translate.ts`, not `lib/teamHub*.ts`, and
+why this rule is written to also bind the future Equipment Check app
+(§3, Part 4 of the build).
+
+- **`lib/translate.ts`** — server-only, two functions:
+  - `translateToEnglish(text)` → `{ english, detectedLanguage } | null`.
+    Detects the language and translates to English in **one** Claude Haiku
+    4.5 call (`messages.parse()` + `zodOutputFormat`, the same pattern
+    `lib/checklistDocumentExtract.ts` already uses for structured output).
+  - `translateTo(text, lang)` → `string | null`. Translates arbitrary text
+    to an ISO 639-1 language code.
+  - Both use the existing `ANTHROPIC_API_KEY` credential (`new Anthropic()`,
+    zero-arg, same as the checklist-extraction path), model
+    `claude-haiku-4-5`, and an 8-second per-call timeout
+    (`{ timeout: 8000 }` request option) — translation is a nice-to-have
+    enrichment, never something a write should hang on.
+  - **Skip the call when the text is already in the target language.** A
+    cheap, deliberately imprecise heuristic (`looksAlreadyInLanguage` —
+    ASCII-only + no common Spanish function words/accented characters ⇒
+    "English"; the inverse ⇒ "Spanish") short-circuits the common cases
+    (a manager typing English, a worker typing Spanish) without a network
+    call. Only tuned for this app's actual pair (EN/ES, matching
+    `teamHubStrings.ts`) — any other target language always makes a real
+    call. A false negative here just means a real API call runs instead of
+    being skipped; it never causes a wrong translation or lost data.
+  - **On any failure — missing `ANTHROPIC_API_KEY`, timeout, rate limit, a
+    refusal `stop_reason`, a malformed response — both functions return
+    `null` and never throw.** The caller's own contract is: on `null`, keep
+    the original text and store no translation/detected-language rather
+    than blocking or retrying. Translation is best-effort.
+
+- **Storage contract**: every worker-written text field that goes through
+  this rule stores three things — the original text as typed, the English
+  translation (or the original again, if `translateToEnglish` returned
+  `null` or `detectedLanguage === "en"`), and the detected language code.
+  Phase 4's `hub_issues.note` and `supply_orders.note` are the first two
+  fields to actually implement this (see §9's Phase 4 notes for the
+  specific columns) — this section states the rule once so later phases
+  and the Equipment Check app follow the same shape instead of each
+  inventing their own.
+- **Display contract**: admin screens (the Team Hub tab, the staff queue,
+  Sub Center) and outbound emails show the **English** text first, with a
+  small **"Show original"** toggle to reveal the original-language text
+  beneath it. Never show only the original with no English, and never
+  auto-translate silently with no way to see what was actually typed.
+- **Manager → crew direction**: text a manager/admin writes for a crew to
+  see (e.g. a supply-order note echoed back, a future handoff/request
+  title) is translated to the crew's device language via `translateTo`
+  before it's shown to them — the same `useTeamHubLang()`-detected
+  language `teamHubStrings.ts` already uses for the UI's own fixed strings,
+  now also applied to admin-authored freeform text.
+- This is a **global** rule, not a per-phase opt-in: any future phase (Team
+  Hub or not) that stores or displays worker/crew-facing freeform text
+  follows this same three-field storage shape and English-first/
+  "Show original" display contract, through this same `lib/translate.ts` —
+  no phase should build its own translation call.
