@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
         tabName: s.tabName,
         timeIn: s.timeIn,
         timeOut: s.timeOut,
+        startedAt: s.startedAt,
         completedCount: s.completedCount,
         totalCount: s.totalCount,
         generalNotes: s.generalNotes,

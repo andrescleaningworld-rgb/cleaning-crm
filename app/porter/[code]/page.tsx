@@ -1,20 +1,21 @@
 "use client";
 
-// Crew Link (docs/crew-link-spec.md) — the Porter Checklist link, now with
-// "Order supplies" and "Report a problem" when the account has them on.
-// Route, porter codes and the checklist submit are unchanged: a link with
-// only the checklist switched on opens straight into the same checklist
-// form as before. With more than one module, a home screen shows one big
-// button per switched-on module.
-import { useEffect, useMemo, useState } from "react";
+// Crew Link (docs/crew-link-spec.md) — the one public link a crew opens on
+// their phone. Built to be as simple as possible: the name is asked once
+// (remembered on that phone), then a home screen with up to three huge
+// buttons (Checklist / Supplies / Problem — only the ones switched on). A
+// link with just one of them skips the home screen. Every Send ends on a
+// full-screen green "Sent!" with one "Back to start" button. Crews only ever
+// see the building name — nothing else about the account.
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Image from "next/image";
-import { countTemplateProgress, type ChecklistSectionDef, type ChecklistTabDef } from "@/lib/checklistTemplate";
-import SuppliesView from "@/app/team-hub/[token]/SuppliesView";
-import IssueReportView from "@/app/team-hub/[token]/IssueReportView";
-import LangToggle from "@/app/team-hub/[token]/LangToggle";
-import { useTeamHubLang, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
+import type { ChecklistSectionDef, ChecklistTabDef } from "@/lib/checklistTemplate";
+import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { crewLinkStrings } from "./strings";
+import { BackButton, CenteredMessage, CrewHeader, SentScreen } from "./ui";
+import CrewChecklist, { type TabProgress } from "./CrewChecklist";
+import CrewSupplies from "./CrewSupplies";
+import CrewProblem from "./CrewProblem";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
 
@@ -22,16 +23,14 @@ type LoadResponse = {
   success?: boolean;
   error?: string;
   available?: boolean;
-  accountName?: string;
   locationName?: string;
   sections?: ChecklistSectionDef[];
   tabs?: ChecklistTabDef[];
   modules?: Modules;
 };
 
-type ItemState = { checked: boolean; note: string };
-type Screen = "home" | "checklist" | "supplies" | "issues";
-type Strings = ReturnType<typeof crewLinkStrings>;
+type Feature = "checklist" | "supplies" | "problem";
+type Screen = "home" | Feature;
 
 const NAME_STORAGE_KEY = "crew-link-name";
 
@@ -45,7 +44,8 @@ function readStoredName(): string {
 
 function storeName(name: string) {
   try {
-    localStorage.setItem(NAME_STORAGE_KEY, name);
+    if (name) localStorage.setItem(NAME_STORAGE_KEY, name);
+    else localStorage.removeItem(NAME_STORAGE_KEY);
   } catch {
     // best-effort only — the name still applies for this visit
   }
@@ -64,8 +64,16 @@ export default function CrewLinkPage() {
   const [tabs, setTabs] = useState<ChecklistTabDef[]>([]);
   // Older API responses (before Crew Link) had no modules — treat as checklist-only.
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
+
+  const [name, setName] = useState<string | null>(null); // null = not read from the phone yet
+  const [nameDraft, setNameDraft] = useState("");
   const [screen, setScreen] = useState<Screen>("home");
-  const [name, setName] = useState("");
+  const [sent, setSent] = useState(false);
+
+  // Checklist progress per tab lives here so switching tabs, or going home
+  // and back, never loses checks that haven't been sent yet.
+  const [activeTabId, setActiveTabId] = useState<number | null>(null);
+  const [progressByTab, setProgressByTab] = useState<Record<number, TabProgress>>({});
 
   useEffect(() => {
     setName(readStoredName());
@@ -79,22 +87,19 @@ export default function CrewLinkPage() {
       setLoading(true);
       setLoadError("");
       try {
-        const response = await fetch(`/api/porter-checklist?code=${encodeURIComponent(code)}`, {
-          cache: "no-store",
-        });
+        const response = await fetch(`/api/porter-checklist?code=${encodeURIComponent(code)}`, { cache: "no-store" });
         const data = (await response.json()) as LoadResponse;
         if (!response.ok || data.success === false) {
-          throw new Error(data.error ?? "Could not load this checklist.");
+          throw new Error(data.error ?? "Could not load this link.");
         }
         if (cancelled) return;
-
         setAvailable(Boolean(data.available));
         setLocationName(data.locationName ?? "");
         // Older API responses (before tabs) had only `sections` — one tab.
         setTabs(data.tabs ?? [{ id: 0, name: "", sections: data.sections ?? [] }]);
         if (data.modules) setModules(data.modules);
       } catch (err) {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this checklist.");
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this link.");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -106,466 +111,165 @@ export default function CrewLinkPage() {
     };
   }, [code]);
 
-  const enabledCount = Number(modules.checklist) + Number(modules.supplyOrders) + Number(modules.problemReports);
-  const checklistOnly = modules.checklist && enabledCount === 1;
+  const features: Feature[] = [
+    ...(modules.checklist ? (["checklist"] as const) : []),
+    ...(modules.supplyOrders ? (["supplies"] as const) : []),
+    ...(modules.problemReports ? (["problem"] as const) : []),
+  ];
+  const onlyFeature = features.length === 1 ? features[0] : null;
+  const rootScreen: Screen = onlyFeature ?? "home";
+  const currentScreen: Screen = onlyFeature ?? screen;
 
-  function updateName(next: string) {
-    setName(next);
-    storeName(next.trim());
+  if (loading || name === null) return <CenteredMessage title={s.loading} />;
+  if (loadError || !available || features.length === 0) {
+    return <CenteredMessage title={s.unavailableTitle} body={loadError || s.unavailableBody} />;
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <p className="text-sm font-semibold text-slate-500">{s.loading}</p>
-      </div>
-    );
-  }
-
-  if (loadError || !available) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-lg font-black text-slate-950">{s.unavailableTitle}</h1>
-          <p className="mt-2 text-sm text-slate-500">{loadError || s.unavailableBody}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (checklistOnly || screen === "checklist") {
-    return (
-      <ChecklistTabs
-        tabs={tabs}
-        code={code}
-        s={s}
-        lang={lang}
-        onLangChange={setLang}
-        locationName={locationName}
-        initialName={name}
-        onNameChange={updateName}
-        onBackHome={checklistOnly ? null : () => setScreen("home")}
-      />
-    );
-  }
-
-  const apiBase = `/api/porter-checklist/${encodeURIComponent(code)}`;
-
-  return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6">
-      <div className="mx-auto max-w-xl">
-        <CrewLinkHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName} />
-
-        {screen === "supplies" ? (
-          <SuppliesView
-            token=""
-            apiBase={apiBase}
-            reporterName={name.trim()}
-            lang={lang}
-            onBack={() => setScreen("home")}
-            otherItemsLabels={{
-              label: s.otherSuppliesLabel,
-              placeholder: s.otherSuppliesPlaceholder,
-              recentPrefix: s.otherSuppliesRecent,
-            }}
-          />
-        ) : screen === "issues" ? (
-          <IssueReportView token="" apiBase={apiBase} reporterName={name.trim()} lang={lang} onBack={() => setScreen("home")} />
-        ) : (
-          <div className="mt-4 space-y-4">
-            <label className="block rounded-2xl bg-white p-4 shadow-sm">
-              <span className="text-base font-bold text-slate-700">{s.yourName}</span>
-              <input
-                value={name}
-                onChange={(event) => updateName(event.target.value)}
-                autoComplete="name"
-                className="mt-2 min-h-[56px] w-full rounded-xl border border-slate-300 px-4 text-xl font-semibold outline-none focus:border-blue-500"
-              />
-            </label>
-            {!name.trim() && <p className="text-base font-semibold text-amber-700">{s.typeNameFirst}</p>}
-
-            <div className="grid gap-3">
-              {modules.checklist && (
-                <HomeButton icon="✅" label={s.checklist} disabled={false} onClick={() => setScreen("checklist")} />
-              )}
-              {modules.supplyOrders && (
-                <HomeButton icon="📦" label={s.orderSupplies} disabled={!name.trim()} onClick={() => setScreen("supplies")} />
-              )}
-              {modules.problemReports && (
-                <HomeButton icon="⚠️" label={s.reportProblem} disabled={!name.trim()} onClick={() => setScreen("issues")} />
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CrewLinkHeader({
-  s,
-  lang,
-  onLangChange,
-  locationName,
-}: {
-  s: Strings;
-  lang: TeamHubLang;
-  onLangChange: (lang: TeamHubLang) => void;
-  locationName: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-blue-700 p-4 text-white shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={28} height={28} className="h-7 w-7 rounded bg-white object-contain" />
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-100">{s.appName}</p>
-        </div>
-        <LangToggle lang={lang} onChange={onLangChange} />
-      </div>
-      <h1 className="mt-1 text-2xl font-black">{locationName || s.defaultTitle}</h1>
-    </div>
-  );
-}
-
-function HomeButton({ icon, label, disabled, onClick }: { icon: string; label: string; disabled: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="flex min-h-[96px] items-center gap-4 rounded-2xl bg-white px-5 text-left text-2xl font-bold text-slate-900 shadow-sm active:bg-gray-100 disabled:opacity-40"
-    >
-      <span className="text-4xl">{icon}</span>
-      {label}
-    </button>
-  );
-}
-
-type ChecklistFormProps = {
-  code: string;
-  s: Strings;
-  lang: TeamHubLang;
-  onLangChange: (lang: TeamHubLang) => void;
-  locationName: string;
-  initialName: string;
-  onNameChange: (name: string) => void;
-  onBackHome: (() => void) | null;
-};
-
-// Crew Link tabs. One tab → exactly the original form, no tab bar. Several →
-// big tabs at the top, opening on the first. Every tab's form stays mounted
-// (inactive ones hidden) so each keeps its own checks and notes, and each
-// is submitted on its own.
-function ChecklistTabs({ tabs, ...formProps }: ChecklistFormProps & { tabs: ChecklistTabDef[] }) {
-  const [activeTabId, setActiveTabId] = useState(tabs[0]?.id ?? 0);
-
-  if (tabs.length <= 1) {
-    return <ChecklistForm {...formProps} tabId={tabs[0]?.id ?? 0} sections={tabs[0]?.sections ?? []} tabBar={null} />;
-  }
-
-  function selectTab(tabId: number) {
-    setActiveTabId(tabId);
+  function goToStart() {
+    setSent(false);
+    setScreen(rootScreen);
     window.scrollTo({ top: 0 });
   }
 
-  const tabBar = (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {tabs.map((tab) => {
-        const active = tab.id === activeTabId;
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => selectTab(tab.id)}
-            aria-pressed={active}
-            className={`min-h-[56px] rounded-2xl px-3 py-2 text-lg font-bold shadow-sm ${
-              active ? "bg-blue-700 text-white" : "bg-white text-slate-800 active:bg-gray-100"
-            }`}
-          >
-            {tab.name}
+  function open(feature: Feature) {
+    setScreen(feature);
+    window.scrollTo({ top: 0 });
+  }
+
+  function saveName() {
+    const trimmed = nameDraft.trim().slice(0, 80);
+    if (!trimmed) return;
+    storeName(trimmed);
+    setName(trimmed);
+    setNameDraft("");
+  }
+
+  function changeName() {
+    storeName("");
+    setName("");
+    setNameDraft("");
+  }
+
+  const header = (
+    <CrewHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName}>
+      {name ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-xl font-semibold">{s.hi(name)}</p>
+          <button type="button" onClick={changeName} className="min-h-[44px] text-lg font-semibold text-blue-100 underline">
+            {s.notYou}
           </button>
-        );
-      })}
-    </div>
+        </div>
+      ) : null}
+    </CrewHeader>
   );
 
-  return (
-    <>
-      {tabs.map((tab) => (
-        <div key={tab.id} hidden={tab.id !== activeTabId}>
-          <ChecklistForm {...formProps} tabId={tab.id} sections={tab.sections} tabBar={tabBar} />
-        </div>
-      ))}
-    </>
-  );
-}
-
-// The original Porter Checklist form — same fields, same submit body, same
-// API. Only the labels are now EN/ES, the name is prefilled from the device,
-// and (when the link has other modules) there's a way back to the home screen.
-function ChecklistForm({
-  code,
-  s,
-  lang,
-  onLangChange,
-  locationName,
-  tabId,
-  sections,
-  tabBar,
-  initialName,
-  onNameChange,
-  onBackHome,
-}: ChecklistFormProps & {
-  tabId: number;
-  sections: ChecklistSectionDef[];
-  tabBar: React.ReactNode;
-}) {
-  const [itemStates, setItemStates] = useState<Record<string, ItemState>>(() => {
-    const initial: Record<string, ItemState> = {};
-    for (const section of sections) {
-      for (const item of section.items) {
-        initial[item.key] = { checked: false, note: "" };
-      }
-    }
-    return initial;
-  });
-  const [porterName, setPorterName] = useState(initialName);
-  const [weekOf, setWeekOf] = useState("");
-  const [timeIn, setTimeIn] = useState("");
-  const [timeOut, setTimeOut] = useState("");
-  const [generalNotes, setGeneralNotes] = useState("");
-
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-
-  useEffect(() => {
-    // The stored name loads after first render; fill it in if the field is still empty.
-    if (initialName) setPorterName((current) => current || initialName);
-  }, [initialName]);
-
-  const progress = useMemo(
-    () => countTemplateProgress(sections, new Set(Object.keys(itemStates).filter((k) => itemStates[k]?.checked))),
-    [sections, itemStates]
-  );
-
-  function toggleItem(key: string) {
-    setItemStates((prev) => ({ ...prev, [key]: { checked: !prev[key]?.checked, note: prev[key]?.note ?? "" } }));
-  }
-
-  function setItemNote(key: string, note: string) {
-    setItemStates((prev) => ({ ...prev, [key]: { checked: prev[key]?.checked ?? false, note } }));
-  }
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!porterName.trim()) {
-      setSubmitError(s.pleaseEnterName);
-      return;
-    }
-
-    setSubmitting(true);
-    setSubmitError("");
-    try {
-      const submissionSections = sections.map((section) => ({
-        key: section.key,
-        title: section.title,
-        items: section.items.map((item) => ({
-          key: item.key,
-          label: item.label,
-          subNote: item.subNote,
-          checked: itemStates[item.key]?.checked ?? false,
-          note: itemStates[item.key]?.note ?? "",
-        })),
-      }));
-
-      const response = await fetch("/api/porter-checklist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "submit",
-          code,
-          tabId,
-          porterName: porterName.trim(),
-          weekOf,
-          timeIn,
-          timeOut,
-          generalNotes,
-          sections: submissionSections,
-        }),
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error ?? "Could not submit this checklist.");
-      }
-      onNameChange(porterName.trim());
-      setSubmitted(true);
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Could not submit this checklist.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (submitted) {
-    const submittedCard = (
-      <div className="max-w-sm rounded-2xl border border-green-200 bg-green-50 p-6 text-center shadow-sm">
-        <h1 className="text-lg font-black text-green-900">{s.submittedTitle}</h1>
-        <p className="mt-2 text-sm text-green-800">{s.submittedBody(porterName || "porter", locationName)}</p>
-        {onBackHome && (
-          <button type="button" onClick={onBackHome} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-base font-bold text-white">
-            {s.backHome}
-          </button>
-        )}
-      </div>
-    );
-
-    if (tabBar) {
-      // Keep the tabs visible so the crew can move on to the next one.
-      return (
-        <div className="min-h-screen bg-slate-50 px-4 py-6 sm:py-10">
-          <div className="mx-auto max-w-xl space-y-5">
-            {tabBar}
-            <div className="flex justify-center">{submittedCard}</div>
-          </div>
-        </div>
-      );
-    }
-
-    return <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">{submittedCard}</div>;
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6 sm:py-10">
-      <form onSubmit={handleSubmit} className="mx-auto max-w-xl space-y-5">
-        {onBackHome && (
-          <button type="button" onClick={onBackHome} className="text-base font-semibold text-blue-700">
-            ← {s.back}
-          </button>
-        )}
-        {tabBar}
-        <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={28} height={28} className="h-7 w-7 object-contain" />
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">{s.appName}</p>
-            </div>
-            <div className="rounded-full bg-blue-700">
-              <LangToggle lang={lang} onChange={onLangChange} />
-            </div>
-          </div>
-          <h1 className="mt-1 text-2xl font-black text-slate-950">{locationName || s.defaultTitle}</h1>
-
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-sm font-semibold text-slate-700">
-              <span>{s.progress(progress.done, progress.total)}</span>
-            </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-blue-600 transition-all"
-                style={{ width: `${progress.total > 0 ? (progress.done / progress.total) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.name}</span>
-              <input
-                required
-                value={porterName}
-                onChange={(event) => setPorterName(event.target.value)}
-                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.weekOf}</span>
-              <input
-                type="date"
-                value={weekOf}
-                onChange={(event) => setWeekOf(event.target.value)}
-                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.timeIn}</span>
-              <input
-                type="time"
-                value={timeIn}
-                onChange={(event) => setTimeIn(event.target.value)}
-                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="block">
-              <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.timeOut}</span>
-              <input
-                type="time"
-                value={timeOut}
-                onChange={(event) => setTimeOut(event.target.value)}
-                className="mt-1 min-h-[44px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
-              />
-            </label>
-          </div>
-        </div>
-
-        {sections.map((section) => (
-          <div key={section.key} className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
-            <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">{section.title}</h2>
-            <div className="mt-3 space-y-3">
-              {section.items.map((item) => (
-                <div key={item.key} className="rounded-xl border border-slate-200 p-3">
-                  <label className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={itemStates[item.key]?.checked ?? false}
-                      onChange={() => toggleItem(item.key)}
-                      className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="flex-1 text-sm font-semibold text-slate-800">
-                      {item.label}
-                      {item.subNote ? <span className="mt-0.5 block text-xs font-normal text-slate-400">{item.subNote}</span> : null}
-                    </span>
-                  </label>
-                  <textarea
-                    value={itemStates[item.key]?.note ?? ""}
-                    onChange={(event) => setItemNote(item.key, event.target.value)}
-                    placeholder={s.optionalNote}
-                    rows={1}
-                    className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-slate-400">{s.generalNotes}</span>
-            <textarea
-              value={generalNotes}
-              onChange={(event) => setGeneralNotes(event.target.value)}
-              rows={3}
-              placeholder={s.generalNotesPlaceholder}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500"
+  // Step 1, only once per phone: the name.
+  if (!name) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-4">
+        <div className="mx-auto max-w-xl space-y-4">
+          {header}
+          <label className="block rounded-3xl bg-white p-5 shadow-sm">
+            <span className="text-2xl font-black text-slate-900">{s.whatsYourName}</span>
+            <input
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveName();
+              }}
+              autoComplete="name"
+              autoFocus
+              maxLength={80}
+              className="mt-3 min-h-[64px] w-full rounded-2xl border-2 border-slate-300 px-4 text-2xl font-semibold outline-none focus:border-blue-600"
             />
           </label>
+          <button
+            type="button"
+            onClick={saveName}
+            disabled={!nameDraft.trim()}
+            className="min-h-[72px] w-full rounded-3xl bg-green-600 text-2xl font-black text-white shadow-lg active:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+          >
+            {s.next} →
+          </button>
         </div>
+      </main>
+    );
+  }
 
-        {submitError ? (
-          <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-            {submitError}
-          </p>
+  const checklistTabId = activeTabId ?? tabs[0]?.id ?? 0;
+
+  return (
+    <main className="min-h-screen bg-slate-100 px-4 py-4">
+      <div className="mx-auto max-w-xl space-y-4">
+        {header}
+
+        {currentScreen !== rootScreen ? <BackButton label={s.back} onClick={goToStart} /> : null}
+
+        {currentScreen === "home" ? (
+          <div className="grid gap-4">
+            {features.map((feature) => (
+              <button
+                key={feature}
+                type="button"
+                onClick={() => open(feature)}
+                className="flex min-h-[120px] items-center gap-5 rounded-3xl bg-white px-6 text-left text-3xl font-black text-slate-900 shadow-sm active:bg-gray-100"
+              >
+                <span className="text-6xl" aria-hidden="true">
+                  {feature === "checklist" ? "✅" : feature === "supplies" ? "📦" : "⚠️"}
+                </span>
+                {feature === "checklist" ? s.checklist : feature === "supplies" ? s.supplies : s.problem}
+              </button>
+            ))}
+          </div>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-2xl bg-blue-600 px-5 py-4 text-center text-base font-black text-white shadow-sm hover:bg-blue-500 disabled:opacity-60"
-        >
-          {submitting ? s.submitting : s.submit}
-        </button>
-      </form>
-    </div>
+        {currentScreen === "checklist" ? (
+          <CrewChecklist
+            code={code}
+            s={s}
+            name={name}
+            tabs={tabs}
+            activeTabId={checklistTabId}
+            onSelectTab={(tabId) => {
+              setActiveTabId(tabId);
+              window.scrollTo({ top: 0 });
+            }}
+            progressByTab={progressByTab}
+            onProgressChange={(tabId, next) => setProgressByTab((prev) => ({ ...prev, [tabId]: next }))}
+            onSent={(tabId) => {
+              setProgressByTab((prev) => {
+                const next = { ...prev };
+                delete next[tabId];
+                return next;
+              });
+              setSent(true);
+            }}
+          />
+        ) : null}
+
+        {currentScreen === "supplies" ? (
+          <CrewSupplies
+            key={sent ? "sent" : "open"}
+            apiBase={`/api/porter-checklist/${encodeURIComponent(code)}`}
+            s={s}
+            name={name}
+            onSent={() => setSent(true)}
+          />
+        ) : null}
+
+        {currentScreen === "problem" ? (
+          <CrewProblem
+            key={sent ? "sent" : "open"}
+            apiBase={`/api/porter-checklist/${encodeURIComponent(code)}`}
+            s={s}
+            lang={lang}
+            name={name}
+            onSent={() => setSent(true)}
+          />
+        ) : null}
+      </div>
+
+      {sent ? <SentScreen s={s} onDone={goToStart} /> : null}
+    </main>
   );
 }

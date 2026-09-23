@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import type { ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 
 type SubmissionSummary = {
   id: number;
@@ -18,6 +18,7 @@ type SubmissionSummary = {
   generalNotes: string;
   submittedAt: string;
   tabName: string | null;
+  startedAt: string | null;
 };
 
 type FlaggedAccount = { accountId: string; accountName: string };
@@ -324,7 +325,18 @@ export default function PorterChecklistSubmissionsPage() {
                   ) : null}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  {submission.porterName} · {submission.weekOf || "—"} · {formatTimestamp(submission.submittedAt)}
+                  {(() => {
+                    // New submissions: automatic Started / Finished. Old ones: typed Week Of + times.
+                    const times = describeWorkTimes(submission);
+                    return [
+                      submission.porterName,
+                      submission.startedAt ? null : submission.weekOf || "—",
+                      formatTimestamp(submission.submittedAt),
+                      `${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                  })()}
                 </p>
               </div>
               <span
@@ -344,8 +356,15 @@ export default function PorterChecklistSubmissionsPage() {
                 {detail && detail.id === submission.id ? (
                   <div className="space-y-4">
                     <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                      <p><span className="font-black text-slate-700">Time In:</span> {detail.timeIn || "—"}</p>
-                      <p><span className="font-black text-slate-700">Time Out:</span> {detail.timeOut || "—"}</p>
+                      {(() => {
+                        const times = describeWorkTimes(detail);
+                        return (
+                          <>
+                            <p><span className="font-black text-slate-700">{times.startLabel}:</span> {times.start}</p>
+                            <p><span className="font-black text-slate-700">{times.endLabel}:</span> {times.end}</p>
+                          </>
+                        );
+                      })()}
                     </div>
                     {detail.generalNotes ? (
                       <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{detail.generalNotes}</p>

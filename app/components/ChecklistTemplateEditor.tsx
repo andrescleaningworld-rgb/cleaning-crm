@@ -14,7 +14,7 @@ import {
   type ChecklistItemDef,
   type ChecklistTabDef,
 } from "@/lib/checklistTemplate";
-import SharePanel from "@/app/components/SharePanel";
+import CrewLinkShare from "@/app/components/CrewLinkShare";
 import { OrdersAndProblems } from "@/app/accounts/[id]/team-hub-tab";
 
 type TemplateApiResponse = {
@@ -79,7 +79,6 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
   // from the account edit page. The checklist itself stays on checklistNeeded.
   const [supplyOrdersEnabled, setSupplyOrdersEnabled] = useState(false);
   const [problemReportsEnabled, setProblemReportsEnabled] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
   const [extracting, setExtracting] = useState(false);
   const [extractPreview, setExtractPreview] = useState<{
@@ -389,9 +388,6 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
     typeof window !== "undefined" && porterCode ? `${window.location.origin}/porter/${porterCode}` : "";
 
   const place = locationName || accountName;
-  const shareMessage =
-    `Crew Link for ${place}: ${porterUrl}\nOpen it on your phone to do the checklist, order supplies, or report a problem.\n\n` +
-    `Crew Link para ${place}: ${porterUrl}\nÁbrelo en tu teléfono para hacer la lista, pedir suministros o reportar un problema.`;
 
   function updateSectionTitle(sectionIndex: number, title: string) {
     setSections((prev) => prev.map((s, i) => (i === sectionIndex ? { ...s, title } : s)));
@@ -500,27 +496,15 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
             ) : null}
             <div>
               <span className="text-[11px] font-black uppercase tracking-wide text-slate-400">Crew Link</span>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  readOnly
-                  value={porterUrl}
-                  className="w-full min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShareOpen(true)}
-                  disabled={!porterUrl}
-                  className="shrink-0 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-black text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60"
-                >
-                  Share
-                </button>
-              </div>
+              <input
+                readOnly
+                value={porterUrl}
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
+              />
             </div>
           </div>
 
-          {shareOpen && porterUrl ? (
-            <SharePanel title={`Share Crew Link — ${place}`} url={porterUrl} message={shareMessage} onClose={() => setShareOpen(false)} />
-          ) : null}
+          <CrewLinkShare accountId={accountId} placeName={place} url={porterUrl} />
 
           {supplyOrdersEnabled || problemReportsEnabled ? (
             <OrdersAndProblems crewLinkAccountId={accountId} accountId={accountId} accountName={accountName} />

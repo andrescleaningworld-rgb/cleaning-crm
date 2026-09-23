@@ -267,6 +267,9 @@ export type NewSubmissionInput = {
   weekOf: string | null;
   timeIn: string;
   timeOut: string;
+  // Crew Link: first checkbox tap (ISO), recorded automatically. Null for
+  // older pages that still send typed Time In / Time Out.
+  startedAt: string | null;
   generalNotes: string;
   sections: ChecklistSubmissionSection[];
   completedCount: number;
@@ -278,12 +281,12 @@ export async function insertSubmission(input: NewSubmissionInput): Promise<numbe
   const rows = await sql`
     INSERT INTO checklist_submissions (
       account_id, account_name, location_name, porter_name, week_of, time_in, time_out,
-      completed_count, total_count, general_notes, items_snapshot_json, tab_id, tab_name
+      completed_count, total_count, general_notes, items_snapshot_json, tab_id, tab_name, started_at
     ) VALUES (
       ${input.accountId}, ${input.accountName}, ${input.locationName}, ${input.porterName},
       ${input.weekOf}, ${input.timeIn}, ${input.timeOut},
       ${input.completedCount}, ${input.totalCount}, ${input.generalNotes},
-      ${JSON.stringify(input.sections)}::jsonb, ${input.tabId}, ${input.tabName}
+      ${JSON.stringify(input.sections)}::jsonb, ${input.tabId}, ${input.tabName}, ${input.startedAt}
     )
     RETURNING id
   `;
@@ -306,6 +309,9 @@ export type SubmissionSummary = {
   // Name of the tab as it was when submitted (null only for rows the tabs
   // migration couldn't link — no template for that account).
   tabName: string | null;
+  // Automatic start time (null for older, typed-time submissions — see
+  // describeWorkTimes in lib/checklistTemplate.ts).
+  startedAt: string | null;
 };
 
 export type SubmissionDetail = SubmissionSummary & {
@@ -327,6 +333,11 @@ function rowToSummary(row: Record<string, unknown>): SubmissionSummary {
     generalNotes: (row.general_notes as string) ?? "",
     submittedAt: (row.submitted_at as Date | string) instanceof Date ? (row.submitted_at as Date).toISOString() : String(row.submitted_at),
     tabName: (row.tab_name as string | null) ?? null,
+    startedAt: row.started_at
+      ? row.started_at instanceof Date
+        ? row.started_at.toISOString()
+        : String(row.started_at)
+      : null,
   };
 }
 
@@ -335,7 +346,7 @@ export async function listSubmissions(accountId?: string): Promise<SubmissionSum
   const rows = accountId
     ? await sql`
         SELECT id, account_id, account_name, location_name, porter_name, week_of, time_in, time_out,
-               completed_count, total_count, general_notes, submitted_at, tab_name
+               completed_count, total_count, general_notes, submitted_at, tab_name, started_at
         FROM checklist_submissions
         WHERE account_id = ${accountId}
         ORDER BY submitted_at DESC
@@ -343,7 +354,7 @@ export async function listSubmissions(accountId?: string): Promise<SubmissionSum
       `
     : await sql`
         SELECT id, account_id, account_name, location_name, porter_name, week_of, time_in, time_out,
-               completed_count, total_count, general_notes, submitted_at, tab_name
+               completed_count, total_count, general_notes, submitted_at, tab_name, started_at
         FROM checklist_submissions
         ORDER BY submitted_at DESC
         LIMIT 200

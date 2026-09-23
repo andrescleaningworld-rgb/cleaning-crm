@@ -36,6 +36,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ success: false, error: "Invalid category." }, { status: 400 });
     }
     const note = String(formData.get("note") ?? "").trim().slice(0, MAX_NOTE_LENGTH);
+    if (category === "other" && !note) {
+      return NextResponse.json({ success: false, error: "Please write what the problem is." }, { status: 400 });
+    }
 
     const files = formData.getAll("photos").filter((f): f is File => f instanceof File);
     if (files.length > MAX_PHOTOS) {

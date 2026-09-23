@@ -40,6 +40,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!TEAM_HUB_ISSUE_CATEGORIES.includes(category as TeamHubIssueCategory)) {
       return NextResponse.json({ success: false, error: "Invalid category." }, { status: 400 });
     }
+    if (category === "other" && !note) {
+      return NextResponse.json({ success: false, error: "Please write what the problem is." }, { status: 400 });
+    }
 
     const files = formData.getAll("photos").filter((f): f is File => f instanceof File);
     if (files.length > MAX_PHOTOS) {

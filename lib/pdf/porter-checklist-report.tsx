@@ -9,7 +9,7 @@ import {
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
-import type { ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 
 // Self-contained, mirroring lib/pdf/account-packet-admin.tsx's styling
 // conventions — but this is the customer-facing variant (like
@@ -246,6 +246,9 @@ export type PorterChecklistReportSubmission = {
   porterName: string;
   timeIn: string;
   timeOut: string;
+  // Automatic start time (Crew Link redesign); null on older submissions,
+  // which show their typed Time In / Time Out instead.
+  startedAt: string | null;
   completedCount: number;
   totalCount: number;
   generalNotes: string;
@@ -354,7 +357,10 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
                     {submission.tabName ? ` · ${submission.tabName}` : ""}
                   </Text>
                   <Text style={styles.submissionHeaderMeta}>
-                    {submission.porterName || "Unknown porter"} · {submission.timeIn || "—"} to {submission.timeOut || "—"}
+                    {(() => {
+                      const times = describeWorkTimes(submission);
+                      return `${submission.porterName || "Unknown porter"} · ${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`;
+                    })()}
                   </Text>
                 </View>
                 <CompletionBadge completed={submission.completedCount} total={submission.totalCount} />

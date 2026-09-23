@@ -6,6 +6,8 @@
 // can import it directly. Mirrors lib/onboardingChecklist.ts's shape, but
 // sections/items here are per-account and editable rather than hardcoded.
 
+import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
+
 export type ChecklistItemDef = {
   key: string;
   label: string;
@@ -38,6 +40,26 @@ export function cleanTabName(value: unknown): string {
 
 export function countTabItems(tab: { sections: ChecklistSectionDef[] }): number {
   return tab.sections.reduce((sum, section) => sum + section.items.length, 0);
+}
+
+// Checklist times for staff screens and the PDF. New submissions record
+// them automatically (started = crew's first checkbox tap, finished = Send);
+// older ones keep the Time In / Time Out the crew typed.
+export function describeWorkTimes(submission: {
+  startedAt: string | null;
+  submittedAt: string;
+  timeIn: string;
+  timeOut: string;
+}): { startLabel: string; start: string; endLabel: string; end: string } {
+  if (submission.startedAt) {
+    const format = (iso: string) => {
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return "—";
+      return date.toLocaleTimeString("en-US", { timeZone: TEAM_HUB_TIMEZONE, hour: "numeric", minute: "2-digit" });
+    };
+    return { startLabel: "Started", start: format(submission.startedAt), endLabel: "Finished", end: format(submission.submittedAt) };
+  }
+  return { startLabel: "Time In", start: submission.timeIn || "—", endLabel: "Time Out", end: submission.timeOut || "—" };
 }
 
 // A submission snapshots each item's label/subNote as of submission time

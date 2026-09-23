@@ -49,10 +49,10 @@ export async function GET(request: NextRequest) {
       if (tabs.length === 0) tabs = [{ id: 0, name: DEFAULT_TAB_NAME, sections: template.sections }];
     }
 
+    // Crews see the building name only — no account name, ids or details.
     return NextResponse.json({
       success: true,
       available: true,
-      accountName: template.accountName,
       locationName: template.locationName,
       sections: tabs[0]?.sections ?? [],
       tabs,
@@ -109,6 +109,18 @@ export async function POST(request: NextRequest) {
     const sections = Array.isArray(body.sections) ? (body.sections as ChecklistSubmissionSection[]) : [];
     const { done, total } = countSubmissionProgress(sections);
 
+    // Automatic "started" time from the crew's first checkbox tap. Only a
+    // sane value is kept (not in the future, not more than 24h ago) — a
+    // wrong phone clock just means no start time, never a failed submit.
+    let startedAt: string | null = null;
+    if (typeof body.startedAt === "string") {
+      const started = new Date(body.startedAt).getTime();
+      const now = Date.now();
+      if (Number.isFinite(started) && started <= now + 5 * 60 * 1000 && started >= now - 24 * 60 * 60 * 1000) {
+        startedAt = new Date(Math.min(started, now)).toISOString();
+      }
+    }
+
     const id = await insertSubmission({
       accountId: template.accountId,
       accountName: template.accountName,
@@ -119,6 +131,7 @@ export async function POST(request: NextRequest) {
       weekOf: body.weekOf ? String(body.weekOf) : null,
       timeIn: String(body.timeIn ?? ""),
       timeOut: String(body.timeOut ?? ""),
+      startedAt,
       generalNotes: String(body.generalNotes ?? ""),
       sections,
       completedCount: done,

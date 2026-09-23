@@ -89,8 +89,11 @@ export default function IssueReportView({
     });
   }
 
+  // "Other" needs a note so the office knows what it is.
+  const noteMissing = category === "other" && !note.trim();
+
   async function send() {
-    if (!category) return;
+    if (!category || noteMissing) return;
     setSending(true);
     setError("");
     try {
@@ -157,9 +160,9 @@ export default function IssueReportView({
       <textarea
         value={note}
         onChange={(e) => setNote(e.target.value)}
-        placeholder={s.notePlaceholder}
+        placeholder={category === "other" ? s.noteRequired : s.notePlaceholder}
         rows={3}
-        className="w-full rounded-xl border border-gray-200 bg-white p-3 text-lg"
+        className={`w-full rounded-xl border bg-white p-3 text-lg ${noteMissing ? "border-amber-400" : "border-gray-200"}`}
       />
 
       <div className="flex flex-wrap gap-2">
@@ -190,7 +193,7 @@ export default function IssueReportView({
       <button
         type="button"
         onClick={send}
-        disabled={sending || !category}
+        disabled={sending || !category || noteMissing}
         className="min-h-[72px] w-full rounded-2xl bg-blue-700 text-xl font-bold text-white disabled:opacity-40"
       >
         {sending ? s.sending : s.send}
