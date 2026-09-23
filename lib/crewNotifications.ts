@@ -46,6 +46,8 @@ export async function notifyNewSupplyOrder(input: {
   orderId: number;
   accountId: string;
   note: string;
+  // Crew Link write-in ("Other supplies not on the list"); Team Hub has none.
+  otherItems?: string | null;
   lines: Pick<TeamHubSupplyOrderLine, "itemName" | "qty" | "unit">[];
   origin: string;
 }): Promise<void> {
@@ -63,6 +65,7 @@ export async function notifyNewSupplyOrder(input: {
     `Account: ${accountName}`,
     ...sourceLines(input.source),
     ...input.lines.map((l) => `${l.itemName} x${l.qty} ${l.unit}`),
+    ...(input.otherItems ? [`Other supplies: ${input.otherItems}`] : []),
     ...noteLines(input.note, englishNote),
     adminLink(input.origin, input.accountId, input.source),
   ]);

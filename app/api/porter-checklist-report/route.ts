@@ -72,6 +72,7 @@ export async function GET(request: NextRequest) {
         id: s.id,
         submittedAt: s.submittedAt,
         porterName: s.porterName,
+        tabName: s.tabName,
         timeIn: s.timeIn,
         timeOut: s.timeOut,
         completedCount: s.completedCount,

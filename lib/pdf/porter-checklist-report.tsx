@@ -118,10 +118,11 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: COLORS.value,
   },
-  colDate: { width: "18%", paddingRight: 8 },
-  colPorter: { width: "22%", paddingRight: 8 },
-  colCompletion: { width: "18%", paddingRight: 8 },
-  colNotes: { width: "42%" },
+  colDate: { width: "16%", paddingRight: 8 },
+  colTab: { width: "16%", paddingRight: 8 },
+  colPorter: { width: "20%", paddingRight: 8 },
+  colCompletion: { width: "14%", paddingRight: 8 },
+  colNotes: { width: "34%" },
   truncationNote: {
     marginTop: 8,
     fontSize: 8,
@@ -240,6 +241,8 @@ const styles = StyleSheet.create({
 export type PorterChecklistReportSubmission = {
   id: number;
   submittedAt: string;
+  // Crew Link tab the submission came from (null for unlinked old rows).
+  tabName: string | null;
   porterName: string;
   timeIn: string;
   timeOut: string;
@@ -313,6 +316,7 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
 
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.tableHeaderCell, styles.colDate]}>Date</Text>
+              <Text style={[styles.tableHeaderCell, styles.colTab]}>Checklist</Text>
               <Text style={[styles.tableHeaderCell, styles.colPorter]}>Crew member</Text>
               <Text style={[styles.tableHeaderCell, styles.colCompletion]}>Completion</Text>
               <Text style={[styles.tableHeaderCell, styles.colNotes]}>Notes</Text>
@@ -321,6 +325,7 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
             {data.submissions.map((submission) => (
               <View key={submission.id} style={styles.tableRow} wrap={false}>
                 <Text style={[styles.tableCell, styles.colDate]}>{formatDate(submission.submittedAt)}</Text>
+                <Text style={[styles.tableCell, styles.colTab]}>{submission.tabName || "-"}</Text>
                 <Text style={[styles.tableCell, styles.colPorter]}>{submission.porterName || "-"}</Text>
                 <Text style={[styles.tableCell, styles.colCompletion]}>
                   {submission.completedCount}/{submission.totalCount}
@@ -344,7 +349,10 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
             <View key={submission.id} style={styles.submissionBlock} wrap={false}>
               <View style={styles.submissionHeaderRow}>
                 <View>
-                  <Text style={styles.submissionHeaderTitle}>{formatDate(submission.submittedAt)}</Text>
+                  <Text style={styles.submissionHeaderTitle}>
+                    {formatDate(submission.submittedAt)}
+                    {submission.tabName ? ` · ${submission.tabName}` : ""}
+                  </Text>
                   <Text style={styles.submissionHeaderMeta}>
                     {submission.porterName || "Unknown porter"} · {submission.timeIn || "—"} to {submission.timeOut || "—"}
                   </Text>

@@ -4,8 +4,18 @@
 // public and can't reach any of these actions.
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
-import { ensureTemplate, getTemplateByAccountId, saveTemplateSections, setCrewLinkModules } from "@/lib/checklistDb";
-import { parseUploadedChecklistFile, validateSections } from "@/lib/checklistTemplate";
+import {
+  addTab,
+  deleteTab,
+  ensureFirstTab,
+  ensureTemplate,
+  getTemplateByAccountId,
+  renameTab,
+  reorderTabs,
+  saveTabSections,
+  setCrewLinkModules,
+} from "@/lib/checklistDb";
+import { cleanTabName, parseUploadedChecklistFile, validateSections } from "@/lib/checklistTemplate";
 import { extractChecklistFromDocx, extractChecklistFromPdf, MAX_UPLOAD_BYTES } from "@/lib/checklistDocumentExtract";
 
 // The extractTemplateFromDocument action calls the Claude API, which can
@@ -13,6 +23,11 @@ import { extractChecklistFromDocx, extractChecklistFromPdf, MAX_UPLOAD_BYTES } f
 // document — matches the budget used elsewhere in this app for slow
 // upstream calls.
 export const maxDuration = 45;
+
+function parseTabId(value: unknown): number | null {
+  const id = Number(value);
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,11 +38,14 @@ export async function GET(request: NextRequest) {
 
     const account = await getMainAccountById(accountId);
     const template = await getTemplateByAccountId(accountId);
+    // Crew Link tabs: every template keeps at least one tab.
+    const tabs = template ? await ensureFirstTab(accountId) : [];
 
     return NextResponse.json({
       success: true,
       checklistNeeded: account?.checklistNeeded ?? false,
       template,
+      tabs,
     });
   } catch (error) {
     return NextResponse.json(
@@ -50,7 +68,44 @@ export async function POST(request: NextRequest) {
     if (action === "ensureTemplate") {
       const accountName = String(body.accountName ?? accountId);
       const template = await ensureTemplate(accountId, accountName);
-      return NextResponse.json({ success: true, template });
+      const tabs = await ensureFirstTab(accountId);
+      return NextResponse.json({ success: true, template, tabs });
+    }
+
+    // Crew Link tabs: add / rename / reorder / delete. Each returns the
+    // account's active tabs in order. Uploads and saves below take a tabId
+    // and replace ONLY that tab.
+    if (action === "addTab") {
+      const name = cleanTabName(body.name);
+      if (!name) return NextResponse.json({ success: false, error: "Tab name is required." }, { status: 400 });
+      await ensureTemplate(accountId, String(body.accountName ?? accountId));
+      const tabs = await addTab(accountId, name);
+      return NextResponse.json({ success: true, tabs });
+    }
+
+    if (action === "renameTab") {
+      const tabId = parseTabId(body.tabId);
+      const name = cleanTabName(body.name);
+      if (!tabId) return NextResponse.json({ success: false, error: "tabId is required." }, { status: 400 });
+      if (!name) return NextResponse.json({ success: false, error: "Tab name is required." }, { status: 400 });
+      const tabs = await renameTab(accountId, tabId, name);
+      return NextResponse.json({ success: true, tabs });
+    }
+
+    if (action === "reorderTabs") {
+      const tabIds = Array.isArray(body.tabIds) ? body.tabIds.map(parseTabId) : [];
+      if (tabIds.length === 0 || tabIds.some((id: number | null) => id === null)) {
+        return NextResponse.json({ success: false, error: "tabIds must be a list of tab ids." }, { status: 400 });
+      }
+      const tabs = await reorderTabs(accountId, tabIds as number[]);
+      return NextResponse.json({ success: true, tabs });
+    }
+
+    if (action === "deleteTab") {
+      const tabId = parseTabId(body.tabId);
+      if (!tabId) return NextResponse.json({ success: false, error: "tabId is required." }, { status: 400 });
+      const tabs = await deleteTab(accountId, tabId);
+      return NextResponse.json({ success: true, tabs });
     }
 
     // Crew Link (docs/crew-link-spec.md): the two new module switches —
@@ -66,16 +121,20 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "saveTemplate") {
+      const tabId = parseTabId(body.tabId);
+      if (!tabId) return NextResponse.json({ success: false, error: "tabId is required." }, { status: 400 });
       const locationName = String(body.locationName ?? "");
       const validation = validateSections(body.sections);
       if (!validation.ok) {
         return NextResponse.json({ success: false, error: validation.error }, { status: 400 });
       }
-      const template = await saveTemplateSections(accountId, locationName, validation.sections);
-      return NextResponse.json({ success: true, template });
+      const { template, tabs } = await saveTabSections(accountId, tabId, locationName, validation.sections);
+      return NextResponse.json({ success: true, template, tabs });
     }
 
     if (action === "uploadTemplate") {
+      const tabId = parseTabId(body.tabId);
+      if (!tabId) return NextResponse.json({ success: false, error: "tabId is required." }, { status: 400 });
       const filename = String(body.filename ?? "upload.csv");
       const fileText = String(body.fileText ?? "");
       const parsed = parseUploadedChecklistFile(fileText, filename);
@@ -90,8 +149,8 @@ export async function POST(request: NextRequest) {
 
       const existing = await getTemplateByAccountId(accountId);
       const locationName = String(body.locationName ?? existing?.locationName ?? accountName);
-      const template = await saveTemplateSections(accountId, locationName, parsed.sections);
-      return NextResponse.json({ success: true, template });
+      const { template, tabs } = await saveTabSections(accountId, tabId, locationName, parsed.sections);
+      return NextResponse.json({ success: true, template, tabs });
     }
 
     if (action === "extractTemplateFromDocument") {

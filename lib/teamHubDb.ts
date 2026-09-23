@@ -1272,6 +1272,9 @@ export type TeamHubSupplyOrder = {
   // TeamHubIssue fields' comment; same null-until-translated contract.
   noteEnglish: string | null;
   noteLanguage: string | null;
+  // Crew Link only: "Other supplies not on the list" — free text as the
+  // crew typed it (not translated). Null when left empty / Team Hub orders.
+  otherItems: string | null;
   createdAt: string;
   updatedAt: string;
   lines: TeamHubSupplyOrderLine[];
@@ -1290,6 +1293,7 @@ function rowToSupplyOrder(row: Record<string, unknown>): TeamHubSupplyOrder {
     note: (row.note as string) ?? "",
     noteEnglish: (row.note_english as string | null) ?? null,
     noteLanguage: (row.note_language as string | null) ?? null,
+    otherItems: (row.other_items as string | null) ?? null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
     lines: [],
@@ -1753,6 +1757,7 @@ export async function createCrewLinkSupplyOrder(input: {
   accountId: string;
   reporterName: string;
   note: string;
+  otherItems: string;
   lines: { itemId: number; qty: number }[];
 }): Promise<TeamHubSupplyOrder> {
   const catalog = await listSupplyItemsLibrary(true);
@@ -1760,16 +1765,18 @@ export async function createCrewLinkSupplyOrder(input: {
   const lines = input.lines
     .filter((l) => Number.isInteger(l.itemId) && byId.has(l.itemId) && Number.isInteger(l.qty) && l.qty > 0)
     .map((l) => ({ itemId: l.itemId, qty: Math.min(l.qty, 999) }));
-  if (lines.length === 0) {
-    throw new Error("Add at least one item before sending.");
+  // An order can be only write-ins, but it can't be empty.
+  const otherItems = input.otherItems.trim().slice(0, 1000);
+  if (lines.length === 0 && !otherItems) {
+    throw new Error("Add at least one item, or write in other supplies, before sending.");
   }
 
   const note = input.note.trim().slice(0, 1000);
   const reporterName = input.reporterName.trim().slice(0, 80);
   const sql = getSql();
   const rows = await sql`
-    INSERT INTO supply_orders (crew_link_account_id, reporter_name, note)
-    VALUES (${input.accountId}, ${reporterName}, ${note})
+    INSERT INTO supply_orders (crew_link_account_id, reporter_name, note, other_items)
+    VALUES (${input.accountId}, ${reporterName}, ${note}, ${otherItems || null})
     RETURNING *
   `;
   const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);

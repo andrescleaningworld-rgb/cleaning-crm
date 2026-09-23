@@ -17,6 +17,7 @@ type SubmissionSummary = {
   totalCount: number;
   generalNotes: string;
   submittedAt: string;
+  tabName: string | null;
 };
 
 type FlaggedAccount = { accountId: string; accountName: string };
@@ -318,6 +319,9 @@ export default function PorterChecklistSubmissionsPage() {
               <div>
                 <p className="text-sm font-black text-slate-900">
                   {submission.accountName} — {submission.locationName}
+                  {submission.tabName ? (
+                    <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-black text-blue-700">{submission.tabName}</span>
+                  ) : null}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   {submission.porterName} · {submission.weekOf || "—"} · {formatTimestamp(submission.submittedAt)}
