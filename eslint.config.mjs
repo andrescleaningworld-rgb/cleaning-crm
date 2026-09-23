@@ -12,10 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Uncommitted Site Supply Link code, archived pending deletion after
-    // Team Hub Phase 4 — see tsconfig.json's exclude for the same
-    // reasoning.
-    "_archive/**",
   ]),
 ]);
 

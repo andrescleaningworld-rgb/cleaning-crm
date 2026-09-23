@@ -37,8 +37,12 @@ Modules: `checklist`, `rounds`, `handoff`, `requests`, `supplies`, `issues`.
 | Key files | `lib/teamHubDb.ts`, `lib/teamHubAccountLookup.ts`, `app/accounts/[id]/team-hub-tab.tsx`, `scripts/setup-team-hub-db.js`, `scripts/seed-team-hub-libraries.js` |
 
 `_archive/site-link/` (the archived, pre-Team-Hub "Site Supply Link"
-prototype — see §5) is intentionally left named as-is and excluded from
-tsc/ESLint/build. It gets deleted after Phase 4, not renamed.
+prototype — see §6) was intentionally left named as-is and excluded from
+tsc/ESLint/build until Phase 4, which used it as reference one last time
+(the issue/order route shapes, the admin queue's batched-photos pattern)
+and then deleted it entirely, including its `tsconfig.json`/
+`eslint.config.mjs` exclusions — see §6 for the historical record of what
+it contained.
 
 ## 3. Standing guardrails (apply to every phase)
 
@@ -116,12 +120,16 @@ scroll, ~1835 lines. Minimal-diff approach used:
 branches — printing the account packet must keep working regardless of
 which tab is active.
 
-## 6. Site Supply Link — archived, not deleted
+## 6. Site Supply Link — archived, then deleted in Phase 4
 
 An earlier, uncommitted prototype ("Site Supply Link": no-login supply
 ordering + issue reporting at `/s/[token]`) was superseded by the Team Hub
 spec before ever being run/committed. Since it was never committed,
-deleting it would lose work, so instead:
+deleting it outright would have lost work — so it was archived instead
+(below), used as direct reference while building Phase 4's own order/issue
+routes, and then deleted for real once Phase 4 shipped. This table is now
+a historical record of what `_archive/site-link/` contained, not a live
+file listing:
 
 | File | Disposition |
 |---|---|
@@ -138,10 +146,9 @@ deleting it would lose work, so instead:
 | `lib/googleSheets.ts` (`getAccountSummaryById`, `getAccountSummariesByIds`) | Kept in place — generic, directly reused by Team Hub via the choke-point file |
 | `lib/activityLog.ts` (`"site-link"` role literal) | Mechanism kept; literal renamed straight to `"team-hub"` (skipped `"annex"` as an intermediate) |
 
-`_archive/site-link/` is excluded from `tsconfig.json` and
-`eslint.config.mjs` (see the comments in each, updated to say "Team Hub
-Phase 4" instead of "Site Annex Phase 4"). It gets deleted after Phase 4
-ships, once nothing references it for porting logic anymore.
+`_archive/site-link/` was excluded from `tsconfig.json` and
+`eslint.config.mjs` from Phase 0 through Phase 4 — both exclusions were
+removed in Phase 4 along with the directory itself.
 
 Also flagged when this decision was made: `proxy.ts`'s `PUBLIC_PATHS`
 matching must be **exact-or-subpath**, not `startsWith` — a `startsWith`
@@ -506,13 +513,16 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
     this pass goes through it; nothing server-rendered depends on language
     (it's resolved client-side after mount, same deferred-read pattern as
     the install-hint dismissal, to avoid an SSR/hydration mismatch).
-  - **Light offline handling.** "No signal — saved, will send later":
-    checklist taps and round check-ins apply optimistically and stay
-    applied even if the network call fails; a failed write is queued
-    in-memory and retried once on the browser's `online` event. This is
-    *not* a persistent offline queue — a full page reload while offline
-    still loses an unsent tap. Flagged as a deliberate scope cut, not an
-    oversight; full offline persistence (e.g. IndexedDB) is unscoped.
+  - **Light offline handling (superseded in Phase 4 — see below).**
+    Originally: "No signal — saved, will send later" — checklist taps and
+    round check-ins applied optimistically and stayed applied even if the
+    network call failed, with a failed write queued in-memory and retried
+    once on the browser's `online` event. Phase 4 removed this: with
+    offline mode formally deferred to Phase 5 and not yet designed, an
+    in-memory "might retry, might not" queue was worse than being honest
+    that nothing is saved until the request succeeds — see Phase 4's notes
+    for the current behavior ("No signal — try again," optimistic UI
+    reverted on failure, no queue).
   - **Instant feedback**: `navigator.vibrate()` (feature-detected, no-ops
     silently where unsupported, e.g. iOS Safari) on every successful tap,
     plus the existing green/checkmark visual state changes.
@@ -597,32 +607,197 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
     which reads `getAccountSummaryById()` (existing, one new field) and
     `getAllSubcontractorsRaw()` (existing function, newly called from Team
     Hub) — no other Team Hub file imports `lib/googleSheets.ts` directly.
-- **Phase 3 — requests.** "Convert to Team Hub request" from the customer
-  portal inbox. Must resolve the `portal_request_id` stable-id question
-  flagged in §7 deviation #3 before writing to it.
-- **Phase 4 — supplies/delivery, plus photos + issue linkage.** Order
-  workflow against `supply_orders`/`supply_order_lines`; "Delivered" status
-  decrements stock through `adjustEquipmentPartStock()` (§3).
-  `_archive/site-link/` is deleted once this phase ships and nothing needs
-  to reference it for porting logic anymore. Also where `hub_photos`
-  upload actually gets wired up (first use: supply delivery confirmation
-  photos) — bundled into the same phase: attaching a photo to a Phase 2
-  checklist item marked "problem" (`parent_type = 'run_item'`) and creating
-  the corresponding `hub_issues` row via `hub_issues.run_item_id`, both
-  flagged as deferred-to-here in Phase 2's notes above.
-- **Phase 5 — not yet scoped in detail.**
-- **Phase 6 — full library editors.** Admin CRUD for
+- **Phase 3 — requests — DEFERRED.** `handoff` ("Notes for other shift")
+  and `requests` ("Tasks") modules, plus "Convert to Team Hub request" from
+  the customer portal inbox. Not started. Must resolve the
+  `portal_request_id` stable-id question flagged in §7 deviation #3 before
+  writing to it, whenever it's picked back up. **Phase 6 (below) was
+  re-scoped to not depend on this** — nothing in Phase 6 needs handoffs or
+  requests to exist.
+- **Phase 4 — done.** "Order supplies" + full "Report a problem" (category,
+  note, photos), plus the admin side (list + one-tap status + manual
+  promote-to-complaint) for one account's Team Hub tab.
+
+  **Crew app:**
+  - `SuppliesView.tsx` (new): big rows (name + unit) with +/− steppers,
+    an optional order-level note (`supply_orders.note` — the schema has no
+    per-line note, so this is one note for the whole order, matching what
+    was asked), one big "Send order," and a "Recent orders" list below
+    with a plain status label (Sent/Ordered/Delivered/Cancelled mapped
+    from the existing `new`/`ordered`/`delivered`/`cancelled` DB values —
+    "Sent" is the crew-facing label for `new`, chosen because a worker
+    tapping Send doesn't think of their own order as merely "new").
+  - `IssueReportView.tsx` (new, replaces the simplicity pass's inline
+    `ReportProblemButton.tsx`, now deleted): 8 big icon category buttons
+    (`hub_issues.category`'s full CHECK list), optional note, up to 5
+    photos (camera or gallery via `<input type="file" accept="image/*"
+    capture="environment" multiple>`, resized client-side to ~1600px JPEG
+    via the existing `lib/imageResize.ts` before upload — no changes to
+    that file), one big "Send." Reached two ways: the `issues` module tile
+    on Today, and the always-visible button at the bottom of
+    `ChecklistView` (now a prop, `onReportProblem`, calling the parent's
+    `setOpenModule("issues")` instead of rendering an inline form).
+    **"Links the problem to the current run"**: `hub_issues.run_item_id`
+    is a per-*item* FK, and the simplicity pass already removed the
+    per-item Problem status this button used to set — there's no single
+    checklist item to anchor a whole-run problem report to anymore.
+    Interpreted as: the report ties to crew/site/timestamp (already true
+    of every `hub_issues` row), which is enough for an admin to tell which
+    visit it happened during; `run_item_id` stays null. Flagged as a
+    judgment call, not a literal per-item linkage.
+  - **No offline queue.** The simplicity pass's in-memory "retry once on
+    reconnect" was removed (Phase 5 owns real offline support, deferred —
+    see above). A failed checklist tap or round check-in now reverts its
+    optimistic UI change and shows "No signal — try again"
+    (`common.noSignal` in `teamHubStrings.ts`, replacing
+    `common.noSignalSaved`). Supply orders and issue reports were never
+    optimistic (they need the server's response before anything photo-
+    related happens), so this only changed `ChecklistView.tsx`/
+    `RoundsView.tsx`.
+
+  **New DB layer** (`lib/teamHubDb.ts`, still zero `lib/googleSheets.ts`
+  imports in this file):
+  - `listEnabledTeamHubSupplyItemsForCrew`, `createTeamHubSupplyOrder`
+    (validates every line's `itemId` against the crew's own enabled supply
+    items, same defense-in-depth pattern as the checklist/rounds writes),
+    `listRecentTeamHubSupplyOrdersForCrew`, `listTeamHubSupplyOrdersForSite`,
+    `setTeamHubSupplyOrderStatus` (returns the order WITH lines — the
+    admin route needs each line's `equipmentPartId` to decide what to
+    decrement, but that Sheets call happens in the route, not here).
+  - `reportTeamHubIssue` (now takes a real `category`, was hardcoded
+    `'other'`), `listTeamHubIssuesForSite` (photos batched in one extra
+    query, not one per issue — same pattern the archived Site Supply
+    Link's `listQueue` used), `setTeamHubIssueStatus`,
+    `setTeamHubIssueComplaintId` (manual paste-back only).
+  - `addTeamHubPhoto` / `getTeamHubPhotosForParents` (`hub_photos`,
+    generic across `parent_type`s — Phase 4 only ever writes
+    `parent_type = 'issue'`; `run_item`/`round_check`/`handoff`/
+    `request_completion` stay unused until whichever phase needs them).
+
+  **New/changed routes:**
+  - `POST /api/team-hub/[token]/issues` (public — rewrote the simplicity
+    pass's JSON-only version to accept `multipart/form-data`: category,
+    note, photos). `POST /api/team-hub/[token]/supplies` (public, new) +
+    its `GET`. Both self-check via `requireTeamHubWorkerSession`, rate-
+    limited (`teamhub-issues-post:`, `teamhub-supplies-get:`,
+    `teamhub-supplies-post:`), and email `info@`/`crm@` via
+    `waitUntil(sendInternalNotification(...))` on every new order/problem
+    — real account name (resolved through `lookupAccountSummary`, the
+    sanctioned choke point), items or note, photo URLs, and a link to
+    `/accounts/<id>?tab=team-hub`.
+  - `GET`/`POST /api/admin/team-hub/supply-orders` and
+    `/api/admin/team-hub/issues` (new, admin-only): list-for-site +
+    one-tap status change; the supply-orders route also calls
+    `adjustEquipmentPartStock(equipmentPartId, qty, "Restocked")` directly
+    for every delivered line that has one — **the second sanctioned direct
+    `lib/googleSheets.ts` import in Team Hub**, alongside
+    `lib/teamHubAccountLookup.ts` (§3's account-data choke point rule
+    doesn't cover equipment stock, which already had its own named
+    sanctioned path — see §10).
+  - Photos go to Vercel Blob (`team-hub-issues/<issueId>/<uuid>.<ext>`,
+    same layout convention the archived Site Supply Link used); type
+    (`image/jpeg`/`png`/`heic`/`heif`) and size (max 8MB) are validated
+    server-side regardless of what the client already resized, and the
+    route 500s cleanly with "Photo storage is not configured" if
+    `BLOB_READ_WRITE_TOKEN` is missing rather than failing confusingly
+    partway through.
+  - **Sample response** — `GET /api/team-hub/[token]/supplies` (site
+    label/account name deliberately absent; only the caller's own order
+    history):
+    ```json
+    {
+      "success": true,
+      "items": [{ "itemId": 4, "name": "Toilet paper", "unit": "case", "instanceLabel": null }],
+      "recentOrders": [{
+        "id": 12, "status": "new", "createdAt": "2026-09-22T14:03:00.000Z",
+        "lines": [{ "itemName": "Toilet paper", "unit": "case", "qty": 2 }]
+      }]
+    }
+    ```
+
+  **Admin (`app/accounts/[id]/team-hub-tab.tsx`):** a new "Orders &
+  Problems" section (always visible on the summary view, not collapsed
+  behind Customize — an admin needs to see new problems/orders promptly)
+  listing every order and problem for the site, photos inline, one-tap
+  status buttons (order: Mark Ordered / Mark Delivered / Cancel; issue:
+  Resolve/Reopen), and per-issue "Promote to complaint" (opens
+  `/complaints/new?accountId=&accountName=&issue=` in a new tab — a small,
+  additive prefill added to that page for an `issue` query param, same
+  pattern its existing `accountId`/`accountName` prefill already used) +
+  a "paste complaint ID back" field that calls `setComplaintId` once the
+  admin has actually saved the complaint — **never automatic, never
+  touches the sub score**, exactly as instructed.
+  `app/accounts/[id]/page.tsx` gained a small `?tab=team-hub` deep-link
+  (mirrors the existing `?onboarding=1` pattern) so the notification
+  emails' links land directly on the tab.
+
+  **`_archive/site-link/` deleted** (used as direct reference for the
+  issue/order route shapes and the admin queue's batched-photos pattern
+  while writing this phase, then removed entirely, including its
+  `tsconfig.json`/`eslint.config.mjs` exclusions).
+
+  **Verified** via `tsc --noEmit`, `next lint` (scoped, then a full
+  `eslint .` after deleting `_archive/` — the only findings were 10
+  pre-existing errors/7 warnings in files this phase never touched:
+  `app/map/page.tsx`, `app/complaints/page.tsx`,
+  `app/api/supplies/route.ts`, three `scripts/*.js` files), a full
+  `next build`, and a throwaway-row + real-blob test against the dev
+  `DATABASE_URL`/`BLOB_READ_WRITE_TOKEN`: created a site/crew/worker/
+  supply crew_item, placed an order with a line, walked its status
+  new→ordered→delivered (confirmed the test item has no
+  `equipment_part_id`, so the stock-decrement branch is a deliberate
+  no-op here — no seed supply item has one, and creating a throwaway
+  Equipment part in Sheets to force that branch felt riskier than the
+  test was worth), reported an issue and uploaded a real 1×1 JPEG to
+  Vercel Blob (fetched it back over HTTP to confirm it's actually public),
+  resolved the issue, and stored a manual `complaint_id`. 13/13 assertions
+  passed; test rows, the uploaded blob, and the independent re-check all
+  confirmed 0 leftovers. **Skipped**: the full "promote to complaint"
+  round trip (actually creating a complaint) — no `deleteComplaint()`
+  exists in this codebase to clean one up afterward, so only the
+  `complaint_id` storage path was tested, not real complaint creation.
+  Not exercised: a live HTTP request through the actual Next.js routes
+  (session cookies, multipart parsing, rate limiting) — the test exercised
+  the same SQL/Blob operations the query layer runs, not the routes
+  themselves end-to-end over HTTP.
+  Sheets touch points from this phase: `adjustEquipmentPartStock()`
+  (new direct import, `app/api/admin/team-hub/supply-orders/route.ts`
+  only) and `lookupAccountSummary()` via the existing choke point (email
+  notifications' real account name) — no other new Sheets reads.
+- **Phase 5 — offline mode — DEFERRED, not yet scoped in detail.** True
+  persistent offline support (survives a page reload while offline —
+  e.g. an IndexedDB-backed write queue) for the crew app. The simplicity
+  pass's in-memory "retry once on reconnect" approximation of this was
+  **removed** in Phase 4 pending real design here — see Phase 4's own
+  notes and the updated §11 GLOBAL UI RULES.
+- **Phase 6 — re-scoped (no longer depends on Phase 3).** Admin CRUD for
   `hub_checklist_library`, `hub_round_library`, and `supply_items` (Phase
-  0 only reads them). Also where per-worker OneSignal push registration
-  would be wired up, since Team Hub workers have no existing
-  `externalUserId` identity for `sendPush()` to target.
+  0 only reads them) — kept from the original scope. Also now covers,
+  pulled forward because none of it needs `handoff`/`requests` to exist:
+  an **activity feed per account** (Team Hub tab), a **staff queue**
+  (orders/problems across every account, not just one — the Phase 4 admin
+  UI is scoped to one account's Team Hub tab only), an **Accounts Center
+  badge for open problems**, a **Sub Center read-only list** (orders/
+  problems for a sub's own accounts), and the **email alerts** Phase 4
+  doesn't already cover: a night checklist not finished by a configurable
+  time on service days (needs a per-site or per-account "service day" /
+  cutoff-time concept that doesn't exist yet). Per-worker OneSignal push
+  registration (crew alerts) is explicitly **dropped** from this phase's
+  scope — it was originally going to notify on new handoffs/requests, both
+  deferred with Phase 3; nothing currently needs it. Team Hub workers still
+  have no `externalUserId` identity for `sendPush()` to target if a future
+  phase revives it.
 
 ## 10. Sheets touch points to watch across phases
 
 - `lib/teamHubAccountLookup.ts` is the only sanctioned import from
   `lib/googleSheets.ts` for account data.
 - `adjustEquipmentPartStock()` in `lib/googleSheets.ts` is the only
-  sanctioned path for equipment stock changes (Phase 4).
+  sanctioned path for equipment stock changes — as of Phase 4, imported
+  directly (not through `lib/teamHubAccountLookup.ts`) by
+  `app/api/admin/team-hub/supply-orders/route.ts` only, called when an
+  order's status is set to `delivered` for any line whose item has an
+  `equipment_part_id`.
 - `listPortalSubmissions()` / `updateSubmissionStatus()` in
   `lib/googleSheets.ts` back the customer-portal inbox that Phase 3's
   "convert to request" reads from — entirely Sheets-backed, row-indexed by
@@ -634,7 +809,11 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   (`SUB-ROW-<n>`, row-position-based) ever changes, `hub_crews.sub_id`
   values already stored under the old scheme become stale and won't
   re-match; nothing currently re-validates them after creation.
-- No other Team Hub file may import `lib/googleSheets.ts` directly.
+- No other Team Hub file may import `lib/googleSheets.ts` directly — as of
+  Phase 4 that's exactly two files: `lib/teamHubAccountLookup.ts` (account
+  data, the general choke point) and
+  `app/api/admin/team-hub/supply-orders/route.ts` (`adjustEquipmentPartStock`
+  only, its own separately-named sanctioned path per §3).
 
 ## 11. GLOBAL UI RULES (simplicity pass — binding on every phase)
 
@@ -662,8 +841,9 @@ the thing in doubt rather than add an explainer for it.
 - **Instant feedback on every tap**: a visible state change (checkmark,
   color change) plus `navigator.vibrate()` where supported (feature-
   detected, silently no-ops where it isn't, e.g. iOS Safari). Errors are
-  plain words, not technical messages — "No signal — saved, will send
-  later," never a raw fetch error or HTTP status.
+  plain words, not technical messages — "No signal — try again" (not
+  "...will send later" — there is no queue; see Phase 4/Phase 5 notes),
+  never a raw fetch error or HTTP status.
 - **Minimum 18px text, high contrast.**
 - **Language follows the phone (EN/ES)**, with a small flag icon to
   override — see `app/team-hub/teamHubStrings.ts` /

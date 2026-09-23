@@ -3,12 +3,16 @@
 // Simplicity pass rewrite (docs/team-hub-spec.md "GLOBAL RULES" + "CREW
 // PHONE APP" §4): one area at a time, tap = done / tap again = undo, big
 // "Next area" -> "Finish" button, progress bar, an always-visible "Report a
-// problem" button. Replaces the old per-item Done/N-A/Problem three-button
-// row and the always-expanded area list from the Phase 2 version.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// problem" button (Phase 4: opens the full IssueReportView, not an inline
+// note field). Replaces the old per-item Done/N-A/Problem three-button row
+// and the always-expanded area list from the Phase 2 version.
+//
+// No offline queue (Phase 4: offline mode is deferred to Phase 5, see
+// docs/team-hub-spec.md) — a failed tap reverts its optimistic UI change
+// and shows "No signal — try again"; nothing is silently queued.
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings } from "../teamHubStrings";
-import ReportProblemButton from "./ReportProblemButton";
 
 type ChecklistItem = {
   crewItemId: number;
@@ -27,7 +31,17 @@ type LoadResponse = {
   error?: string;
 };
 
-export default function ChecklistView({ token, lang, onBack }: { token: string; lang: TeamHubLang; onBack: () => void }) {
+export default function ChecklistView({
+  token,
+  lang,
+  onBack,
+  onReportProblem,
+}: {
+  token: string;
+  lang: TeamHubLang;
+  onBack: () => void;
+  onReportProblem: () => void;
+}) {
   const s = teamHubStrings(lang).checklist;
   const common = teamHubStrings(lang).common;
 
@@ -40,12 +54,6 @@ export default function ChecklistView({ token, lang, onBack }: { token: string; 
   const [finishing, setFinishing] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [areaIndex, setAreaIndex] = useState(0);
-
-  // Failed autosaves that need a retry once we're back online — this app's
-  // light offline handling (see GLOBAL RULES "No signal — saved, will send
-  // later"): the tap stays applied in the UI, and we retry the same write
-  // once connectivity returns, rather than reverting the crew's tap.
-  const pendingRetries = useRef<Map<number, () => Promise<void>>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -68,17 +76,6 @@ export default function ChecklistView({ token, lang, onBack }: { token: string; 
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    function flush() {
-      for (const [id, retry] of pendingRetries.current) {
-        pendingRetries.current.delete(id);
-        retry();
-      }
-    }
-    window.addEventListener("online", flush);
-    return () => window.removeEventListener("online", flush);
-  }, []);
 
   async function startRun() {
     setStarting(true);
@@ -120,39 +117,36 @@ export default function ChecklistView({ token, lang, onBack }: { token: string; 
   const currentArea = byArea[areaIndex];
   const isLastArea = areaIndex >= byArea.length - 1;
 
+  function setDone(crewItemId: number, done: boolean) {
+    setDoneIds((prev) => {
+      const next = new Set(prev);
+      if (done) next.add(crewItemId);
+      else next.delete(crewItemId);
+      return next;
+    });
+  }
+
   async function toggle(crewItemId: number) {
     const wasDone = doneIds.has(crewItemId);
     navigator.vibrate?.(15);
-    setDoneIds((prev) => {
-      const next = new Set(prev);
-      if (wasDone) next.delete(crewItemId);
-      else next.add(crewItemId);
-      return next;
-    });
+    setDone(crewItemId, !wasDone);
 
-    const attempt = async () => {
+    try {
       const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/checklist`, {
         method: wasDone ? "DELETE" : "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(wasDone ? { crewItemId } : { crewItemId, status: "done", note: "" }),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || common.somethingWrong);
-    };
-
-    try {
-      await attempt();
-      pendingRetries.current.delete(crewItemId);
+      if (!res.ok || !data.success) {
+        setDone(crewItemId, wasDone);
+        setBanner(data.error || common.somethingWrong);
+        return;
+      }
       setBanner("");
     } catch {
-      setBanner(common.noSignalSaved);
-      pendingRetries.current.set(crewItemId, async () => {
-        try {
-          await attempt();
-        } catch {
-          // still offline — stays queued for the next 'online' event
-        }
-      });
+      setDone(crewItemId, wasDone);
+      setBanner(common.noSignal);
     }
   }
 
@@ -302,7 +296,13 @@ export default function ChecklistView({ token, lang, onBack }: { token: string; 
         </button>
       )}
 
-      <ReportProblemButton token={token} lang={lang} />
+      <button
+        type="button"
+        onClick={onReportProblem}
+        className="min-h-[64px] w-full rounded-2xl border-2 border-red-200 bg-red-50 text-base font-bold text-red-700"
+      >
+        ⚠️ {s.reportProblem}
+      </button>
     </div>
   );
 }

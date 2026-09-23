@@ -586,6 +586,40 @@ export async function listEnabledTeamHubRoundItemsForCrew(crewId: number): Promi
   });
 }
 
+export type TeamHubSupplyCrewItem = {
+  crewItemId: number;
+  sortOrder: number;
+  instanceLabel: string | null;
+  itemId: number;
+  name: string;
+  unit: string;
+  equipmentPartId: string | null;
+};
+
+export async function listEnabledTeamHubSupplyItemsForCrew(crewId: number): Promise<TeamHubSupplyCrewItem[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT ci.id AS crew_item_id, ci.sort_order, ci.instance_label,
+           si.id AS item_id, si.name, si.unit, si.equipment_part_id
+    FROM hub_crew_items ci
+    JOIN supply_items si ON si.id = ci.item_id
+    WHERE ci.crew_id = ${crewId} AND ci.item_type = 'supply' AND ci.enabled = true
+    ORDER BY ci.sort_order ASC, ci.id ASC
+  `;
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      crewItemId: row.crew_item_id as number,
+      sortOrder: row.sort_order as number,
+      instanceLabel: (row.instance_label as string | null) ?? null,
+      itemId: row.item_id as number,
+      name: row.name as string,
+      unit: row.unit as string,
+      equipmentPartId: (row.equipment_part_id as string | null) ?? null,
+    };
+  });
+}
+
 // Shared crew-item ownership check used by both the checklist run-item
 // upsert and the round check-in — item_id isn't an FK (see above), so this
 // is the only thing standing between a tampered crewItemId in a request
@@ -848,29 +882,291 @@ export async function recordTeamHubRoundCheck(input: {
   };
 }
 
-// ─── hub_issues (simplicity pass: "Report a problem" button) ──────────────
-// Minimal write path added ahead of Phase 4 (which owns the full issues
-// module + photo attachment, see docs/team-hub-spec.md) because the
-// simplicity pass's checklist screen needs a real, always-visible "Report a
-// problem" action, not a dead button. category is always 'other' and
-// run_item_id always null — this isn't tied to one checklist item, it's a
-// free-text note from whatever's in front of the worker. No photo (Phase 4).
+// ─── hub_issues (Phase 4: "Report a problem") ──────────────────────────────
+// The simplicity pass added a minimal note-only version of this ahead of
+// schedule (category always 'other', no photo) because the checklist screen
+// needed a real, always-visible "Report a problem" action rather than a
+// dead button. Phase 4 replaces it with the full version: a real category,
+// photos (via hub_photos, parent_type='issue'), and admin status/complaint
+// linkage. run_item_id is still always null — see the file comment on
+// IssueReportView.tsx (crew UI) for why "links the problem to the current
+// run" doesn't map onto a per-item FK the simplified checklist screen no
+// longer has a natural anchor for.
 
-export type TeamHubIssue = { id: number; note: string; createdAt: string };
+export const TEAM_HUB_ISSUE_CATEGORIES = ["restroom", "trash", "damage", "leak", "access", "supplies", "safety", "other"] as const;
+export type TeamHubIssueCategory = (typeof TEAM_HUB_ISSUE_CATEGORIES)[number];
 
-export async function reportTeamHubIssue(input: { siteId: number; crewId: number; workerId: number; note: string }): Promise<TeamHubIssue> {
-  const note = input.note.trim().slice(0, 2000);
-  if (!note) {
-    throw new Error("A note is required.");
+export type TeamHubIssue = {
+  id: number;
+  siteId: number;
+  crewId: number;
+  workerId: number | null;
+  workerFirstName: string | null;
+  category: TeamHubIssueCategory;
+  note: string;
+  status: "open" | "resolved";
+  complaintId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  photos: string[];
+};
+
+function rowToIssue(row: Record<string, unknown>): TeamHubIssue {
+  return {
+    id: row.id as number,
+    siteId: row.site_id as number,
+    crewId: row.crew_id as number,
+    workerId: (row.worker_id as number | null) ?? null,
+    workerFirstName: (row.worker_first_name as string | null) ?? null,
+    category: row.category as TeamHubIssueCategory,
+    note: (row.note as string) ?? "",
+    status: row.status as TeamHubIssue["status"],
+    complaintId: (row.complaint_id as string | null) ?? null,
+    createdAt: toIso(row.created_at),
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
+    photos: [],
+  };
+}
+
+export async function reportTeamHubIssue(input: {
+  siteId: number;
+  crewId: number;
+  workerId: number;
+  category: TeamHubIssueCategory;
+  note: string;
+}): Promise<TeamHubIssue> {
+  if (!TEAM_HUB_ISSUE_CATEGORIES.includes(input.category)) {
+    throw new Error("Invalid category.");
   }
+  const note = input.note.trim().slice(0, 2000);
   const sql = getSql();
   const rows = await sql`
     INSERT INTO hub_issues (site_id, crew_id, worker_id, category, note)
-    VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, 'other', ${note})
-    RETURNING id, created_at
+    VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, ${input.category}, ${note})
+    RETURNING *
   `;
-  const row = rows[0] as Record<string, unknown>;
-  return { id: row.id as number, note, createdAt: toIso(row.created_at) };
+  return rowToIssue(rows[0] as Record<string, unknown>);
+}
+
+// Admin: every issue for one site (across all its crews), newest first,
+// with each issue's photo URLs attached — batched (one extra query for all
+// photos, not one per issue) the same way the archived Site Supply Link's
+// listQueue did.
+export async function listTeamHubIssuesForSite(siteId: number, limit = 200): Promise<TeamHubIssue[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT i.*, w.first_name AS worker_first_name
+    FROM hub_issues i
+    LEFT JOIN hub_workers w ON w.id = i.worker_id
+    WHERE i.site_id = ${siteId}
+    ORDER BY i.created_at DESC
+    LIMIT ${limit}
+  `;
+  const issues = rows.map((r) => rowToIssue(r as Record<string, unknown>));
+  const photosByIssueId = await getTeamHubPhotosForParents(
+    "issue",
+    issues.map((i) => i.id)
+  );
+  for (const issue of issues) {
+    issue.photos = photosByIssueId.get(issue.id) ?? [];
+  }
+  return issues;
+}
+
+export async function setTeamHubIssueStatus(issueId: number, status: "open" | "resolved"): Promise<TeamHubIssue | null> {
+  const sql = getSql();
+  const rows =
+    status === "resolved"
+      ? await sql`UPDATE hub_issues SET status = 'resolved', resolved_at = now() WHERE id = ${issueId} RETURNING *`
+      : await sql`UPDATE hub_issues SET status = 'open', resolved_at = NULL WHERE id = ${issueId} RETURNING *`;
+  return rows.length > 0 ? rowToIssue(rows[0] as Record<string, unknown>) : null;
+}
+
+// Manual-only linkage (admin pastes in the complaint id after saving it
+// through the existing /complaints/new flow — see docs/team-hub-spec.md
+// Phase 4: this never auto-creates a complaint or touches the sub score).
+export async function setTeamHubIssueComplaintId(issueId: number, complaintId: string): Promise<TeamHubIssue | null> {
+  const sql = getSql();
+  const rows = await sql`UPDATE hub_issues SET complaint_id = ${complaintId} WHERE id = ${issueId} RETURNING *`;
+  return rows.length > 0 ? rowToIssue(rows[0] as Record<string, unknown>) : null;
+}
+
+// ─── hub_photos ─────────────────────────────────────────────────────────
+// parent_id isn't an FK (see §7 of the spec) — every caller must already
+// know parentId belongs to the right owner (crew/site) before calling this;
+// nothing here re-validates that.
+
+export type TeamHubPhotoParentType = "issue" | "run_item" | "round_check" | "handoff" | "request_completion";
+
+export async function addTeamHubPhoto(input: {
+  parentType: TeamHubPhotoParentType;
+  parentId: number;
+  blobUrl: string;
+  workerId: number | null;
+}): Promise<void> {
+  const sql = getSql();
+  await sql`
+    INSERT INTO hub_photos (parent_type, parent_id, blob_url, worker_id)
+    VALUES (${input.parentType}, ${input.parentId}, ${input.blobUrl}, ${input.workerId})
+  `;
+}
+
+export async function getTeamHubPhotosForParents(parentType: TeamHubPhotoParentType, parentIds: number[]): Promise<Map<number, string[]>> {
+  const map = new Map<number, string[]>();
+  if (parentIds.length === 0) return map;
+  const sql = getSql();
+  const rows = await sql`
+    SELECT parent_id, blob_url FROM hub_photos
+    WHERE parent_type = ${parentType} AND parent_id = ANY(${parentIds})
+    ORDER BY created_at ASC
+  `;
+  for (const r of rows) {
+    const row = r as Record<string, unknown>;
+    const parentId = row.parent_id as number;
+    if (!map.has(parentId)) map.set(parentId, []);
+    map.get(parentId)!.push(row.blob_url as string);
+  }
+  return map;
+}
+
+// ─── supply_orders / supply_order_lines (Phase 4: "Order supplies") ──────
+
+export type TeamHubSupplyOrderStatus = "new" | "ordered" | "delivered" | "cancelled";
+
+export type TeamHubSupplyOrderLine = { itemId: number; itemName: string; unit: string; qty: number; equipmentPartId: string | null };
+
+export type TeamHubSupplyOrder = {
+  id: number;
+  siteId: number;
+  crewId: number;
+  workerId: number | null;
+  workerFirstName: string | null;
+  status: TeamHubSupplyOrderStatus;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+  lines: TeamHubSupplyOrderLine[];
+};
+
+function rowToSupplyOrder(row: Record<string, unknown>): TeamHubSupplyOrder {
+  return {
+    id: row.id as number,
+    siteId: row.site_id as number,
+    crewId: row.crew_id as number,
+    workerId: (row.worker_id as number | null) ?? null,
+    workerFirstName: (row.worker_first_name as string | null) ?? null,
+    status: row.status as TeamHubSupplyOrderStatus,
+    note: (row.note as string) ?? "",
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+    lines: [],
+  };
+}
+
+async function getSupplyOrderLines(orderIds: number[]): Promise<Map<number, TeamHubSupplyOrderLine[]>> {
+  const map = new Map<number, TeamHubSupplyOrderLine[]>();
+  if (orderIds.length === 0) return map;
+  const sql = getSql();
+  const rows = await sql`
+    SELECT sol.order_id, sol.item_id, si.name AS item_name, si.unit, sol.qty, si.equipment_part_id
+    FROM supply_order_lines sol
+    JOIN supply_items si ON si.id = sol.item_id
+    WHERE sol.order_id = ANY(${orderIds})
+    ORDER BY si.sort_order ASC, si.name ASC
+  `;
+  for (const r of rows) {
+    const row = r as Record<string, unknown>;
+    const orderId = row.order_id as number;
+    const line: TeamHubSupplyOrderLine = {
+      itemId: row.item_id as number,
+      itemName: row.item_name as string,
+      unit: row.unit as string,
+      qty: row.qty as number,
+      equipmentPartId: (row.equipment_part_id as string | null) ?? null,
+    };
+    if (!map.has(orderId)) map.set(orderId, []);
+    map.get(orderId)!.push(line);
+  }
+  return map;
+}
+
+// Validates every line's itemId against THIS crew's own enabled supply
+// items (not the global catalog) — same defense-in-depth reasoning as
+// upsertTeamHubChecklistRunItem/recordTeamHubRoundCheck.
+export async function createTeamHubSupplyOrder(input: {
+  siteId: number;
+  crewId: number;
+  workerId: number;
+  note: string;
+  lines: { itemId: number; qty: number }[];
+}): Promise<TeamHubSupplyOrder> {
+  const allowed = await listEnabledTeamHubSupplyItemsForCrew(input.crewId);
+  const allowedIds = new Set(allowed.map((i) => i.itemId));
+
+  const lines = input.lines
+    .filter((l) => Number.isInteger(l.itemId) && allowedIds.has(l.itemId) && Number.isInteger(l.qty) && l.qty > 0)
+    .map((l) => ({ itemId: l.itemId, qty: Math.min(l.qty, 999) }));
+
+  if (lines.length === 0) {
+    throw new Error("Add at least one item before sending.");
+  }
+
+  const note = input.note.trim().slice(0, 1000);
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO supply_orders (site_id, crew_id, worker_id, note) VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, ${note})
+    RETURNING *
+  `;
+  const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
+
+  for (const line of lines) {
+    await sql`INSERT INTO supply_order_lines (order_id, item_id, qty) VALUES (${order.id}, ${line.itemId}, ${line.qty})`;
+  }
+  order.lines = lines.map((l) => {
+    const item = allowed.find((i) => i.itemId === l.itemId)!;
+    return { itemId: l.itemId, itemName: item.name, unit: item.unit, qty: l.qty, equipmentPartId: item.equipmentPartId };
+  });
+  return order;
+}
+
+export async function listRecentTeamHubSupplyOrdersForCrew(crewId: number, limit = 10): Promise<TeamHubSupplyOrder[]> {
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM supply_orders WHERE crew_id = ${crewId} ORDER BY created_at DESC LIMIT ${limit}`;
+  const orders = rows.map((r) => rowToSupplyOrder(r as Record<string, unknown>));
+  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
+  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
+  return orders;
+}
+
+// Admin: every order for one site (across all its crews).
+export async function listTeamHubSupplyOrdersForSite(siteId: number, limit = 200): Promise<TeamHubSupplyOrder[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT so.*, w.first_name AS worker_first_name
+    FROM supply_orders so
+    LEFT JOIN hub_workers w ON w.id = so.worker_id
+    WHERE so.site_id = ${siteId}
+    ORDER BY so.created_at DESC
+    LIMIT ${limit}
+  `;
+  const orders = rows.map((r) => rowToSupplyOrder(r as Record<string, unknown>));
+  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
+  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
+  return orders;
+}
+
+// Returns the updated order WITH lines (the caller — the admin route —
+// needs the lines' equipmentPartId to decide what to decrement in
+// Equipment when status becomes 'delivered'; that Sheets call happens in
+// the route, not here — this file never imports lib/googleSheets.ts).
+export async function setTeamHubSupplyOrderStatus(orderId: number, status: TeamHubSupplyOrderStatus): Promise<TeamHubSupplyOrder | null> {
+  const sql = getSql();
+  const rows = await sql`UPDATE supply_orders SET status = ${status}, updated_at = now() WHERE id = ${orderId} RETURNING *`;
+  if (rows.length === 0) return null;
+  const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
+  const linesByOrderId = await getSupplyOrderLines([order.id]);
+  order.lines = linesByOrderId.get(order.id) ?? [];
+  return order;
 }
 
 export type VerifyWorkerPinResult =

@@ -251,6 +251,9 @@ function NewComplaintPageContent() {
   const urlAccountName =
     cleanText(searchParams.get("accountName")) ||
     cleanText(searchParams.get("account"));
+  // Team Hub's "Promote to complaint" link (app/accounts/[id]/team-hub-tab.tsx)
+  // prefills the issue description this way — manual-only, never auto-saved.
+  const urlIssue = cleanText(searchParams.get("issue"));
 
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
   const [managers, setManagers] = useState<string[]>([]);
@@ -321,19 +324,20 @@ function NewComplaintPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!urlAccountId && !urlAccountName) return;
+    if (!urlAccountId && !urlAccountName && !urlIssue) return;
 
     setForm((current) => ({
       ...current,
       accountId: urlAccountId || current.accountId,
       accountName: urlAccountName || current.accountName,
+      issue: urlIssue || current.issue,
     }));
 
     if (urlAccountName) {
       setAccountSearch(urlAccountName);
       setShowAccountResults(false);
     }
-  }, [urlAccountId, urlAccountName]);
+  }, [urlAccountId, urlAccountName, urlIssue]);
 
   useEffect(() => {
     if ((!urlAccountId && !urlAccountName) || accounts.length === 0) return;

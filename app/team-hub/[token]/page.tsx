@@ -11,7 +11,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import ChecklistView from "./ChecklistView";
 import RoundsView from "./RoundsView";
-import ReportProblemButton from "./ReportProblemButton";
+import SuppliesView from "./SuppliesView";
+import IssueReportView from "./IssueReportView";
 import LangToggle from "./LangToggle";
 import { useTeamHubLang, teamHubStrings, type TeamHubLang } from "../teamHubStrings";
 
@@ -38,8 +39,8 @@ type SessionResponse = {
 
 const MAX_PIN_LENGTH = 6;
 
-type OpenableModule = "checklist" | "rounds" | "issues";
-const OPENABLE_MODULES = new Set<string>(["checklist", "rounds", "issues"]);
+type OpenableModule = "checklist" | "rounds" | "issues" | "supplies";
+const OPENABLE_MODULES = new Set<string>(["checklist", "rounds", "issues", "supplies"]);
 
 const INSTALL_HINT_DISMISSED_KEY = "team-hub-install-hint-dismissed";
 
@@ -156,16 +157,18 @@ export default function TeamHubPage() {
         <div className="px-3">
           {session && !switching ? (
             openModule === "checklist" ? (
-              <ChecklistView token={token} lang={lang} onBack={() => setOpenModule(null)} />
+              <ChecklistView
+                token={token}
+                lang={lang}
+                onBack={() => setOpenModule(null)}
+                onReportProblem={() => setOpenModule("issues")}
+              />
             ) : openModule === "rounds" ? (
               <RoundsView token={token} lang={lang} onBack={() => setOpenModule(null)} />
             ) : openModule === "issues" ? (
-              <div className="mt-3 space-y-3">
-                <button type="button" onClick={() => setOpenModule(null)} className="text-base font-semibold text-blue-700">
-                  ← {s.common.back}
-                </button>
-                <ReportProblemButton token={token} lang={lang} />
-              </div>
+              <IssueReportView token={token} lang={lang} onBack={() => setOpenModule(null)} />
+            ) : openModule === "supplies" ? (
+              <SuppliesView token={token} lang={lang} onBack={() => setOpenModule(null)} />
             ) : (
               <TodayScreen
                 token={token}

@@ -4,6 +4,10 @@
 // PHONE APP" §5): one big button per round, colored green/amber/red by how
 // overdue it is, tap = checked. Nothing else — no note field, no separate
 // detail screen (the old version's per-item detail card is gone).
+//
+// No offline queue (Phase 4: see ChecklistView's file comment) — a failed
+// check-in reverts its optimistic timestamp and shows "No signal — try
+// again."
 import { useCallback, useEffect, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings } from "../teamHubStrings";
@@ -63,12 +67,12 @@ export default function RoundsView({ token, lang, onBack }: { token: string; lan
   }
 
   async function checkIn(crewItemId: number) {
+    const previous = items.find((item) => item.crewItemId === crewItemId)?.lastCheck ?? null;
     setCheckingId(crewItemId);
     setBanner("");
     navigator.vibrate?.(15);
     const nowIso = new Date().toISOString();
-    // Optimistic — mirrors ChecklistView's "tap stays applied even if the
-    // network call fails" offline behavior.
+    // Optimistic — reverted below if the write doesn't actually succeed.
     setItems((prev) => prev.map((item) => (item.crewItemId === crewItemId ? { ...item, lastCheck: { checkedAt: nowIso, workerFirstName: null } } : item)));
     try {
       const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/rounds`, {
@@ -78,12 +82,14 @@ export default function RoundsView({ token, lang, onBack }: { token: string; lan
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
+        setItems((prev) => prev.map((item) => (item.crewItemId === crewItemId ? { ...item, lastCheck: previous } : item)));
         setBanner(data.error || common.somethingWrong);
         return;
       }
       setItems((prev) => prev.map((item) => (item.crewItemId === crewItemId ? { ...item, lastCheck: data.lastCheck } : item)));
     } catch {
-      setBanner(common.noSignalSaved);
+      setItems((prev) => prev.map((item) => (item.crewItemId === crewItemId ? { ...item, lastCheck: previous } : item)));
+      setBanner(common.noSignal);
     } finally {
       setCheckingId(null);
     }

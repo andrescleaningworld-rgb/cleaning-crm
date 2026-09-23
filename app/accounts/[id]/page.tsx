@@ -341,6 +341,17 @@ export default function AccountDetailPage() {
     setShowOnboardingWizard(true);
   }, [account, searchParams]);
 
+  // Team Hub's own email notifications (new order/problem) deep-link here
+  // with ?tab=team-hub — same one-time-trigger-ref pattern as onboarding
+  // above, so navigating away and manually switching tabs afterward sticks.
+  const hasAppliedTabQueryTrigger = useRef(false);
+  useEffect(() => {
+    if (hasAppliedTabQueryTrigger.current) return;
+    if (searchParams?.get("tab") !== "team-hub") return;
+    hasAppliedTabQueryTrigger.current = true;
+    setActiveTab("team-hub");
+  }, [searchParams]);
+
   async function fetchPortalAccountMatch(
     accountName: string
   ): Promise<{ sheetRow: number | null; access: "YES" | "NO" }> {

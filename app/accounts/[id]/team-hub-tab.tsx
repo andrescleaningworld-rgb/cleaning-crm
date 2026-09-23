@@ -200,6 +200,8 @@ export default function AccountTeamHubTab({ accountId, accountName }: { accountI
         </div>
         <AddAnotherCrew siteId={site.id} onChanged={load} />
       </section>
+
+      <OrdersAndProblems site={site} accountId={accountId} accountName={accountName} />
     </div>
   );
 }
@@ -736,6 +738,240 @@ function AddAnotherCrew({ siteId, onChanged }: { siteId: number; onChanged: () =
         </button>
       </div>
     </form>
+  );
+}
+
+// ─── Orders & Problems (Phase 4) ────────────────────────────────────────
+
+type SupplyOrderLine = { itemName: string; unit: string; qty: number };
+type SupplyOrder = {
+  id: number;
+  status: "new" | "ordered" | "delivered" | "cancelled";
+  note: string;
+  workerFirstName: string | null;
+  createdAt: string;
+  lines: SupplyOrderLine[];
+};
+
+type Issue = {
+  id: number;
+  category: string;
+  note: string;
+  status: "open" | "resolved";
+  workerFirstName: string | null;
+  complaintId: string | null;
+  createdAt: string;
+  photos: string[];
+};
+
+const ORDER_STATUS_STYLES: Record<SupplyOrder["status"], string> = {
+  new: "bg-blue-100 text-blue-800",
+  ordered: "bg-amber-100 text-amber-800",
+  delivered: "bg-green-100 text-green-800",
+  cancelled: "bg-slate-200 text-slate-600",
+};
+
+function OrdersAndProblems({ site, accountId, accountName }: { site: TeamHubSite; accountId: string; accountName: string }) {
+  const [orders, setOrders] = useState<SupplyOrder[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    const [ordersRes, issuesRes] = await Promise.all([
+      fetch(`/api/admin/team-hub/supply-orders?siteId=${site.id}`, { cache: "no-store" }),
+      fetch(`/api/admin/team-hub/issues?siteId=${site.id}`, { cache: "no-store" }),
+    ]);
+    const ordersData = await ordersRes.json();
+    const issuesData = await issuesRes.json();
+    setOrders(ordersData.orders ?? []);
+    setIssues(issuesData.issues ?? []);
+    setLoading(false);
+  }, [site.id]);
+
+  useEffect(() => {
+    // Initial data load, same pattern used elsewhere in this file.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
+
+  async function setOrderStatus(id: number, status: SupplyOrder["status"]) {
+    await fetch("/api/admin/team-hub/supply-orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
+    await load();
+  }
+
+  async function setIssueStatus(id: number, status: Issue["status"]) {
+    await fetch("/api/admin/team-hub/issues", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "setStatus", id, status }),
+    });
+    await load();
+  }
+
+  if (loading) return null;
+  if (orders.length === 0 && issues.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm space-y-5">
+      <div>
+        <h3 className="text-base font-bold text-slate-900">Supply orders</h3>
+        {orders.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No orders yet.</p>
+        ) : (
+          <div className="mt-2 divide-y divide-gray-100">
+            {orders.map((order) => (
+              <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                <div>
+                  <p className="text-sm text-slate-800">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</p>
+                  <p className="text-xs text-slate-500">
+                    {order.workerFirstName ?? "Unknown"} · {new Date(order.createdAt).toLocaleString()}
+                    {order.note ? ` · "${order.note}"` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ORDER_STATUS_STYLES[order.status]}`}>{order.status}</span>
+                  {order.status === "new" && (
+                    <button type="button" onClick={() => setOrderStatus(order.id, "ordered")} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Mark Ordered
+                    </button>
+                  )}
+                  {order.status === "ordered" && (
+                    <button type="button" onClick={() => setOrderStatus(order.id, "delivered")} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Mark Delivered
+                    </button>
+                  )}
+                  {(order.status === "new" || order.status === "ordered") && (
+                    <button type="button" onClick={() => setOrderStatus(order.id, "cancelled")} className="text-xs font-semibold text-slate-400 hover:text-slate-600">
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h3 className="text-base font-bold text-slate-900">Problems reported</h3>
+        {issues.length === 0 ? (
+          <p className="mt-2 text-sm text-slate-500">No problems reported.</p>
+        ) : (
+          <div className="mt-2 divide-y divide-gray-100">
+            {issues.map((issue) => (
+              <IssueRow key={issue.id} issue={issue} accountId={accountId} accountName={accountName} onSetStatus={setIssueStatus} onChanged={load} />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function IssueRow({
+  issue,
+  accountId,
+  accountName,
+  onSetStatus,
+  onChanged,
+}: {
+  issue: Issue;
+  accountId: string;
+  accountName: string;
+  onSetStatus: (id: number, status: Issue["status"]) => void;
+  onChanged: () => void;
+}) {
+  const [complaintDraft, setComplaintDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function saveComplaintId() {
+    if (!complaintDraft.trim()) return;
+    setSaving(true);
+    await fetch("/api/admin/team-hub/issues", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "setComplaintId", id: issue.id, complaintId: complaintDraft.trim() }),
+    });
+    setSaving(false);
+    setComplaintDraft("");
+    onChanged();
+  }
+
+  const promoteUrl = `/complaints/new?accountId=${encodeURIComponent(accountId)}&accountName=${encodeURIComponent(accountName)}&issue=${encodeURIComponent(
+    `[Team Hub] ${issue.category}: ${issue.note}`
+  )}`;
+
+  return (
+    <div className="py-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold capitalize text-slate-900">{issue.category}</p>
+          {issue.note && <p className="text-sm text-slate-700">{issue.note}</p>}
+          <p className="text-xs text-slate-500">
+            {issue.workerFirstName ?? "Unknown"} · {new Date(issue.createdAt).toLocaleString()}
+          </p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+            issue.status === "open" ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"
+          }`}
+        >
+          {issue.status}
+        </span>
+      </div>
+
+      {issue.photos.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {issue.photos.map((url) => (
+            <a key={url} href={url} target="_blank" rel="noopener noreferrer">
+              {/* eslint-disable-next-line @next/next/no-img-element -- remote
+                  Vercel Blob thumbnails, one-off admin view, not worth
+                  next/image's loader config for this. */}
+              <img src={url} alt="" className="h-16 w-16 rounded-lg object-cover" />
+            </a>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onSetStatus(issue.id, issue.status === "open" ? "resolved" : "open")}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          {issue.status === "open" ? "Resolve" : "Reopen"}
+        </button>
+
+        {issue.complaintId ? (
+          <span className="text-xs text-slate-500">Complaint: {issue.complaintId}</span>
+        ) : (
+          <>
+            <a href={promoteUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              Promote to complaint
+            </a>
+            <input
+              type="text"
+              value={complaintDraft}
+              onChange={(e) => setComplaintDraft(e.target.value)}
+              placeholder="Paste complaint ID"
+              className="min-h-[32px] w-40 rounded-lg border border-gray-300 px-2 text-xs"
+            />
+            <button
+              type="button"
+              onClick={saveComplaintId}
+              disabled={saving || !complaintDraft.trim()}
+              className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              Save
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
