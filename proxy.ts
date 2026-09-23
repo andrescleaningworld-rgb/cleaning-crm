@@ -68,6 +68,12 @@ const PUBLIC_PATHS = [
   // static asset explicitly rather than allowlisting all of /public.
   "/team-hub-icons",
   "/team-hub-sw.js",
+  // Equipment Check tablet app (docs/equipment-check-spec.md) — no-login,
+  // gated by the secret link key + personal PIN inside each route/page.
+  // Same exact-or-subpath match, so "/equipment" (admin) stays gated.
+  // Reuses /team-hub-icons above for its home-screen icon.
+  "/equipment-check",
+  "/api/equipment-check",
   // Vercel Cron invokes these with no cookies at all — self-gated on
   // CRON_SECRET inside each route (same self-checking pattern
   // /api/subcontractor-portal already uses), not the admin session cookie.

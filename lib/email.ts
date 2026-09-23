@@ -117,12 +117,19 @@ function sendPlainTextEmail(
 // Apps Script addComplaint's sendInternalNotificationEmail used
 // (INTERNAL_NOTIFICATION_EMAIL), fired unconditionally on every new
 // complaint. Returns false (not thrown) when the active provider's
-// credentials aren't configured (see EMAIL_PROVIDER above).
-export async function sendInternalNotification(subject: string, lines: string[]): Promise<boolean> {
+// credentials aren't configured (see EMAIL_PROVIDER above). `attachments`
+// is optional and only used by the Equipment Check report email (photos);
+// every existing caller passes two arguments and is unaffected.
+export async function sendInternalNotification(
+  subject: string,
+  lines: string[],
+  attachments?: EmailAttachment[]
+): Promise<boolean> {
   return sendPlainTextEmail(
     ["info@cleaningworldinc.com", "crm@cleaningworldinc.com"],
     subject,
-    lines
+    lines,
+    attachments
   );
 }
 

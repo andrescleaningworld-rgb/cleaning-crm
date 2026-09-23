@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { EquipmentCategory, Staff, StaffRole } from "@/app/equipment/types";
+import { StaffPinControls, StaffEquipmentReports, useEquipmentPinStatuses } from "@/app/equipment/EquipmentCheckAdmin";
 
 function CategoriesSection() {
   const [categories, setCategories] = useState<EquipmentCategory[]>([]);
@@ -212,6 +213,10 @@ function StaffSection() {
   const [adding, setAdding] = useState(false);
   const [actionError, setActionError] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
+  // Equipment Check tablet app (docs/equipment-check-spec.md §3/§7) — PIN
+  // column + per-person report history. Additions only.
+  const equipmentPins = useEquipmentPinStatuses();
+  const [historyStaffId, setHistoryStaffId] = useState<string | null>(null);
 
   async function loadStaff() {
     setLoadError("");
@@ -381,55 +386,75 @@ function StaffSection() {
                 <th className="px-4 py-3 font-semibold">Name</th>
                 <th className="px-4 py-3 font-semibold">Role</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Tablet PIN</th>
                 <th className="px-4 py-3 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
               {staff.map((member) => (
-                <tr key={member.id} className="border-b">
-                  <td className="px-4 py-3 font-semibold text-gray-900">{member.name}</td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={member.role}
-                      onChange={(e) => updateRole(member, e.target.value as StaffRole)}
-                      disabled={savingId === member.id}
-                      className="rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-                    >
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>{ROLE_LABELS[r]}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${
-                        member.active ? "border-green-200 bg-green-100 text-green-800" : "border-gray-200 bg-gray-100 text-gray-600"
-                      }`}
-                    >
-                      {member.active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        onClick={() => toggleActive(member)}
+                <Fragment key={member.id}>
+                  <tr className="border-b">
+                    <td className="px-4 py-3 font-semibold text-gray-900">{member.name}</td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={member.role}
+                        onChange={(e) => updateRole(member, e.target.value as StaffRole)}
                         disabled={savingId === member.id}
-                        className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
                       >
-                        {member.active ? "Deactivate" : "Activate"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(member)}
-                        disabled={savingId === member.id}
-                        className="font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                        {ROLE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                          member.active ? "border-green-200 bg-green-100 text-green-800" : "border-gray-200 bg-gray-100 text-gray-600"
+                        }`}
                       >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                        {member.active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <StaffPinControls
+                        member={member}
+                        pin={equipmentPins.pins[member.id]}
+                        linkPath={equipmentPins.linkPath}
+                        onChanged={equipmentPins.reload}
+                        historyOpen={historyStaffId === member.id}
+                        onToggleHistory={() => setHistoryStaffId((current) => (current === member.id ? null : member.id))}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-3">
+                        <button
+                          type="button"
+                          onClick={() => toggleActive(member)}
+                          disabled={savingId === member.id}
+                          className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {member.active ? "Deactivate" : "Activate"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(member)}
+                          disabled={savingId === member.id}
+                          className="font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  {historyStaffId === member.id && (
+                    <tr className="border-b bg-gray-50">
+                      <td colSpan={5} className="px-4 py-3">
+                        <StaffEquipmentReports staffId={member.id} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

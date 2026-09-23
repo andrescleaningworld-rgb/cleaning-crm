@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import CheckoutReturnModal from "./CheckoutReturnModal";
+import { OpenTabletAppButton } from "./EquipmentCheckAdmin";
 import { STATUS_LABELS, statusBadgeClass, type EquipmentCategory, type EquipmentItem, type EquipmentStatus } from "./types";
 
 type NewEquipmentDraft = {
@@ -240,7 +241,8 @@ export default function EquipmentListPage() {
             <p className="mt-1 text-gray-600">Inventory, checkout/return, and overdue tracking.</p>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <OpenTabletAppButton />
             <Link
               href="/equipment/parts"
               className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"

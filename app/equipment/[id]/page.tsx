@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import CheckoutReturnModal from "../CheckoutReturnModal";
 import RepairModal from "../RepairModal";
+import { EquipmentItemReports } from "../EquipmentCheckAdmin";
 import {
   STATUS_LABELS,
   statusBadgeClass,
@@ -160,6 +161,8 @@ export default function EquipmentDetailPage() {
             ) : null}
           </div>
         </section>
+
+        <EquipmentItemReports equipmentId={equipment.id} />
 
         <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-xl font-bold text-gray-900">Repair History</h2>

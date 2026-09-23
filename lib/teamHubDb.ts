@@ -19,10 +19,11 @@ import {
   getDayOfWeekInTimeZone,
   getMinutesSinceMidnightInTimeZone,
 } from "@/lib/teamHubTimezone";
+// Shared with the Equipment Check app (lib/pinAuth.ts) — re-exported so
+// existing imports of MAX_FAILED_ATTEMPTS from this module keep working.
+import { PIN_BCRYPT_ROUNDS, MAX_FAILED_ATTEMPTS, LOCKOUT_MINUTES } from "@/lib/pinAuth";
 
-const PIN_BCRYPT_ROUNDS = 10;
-export const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_MINUTES = 15;
+export { MAX_FAILED_ATTEMPTS };
 
 function generateCrewToken(): string {
   // Same construction as the archived Site Supply Link token (24 random

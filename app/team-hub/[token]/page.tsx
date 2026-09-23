@@ -14,6 +14,7 @@ import RoundsView from "./RoundsView";
 import SuppliesView from "./SuppliesView";
 import IssueReportView from "./IssueReportView";
 import LangToggle from "./LangToggle";
+import PinKeypad from "@/app/components/PinKeypad";
 import { useTeamHubLang, teamHubStrings, type TeamHubLang } from "../teamHubStrings";
 
 type Worker = { id: number; firstName: string };
@@ -497,49 +498,13 @@ function LoginScreen({
         </div>
       )}
 
-      <div className="mt-4 flex justify-center gap-3">
-        {Array.from({ length: Math.max(4, pin.length) }).map((_, i) => (
-          <span key={i} className={`h-5 w-5 rounded-full ${i < pin.length ? "bg-blue-700" : "bg-gray-200"}`} />
-        ))}
-      </div>
-
-      <div className="mt-5 grid grid-cols-3 gap-2">
-        {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-          <button
-            key={digit}
-            type="button"
-            onClick={() => tapDigit(digit)}
-            disabled={submitting}
-            className="min-h-[72px] rounded-2xl bg-gray-100 text-2xl font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
-          >
-            {digit}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => (pin.length >= 4 ? submitPin(pin) : undefined)}
-          disabled={submitting || pin.length < 4}
-          className="min-h-[72px] rounded-2xl bg-blue-700 text-lg font-bold text-white disabled:opacity-40"
-        >
-          ✓
-        </button>
-        <button
-          type="button"
-          onClick={() => tapDigit("0")}
-          disabled={submitting}
-          className="min-h-[72px] rounded-2xl bg-gray-100 text-2xl font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
-        >
-          0
-        </button>
-        <button
-          type="button"
-          onClick={backspace}
-          disabled={submitting}
-          className="min-h-[72px] rounded-2xl bg-gray-100 text-lg font-bold text-slate-800 active:bg-gray-200 disabled:opacity-60"
-        >
-          ⌫
-        </button>
-      </div>
+      <PinKeypad
+        pinLength={pin.length}
+        disabled={submitting}
+        onDigit={tapDigit}
+        onBackspace={backspace}
+        onSubmit={() => submitPin(pin)}
+      />
     </div>
   );
 }
