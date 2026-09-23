@@ -52,6 +52,8 @@ type QueueOrder = {
   workerFirstName: string | null;
   createdAt: string;
   lines: { itemName: string; unit: string; qty: number }[];
+  // Crew Link write-in ("Other supplies not on the list").
+  otherItems: string | null;
 };
 
 const ORDER_STATUS_LABEL: Record<QueueOrder["status"], string> = { new: "Sent", ordered: "Ordered", delivered: "Delivered", cancelled: "Cancelled" };
@@ -175,6 +177,11 @@ export default function TeamHubStaffQueue() {
                       <li key={i}>{line.qty} × {line.itemName} ({line.unit})</li>
                     ))}
                   </ul>
+                  {order.otherItems && (
+                    <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-900">
+                      <span className="font-bold">Other supplies:</span> {order.otherItems}
+                    </p>
+                  )}
                   {order.note && (
                     <p className="mt-1 text-sm italic text-gray-500">
                       &quot;<TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />&quot;

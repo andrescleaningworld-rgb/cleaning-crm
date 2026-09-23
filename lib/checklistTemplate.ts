@@ -18,6 +18,28 @@ export type ChecklistSectionDef = {
   items: ChecklistItemDef[];
 };
 
+// Crew Link tabs: an account can have several checklists, each with its own
+// name and sections, all on the same crew link (checklist_tabs table — see
+// scripts/setup-checklist-tabs-db.js). Every tab is submitted on its own.
+export type ChecklistTabDef = {
+  id: number;
+  name: string;
+  sections: ChecklistSectionDef[];
+};
+
+// Counts active tabs only — soft-deleted tabs don't count.
+export const MAX_TABS = 10;
+export const MAX_TAB_NAME_LENGTH = 40;
+export const DEFAULT_TAB_NAME = "Checklist";
+
+export function cleanTabName(value: unknown): string {
+  return String(value ?? "").trim().slice(0, MAX_TAB_NAME_LENGTH);
+}
+
+export function countTabItems(tab: { sections: ChecklistSectionDef[] }): number {
+  return tab.sections.reduce((sum, section) => sum + section.items.length, 0);
+}
+
 // A submission snapshots each item's label/subNote as of submission time
 // (see items_snapshot_json) alongside the porter's checked state and note,
 // so a later template edit/upload never rewrites history.

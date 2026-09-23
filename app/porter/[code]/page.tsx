@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
-import { countTemplateProgress, type ChecklistSectionDef } from "@/lib/checklistTemplate";
+import { countTemplateProgress, type ChecklistSectionDef, type ChecklistTabDef } from "@/lib/checklistTemplate";
 import SuppliesView from "@/app/team-hub/[token]/SuppliesView";
 import IssueReportView from "@/app/team-hub/[token]/IssueReportView";
 import LangToggle from "@/app/team-hub/[token]/LangToggle";
@@ -25,6 +25,7 @@ type LoadResponse = {
   accountName?: string;
   locationName?: string;
   sections?: ChecklistSectionDef[];
+  tabs?: ChecklistTabDef[];
   modules?: Modules;
 };
 
@@ -60,7 +61,7 @@ export default function CrewLinkPage() {
   const [loadError, setLoadError] = useState("");
   const [available, setAvailable] = useState(false);
   const [locationName, setLocationName] = useState("");
-  const [sections, setSections] = useState<ChecklistSectionDef[]>([]);
+  const [tabs, setTabs] = useState<ChecklistTabDef[]>([]);
   // Older API responses (before Crew Link) had no modules — treat as checklist-only.
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
   const [screen, setScreen] = useState<Screen>("home");
@@ -89,7 +90,8 @@ export default function CrewLinkPage() {
 
         setAvailable(Boolean(data.available));
         setLocationName(data.locationName ?? "");
-        setSections(data.sections ?? []);
+        // Older API responses (before tabs) had only `sections` — one tab.
+        setTabs(data.tabs ?? [{ id: 0, name: "", sections: data.sections ?? [] }]);
         if (data.modules) setModules(data.modules);
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this checklist.");
@@ -133,13 +135,13 @@ export default function CrewLinkPage() {
 
   if (checklistOnly || screen === "checklist") {
     return (
-      <ChecklistForm
+      <ChecklistTabs
+        tabs={tabs}
         code={code}
         s={s}
         lang={lang}
         onLangChange={setLang}
         locationName={locationName}
-        sections={sections}
         initialName={name}
         onNameChange={updateName}
         onBackHome={checklistOnly ? null : () => setScreen("home")}
@@ -155,7 +157,18 @@ export default function CrewLinkPage() {
         <CrewLinkHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName} />
 
         {screen === "supplies" ? (
-          <SuppliesView token="" apiBase={apiBase} reporterName={name.trim()} lang={lang} onBack={() => setScreen("home")} />
+          <SuppliesView
+            token=""
+            apiBase={apiBase}
+            reporterName={name.trim()}
+            lang={lang}
+            onBack={() => setScreen("home")}
+            otherItemsLabels={{
+              label: s.otherSuppliesLabel,
+              placeholder: s.otherSuppliesPlaceholder,
+              recentPrefix: s.otherSuppliesRecent,
+            }}
+          />
         ) : screen === "issues" ? (
           <IssueReportView token="" apiBase={apiBase} reporterName={name.trim()} lang={lang} onBack={() => setScreen("home")} />
         ) : (
@@ -228,6 +241,65 @@ function HomeButton({ icon, label, disabled, onClick }: { icon: string; label: s
   );
 }
 
+type ChecklistFormProps = {
+  code: string;
+  s: Strings;
+  lang: TeamHubLang;
+  onLangChange: (lang: TeamHubLang) => void;
+  locationName: string;
+  initialName: string;
+  onNameChange: (name: string) => void;
+  onBackHome: (() => void) | null;
+};
+
+// Crew Link tabs. One tab → exactly the original form, no tab bar. Several →
+// big tabs at the top, opening on the first. Every tab's form stays mounted
+// (inactive ones hidden) so each keeps its own checks and notes, and each
+// is submitted on its own.
+function ChecklistTabs({ tabs, ...formProps }: ChecklistFormProps & { tabs: ChecklistTabDef[] }) {
+  const [activeTabId, setActiveTabId] = useState(tabs[0]?.id ?? 0);
+
+  if (tabs.length <= 1) {
+    return <ChecklistForm {...formProps} tabId={tabs[0]?.id ?? 0} sections={tabs[0]?.sections ?? []} tabBar={null} />;
+  }
+
+  function selectTab(tabId: number) {
+    setActiveTabId(tabId);
+    window.scrollTo({ top: 0 });
+  }
+
+  const tabBar = (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      {tabs.map((tab) => {
+        const active = tab.id === activeTabId;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => selectTab(tab.id)}
+            aria-pressed={active}
+            className={`min-h-[56px] rounded-2xl px-3 py-2 text-lg font-bold shadow-sm ${
+              active ? "bg-blue-700 text-white" : "bg-white text-slate-800 active:bg-gray-100"
+            }`}
+          >
+            {tab.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <>
+      {tabs.map((tab) => (
+        <div key={tab.id} hidden={tab.id !== activeTabId}>
+          <ChecklistForm {...formProps} tabId={tab.id} sections={tab.sections} tabBar={tabBar} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 // The original Porter Checklist form — same fields, same submit body, same
 // API. Only the labels are now EN/ES, the name is prefilled from the device,
 // and (when the link has other modules) there's a way back to the home screen.
@@ -237,20 +309,16 @@ function ChecklistForm({
   lang,
   onLangChange,
   locationName,
+  tabId,
   sections,
+  tabBar,
   initialName,
   onNameChange,
   onBackHome,
-}: {
-  code: string;
-  s: Strings;
-  lang: TeamHubLang;
-  onLangChange: (lang: TeamHubLang) => void;
-  locationName: string;
+}: ChecklistFormProps & {
+  tabId: number;
   sections: ChecklistSectionDef[];
-  initialName: string;
-  onNameChange: (name: string) => void;
-  onBackHome: (() => void) | null;
+  tabBar: React.ReactNode;
 }) {
   const [itemStates, setItemStates] = useState<Record<string, ItemState>>(() => {
     const initial: Record<string, ItemState> = {};
@@ -317,6 +385,7 @@ function ChecklistForm({
         body: JSON.stringify({
           action: "submit",
           code,
+          tabId,
           porterName: porterName.trim(),
           weekOf,
           timeIn,
@@ -339,19 +408,31 @@ function ChecklistForm({
   }
 
   if (submitted) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="max-w-sm rounded-2xl border border-green-200 bg-green-50 p-6 text-center shadow-sm">
-          <h1 className="text-lg font-black text-green-900">{s.submittedTitle}</h1>
-          <p className="mt-2 text-sm text-green-800">{s.submittedBody(porterName || "porter", locationName)}</p>
-          {onBackHome && (
-            <button type="button" onClick={onBackHome} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-base font-bold text-white">
-              {s.backHome}
-            </button>
-          )}
-        </div>
+    const submittedCard = (
+      <div className="max-w-sm rounded-2xl border border-green-200 bg-green-50 p-6 text-center shadow-sm">
+        <h1 className="text-lg font-black text-green-900">{s.submittedTitle}</h1>
+        <p className="mt-2 text-sm text-green-800">{s.submittedBody(porterName || "porter", locationName)}</p>
+        {onBackHome && (
+          <button type="button" onClick={onBackHome} className="mt-4 rounded-xl bg-blue-700 px-5 py-3 text-base font-bold text-white">
+            {s.backHome}
+          </button>
+        )}
       </div>
     );
+
+    if (tabBar) {
+      // Keep the tabs visible so the crew can move on to the next one.
+      return (
+        <div className="min-h-screen bg-slate-50 px-4 py-6 sm:py-10">
+          <div className="mx-auto max-w-xl space-y-5">
+            {tabBar}
+            <div className="flex justify-center">{submittedCard}</div>
+          </div>
+        </div>
+      );
+    }
+
+    return <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">{submittedCard}</div>;
   }
 
   return (
@@ -362,6 +443,7 @@ function ChecklistForm({
             ← {s.back}
           </button>
         )}
+        {tabBar}
         <div className="rounded-2xl bg-white p-4 shadow-sm sm:p-6">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">

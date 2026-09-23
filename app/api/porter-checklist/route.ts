@@ -5,8 +5,14 @@
 // public.
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
-import { getTemplateByPorterCode, insertSubmission } from "@/lib/checklistDb";
-import { countSubmissionProgress, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { getTabForAccount, getTemplateByPorterCode, insertSubmission, listActiveTabs } from "@/lib/checklistDb";
+import {
+  DEFAULT_TAB_NAME,
+  countSubmissionProgress,
+  countTabItems,
+  type ChecklistSubmissionSection,
+  type ChecklistTabDef,
+} from "@/lib/checklistTemplate";
 import { logActivity } from "@/lib/activityLog";
 import { resolveCrewLink, crewLinkIsLive } from "@/lib/crewLink";
 
@@ -30,12 +36,26 @@ export async function GET(request: NextRequest) {
     }
     const { template, modules } = link;
 
+    // Crew Link tabs: crews see only tabs with at least one item; if every
+    // tab is empty, the first one (same as before tabs). No tab rows at all
+    // (migration not reached yet) → the template's sections as one tab.
+    // `sections` stays = the first tab's sections for pages cached from
+    // before tabs existed.
+    let tabs: ChecklistTabDef[] = [];
+    if (modules.checklist) {
+      const active = await listActiveTabs(template.accountId);
+      const withItems = active.filter((tab) => countTabItems(tab) > 0);
+      tabs = withItems.length > 0 ? withItems : active.slice(0, 1);
+      if (tabs.length === 0) tabs = [{ id: 0, name: DEFAULT_TAB_NAME, sections: template.sections }];
+    }
+
     return NextResponse.json({
       success: true,
       available: true,
       accountName: template.accountName,
       locationName: template.locationName,
-      sections: modules.checklist ? template.sections : [],
+      sections: tabs[0]?.sections ?? [],
+      tabs,
       modules,
     });
   } catch (error) {
@@ -74,6 +94,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Each tab is submitted on its own. A tab deleted after the crew opened
+    // it still links (soft delete). No tabId (page cached from before tabs)
+    // → the account's first active tab.
+    const requestedTabId = Number(body.tabId);
+    let tab: ChecklistTabDef | null = null;
+    if (Number.isInteger(requestedTabId) && requestedTabId > 0) {
+      tab = await getTabForAccount(template.accountId, requestedTabId);
+    }
+    if (!tab) {
+      tab = (await listActiveTabs(template.accountId))[0] ?? null;
+    }
+
     const sections = Array.isArray(body.sections) ? (body.sections as ChecklistSubmissionSection[]) : [];
     const { done, total } = countSubmissionProgress(sections);
 
@@ -81,6 +113,8 @@ export async function POST(request: NextRequest) {
       accountId: template.accountId,
       accountName: template.accountName,
       locationName: template.locationName,
+      tabId: tab?.id ?? null,
+      tabName: tab?.name ?? null,
       porterName,
       weekOf: body.weekOf ? String(body.weekOf) : null,
       timeIn: String(body.timeIn ?? ""),

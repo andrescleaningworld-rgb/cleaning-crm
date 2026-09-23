@@ -1049,6 +1049,8 @@ type SupplyOrder = {
   workerFirstName: string | null;
   createdAt: string;
   lines: SupplyOrderLine[];
+  // Crew Link write-in ("Other supplies not on the list").
+  otherItems: string | null;
 };
 
 type Issue = {
@@ -1142,7 +1144,14 @@ export function OrdersAndProblems({
             {orders.map((order) => (
               <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
                 <div>
-                  <p className="text-sm text-slate-800">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</p>
+                  {order.lines.length > 0 && (
+                    <p className="text-sm text-slate-800">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</p>
+                  )}
+                  {order.otherItems && (
+                    <p className="mt-0.5 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-900">
+                      <span className="font-bold">Other supplies:</span> {order.otherItems}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500">
                     {order.workerFirstName ?? "Unknown"} · {new Date(order.createdAt).toLocaleString()}
                     {order.note ? (

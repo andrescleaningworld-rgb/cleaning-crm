@@ -38,6 +38,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
         status: o.status,
         createdAt: o.createdAt,
         lines: o.lines.map((l) => ({ itemName: l.itemName, unit: l.unit, qty: l.qty })),
+        otherItems: o.otherItems,
       })),
     });
   } catch (error) {
@@ -46,7 +47,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   }
 }
 
-// POST { reporterName, note, lines: [{ itemId, qty }] }
+// POST { reporterName, note, otherItems, lines: [{ itemId, qty }] } — lines may
+// be empty when otherItems is filled in (write-in only order).
 export async function POST(request: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   try {
     const { code } = await params;
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = (await request.json().catch(() => ({}))) as {
       reporterName?: string;
       note?: string;
+      otherItems?: string;
       lines?: { itemId?: number; qty?: number }[];
     };
     const reporterName = cleanReporterName(body.reporterName);
@@ -72,6 +75,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       accountId: link.template.accountId,
       reporterName,
       note: String(body.note ?? ""),
+      otherItems: String(body.otherItems ?? ""),
       lines,
     });
 
@@ -81,6 +85,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         orderId: order.id,
         accountId: link.template.accountId,
         note: order.note,
+        otherItems: order.otherItems,
         lines: order.lines,
         origin: new URL(request.url).origin,
       }).catch((error) => console.error("[crew-link supplies email]", error))

@@ -9,7 +9,7 @@ import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings } from "../teamHubStrings";
 
 type SupplyItem = { itemId: number; name: string; unit: string; instanceLabel: string | null };
-type RecentOrder = { id: number; status: "new" | "ordered" | "delivered" | "cancelled"; createdAt: string; lines: { itemName: string; unit: string; qty: number }[] };
+type RecentOrder = { id: number; status: "new" | "ordered" | "delivered" | "cancelled"; createdAt: string; lines: { itemName: string; unit: string; qty: number }[]; otherItems?: string | null };
 
 const STATUS_STYLES: Record<RecentOrder["status"], string> = {
   new: "bg-blue-100 text-blue-800",
@@ -26,6 +26,7 @@ export default function SuppliesView({
   onBack,
   apiBase,
   reporterName,
+  otherItemsLabels,
 }: {
   token: string;
   lang: TeamHubLang;
@@ -33,6 +34,9 @@ export default function SuppliesView({
   apiBase?: string;
   // Crew Link only: the name the person typed (Team Hub knows its worker).
   reporterName?: string;
+  // Crew Link only: turns on the "Other supplies not on the list" box.
+  // Team Hub leaves it out, so its screen is unchanged.
+  otherItemsLabels?: { label: string; placeholder: string; recentPrefix: string };
 }) {
   const suppliesUrl = `${apiBase ?? `/api/team-hub/${encodeURIComponent(token)}`}/supplies`;
   const s = teamHubStrings(lang).supplies;
@@ -44,6 +48,7 @@ export default function SuppliesView({
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [note, setNote] = useState("");
+  const [otherItems, setOtherItems] = useState("");
   const [sending, setSending] = useState(false);
   const [justSent, setJustSent] = useState(false);
 
@@ -77,12 +82,15 @@ export default function SuppliesView({
   }
 
   const totalQty = Object.values(quantities).reduce((a, b) => a + b, 0);
+  // An order can be only write-ins, but it can't be empty.
+  const hasOtherItems = Boolean(otherItemsLabels) && otherItems.trim().length > 0;
+  const canSend = totalQty > 0 || hasOtherItems;
 
   async function sendOrder() {
     const lines = Object.entries(quantities)
       .map(([itemId, qty]) => ({ itemId: Number(itemId), qty }))
       .filter((l) => l.qty > 0);
-    if (lines.length === 0) return;
+    if (lines.length === 0 && !hasOtherItems) return;
 
     setSending(true);
     setBanner("");
@@ -90,7 +98,12 @@ export default function SuppliesView({
       const res = await fetch(suppliesUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note, lines, ...(reporterName ? { reporterName } : {}) }),
+        body: JSON.stringify({
+          note,
+          lines,
+          ...(reporterName ? { reporterName } : {}),
+          ...(hasOtherItems ? { otherItems: otherItems.trim() } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -100,6 +113,7 @@ export default function SuppliesView({
       navigator.vibrate?.([15, 60, 15]);
       setQuantities({});
       setNote("");
+      setOtherItems("");
       setJustSent(true);
       await load();
       setTimeout(() => setJustSent(false), 2000);
@@ -159,6 +173,20 @@ export default function SuppliesView({
             })}
           </div>
 
+          {otherItemsLabels && (
+            <label className="block rounded-2xl bg-white p-4 shadow-sm">
+              <span className="text-base font-bold text-slate-700">{otherItemsLabels.label}</span>
+              <textarea
+                value={otherItems}
+                onChange={(e) => setOtherItems(e.target.value)}
+                placeholder={otherItemsLabels.placeholder}
+                maxLength={1000}
+                rows={2}
+                className="mt-2 w-full rounded-xl border border-gray-300 bg-white p-3 text-lg"
+              />
+            </label>
+          )}
+
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -170,7 +198,7 @@ export default function SuppliesView({
           <button
             type="button"
             onClick={sendOrder}
-            disabled={sending || totalQty === 0}
+            disabled={sending || !canSend}
             className="min-h-[72px] w-full rounded-2xl bg-blue-700 text-xl font-bold text-white disabled:opacity-40"
           >
             {sending ? s.sending : s.sendOrder}
@@ -184,7 +212,12 @@ export default function SuppliesView({
           <ul className="mt-2 divide-y divide-gray-100">
             {recentOrders.map((order) => (
               <li key={order.id} className="flex items-center justify-between gap-2 py-3">
-                <span className="text-base text-slate-700">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</span>
+                <span className="text-base text-slate-700">
+                  {[
+                    ...order.lines.map((l) => `${l.itemName} x${l.qty}`),
+                    ...(order.otherItems && otherItemsLabels ? [`${otherItemsLabels.recentPrefix}: ${order.otherItems}`] : []),
+                  ].join(", ")}
+                </span>
                 <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${STATUS_STYLES[order.status]}`}>
                   {s.status[order.status]}
                 </span>
