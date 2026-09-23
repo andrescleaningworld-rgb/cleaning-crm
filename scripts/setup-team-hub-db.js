@@ -352,6 +352,31 @@ async function main() {
   await sql`CREATE INDEX IF NOT EXISTS idx_hub_photos_parent ON hub_photos(parent_type, parent_id)`;
   console.log("Later-phase indexes ready.");
 
+  // ── Phase 6 additions ────────────────────────────────────────────────
+  // Night-checklist cutoff alert config, per site. NULL cutoff = alert
+  // disabled for that site (the default — nothing opts in automatically).
+  // service_days is 0=Sunday..6=Saturday, evaluated in TEAM_HUB_TIMEZONE
+  // (lib/teamHubTimezone.ts), same as every other Team Hub "today" boundary.
+  await sql`ALTER TABLE hub_sites ADD COLUMN IF NOT EXISTS night_checklist_cutoff_time TIME`;
+  await sql`ALTER TABLE hub_sites ADD COLUMN IF NOT EXISTS night_checklist_service_days SMALLINT[]`;
+  console.log("hub_sites Phase 6 columns ready.");
+
+  // One row per (site, local calendar date) an alert was actually sent —
+  // the cron's own idempotency guard so a 15-minute polling cycle can't
+  // re-email the same missed-checklist alert all night. Deliberately
+  // separate from hub_checklist_runs (which records the checklist itself)
+  // since this tracks "was an alert email sent," not checklist state.
+  await sql`
+    CREATE TABLE IF NOT EXISTS hub_checklist_alerts_sent (
+      id SERIAL PRIMARY KEY,
+      site_id INT NOT NULL REFERENCES hub_sites(id) ON DELETE CASCADE,
+      alert_date DATE NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (site_id, alert_date)
+    )
+  `;
+  console.log("hub_checklist_alerts_sent ready.");
+
   console.log("Done.");
 }
 

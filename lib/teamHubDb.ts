@@ -10,7 +10,15 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
-import { TEAM_HUB_TIMEZONE, startOfDayInTimeZone, startOfWeekInTimeZone, startOfMonthInTimeZone } from "@/lib/teamHubTimezone";
+import {
+  TEAM_HUB_TIMEZONE,
+  startOfDayInTimeZone,
+  startOfWeekInTimeZone,
+  startOfMonthInTimeZone,
+  getDateStringInTimeZone,
+  getDayOfWeekInTimeZone,
+  getMinutesSinceMidnightInTimeZone,
+} from "@/lib/teamHubTimezone";
 
 const PIN_BCRYPT_ROUNDS = 10;
 export const MAX_FAILED_ATTEMPTS = 5;
@@ -36,6 +44,10 @@ export type TeamHubSite = {
   supervisorPhone: string | null;
   active: boolean;
   createdAt: string;
+  // Phase 6: night-checklist cutoff alert config. Both null = disabled
+  // (the default) — nothing opts a site in automatically.
+  nightChecklistCutoffTime: string | null; // "HH:MM", local to TEAM_HUB_TIMEZONE
+  nightChecklistServiceDays: number[] | null; // 0=Sun..6=Sat
 };
 
 function rowToSite(row: Record<string, unknown>): TeamHubSite {
@@ -46,6 +58,10 @@ function rowToSite(row: Record<string, unknown>): TeamHubSite {
     supervisorPhone: (row.supervisor_phone as string | null) ?? null,
     active: row.active as boolean,
     createdAt: toIso(row.created_at),
+    // Postgres TIME comes back as "HH:MM:SS" — trimmed to "HH:MM" for the
+    // admin UI's <input type="time">.
+    nightChecklistCutoffTime: row.night_checklist_cutoff_time ? String(row.night_checklist_cutoff_time).slice(0, 5) : null,
+    nightChecklistServiceDays: (row.night_checklist_service_days as number[] | null) ?? null,
   };
 }
 
@@ -109,6 +125,28 @@ export async function setTeamHubSiteActive(id: number, active: boolean): Promise
   return rows.length > 0 ? rowToSite(rows[0] as Record<string, unknown>) : null;
 }
 
+// Phase 6: admin sets/clears the night-checklist cutoff alert for a site.
+// cutoffTime null or serviceDays an empty/null array both disable the
+// alert for this site (getTeamHubSitesWithNightChecklistAlertConfigured
+// only returns sites with a non-null cutoff AND at least one service day).
+export async function setTeamHubNightChecklistAlertConfig(
+  id: number,
+  input: { cutoffTime: string | null; serviceDays: number[] | null }
+): Promise<TeamHubSite | null> {
+  if (input.cutoffTime !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.cutoffTime)) {
+    throw new Error('cutoffTime must be "HH:MM" (24-hour) or null.');
+  }
+  const serviceDays = input.serviceDays && input.serviceDays.length > 0 ? input.serviceDays.filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) : null;
+  const sql = getSql();
+  const rows = await sql`
+    UPDATE hub_sites
+    SET night_checklist_cutoff_time = ${input.cutoffTime}, night_checklist_service_days = ${serviceDays}
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return rows.length > 0 ? rowToSite(rows[0] as Record<string, unknown>) : null;
+}
+
 // ─── hub_crews ───────────────────────────────────────────────────────────
 
 export type TeamHubCrew = {
@@ -161,7 +199,8 @@ export async function getActiveTeamHubCrewByToken(token: string): Promise<{ crew
   const rows = await sql`
     SELECT hub_crews.*,
       hub_sites.id AS site_id_full, hub_sites.account_id AS site_account_id, hub_sites.label AS site_label,
-      hub_sites.supervisor_phone AS site_supervisor_phone, hub_sites.active AS site_active, hub_sites.created_at AS site_created_at
+      hub_sites.supervisor_phone AS site_supervisor_phone, hub_sites.active AS site_active, hub_sites.created_at AS site_created_at,
+      hub_sites.night_checklist_cutoff_time AS site_night_checklist_cutoff_time, hub_sites.night_checklist_service_days AS site_night_checklist_service_days
     FROM hub_crews
     JOIN hub_sites ON hub_sites.id = hub_crews.site_id
     WHERE hub_crews.token = ${token} AND hub_crews.active = true AND hub_sites.active = true
@@ -178,6 +217,8 @@ export async function getActiveTeamHubCrewByToken(token: string): Promise<{ crew
       supervisorPhone: (row.site_supervisor_phone as string | null) ?? null,
       active: row.site_active as boolean,
       createdAt: toIso(row.site_created_at),
+      nightChecklistCutoffTime: row.site_night_checklist_cutoff_time ? String(row.site_night_checklist_cutoff_time).slice(0, 5) : null,
+      nightChecklistServiceDays: (row.site_night_checklist_service_days as number[] | null) ?? null,
     },
   };
 }
@@ -281,6 +322,69 @@ export async function listChecklistLibrary(activeOnly: boolean): Promise<Checkli
   });
 }
 
+// Phase 6: admin CRUD for the company-wide checklist library (Phase 0 only
+// read it). No delete — items can be tapped in an existing crew_item or
+// referenced by past run_items, so "remove" is always setActive(false),
+// same convention hub_sites/hub_crews/hub_workers already use.
+export async function createChecklistLibraryItem(input: {
+  area: string;
+  text: string;
+  defaultFrequency: ChecklistLibraryItem["defaultFrequency"];
+  isNote: boolean;
+}): Promise<ChecklistLibraryItem> {
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_checklist_library (area, text, default_frequency, is_note)
+    VALUES (${input.area}, ${input.text}, ${input.defaultFrequency}, ${input.isNote})
+    RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    id: row.id as number,
+    area: row.area as string,
+    text: row.text as string,
+    defaultFrequency: row.default_frequency as ChecklistLibraryItem["defaultFrequency"],
+    isNote: row.is_note as boolean,
+    active: row.active as boolean,
+  };
+}
+
+export async function updateChecklistLibraryItem(
+  id: number,
+  input: Partial<{ area: string; text: string; defaultFrequency: ChecklistLibraryItem["defaultFrequency"]; isNote: boolean }>
+): Promise<ChecklistLibraryItem | null> {
+  const sql = getSql();
+  const existingRows = await sql`SELECT * FROM hub_checklist_library WHERE id = ${id} LIMIT 1`;
+  if (existingRows.length === 0) return null;
+  const existing = existingRows[0] as Record<string, unknown>;
+
+  const area = input.area ?? (existing.area as string);
+  const text = input.text ?? (existing.text as string);
+  const defaultFrequency = input.defaultFrequency ?? (existing.default_frequency as ChecklistLibraryItem["defaultFrequency"]);
+  const isNote = input.isNote ?? (existing.is_note as boolean);
+
+  const rows = await sql`
+    UPDATE hub_checklist_library
+    SET area = ${area}, text = ${text}, default_frequency = ${defaultFrequency}, is_note = ${isNote}
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return {
+    id: row.id as number,
+    area: row.area as string,
+    text: row.text as string,
+    defaultFrequency: row.default_frequency as ChecklistLibraryItem["defaultFrequency"],
+    isNote: row.is_note as boolean,
+    active: row.active as boolean,
+  };
+}
+
+export async function setChecklistLibraryItemActive(id: number, active: boolean): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE hub_checklist_library SET active = ${active} WHERE id = ${id}`;
+}
+
 export type RoundLibraryItem = { id: number; name: string; defaultIntervalMinutes: number; active: boolean };
 
 export async function listRoundLibrary(activeOnly: boolean): Promise<RoundLibraryItem[]> {
@@ -297,6 +401,34 @@ export async function listRoundLibrary(activeOnly: boolean): Promise<RoundLibrar
       active: row.active as boolean,
     };
   });
+}
+
+export async function createRoundLibraryItem(input: { name: string; defaultIntervalMinutes: number }): Promise<RoundLibraryItem> {
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO hub_round_library (name, default_interval_minutes) VALUES (${input.name}, ${input.defaultIntervalMinutes}) RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return { id: row.id as number, name: row.name as string, defaultIntervalMinutes: row.default_interval_minutes as number, active: row.active as boolean };
+}
+
+export async function updateRoundLibraryItem(id: number, input: Partial<{ name: string; defaultIntervalMinutes: number }>): Promise<RoundLibraryItem | null> {
+  const sql = getSql();
+  const existingRows = await sql`SELECT * FROM hub_round_library WHERE id = ${id} LIMIT 1`;
+  if (existingRows.length === 0) return null;
+  const existing = existingRows[0] as Record<string, unknown>;
+  const name = input.name ?? (existing.name as string);
+  const defaultIntervalMinutes = input.defaultIntervalMinutes ?? (existing.default_interval_minutes as number);
+  const rows = await sql`
+    UPDATE hub_round_library SET name = ${name}, default_interval_minutes = ${defaultIntervalMinutes} WHERE id = ${id} RETURNING *
+  `;
+  const row = rows[0] as Record<string, unknown>;
+  return { id: row.id as number, name: row.name as string, defaultIntervalMinutes: row.default_interval_minutes as number, active: row.active as boolean };
+}
+
+export async function setRoundLibraryItemActive(id: number, active: boolean): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE hub_round_library SET active = ${active} WHERE id = ${id}`;
 }
 
 export type SupplyLibraryItem = {
@@ -324,6 +456,56 @@ export async function listSupplyItemsLibrary(activeOnly: boolean): Promise<Suppl
       equipmentPartId: (row.equipment_part_id as string | null) ?? null,
     };
   });
+}
+
+function rowToSupplyLibraryItem(row: Record<string, unknown>): SupplyLibraryItem {
+  return {
+    id: row.id as number,
+    name: row.name as string,
+    unit: row.unit as string,
+    sortOrder: row.sort_order as number,
+    active: row.active as boolean,
+    equipmentPartId: (row.equipment_part_id as string | null) ?? null,
+  };
+}
+
+// Company-wide Team Hub supply catalog (this table, unrenamed per §2 of the
+// spec) — NOT the Sheets-backed Equipment/Supplies inventory app/supplies
+// manages; equipmentPartId is the only link between the two, and it stays a
+// plain TEXT reference (never an FK — see the CREATE TABLE comment).
+export async function createSupplyLibraryItem(input: { name: string; unit: string; sortOrder: number; equipmentPartId: string | null }): Promise<SupplyLibraryItem> {
+  const sql = getSql();
+  const rows = await sql`
+    INSERT INTO supply_items (name, unit, sort_order, equipment_part_id)
+    VALUES (${input.name}, ${input.unit}, ${input.sortOrder}, ${input.equipmentPartId})
+    RETURNING *
+  `;
+  return rowToSupplyLibraryItem(rows[0] as Record<string, unknown>);
+}
+
+export async function updateSupplyLibraryItem(
+  id: number,
+  input: Partial<{ name: string; unit: string; sortOrder: number; equipmentPartId: string | null }>
+): Promise<SupplyLibraryItem | null> {
+  const sql = getSql();
+  const existingRows = await sql`SELECT * FROM supply_items WHERE id = ${id} LIMIT 1`;
+  if (existingRows.length === 0) return null;
+  const existing = existingRows[0] as Record<string, unknown>;
+  const name = input.name ?? (existing.name as string);
+  const unit = input.unit ?? (existing.unit as string);
+  const sortOrder = input.sortOrder ?? (existing.sort_order as number);
+  const equipmentPartId = input.equipmentPartId !== undefined ? input.equipmentPartId : ((existing.equipment_part_id as string | null) ?? null);
+  const rows = await sql`
+    UPDATE supply_items SET name = ${name}, unit = ${unit}, sort_order = ${sortOrder}, equipment_part_id = ${equipmentPartId}
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  return rowToSupplyLibraryItem(rows[0] as Record<string, unknown>);
+}
+
+export async function setSupplyLibraryItemActive(id: number, active: boolean): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE supply_items SET active = ${active} WHERE id = ${id}`;
 }
 
 // ─── hub_crew_items (visibility picker) ─────────────────────────────────
@@ -1241,4 +1423,300 @@ export async function verifyTeamHubWorkerPin(
     RETURNING *
   `;
   return { outcome: "ok", worker: rowToWorker(updatedRows[0] as Record<string, unknown>) };
+}
+
+// ─── Activity feed (Phase 6: per-account "what happened" feed) ──────────
+// Deliberately NOT lib/activityLog.ts (the manager/owner audit trail) —
+// this is an operational feed of what crews actually DID (checklist
+// submissions, round check-ins, problem reports, supply orders), sourced
+// straight from Team Hub's own already-timestamped tables. Keeps the two
+// logs separate on purpose, same reasoning as Sub Center's activity log
+// staying separate from Settings' Activity Log.
+
+export type TeamHubActivityEvent =
+  | { kind: "checklist_submitted"; at: string; crewId: number; crewName: string; doneCount: number }
+  | { kind: "round_check"; at: string; crewId: number; crewName: string; roundName: string; workerFirstName: string | null }
+  | { kind: "issue_reported"; at: string; crewId: number; crewName: string; category: TeamHubIssueCategory; workerFirstName: string | null }
+  | { kind: "supply_order"; at: string; crewId: number; crewName: string; itemCount: number; workerFirstName: string | null };
+
+export async function getTeamHubActivityFeedForSite(siteId: number, limit = 50): Promise<TeamHubActivityEvent[]> {
+  const sql = getSql();
+  const perKindLimit = Math.min(limit, 200);
+
+  const [checklistRows, roundRows, issueRows, orderRows] = await Promise.all([
+    sql`
+      SELECT r.submitted_at AS at, c.id AS crew_id, c.name AS crew_name, COUNT(ri.id)::int AS done_count
+      FROM hub_checklist_runs r
+      JOIN hub_crews c ON c.id = r.crew_id
+      LEFT JOIN hub_checklist_run_items ri ON ri.run_id = r.id
+      WHERE c.site_id = ${siteId} AND r.submitted_at IS NOT NULL
+      GROUP BY r.id, c.id, c.name
+      ORDER BY r.submitted_at DESC LIMIT ${perKindLimit}
+    `,
+    sql`
+      SELECT rc.checked_at AS at, c.id AS crew_id, c.name AS crew_name, rl.name AS round_name, w.first_name AS worker_first_name
+      FROM hub_round_checks rc
+      JOIN hub_crew_items ci ON ci.id = rc.crew_item_id
+      JOIN hub_crews c ON c.id = ci.crew_id
+      JOIN hub_round_library rl ON rl.id = ci.item_id
+      LEFT JOIN hub_workers w ON w.id = rc.worker_id
+      WHERE c.site_id = ${siteId}
+      ORDER BY rc.checked_at DESC LIMIT ${perKindLimit}
+    `,
+    sql`
+      SELECT i.created_at AS at, c.id AS crew_id, c.name AS crew_name, i.category, w.first_name AS worker_first_name
+      FROM hub_issues i
+      JOIN hub_crews c ON c.id = i.crew_id
+      LEFT JOIN hub_workers w ON w.id = i.worker_id
+      WHERE i.site_id = ${siteId}
+      ORDER BY i.created_at DESC LIMIT ${perKindLimit}
+    `,
+    sql`
+      SELECT so.created_at AS at, c.id AS crew_id, c.name AS crew_name, w.first_name AS worker_first_name, COUNT(sol.id)::int AS item_count
+      FROM supply_orders so
+      JOIN hub_crews c ON c.id = so.crew_id
+      LEFT JOIN hub_workers w ON w.id = so.worker_id
+      LEFT JOIN supply_order_lines sol ON sol.order_id = so.id
+      WHERE so.site_id = ${siteId}
+      GROUP BY so.id, c.id, c.name, w.first_name
+      ORDER BY so.created_at DESC LIMIT ${perKindLimit}
+    `,
+  ]);
+
+  const events: TeamHubActivityEvent[] = [];
+  for (const r of checklistRows) {
+    const row = r as Record<string, unknown>;
+    events.push({ kind: "checklist_submitted", at: toIso(row.at), crewId: row.crew_id as number, crewName: row.crew_name as string, doneCount: row.done_count as number });
+  }
+  for (const r of roundRows) {
+    const row = r as Record<string, unknown>;
+    events.push({
+      kind: "round_check",
+      at: toIso(row.at),
+      crewId: row.crew_id as number,
+      crewName: row.crew_name as string,
+      roundName: row.round_name as string,
+      workerFirstName: (row.worker_first_name as string | null) ?? null,
+    });
+  }
+  for (const r of issueRows) {
+    const row = r as Record<string, unknown>;
+    events.push({
+      kind: "issue_reported",
+      at: toIso(row.at),
+      crewId: row.crew_id as number,
+      crewName: row.crew_name as string,
+      category: row.category as TeamHubIssueCategory,
+      workerFirstName: (row.worker_first_name as string | null) ?? null,
+    });
+  }
+  for (const r of orderRows) {
+    const row = r as Record<string, unknown>;
+    events.push({
+      kind: "supply_order",
+      at: toIso(row.at),
+      crewId: row.crew_id as number,
+      crewName: row.crew_name as string,
+      itemCount: row.item_count as number,
+      workerFirstName: (row.worker_first_name as string | null) ?? null,
+    });
+  }
+
+  events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  return events.slice(0, limit);
+}
+
+// ─── Cross-site staff queue (Phase 6) ────────────────────────────────────
+// Everything below returns hub_sites.account_id alongside the row (never
+// name/address — direction 8) so the caller can attach real account names
+// via lib/teamHubAccountLookup.ts, the one sanctioned choke point. No
+// Sheets reads in this file.
+
+export type TeamHubQueueIssue = TeamHubIssue & { accountId: string; siteLabel: string; crewName: string };
+export type TeamHubQueueOrder = TeamHubSupplyOrder & { accountId: string; siteLabel: string; crewName: string };
+
+export async function listOpenTeamHubIssuesAcrossSites(limit = 200): Promise<TeamHubQueueIssue[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT i.*, w.first_name AS worker_first_name, s.account_id, s.label AS site_label, c.name AS crew_name
+    FROM hub_issues i
+    JOIN hub_sites s ON s.id = i.site_id
+    JOIN hub_crews c ON c.id = i.crew_id
+    LEFT JOIN hub_workers w ON w.id = i.worker_id
+    WHERE i.status = 'open'
+    ORDER BY i.created_at DESC
+    LIMIT ${limit}
+  `;
+  const issues = rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { ...rowToIssue(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+  });
+  const photosByIssueId = await getTeamHubPhotosForParents("issue", issues.map((i) => i.id));
+  for (const issue of issues) issue.photos = photosByIssueId.get(issue.id) ?? [];
+  return issues;
+}
+
+export async function listOpenTeamHubSupplyOrdersAcrossSites(limit = 200): Promise<TeamHubQueueOrder[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT so.*, w.first_name AS worker_first_name, s.account_id, s.label AS site_label, c.name AS crew_name
+    FROM supply_orders so
+    JOIN hub_sites s ON s.id = so.site_id
+    JOIN hub_crews c ON c.id = so.crew_id
+    LEFT JOIN hub_workers w ON w.id = so.worker_id
+    WHERE so.status IN ('new', 'ordered')
+    ORDER BY so.created_at DESC
+    LIMIT ${limit}
+  `;
+  const orders = rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { ...rowToSupplyOrder(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+  });
+  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
+  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
+  return orders;
+}
+
+// Sub Center read-only list: same two queries, scoped to crews owned by one
+// sub (hub_crews.crew_kind = 'sub' AND sub_id = X) rather than every site.
+export async function listOpenTeamHubIssuesForSub(subId: string, limit = 200): Promise<TeamHubQueueIssue[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT i.*, w.first_name AS worker_first_name, s.account_id, s.label AS site_label, c.name AS crew_name
+    FROM hub_issues i
+    JOIN hub_sites s ON s.id = i.site_id
+    JOIN hub_crews c ON c.id = i.crew_id
+    LEFT JOIN hub_workers w ON w.id = i.worker_id
+    WHERE i.status = 'open' AND c.crew_kind = 'sub' AND c.sub_id = ${subId}
+    ORDER BY i.created_at DESC
+    LIMIT ${limit}
+  `;
+  const issues = rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { ...rowToIssue(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+  });
+  const photosByIssueId = await getTeamHubPhotosForParents("issue", issues.map((i) => i.id));
+  for (const issue of issues) issue.photos = photosByIssueId.get(issue.id) ?? [];
+  return issues;
+}
+
+export async function listOpenTeamHubSupplyOrdersForSub(subId: string, limit = 200): Promise<TeamHubQueueOrder[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT so.*, w.first_name AS worker_first_name, s.account_id, s.label AS site_label, c.name AS crew_name
+    FROM supply_orders so
+    JOIN hub_sites s ON s.id = so.site_id
+    JOIN hub_crews c ON c.id = so.crew_id
+    LEFT JOIN hub_workers w ON w.id = so.worker_id
+    WHERE so.status IN ('new', 'ordered') AND c.crew_kind = 'sub' AND c.sub_id = ${subId}
+    ORDER BY so.created_at DESC
+    LIMIT ${limit}
+  `;
+  const orders = rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { ...rowToSupplyOrder(row), accountId: row.account_id as string, siteLabel: row.site_label as string, crewName: row.crew_name as string };
+  });
+  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
+  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
+  return orders;
+}
+
+// Every distinct sub_id (Team Hub's own scheme — see
+// lib/teamHubAccountLookup.ts) that currently owns at least one open issue
+// or open order — lets the Sub Center tab list only subs with something to
+// show, without the caller needing to know the full sub roster up front.
+export async function listTeamHubSubIdsWithOpenItems(): Promise<string[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT DISTINCT c.sub_id
+    FROM hub_crews c
+    WHERE c.crew_kind = 'sub' AND c.sub_id IS NOT NULL AND (
+      EXISTS (SELECT 1 FROM hub_issues i WHERE i.crew_id = c.id AND i.status = 'open')
+      OR EXISTS (SELECT 1 FROM supply_orders so WHERE so.crew_id = c.id AND so.status IN ('new', 'ordered'))
+    )
+  `;
+  return rows.map((r) => (r as Record<string, unknown>).sub_id as string);
+}
+
+// Accounts Center badge (Phase 6): open-issue count per account_id, for
+// every account with at least one open issue — the caller (an admin page)
+// decides how/whether to render a zero.
+export async function getOpenTeamHubIssueCountsByAccount(): Promise<Map<string, number>> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT s.account_id, COUNT(*)::int AS n
+    FROM hub_issues i
+    JOIN hub_sites s ON s.id = i.site_id
+    WHERE i.status = 'open'
+    GROUP BY s.account_id
+  `;
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const row = r as Record<string, unknown>;
+    map.set(row.account_id as string, row.n as number);
+  }
+  return map;
+}
+
+// ─── Night-checklist cutoff alert (Phase 6) ─────────────────────────────
+// Polled by app/api/cron/team-hub-checklist-alerts/route.ts on a Vercel
+// Cron schedule (see vercel.json). hub_checklist_alerts_sent is this
+// function's own idempotency guard — see its CREATE TABLE comment.
+
+export type TeamHubNightChecklistAlert = { site: TeamHubSite; crew: TeamHubCrew };
+
+// Sites configured for the alert (non-null cutoff + at least one service
+// day, still active) whose local day-of-week/time-of-day are past due,
+// which have an active night crew, that crew hasn't submitted a checklist
+// run yet today, and no alert has already gone out today for this site.
+// Returns the (site, crew) pairs the cron route should actually email for.
+export async function findTeamHubSitesNeedingNightChecklistAlert(atInstant: Date = new Date()): Promise<TeamHubNightChecklistAlert[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM hub_sites
+    WHERE active = true AND night_checklist_cutoff_time IS NOT NULL AND night_checklist_service_days IS NOT NULL
+  `;
+  const sites = rows.map((r) => rowToSite(r as Record<string, unknown>));
+  if (sites.length === 0) return [];
+
+  const today = getDateStringInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+  const dayOfWeek = getDayOfWeekInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+  const minutesNow = getMinutesSinceMidnightInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+  const todayStart = startOfDayInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+
+  const results: TeamHubNightChecklistAlert[] = [];
+  for (const site of sites) {
+    if (!site.nightChecklistServiceDays?.includes(dayOfWeek)) continue;
+
+    const [cutoffHour, cutoffMinute] = site.nightChecklistCutoffTime!.split(":").map(Number);
+    if (minutesNow < cutoffHour * 60 + cutoffMinute) continue;
+
+    const alreadySentRows = await sql`SELECT 1 FROM hub_checklist_alerts_sent WHERE site_id = ${site.id} AND alert_date = ${today} LIMIT 1`;
+    if (alreadySentRows.length > 0) continue;
+
+    const crewRows = await sql`SELECT * FROM hub_crews WHERE site_id = ${site.id} AND crew_type = 'night' AND active = true LIMIT 1`;
+    if (crewRows.length === 0) continue;
+    const crew = rowToCrew(crewRows[0] as Record<string, unknown>);
+
+    const submittedRows = await sql`
+      SELECT 1 FROM hub_checklist_runs WHERE crew_id = ${crew.id} AND submitted_at >= ${todayStart.toISOString()} LIMIT 1
+    `;
+    if (submittedRows.length > 0) continue;
+
+    results.push({ site, crew });
+  }
+  return results;
+}
+
+// Marks the alert sent for (site, today) — ON CONFLICT DO NOTHING so a
+// second cron tick within the same minute (or a retried request) can't
+// double-insert; the UNIQUE(site_id, alert_date) constraint is what makes
+// this the alert's actual dedup guarantee, not just this INSERT's phrasing.
+export async function recordTeamHubChecklistAlertSent(siteId: number, atInstant: Date = new Date()): Promise<void> {
+  const today = getDateStringInTimeZone(atInstant, TEAM_HUB_TIMEZONE);
+  const sql = getSql();
+  await sql`
+    INSERT INTO hub_checklist_alerts_sent (site_id, alert_date) VALUES (${siteId}, ${today})
+    ON CONFLICT (site_id, alert_date) DO NOTHING
+  `;
 }

@@ -6,8 +6,9 @@ import SubcontractorsPage from "../subcontractors/page";
 import SubSchedulesPage from "../sub-schedules/page";
 import SubCenterCoverage from "./coverage";
 import SubCenterActivityLog from "./activity-log";
+import SubCenterTeamHub from "./team-hub";
 
-type CenterTab = "subs" | "schedules" | "coverage" | "activity";
+type CenterTab = "subs" | "schedules" | "coverage" | "activity" | "team-hub";
 
 const TAB_STORAGE_KEY = "cwSubCenterTab";
 
@@ -16,10 +17,11 @@ const TABS: { id: CenterTab; label: string }[] = [
   { id: "schedules", label: "Sub Schedules" },
   { id: "coverage", label: "Coverage" },
   { id: "activity", label: "Activity Log" },
+  { id: "team-hub", label: "Team Hub" },
 ];
 
 function isCenterTab(value: string | null): value is CenterTab {
-  return value === "subs" || value === "schedules" || value === "coverage" || value === "activity";
+  return value === "subs" || value === "schedules" || value === "coverage" || value === "activity" || value === "team-hub";
 }
 
 function getStoredTab(): CenterTab {
@@ -75,6 +77,7 @@ function SubCenterPageContent() {
       {activeTab === "schedules" && <SubSchedulesPage />}
       {activeTab === "coverage" && <SubCenterCoverage />}
       {activeTab === "activity" && <SubCenterActivityLog />}
+      {activeTab === "team-hub" && <SubCenterTeamHub />}
     </div>
   );
 }

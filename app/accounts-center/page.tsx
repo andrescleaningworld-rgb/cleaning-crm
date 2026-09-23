@@ -7,8 +7,9 @@ import ComplaintsPage from "../complaints/page";
 import AccountUpdatesPage from "../account-updates/page";
 import RecentActivitySummary from "./recent-activity";
 import AccountsCenterKeys from "./keys";
+import TeamHubStaffQueue from "./team-hub-queue";
 
-type CenterTab = "all" | "visits" | "complaints" | "updates" | "keys";
+type CenterTab = "all" | "visits" | "complaints" | "updates" | "keys" | "team-hub";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
@@ -18,6 +19,7 @@ const TABS: { id: CenterTab; label: string }[] = [
   { id: "complaints", label: "Complaints" },
   { id: "updates", label: "Updates" },
   { id: "keys", label: "Keys" },
+  { id: "team-hub", label: "Team Hub" },
 ];
 
 function getStoredTab(): CenterTab {
@@ -27,19 +29,33 @@ function getStoredTab(): CenterTab {
     stored === "visits" ||
     stored === "complaints" ||
     stored === "updates" ||
-    stored === "keys"
+    stored === "keys" ||
+    stored === "team-hub"
     ? stored
     : "all";
 }
 
 export default function AccountsCenterPage() {
   const [activeTab, setActiveTab] = useState<CenterTab>("all");
+  // Phase 6: open-problem count across every account's Team Hub, shown as a
+  // badge on the tab itself so staff notice without opening it.
+  const [openTeamHubCount, setOpenTeamHubCount] = useState(0);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
     // eagerly (lazy initializer) would mismatch the server-rendered tab.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTab(getStoredTab());
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/team-hub/open-counts", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { countsByAccountId?: Record<string, number> }) => {
+        const total = Object.values(data.countsByAccountId ?? {}).reduce((sum, n) => sum + n, 0);
+        setOpenTeamHubCount(total);
+      })
+      .catch(() => setOpenTeamHubCount(0));
   }, []);
 
   function handleTabChange(next: CenterTab) {
@@ -68,6 +84,11 @@ export default function AccountsCenterPage() {
               }`}
             >
               {label}
+              {id === "team-hub" && openTeamHubCount > 0 && (
+                <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-bold text-white">
+                  {openTeamHubCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -83,6 +104,7 @@ export default function AccountsCenterPage() {
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "updates" && <AccountUpdatesPage />}
       {activeTab === "keys" && <AccountsCenterKeys />}
+      {activeTab === "team-hub" && <TeamHubStaffQueue />}
     </div>
   );
 }

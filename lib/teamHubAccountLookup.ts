@@ -63,3 +63,20 @@ export async function lookupAssignedSubForAccount(accountId: string): Promise<Te
 
   return { status: "unmatched", options };
 }
+
+// Phase 6 (Sub Center read-only list): resolves hub_crews.sub_id values
+// (getAllSubcontractorsRaw's own "SUB-ROW-<n>" id scheme — see that
+// function's comment) back to display names, for subIds already known to
+// have open Team Hub issues/orders (lib/teamHubDb.ts's
+// listTeamHubSubIdsWithOpenItems). Not scoped/filtered — a small, rarely-
+// called admin list, same cost tradeoff already accepted for
+// lookupAssignedSubForAccount.
+export async function lookupSubcontractorNames(subIds: string[]): Promise<Map<string, string>> {
+  const subs = await getAllSubcontractorsRaw();
+  const byId = new Map(subs.map((s) => [s.id, s.companyName || s.contactName]));
+  const result = new Map<string, string>();
+  for (const subId of subIds) {
+    result.set(subId, byId.get(subId) ?? subId);
+  }
+  return result;
+}

@@ -68,6 +68,11 @@ const PUBLIC_PATHS = [
   // static asset explicitly rather than allowlisting all of /public.
   "/team-hub-icons",
   "/team-hub-sw.js",
+  // Vercel Cron invokes these with no cookies at all — self-gated on
+  // CRON_SECRET inside each route (same self-checking pattern
+  // /api/subcontractor-portal already uses), not the admin session cookie.
+  // Phase 6: app/api/cron/team-hub-checklist-alerts/route.ts.
+  "/api/cron",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action

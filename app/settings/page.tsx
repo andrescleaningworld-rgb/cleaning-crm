@@ -895,6 +895,20 @@ export default function SettingsPage() {
           <span className="ml-4 shrink-0 text-purple-500">→</span>
         </Link>
 
+        {/* Team Hub Libraries shortcut */}
+        <Link
+          href="/settings/team-hub-libraries"
+          className="mb-6 flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-5 py-4 shadow-sm transition hover:bg-indigo-100"
+        >
+          <div>
+            <p className="font-bold text-indigo-900">Team Hub Libraries</p>
+            <p className="mt-0.5 text-sm text-indigo-700">
+              Manage the company-wide checklist items, rounds, and supply items every Team Hub crew draws from.
+            </p>
+          </div>
+          <span className="ml-4 shrink-0 text-indigo-500">→</span>
+        </Link>
+
         {/* Equipment Categories & Staff shortcut */}
         <Link
           href="/settings/equipment-categories"

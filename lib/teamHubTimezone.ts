@@ -51,3 +51,27 @@ export function startOfMonthInTimeZone(instant: Date, timeZone: string): Date {
   const { year, month } = zonedDateParts(instant, timeZone);
   return localMidnightUtc(year, month, 1, timeZoneOffsetMinutes(instant, timeZone));
 }
+
+// "YYYY-MM-DD" of `instant`'s calendar day in `timeZone` — used as the
+// dedup key for hub_checklist_alerts_sent (Phase 6), so a plain SQL DATE
+// comparison works regardless of the server process's own local timezone.
+export function getDateStringInTimeZone(instant: Date, timeZone: string): string {
+  const { year, month, day } = zonedDateParts(instant, timeZone);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// 0=Sunday..6=Saturday of `instant`'s calendar day in `timeZone` — matches
+// hub_sites.night_checklist_service_days' encoding (Phase 6).
+export function getDayOfWeekInTimeZone(instant: Date, timeZone: string): number {
+  const { year, month, day } = zonedDateParts(instant, timeZone);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+// Minutes since local midnight of `instant`'s calendar day in `timeZone` —
+// compared against hub_sites.night_checklist_cutoff_time (Phase 6), which
+// is stored as a plain HH:MM local time with no timezone of its own.
+export function getMinutesSinceMidnightInTimeZone(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(instant);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  return get("hour") * 60 + get("minute");
+}

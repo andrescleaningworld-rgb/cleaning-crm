@@ -6,7 +6,7 @@
 // in this file, and indirect (it's inside lib/teamHubDb.ts, not called
 // directly here).
 import { NextRequest, NextResponse } from "next/server";
-import { getTeamHubSiteByAccountId, createTeamHubSite, updateTeamHubSite, setTeamHubSiteActive } from "@/lib/teamHubDb";
+import { getTeamHubSiteByAccountId, createTeamHubSite, updateTeamHubSite, setTeamHubSiteActive, setTeamHubNightChecklistAlertConfig } from "@/lib/teamHubDb";
 import { lookupAssignedSubForAccount } from "@/lib/teamHubAccountLookup";
 
 // Simplicity-pass addition: assignedSub rides along on the same GET the
@@ -67,6 +67,16 @@ export async function POST(request: NextRequest) {
 
     if (action === "setActive") {
       const site = await setTeamHubSiteActive(id, Boolean(body.active));
+      if (!site) return NextResponse.json({ success: false, error: "Site not found." }, { status: 404 });
+      return NextResponse.json({ success: true, site });
+    }
+
+    // Phase 6: night-checklist cutoff alert config. cutoffTime null (or
+    // omitted) disables the alert for this site.
+    if (action === "setNightChecklistAlert") {
+      const cutoffTime = body.cutoffTime ? String(body.cutoffTime) : null;
+      const serviceDays = Array.isArray(body.serviceDays) ? body.serviceDays.map(Number) : null;
+      const site = await setTeamHubNightChecklistAlertConfig(id, { cutoffTime, serviceDays });
       if (!site) return NextResponse.json({ success: false, error: "Site not found." }, { status: 404 });
       return NextResponse.json({ success: true, site });
     }

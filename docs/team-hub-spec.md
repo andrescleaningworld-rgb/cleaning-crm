@@ -770,23 +770,112 @@ Idempotent (select-before-insert on natural key, not a DB constraint).
   pass's in-memory "retry once on reconnect" approximation of this was
   **removed** in Phase 4 pending real design here — see Phase 4's own
   notes and the updated §11 GLOBAL UI RULES.
-- **Phase 6 — re-scoped (no longer depends on Phase 3).** Admin CRUD for
-  `hub_checklist_library`, `hub_round_library`, and `supply_items` (Phase
-  0 only reads them) — kept from the original scope. Also now covers,
-  pulled forward because none of it needs `handoff`/`requests` to exist:
-  an **activity feed per account** (Team Hub tab), a **staff queue**
-  (orders/problems across every account, not just one — the Phase 4 admin
-  UI is scoped to one account's Team Hub tab only), an **Accounts Center
-  badge for open problems**, a **Sub Center read-only list** (orders/
-  problems for a sub's own accounts), and the **email alerts** Phase 4
-  doesn't already cover: a night checklist not finished by a configurable
-  time on service days (needs a per-site or per-account "service day" /
-  cutoff-time concept that doesn't exist yet). Per-worker OneSignal push
-  registration (crew alerts) is explicitly **dropped** from this phase's
-  scope — it was originally going to notify on new handoffs/requests, both
-  deferred with Phase 3; nothing currently needs it. Team Hub workers still
-  have no `externalUserId` identity for `sendPush()` to target if a future
-  phase revives it.
+- **Phase 6 — done.** Admin CRUD for `hub_checklist_library`,
+  `hub_round_library`, and `supply_items` (Phase 0 only read them) — kept
+  from the original scope. Also covers, pulled forward because none of it
+  needs `handoff`/`requests` to exist: an **activity feed per account**
+  (Team Hub tab), a **staff queue** (orders/problems across every account,
+  not just one — the Phase 4 admin UI is scoped to one account's Team Hub
+  tab only), an **Accounts Center badge for open problems**, a **Sub
+  Center read-only list** (orders/problems for a sub's own accounts), and
+  a **night-checklist cutoff email alert**. Per-worker OneSignal push
+  registration (crew alerts) is still **dropped** from this phase's scope —
+  it was originally going to notify on new handoffs/requests, both deferred
+  with Phase 3; nothing currently needs it. Team Hub workers still have no
+  `externalUserId` identity for `sendPush()` to target if a future phase
+  revives it.
+
+  **Library CRUD** (`lib/teamHubDb.ts`): `create`/`update`/`set*Active` for
+  all three libraries — no delete anywhere (an item can already be
+  referenced by a live `hub_crew_items` row or past run history, so
+  "remove" is always `setActive(false)`, the same convention every other
+  Team Hub admin entity uses). One route, `POST/GET
+  /api/admin/team-hub/libraries` (`type: "checklist"|"round"|"supply"`),
+  and a new page `app/settings/team-hub-libraries/page.tsx` (linked from
+  `/settings`) — these are company-wide catalogs, not per-account, so they
+  don't live on the account-page Team Hub tab.
+
+  **Activity feed**: `getTeamHubActivityFeedForSite()` — deliberately NOT
+  `lib/activityLog.ts` (the manager/owner audit trail). It's an operational
+  feed of what crews actually did (checklist submissions, round check-ins,
+  problem reports, supply orders), sourced straight from Team Hub's own
+  already-timestamped tables and merged/sorted in JS. Kept separate from
+  the two existing activity logs on purpose (same reasoning as Sub Center's
+  Activity Log staying separate from Settings' Activity Log — see the
+  standing instruction not to merge those). `GET
+  /api/admin/team-hub/activity?siteId=`, rendered as a collapsible
+  "Activity" section on the account-page Team Hub tab.
+
+  **Staff queue + badge + Sub Center list**: `listOpenTeamHubIssuesAcrossSites`/
+  `listOpenTeamHubSupplyOrdersAcrossSites` (all sites) and their `...ForSub`
+  equivalents (scoped to `hub_crews.crew_kind='sub' AND sub_id=X`) back
+  `GET /api/admin/team-hub/queue` (optional `?subId=`), which resolves
+  account names via `lib/teamHubAccountLookup.ts`. Rendered as a new "Team
+  Hub" tab in Accounts Center (`app/accounts-center/team-hub-queue.tsx`,
+  reusing the existing per-id `/api/admin/team-hub/issues` and
+  `/supply-orders` status actions — those already work regardless of which
+  account the row belongs to) with a red badge count on the tab itself
+  (`getOpenTeamHubIssueCountsByAccount()` via `GET
+  /api/admin/team-hub/open-counts`), and a **read-only** "Team Hub" tab in
+  Sub Center (`app/sub-center/team-hub.tsx` — no status-change actions;
+  those stay on Accounts Center and each account's own tab). Sub names for
+  the Sub Center tab come from `lookupSubcontractorNames()`, a new function
+  in `lib/teamHubAccountLookup.ts` resolving `hub_crews.sub_id`
+  (`getAllSubcontractorsRaw`'s own id scheme) back to a display name — same
+  choke-point rule as everything else here.
+
+  **Night-checklist cutoff alert**: `hub_sites` gained two nullable columns
+  (`night_checklist_cutoff_time TIME`, `night_checklist_service_days
+  SMALLINT[]`, 0=Sun..6=Sat, both null = disabled) and a new table,
+  `hub_checklist_alerts_sent (site_id, alert_date, UNIQUE(site_id,
+  alert_date))` — the alert's own idempotency guard, separate from
+  `hub_checklist_runs` since it tracks "was an email sent," not checklist
+  state. `lib/teamHubTimezone.ts` gained `getDateStringInTimeZone`/
+  `getDayOfWeekInTimeZone`/`getMinutesSinceMidnightInTimeZone` to evaluate
+  the cutoff against `TEAM_HUB_TIMEZONE`. Admin configures it per site from
+  a new "Night checklist alert" section on the Team Hub tab (only shown
+  once a `night` crew exists), via a new `setNightChecklistAlert` action on
+  the existing `/api/admin/team-hub/sites` route.
+
+  A new **Vercel Cron job** (`vercel.json`, `*/15 * * * *`) hits `GET
+  /api/cron/team-hub-checklist-alerts`, which calls
+  `findTeamHubSitesNeedingNightChecklistAlert()` (past cutoff on a service
+  day, active night crew, no submitted run yet today, no alert already sent
+  today) and emails info@/crm@ via the existing `sendInternalNotification`
+  for each hit, then records it sent. This is the **first cron job in the
+  codebase** — `proxy.ts` gained a new self-gated `/api/cron` PUBLIC_PATHS
+  entry (Vercel Cron sends no cookies at all; the route checks `Authorization:
+  Bearer $CRON_SECRET` itself, same self-checking-route pattern
+  `/api/subcontractor-portal` already uses for its own reasons). **New env
+  var `CRON_SECRET` — not yet set in Vercel** (same flag Phase 1 raised for
+  `TEAM_HUB_SESSION_PASSWORD`); until it's set, the route's own check
+  (`!process.env.CRON_SECRET`) rejects every request with 401, so the
+  cron is inert rather than open, but no alerts will actually send until
+  it's added via `vercel env add CRON_SECRET`.
+
+  **Verified**: `tsc --noEmit`, `eslint` (scoped to every changed/added
+  file), and a full `next build` — all clean, every new route appears in
+  the build's route list (including `/api/cron/team-hub-checklist-alerts`).
+  A throwaway-row script against the dev `DATABASE_URL` (mirroring, not
+  importing, the new SQL — plain `node`/`@neondatabase/serverless` can't
+  resolve this project's `@/lib/...` TS path aliases) exercised: checklist-
+  library create/update/deactivate, all four activity-feed event queries,
+  the cross-site open-issue/open-order queries with `account_id` attached,
+  badge counts (1 → 0 after resolving), the sub-scoped open-items query,
+  and the full night-checklist-alert sequence (past-cutoff detection, no-
+  submission detection, the `hub_checklist_alerts_sent` dedup insert firing
+  exactly once on a double-insert, and a later submission correctly
+  clearing the "needs alert" condition). 15/15 assertions passed; all test
+  rows deleted afterward and independently confirmed gone (0 leftover).
+  **Not exercised**: a live HTTP request through the actual routes (session
+  cookies, the cron's own `CRON_SECRET` check) or the cron on its real
+  Vercel schedule — same gap Phase 4 flagged for its own routes.
+
+  Sheets touch points from this phase: `lookupAccountSummary()` (cron
+  route's email account name) and the new `lookupSubcontractorNames()`
+  (Sub Center tab's sub display names), both via the existing
+  `lib/teamHubAccountLookup.ts` choke point — no other new Sheets reads,
+  and no new direct `lib/googleSheets.ts` imports anywhere in Team Hub.
 
 ## 10. Sheets touch points to watch across phases
 

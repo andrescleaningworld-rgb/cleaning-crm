@@ -18,6 +18,8 @@ type TeamHubSite = {
   supervisorPhone: string | null;
   active: boolean;
   createdAt: string;
+  nightChecklistCutoffTime: string | null;
+  nightChecklistServiceDays: number[] | null;
 };
 
 type TeamHubCrew = {
@@ -201,8 +203,187 @@ export default function AccountTeamHubTab({ accountId, accountName }: { accountI
         <AddAnotherCrew siteId={site.id} onChanged={load} />
       </section>
 
+      {crews.some((c) => c.crewType === "night") && <NightChecklistAlertSettings site={site} onChanged={load} />}
+
       <OrdersAndProblems site={site} accountId={accountId} accountName={accountName} />
+
+      <SiteActivityFeed siteId={site.id} />
     </div>
+  );
+}
+
+// ─── Night checklist alert config (Phase 6) ─────────────────────────────
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function NightChecklistAlertSettings({ site, onChanged }: { site: TeamHubSite; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [cutoffTime, setCutoffTime] = useState(site.nightChecklistCutoffTime ?? "21:00");
+  const [days, setDays] = useState<Set<number>>(new Set(site.nightChecklistServiceDays ?? [1, 2, 3, 4, 5]));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const enabled = Boolean(site.nightChecklistCutoffTime && site.nightChecklistServiceDays?.length);
+
+  function toggleDay(day: number) {
+    setDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(day)) next.delete(day);
+      else next.add(day);
+      return next;
+    });
+  }
+
+  async function save(nextCutoffTime: string | null) {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/admin/team-hub/sites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setNightChecklistAlert",
+          id: site.id,
+          cutoffTime: nextCutoffTime,
+          serviceDays: nextCutoffTime ? Array.from(days) : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to save.");
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Night checklist alert</h3>
+          <p className="text-sm text-slate-500">
+            {enabled
+              ? `Emails info@/crm@ if the night checklist isn't submitted by ${site.nightChecklistCutoffTime} on ${Array.from(site.nightChecklistServiceDays ?? []).map((d) => WEEKDAY_LABELS[d]).join(", ")}.`
+              : "Off — no alert configured for this site."}
+          </p>
+        </div>
+        <button type="button" onClick={() => setOpen((o) => !o)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+          {open ? "Hide" : "Configure"}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm font-semibold text-slate-700">Cutoff time</label>
+            <input type="time" value={cutoffTime} onChange={(e) => setCutoffTime(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {WEEKDAY_LABELS.map((label, day) => (
+              <button
+                key={day}
+                type="button"
+                onClick={() => toggleDay(day)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${days.has(day) ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {error && <p className="text-sm font-semibold text-red-700">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" disabled={saving} onClick={() => save(cutoffTime)} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60">
+              {saving ? "Saving..." : "Save"}
+            </button>
+            {enabled && (
+              <button type="button" disabled={saving} onClick={() => save(null)} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                Turn off
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Activity feed (Phase 6) ─────────────────────────────────────────────
+
+type ActivityEvent =
+  | { kind: "checklist_submitted"; at: string; crewName: string; doneCount: number }
+  | { kind: "round_check"; at: string; crewName: string; roundName: string; workerFirstName: string | null }
+  | { kind: "issue_reported"; at: string; crewName: string; category: string; workerFirstName: string | null }
+  | { kind: "supply_order"; at: string; crewName: string; itemCount: number; workerFirstName: string | null };
+
+function describeActivityEvent(event: ActivityEvent): string {
+  switch (event.kind) {
+    case "checklist_submitted":
+      return `${event.crewName}: checklist submitted (${event.doneCount} items)`;
+    case "round_check":
+      return `${event.crewName}: ${event.roundName} checked${event.workerFirstName ? ` by ${event.workerFirstName}` : ""}`;
+    case "issue_reported":
+      return `${event.crewName}: problem reported (${event.category})${event.workerFirstName ? ` by ${event.workerFirstName}` : ""}`;
+    case "supply_order":
+      return `${event.crewName}: supply order sent (${event.itemCount} item${event.itemCount === 1 ? "" : "s"})${event.workerFirstName ? ` by ${event.workerFirstName}` : ""}`;
+  }
+}
+
+function SiteActivityFeed({ siteId }: { siteId: number }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [error, setError] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/admin/team-hub/activity?siteId=${siteId}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to load activity.");
+      setEvents(data.events ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load activity.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-slate-900">Activity</h3>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !open;
+            setOpen(next);
+            if (next) load();
+          }}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          {open ? "Hide" : "Show"}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-3">
+          {loading && <p className="text-sm text-slate-500">Loading...</p>}
+          {error && <p className="text-sm font-semibold text-red-700">{error}</p>}
+          {!loading && events.length === 0 && !error && <p className="text-sm text-slate-500">No activity yet.</p>}
+          <ul className="divide-y divide-slate-100">
+            {events.map((event, i) => (
+              <li key={i} className="flex items-center justify-between gap-4 py-2 text-sm">
+                <span className="text-slate-700">{describeActivityEvent(event)}</span>
+                <span className="shrink-0 text-xs text-slate-400">{new Date(event.at).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   );
 }
 
