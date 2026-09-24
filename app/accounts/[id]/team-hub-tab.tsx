@@ -11,6 +11,7 @@
 // Customize instead of always being visible.
 import { useEffect, useState, useCallback } from "react";
 import TranslatedText from "../../components/TranslatedText";
+import { formatCrewDateTime } from "@/lib/crewDateTime";
 
 type TeamHubSite = {
   id: number;
@@ -475,7 +476,7 @@ function SiteActivityFeed({ siteId, crews }: { siteId: number; crews: TeamHubCre
               <li key={event.id} className="py-2 text-sm">
                 <div className="flex items-start justify-between gap-4">
                   <span className="text-slate-700">{describeActivityEvent(event)}</span>
-                  <span className="shrink-0 text-xs text-slate-400">{new Date(event.at).toLocaleString()}</span>
+                  <span className="shrink-0 text-xs text-slate-400">{formatCrewDateTime(event.at)}</span>
                 </div>
                 {(event.kind === "issue_reported" || event.kind === "supply_order") && event.note && (
                   <p className="mt-1 text-xs text-slate-600">
@@ -1153,7 +1154,7 @@ export function OrdersAndProblems({
                     </p>
                   )}
                   <p className="text-xs text-slate-500">
-                    {order.workerFirstName ?? "Unknown"} · {new Date(order.createdAt).toLocaleString()}
+                    {order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}
                     {order.note ? (
                       <>
                         {" · "}
@@ -1255,7 +1256,7 @@ function IssueRow({
           </p>
           {issue.note && <p className="text-sm text-slate-700"><TranslatedText original={issue.note} english={issue.noteEnglish} language={issue.noteLanguage} /></p>}
           <p className="text-xs text-slate-500">
-            {issue.workerFirstName ?? "Unknown"} · {new Date(issue.createdAt).toLocaleString()}
+            {issue.workerFirstName ?? "Unknown"} · {formatCrewDateTime(issue.createdAt)}
           </p>
         </div>
         <span

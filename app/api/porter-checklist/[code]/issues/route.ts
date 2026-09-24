@@ -84,6 +84,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       notifyNewProblem({
         source: { kind: "crew-link", reporterName },
         issueId: issue.id,
+        createdAt: issue.createdAt,
         accountId: link.template.accountId,
         category,
         note,

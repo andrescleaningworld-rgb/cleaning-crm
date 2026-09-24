@@ -162,14 +162,15 @@ export default function TeamHubPage() {
                 token={token}
                 lang={lang}
                 onBack={() => setOpenModule(null)}
+                workerName={session.worker?.firstName}
                 onReportProblem={() => setOpenModule("issues")}
               />
             ) : openModule === "rounds" ? (
               <RoundsView token={token} lang={lang} onBack={() => setOpenModule(null)} />
             ) : openModule === "issues" ? (
-              <IssueReportView token={token} lang={lang} onBack={() => setOpenModule(null)} />
+              <IssueReportView token={token} lang={lang} onBack={() => setOpenModule(null)} workerName={session.worker?.firstName} />
             ) : openModule === "supplies" ? (
-              <SuppliesView token={token} lang={lang} onBack={() => setOpenModule(null)} />
+              <SuppliesView token={token} lang={lang} onBack={() => setOpenModule(null)} workerName={session.worker?.firstName} />
             ) : (
               <TodayScreen
                 token={token}

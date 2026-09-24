@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { formatCrewDateTime } from "@/lib/crewDateTime";
 
 type SubmissionSummary = {
   id: number;
@@ -35,18 +36,6 @@ type DetailResponse = {
   error?: string;
   detail?: SubmissionSummary & { sections: ChecklistSubmissionSection[] };
 };
-
-function formatTimestamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export default function PorterChecklistSubmissionsPage() {
   const [accountFilter, setAccountFilter] = useState("");
@@ -331,7 +320,7 @@ export default function PorterChecklistSubmissionsPage() {
                     return [
                       submission.porterName,
                       submission.startedAt ? null : submission.weekOf || "—",
-                      formatTimestamp(submission.submittedAt),
+                      formatCrewDateTime(submission.submittedAt),
                       `${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`,
                     ]
                       .filter(Boolean)

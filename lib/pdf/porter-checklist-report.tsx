@@ -10,6 +10,8 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { formatCrewDateTime } from "@/lib/crewDateTime";
+import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
 
 // Self-contained, mirroring lib/pdf/account-packet-admin.tsx's styling
 // conventions — but this is the customer-facing variant (like
@@ -275,7 +277,8 @@ function getLogoBuffer(): Buffer {
 function formatDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // Eastern, not the server's UTC — a late-evening visit must not print as the next day.
+  return date.toLocaleDateString("en-US", { timeZone: TEAM_HUB_TIMEZONE, month: "short", day: "numeric", year: "numeric" });
 }
 
 function CompletionBadge({ completed, total }: { completed: number; total: number }) {
@@ -353,7 +356,7 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
               <View style={styles.submissionHeaderRow}>
                 <View>
                   <Text style={styles.submissionHeaderTitle}>
-                    {formatDate(submission.submittedAt)}
+                    {formatCrewDateTime(submission.submittedAt)}
                     {submission.tabName ? ` · ${submission.tabName}` : ""}
                   </Text>
                   <Text style={styles.submissionHeaderMeta}>

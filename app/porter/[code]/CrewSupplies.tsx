@@ -6,8 +6,9 @@
 // (the server enforces the same rule). Same API as before:
 // GET/POST /api/porter-checklist/[code]/supplies.
 import { useCallback, useEffect, useState } from "react";
+import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import type { CrewLinkStrings } from "./strings";
-import { ErrorBox, SendBar } from "./ui";
+import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 
 type SupplyItem = { itemId: number; name: string; unit: string };
 type OrderStatus = "new" | "ordered" | "delivered" | "cancelled";
@@ -28,12 +29,16 @@ const STATUS_STYLES: Record<OrderStatus, string> = {
 export default function CrewSupplies({
   apiBase,
   s,
+  lang,
   name,
+  onNameChange,
   onSent,
 }: {
   apiBase: string;
   s: CrewLinkStrings;
+  lang: TeamHubLang;
   name: string;
+  onNameChange: (name: string) => void;
   onSent: () => void;
 }) {
   const suppliesUrl = `${apiBase}/supplies`;
@@ -75,7 +80,9 @@ export default function CrewSupplies({
   const lines = Object.entries(quantities)
     .map(([itemId, qty]) => ({ itemId: Number(itemId), qty }))
     .filter((line) => line.qty > 0);
-  const canSend = lines.length > 0 || otherItems.trim().length > 0;
+  const hasItems = lines.length > 0 || otherItems.trim().length > 0;
+  const nameMissing = !name.trim();
+  const canSend = hasItems && !nameMissing;
 
   async function send() {
     if (!canSend) return;
@@ -85,7 +92,7 @@ export default function CrewSupplies({
       const res = await fetch(suppliesUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reporterName: name, note, otherItems: otherItems.trim(), lines }),
+        body: JSON.stringify({ reporterName: name.trim(), note, otherItems: otherItems.trim(), lines }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -105,6 +112,8 @@ export default function CrewSupplies({
 
   return (
     <div className="space-y-4">
+      <WhoAndWhen s={s} lang={lang} name={name} onNameChange={onNameChange} />
+
       {items.length > 0 ? (
         <div className="divide-y divide-slate-100 rounded-2xl bg-white shadow-sm">
           {items.map((item) => {
@@ -171,7 +180,7 @@ export default function CrewSupplies({
         busy={sending}
         disabled={!canSend}
         onClick={send}
-        hint={canSend ? undefined : s.pickSupplies}
+        hint={!hasItems ? s.pickSupplies : nameMissing ? s.writeYourName : undefined}
       />
 
       {recentOrders.length > 0 ? (

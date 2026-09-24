@@ -83,6 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       notifyNewSupplyOrder({
         source: { kind: "crew-link", reporterName },
         orderId: order.id,
+        createdAt: order.createdAt,
         accountId: link.template.accountId,
         note: order.note,
         otherItems: order.otherItems,

@@ -4,8 +4,9 @@
 // whole flow: text at least 18px (text-lg), every tap target at least 56px
 // tall, one thing per screen, nothing hidden behind menus.
 import Image from "next/image";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
+import { formatCrewDateTime } from "@/lib/crewDateTime";
 import type { CrewLinkStrings } from "./strings";
 
 // Always-visible English/Español switch (the choice is remembered per phone
@@ -61,6 +62,54 @@ export function CrewHeader({
         <LangSwitch lang={lang} onChange={onLangChange} />
       </div>
     </header>
+  );
+}
+
+// The live date/time shown on every crew form (Eastern time, ticks every
+// 30s). Display only — the saved time is the server's clock at Send.
+export function useNowLabel(lang: TeamHubLang): string {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return formatCrewDateTime(now, lang);
+}
+
+// Top of every Crew Link form: "Your name" (required, prefilled with the
+// last name used on this phone) and today's date/time, filled in for them.
+export function WhoAndWhen({
+  s,
+  lang,
+  name,
+  onNameChange,
+}: {
+  s: CrewLinkStrings;
+  lang: TeamHubLang;
+  name: string;
+  onNameChange: (name: string) => void;
+}) {
+  const nowLabel = useNowLabel(lang);
+  const missing = !name.trim();
+  return (
+    <div className="space-y-3 rounded-2xl bg-white p-4 shadow-sm">
+      <label className="block">
+        <span className={`text-lg font-bold ${missing ? "text-amber-700" : "text-slate-700"}`}>{s.yourName}</span>
+        <input
+          value={name}
+          onChange={(event) => onNameChange(event.target.value)}
+          autoComplete="name"
+          maxLength={80}
+          className={`mt-2 min-h-[56px] w-full rounded-xl border-2 px-3 text-xl font-semibold outline-none focus:border-blue-600 ${
+            missing ? "border-amber-400" : "border-slate-300"
+          }`}
+        />
+      </label>
+      <p className="flex items-center gap-2 text-lg font-semibold text-slate-700">
+        <span aria-hidden="true">🕒</span>
+        {nowLabel}
+      </p>
+    </div>
   );
 }
 

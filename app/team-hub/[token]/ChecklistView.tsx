@@ -10,6 +10,7 @@
 // No offline queue (Phase 4: offline mode is deferred to Phase 5, see
 // docs/team-hub-spec.md) — a failed tap reverts its optimistic UI change
 // and shows "No signal — try again"; nothing is silently queued.
+import WorkerAndTime from "./WorkerAndTime";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings } from "../teamHubStrings";
@@ -35,11 +36,14 @@ export default function ChecklistView({
   token,
   lang,
   onBack,
+  workerName,
   onReportProblem,
 }: {
   token: string;
   lang: TeamHubLang;
   onBack: () => void;
+  // Team Hub: the signed-in worker, shown with the date/time on the form.
+  workerName?: string;
   onReportProblem: () => void;
 }) {
   const s = teamHubStrings(lang).checklist;
@@ -228,6 +232,8 @@ export default function ChecklistView({
         </button>
         <span className="text-base font-bold text-slate-600">{s.area(areaIndex + 1, byArea.length)}</span>
       </div>
+
+      <WorkerAndTime workerName={workerName} lang={lang} />
 
       <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
         <div

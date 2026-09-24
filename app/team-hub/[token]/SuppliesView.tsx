@@ -4,6 +4,7 @@
 // order-level note, one big "Send order," and a plain-status recent-orders
 // list below it. No offline queue (see ChecklistView's file comment) — a
 // failed send just shows "No signal — try again" and nothing is queued.
+import WorkerAndTime from "./WorkerAndTime";
 import { useCallback, useEffect, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings } from "../teamHubStrings";
@@ -24,12 +25,15 @@ export default function SuppliesView({
   token,
   lang,
   onBack,
+  workerName,
   apiBase,
   reporterName,
 }: {
   token: string;
   lang: TeamHubLang;
   onBack: () => void;
+  // Team Hub: the signed-in worker, shown with the date/time on the form.
+  workerName?: string;
   apiBase?: string;
   // Crew Link only: the name the person typed (Team Hub knows its worker).
   reporterName?: string;
@@ -119,6 +123,8 @@ export default function SuppliesView({
       <button type="button" onClick={onBack} className="text-base font-semibold text-blue-700">
         ← {common.back}
       </button>
+
+      <WorkerAndTime workerName={workerName} lang={lang} />
 
       {banner && <div className="rounded-xl bg-amber-100 px-4 py-3 text-base font-semibold text-amber-900">{banner}</div>}
       {justSent && <div className="rounded-xl bg-green-100 px-4 py-3 text-base font-semibold text-green-800">✓ {s.orderSent}</div>}

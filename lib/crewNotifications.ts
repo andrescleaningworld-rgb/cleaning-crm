@@ -7,16 +7,17 @@
 import { sendInternalNotification } from "@/lib/email";
 import { translateToEnglish } from "@/lib/translate";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
+import { formatCrewDateTime } from "@/lib/crewDateTime";
 import {
   setTeamHubIssueNoteTranslation,
   setTeamHubSupplyOrderNoteTranslation,
   type TeamHubSupplyOrderLine,
 } from "@/lib/teamHubDb";
 
-// Where the order/problem came from. Team Hub: site label + crew name.
-// Crew Link: the name the person typed.
+// Where the order/problem came from. Team Hub: site label + crew name +
+// the signed-in worker. Crew Link: the name the person typed.
 export type CrewNotificationSource =
-  | { kind: "team-hub"; siteLabel: string; crewName: string }
+  | { kind: "team-hub"; siteLabel: string; crewName: string; workerName: string }
   | { kind: "crew-link"; reporterName: string };
 
 async function translateNote(note: string, save: (english: string, lang: string) => Promise<void>): Promise<string> {
@@ -32,8 +33,12 @@ function noteLines(note: string, englishNote: string): string[] {
   return [`Note: ${englishNote}`, ...(englishNote !== note ? [`Original: ${note}`] : [])];
 }
 
-function sourceLines(source: CrewNotificationSource): string[] {
-  return source.kind === "team-hub" ? [`Crew: ${source.crewName}`] : ["From: Crew Link", `Reported by: ${source.reporterName}`];
+function sourceLines(source: CrewNotificationSource, createdAt: string): string[] {
+  const who =
+    source.kind === "team-hub"
+      ? [`Crew: ${source.crewName}`, `Reported by: ${source.workerName}`]
+      : ["From: Crew Link", `Reported by: ${source.reporterName}`];
+  return [...who, `When: ${formatCrewDateTime(createdAt)} (Eastern)`];
 }
 
 function adminLink(origin: string, accountId: string, source: CrewNotificationSource): string {
@@ -44,6 +49,8 @@ function adminLink(origin: string, accountId: string, source: CrewNotificationSo
 export async function notifyNewSupplyOrder(input: {
   source: CrewNotificationSource;
   orderId: number;
+  // The saved row's created_at — the time shown in the email.
+  createdAt: string;
   accountId: string;
   note: string;
   // Crew Link write-in ("Other supplies not on the list"); Team Hub has none.
@@ -63,7 +70,7 @@ export async function notifyNewSupplyOrder(input: {
 
   await sendInternalNotification(subject, [
     `Account: ${accountName}`,
-    ...sourceLines(input.source),
+    ...sourceLines(input.source, input.createdAt),
     ...input.lines.map((l) => `${l.itemName} x${l.qty} ${l.unit}`),
     ...(input.otherItems ? [`Other supplies: ${input.otherItems}`] : []),
     ...noteLines(input.note, englishNote),
@@ -74,6 +81,7 @@ export async function notifyNewSupplyOrder(input: {
 export async function notifyNewProblem(input: {
   source: CrewNotificationSource;
   issueId: number;
+  createdAt: string;
   accountId: string;
   category: string;
   note: string;
@@ -92,7 +100,7 @@ export async function notifyNewProblem(input: {
 
   await sendInternalNotification(subject, [
     `Account: ${accountName}`,
-    ...sourceLines(input.source),
+    ...sourceLines(input.source, input.createdAt),
     `Category: ${input.category}`,
     ...noteLines(input.note, englishNote),
     input.photoUrls.length > 0 ? `Photos: ${input.photoUrls.join(", ")}` : "No photos.",

@@ -8,7 +8,7 @@ import { useState } from "react";
 import { TEAM_HUB_STRINGS, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { resizeImageForUpload } from "@/lib/imageResize";
 import type { CrewLinkStrings } from "./strings";
-import { ErrorBox, SendBar } from "./ui";
+import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 
 type Category = keyof (typeof TEAM_HUB_STRINGS)["en"]["issues"]["categories"];
 
@@ -33,12 +33,14 @@ export default function CrewProblem({
   s,
   lang,
   name,
+  onNameChange,
   onSent,
 }: {
   apiBase: string;
   s: CrewLinkStrings;
   lang: TeamHubLang;
   name: string;
+  onNameChange: (name: string) => void;
   onSent: () => void;
 }) {
   const labels = TEAM_HUB_STRINGS[lang].issues.categories;
@@ -49,6 +51,7 @@ export default function CrewProblem({
   const [error, setError] = useState("");
 
   const noteMissing = category === "other" && !note.trim();
+  const nameMissing = !name.trim();
 
   async function addPhotos(fileList: FileList | null) {
     if (!fileList) return;
@@ -75,14 +78,14 @@ export default function CrewProblem({
   }
 
   async function send() {
-    if (!category || noteMissing) return;
+    if (!category || noteMissing || nameMissing) return;
     setSending(true);
     setError("");
     try {
       const formData = new FormData();
       formData.set("category", category);
       formData.set("note", note.trim());
-      formData.set("reporterName", name);
+      formData.set("reporterName", name.trim());
       photos.forEach((photo, i) => formData.append("photos", photo.blob, `photo-${i}.jpg`));
       const res = await fetch(`${apiBase}/issues`, { method: "POST", body: formData });
       const data = await res.json();
@@ -102,6 +105,8 @@ export default function CrewProblem({
 
   return (
     <div className="space-y-4">
+      <WhoAndWhen s={s} lang={lang} name={name} onNameChange={onNameChange} />
+
       <h2 className="px-1 text-2xl font-black text-slate-900">{s.whatsWrong}</h2>
 
       <div className="grid grid-cols-2 gap-3">
@@ -185,7 +190,14 @@ export default function CrewProblem({
           </label>
 
           <ErrorBox message={error} />
-          <SendBar label={s.send} busyLabel={s.sending} busy={sending} disabled={noteMissing} onClick={send} />
+          <SendBar
+            label={s.send}
+            busyLabel={s.sending}
+            busy={sending}
+            disabled={noteMissing || nameMissing}
+            onClick={send}
+            hint={nameMissing ? s.writeYourName : undefined}
+          />
         </>
       ) : null}
     </div>

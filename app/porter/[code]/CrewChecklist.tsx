@@ -6,8 +6,9 @@
 // and back doesn't lose anything) and is sent on its own. No typed times:
 // "started" is the first checkbox tap, "finished" is the Send (server time).
 import type { ChecklistSubmissionSection, ChecklistTabDef } from "@/lib/checklistTemplate";
+import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import type { CrewLinkStrings } from "./strings";
-import { ErrorBox, SendBar } from "./ui";
+import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 import { useState } from "react";
 
 export type TabProgress = { checked: Record<string, boolean>; note: string; startedAt: string | null };
@@ -17,7 +18,9 @@ export const EMPTY_TAB_PROGRESS: TabProgress = { checked: {}, note: "", startedA
 export default function CrewChecklist({
   code,
   s,
+  lang,
   name,
+  onNameChange,
   tabs,
   activeTabId,
   onSelectTab,
@@ -27,7 +30,9 @@ export default function CrewChecklist({
 }: {
   code: string;
   s: CrewLinkStrings;
+  lang: TeamHubLang;
   name: string;
+  onNameChange: (name: string) => void;
   tabs: ChecklistTabDef[];
   activeTabId: number;
   onSelectTab: (tabId: number) => void;
@@ -53,8 +58,10 @@ export default function CrewChecklist({
     });
   }
 
+  const nameMissing = !name.trim();
+
   async function send() {
-    if (!tab) return;
+    if (!tab || nameMissing) return;
     setSending(true);
     setError("");
     try {
@@ -76,7 +83,7 @@ export default function CrewChecklist({
           action: "submit",
           code,
           tabId: tab.id,
-          porterName: name,
+          porterName: name.trim(),
           startedAt: progress.startedAt,
           generalNotes: progress.note.trim(),
           sections,
@@ -98,6 +105,8 @@ export default function CrewChecklist({
 
   return (
     <div className="space-y-4">
+      <WhoAndWhen s={s} lang={lang} name={name} onNameChange={onNameChange} />
+
       {tabs.length > 1 ? (
         <div className="grid grid-cols-2 gap-3">
           {tabs.map((t) => (
@@ -176,7 +185,14 @@ export default function CrewChecklist({
           </label>
 
           <ErrorBox message={error} />
-          <SendBar label={s.send} busyLabel={s.sending} busy={sending} disabled={false} onClick={send} />
+          <SendBar
+            label={s.send}
+            busyLabel={s.sending}
+            busy={sending}
+            disabled={nameMissing}
+            onClick={send}
+            hint={nameMissing ? s.writeYourName : undefined}
+          />
         </>
       )}
     </div>

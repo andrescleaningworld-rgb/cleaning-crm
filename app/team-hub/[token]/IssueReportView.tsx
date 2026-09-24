@@ -17,6 +17,7 @@
 // know about it — the linkage is automatic whenever a run happens to be
 // open at report time, regardless of which of the two entry points
 // (Today's "issues" tile, or the checklist screen's button below) sent it.
+import WorkerAndTime from "./WorkerAndTime";
 import { useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings, TEAM_HUB_STRINGS } from "../teamHubStrings";
@@ -43,12 +44,15 @@ export default function IssueReportView({
   token,
   lang,
   onBack,
+  workerName,
   apiBase,
   reporterName,
 }: {
   token: string;
   lang: TeamHubLang;
   onBack: () => void;
+  // Team Hub: the signed-in worker, shown with the date/time on the form.
+  workerName?: string;
   apiBase?: string;
   // Crew Link only: the name the person typed (Team Hub knows its worker).
   reporterName?: string;
@@ -133,6 +137,8 @@ export default function IssueReportView({
       <button type="button" onClick={onBack} className="text-base font-semibold text-blue-700">
         ← {common.back}
       </button>
+
+      <WorkerAndTime workerName={workerName} lang={lang} />
 
       <h2 className="text-xl font-bold text-slate-900">{s.whatsWrong}</h2>
 

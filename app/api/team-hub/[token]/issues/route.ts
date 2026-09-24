@@ -91,8 +91,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // step delays the "Send" response.
     waitUntil(
       notifyNewProblem({
-        source: { kind: "team-hub", siteLabel: ctx.site.label, crewName: ctx.crew.name },
+        source: { kind: "team-hub", siteLabel: ctx.site.label, crewName: ctx.crew.name, workerName: ctx.worker.firstName },
         issueId: issue.id,
+        createdAt: issue.createdAt,
         accountId: ctx.site.accountId,
         category,
         note,

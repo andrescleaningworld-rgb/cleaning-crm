@@ -14,7 +14,7 @@ import {
   type ChecklistTabDef,
 } from "@/lib/checklistTemplate";
 import { logActivity } from "@/lib/activityLog";
-import { resolveCrewLink, crewLinkIsLive } from "@/lib/crewLink";
+import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLink";
 
 export async function GET(request: NextRequest) {
   try {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     }
 
     const code = String(body.code ?? "").trim();
-    const porterName = String(body.porterName ?? "").trim();
+    const porterName = cleanReporterName(body.porterName);
     if (!code || !porterName) {
       return NextResponse.json({ success: false, error: "code and porterName are required." }, { status: 400 });
     }

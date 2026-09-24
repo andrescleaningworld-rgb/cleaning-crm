@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
+import { formatCrewDateTime } from "@/lib/crewDateTime";
 
 type QueueSource = "team-hub" | "crew-link";
 
@@ -149,7 +150,7 @@ export default function TeamHubStaffQueue() {
                       ))}
                     </div>
                   )}
-                  <p className="mt-1 text-xs text-gray-400">{new Date(issue.createdAt).toLocaleString()}{issue.workerFirstName ? ` · reported by ${issue.workerFirstName}` : ""}</p>
+                  <p className="mt-1 text-xs text-gray-400">{issue.workerFirstName ?? "Unknown"} · {formatCrewDateTime(issue.createdAt)}</p>
                 </div>
                 <button type="button" onClick={() => resolveIssue(issue.id)} className="shrink-0 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800">
                   Resolve
@@ -187,7 +188,7 @@ export default function TeamHubStaffQueue() {
                       &quot;<TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />&quot;
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-gray-400">{new Date(order.createdAt).toLocaleString()}{order.workerFirstName ? ` · by ${order.workerFirstName}` : ""}</p>
+                  <p className="mt-1 text-xs text-gray-400">{order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   {order.status === "new" && (

@@ -74,8 +74,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Crew Link uses — inside waitUntil so "Send" doesn't wait on it.
     waitUntil(
       notifyNewSupplyOrder({
-        source: { kind: "team-hub", siteLabel: ctx.site.label, crewName: ctx.crew.name },
+        source: { kind: "team-hub", siteLabel: ctx.site.label, crewName: ctx.crew.name, workerName: ctx.worker.firstName },
         orderId: order.id,
+        createdAt: order.createdAt,
         accountId: ctx.site.accountId,
         note: order.note,
         lines: order.lines,
