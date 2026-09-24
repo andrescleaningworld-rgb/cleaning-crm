@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchStaff, fetchEquipmentList } from "@/lib/googleSheets";
 import { listEquipmentReportsForEquipment, listEquipmentReportsForStaff } from "@/lib/equipmentCheckDb";
+import { listVehicles } from "@/lib/vehiclesDb";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,13 +15,18 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "equipmentId or staffId is required." }, { status: 400 });
     }
 
-    const [reports, staff, equipment] = await Promise.all([
+    const [reports, staff, equipment, vehicles] = await Promise.all([
       equipmentId ? listEquipmentReportsForEquipment(equipmentId) : listEquipmentReportsForStaff(staffId),
       fetchStaff(),
       fetchEquipmentList(),
+      listVehicles(true),
     ]);
     const staffNameById = new Map(staff.map((s) => [s.id, s.name]));
-    const equipmentById = new Map(equipment.map((e) => [e.id, e]));
+    // Vehicles report under id "vehicle:<n>" (Postgres), tag = plate.
+    const equipmentById = new Map<string, { name: string; serialNumber: string }>([
+      ...equipment.map((e) => [e.id, e] as const),
+      ...vehicles.map((v) => [`vehicle:${v.id}`, { name: v.name, serialNumber: v.plate }] as const),
+    ]);
 
     return NextResponse.json({
       success: true,

@@ -1,7 +1,7 @@
-// Admin-only (proxy.ts default admin gate). Uploads one equipment photo to
-// Vercel Blob and returns its URL; the Add / Edit form then saves that URL in
-// the item's existing PhotoUrl field through POST/PATCH /api/equipment. No
-// Sheets access here.
+// Admin-only (proxy.ts default admin gate). Uploads one equipment or
+// vehicle photo (or, with kind=receipt, a vehicle service receipt photo) to
+// Vercel Blob and returns its URL; the calling form saves that URL through
+// its own route. No Sheets access here.
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 
@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Photo must be 8MB or smaller." }, { status: 400 });
     }
     const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : file.type.startsWith("image/hei") ? "heic" : "jpg";
-    const blob = await put(`equipment-photos/${crypto.randomUUID()}.${extension}`, file, {
+    const folder = formData.get("kind") === "receipt" ? "vehicle-receipts" : "equipment-photos";
+    const blob = await put(`${folder}/${crypto.randomUUID()}.${extension}`, file, {
       access: "public",
       contentType: file.type,
       addRandomSuffix: false,

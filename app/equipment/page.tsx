@@ -98,8 +98,9 @@ export default function EquipmentListPage() {
 
   return (
     <EquipmentShell title="Equipment">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         <BigButton icon="➕" label="Add equipment" tone="green" href="/equipment/new" />
+        <BigButton icon="🚐" label="Vehicles" href="/equipment/vehicles" />
         <BigButton icon="🔩" label="Parts & stock" href="/equipment/parts" />
         <BigButton icon="👥" label="Staff & PINs" href="/equipment/staff" />
         <SetUpTabletButton big />

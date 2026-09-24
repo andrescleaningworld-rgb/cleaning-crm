@@ -5,6 +5,8 @@
 //   damaged -> 1-3 photos required, optional notes, email
 //   lost    -> 0-3 photos, optional notes, email
 // Never writes to Sheets; the Equipment item itself is only read.
+// Vehicles (id "vehicle:<n>", Postgres) are reported the same way — the row's
+// equipment_id is that "vehicle:<n>" id.
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { waitUntil } from "@vercel/functions";
@@ -21,6 +23,23 @@ import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { sendInternalNotification, type EmailAttachment } from "@/lib/email";
 import { translateToEnglish } from "@/lib/translate";
 import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
+import { getVehicle } from "@/lib/vehiclesDb";
+import { vehicleIdFromTabletId } from "@/lib/vehicleInput";
+
+type ReportedThing = { id: string; name: string; serialNumber: string; adminPath: string };
+
+// An Equipment tab item, or a vehicle; null if missing or retired.
+async function findReportedThing(equipmentId: string): Promise<ReportedThing | null> {
+  const vehicleId = vehicleIdFromTabletId(equipmentId);
+  if (vehicleId !== null) {
+    const vehicle = await getVehicle(vehicleId);
+    if (!vehicle || !vehicle.active) return null;
+    return { id: equipmentId, name: vehicle.name, serialNumber: vehicle.plate, adminPath: `/equipment/vehicles/${vehicle.id}` };
+  }
+  const item = equipmentId ? await getEquipmentById(equipmentId) : null;
+  if (!item || item.status === "Retired") return null;
+  return { id: item.id, name: item.name, serialNumber: item.serialNumber, adminPath: `/equipment/${encodeURIComponent(item.id)}` };
+}
 
 const MAX_NOTE_LENGTH = 2000;
 const MAX_PHOTOS = 3;
@@ -57,8 +76,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ success: false, error: "Invalid condition." }, { status: 400 });
     }
 
-    const equipment = equipmentId ? await getEquipmentById(equipmentId) : null;
-    if (!equipment || equipment.status === "Retired") {
+    const equipment = await findReportedThing(equipmentId);
+    if (!equipment) {
       return NextResponse.json({ success: false, error: "Equipment not found." }, { status: 404 });
     }
 
@@ -143,7 +162,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               notes ? `Notes: ${englishNotes}` : "No notes.",
               ...(notes && englishNotes !== notes ? [`Original: ${notes}`] : []),
               photoUrls.length > 0 ? `Photos attached (${photoUrls.length}): ${photoUrls.join(", ")}` : "No photos.",
-              `Equipment item: ${origin}/equipment/${encodeURIComponent(equipment.id)}`,
+              `Equipment item: ${origin}${equipment.adminPath}`,
               "",
               "Last report only — not proof of who caused it. Someone may have used it after without reporting. Check before acting.",
             ],

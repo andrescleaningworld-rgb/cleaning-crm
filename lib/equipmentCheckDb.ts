@@ -254,11 +254,13 @@ export async function listEquipmentReportsForStaff(staffId: string): Promise<Equ
 
 // Newest tablet report per item — the Equipment admin list uses it for the
 // Lost / Needs repair colors (a newer report always wins, so a "good" report
-// after a "lost" one clears Lost on its own). Read-only.
+// after a "lost" one clears Lost on its own). Read-only. Vehicle reports
+// (equipment_id "vehicle:<n>") are excluded — they never color equipment.
 export async function listLatestEquipmentReports(): Promise<EquipmentReport[]> {
   const sql = getSql();
   const rows = await sql`
     SELECT DISTINCT ON (equipment_id) * FROM equipment_reports
+    WHERE equipment_id NOT LIKE 'vehicle:%'
     ORDER BY equipment_id, created_at DESC, id DESC
   `;
   return rows.map((r) => rowToReport(r as Record<string, unknown>));

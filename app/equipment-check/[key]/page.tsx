@@ -2,7 +2,8 @@
 
 // Equipment Check tablet app (docs/equipment-check-spec.md). Shared company
 // tablets, nobody stays signed in: name -> PIN (or "Create your PIN") ->
-// what did you use -> how did you leave it -> (photos/notes) -> SEND ->
+// what did you use -> (vehicles only: mileage keypad) -> how did you leave
+// it -> (photos/notes) -> SEND ->
 // "Done!" -> signed out -> back to the name grid. Also signs out after 2
 // minutes with no taps.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,7 +16,8 @@ import { resizeImageForUpload } from "@/lib/imageResize";
 import { equipmentCheckStrings, INSTALL_STEPS, type InstallPlatform } from "../strings";
 
 type Person = { staffId: string; name: string; isNew: boolean };
-type EquipmentCard = { id: string; name: string; tag: string; photoUrl: string };
+// kind "vehicle" (id "vehicle:<n>", tag = plate) asks for mileage first.
+type EquipmentCard = { id: string; name: string; tag: string; photoUrl: string; kind?: "equipment" | "vehicle"; lastMileage?: number | null };
 type Condition = "good" | "damaged" | "lost";
 type Photo = { blob: Blob; previewUrl: string };
 
@@ -24,6 +26,7 @@ type Screen =
   | { kind: "pin"; person: Person }
   | { kind: "create"; person: Person; firstPin: string | null }
   | { kind: "equipment" }
+  | { kind: "mileage"; item: EquipmentCard }
   | { kind: "condition"; item: EquipmentCard }
   | { kind: "details"; item: EquipmentCard; condition: Exclude<Condition, "good"> }
   | { kind: "done" };
@@ -154,7 +157,7 @@ export default function EquipmentCheckPage() {
     setScreen({ kind: "equipment" });
   }
 
-  const signedIn = screen.kind === "equipment" || screen.kind === "condition" || screen.kind === "details";
+  const signedIn = screen.kind === "equipment" || screen.kind === "mileage" || screen.kind === "condition" || screen.kind === "details";
 
   // "← Back" = previous step; "Home" = cancel the report, sign out, back to
   // the name grid (nothing is saved). Going back from the equipment grid
@@ -171,6 +174,7 @@ export default function EquipmentCheckPage() {
       case "equipment":
         signOut();
         return;
+      case "mileage":
       case "condition":
         setScreen({ kind: "equipment" });
         return;
@@ -263,7 +267,17 @@ export default function EquipmentCheckPage() {
             apiBase={apiBase}
             s={s}
             onExpired={() => signOut(s.signedOut)}
-            onPick={(item) => setScreen({ kind: "condition", item })}
+            onPick={(item) => setScreen(item.kind === "vehicle" ? { kind: "mileage", item } : { kind: "condition", item })}
+          />
+        ) : screen.kind === "mileage" ? (
+          <MileageScreen
+            key={screen.item.id}
+            apiBase={apiBase}
+            item={screen.item}
+            s={s}
+            lang={lang}
+            onExpired={() => signOut(s.signedOut)}
+            onSaved={() => setScreen({ kind: "condition", item: screen.item })}
           />
         ) : screen.kind === "condition" ? (
           <ConditionScreen
@@ -603,6 +617,7 @@ function EquipmentGrid({
                 <div className="flex h-32 w-full items-center justify-center bg-slate-200 text-5xl">🧰</div>
               )}
               <div className="p-3">
+                {item.kind === "vehicle" && <p className="text-lg font-bold text-blue-700">🚐 {s.vehicle}</p>}
                 {item.tag && <p className="text-3xl font-black text-slate-900">{item.tag}</p>}
                 <p className={item.tag ? "text-lg font-semibold text-slate-600" : "text-2xl font-bold text-slate-900"}>{item.name}</p>
               </div>
@@ -634,6 +649,139 @@ async function sendReport(
   } catch {
     return "offline";
   }
+}
+
+const MAX_MILEAGE_DIGITS = 7;
+
+// Vehicles only: big 0–9 keypad, "Mileage?", NEXT. Saved right away (the
+// report itself comes on the next screen). Lower than last time → asks
+// "Is it right?" before saving.
+function MileageScreen({
+  apiBase,
+  item,
+  s,
+  lang,
+  onExpired,
+  onSaved,
+}: {
+  apiBase: string;
+  item: EquipmentCard;
+  s: Strings;
+  lang: TeamHubLang;
+  onExpired: () => void;
+  onSaved: () => void;
+}) {
+  const [digits, setDigits] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmLower, setConfirmLower] = useState<number | null>(null);
+  const locale = lang === "es" ? "es-US" : "en-US";
+  const show = (n: number) => n.toLocaleString(locale);
+  const typed = digits ? Number(digits) : null;
+
+  function press(key: string) {
+    navigator.vibrate?.(10);
+    setError("");
+    setConfirmLower(null);
+    if (key === "back") setDigits((d) => d.slice(0, -1));
+    else setDigits((d) => (d.length >= MAX_MILEAGE_DIGITS ? d : (d + key).replace(/^0+(?=\d)/, "")));
+  }
+
+  async function save(confirmedLower: boolean) {
+    if (typed === null) return;
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch(`${apiBase}/mileage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicleId: item.id, mileage: typed, confirmedLower }),
+      });
+      if (res.status === 401) {
+        onExpired();
+        return;
+      }
+      const data = (await res.json()) as { success?: boolean; needsConfirm?: boolean; lastMileage?: number };
+      if (data.needsConfirm && typeof data.lastMileage === "number") {
+        setConfirmLower(data.lastMileage);
+        return;
+      }
+      if (res.ok && data.success) onSaved();
+      else setError(s.somethingWrong);
+    } catch {
+      setError(s.noSignal);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xl font-semibold text-slate-600">
+        🚐 {item.tag ? `${item.tag} · ` : ""}
+        {item.name}
+      </p>
+      <h1 className="text-4xl font-black text-slate-900">{s.mileageQuestion}</h1>
+      <p className="text-lg text-slate-600">
+        {s.mileageHint}
+        {typeof item.lastMileage === "number" ? ` · ${s.lastMileage(show(item.lastMileage))}` : ""}
+      </p>
+      <div className="flex min-h-[88px] items-center justify-center rounded-2xl border-4 border-blue-600 bg-white text-5xl font-black tracking-wider text-slate-900">
+        {typed === null ? <span className="text-slate-300">0</span> : show(typed)}
+      </div>
+
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-lg font-semibold text-red-800">{error}</div>}
+
+      {confirmLower !== null && typed !== null ? (
+        <div className="space-y-3 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4">
+          <p className="text-2xl font-bold text-amber-900">{s.lowerCheck(show(confirmLower))}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmLower(null);
+                setDigits("");
+              }}
+              className="min-h-[72px] rounded-2xl bg-white text-2xl font-bold text-slate-800 shadow-sm active:bg-gray-100"
+            >
+              {s.fixIt}
+            </button>
+            <button
+              type="button"
+              onClick={() => save(true)}
+              disabled={saving}
+              className="min-h-[72px] rounded-2xl bg-green-600 text-2xl font-bold text-white shadow-sm active:bg-green-700 disabled:opacity-60"
+            >
+              {s.yesRight}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0"].map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => press(key)}
+              disabled={saving}
+              aria-label={key === "back" ? "Delete" : key}
+              className="min-h-[80px] rounded-2xl bg-white text-4xl font-bold text-slate-800 shadow-sm active:bg-gray-200 disabled:opacity-60"
+            >
+              {key === "back" ? "⌫" : key}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => save(false)}
+            disabled={saving || typed === null}
+            className="min-h-[80px] rounded-2xl bg-green-600 text-2xl font-black text-white shadow-sm active:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500"
+          >
+            {saving ? "…" : `${s.next} →`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ConditionScreen({

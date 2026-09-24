@@ -200,6 +200,67 @@ export function EquipmentPhoto({ url, name, className = "" }: { url: string; nam
   return <img src={url} alt={name} className={`bg-gray-100 object-cover ${className}`} />;
 }
 
+// Big "📷 Add photo" button: camera on phones, file picker on desktop.
+// Shrinks the photo, uploads it (POST /api/equipment/photo) and hands back
+// the URL. kind "receipt" stores it under vehicle-receipts/.
+export function PhotoUploadButton({
+  label,
+  kind,
+  onUploaded,
+  onUploadingChange,
+  onError,
+}: {
+  label: string;
+  kind?: "photo" | "receipt";
+  onUploaded: (url: string) => void;
+  onUploadingChange?: (uploading: boolean) => void;
+  onError: (message: string) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setUploading(true);
+    onUploadingChange?.(true);
+    onError("");
+    try {
+      const { blob } = await resizeImageForUpload(file);
+      const formData = new FormData();
+      formData.set("photo", blob, "photo.jpg");
+      if (kind === "receipt") formData.set("kind", "receipt");
+      const res = await fetch("/api/equipment/photo", { method: "POST", body: formData });
+      const data = (await res.json()) as { success?: boolean; url?: string; error?: string };
+      if (!data.success || !data.url) onError(data.error || "Photo upload failed.");
+      else onUploaded(data.url);
+    } catch {
+      onError("Photo upload failed. Try again.");
+    } finally {
+      setUploading(false);
+      onUploadingChange?.(false);
+    }
+  }
+
+  return (
+    <label className={`flex min-h-[64px] cursor-pointer items-center justify-center gap-3 rounded-2xl px-5 text-xl font-bold shadow-sm ${BUTTON_TONES.plain}`}>
+      <span className="text-2xl" aria-hidden="true">
+        📷
+      </span>
+      {uploading ? "Uploading…" : label}
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        disabled={uploading}
+        onChange={(e) => {
+          upload(e.target.files?.[0]);
+          e.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
+
 // ─── Add / Edit form ─────────────────────────────────────────────────────
 
 export type EquipmentDraft = {
@@ -224,7 +285,7 @@ export function draftFromItem(item: EquipmentItem | null): EquipmentDraft {
   };
 }
 
-const inputClass = "mt-2 min-h-[56px] w-full rounded-xl border-2 border-gray-300 px-4 text-xl text-gray-900 outline-none focus:border-blue-600";
+export const inputClass = "mt-2 min-h-[56px] w-full rounded-xl border-2 border-gray-300 px-4 text-xl text-gray-900 outline-none focus:border-blue-600";
 
 // Add (item = null → POST /api/equipment) or Edit (PATCH /api/equipment/[id]).
 // Photo, name, tag and category up front; purchase details under "More details".
@@ -246,25 +307,6 @@ export function EquipmentForm({
   const [error, setError] = useState("");
 
   const set = (field: keyof EquipmentDraft) => (value: string) => setDraft((d) => ({ ...d, [field]: value }));
-
-  async function uploadPhoto(file: File | undefined) {
-    if (!file) return;
-    setUploading(true);
-    setError("");
-    try {
-      const { blob } = await resizeImageForUpload(file);
-      const formData = new FormData();
-      formData.set("photo", blob, "photo.jpg");
-      const res = await fetch("/api/equipment/photo", { method: "POST", body: formData });
-      const data = (await res.json()) as { success?: boolean; url?: string; error?: string };
-      if (!data.success || !data.url) setError(data.error || "Photo upload failed.");
-      else set("photoUrl")(data.url);
-    } catch {
-      setError("Photo upload failed. Try again.");
-    } finally {
-      setUploading(false);
-    }
-  }
 
   async function save() {
     const name = draft.name.trim();
@@ -307,23 +349,12 @@ export function EquipmentForm({
       <div className="flex flex-col items-center gap-3 sm:flex-row">
         <EquipmentPhoto url={draft.photoUrl} name={draft.name || "New equipment"} className="h-40 w-40 shrink-0 rounded-2xl" />
         <div className="grid w-full gap-3">
-          <label className={`flex min-h-[64px] cursor-pointer items-center justify-center gap-3 rounded-2xl px-5 text-xl font-bold shadow-sm ${BUTTON_TONES.plain}`}>
-            <span className="text-2xl" aria-hidden="true">
-              📷
-            </span>
-            {uploading ? "Uploading…" : draft.photoUrl ? "Change photo" : "Add photo"}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              disabled={uploading}
-              onChange={(e) => {
-                uploadPhoto(e.target.files?.[0]);
-                e.target.value = "";
-              }}
-            />
-          </label>
+          <PhotoUploadButton
+            label={draft.photoUrl ? "Change photo" : "Add photo"}
+            onUploaded={set("photoUrl")}
+            onUploadingChange={setUploading}
+            onError={setError}
+          />
           {draft.photoUrl ? (
             <button type="button" onClick={() => set("photoUrl")("")} className="text-base font-semibold text-gray-500 underline">
               Remove photo
