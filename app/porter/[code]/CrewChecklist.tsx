@@ -10,6 +10,7 @@ import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 import { useState } from "react";
+import { translated, type ContentTranslations } from "@/lib/translationKey";
 
 export type TabProgress = { checked: Record<string, boolean>; note: string; startedAt: string | null };
 
@@ -22,6 +23,7 @@ export default function CrewChecklist({
   name,
   onNameChange,
   tabs,
+  translations,
   activeTabId,
   onSelectTab,
   progressByTab,
@@ -34,6 +36,9 @@ export default function CrewChecklist({
   name: string;
   onNameChange: (name: string) => void;
   tabs: ChecklistTabDef[];
+  // Crews see names/items in their language; what's SENT stays English
+  // (the submission snapshot managers read).
+  translations: ContentTranslations;
   activeTabId: number;
   onSelectTab: (tabId: number) => void;
   progressByTab: Record<number, TabProgress>;
@@ -42,6 +47,7 @@ export default function CrewChecklist({
 }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const tr = (text: string) => translated(translations, text, lang);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const progress = (tab && progressByTab[tab.id]) || EMPTY_TAB_PROGRESS;
@@ -91,7 +97,7 @@ export default function CrewChecklist({
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || data.success === false) {
-        setError(data.error || s.somethingWrong);
+        setError(lang === "en" && data.error ? data.error : s.somethingWrong);
         return;
       }
       navigator.vibrate?.([15, 60, 15]);
@@ -119,7 +125,7 @@ export default function CrewChecklist({
                 t.id === tab?.id ? "bg-blue-700 text-white" : "bg-white text-slate-800 active:bg-gray-100"
               }`}
             >
-              {t.name}
+              {tr(t.name)}
             </button>
           ))}
         </div>
@@ -141,7 +147,7 @@ export default function CrewChecklist({
 
           {tab!.sections.map((section) => (
             <section key={section.key} className="space-y-3">
-              {section.title ? <h2 className="px-1 text-xl font-black text-slate-700">{section.title}</h2> : null}
+              {section.title ? <h2 className="px-1 text-xl font-black text-slate-700">{tr(section.title)}</h2> : null}
               {section.items.map((item) => {
                 const checked = Boolean(progress.checked[item.key]);
                 return (
@@ -164,8 +170,8 @@ export default function CrewChecklist({
                       ✓
                     </span>
                     <span className="flex-1">
-                      <span className="block text-xl font-semibold text-slate-900">{item.label}</span>
-                      {item.subNote ? <span className="mt-1 block text-lg text-slate-500">{item.subNote}</span> : null}
+                      <span className="block text-xl font-semibold text-slate-900">{tr(item.label)}</span>
+                      {item.subNote ? <span className="mt-1 block text-lg text-slate-500">{tr(item.subNote)}</span> : null}
                     </span>
                   </button>
                 );

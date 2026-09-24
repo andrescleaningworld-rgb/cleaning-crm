@@ -1,5 +1,6 @@
 "use client";
 
+import CrewTranslationsReview from "./CrewTranslationsReview";
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import {
@@ -505,6 +506,8 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
           </div>
 
           <CrewLinkShare accountId={accountId} placeName={place} url={porterUrl} />
+
+          {checklistNeeded ? <CrewTranslationsReview accountId={accountId} /> : null}
 
           {supplyOrdersEnabled || problemReportsEnabled ? (
             <OrdersAndProblems crewLinkAccountId={accountId} accountId={accountId} accountName={accountName} />

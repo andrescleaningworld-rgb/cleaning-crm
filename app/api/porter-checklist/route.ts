@@ -17,6 +17,7 @@ import {
 } from "@/lib/checklistTemplate";
 import { logActivity } from "@/lib/activityLog";
 import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLink";
+import { getContentTranslations, sectionTexts } from "@/lib/crewTranslations";
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,6 +52,9 @@ export async function GET(request: NextRequest) {
       if (tabs.length === 0) tabs = [{ id: 0, name: DEFAULT_TAB_NAME, sections: template.sections }];
     }
 
+    // ES/PT for every tab name, section and item (English if missing).
+    const translations = await getContentTranslations(tabs.flatMap((tab) => [tab.name, ...sectionTexts(tab.sections)]));
+
     // Crews see the building name only — no account name, ids or details.
     return NextResponse.json({
       success: true,
@@ -59,6 +63,7 @@ export async function GET(request: NextRequest) {
       sections: tabs[0]?.sections ?? [],
       tabs,
       modules,
+      translations,
     });
   } catch (error) {
     return NextResponse.json(

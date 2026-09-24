@@ -3,6 +3,7 @@
 // app/api/team-hub/[token]/session/route.ts documents. Phase 2 crew-facing
 // checklist run flow: GET loads the crew's enabled items + any open run,
 // POST starts or submits a run, PATCH autosaves one item's status/note.
+import { getContentTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
 import {
   listDueTeamHubChecklistItemsForCrew,
@@ -31,9 +32,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const run = await getOpenTeamHubChecklistRun(ctx.crew.id);
     const runItems = run ? await listTeamHubChecklistRunItems(run.id) : [];
 
+    const translations = await getContentTranslations(items.flatMap((i) => [i.area, i.text, i.instanceLabel ?? ""]));
+
     return NextResponse.json({
       success: true,
       items,
+      translations,
       run: run ? { id: run.id, startedAt: run.startedAt } : null,
       runItems: runItems.map((ri) => ({ crewItemId: ri.crewItemId, status: ri.status, note: ri.note, updatedAt: ri.updatedAt, workerFirstName: ri.workerFirstName })),
     });

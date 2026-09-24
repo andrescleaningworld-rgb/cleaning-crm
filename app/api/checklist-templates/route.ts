@@ -2,6 +2,7 @@
 // single account's checklist template. The porter-facing read/submit path
 // is app/api/porter-checklist/route.ts instead, which is deliberately
 // public and can't reach any of these actions.
+import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
 import {
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   try {
     const body = await request.json();
     const action = typeof body.action === "string" && body.action ? body.action : "";
@@ -212,4 +213,11 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Any successful save may add or change crew-facing text → ES/PT for the new texts (after the response; lib/crewTranslations.ts).
+export async function POST(request: NextRequest) {
+  const response = await handlePost(request);
+  if (response.ok) scheduleCrewTranslations();
+  return response;
 }

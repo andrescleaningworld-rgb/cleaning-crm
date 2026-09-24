@@ -5,16 +5,16 @@
 // tall, one thing per screen, nothing hidden behind menus.
 import Image from "next/image";
 import { useEffect, useState, type ReactNode } from "react";
-import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
+import { CREW_LANGS, CREW_LANG_LABEL, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import type { CrewLinkStrings } from "./strings";
 
-// Always-visible English/Español switch (the choice is remembered per phone
-// by useTeamHubLang).
+// Always-visible English / Español / Português switch (the choice is
+// remembered per phone by useTeamHubLang).
 export function LangSwitch({ lang, onChange }: { lang: TeamHubLang; onChange: (lang: TeamHubLang) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-2xl bg-blue-900/40 p-1">
-      {(["en", "es"] as const).map((option) => (
+    <div className="grid grid-cols-3 gap-1 rounded-2xl bg-blue-900/40 p-1">
+      {CREW_LANGS.map((option) => (
         <button
           key={option}
           type="button"
@@ -24,7 +24,7 @@ export function LangSwitch({ lang, onChange }: { lang: TeamHubLang; onChange: (l
             lang === option ? "bg-white text-blue-800" : "text-white"
           }`}
         >
-          {option === "en" ? "English" : "Español"}
+          {CREW_LANG_LABEL[option]}
         </button>
       ))}
     </div>

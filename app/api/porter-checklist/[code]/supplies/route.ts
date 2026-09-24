@@ -10,6 +10,7 @@ import { listSupplyItemsLibrary, createCrewLinkSupplyOrder, listCrewLinkSupplyOr
 import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { notifyNewSupplyOrder } from "@/lib/crewNotifications";
+import { getContentTranslations } from "@/lib/crewTranslations";
 
 async function loadEnabled(code: string) {
   const link = await resolveCrewLink(code);
@@ -30,8 +31,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       listCrewLinkSupplyOrdersForAccount(link.template.accountId, 10),
     ]);
 
+    const translations = await getContentTranslations([
+      ...items.flatMap((i) => [i.name, i.unit]),
+      ...recentOrders.flatMap((o) => o.lines.map((l) => l.itemName)),
+    ]);
+
     return NextResponse.json({
       success: true,
+      translations,
       items: items.map((i) => ({ itemId: i.id, name: i.name, unit: i.unit, instanceLabel: null })),
       recentOrders: recentOrders.map((o) => ({
         id: o.id,

@@ -48,11 +48,13 @@ export type DetectAndTranslateResult = { english: string; detectedLanguage: stri
 
 // Detects the language and translates to English in one call — the
 // function every worker-written text field goes through before being
-// stored (original + english + detectedLanguage, per §12).
+// stored (original + english + detectedLanguage, per §12). Always asks the
+// model (no keyword guessing — crews write Spanish AND Portuguese, and
+// Portuguese often has none of the Spanish hint words); when the model says
+// the text is already English, the original is kept verbatim.
 export async function translateToEnglish(text: string): Promise<DetectAndTranslateResult | null> {
   const trimmed = text.trim();
   if (!trimmed) return { english: "", detectedLanguage: "en" };
-  if (looksAlreadyInLanguage(trimmed, "en")) return { english: trimmed, detectedLanguage: "en" };
 
   try {
     const client = new Anthropic();
@@ -67,7 +69,10 @@ export async function translateToEnglish(text: string): Promise<DetectAndTransla
       { timeout: TIMEOUT_MS }
     );
     if (message.stop_reason === "refusal") return null;
-    return message.parsed_output ?? null;
+    const parsed = message.parsed_output;
+    if (!parsed) return null;
+    const detectedLanguage = parsed.detectedLanguage.trim().toLowerCase().slice(0, 2);
+    return detectedLanguage === "en" ? { english: trimmed, detectedLanguage: "en" } : { english: parsed.english, detectedLanguage };
   } catch (error) {
     console.error("[translate] translateToEnglish failed:", error instanceof APIError ? error.message : error);
     return null;
@@ -101,6 +106,51 @@ export async function translateTo(text: string, lang: string): Promise<string | 
     return block && block.type === "text" ? block.text.trim() : null;
   } catch (error) {
     console.error("[translate] translateTo failed:", error instanceof APIError ? error.message : error);
+    return null;
+  }
+}
+
+// ─── Crew-facing content (checklists, supply items, rounds) ─────────────
+
+export type CrewContentLang = "es" | "pt";
+
+const CREW_LANGUAGE_NAME: Record<CrewContentLang, string> = {
+  es: "Spanish (as spoken in the US / Latin America)",
+  pt: "Brazilian Portuguese",
+};
+
+const BatchSchema = z.object({
+  translations: z.array(z.string()).describe("One translation per input line, same order, same count."),
+});
+
+// Translates a batch of short crew-facing lines (checklist items, section
+// names, supply names…) in one call. Returns translations in the same order,
+// or null on any failure or if the count doesn't match (never a partial or
+// shifted result). Callers keep English for anything that comes back null.
+export async function translateBatch(texts: string[], lang: CrewContentLang): Promise<string[] | null> {
+  if (texts.length === 0) return [];
+  try {
+    const client = new Anthropic();
+    const message = await client.messages.parse(
+      {
+        model: MODEL,
+        max_tokens: 4096,
+        system:
+          `You translate short lines from a commercial cleaning company's checklists and supply lists into ${CREW_LANGUAGE_NAME[lang]}, ` +
+          "for cleaning crew members who are not tech-savvy. Use natural, simple, everyday words a cleaner would use; keep it short. " +
+          "Keep brand names, product names, room numbers and codes as they are. " +
+          "Return exactly one translation per input line, in the same order.",
+        messages: [{ role: "user", content: JSON.stringify(texts) }],
+        output_config: { format: zodOutputFormat(BatchSchema) },
+      },
+      { timeout: 30_000 }
+    );
+    if (message.stop_reason === "refusal") return null;
+    const out = message.parsed_output?.translations;
+    if (!out || out.length !== texts.length) return null;
+    return out.map((t) => t.trim());
+  } catch (error) {
+    console.error("[translate] translateBatch failed:", error instanceof APIError ? error.message : error);
     return null;
   }
 }

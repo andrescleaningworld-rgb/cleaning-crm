@@ -4,6 +4,7 @@
 // order-level note, one big "Send order," and a plain-status recent-orders
 // list below it. No offline queue (see ChecklistView's file comment) — a
 // failed send just shows "No signal — try again" and nothing is queued.
+import { translated, type ContentTranslations } from "@/lib/translationKey";
 import WorkerAndTime from "./WorkerAndTime";
 import { useCallback, useEffect, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
@@ -51,16 +52,19 @@ export default function SuppliesView({
   const [sending, setSending] = useState(false);
   const [justSent, setJustSent] = useState(false);
 
+  const [translations, setTranslations] = useState<ContentTranslations>({});
+  const tr = (text: string) => translated(translations, text, lang);
   const load = useCallback(async () => {
     try {
       const res = await fetch(suppliesUrl, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setBanner(data.error || common.somethingWrong);
+        setBanner(common.somethingWrong);
         return;
       }
       setItems(data.items ?? []);
       setRecentOrders(data.recentOrders ?? []);
+      setTranslations(data.translations ?? {});
     } catch {
       setBanner(common.somethingWrong);
     } finally {
@@ -98,7 +102,7 @@ export default function SuppliesView({
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setBanner(data.error || common.somethingWrong);
+        setBanner(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;
       }
       navigator.vibrate?.([15, 60, 15]);
@@ -139,8 +143,8 @@ export default function SuppliesView({
               return (
                 <div key={item.itemId} className="flex min-h-[64px] items-center justify-between gap-3 px-4 py-2">
                   <span className="text-lg font-semibold text-slate-800">
-                    {item.instanceLabel ? `${item.name} — ${item.instanceLabel}` : item.name}
-                    <span className="ml-1 text-sm font-normal text-slate-400">({item.unit})</span>
+                    {item.instanceLabel ? `${tr(item.name)} — ${tr(item.instanceLabel)}` : tr(item.name)}
+                    <span className="ml-1 text-sm font-normal text-slate-400">({tr(item.unit)})</span>
                   </span>
                   <div className="flex shrink-0 items-center gap-2">
                     <button
@@ -190,7 +194,7 @@ export default function SuppliesView({
           <ul className="mt-2 divide-y divide-gray-100">
             {recentOrders.map((order) => (
               <li key={order.id} className="flex items-center justify-between gap-2 py-3">
-                <span className="text-base text-slate-700">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</span>
+                <span className="text-base text-slate-700">{order.lines.map((l) => `${tr(l.itemName)} x${l.qty}`).join(", ")}</span>
                 <span className={`shrink-0 rounded-full px-3 py-1 text-sm font-semibold ${STATUS_STYLES[order.status]}`}>
                   {s.status[order.status]}
                 </span>

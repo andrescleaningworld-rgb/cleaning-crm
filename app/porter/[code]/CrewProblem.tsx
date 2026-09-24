@@ -90,7 +90,7 @@ export default function CrewProblem({
       const res = await fetch(`${apiBase}/issues`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || s.somethingWrong);
+        setError(lang === "en" && data.error ? data.error : s.somethingWrong);
         return;
       }
       navigator.vibrate?.([15, 60, 15]);
@@ -164,7 +164,7 @@ export default function CrewProblem({
                       <button
                         type="button"
                         onClick={() => removePhoto(photo.id)}
-                        aria-label="Remove photo"
+                        aria-label={s.removePhoto}
                         className="absolute right-1 top-1 flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-lg font-bold text-white"
                       >
                         ✕

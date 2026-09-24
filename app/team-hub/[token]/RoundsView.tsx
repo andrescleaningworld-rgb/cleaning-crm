@@ -8,6 +8,7 @@
 // No offline queue (Phase 4: see ChecklistView's file comment) — a failed
 // check-in reverts its optimistic timestamp and shows "No signal — try
 // again."
+import { translated, type ContentTranslations } from "@/lib/translationKey";
 import { useCallback, useEffect, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings } from "../teamHubStrings";
@@ -35,15 +36,18 @@ export default function RoundsView({ token, lang, onBack }: { token: string; lan
   // Re-render periodically so the color/age stays live without pull-to-refresh.
   const [, setTick] = useState(0);
 
+  const [translations, setTranslations] = useState<ContentTranslations>({});
+  const tr = (text: string) => translated(translations, text, lang);
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/rounds`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setBanner(data.error || common.somethingWrong);
+        setBanner(common.somethingWrong);
         return;
       }
       setItems(data.items ?? []);
+      setTranslations(data.translations ?? {});
     } catch {
       setBanner(common.somethingWrong);
     } finally {
@@ -83,7 +87,7 @@ export default function RoundsView({ token, lang, onBack }: { token: string; lan
       const data = await res.json();
       if (!res.ok || !data.success) {
         setItems((prev) => prev.map((item) => (item.crewItemId === crewItemId ? { ...item, lastCheck: previous } : item)));
-        setBanner(data.error || common.somethingWrong);
+        setBanner(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;
       }
       setItems((prev) => prev.map((item) => (item.crewItemId === crewItemId ? { ...item, lastCheck: data.lastCheck } : item)));
@@ -119,7 +123,7 @@ export default function RoundsView({ token, lang, onBack }: { token: string; lan
               : ratio >= 0.5
                 ? "bg-amber-500 text-white"
                 : "bg-green-600 text-white";
-          const label = item.instanceLabel ? `${item.name} — ${item.instanceLabel}` : item.name;
+          const label = item.instanceLabel ? `${tr(item.name)} — ${tr(item.instanceLabel)}` : tr(item.name);
           return (
             <button
               key={item.crewItemId}

@@ -959,7 +959,7 @@ function DetailsScreen({
               <button
                 type="button"
                 onClick={() => removePhoto(i)}
-                aria-label="Remove"
+                aria-label={s.remove}
                 className="absolute right-1 top-1 flex h-10 w-10 items-center justify-center rounded-full bg-black/60 text-xl font-bold text-white"
               >
                 ✕

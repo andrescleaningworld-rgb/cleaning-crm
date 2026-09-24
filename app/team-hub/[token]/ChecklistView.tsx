@@ -10,6 +10,7 @@
 // No offline queue (Phase 4: offline mode is deferred to Phase 5, see
 // docs/team-hub-spec.md) — a failed tap reverts its optimistic UI change
 // and shows "No signal — try again"; nothing is silently queued.
+import { translated, type ContentTranslations } from "@/lib/translationKey";
 import WorkerAndTime from "./WorkerAndTime";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
@@ -25,6 +26,7 @@ type ChecklistItem = {
 };
 
 type LoadResponse = {
+  translations?: ContentTranslations;
   success?: boolean;
   items?: ChecklistItem[];
   run?: { id: number } | null;
@@ -58,16 +60,19 @@ export default function ChecklistView({
   const [finishing, setFinishing] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [areaIndex, setAreaIndex] = useState(0);
+  const [translations, setTranslations] = useState<ContentTranslations>({});
+  const tr = (text: string) => translated(translations, text, lang);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/team-hub/${encodeURIComponent(token)}/checklist`, { cache: "no-store" });
       const data: LoadResponse = await res.json();
       if (!res.ok || !data.success) {
-        setBanner(data.error || common.somethingWrong);
+        setBanner(common.somethingWrong);
         return;
       }
       setItems(data.items ?? []);
+      setTranslations(data.translations ?? {});
       setHasRun(!!data.run);
       setDoneIds(new Set((data.runItems ?? []).map((ri) => ri.crewItemId)));
     } catch {
@@ -92,7 +97,7 @@ export default function ChecklistView({
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setBanner(data.error || common.somethingWrong);
+        setBanner(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;
       }
       setHasRun(true);
@@ -144,7 +149,7 @@ export default function ChecklistView({
       const data = await res.json();
       if (!res.ok || !data.success) {
         setDone(crewItemId, wasDone);
-        setBanner(data.error || common.somethingWrong);
+        setBanner(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;
       }
       setBanner("");
@@ -165,7 +170,7 @@ export default function ChecklistView({
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setBanner(data.error || common.somethingWrong);
+        setBanner(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;
       }
       navigator.vibrate?.([15, 60, 15]);
@@ -248,14 +253,14 @@ export default function ChecklistView({
         <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4 space-y-1.5">
           {notes.map((note) => (
             <p key={note.crewItemId} className="text-lg text-amber-900">
-              📌 {note.text}
+              📌 {tr(note.text)}
             </p>
           ))}
         </div>
       )}
 
       <div className="rounded-2xl bg-white shadow-sm overflow-hidden">
-        <h3 className="bg-slate-100 px-4 py-3 text-lg font-bold text-slate-900">{currentArea?.[0]}</h3>
+        <h3 className="bg-slate-100 px-4 py-3 text-lg font-bold text-slate-900">{currentArea ? tr(currentArea[0]) : null}</h3>
         <ul className="divide-y divide-gray-100">
           {currentArea?.[1].map((item) => {
             const done = doneIds.has(item.crewItemId);
@@ -275,7 +280,7 @@ export default function ChecklistView({
                   >
                     {done ? "✓" : ""}
                   </span>
-                  {item.instanceLabel ? `${item.text} — ${item.instanceLabel}` : item.text}
+                  {item.instanceLabel ? `${tr(item.text)} — ${tr(item.instanceLabel)}` : tr(item.text)}
                 </button>
               </li>
             );

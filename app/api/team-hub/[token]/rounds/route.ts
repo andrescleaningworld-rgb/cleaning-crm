@@ -3,6 +3,7 @@
 // Rounds have no "run" concept (see lib/teamHubDb.ts comment above
 // getLatestTeamHubRoundChecksForCrew) — GET returns each enabled round with
 // its most recent check-in, POST records a new one.
+import { getContentTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
 import { listEnabledTeamHubRoundItemsForCrew, getLatestTeamHubRoundChecksForCrew, recordTeamHubRoundCheck } from "@/lib/teamHubDb";
 import { requireTeamHubWorkerSession } from "@/lib/teamHubWorkerSession";
@@ -22,8 +23,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const items = await listEnabledTeamHubRoundItemsForCrew(ctx.crew.id);
     const latest = await getLatestTeamHubRoundChecksForCrew(ctx.crew.id);
 
+    const translations = await getContentTranslations(items.flatMap((i) => [i.name, i.instanceLabel ?? ""]));
+
     return NextResponse.json({
       success: true,
+      translations,
       items: items.map((item) => ({
         ...item,
         lastCheck: latest.get(item.crewItemId)

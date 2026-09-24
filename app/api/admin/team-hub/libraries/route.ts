@@ -4,6 +4,7 @@
 // referenced by a live hub_crew_items row or past run history, so "remove"
 // is always setActive(false), same convention every other Team Hub admin
 // entity uses. No Sheets reads/writes in this file.
+import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
 import {
   listChecklistLibrary,
@@ -42,7 +43,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   try {
     const body = await request.json();
     const type = body.type;
@@ -132,4 +133,11 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Library items / rounds / supply items changed → ES/PT for the new texts (after the response; lib/crewTranslations.ts).
+export async function POST(request: NextRequest) {
+  const response = await handlePost(request);
+  if (response.ok) scheduleCrewTranslations();
+  return response;
 }

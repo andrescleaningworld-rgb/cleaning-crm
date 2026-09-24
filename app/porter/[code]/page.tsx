@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import type { ChecklistSectionDef, ChecklistTabDef } from "@/lib/checklistTemplate";
+import type { ContentTranslations } from "@/lib/translationKey";
 import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { crewLinkStrings } from "./strings";
 import { BackButton, CenteredMessage, CrewHeader, SentScreen } from "./ui";
@@ -28,6 +29,8 @@ type LoadResponse = {
   sections?: ChecklistSectionDef[];
   tabs?: ChecklistTabDef[];
   modules?: Modules;
+  // ES/PT for tab names, sections and items (English when missing).
+  translations?: ContentTranslations;
 };
 
 type Feature = "checklist" | "supplies" | "problem";
@@ -63,6 +66,7 @@ export default function CrewLinkPage() {
   const [available, setAvailable] = useState(false);
   const [locationName, setLocationName] = useState("");
   const [tabs, setTabs] = useState<ChecklistTabDef[]>([]);
+  const [translations, setTranslations] = useState<ContentTranslations>({});
   // Older API responses (before Crew Link) had no modules — treat as checklist-only.
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
 
@@ -98,6 +102,7 @@ export default function CrewLinkPage() {
         // Older API responses (before tabs) had only `sections` — one tab.
         setTabs(data.tabs ?? [{ id: 0, name: "", sections: data.sections ?? [] }]);
         if (data.modules) setModules(data.modules);
+        setTranslations(data.translations ?? {});
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this link.");
       } finally {
@@ -122,7 +127,8 @@ export default function CrewLinkPage() {
 
   if (loading || name === null) return <CenteredMessage title={s.loading} />;
   if (loadError || !available || features.length === 0) {
-    return <CenteredMessage title={s.unavailableTitle} body={loadError || s.unavailableBody} />;
+    // Server messages are English-only — other languages get the plain line.
+    return <CenteredMessage title={s.unavailableTitle} body={lang === "en" && loadError ? loadError : s.unavailableBody} />;
   }
 
   function goToStart() {
@@ -179,6 +185,7 @@ export default function CrewLinkPage() {
             name={name}
             onNameChange={setName}
             tabs={tabs}
+            translations={translations}
             activeTabId={checklistTabId}
             onSelectTab={(tabId) => {
               setActiveTabId(tabId);

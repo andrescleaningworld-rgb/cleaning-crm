@@ -1037,10 +1037,26 @@ the thing in doubt rather than add an explainer for it.
   "...will send later" — there is no queue; see Phase 4/Phase 5 notes),
   never a raw fetch error or HTTP status.
 - **Minimum 18px text, high contrast.**
-- **Language follows the phone (EN/ES)**, with a small flag icon to
-  override — see `app/team-hub/teamHubStrings.ts` /
-  `useTeamHubLang()` / `LangToggle.tsx`. New crew-facing strings always go
-  through this dictionary, in both languages, never hardcoded English.
+- **Language follows the phone (EN / ES / PT)** — English, Español,
+  Português — with an always-visible EN / ES / PT picker (`LangToggle.tsx`
+  for Team Hub and the Equipment Check tablet, `LangSwitch` in Crew Link);
+  the choice is remembered on the device. See `app/team-hub/teamHubStrings.ts`
+  (`TeamHubLang`, `useTeamHubLang()`). New crew-facing strings always go
+  through the dictionaries, in all three languages, never hardcoded English.
+  Server error messages are English-only, so crew screens show them only in
+  English and the dictionary's plain "Something went wrong" otherwise.
+- **Crew-facing content** (checklist tabs/sections/items, Team Hub library
+  items and rounds, supply items and units) is translated to ES and PT by
+  `lib/crewTranslations.ts` into Postgres `content_translations`, keyed by
+  the normalized English text (`lib/translationKey.ts`), so unchanged text is
+  never re-translated. It runs after every save that can change content
+  (`waitUntil`, never blocking the save) and via
+  `scripts/backfill-crew-translations.mts`; failures stay missing and are
+  retried next time. Crews get a `translations` map with each screen's data
+  and fall back to English. Managers always see English; the account's Crew
+  Link section has "Review translations" where a manager's correction
+  (`manual_text`) overrides the automatic one everywhere that exact English
+  text appears.
 
 These rules apply to `/team-hub/[token]` and its sub-screens specifically.
 The admin account-page tab follows the spirit (prefilled wizard, plain
@@ -1061,7 +1077,8 @@ why this rule is written to also bind the future Equipment Check app
 - **`lib/translate.ts`** — server-only, two functions:
   - `translateToEnglish(text)` → `{ english, detectedLanguage } | null`.
     Detects the language and translates to English in **one** Claude Haiku
-    4.5 call (`messages.parse()` + `zodOutputFormat`, the same pattern
+    4.5 call — always made (no keyword skip, since crews also write
+    Portuguese); when the model reports English, the original is kept (`messages.parse()` + `zodOutputFormat`, the same pattern
     `lib/checklistDocumentExtract.ts` already uses for structured output).
   - `translateTo(text, lang)` → `string | null`. Translates arbitrary text
     to an ISO 639-1 language code.

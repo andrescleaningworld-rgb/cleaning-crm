@@ -1,5 +1,6 @@
 // Simplicity pass (docs/team-hub-spec.md "GLOBAL RULES"): "Language
-// follows the phone (EN/ES) with a small flag icon to switch." Plain
+// follows the phone" — English, Español or Português, with an always-visible
+// EN / ES / PT picker (LangToggle / Crew Link's LangSwitch). Plain
 // nested-object dictionary, not a full i18n library — this app has a
 // small, fixed set of screens, so a library would be more code than the
 // strings themselves. useTeamHubLang() detects navigator.language once,
@@ -9,7 +10,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type TeamHubLang = "en" | "es";
+// Shared by every crew-facing screen: Team Hub, Crew Link and the Equipment
+// Check tablet app.
+export type TeamHubLang = "en" | "es" | "pt";
+export const CREW_LANGS: TeamHubLang[] = ["en", "es", "pt"];
+export const CREW_LANG_LABEL: Record<TeamHubLang, string> = { en: "English", es: "Español", pt: "Português" };
 
 const STORAGE_KEY = "team-hub-lang";
 
@@ -217,11 +222,112 @@ export const TEAM_HUB_STRINGS = {
       status: { new: "Enviado", ordered: "Pedido", delivered: "Entregado", cancelled: "Cancelado" },
     },
   },
+  pt: {
+    common: {
+      loading: "Carregando…",
+      notYou: "Não é você?",
+      signedInAs: "Entrou como",
+      today: "Hoje",
+      noSignal: "Sem sinal — tente de novo",
+      somethingWrong: "Algo deu errado. Tente de novo.",
+      linkNotActive: "Este link não está mais ativo. Peça um novo ao seu escritório.",
+      back: "Voltar",
+    },
+    install: {
+      hint: "Adicione isto à tela inicial para abrir rápido",
+      iosSteps: "Toque em Compartilhar e depois em Adicionar à Tela de Início",
+      androidSteps: "Toque em ⋮ e depois em Adicionar à tela inicial",
+      otherSteps: "Abra este link no seu celular para adicionar",
+      gotIt: "Entendi",
+    },
+    login: {
+      whoIsSigningIn: "Quem está trabalhando hoje?",
+      enterPin: "Digite seu PIN",
+      noWorkers: "Ninguém foi cadastrado ainda. Pergunte ao seu escritório.",
+      wrongPin: "PIN errado",
+      lockedOut: "Muitas tentativas. Espere alguns minutos.",
+    },
+    today: {
+      noModules: "Nada configurado ainda. Pergunte ao seu escritório.",
+      comingSoon: "Em breve",
+      checklistDone: (done: number, total: number) => `${done} de ${total} feitos`,
+      checklistNotStarted: "Não começou",
+      checklistAllDone: "Tudo feito",
+      roundCheckNow: (name: string) => `${name} — verificar agora`,
+      roundAgo: (name: string, ago: string) => `${name} — ${ago}`,
+      roundsAllChecked: "Tudo verificado",
+      newNote: "1 nota nova",
+    },
+    modules: {
+      checklist: "Lista de tarefas",
+      rounds: "Verificações",
+      handoff: "Notas para o outro turno",
+      requests: "Tarefas",
+      supplies: "Pedir materiais",
+      issues: "Relatar um problema",
+    },
+    checklist: {
+      area: (n: number, total: number) => `Área ${n} de ${total}`,
+      nextArea: "Próxima área",
+      finish: "Terminar",
+      startChecklist: "Começar lista",
+      starting: "Começando…",
+      finishing: "Terminando…",
+      submitted: "Bom trabalho — lista enviada.",
+      allDoneHere: "Tudo feito aqui",
+      reportProblem: "Relatar um problema",
+      noItems: "Nada configurado ainda. Pergunte ao seu escritório.",
+    },
+    rounds: {
+      checkIn: "Verificar",
+      checking: "…",
+      notCheckedToday: "Não verificado hoje",
+      justNow: "agora mesmo",
+      minAgo: (n: number) => `há ${n} min`,
+      hoursAgo: (n: number) => `há ${n} h`,
+      overdue: "Atrasado",
+      noItems: "Nada configurado ainda. Pergunte ao seu escritório.",
+      by: (name: string) => `por ${name}`,
+    },
+    issues: {
+      whatsWrong: "Qual é o problema?",
+      categories: {
+        restroom: "Banheiro",
+        trash: "Lixo",
+        damage: "Dano",
+        leak: "Vazamento",
+        access: "Acesso / Fechadura",
+        supplies: "Materiais",
+        safety: "Segurança",
+        other: "Outro",
+      },
+      notePlaceholder: "Escreva uma nota (opcional)",
+      noteRequired: "Escreva qual é o problema (obrigatório)",
+      addPhoto: "Adicionar foto",
+      photoCount: (n: number) => `${n}/5 fotos`,
+      send: "Enviar",
+      sending: "Enviando…",
+      sent: "Enviado ao seu escritório.",
+      photoTooBig: "Essa foto é grande demais (máximo 8MB).",
+      tooManyPhotos: "Até 5 fotos.",
+    },
+    supplies: {
+      title: "Pedir materiais",
+      notePlaceholder: "Escreva uma nota (opcional)",
+      sendOrder: "Enviar pedido",
+      sending: "Enviando…",
+      orderSent: "Pedido enviado.",
+      recentOrders: "Pedidos recentes",
+      noItems: "Nada configurado ainda. Pergunte ao seu escritório.",
+      status: { new: "Enviado", ordered: "Pedido feito", delivered: "Entregue", cancelled: "Cancelado" },
+    },
+  },
 } as const;
 
 export function detectTeamHubLang(): TeamHubLang {
   if (typeof navigator === "undefined") return "en";
-  return navigator.language?.toLowerCase().startsWith("es") ? "es" : "en";
+  const phone = navigator.language?.toLowerCase() ?? "";
+  return phone.startsWith("es") ? "es" : phone.startsWith("pt") ? "pt" : "en";
 }
 
 // Per-viewer convenience only (which flag they last picked) — never read
@@ -237,7 +343,7 @@ export function useTeamHubLang(): [TeamHubLang, (lang: TeamHubLang) => void] {
     // the server-rendered "en" strings.
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored === "en" || stored === "es") {
+      if (stored === "en" || stored === "es" || stored === "pt") {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setLangState(stored);
         return;

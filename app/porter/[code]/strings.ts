@@ -1,7 +1,8 @@
-// EN/ES words for the crew-facing Crew Link screens (docs/crew-link-spec.md).
+// EN/ES/PT words for the crew-facing Crew Link screens (docs/crew-link-spec.md).
 // Kept short on purpose: crews are on phones, often Spanish-speaking, and not
 // tech-savvy — few words, big buttons. Language follows the phone, with an
-// always-visible English/Español switch; the choice is remembered per phone.
+// always-visible English / Español / Português switch; the choice is
+// remembered per phone.
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 
 export const CREW_LINK_STRINGS = {
@@ -44,6 +45,7 @@ export const CREW_LINK_STRINGS = {
     tooManyPhotos: "Up to 5 photos.",
     photoTooBig: "That photo is too big.",
     noteRequired: "Write what it is (required)",
+    removePhoto: "Remove photo",
   },
   es: {
     appName: "Crew Link",
@@ -84,6 +86,48 @@ export const CREW_LINK_STRINGS = {
     tooManyPhotos: "Hasta 5 fotos.",
     photoTooBig: "Esa foto es muy grande.",
     noteRequired: "Escribe qué es (obligatorio)",
+    removePhoto: "Quitar foto",
+  },
+  pt: {
+    appName: "Crew Link",
+    defaultTitle: "Crew Link",
+    loading: "Carregando…",
+    unavailableTitle: "Este link não está ativo",
+    unavailableBody: "Peça um link novo ao seu escritório.",
+    somethingWrong: "Algo deu errado. Tente de novo.",
+    noSignal: "Sem sinal. Tente de novo.",
+    whatsYourName: "Qual é o seu nome?",
+    yourName: "Seu nome",
+    writeYourName: "Primeiro escreva seu nome.",
+    next: "Próximo",
+    hi: (name: string) => `Olá, ${name}`,
+    notYou: "Não é você?",
+    back: "Voltar",
+    checklist: "Lista",
+    supplies: "Materiais",
+    problem: "Problema",
+    nothingHere: "Nada aqui ainda. Pergunte ao seu escritório.",
+    progress: (done: number, total: number) => `${done} de ${total} feitos`,
+    noteOptional: "Nota (opcional)",
+    send: "Enviar",
+    sending: "Enviando…",
+    sent: "Enviado!",
+    backToStart: "Voltar ao início",
+    sendOrder: "Enviar pedido",
+    otherSuppliesLabel: "Outros materiais que não estão na lista",
+    otherSuppliesPlaceholder: "Item e quantas caixas, ex.: Desengordurante, 2 caixas",
+    noteForOffice: "Nota para o escritório (opcional)",
+    pickSupplies: "Toque em + num item, ou escreva outros materiais.",
+    recentOrders: "Seus pedidos recentes",
+    otherPrefix: "Outros",
+    orderStatus: { new: "Enviado", ordered: "Pedido feito", delivered: "Entregue", cancelled: "Cancelado" },
+    whatsWrong: "O que aconteceu?",
+    takePhoto: "Tirar foto",
+    photoCount: (n: number, max: number) => `${n} de ${max} fotos`,
+    tooManyPhotos: "Até 5 fotos.",
+    photoTooBig: "Essa foto é grande demais.",
+    noteRequired: "Escreva o que é (obrigatório)",
+    removePhoto: "Remover foto",
   },
 } as const;
 

@@ -7,6 +7,7 @@
 // GET/POST /api/porter-checklist/[code]/supplies.
 import { useCallback, useEffect, useState } from "react";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
+import { translated, type ContentTranslations } from "@/lib/translationKey";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 
@@ -45,6 +46,8 @@ export default function CrewSupplies({
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<SupplyItem[]>([]);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
+  const [translations, setTranslations] = useState<ContentTranslations>({});
+  const tr = (text: string) => translated(translations, text, lang);
   const [quantities, setQuantities] = useState<Record<number, number>>({});
   const [otherItems, setOtherItems] = useState("");
   const [note, setNote] = useState("");
@@ -56,11 +59,12 @@ export default function CrewSupplies({
       const res = await fetch(suppliesUrl, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || s.somethingWrong);
+        setError(s.somethingWrong);
         return;
       }
       setItems(data.items ?? []);
       setRecentOrders(data.recentOrders ?? []);
+      setTranslations(data.translations ?? {});
     } catch {
       setError(s.noSignal);
     } finally {
@@ -96,7 +100,7 @@ export default function CrewSupplies({
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || s.somethingWrong);
+        setError(lang === "en" && data.error ? data.error : s.somethingWrong);
         return;
       }
       navigator.vibrate?.([15, 60, 15]);
@@ -121,15 +125,15 @@ export default function CrewSupplies({
             return (
               <div key={item.itemId} className="flex min-h-[80px] items-center justify-between gap-3 px-4 py-3">
                 <span className="flex-1">
-                  <span className="block text-xl font-semibold text-slate-900">{item.name}</span>
-                  <span className="block text-lg text-slate-500">{item.unit}</span>
+                  <span className="block text-xl font-semibold text-slate-900">{tr(item.name)}</span>
+                  <span className="block text-lg text-slate-500">{tr(item.unit)}</span>
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
                     onClick={() => adjust(item.itemId, -1)}
                     disabled={qty === 0}
-                    aria-label={`− ${item.name}`}
+                    aria-label={`− ${tr(item.name)}`}
                     className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-3xl font-bold text-slate-700 active:bg-slate-200 disabled:opacity-30"
                   >
                     −
@@ -138,7 +142,7 @@ export default function CrewSupplies({
                   <button
                     type="button"
                     onClick={() => adjust(item.itemId, 1)}
-                    aria-label={`+ ${item.name}`}
+                    aria-label={`+ ${tr(item.name)}`}
                     className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-700 text-3xl font-bold text-white active:bg-blue-800"
                   >
                     +
@@ -191,7 +195,7 @@ export default function CrewSupplies({
               <li key={order.id} className="flex items-center justify-between gap-3 py-3">
                 <span className="text-lg text-slate-700">
                   {[
-                    ...order.lines.map((line) => `${line.itemName} ×${line.qty}`),
+                    ...order.lines.map((line) => `${tr(line.itemName)} ×${line.qty}`),
                     ...(order.otherItems ? [`${s.otherPrefix}: ${order.otherItems}`] : []),
                   ].join(", ")}
                 </span>

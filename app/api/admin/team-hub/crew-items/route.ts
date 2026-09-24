@@ -3,6 +3,7 @@
 // serves the read-only libraries the picker renders against (Phase 0:
 // read-only; full library editors are Phase 6). No Sheets reads in this
 // file at all.
+import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getTeamHubCrewModules,
@@ -45,7 +46,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePost(request: NextRequest) {
   try {
     const body = await request.json();
     const action = String(body.action ?? "");
@@ -97,4 +98,11 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Crew item labels changed → ES/PT for the new texts (after the response; lib/crewTranslations.ts).
+export async function POST(request: NextRequest) {
+  const response = await handlePost(request);
+  if (response.ok) scheduleCrewTranslations();
+  return response;
 }

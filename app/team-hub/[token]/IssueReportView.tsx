@@ -110,7 +110,7 @@ export default function IssueReportView({
       const res = await fetch(`${apiBase ?? `/api/team-hub/${encodeURIComponent(token)}`}/issues`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        setError(data.error || common.somethingWrong);
+        setError(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;
       }
       navigator.vibrate?.([15, 60, 15]);

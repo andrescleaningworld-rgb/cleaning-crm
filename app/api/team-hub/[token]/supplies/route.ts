@@ -4,6 +4,7 @@
 // + their recent orders, POST a new order. Responses never carry
 // account_id/accountName — only site label (already known client-side) and
 // the caller's own order history.
+import { getContentTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
 import {
   listEnabledTeamHubSupplyItemsForCrew,
@@ -31,8 +32,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       listRecentTeamHubSupplyOrdersForCrew(ctx.crew.id, 10),
     ]);
 
+    const translations = await getContentTranslations([
+      ...items.flatMap((i) => [i.name, i.unit, i.instanceLabel ?? ""]),
+      ...recentOrders.flatMap((o) => o.lines.map((l) => l.itemName)),
+    ]);
+
     return NextResponse.json({
       success: true,
+      translations,
       items: items.map((i) => ({ itemId: i.itemId, name: i.name, unit: i.unit, instanceLabel: i.instanceLabel })),
       recentOrders: recentOrders.map((o) => ({
         id: o.id,
