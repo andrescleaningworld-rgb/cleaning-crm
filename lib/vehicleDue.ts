@@ -96,12 +96,18 @@ export function computeDue(item: ServiceItemSchedule, currentMileage: number | n
   return { level, text: `${item.name} due in ${days(left)}` };
 }
 
-// The items every new vehicle starts with (all editable afterwards).
+export const OIL_CHANGE = "Oil change";
+
+// The one reminder every new vehicle starts with: oil change every 5,000 mi
+// or 6 months, whichever comes first. More reminders can be added under
+// Edit → "Service reminders".
 export const DEFAULT_SERVICE_ITEMS: { name: string; intervalMiles: number | null; intervalMonths: number | null }[] = [
-  { name: "Oil change", intervalMiles: 5000, intervalMonths: 6 },
-  { name: "Tire rotation", intervalMiles: 7500, intervalMonths: null },
-  { name: "Brakes check", intervalMiles: null, intervalMonths: 12 },
-  { name: "Inspection", intervalMiles: null, intervalMonths: null },
-  { name: "Registration", intervalMiles: null, intervalMonths: null },
-  { name: "Insurance renewal", intervalMiles: null, intervalMonths: null },
+  { name: OIL_CHANGE, intervalMiles: 5000, intervalMonths: 6 },
 ];
+
+// "Log service" quick-pick types (a custom reminder's name can also be one).
+export const SERVICE_TYPES = [OIL_CHANGE, "Tires", "Alignment", "Balancing", "Brakes", "Repair", "Other"] as const;
+
+export function isOilChangeItem(item: { name: string }): boolean {
+  return item.name.trim().toLowerCase() === OIL_CHANGE.toLowerCase();
+}

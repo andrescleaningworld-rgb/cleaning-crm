@@ -1,18 +1,20 @@
 "use client";
 
-// One vehicle. Main screen: photo + plate + driver + mileage, ONE big
-// "Log service" button, then Update mileage / Edit / Service items /
-// Retire, then every service item as a colored line ("Oil change due in
-// 400 mi"), service history and mileage readings. Each job opens its own
-// screen with one Save. Retire and Restore ask first. Postgres via
+// One vehicle. Main screen: photo + plate + driver + mileage, then the oil
+// change status ("Oil change due in 400 mi" / overdue) and "Last service:
+// Alignment · Sep 10 · 48,200 mi", ONE big "Log service" button, then
+// Update mileage / Edit / Retire, then the full service history (newest
+// first, filter by type) and mileage readings. Extra reminders live under
+// Edit → "Service reminders" (out of the way). Each job opens its own screen
+// with one Save. Retire and Restore ask first. Postgres via
 // /api/vehicles/[id]; driver names from /api/staff.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import type { Vehicle, VehicleMileageReading, VehicleServiceItem, VehicleServiceLog } from "@/lib/vehiclesDb";
-import { formatShortDate, todayInCompanyTz } from "@/lib/vehicleDue";
+import { SERVICE_TYPES, formatShortDate, isOilChangeItem, todayInCompanyTz } from "@/lib/vehicleDue";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import { BigButton, ConfirmDialog, EquipmentPhoto, EquipmentShell, ErrorNote, PhotoUploadButton, inputClass } from "../../ui";
-import { DUE_STYLE, DueDot, VehicleForm, dueForVehicle, formatMiles, useStaffList } from "../vehicleUi";
+import { DUE_STYLE, DueDot, VehicleForm, dueForVehicle, formatMiles, lastServiceText, oilDue, useStaffList } from "../vehicleUi";
 
 type Mode = "view" | "edit" | "log" | "mileage" | "items";
 
@@ -47,6 +49,7 @@ export default function VehiclePage() {
   const [confirm, setConfirm] = useState<"retire" | "restore" | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState("");
+  const [historyFilter, setHistoryFilter] = useState("All");
 
   const load = useCallback(async () => {
     setLoadError("");
@@ -94,6 +97,9 @@ export default function VehiclePage() {
     return (
       <EquipmentShell back={back} title={`Edit ${vehicle.name}`}>
         <VehicleForm vehicle={vehicle} staff={staff} onSaved={done} onCancel={() => setMode("view")} />
+        <button type="button" onClick={() => setMode("items")} className="min-h-[48px] text-lg font-bold text-blue-700 underline">
+          Service reminders (oil change and others)
+        </button>
       </EquipmentShell>
     );
   }
@@ -113,13 +119,21 @@ export default function VehiclePage() {
   }
   if (mode === "items") {
     return (
-      <EquipmentShell back={back} title={`Service items · ${vehicle.name}`}>
+      <EquipmentShell back={back} title={`Service reminders · ${vehicle.name}`}>
         <ServiceItemsEditor vehicleId={vehicle.id} items={items} onChanged={load} onDone={done} />
       </EquipmentShell>
     );
   }
 
-  const dues = dueForVehicle(vehicle, items);
+  const oil = oilDue(vehicle, items);
+  // Reminders other than oil (only if someone added them under Edit).
+  const otherDues = dueForVehicle(vehicle, items).filter(({ item }) => !isOilChangeItem(item));
+  const lastLog = logs[0] ?? null;
+  const typesInHistory = [
+    ...SERVICE_TYPES.filter((t) => logs.some((l) => l.serviceType === t)),
+    ...[...new Set(logs.map((l) => l.serviceType))].filter((t) => !(SERVICE_TYPES as readonly string[]).includes(t)),
+  ];
+  const shownLogs = historyFilter === "All" ? logs : logs.filter((l) => l.serviceType === historyFilter);
 
   async function runConfirm(action: "retire" | "restore") {
     setConfirmBusy(true);
@@ -153,13 +167,32 @@ export default function VehiclePage() {
         </div>
       </section>
 
+      <section className="space-y-2 rounded-3xl bg-white p-5 shadow-sm">
+        {oil ? (
+          <p className={`flex items-center gap-3 rounded-xl px-4 py-3 text-2xl font-black ${DUE_STYLE[oil.level].row}`}>
+            <DueDot level={oil.level} />
+            {oil.text}
+          </p>
+        ) : (
+          <p className="text-lg text-gray-600">Oil change reminder is off (Edit → Service reminders).</p>
+        )}
+        <p className="px-1 text-lg text-gray-700">
+          <span className="font-bold">Last service:</span> {lastLog ? lastServiceText(lastLog) : "none logged yet"}
+        </p>
+        {otherDues.map(({ item, due }) => (
+          <p key={item.id} className={`flex items-center gap-3 rounded-xl px-4 py-2 text-base font-semibold ${DUE_STYLE[due.level].row}`}>
+            <DueDot level={due.level} />
+            {due.text}
+          </p>
+        ))}
+      </section>
+
       {vehicle.active ? (
         <>
           <BigButton icon="🔧" label="Log service" tone="primary" onClick={() => setMode("log")} className="w-full text-2xl" />
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-3 gap-3">
             <BigButton icon="🔢" label="Update mileage" onClick={() => setMode("mileage")} />
             <BigButton icon="✏️" label="Edit" onClick={() => setMode("edit")} />
-            <BigButton icon="📋" label="Service items" onClick={() => setMode("items")} />
             <BigButton icon="🗑️" label="Retire" tone="red" onClick={() => setConfirm("retire")} />
           </div>
         </>
@@ -167,30 +200,34 @@ export default function VehiclePage() {
         <BigButton icon="↩️" label="Restore" tone="primary" onClick={() => setConfirm("restore")} className="w-full text-2xl" />
       )}
 
-      <section className="space-y-2 rounded-3xl bg-white p-5 shadow-sm">
-        <h2 className="mb-1 text-2xl font-black text-gray-900">Service status</h2>
-        {dues.length === 0 ? (
-          <p className="text-lg text-gray-600">No service items — tap Service items to add one.</p>
-        ) : (
-          dues.map(({ item, due }) => (
-            <p key={item.id} className={`flex items-center gap-3 rounded-xl px-4 py-3 text-lg font-semibold ${DUE_STYLE[due.level].row}`}>
-              <DueDot level={due.level} />
-              {due.text}
-            </p>
-          ))
-        )}
-      </section>
-
       <section className="rounded-3xl bg-white p-5 shadow-sm">
         <h2 className="mb-3 text-2xl font-black text-gray-900">Service history</h2>
-        {logs.length === 0 ? (
+        {typesInHistory.length > 1 ? (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {["All", ...typesInHistory].map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setHistoryFilter(t)}
+                aria-pressed={historyFilter === t}
+                className={`min-h-[48px] rounded-full border-2 px-4 text-base font-bold ${
+                  historyFilter === t ? "border-blue-700 bg-blue-700 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {shownLogs.length === 0 ? (
           <p className="text-lg text-gray-600">Nothing logged yet.</p>
         ) : (
           <ul className="divide-y divide-gray-100">
-            {logs.map((log) => (
+            {shownLogs.map((log) => (
               <li key={log.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-lg">
                 <div>
-                  <p className="font-bold text-gray-900">{log.what}</p>
+                  <p className="font-bold text-gray-900">{log.serviceType}</p>
+                  {log.notes ? <p className="text-gray-800">{log.notes}</p> : null}
                   <p className="text-base text-gray-600">
                     {[
                       formatShortDate(log.doneOn),
@@ -264,6 +301,19 @@ export default function VehiclePage() {
 
 // ─── Log service ─────────────────────────────────────────────────────────
 
+const TYPE_ICON: Record<string, string> = {
+  "Oil change": "🛢️",
+  Tires: "🛞",
+  Alignment: "📐",
+  Balancing: "⚖️",
+  Brakes: "🛑",
+  Repair: "🔧",
+  Other: "📝",
+};
+
+// Big quick-pick for the type, then date (today), mileage, notes, shop,
+// cost, receipt photo. Picking "Oil change" (or any reminder's name) marks
+// that reminder done on Save, which restarts its countdown.
 function LogServiceForm({
   vehicle,
   items,
@@ -275,10 +325,10 @@ function LogServiceForm({
   onSaved: () => void;
   onCancel: () => void;
 }) {
-  const [itemId, setItemId] = useState<number | null>(null);
-  const [what, setWhat] = useState("");
+  const [serviceType, setServiceType] = useState("");
   const [doneOn, setDoneOn] = useState(todayInCompanyTz());
   const [mileage, setMileage] = useState(vehicle.currentMileage !== null ? String(vehicle.currentMileage) : "");
+  const [notes, setNotes] = useState("");
   const [shop, setShop] = useState("");
   const [cost, setCost] = useState("");
   const [receiptUrl, setReceiptUrl] = useState("");
@@ -287,30 +337,28 @@ function LogServiceForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const picked = items.find((i) => i.id === itemId) ?? null;
-  const pickedIsDateOnly = picked !== null && !picked.intervalMiles && !picked.intervalMonths;
-
-  function pick(item: VehicleServiceItem | null) {
-    setItemId(item?.id ?? null);
-    setWhat(item?.name ?? "");
-  }
+  // Quick-picks + any extra reminder added under Edit (so it can be reset).
+  const extraReminders = items.filter((i) => !(SERVICE_TYPES as readonly string[]).some((t) => t.toLowerCase() === i.name.trim().toLowerCase()));
+  const types = [...SERVICE_TYPES, ...extraReminders.map((i) => i.name)];
+  const reminder = items.find((i) => i.name.trim().toLowerCase() === serviceType.toLowerCase()) ?? null;
+  const reminderIsDateOnly = reminder !== null && !reminder.intervalMiles && !reminder.intervalMonths;
 
   async function save() {
-    if (!what.trim()) {
-      setError("Tap what was done, or write it.");
+    if (!serviceType) {
+      setError("Tap what was done first.");
       return;
     }
     setSaving(true);
     const message = await postAction(vehicle.id, {
       action: "logService",
-      serviceItemId: itemId,
-      what,
+      serviceType,
+      notes,
       doneOn,
       mileage,
       shop,
       cost,
       receiptUrl,
-      nextDueDate: pickedIsDateOnly ? nextDueDate : "",
+      nextDueDate: reminderIsDateOnly ? nextDueDate : "",
     });
     setSaving(false);
     if (message) setError(message);
@@ -319,36 +367,28 @@ function LogServiceForm({
 
   return (
     <div className="space-y-4 rounded-3xl bg-white p-5 shadow-sm">
-      <p className="text-lg font-bold text-gray-800">What was done?</p>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        {items.map((item) => (
+      <p className="text-xl font-black text-gray-900">What was done?</p>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {types.map((type) => (
           <button
-            key={item.id}
+            key={type}
             type="button"
-            onClick={() => pick(item)}
-            aria-pressed={itemId === item.id}
-            className={`min-h-[64px] rounded-2xl border-2 px-3 text-lg font-bold ${
-              itemId === item.id ? "border-blue-700 bg-blue-700 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
+            onClick={() => {
+              setServiceType(type);
+              setError("");
+            }}
+            aria-pressed={serviceType === type}
+            className={`flex min-h-[72px] items-center justify-center gap-2 rounded-2xl border-2 px-3 text-xl font-bold ${
+              serviceType === type ? "border-blue-700 bg-blue-700 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
             }`}
           >
-            {item.name}
+            <span aria-hidden="true">{TYPE_ICON[type] ?? "🔔"}</span>
+            {type}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => pick(null)}
-          aria-pressed={itemId === null}
-          className={`min-h-[64px] rounded-2xl border-2 px-3 text-lg font-bold ${
-            itemId === null ? "border-blue-700 bg-blue-700 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
-          }`}
-        >
-          Something else
-        </button>
       </div>
-      <label className="block">
-        <span className="text-lg font-bold text-gray-800">Details</span>
-        <input value={what} onChange={(e) => setWhat(e.target.value)} placeholder="e.g. Replaced wiper blades" className={inputClass} />
-      </label>
+      {reminder ? <p className="text-base font-semibold text-green-700">Saving this restarts the {reminder.name.toLowerCase()} reminder.</p> : null}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
           <span className="text-lg font-bold text-gray-800">Date</span>
@@ -358,12 +398,16 @@ function LogServiceForm({
           <span className="text-lg font-bold text-gray-800">Mileage</span>
           <input type="number" inputMode="numeric" value={mileage} onChange={(e) => setMileage(e.target.value)} className={inputClass} />
         </label>
-        {pickedIsDateOnly ? (
+        {reminderIsDateOnly ? (
           <label className="block sm:col-span-2">
             <span className="text-lg font-bold text-gray-800">Next due date</span>
             <input type="date" value={nextDueDate} onChange={(e) => setNextDueDate(e.target.value)} className={inputClass} />
           </label>
         ) : null}
+        <label className="block sm:col-span-2">
+          <span className="text-lg font-bold text-gray-800">Notes</span>
+          <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Front tires replaced" className={inputClass} />
+        </label>
         <label className="block">
           <span className="text-lg font-bold text-gray-800">Shop</span>
           <input value={shop} onChange={(e) => setShop(e.target.value)} placeholder="Where it was done" className={inputClass} />

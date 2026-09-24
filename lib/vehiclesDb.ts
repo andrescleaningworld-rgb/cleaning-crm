@@ -41,6 +41,8 @@ export type VehicleServiceLog = {
   serviceItemId: number | null;
   doneOn: string;
   mileage: number | null;
+  serviceType: string;
+  notes: string;
   what: string;
   shop: string;
   cost: number | null;
@@ -118,6 +120,8 @@ function rowToLog(row: Record<string, unknown>): VehicleServiceLog {
     serviceItemId: numOrNull(row.service_item_id),
     doneOn: row.done_on as string,
     mileage: numOrNull(row.mileage),
+    serviceType: (row.service_type as string) ?? "Other",
+    notes: (row.notes as string) ?? "",
     what: row.what as string,
     shop: row.shop as string,
     cost: numOrNull(row.cost),
@@ -280,9 +284,22 @@ export async function saveServiceItem(vehicleId: number, itemId: number | null, 
 export async function listServiceLogs(vehicleId: number, limit = 100): Promise<VehicleServiceLog[]> {
   const sql = getSql();
   const rows = await sql`
-    SELECT id, vehicle_id, service_item_id, done_on::text AS done_on, mileage, what, shop, cost, receipt_url, created_by, created_at
+    SELECT id, vehicle_id, service_item_id, done_on::text AS done_on, mileage, service_type, notes, what, shop, cost, receipt_url, created_by, created_at
     FROM vehicle_service_logs WHERE vehicle_id = ${vehicleId}
     ORDER BY done_on DESC, id DESC LIMIT ${limit}
+  `;
+  return rows.map((r) => rowToLog(r as Record<string, unknown>));
+}
+
+// Newest log per vehicle — "Last service: Alignment · Sep 10 · 48,200 mi".
+export async function listLastServiceLogs(vehicleIds: number[]): Promise<VehicleServiceLog[]> {
+  if (vehicleIds.length === 0) return [];
+  const sql = getSql();
+  const rows = await sql`
+    SELECT DISTINCT ON (vehicle_id)
+      id, vehicle_id, service_item_id, done_on::text AS done_on, mileage, service_type, notes, what, shop, cost, receipt_url, created_by, created_at
+    FROM vehicle_service_logs WHERE vehicle_id = ANY(${vehicleIds})
+    ORDER BY vehicle_id, done_on DESC, id DESC
   `;
   return rows.map((r) => rowToLog(r as Record<string, unknown>));
 }
@@ -295,7 +312,8 @@ export async function logService(input: {
   serviceItemId: number | null;
   doneOn: string;
   mileage: number | null;
-  what: string;
+  serviceType: string;
+  notes: string;
   shop: string;
   cost: number | null;
   receiptUrl: string;
@@ -303,11 +321,12 @@ export async function logService(input: {
   nextDueDate: string | null;
 }): Promise<VehicleServiceLog> {
   const sql = getSql();
+  const what = input.notes ? `${input.serviceType} — ${input.notes}` : input.serviceType;
   const rows = await sql`
-    INSERT INTO vehicle_service_logs (vehicle_id, service_item_id, done_on, mileage, what, shop, cost, receipt_url, created_by)
-    VALUES (${input.vehicleId}, ${input.serviceItemId}, ${input.doneOn}, ${input.mileage}, ${input.what}, ${input.shop},
-            ${input.cost}, ${input.receiptUrl}, ${input.createdBy})
-    RETURNING id, vehicle_id, service_item_id, done_on::text AS done_on, mileage, what, shop, cost, receipt_url, created_by, created_at
+    INSERT INTO vehicle_service_logs (vehicle_id, service_item_id, done_on, mileage, service_type, notes, what, shop, cost, receipt_url, created_by)
+    VALUES (${input.vehicleId}, ${input.serviceItemId}, ${input.doneOn}, ${input.mileage}, ${input.serviceType}, ${input.notes},
+            ${what}, ${input.shop}, ${input.cost}, ${input.receiptUrl}, ${input.createdBy})
+    RETURNING id, vehicle_id, service_item_id, done_on::text AS done_on, mileage, service_type, notes, what, shop, cost, receipt_url, created_by, created_at
   `;
   if (input.serviceItemId) {
     await sql`

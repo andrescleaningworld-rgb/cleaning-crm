@@ -2,7 +2,7 @@
 // Postgres only (lib/vehiclesDb.ts); no Sheets access here — the pages get
 // driver names from /api/staff.
 import { NextRequest, NextResponse } from "next/server";
-import { createVehicle, listServiceItems, listVehicles } from "@/lib/vehiclesDb";
+import { createVehicle, listLastServiceLogs, listServiceItems, listVehicles } from "@/lib/vehiclesDb";
 import { parseMileage, parseVehicleInput } from "@/lib/vehicleInput";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
@@ -10,8 +10,9 @@ import { logActivity } from "@/lib/activityLog";
 export async function GET() {
   try {
     const vehicles = await listVehicles(true);
-    const items = await listServiceItems(vehicles.map((v) => v.id));
-    return NextResponse.json({ success: true, vehicles, items });
+    const ids = vehicles.map((v) => v.id);
+    const [items, lastLogs] = await Promise.all([listServiceItems(ids), listLastServiceLogs(ids)]);
+    return NextResponse.json({ success: true, vehicles, items, lastLogs });
   } catch (error) {
     console.error("[vehicles GET]", error);
     return NextResponse.json({ success: false, error: "Could not load vehicles." }, { status: 500 });

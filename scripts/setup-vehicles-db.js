@@ -9,7 +9,9 @@
  *   use interval_miles and/or interval_months from the last time it was done
  *   (last_done_date / last_done_mileage). Date-only items (inspection,
  *   registration, insurance) use due_date.
- * - vehicle_service_logs: "Log service" entries.
+ * - vehicle_service_logs: "Log service" entries. service_type is the quick-pick
+ *   (Oil change, Tires, Alignment, Balancing, Brakes, Repair, Other, or a
+ *   custom reminder's name); notes is free text.
  * - vehicle_mileage_readings: every mileage entry (tablet, office, service).
  *   flagged_lower = a tablet/service reading lower than the vehicle's
  *   mileage at the time; saved, but it never lowers current_mileage.
@@ -108,7 +110,19 @@ async function main() {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_vehicle_service_logs_vehicle ON vehicle_service_logs(vehicle_id, done_on DESC)`;
+  // Oil-change-first update: type + notes on each log (additive).
+  await sql`ALTER TABLE vehicle_service_logs ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAULT 'Other'`;
+  await sql`ALTER TABLE vehicle_service_logs ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''`;
   console.log("vehicle_service_logs ready.");
+
+  // Only "Oil change" is a default reminder now. The other original default
+  // items on existing vehicles are switched off (kept, never deleted).
+  const deactivated = await sql`
+    UPDATE vehicle_service_items SET active = false
+    WHERE active AND name IN ('Tire rotation', 'Brakes check', 'Inspection', 'Registration', 'Insurance renewal')
+    RETURNING id
+  `;
+  console.log(`Old default reminders switched off: ${deactivated.length}.`);
 
   await sql`
     CREATE TABLE IF NOT EXISTS vehicle_mileage_readings (

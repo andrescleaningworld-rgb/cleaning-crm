@@ -4,8 +4,8 @@
 // the one Add / Edit vehicle form. Same simple style as the Equipment
 // screens (app/equipment/ui.tsx).
 import { useEffect, useState } from "react";
-import type { Vehicle, VehicleServiceItem } from "@/lib/vehiclesDb";
-import { DUE_RANK, computeDue, type DueInfo, type DueLevel } from "@/lib/vehicleDue";
+import type { Vehicle, VehicleServiceItem, VehicleServiceLog } from "@/lib/vehiclesDb";
+import { DUE_RANK, computeDue, isOilChangeItem, todayInCompanyTz, type DueInfo, type DueLevel } from "@/lib/vehicleDue";
 import type { Staff } from "../types";
 import { BigButton, EquipmentPhoto, ErrorNote, PhotoUploadButton, inputClass } from "../ui";
 
@@ -21,6 +21,29 @@ export function dueForVehicle(vehicle: Vehicle, items: VehicleServiceItem[]): { 
     .filter((item) => item.vehicleId === vehicle.id && item.active)
     .map((item) => ({ item, due: computeDue(item, vehicle.currentMileage) }))
     .sort((a, b) => DUE_RANK[b.due.level] - DUE_RANK[a.due.level] || a.item.sortOrder - b.item.sortOrder);
+}
+
+// The oil change reminder's status for this vehicle (null = reminder off).
+export function oilDue(vehicle: Vehicle, items: VehicleServiceItem[]): DueInfo | null {
+  const oil = items.find((item) => item.vehicleId === vehicle.id && item.active && isOilChangeItem(item));
+  return oil ? computeDue(oil, vehicle.currentMileage) : null;
+}
+
+// "Sep 10" (this year) or "Sep 10, 2025".
+export function formatMonthDay(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const sameYear = String(y) === todayInCompanyTz().slice(0, 4);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+// "Alignment · Sep 10 · 48,200 mi"
+export function lastServiceText(log: VehicleServiceLog): string {
+  return [log.serviceType, formatMonthDay(log.doneOn), log.mileage !== null ? formatMiles(log.mileage) : null].filter(Boolean).join(" · ");
 }
 
 export function DueDot({ level }: { level: DueLevel }) {

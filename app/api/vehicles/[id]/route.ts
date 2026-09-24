@@ -19,7 +19,7 @@ import {
   updateVehicle,
 } from "@/lib/vehiclesDb";
 import { parseDate, parseMileage, parseServiceItemInput, parseVehicleInput } from "@/lib/vehicleInput";
-import { todayInCompanyTz } from "@/lib/vehicleDue";
+import { SERVICE_TYPES, todayInCompanyTz } from "@/lib/vehicleDue";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 
@@ -66,30 +66,35 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       const nextDueDate = parseDate(body.nextDueDate);
       const mileage = parseMileage(body.mileage);
       const cost = body.cost === undefined || body.cost === null || String(body.cost).trim() === "" ? null : Number(body.cost);
-      const what = String(body.what ?? "").trim().slice(0, 500);
       if (doneOn === "invalid" || nextDueDate === "invalid") return bad("Date doesn't look right.");
       if (doneOn > todayInCompanyTz()) return bad("The date can't be in the future.");
       if (Number.isNaN(mileage)) return bad("Mileage doesn't look right.");
       if (cost !== null && (!Number.isFinite(cost) || cost < 0 || cost > 1_000_000)) return bad("Cost doesn't look right.");
-      if (!what) return bad("Write what was done.");
-      const itemId = body.serviceItemId ? Number(body.serviceItemId) : null;
-      if (itemId !== null) {
-        const items = await listServiceItems([id]);
-        if (!items.some((i) => i.id === itemId)) return bad("That service item isn't on this vehicle.");
+
+      // Type = one of the quick-picks, or the name of one of this vehicle's
+      // own active reminders. A type that matches a reminder (e.g. "Oil
+      // change") marks that reminder done, which restarts its countdown.
+      const serviceType = String(body.serviceType ?? "").trim();
+      const items = await listServiceItems([id]);
+      const matchingItem = items.find((i) => i.active && i.name.trim().toLowerCase() === serviceType.toLowerCase()) ?? null;
+      if (!serviceType || !((SERVICE_TYPES as readonly string[]).includes(serviceType) || matchingItem)) {
+        return bad("Tap what was done.");
       }
+      const notes = String(body.notes ?? "").trim().slice(0, 1000);
       await logService({
         vehicleId: id,
-        serviceItemId: itemId,
+        serviceItemId: matchingItem?.id ?? null,
         doneOn,
         mileage,
-        what,
+        serviceType,
+        notes,
         shop: String(body.shop ?? "").trim().slice(0, 200),
         cost: cost === null ? null : Math.round(cost * 100) / 100,
         receiptUrl: String(body.receiptUrl ?? "").trim().slice(0, 500),
         createdBy: actorName,
         nextDueDate,
       });
-      detail = `Logged service: ${what}`;
+      detail = `Logged service: ${serviceType}${notes ? ` — ${notes}` : ""}`;
     } else if (action === "saveItem") {
       const input = parseServiceItemInput(body);
       if (typeof input === "string") return bad(input);

@@ -1,19 +1,20 @@
 "use client";
 
 // Vehicles (inside Equipment): one big "Add vehicle" button, a search box,
-// and a photo card per vehicle showing the most urgent service item in
-// plain words and its color (red overdue / amber due soon / green OK).
+// and a photo card per vehicle with ONE status line: the oil change reminder
+// (red overdue / amber due soon / green OK) + the last service logged.
 // Retired vehicles sit under a "Retired" chip. Postgres via /api/vehicles.
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { Vehicle, VehicleServiceItem } from "@/lib/vehiclesDb";
+import type { Vehicle, VehicleServiceItem, VehicleServiceLog } from "@/lib/vehiclesDb";
 import { BigButton, EquipmentPhoto, EquipmentShell, ErrorNote } from "../ui";
-import { DUE_STYLE, DueDot, dueForVehicle, formatMiles, useStaffList } from "./vehicleUi";
+import { DUE_STYLE, DueDot, formatMiles, lastServiceText, oilDue, useStaffList } from "./vehicleUi";
 
 export default function VehiclesPage() {
   const staff = useStaffList();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [items, setItems] = useState<VehicleServiceItem[]>([]);
+  const [lastLogs, setLastLogs] = useState<VehicleServiceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
@@ -22,11 +23,12 @@ export default function VehiclesPage() {
   useEffect(() => {
     fetch("/api/vehicles", { cache: "no-store" })
       .then((res) => res.json())
-      .then((data: { success?: boolean; vehicles?: Vehicle[]; items?: VehicleServiceItem[]; error?: string }) => {
+      .then((data: { success?: boolean; vehicles?: Vehicle[]; items?: VehicleServiceItem[]; lastLogs?: VehicleServiceLog[]; error?: string }) => {
         if (!data.success) setLoadError(data.error || "Could not load vehicles.");
         else {
           setVehicles(data.vehicles ?? []);
           setItems(data.items ?? []);
+          setLastLogs(data.lastLogs ?? []);
         }
       })
       .catch(() => setLoadError("No connection. Reload the page."))
@@ -83,15 +85,15 @@ export default function VehiclesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((vehicle) => {
-            const dues = dueForVehicle(vehicle, items);
-            const top = dues[0]?.due;
-            const urgentCount = dues.filter((d) => d.due.level === "red" || d.due.level === "amber").length;
+            const oil = oilDue(vehicle, items);
+            const last = lastLogs.find((l) => l.vehicleId === vehicle.id);
+            const statusLine = [oil?.text, last ? `Last: ${lastServiceText(last)}` : null].filter(Boolean).join(" · ");
             return (
               <Link
                 key={vehicle.id}
                 href={`/equipment/vehicles/${vehicle.id}`}
                 className={`overflow-hidden rounded-3xl border-4 bg-white shadow-sm transition hover:shadow-md ${
-                  vehicle.active && top ? DUE_STYLE[top.level].card : "border-gray-200"
+                  vehicle.active && oil ? DUE_STYLE[oil.level].card : "border-gray-200"
                 }`}
               >
                 <EquipmentPhoto url={vehicle.photoUrl} name={vehicle.name} className="h-40 w-full" />
@@ -102,11 +104,10 @@ export default function VehiclesPage() {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
-                  {vehicle.active && top ? (
-                    <p className={`flex items-center gap-2 rounded-xl px-3 py-2 text-lg font-semibold ${DUE_STYLE[top.level].row}`}>
-                      <DueDot level={top.level} />
-                      {top.text}
-                      {urgentCount > 1 ? ` (+${urgentCount - 1} more)` : ""}
+                  {vehicle.active && statusLine ? (
+                    <p className={`flex items-center gap-2 rounded-xl px-3 py-2 text-lg font-semibold ${DUE_STYLE[oil?.level ?? "gray"].row}`}>
+                      {oil ? <DueDot level={oil.level} /> : null}
+                      {statusLine}
                     </p>
                   ) : null}
                 </div>

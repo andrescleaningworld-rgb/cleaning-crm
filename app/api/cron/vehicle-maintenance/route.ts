@@ -1,9 +1,8 @@
 // Public path (proxy.ts PUBLIC_PATHS "/api/cron") — self-gated on
 // CRON_SECRET like /api/cron/team-hub-checklist-alerts. Scheduled in
 // vercel.json for Mondays 13:00 UTC (9 AM EDT / 8 AM EST). Emails info@/crm@
-// (sendInternalNotification, the existing path) a list of vehicle service
-// items due soon (amber) or overdue (red); sends nothing when the list is
-// empty. vehicle_digest_sent makes it once per week even if the cron is
+// (sendInternalNotification, the existing path) the vehicles whose oil change
+// is due soon (amber) or overdue (red); sends nothing when there are none. vehicle_digest_sent makes it once per week even if the cron is
 // retried. ?dryRun=1 returns the email lines without sending or recording.
 // Sheets touch: fetchStaff (read) for driver names, only when there's
 // something to send.
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     const staffName = new Map((await fetchStaff()).map((s) => [s.id, s.name]));
     const origin = new URL(request.url).origin;
     const lines: string[] = [
-      `${itemCount} vehicle service item${itemCount === 1 ? "" : "s"} due soon or overdue (due soon = within 500 mi or 30 days).`,
+      `${itemCount} oil change${itemCount === 1 ? "" : "s"} due soon or overdue (due soon = within 500 mi or 30 days).`,
       "",
     ];
     for (const group of groups) {
@@ -44,7 +43,7 @@ export async function GET(request: NextRequest) {
       for (const due of group.due) lines.push(`  ${due.level === "red" ? "OVERDUE" : "Due soon"}: ${due.text}`);
       lines.push(`  ${origin}/equipment/vehicles/${group.vehicleId}`, "");
     }
-    const subject = `Vehicles: ${itemCount} service item${itemCount === 1 ? "" : "s"} due`;
+    const subject = `Vehicles: ${itemCount} oil change${itemCount === 1 ? "" : "s"} due`;
 
     if (dryRun) return NextResponse.json({ success: true, dryRun: true, weekStart, subject, lines });
 
