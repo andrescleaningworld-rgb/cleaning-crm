@@ -1,3 +1,4 @@
+import { describeAccountChanges } from "@/lib/accountChanges";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
@@ -148,6 +149,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     let action = String(body.action || "").trim();
+    // Set by the updateAccountFields path below (fresh record vs. new
+    // values) and logged with the save — see lib/accountChanges.ts.
+    let fieldChangesDetail: string | null = null;
 
     // Fast path for the account edit page's Save button — reads and
     // writes the Accounts sheet directly instead of routing through Apps
@@ -272,6 +276,8 @@ export async function POST(request: NextRequest) {
           action: "update",
           entityType: "account",
           entityId: accountId,
+          // Old → new for every field that changed (History on the account).
+          detail: describeAccountChanges(result.before, result.after) || "Saved (no field changes)",
         });
       }
 
@@ -338,6 +344,7 @@ export async function POST(request: NextRequest) {
 
       body.account = { ...freshAccount, ...fields };
       action = "updateAccount";
+      fieldChangesDetail = describeAccountChanges(freshAccount, fields as Record<string, unknown>) || "Saved (no field changes)";
     }
 
     // === NEW: Handle Send New Account Packet ===
@@ -595,6 +602,7 @@ export async function POST(request: NextRequest) {
         action: resolvedAction === "updateAccount" ? "update" : "create",
         entityType: "account",
         entityId: effectiveAccountId || null,
+        detail: resolvedAction === "updateAccount" ? fieldChangesDetail : "Account created",
       });
     }
 

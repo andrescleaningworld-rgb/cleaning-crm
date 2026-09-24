@@ -37,6 +37,9 @@ type TemplateApiResponse = {
 export type ChecklistTemplateEditorProps = {
   accountId: string;
   accountName: string;
+  // Crew Link page (/crew-link): start expanded. The account page keeps
+  // its collapsed default.
+  defaultOpen?: boolean;
 };
 
 function makeEmptySection(): ChecklistSectionDef {
@@ -59,7 +62,7 @@ function moveInArray<T>(arr: T[], index: number, direction: -1 | 1): T[] {
   return next;
 }
 
-export default function ChecklistTemplateEditor({ accountId, accountName }: ChecklistTemplateEditorProps) {
+export default function ChecklistTemplateEditor({ accountId, accountName, defaultOpen = false }: ChecklistTemplateEditorProps) {
   const [loading, setLoading] = useState(true);
   const [checklistNeeded, setChecklistNeeded] = useState(false);
   const [porterCode, setPorterCode] = useState("");
@@ -80,7 +83,7 @@ export default function ChecklistTemplateEditor({ accountId, accountName }: Chec
   // from the account edit page. The checklist itself stays on checklistNeeded.
   const [supplyOrdersEnabled, setSupplyOrdersEnabled] = useState(false);
   const [problemReportsEnabled, setProblemReportsEnabled] = useState(false);
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(!defaultOpen);
   const [extracting, setExtracting] = useState(false);
   const [extractPreview, setExtractPreview] = useState<{
     locationName: string;

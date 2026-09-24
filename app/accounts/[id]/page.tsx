@@ -8,6 +8,7 @@ import { AccountPacketPrintView } from "./account-packet-print-view";
 import OnboardingChecklist from "../../components/OnboardingChecklist";
 import OnboardingWizardModal from "../../components/OnboardingWizardModal";
 import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
+import AccountHistory from "../../components/AccountHistory";
 import AccountTeamHubTab from "./team-hub-tab";
 
 type Account = {
@@ -1479,6 +1480,11 @@ export default function AccountDetailPage() {
           accountName={account.accountName || "Unnamed Account"}
         />
       </section>
+
+      {/* Every save: who, when, and each field's old → new value. */}
+      <div className="mt-6 account-detail-print-hide">
+        <AccountHistory accountId={getAccountId(account, rawAccountIdFromUrl)} />
+      </div>
 
       {showOnboardingWizard ? (
         <OnboardingWizardModal

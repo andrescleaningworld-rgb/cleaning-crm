@@ -86,3 +86,17 @@ export async function listActivityLog(filters: ActivityLogFilters): Promise<Acti
   `;
   return rows.map((r) => rowToEntry(r as Record<string, unknown>));
 }
+
+// One record's history (e.g. entity_type "account" + its id), newest first —
+// the account page's History section. A filtered read only; the full log
+// stays owner-only at /settings/activity-log.
+export async function listActivityForEntity(entityType: string, entityId: string, limit = 200): Promise<ActivityLogEntry[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM activity_log
+    WHERE entity_type = ${entityType} AND entity_id = ${entityId}
+    ORDER BY created_at DESC
+    LIMIT ${Math.min(limit, 500)}
+  `;
+  return rows.map((r) => rowToEntry(r as Record<string, unknown>));
+}
