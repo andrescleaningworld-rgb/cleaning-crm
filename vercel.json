@@ -2,10 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
-      "path": "/api/cron/team-hub-checklist-alerts",
-      "schedule": "*/15 * * * *"
-    },
-    {
       "path": "/api/cron/vehicle-maintenance",
       "schedule": "0 13 * * 1"
     }

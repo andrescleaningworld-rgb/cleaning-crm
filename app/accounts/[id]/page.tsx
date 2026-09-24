@@ -9,7 +9,6 @@ import OnboardingChecklist from "../../components/OnboardingChecklist";
 import OnboardingWizardModal from "../../components/OnboardingWizardModal";
 import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
-import AccountTeamHubTab from "./team-hub-tab";
 
 type Account = {
   id?: string;
@@ -301,9 +300,9 @@ export default function AccountDetailPage() {
   const [account, setAccount] = useState<Account | null>(null);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
-  // Team Hub tab — added alongside the page's existing state without
-  // touching any of it; only the return statement below is wrapped.
-  const [activeTab, setActiveTab] = useState<"details" | "team-hub">("details");
+  // Team Hub tab hidden 2026-09-24 (Crew Link replaces it) — the page
+  // always shows Details; ./team-hub-tab.tsx is kept, just not rendered.
+  const activeTab = "details" as const;
   const [sendingPacket, setSendingPacket] = useState(false);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
@@ -341,17 +340,6 @@ export default function AccountDetailPage() {
     hasAppliedOnboardingQueryTrigger.current = true;
     setShowOnboardingWizard(true);
   }, [account, searchParams]);
-
-  // Team Hub's own email notifications (new order/problem) deep-link here
-  // with ?tab=team-hub — same one-time-trigger-ref pattern as onboarding
-  // above, so navigating away and manually switching tabs afterward sticks.
-  const hasAppliedTabQueryTrigger = useRef(false);
-  useEffect(() => {
-    if (hasAppliedTabQueryTrigger.current) return;
-    if (searchParams?.get("tab") !== "team-hub") return;
-    hasAppliedTabQueryTrigger.current = true;
-    setActiveTab("team-hub");
-  }, [searchParams]);
 
   async function fetchPortalAccountMatch(
     accountName: string
@@ -1049,38 +1037,6 @@ export default function AccountDetailPage() {
         scope={account.scope || account.scopeOfWork || ""}
         manager={account.manager || ""}
       />
-
-      <div className="mx-auto max-w-6xl px-4 pt-4 account-detail-print-hide">
-        <div className="inline-flex gap-1 rounded-xl bg-slate-100 p-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab("details")}
-            className={`rounded-lg px-4 py-2 text-sm font-bold ${
-              activeTab === "details" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600"
-            }`}
-          >
-            Details
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("team-hub")}
-            className={`rounded-lg px-4 py-2 text-sm font-bold ${
-              activeTab === "team-hub" ? "bg-white text-blue-800 shadow-sm" : "text-slate-600"
-            }`}
-          >
-            Team Hub
-          </button>
-        </div>
-      </div>
-
-      {activeTab === "team-hub" && (
-        <div className="mx-auto max-w-6xl px-4 py-6">
-          <AccountTeamHubTab
-            accountId={getAccountId(account, rawAccountIdFromUrl)}
-            accountName={account.accountName || ""}
-          />
-        </div>
-      )}
 
       {activeTab === "details" && (
       <div className="account-detail-print">
