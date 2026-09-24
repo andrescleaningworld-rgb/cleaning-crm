@@ -312,6 +312,10 @@ export type SubmissionSummary = {
   // Automatic start time (null for older, typed-time submissions — see
   // describeWorkTimes in lib/checklistTemplate.ts).
   startedAt: string | null;
+  // English copy of generalNotes + detected language (null until the async
+  // translation lands, and for rows from before it existed).
+  generalNotesEnglish: string | null;
+  generalNotesLang: string | null;
 };
 
 export type SubmissionDetail = SubmissionSummary & {
@@ -338,7 +342,15 @@ function rowToSummary(row: Record<string, unknown>): SubmissionSummary {
         ? row.started_at.toISOString()
         : String(row.started_at)
       : null,
+    generalNotesEnglish: (row.general_notes_english as string | null | undefined) ?? null,
+    generalNotesLang: (row.general_notes_lang as string | null | undefined) ?? null,
   };
+}
+
+// SHARED TRANSLATION: saved after the submit response (waitUntil).
+export async function setSubmissionNotesTranslation(id: number, english: string, lang: string): Promise<void> {
+  const sql = getSql();
+  await sql`UPDATE checklist_submissions SET general_notes_english = ${english}, general_notes_lang = ${lang} WHERE id = ${id}`;
 }
 
 export async function listSubmissions(accountId?: string): Promise<SubmissionSummary[]> {

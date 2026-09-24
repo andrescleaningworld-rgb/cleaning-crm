@@ -6,6 +6,7 @@ import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
 import ScheduleCalendarTab from "./schedule-calendar-tab";
+import CrewChecklists from "./crew-checklists";
 
 type Account = {
   id?: string;
@@ -1687,6 +1688,17 @@ export default function SubcontractorPortalPage() {
                   subName={getSubcontractorDisplayName(subcontractor)}
                   frequency={selectedAccount.frequency ?? ""}
                   cleaningDays={selectedAccount.cleaningDays ?? ""}
+                />
+              ) : null}
+
+              {/* Crew Link / Team Hub checklists + problem reports (read-only).
+                  Access is decided server-side by account ID + login email;
+                  only a real account ID is sent (never the name fallback
+                  getAccountId uses). */}
+              {selectedAccount && subcontractor && (selectedAccount.accountId || selectedAccount.id) ? (
+                <CrewChecklists
+                  key={String(selectedAccount.accountId || selectedAccount.id).trim()}
+                  accountId={String(selectedAccount.accountId || selectedAccount.id).trim()}
                 />
               ) : null}
             </div>

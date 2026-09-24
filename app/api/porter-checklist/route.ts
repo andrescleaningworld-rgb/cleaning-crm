@@ -5,7 +5,9 @@
 // public.
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/googleSheets";
-import { getTabForAccount, getTemplateByPorterCode, insertSubmission, listActiveTabs } from "@/lib/checklistDb";
+import { getTabForAccount, getTemplateByPorterCode, insertSubmission, listActiveTabs, setSubmissionNotesTranslation } from "@/lib/checklistDb";
+import { waitUntil } from "@vercel/functions";
+import { translateToEnglish } from "@/lib/translate";
 import {
   DEFAULT_TAB_NAME,
   countSubmissionProgress,
@@ -137,6 +139,17 @@ export async function POST(request: NextRequest) {
       completedCount: done,
       totalCount: total,
     });
+
+    // English copy of the crew's note for staff + the sub portal (English
+    // first, "Show original"). After the response, so Send never waits.
+    const generalNotes = String(body.generalNotes ?? "").trim();
+    if (generalNotes) {
+      waitUntil(
+        translateToEnglish(generalNotes)
+          .then((t) => (t ? setSubmissionNotesTranslation(id, t.english, t.detectedLanguage) : undefined))
+          .catch((error) => console.error("[porter-checklist note translation]", error))
+      );
+    }
 
     await logActivity({
       actorAccountId: null,
