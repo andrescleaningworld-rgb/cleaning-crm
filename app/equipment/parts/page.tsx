@@ -1,8 +1,13 @@
 "use client";
 
-import Link from "next/link";
+// Parts & stock (Equipment redesign): one big "Add a part" button, then a
+// card per part with its stock in big numbers and three plain buttons —
+// "Used", "Restocked", "Fix count". Same /api/equipment-parts routes as
+// before; stock only ever changes through adjust-stock (→
+// adjustEquipmentPartStock in lib/googleSheets.ts, per the standing rule).
 import { useEffect, useState } from "react";
 import type { EquipmentPart } from "../types";
+import { BigButton, EquipmentShell, ErrorNote } from "../ui";
 
 type PartDraft = {
   partName: string;
@@ -13,30 +18,22 @@ type PartDraft = {
   lowStockThreshold: string;
 };
 
-const emptyDraft: PartDraft = {
-  partName: "",
-  compatibleEquipmentId: "",
-  supplier: "",
-  unitCost: "",
-  stockQty: "",
-  lowStockThreshold: "",
-};
+const emptyDraft: PartDraft = { partName: "", compatibleEquipmentId: "", supplier: "", unitCost: "", stockQty: "", lowStockThreshold: "" };
 
-const REASONS = ["Used", "Restocked", "Correction"] as const;
+const inputClass = "mt-2 min-h-[56px] w-full rounded-xl border-2 border-gray-300 px-4 text-xl text-gray-900 outline-none focus:border-blue-600";
 
-function AddPartForm({ onAdded }: { onAdded: () => Promise<void> }) {
-  const [open, setOpen] = useState(false);
+function AddPartForm({ onAdded, onCancel }: { onAdded: () => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<PartDraft>(emptyDraft);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const set = (field: keyof PartDraft) => (value: string) => setDraft((d) => ({ ...d, [field]: value }));
 
   async function handleAdd() {
     const partName = draft.partName.trim();
     if (!partName) {
-      setError("Part name is required.");
+      setError("Type the part name first.");
       return;
     }
-
     setSaving(true);
     setError("");
     try {
@@ -54,128 +51,64 @@ function AddPartForm({ onAdded }: { onAdded: () => Promise<void> }) {
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!data.success) {
-        setError(data.error || "Failed to add part.");
+        setError(data.error || "Could not add. Try again.");
         return;
       }
-      setDraft(emptyDraft);
-      setOpen(false);
       await onAdded();
     } catch {
-      setError("Network error adding part.");
+      setError("No connection. Try again.");
     } finally {
       setSaving(false);
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800"
-      >
-        + Add Part
-      </button>
-    );
-  }
-
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">Add Part</h2>
-        <button type="button" onClick={() => setOpen(false)} className="text-sm font-semibold text-gray-500 hover:text-gray-800">
-          Cancel
-        </button>
+    <section className="space-y-4 rounded-3xl bg-white p-5 shadow-sm">
+      <h2 className="text-2xl font-black text-gray-900">Add a part</h2>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block sm:col-span-2">
+          <span className="text-lg font-bold text-gray-800">Part name</span>
+          <input value={draft.partName} onChange={(e) => set("partName")(e.target.value)} className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="text-lg font-bold text-gray-800">How many now</span>
+          <input type="number" inputMode="numeric" value={draft.stockQty} onChange={(e) => set("stockQty")(e.target.value)} className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="text-lg font-bold text-gray-800">Warn me below</span>
+          <input type="number" inputMode="numeric" value={draft.lowStockThreshold} onChange={(e) => set("lowStockThreshold")(e.target.value)} className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="text-lg font-bold text-gray-800">Fits (equipment)</span>
+          <input value={draft.compatibleEquipmentId} onChange={(e) => set("compatibleEquipmentId")(e.target.value)} placeholder="General" className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="text-lg font-bold text-gray-800">Supplier</span>
+          <input value={draft.supplier} onChange={(e) => set("supplier")(e.target.value)} className={inputClass} />
+        </label>
+        <label className="block">
+          <span className="text-lg font-bold text-gray-800">Price each ($)</span>
+          <input type="number" inputMode="decimal" value={draft.unitCost} onChange={(e) => set("unitCost")(e.target.value)} className={inputClass} />
+        </label>
       </div>
-
-      {error ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Part Name</label>
-          <input
-            type="text"
-            value={draft.partName}
-            onChange={(e) => setDraft((d) => ({ ...d, partName: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Compatible Equipment (ID or &quot;General&quot;)</label>
-          <input
-            type="text"
-            value={draft.compatibleEquipmentId}
-            onChange={(e) => setDraft((d) => ({ ...d, compatibleEquipmentId: e.target.value }))}
-            placeholder="General"
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Supplier</label>
-          <input
-            type="text"
-            value={draft.supplier}
-            onChange={(e) => setDraft((d) => ({ ...d, supplier: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Unit Cost</label>
-          <input
-            type="number"
-            value={draft.unitCost}
-            onChange={(e) => setDraft((d) => ({ ...d, unitCost: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Starting Stock Qty</label>
-          <input
-            type="number"
-            value={draft.stockQty}
-            onChange={(e) => setDraft((d) => ({ ...d, stockQty: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Low Stock Threshold</label>
-          <input
-            type="number"
-            value={draft.lowStockThreshold}
-            onChange={(e) => setDraft((d) => ({ ...d, lowStockThreshold: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
+      <ErrorNote message={error} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <BigButton label="Cancel" onClick={onCancel} disabled={saving} />
+        <BigButton icon="✔" label={saving ? "Adding…" : "Add part"} tone="green" onClick={handleAdd} disabled={saving} />
       </div>
-
-      <button
-        type="button"
-        onClick={handleAdd}
-        disabled={saving}
-        className="mt-4 rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {saving ? "Adding..." : "Add Part"}
-      </button>
     </section>
   );
 }
 
-function AdjustStockControl({ part, onAdjusted }: { part: EquipmentPart; onAdjusted: () => Promise<void> }) {
-  const [qty, setQty] = useState("1");
-  const [reason, setReason] = useState<(typeof REASONS)[number]>("Used");
+function PartCard({ part, onChanged }: { part: EquipmentPart; onChanged: () => Promise<void> }) {
+  const [qty, setQty] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [fixing, setFixing] = useState(false);
+  const [newCount, setNewCount] = useState(String(part.stockQty));
 
-  async function submit() {
-    const amount = Number(qty);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Enter a positive quantity.");
-      return;
-    }
-    const delta = reason === "Used" ? -amount : amount;
-
+  async function adjust(delta: number, reason: "Used" | "Restocked" | "Correction"): Promise<boolean> {
+    if (delta === 0) return true;
     setSaving(true);
     setError("");
     try {
@@ -186,46 +119,104 @@ function AdjustStockControl({ part, onAdjusted }: { part: EquipmentPart; onAdjus
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!data.success) {
-        setError(data.error || "Failed to adjust stock.");
-        return;
+        setError(data.error || "Could not save. Try again.");
+        return false;
       }
-      setQty("1");
-      await onAdjusted();
+      setQty(1);
+      await onChanged();
+      return true;
     } catch {
-      setError("Network error adjusting stock.");
+      setError("No connection. Try again.");
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
+  const target = Math.max(0, Math.floor(Number(newCount)));
+
   return (
-    <div>
-      <div className="flex items-center gap-2">
-        <select
-          value={reason}
-          onChange={(e) => setReason(e.target.value as (typeof REASONS)[number])}
-          className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-        >
-          {REASONS.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
-        <input
-          type="number"
-          value={qty}
-          onChange={(e) => setQty(e.target.value)}
-          className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-        />
+    <div className={`space-y-4 rounded-3xl border-4 bg-white p-5 shadow-sm ${part.lowStock ? "border-red-300" : "border-transparent"}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-2xl font-black text-gray-900">{part.partName}</p>
+          <p className="text-base text-gray-600">
+            Fits: {part.compatibleEquipmentId || "General"}
+            {part.supplier ? ` · ${part.supplier}` : ""}
+            {part.unitCost ? ` · $${part.unitCost.toLocaleString()} each` : ""}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className={`text-5xl font-black ${part.lowStock ? "text-red-700" : "text-gray-900"}`}>{part.stockQty}</p>
+          <p className="text-base text-gray-500">in stock</p>
+        </div>
+      </div>
+      {part.lowStock ? (
+        <p className="rounded-xl bg-red-50 px-4 py-2 text-lg font-bold text-red-800">Low — order more (warns below {part.lowStockThreshold})</p>
+      ) : null}
+
+      <div className="flex items-center justify-center gap-4">
         <button
           type="button"
-          onClick={submit}
-          disabled={saving}
-          className="rounded-lg bg-blue-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          onClick={() => setQty((q) => Math.max(1, q - 1))}
+          aria-label="Fewer"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-3xl font-bold text-gray-700 hover:bg-gray-200"
         >
-          {saving ? "..." : "Apply"}
+          −
+        </button>
+        <span className="w-16 text-center text-3xl font-black text-blue-700">{qty}</span>
+        <button
+          type="button"
+          onClick={() => setQty((q) => Math.min(999, q + 1))}
+          aria-label="More"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-3xl font-bold text-gray-700 hover:bg-gray-200"
+        >
+          +
         </button>
       </div>
-      {error ? <p className="mt-1 text-xs font-semibold text-red-700">{error}</p> : null}
+
+      <div className="grid grid-cols-2 gap-3">
+        <BigButton icon="➖" label={`Used ${qty}`} tone="amber" onClick={() => adjust(-qty, "Used")} disabled={saving || part.stockQty - qty < 0} />
+        <BigButton icon="➕" label={`Restocked ${qty}`} tone="green" onClick={() => adjust(qty, "Restocked")} disabled={saving} />
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setNewCount(String(part.stockQty));
+          setFixing(true);
+        }}
+        className="min-h-[48px] w-full text-lg font-bold text-blue-700"
+      >
+        Count is wrong? Fix count
+      </button>
+      <ErrorNote message={error} />
+
+      {fixing ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-md space-y-4 rounded-3xl bg-white p-6 shadow-xl">
+            <p className="text-2xl font-black text-gray-900">How many {part.partName} are there really?</p>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={newCount}
+              onChange={(e) => setNewCount(e.target.value)}
+              autoFocus
+              className="min-h-[64px] w-full rounded-xl border-2 border-gray-300 px-4 text-3xl font-black outline-none focus:border-blue-600"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <BigButton label="Cancel" onClick={() => setFixing(false)} disabled={saving} />
+              <BigButton
+                label={saving ? "…" : `Set to ${target}`}
+                tone="primary"
+                disabled={saving || newCount.trim() === ""}
+                onClick={async () => {
+                  if (await adjust(target - part.stockQty, "Correction")) setFixing(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -234,6 +225,8 @@ export default function EquipmentPartsPage() {
   const [parts, setParts] = useState<EquipmentPart[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
 
   async function loadParts() {
     setLoadError("");
@@ -241,12 +234,12 @@ export default function EquipmentPartsPage() {
       const response = await fetch("/api/equipment-parts", { cache: "no-store" });
       const data = (await response.json()) as { success?: boolean; parts?: EquipmentPart[]; error?: string };
       if (!data.success || !Array.isArray(data.parts)) {
-        setLoadError(data.error || "Failed to load parts.");
+        setLoadError(data.error || "Could not load parts.");
         return;
       }
       setParts(data.parts);
     } catch {
-      setLoadError("Network error loading parts.");
+      setLoadError("No connection. Reload the page.");
     } finally {
       setLoading(false);
     }
@@ -256,83 +249,48 @@ export default function EquipmentPartsPage() {
     loadParts();
   }, []);
 
-  const lowStockCount = parts.filter((p) => p.lowStock).length;
+  const query = search.trim().toLowerCase();
+  const shown = parts
+    .filter((p) => !query || [p.partName, p.compatibleEquipmentId, p.supplier].some((t) => t.toLowerCase().includes(query)))
+    .sort((a, b) => Number(b.lowStock) - Number(a.lowStock) || a.partName.localeCompare(b.partName));
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6">
-          <Link href="/equipment" className="text-sm font-semibold text-blue-700 hover:underline">← Back to Equipment</Link>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">Parts &amp; Stock</h1>
-          <p className="mt-1 text-gray-600">Track replacement parts and supplies for equipment.</p>
+    <EquipmentShell back={{ href: "/equipment", label: "Equipment" }} title="Parts & stock">
+      {adding ? (
+        <AddPartForm
+          onAdded={async () => {
+            setAdding(false);
+            await loadParts();
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      ) : (
+        <BigButton icon="➕" label="Add a part" tone="green" onClick={() => setAdding(true)} className="w-full" />
+      )}
+
+      <input
+        type="search"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="🔍 Search parts"
+        aria-label="Search parts"
+        className="min-h-[64px] w-full rounded-2xl border-2 border-gray-300 bg-white px-5 text-xl outline-none focus:border-blue-600"
+      />
+
+      <ErrorNote message={loadError} />
+
+      {loading ? (
+        <p className="p-8 text-center text-xl text-gray-600">Loading…</p>
+      ) : shown.length === 0 ? (
+        <p className="rounded-2xl bg-white p-8 text-center text-xl text-gray-600 shadow-sm">{query ? "Nothing matches that search." : "No parts yet."}</p>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          {shown.map((part) => (
+            <PartCard key={part.id} part={part} onChanged={loadParts} />
+          ))}
         </div>
-
-        <div className="mb-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Total Parts</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">{parts.length}</p>
-          </div>
-          <div className="rounded-xl border border-red-200 bg-red-50 p-5 shadow-sm">
-            <p className="text-sm text-red-700">Low Stock</p>
-            <p className="mt-1 text-2xl font-bold text-red-800">{lowStockCount}</p>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <AddPartForm onAdded={loadParts} />
-        </div>
-
-        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          {loadError ? (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{loadError}</div>
-          ) : null}
-
-          {loading ? (
-            <div className="p-6 text-center text-gray-600">Loading parts...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50 text-gray-600">
-                    <th className="px-4 py-3 font-semibold">Part</th>
-                    <th className="px-4 py-3 font-semibold">Compatible With</th>
-                    <th className="px-4 py-3 font-semibold">Supplier</th>
-                    <th className="px-4 py-3 font-semibold">Unit Cost</th>
-                    <th className="px-4 py-3 font-semibold">Stock</th>
-                    <th className="px-4 py-3 font-semibold">Adjust</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parts.map((part) => (
-                    <tr key={part.id} className={`border-b ${part.lowStock ? "bg-red-50" : ""}`}>
-                      <td className="px-4 py-3 font-semibold text-gray-900">{part.partName}</td>
-                      <td className="px-4 py-3 text-gray-700">{part.compatibleEquipmentId || "General"}</td>
-                      <td className="px-4 py-3 text-gray-700">{part.supplier || "—"}</td>
-                      <td className="px-4 py-3 text-gray-700">{part.unitCost ? `$${part.unitCost.toLocaleString()}` : "—"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`font-semibold ${part.lowStock ? "text-red-700" : "text-gray-900"}`}>
-                          {part.stockQty}
-                        </span>
-                        <span className="text-gray-400"> / {part.lowStockThreshold} threshold</span>
-                        {part.lowStock ? (
-                          <span className="ml-2 rounded-full border border-red-300 bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">
-                            Low Stock
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3">
-                        <AdjustStockControl part={part} onAdjusted={loadParts} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {parts.length === 0 && <div className="p-6 text-center text-gray-600">No parts yet — add one above.</div>}
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+      )}
+    </EquipmentShell>
   );
 }
+

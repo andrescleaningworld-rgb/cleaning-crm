@@ -202,7 +202,8 @@ function useCopiedFlag(): [boolean, () => void] {
 // mailto for the tablet's own inbox and the EN/ES Add to Home Screen steps.
 // "Make a new link" lives here too, in case the link ever gets out (old link
 // stops working, tablets sign out).
-export function SetUpTabletButton() {
+// `big`: the Equipment home's big-button row style.
+export function SetUpTabletButton({ big = false }: { big?: boolean } = {}) {
   const { path, error, regenerate } = useTabletLinkPath();
   const [open, setOpen] = useState(false);
 
@@ -223,8 +224,17 @@ export function SetUpTabletButton() {
         type="button"
         onClick={() => setOpen(true)}
         disabled={!path}
-        className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
+        className={
+          big
+            ? "flex min-h-[64px] items-center justify-center gap-3 rounded-2xl bg-blue-700 px-5 text-xl font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
+            : "rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
+        }
       >
+        {big ? (
+          <span className="text-2xl" aria-hidden="true">
+            📱
+          </span>
+        ) : null}
         Set up a tablet
       </button>
       {error && <span className="text-xs font-semibold text-red-700">{error}</span>}
@@ -304,7 +314,7 @@ function inviteText(name: string, linkUrl: string): string {
 // don't need an invite (they just tap their name). sms: links do nothing on
 // Windows, so this copies the message; on a phone/tablet with the share
 // sheet it opens that instead (Messages, WhatsApp, …).
-function CopyInviteButton({ name, linkUrl }: { name: string; linkUrl: string }) {
+function CopyInviteButton({ name, linkUrl, className }: { name: string; linkUrl: string; className: string }) {
   const [copied, flashCopied] = useCopiedFlag();
 
   async function invite() {
@@ -328,7 +338,7 @@ function CopyInviteButton({ name, linkUrl }: { name: string; linkUrl: string }) 
   }
 
   return (
-    <button type="button" onClick={invite} className="text-xs font-semibold text-blue-700 hover:underline" title="Only needed if they want the app on their own phone">
+    <button type="button" onClick={invite} className={className} title="Only needed if they want the app on their own phone">
       {copied ? "Invite copied!" : "Copy invite (own phone)"}
     </button>
   );
@@ -343,6 +353,7 @@ export function StaffPinControls({
   onChanged,
   historyOpen,
   onToggleHistory,
+  big = false,
 }: {
   member: Staff;
   pin: EquipmentPinStatus | undefined;
@@ -350,6 +361,8 @@ export function StaffPinControls({
   onChanged: () => void;
   historyOpen: boolean;
   onToggleHistory: () => void;
+  // Equipment "Staff & PINs" cards: big buttons and 18px text.
+  big?: boolean;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -372,23 +385,28 @@ export function StaffPinControls({
     }
   }
 
+  const linkClass = big
+    ? "self-start min-h-[48px] rounded-xl border-2 border-gray-300 bg-white px-4 text-lg font-bold text-blue-700 hover:bg-gray-50 disabled:opacity-60"
+    : "self-start text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60";
+  const textSize = big ? "text-lg" : "text-xs";
+
   const linkUrl = linkPath && typeof window !== "undefined" ? `${window.location.origin}${linkPath}` : "";
   const reportsButton = (
-    <button type="button" onClick={onToggleHistory} className="self-start text-xs font-semibold text-blue-700 hover:underline">
+    <button type="button" onClick={onToggleHistory} className={linkClass}>
       {historyOpen ? "Hide reports" : "Reports"}
     </button>
   );
 
   if (!member.active) {
-    return <div className="flex flex-col gap-1">{reportsButton}</div>;
+    return <div className={`flex flex-col ${big ? "gap-2" : "gap-1"}`}>{reportsButton}</div>;
   }
 
   let body: React.ReactNode;
   if (pin?.lockedUntil) {
     body = (
       <>
-        <span className="text-xs font-semibold text-red-700">Locked until {new Date(pin.lockedUntil).toLocaleTimeString()}</span>
-        <button type="button" onClick={allowSetup} disabled={saving} className="self-start text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60">
+        <span className={`${textSize} font-semibold text-red-700`}>Locked until {new Date(pin.lockedUntil).toLocaleTimeString()}</span>
+        <button type="button" onClick={allowSetup} disabled={saving} className={linkClass}>
           Reset PIN
         </button>
       </>
@@ -396,8 +414,8 @@ export function StaffPinControls({
   } else if (pin?.hasPin) {
     body = (
       <>
-        <span className="text-xs font-semibold text-green-700">PIN set</span>
-        <button type="button" onClick={allowSetup} disabled={saving} className="self-start text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60">
+        <span className={`${textSize} font-semibold text-green-700`}>PIN set</span>
+        <button type="button" onClick={allowSetup} disabled={saving} className={linkClass}>
           Reset PIN
         </button>
       </>
@@ -405,22 +423,26 @@ export function StaffPinControls({
   } else if (pin?.setupOpen && pin.setupAllowedUntil) {
     body = (
       <>
-        <span className="rounded-lg bg-green-50 px-2 py-1 text-xs font-semibold text-green-800">
+        <span className={`rounded-lg bg-green-50 px-2 py-1 ${textSize} font-semibold text-green-800`}>
           They can now tap their name on the tablet to create a PIN.
         </span>
-        <span className="text-xs text-gray-500">Open until {new Date(pin.setupAllowedUntil).toLocaleString()}</span>
-        {linkUrl && <CopyInviteButton name={member.name} linkUrl={linkUrl} />}
+        <span className={`${textSize} text-gray-500`}>Open until {new Date(pin.setupAllowedUntil).toLocaleString()}</span>
+        {linkUrl && <CopyInviteButton name={member.name} linkUrl={linkUrl} className={linkClass} />}
       </>
     );
   } else {
     body = (
       <>
-        {pin?.setupAllowedUntil && <span className="text-xs text-gray-500">Setup expired</span>}
+        {pin?.setupAllowedUntil && <span className={`${textSize} text-gray-500`}>Setup expired</span>}
         <button
           type="button"
           onClick={allowSetup}
           disabled={saving}
-          className="self-start rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          className={
+            big
+              ? "self-start min-h-[56px] rounded-xl bg-blue-700 px-5 text-lg font-bold text-white hover:bg-blue-800 disabled:opacity-60"
+              : "self-start rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+          }
         >
           {saving ? "Allowing…" : "Allow PIN setup"}
         </button>
@@ -429,10 +451,10 @@ export function StaffPinControls({
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className={`flex flex-col ${big ? "gap-2" : "gap-1"}`}>
       {body}
       {reportsButton}
-      {error && <span className="text-xs font-semibold text-red-700">{error}</span>}
+      {error && <span className={`${textSize} font-semibold text-red-700`}>{error}</span>}
     </div>
   );
 }

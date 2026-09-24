@@ -1,402 +1,164 @@
 "use client";
 
+// Equipment home (simple redesign): big buttons for every job across the
+// top, a search box, four plain status chips (Good / Needs repair / Lost /
+// Retired) and big photo cards with the tag number. Tap a card → that
+// item's page, where every action lives. Retired items only show under the
+// Retired chip. Reads only the Equipment tab (GET /api/equipment) plus the
+// tablet-report colors (GET /api/equipment/health).
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import CheckoutReturnModal from "./CheckoutReturnModal";
 import { SetUpTabletButton } from "./EquipmentCheckAdmin";
-import { STATUS_LABELS, statusBadgeClass, type EquipmentCategory, type EquipmentItem, type EquipmentStatus } from "./types";
+import type { EquipmentCategory, EquipmentItem } from "./types";
+import {
+  BigButton,
+  EquipmentPhoto,
+  EquipmentShell,
+  ErrorNote,
+  SIMPLE_STATUS_LABEL,
+  SIMPLE_STATUS_STYLE,
+  StatusChip,
+  simpleStatus,
+  whereLine,
+  type SimpleStatus,
+  type TabletFlag,
+} from "./ui";
 
-type NewEquipmentDraft = {
-  name: string;
-  categoryId: string;
-  serialNumber: string;
-  purchaseDate: string;
-  purchaseCost: string;
-  conditionNotes: string;
-};
-
-const emptyDraft: NewEquipmentDraft = {
-  name: "",
-  categoryId: "",
-  serialNumber: "",
-  purchaseDate: "",
-  purchaseCost: "",
-  conditionNotes: "",
-};
-
-function AddEquipmentForm({
-  categories,
-  onAdded,
-}: {
-  categories: EquipmentCategory[];
-  onAdded: () => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<NewEquipmentDraft>(emptyDraft);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleAdd() {
-    const name = draft.name.trim();
-    if (!name) {
-      setError("Name is required.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    try {
-      const response = await fetch("/api/equipment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          categoryId: draft.categoryId,
-          serialNumber: draft.serialNumber,
-          purchaseDate: draft.purchaseDate,
-          purchaseCost: Number(draft.purchaseCost) || 0,
-          conditionNotes: draft.conditionNotes,
-        }),
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-      if (!data.success) {
-        setError(data.error || "Failed to add equipment.");
-        return;
-      }
-      setDraft(emptyDraft);
-      setOpen(false);
-      await onAdded();
-    } catch {
-      setError("Network error adding equipment.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800"
-      >
-        + Add Equipment
-      </button>
-    );
-  }
-
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-bold text-gray-900">Add Equipment</h2>
-        <button type="button" onClick={() => setOpen(false)} className="text-sm font-semibold text-gray-500 hover:text-gray-800">
-          Cancel
-        </button>
-      </div>
-
-      {error ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Name</label>
-          <input
-            type="text"
-            value={draft.name}
-            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Category</label>
-          <select
-            value={draft.categoryId}
-            onChange={(e) => setDraft((d) => ({ ...d, categoryId: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="">Uncategorized</option>
-            {categories.filter((c) => c.active).map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Serial Number</label>
-          <input
-            type="text"
-            value={draft.serialNumber}
-            onChange={(e) => setDraft((d) => ({ ...d, serialNumber: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Purchase Date</label>
-          <input
-            type="date"
-            value={draft.purchaseDate}
-            onChange={(e) => setDraft((d) => ({ ...d, purchaseDate: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Purchase Cost</label>
-          <input
-            type="number"
-            value={draft.purchaseCost}
-            onChange={(e) => setDraft((d) => ({ ...d, purchaseCost: e.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="text-sm font-semibold text-gray-700">Condition Notes</label>
-          <textarea
-            value={draft.conditionNotes}
-            onChange={(e) => setDraft((d) => ({ ...d, conditionNotes: e.target.value }))}
-            rows={2}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={handleAdd}
-        disabled={saving}
-        className="mt-4 rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {saving ? "Adding..." : "Add Equipment"}
-      </button>
-    </section>
-  );
-}
+type Filter = "all" | SimpleStatus;
+const FILTERS: Filter[] = ["all", "good", "repair", "lost", "retired"];
 
 export default function EquipmentListPage() {
   const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
   const [categories, setCategories] = useState<EquipmentCategory[]>([]);
+  const [flags, setFlags] = useState<Record<string, TabletFlag>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-
-  const [statusFilter, setStatusFilter] = useState<EquipmentStatus | "All">("All");
-  const [categoryFilter, setCategoryFilter] = useState<string>("All");
-
-  const [modalState, setModalState] = useState<{ mode: "checkout" | "return"; equipment: EquipmentItem } | null>(null);
-
-  async function loadAll() {
-    setLoadError("");
-    try {
-      const [equipmentRes, categoriesRes] = await Promise.all([
-        fetch("/api/equipment", { cache: "no-store" }),
-        fetch("/api/equipment-categories", { cache: "no-store" }),
-      ]);
-      const equipmentData = (await equipmentRes.json()) as { success?: boolean; equipment?: EquipmentItem[]; error?: string };
-      const categoriesData = (await categoriesRes.json()) as { success?: boolean; categories?: EquipmentCategory[] };
-
-      if (!equipmentData.success || !Array.isArray(equipmentData.equipment)) {
-        setLoadError(equipmentData.error || "Failed to load equipment.");
-        return;
-      }
-      setEquipment(equipmentData.equipment);
-      if (categoriesData.success && Array.isArray(categoriesData.categories)) {
-        setCategories(categoriesData.categories);
-      }
-    } catch {
-      setLoadError("Network error loading equipment.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
-    loadAll();
+    let cancelled = false;
+    (async () => {
+      try {
+        const [equipmentRes, categoriesRes, healthRes] = await Promise.all([
+          fetch("/api/equipment", { cache: "no-store" }),
+          fetch("/api/equipment-categories", { cache: "no-store" }),
+          fetch("/api/equipment/health", { cache: "no-store" }),
+        ]);
+        const equipmentData = (await equipmentRes.json()) as { success?: boolean; equipment?: EquipmentItem[]; error?: string };
+        const categoriesData = (await categoriesRes.json()) as { success?: boolean; categories?: EquipmentCategory[] };
+        const healthData = (await healthRes.json().catch(() => ({}))) as { success?: boolean; flags?: Record<string, TabletFlag> };
+        if (cancelled) return;
+        if (!equipmentData.success || !Array.isArray(equipmentData.equipment)) {
+          setLoadError(equipmentData.error || "Could not load equipment.");
+          return;
+        }
+        setEquipment(equipmentData.equipment);
+        if (categoriesData.success && Array.isArray(categoriesData.categories)) setCategories(categoriesData.categories);
+        // Tablet colors are extra — the page still works without them.
+        if (healthData.success && healthData.flags) setFlags(healthData.flags);
+      } catch {
+        if (!cancelled) setLoadError("No connection. Reload the page.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const categoryNameById = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const c of categories) map[c.id] = c.name;
-    return map;
-  }, [categories]);
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
-  const filtered = useMemo(() => {
-    return equipment.filter((item) => {
-      if (statusFilter !== "All" && item.status !== statusFilter) return false;
-      if (categoryFilter !== "All" && item.categoryId !== categoryFilter) return false;
-      return true;
-    });
-  }, [equipment, statusFilter, categoryFilter]);
+  const rows = useMemo(
+    () =>
+      equipment
+        .map((item) => ({ item, status: simpleStatus(item, flags[item.id]) }))
+        .sort((a, b) => (a.item.serialNumber || a.item.name).localeCompare(b.item.serialNumber || b.item.name, undefined, { numeric: true })),
+    [equipment, flags]
+  );
 
-  const overdueCount = equipment.filter((e) => e.overdue).length;
+  const counts = useMemo(() => {
+    const result: Record<Filter, number> = { all: 0, good: 0, repair: 0, lost: 0, retired: 0 };
+    for (const row of rows) {
+      result[row.status] += 1;
+      if (row.status !== "retired") result.all += 1;
+    }
+    return result;
+  }, [rows]);
+
+  const query = search.trim().toLowerCase();
+  const shown = rows.filter(({ item, status }) => {
+    if (filter === "all" ? status === "retired" : status !== filter) return false;
+    if (!query) return true;
+    return [item.name, item.serialNumber, item.currentHolderName, categoryNameById.get(item.categoryId) ?? ""].some((text) =>
+      text.toLowerCase().includes(query)
+    );
+  });
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Equipment</h1>
-            <p className="mt-1 text-gray-600">Inventory, checkout/return, and overdue tracking.</p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <SetUpTabletButton />
-            <Link
-              href="/equipment/parts"
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
-            >
-              Parts &amp; Stock
-            </Link>
-            <Link
-              href="/settings/equipment-categories"
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50"
-            >
-              Categories &amp; Staff
-            </Link>
-          </div>
-        </div>
-
-        <div className="mb-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Total Equipment</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">{equipment.length}</p>
-          </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Checked Out</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">
-              {equipment.filter((e) => e.status === "CheckedOut").length}
-            </p>
-          </div>
-          <div className="rounded-xl border border-red-200 bg-red-50 p-5 shadow-sm">
-            <p className="text-sm text-red-700">Overdue</p>
-            <p className="mt-1 text-2xl font-bold text-red-800">{overdueCount}</p>
-          </div>
-        </div>
-
-        <div className="mb-6">
-          <AddEquipmentForm categories={categories} onAdded={loadAll} />
-        </div>
-
-        <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Status</label>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as EquipmentStatus | "All")}
-                className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="All">All Statuses</option>
-                {(Object.keys(STATUS_LABELS) as EquipmentStatus[]).map((s) => (
-                  <option key={s} value={s}>{STATUS_LABELS[s]}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Category</label>
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="All">All Categories</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}{!c.active ? " (Inactive)" : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {loadError ? (
-            <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{loadError}</div>
-          ) : null}
-
-          {loading ? (
-            <div className="p-6 text-center text-gray-600">Loading equipment...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50 text-gray-600">
-                    <th className="px-4 py-3 font-semibold">Name</th>
-                    <th className="px-4 py-3 font-semibold">Category</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold">Holder</th>
-                    <th className="px-4 py-3 font-semibold">Expected Return</th>
-                    <th className="px-4 py-3 font-semibold">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((item) => (
-                    <tr key={item.id} className="border-b">
-                      <td className="px-4 py-3">
-                        <Link href={`/equipment/${item.id}`} className="font-semibold text-blue-700 hover:underline">
-                          {item.name}
-                        </Link>
-                        {item.needsMaintenanceReview ? (
-                          <span className="ml-2 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                            Needs Review
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">{categoryNameById[item.categoryId] || "Uncategorized"}</td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${statusBadgeClass(item.status, item.overdue)}`}>
-                          {item.overdue ? "Overdue" : STATUS_LABELS[item.status]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">{item.currentHolderName || "—"}</td>
-                      <td className="px-4 py-3 text-gray-700">{item.expectedReturnAt || "—"}</td>
-                      <td className="px-4 py-3">
-                        {item.status === "Available" ? (
-                          <button
-                            type="button"
-                            onClick={() => setModalState({ mode: "checkout", equipment: item })}
-                            className="font-semibold text-blue-700 hover:underline"
-                          >
-                            Check Out
-                          </button>
-                        ) : item.status === "CheckedOut" ? (
-                          <button
-                            type="button"
-                            onClick={() => setModalState({ mode: "return", equipment: item })}
-                            className="font-semibold text-blue-700 hover:underline"
-                          >
-                            Return
-                          </button>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {filtered.length === 0 && (
-                <div className="p-6 text-center text-gray-600">No equipment matches these filters.</div>
-              )}
-            </div>
-          )}
-        </section>
+    <EquipmentShell title="Equipment">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <BigButton icon="➕" label="Add equipment" tone="green" href="/equipment/new" />
+        <BigButton icon="🔩" label="Parts & stock" href="/equipment/parts" />
+        <BigButton icon="👥" label="Staff & PINs" href="/equipment/staff" />
+        <SetUpTabletButton big />
       </div>
 
-      {modalState ? (
-        <CheckoutReturnModal
-          mode={modalState.mode}
-          equipment={modalState.equipment}
-          onClose={() => setModalState(null)}
-          onDone={() => {
-            setModalState(null);
-            loadAll();
-          }}
-        />
-      ) : null}
-    </main>
+      <input
+        type="search"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="🔍 Search by name or tag number"
+        aria-label="Search equipment"
+        className="min-h-[64px] w-full rounded-2xl border-2 border-gray-300 bg-white px-5 text-xl outline-none focus:border-blue-600"
+      />
+
+      <div className="flex flex-wrap gap-2">
+        {FILTERS.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setFilter(f)}
+            aria-pressed={filter === f}
+            className={`flex min-h-[52px] items-center gap-2 rounded-full border-2 px-4 text-lg font-bold ${
+              filter === f ? "border-blue-700 bg-blue-700 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
+            }`}
+          >
+            {f !== "all" ? <span className={`h-3 w-3 rounded-full ${SIMPLE_STATUS_STYLE[f].dot}`} aria-hidden="true" /> : null}
+            {f === "all" ? "All in use" : SIMPLE_STATUS_LABEL[f]}
+            <span className="opacity-70">{counts[f]}</span>
+          </button>
+        ))}
+      </div>
+
+      <ErrorNote message={loadError} />
+
+      {loading ? (
+        <p className="p-8 text-center text-xl text-gray-600">Loading…</p>
+      ) : shown.length === 0 && !loadError ? (
+        <p className="rounded-2xl bg-white p-8 text-center text-xl text-gray-600 shadow-sm">
+          {query ? "Nothing matches that search." : "Nothing here."}
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {shown.map(({ item, status }) => (
+            <Link
+              key={item.id}
+              href={`/equipment/${encodeURIComponent(item.id)}`}
+              className={`overflow-hidden rounded-3xl border-4 bg-white shadow-sm transition hover:shadow-md ${SIMPLE_STATUS_STYLE[status].card}`}
+            >
+              <EquipmentPhoto url={item.photoUrl} name={item.name} className="h-44 w-full" />
+              <div className="space-y-2 p-4">
+                {item.serialNumber ? <p className="text-3xl font-black text-gray-900">{item.serialNumber}</p> : null}
+                <p className={item.serialNumber ? "text-lg font-semibold text-gray-600" : "text-2xl font-black text-gray-900"}>{item.name}</p>
+                <StatusChip status={status} />
+                <p className={`text-lg ${item.overdue ? "font-bold text-red-700" : "text-gray-600"}`}>{whereLine(item)}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </EquipmentShell>
   );
 }
