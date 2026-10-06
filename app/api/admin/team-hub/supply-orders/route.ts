@@ -8,18 +8,45 @@
 // account-data choke point).
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getSupplyOrderById,
+  getTeamHubSiteById,
   listTeamHubSupplyOrdersForSite,
   listCrewLinkSupplyOrdersForAccount,
   setTeamHubSupplyOrderStatus,
   type TeamHubSupplyOrderStatus,
 } from "@/lib/teamHubDb";
 import { adjustEquipmentPartStock } from "@/lib/googleSheets";
+import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 
 export async function GET(request: NextRequest) {
   try {
     const params = new URL(request.url).searchParams;
+    // Printable order page (app/crew-link/print/order/[id]): one order by id
+    // plus the account NAME only — nothing else about the account is sent.
+    const printId = params.get("id");
+    if (printId !== null) {
+      const id = Number(printId);
+      const order = Number.isInteger(id) ? await getSupplyOrderById(id) : null;
+      if (!order) return NextResponse.json({ success: false, error: "Order not found." }, { status: 404 });
+      const accountId = order.crewLinkAccountId ?? (order.siteId !== null ? (await getTeamHubSiteById(order.siteId))?.accountId : null) ?? "";
+      const account = accountId ? await lookupAccountSummary(accountId) : null;
+      return NextResponse.json({
+        success: true,
+        accountName: account?.accountName || accountId,
+        order: {
+          id: order.id,
+          status: order.status,
+          note: order.note,
+          noteEnglish: order.noteEnglish,
+          otherItems: order.otherItems,
+          orderedBy: order.workerFirstName,
+          createdAt: order.createdAt,
+          lines: order.lines.map((line) => ({ itemName: line.itemName, unit: line.unit, qty: line.qty })),
+        },
+      });
+    }
     // Crew Link (docs/crew-link-spec.md): ?crewLinkAccountId= lists one
     // account's Crew Link orders instead of a Team Hub site's.
     const crewLinkAccountId = params.get("crewLinkAccountId")?.trim();

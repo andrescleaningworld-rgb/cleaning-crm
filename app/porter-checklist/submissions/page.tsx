@@ -344,6 +344,14 @@ export default function PorterChecklistSubmissionsPage() {
                 {detailLoading ? <p className="text-sm text-slate-500">Loading detail…</p> : null}
                 {detail && detail.id === submission.id ? (
                   <div className="space-y-4">
+                    <a
+                      href={`/crew-link/print/submission/${detail.id}`}
+                      target="_blank"
+                      rel="noopener"
+                      className="inline-block rounded-xl border border-slate-300 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                    >
+                      🖨️ Print
+                    </a>
                     <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
                       {(() => {
                         const times = describeWorkTimes(detail);

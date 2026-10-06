@@ -1399,6 +1399,23 @@ export async function listTeamHubSupplyOrdersForSite(siteId: number, limit = 200
   return orders;
 }
 
+// Admin: one order by id, Team Hub or Crew Link (the printable order page).
+export async function getSupplyOrderById(orderId: number): Promise<TeamHubSupplyOrder | null> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT so.*, w.first_name AS worker_first_name
+    FROM supply_orders so
+    LEFT JOIN hub_workers w ON w.id = so.worker_id
+    WHERE so.id = ${orderId}
+    LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
+  const linesByOrderId = await getSupplyOrderLines([order.id]);
+  order.lines = linesByOrderId.get(order.id) ?? [];
+  return order;
+}
+
 // Returns the updated order WITH lines (the caller — the admin route —
 // needs the lines' equipmentPartId to decide what to decrement in
 // Equipment when status becomes 'delivered'; that Sheets call happens in

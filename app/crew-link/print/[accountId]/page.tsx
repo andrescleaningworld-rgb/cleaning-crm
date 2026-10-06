@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Image from "next/image";
 import QRCode from "qrcode";
+import { CrewPrintStyles } from "../CrewPrintSheet";
 
 type TemplateResponse = {
   success?: boolean;
@@ -68,7 +69,9 @@ export default function CrewLinkPrintSignPage() {
         <p className="w-full text-center text-base text-slate-500">Tip: in the print window, choose &quot;Fit to page&quot; if it spills onto a second page.</p>
       </div>
 
-      <div className="flex flex-col items-center gap-6 py-4 text-center text-black">
+      {/* Opt in to printing — globals.css hides everything else on paper. */}
+      <CrewPrintStyles />
+      <div className="crew-print-view flex flex-col items-center gap-6 py-4 text-center text-black">
         <div className="flex items-center gap-3">
           <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={48} height={48} className="h-12 w-12 object-contain" />
           <p className="text-2xl font-bold">Crew Link</p>

@@ -582,6 +582,15 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
                 >
                   →
                 </button>
+                <a
+                  href={`/crew-link/print/blank/${encodeURIComponent(accountId)}/${activeTab.id}`}
+                  target="_blank"
+                  rel="noopener"
+                  title={hasUnsavedEdits ? "Prints the last saved version — save your changes first." : undefined}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                >
+                  🖨️ Print blank
+                </a>
                 {confirmDeleteTab ? (
                   <span className="flex flex-wrap items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-2 py-1">
                     <span className="text-xs font-semibold text-red-700">

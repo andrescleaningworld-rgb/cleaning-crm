@@ -1165,6 +1165,14 @@ export function OrdersAndProblems({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ORDER_STATUS_STYLES[order.status]}`}>{order.status}</span>
+                  <a
+                    href={`/crew-link/print/order/${order.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    🖨️ Print
+                  </a>
                   {order.status === "new" && (
                     <button type="button" onClick={() => setOrderStatus(order.id, "ordered")} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                       Mark Ordered

@@ -191,6 +191,14 @@ export default function TeamHubStaffQueue() {
                   <p className="mt-1 text-xs text-gray-400">{order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}</p>
                 </div>
                 <div className="flex shrink-0 gap-2">
+                  <a
+                    href={`/crew-link/print/order/${order.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    🖨️ Print
+                  </a>
                   {order.status === "new" && (
                     <button type="button" onClick={() => advanceOrder(order.id, "ordered")} className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
                       Mark Ordered
