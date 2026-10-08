@@ -8,6 +8,8 @@
 //     key(row, sourceRow)   → legacy_key of a sheet row
 //     keep(row)             → false for rows the app itself ignores
 //     fields: { db_column: (row, sourceRow) => expected text }
+//     keyColumn?            → DB column that holds the key (default legacy_key)
+//     readOptions?          → extra options for readTab (e.g. { unformatted: true })
 //     statusColumn?, dateColumn?, sumColumn? + sheetSum?(row),
 //     sampleSize?           → check only N random rows field by field
 //                             (default: every row) }
@@ -25,25 +27,29 @@ export async function runVerify(area, tables, { extraSections = [] } = {}) {
   const sections = [];
 
   for (const spec of tables) {
-    const all = (await readTab(spec.sheet, spec.tab, { range: spec.range })).slice(1).map((row, i) => ({ row, sourceRow: i + 2 }));
+    const all = (await readTab(spec.sheet, spec.tab, { range: spec.range, ...(spec.readOptions ?? {}) })).slice(1).map((row, i) => ({ row, sourceRow: i + 2 }));
     const sheetRows = all.filter(({ row }) => !isBlankRow(row));
-    const expected = sheetRows.filter(({ row }) => (spec.keep ? spec.keep(row) : true));
+    // The key is worked out once per row, in sheet order, so a key function may count repeats.
+    const expected = sheetRows
+      .filter(({ row }) => (spec.keep ? spec.keep(row) : true))
+      .map((entry) => ({ ...entry, key: spec.key(entry.row, entry.sourceRow) }));
     const dbRows = await sql.query(`SELECT * FROM ${spec.table} WHERE source_sheet IS NOT NULL`);
     const createdHere = (await sql.query(`SELECT count(*)::int AS n FROM ${spec.table} WHERE source_sheet IS NULL`))[0].n;
-    const byKey = new Map(dbRows.map((row) => [row.legacy_key, row]));
+    // keyColumn: the DB column the sheet key is compared with (default legacy_key).
+    const keyColumn = spec.keyColumn ?? "legacy_key";
+    const byKey = new Map(dbRows.map((row) => [row[keyColumn], row]));
 
     // Field-by-field: every row, or a random sample plus nothing else.
     let toCheck = expected;
     if (spec.sampleSize && expected.length > spec.sampleSize) {
       toCheck = [...expected].sort(() => Math.random() - 0.5).slice(0, spec.sampleSize);
     }
-    const checkKeys = new Set(toCheck.map(({ row, sourceRow }) => spec.key(row, sourceRow)));
+    const checkKeys = new Set(toCheck.map((entry) => entry.key));
 
     const mismatches = new Map();
     let missing = 0;
     const seen = new Set();
-    for (const { row, sourceRow } of expected) {
-      const key = spec.key(row, sourceRow);
+    for (const { row, sourceRow, key } of expected) {
       if (seen.has(key)) continue; // duplicate key in Sheets: first row wins, reported by the import
       seen.add(key);
       const db = byKey.get(key);
@@ -56,7 +62,7 @@ export async function runVerify(area, tables, { extraSections = [] } = {}) {
         if (asText(db[column]) !== String(fromSheet(row, sourceRow))) mismatches.set(column, (mismatches.get(column) ?? 0) + 1);
       }
     }
-    const extra = dbRows.filter((row) => !seen.has(row.legacy_key)).length;
+    const extra = dbRows.filter((row) => !seen.has(row[keyColumn])).length;
     const duplicates = expected.length - seen.size;
     const mismatchTotal = [...mismatches.values()].reduce((a, b) => a + b, 0);
     const ok = missing === 0 && extra === 0 && mismatchTotal === 0 && seen.size === dbRows.length;

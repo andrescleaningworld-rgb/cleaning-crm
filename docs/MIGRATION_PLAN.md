@@ -204,8 +204,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3, step 0: `docs/migration-reports/subs-headers.md`. Subcontractors 39 rows, 18 columns (A:R, not A:Z). Column A formula is `"SUB-" & (row - 1)`, so SUB-0NN is a row number too, not an id. Extra legacy columns at the far right: a second `ID` (5 rows), a second `Phone` (8 rows), a second `Insurance Expiration`. Activity log 385 rows, 9 action types, Jul 13 – Oct 6 2026.
 - Area 3, step 1: `db/migrations/004_subs.sql` applied to dev (`subcontractors`, `sub_name_aliases`, `sub_activity_log`). Permanent `id` + `legacy_row_id` (`SUB-ROW-n`, what the app still uses) + `fingerprint` (contact + company + email) to follow a row that moves.
 - Area 3, step 2: `scripts/migrate/import-subs.mjs`. Run + re-run clean: 39 subs (ids SUB-001…SUB-039), 71 unambiguous name aliases, 385 log lines (366 linked to a sub by email), and all 7 Area 1 document sends now resolved to a permanent sub id. 17 open questions in `migration_issues`.
+- Area 3, step 3: `scripts/migrate/verify-subs.mjs` → `docs/migration-reports/subs-verify.md`. Both tables match, every row field by field (39 × 18 columns, 385 × 5).
 
-**Next step:** Area 3, Step 3 (verify).
+**Next step:** Area 3, Step 4: data layer. Reads `getAllSubcontractorsRaw`, `getSubcontractorActivityLog`; writes `updateSubcontractor` (direct) and `addSubcontractor` (Apps Script, source not in repo: rebuild from the request the route sends + the row it produces). Then sub-portal login reads, then screens `app/subcontractors/**`, `app/sub-center/**`.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -295,3 +296,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:09 → 23:14 | 3/step 0 | this commit | Subs headers.
 - 2026-10-07T23:14 | 3/step 1 | this commit | Subs schema.
 - 2026-10-07T23:14 | 3/step 2 | this commit | Subs import; 17 questions logged.
+- 2026-10-07T23:14 | 3/step 3 | this commit | Subs verify: all match.
