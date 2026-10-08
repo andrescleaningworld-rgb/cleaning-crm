@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { getAdminIdentity } from "@/lib/adminSession";
+import {
+  addSupplyItem,
+  deactivateSupplyItem,
+  getSupplyItemsAdminShape,
+  suppliesOnPostgres,
+  updateSupplyItem,
+} from "@/lib/data/supplies";
 
 const GOOGLE_SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -163,6 +171,22 @@ async function fetchSuppliesWithAction(scriptUrl: string, action: string) {
 
 export async function GET(request: NextRequest) {
   try {
+    // DATA_SOURCE_SUPPLIES=postgres: the same list, in the same shape,
+    // without Apps Script.
+    if (suppliesOnPostgres()) {
+      const normalizedItems = (await getSupplyItemsAdminShape()).map((item) => normalizeSupplyItem(item));
+      return NextResponse.json({
+        success: true,
+        actionUsed: "getSupplyItemsAdmin",
+        count: normalizedItems.length,
+        supplies: normalizedItems,
+        supplyItems: normalizedItems,
+        items: normalizedItems,
+        data: normalizedItems,
+        categories: getCategories(normalizedItems, {}),
+      });
+    }
+
     const scriptUrl = getScriptUrl();
     const { searchParams } = new URL(request.url);
 
@@ -288,10 +312,37 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const scriptUrl = getScriptUrl();
     const body = (await request.json()) as SupplyPostBody;
 
     const action = body.action || "saveSupplyItem";
+
+    // DATA_SOURCE_SUPPLIES=postgres: save here, Apps Script is not called.
+    if (suppliesOnPostgres()) {
+      const actor = await getAdminIdentity(request);
+      const updatedBy = actor?.name || "";
+      try {
+        if (action === "updateSupplyItem") {
+          await updateSupplyItem(body, updatedBy);
+          return NextResponse.json({ success: true, message: "Supply item updated." });
+        }
+        if (action === "deactivateSupplyItem") {
+          await deactivateSupplyItem(body, updatedBy);
+          return NextResponse.json({ success: true, message: "Supply item removed from the active list." });
+        }
+        if (action === "addSupplyItem" || action === "saveSupplyItem") {
+          const added = await addSupplyItem(body, updatedBy);
+          return NextResponse.json({ success: true, message: "Supply item added.", ...added });
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { success: false, error: error instanceof Error ? error.message : "Failed to save supply item." },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ success: false, error: `Unknown supplies action: ${action}` }, { status: 500 });
+    }
+
+    const scriptUrl = getScriptUrl();
 
     // The Apps Script's updateSupplyItem and deactivateSupplyItem handlers
     // both expect the supply's fields nested under an "item" key. Every

@@ -281,8 +281,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12, step 1: db/migrations/014_supplies.sql applied to dev (sub_supplies, sub_supply_orders). Team Hub's supply tables untouched.
 - Area 12, step 2: scripts/migrate/import-supplies.mjs. Dry-run, run, re-run clean: 51 supplies, 13 order rows (all 13 linked to a sub and to an account), 0 open questions. 9 of the 13 orders name an item that is not in the catalog today; 5 quantities are text such as '8 boxes'.
 - Area 12, step 3: scripts/migrate/verify-supplies.mjs → docs/migration-reports/supplies-verify.md. Both tables match, every row field by field (51 × 14, 13 × 15).
+- Area 12, step 4: lib/pg/supplies.ts + lib/data/supplies.ts; app/api/supplies and app/api/supply-orders use Postgres when DATA_SOURCE_SUPPLIES=postgres (Apps Script is not called; unset = as before). The two Apps Script lists rebuilt from Postgres: 51/51 and 13/13 rows identical to the live answers (check-supplies-apps-script.mts); 3 routes byte-identical over HTTP on both sources; check-supplies-writes.mts 22/22; add, change, remove an item, create an order (office email logged as dry-run) and change its status over HTTP on Postgres. Test rows removed. Not wired yet: the order a sub sends from the sub portal (submitSupplyOrder goes through /api/subcontractor-portal: Area 13).
 
-**Next step:** Area 12, Step 4: Postgres data layer behind DATA_SOURCE_SUPPLIES (the Apps Script answers rebuilt from Postgres; order email through lib/email).
+**Next step:** Area 12, Step 5: redesign Supplies and Supply Orders.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -372,6 +373,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11: the /portal dashboard shows a 'was sent' line after a request | the forms already came back with ?submitted=… but nothing showed it | remove the SENT block in the dashboard page
 - Area 11: complaint photos on /portal use the kit photo picker with a limit of 20 photos (there was no limit) | shared component; 20 is far above normal use | change max on the PhotoPicker
 - Area 12: Supplies and Supply Orders get their own tables (sub_supplies, sub_supply_orders) and are NOT merged into supply_items / supply_orders / supply_order_lines | those three belong to Team Hub and Crew Link (rule 14), hold a different catalog (21 items vs 51, numeric ids, crews and sites), and matching the two lists by name would be an automatic merge | approve a name-by-name mapping and the two catalogs can be joined later
+- Area 12: what the Postgres saves write is my reading of the sheet, not a copy of Apps Script (its source is not in the repo): a new item gets Active 'yes' and Last Updated in the sheet's format; removing sets Status 'Inactive' and Active 'no'; a new order gets a SUPORD id, status New when none is sent, and keeps the group id, category and description the sheet has no column for | the lists read back identical to Apps Script for all 64 existing rows; the saves cannot be compared without writing to the live sheet | adjust lib/pg/supplies.ts if a column should be filled differently
+- Area 12: on Postgres the new-order email goes through the app's own office notification (info@ and crm@, 9 plain lines) | every existing order row says the Apps Script email went to those office addresses; its wording is not known | change emailNewSupplyOrder in app/api/supply-orders/route.ts
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
