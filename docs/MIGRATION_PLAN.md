@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 and Part B done (reports in `docs/migration-reports/`). Full auto (no checkpoints). **Sheets cannot be read from this machine** (see Blocked and skipped), so areas can only get the parts that need no data.
+**Status:** Phase 0 and Part B done. Area 1 (Catalogs) in progress. Full auto (no checkpoints). Sheets can be read from this machine since 2026-10-07 22:30 (`node scripts/migrate/check-harness.mjs` passes 9 of 9).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -188,8 +188,16 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Phase 0, step 6: `OUTBOUND_DRY_RUN=1` (`lib/outbound.ts`) covers `lib/sms.ts`, `lib/email.ts`, `lib/push.ts`, `lib/googleCalendar.ts`, `lib/googleDrive.ts`, and Apps Script writes in `lib/appsScriptFetch.ts` (reads named `get…` still go through). Three raw Apps Script `fetch` calls in `app/api/accounts/route.ts` and `app/api/subcontractors/route.ts` now go through `fetchAppsScriptDirect` (same request when dry-run is off). Proof: `npx tsx scripts/migrate/check-dry-run.mts` (17 checks, network trapped). Not covered: direct Google Sheets writes and Vercel Blob uploads.
 - Phase 0, step 7: `scripts/migrate/parity.mts <area>` + `scripts/migrate/lib/diff.mjs`; each area lists its reads in `scripts/migrate/parity/<area>.mts`. Self-test: `npx tsx scripts/migrate/parity.mts --self-test`.
 - Part B: UI kit in `app/ui/` (`core.tsx`, `controls.tsx`, `toast.tsx`, `words.ts`, `index.ts`), `.ui-*` styles and `--ui-*` tokens appended to `app/globals.css`, preview at `/design-preview`. Checked at 375/768/1280px, keyboard-only pass, 640px (200% zoom). No existing screen uses the kit yet.
+- Area 1, step 0: `scripts/migrate/discover.mjs <area>` (headers + counts only, no cell values; `--tabs` lists tabs no area claims) → `docs/migration-reports/catalogs-headers.md`. ChangeLog 3 rows, GeocodeCache 0, ExtraServices 4, Documents 5, DocumentSends 7.
 
-**Next step:** Area 1 (Catalogs), Step 0. **First run `node scripts/migrate/check-harness.mjs`.** If the three Sheets lines pass, do Area 1 by the recipe. If they still fail, the session on 2026-10-07 paused here on purpose: every remaining step either reads Sheets or cannot be checked without real data, and unchecked data code was judged worse than waiting. Andres can say "write it anyway" to get schema + import + data-layer code written from the columns in `lib/googleSheets.ts`, clearly marked untested.
+**Next step:** Area 1, Step 1 (schema `db/migrations/002_catalogs.sql`).
+
+**Facts found (differ from Part A):**
+- MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
+- **There is no separate CUSTVISITS sheet.** The id hard-coded in `lib/googleSheets.ts` is the MAIN sheet; `getVisitsByAccountName` reads MAIN `Visits`. C.3 question 4 is closed; Area 6 has nothing to archive.
+- ChangeLog is in PORTAL. PORTAL has no `portal-billing-requests` tab.
+- MAIN tabs no area claims: `SubSchedules_backup_2026-07-16-03-17-44`, `Email Log`, `Settings`, `Drew & Ryan`, `CancelledAccounts`, `CANCELLED ACCOUNTS AUTOMATIC`, `AcceptedNever Started`, `Sum CW`, `Sum Sub`. Not imported unless code reads them; checked in the area that would own them.
+- `.env.local` has no real secrets (all `[SENSITIVE]`) and no `DATABASE_URL`. Real local values live in `.env.development.local`.
 
 **Deadline:** not set.
 
@@ -205,7 +213,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
-- **Reading Google Sheets (every area, Steps 0, 2, 3, and local testing in Step 4).** `.env.local` was written by `vercel env pull`, which replaces sensitive values with the text `[SENSITIVE]`: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_MAIN_SHEET_ID`, `GOOGLE_SHEET_ID`, `GOOGLE_SCRIPT_URL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_TOKEN`, `SUB_SESSION_PASSWORD`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. Not retried another way. **To unblock:** Andres adds the real values to `.env.development.local` (at least the two service-account values and the two sheet ids). Until then only work that needs no Sheets data is done: Phase 0 steps 4–7, Part B, and code that can be written from the existing Sheets code.
+- (resolved 2026-10-07) Reading Google Sheets was blocked until Andres supplied a service-account key, both sheet ids and the Apps Script URL.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -215,7 +223,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 |---|---|---|---|---|---|---|
 | 0 Machinery | done | 6 | 0.5 | 2026-10-07 | 2026-10-07 | Sheets self-test fails: no credentials on this machine |
 | B Design system | done | 14 | 0.2 | 2026-10-07 | 2026-10-07 | Contrast not tool-measured; no real phone |
-| 1 Catalogs | not started | 12 | | | | |
+| 1 Catalogs | in progress | 12 | | 2026-10-07 | | |
 | 2 People | not started | 11 | | | | |
 | 3 Subs | not started | 24 | | | | |
 | 4a Accounts core | not started | 34 | | | | |
@@ -245,3 +253,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T20:58 → 21:00 | 0/step 7 | this commit | Parity tester + self-test.
 - 2026-10-07 21:00 | 0/checkpoint | this commit | Checkpoint 0 report written. Area 0 total: 0.5 h vs 6 h estimate.
 - 2026-10-07T21:00 → 21:12 | B | this commit | UI kit + /design-preview. tsc ok, build ok, lint at baseline. Total so far 0.7 h vs 20 h estimate.
+- 2026-10-07T22:34 → 22:35 | 1/step 0 | this commit | Discovery script + catalogs headers report.
