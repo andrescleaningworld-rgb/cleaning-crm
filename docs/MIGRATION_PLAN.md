@@ -184,13 +184,15 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Phase 0, step 2: Andres created Neon branch `migration-dev`; its pooled URL is in `.env.development.local` (git-ignored) as `MIGRATION_DATABASE_URL` and `DATABASE_URL`. Dev host: `ep-small-credit-auvaagcl-pooler.c-10.us-east-1.aws.neon.tech`. Read-only connection test passed.
 - Phase 0, step 3: `scripts/migrate/lib/` (`env.mjs`, `guard.mjs`, `pg.mjs`, `sheets-readonly.mjs`, `report.mjs`) + `scripts/migrate/check-harness.mjs`. Guard refuses other Neon endpoints, non-Neon hosts, look-alike hosts, and a missing URL; accepts the dev branch. Sheets part of the self-test fails (no credentials).
 - Phase 0, step 4: `db/migrations/001_migration_core.sql` + `scripts/migrate/apply.mjs` (`--status` to list). Dev branch now has `schema_migrations`, `migration_runs`, `migration_issues`, `migration_overrides`. Re-run is a no-op; an edited applied file stops the run.
+- Phase 0, step 5: `lib/dataSource.ts` (`dataSource(area)`, `isPostgres(area)`, `allDataSources()`; default `sheets`). `lib/data/<area>.ts` files are created per area in Step 4 of each area.
 
-**Next step:** Phase 0, step 5 (data-source flags: `lib/dataSource.ts`).
+**Next step:** Phase 0, step 6 (outbound dry-run: `OUTBOUND_DRY_RUN=1`).
 
 **Deadline:** not set.
 
 **Decisions made without Andres** (what | why | how to change it):
 - `guard.mjs` will be an allow-list (only the `migration-dev` endpoint `ep-small-credit-auvaagcl` may be used) instead of a forbid-list | the production host is not known on this machine (`.env.local` has no `DATABASE_URL`) and Andres said "use this one only"; an allow-list also blocks any other database | add the production host to `FORBIDDEN_HOSTS` in `guard.mjs` when known; change `ALLOWED_ENDPOINTS` if the dev branch is recreated.
+- Lint baseline is 10 errors, not 0: 9 in old `scripts/*.js` (allowed by rule 6) and 1 in `app/map/page.tsx:758` (hook called inside a callback, already on `main`). Rule 6 "lint must pass" is read as "no new errors above this baseline" | the map error predates this branch and fixing it could change how the map behaves | it gets fixed when the map page is redesigned in Area 4b; say so if you want it left alone.
 
 **Blocked and skipped:**
 - **Reading Google Sheets (every area, Steps 0, 2, 3, and local testing in Step 4).** `.env.local` was written by `vercel env pull`, which replaces sensitive values with the text `[SENSITIVE]`: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_MAIN_SHEET_ID`, `GOOGLE_SHEET_ID`, `GOOGLE_SCRIPT_URL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_TOKEN`, `SUB_SESSION_PASSWORD`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. Not retried another way. **To unblock:** Andres adds the real values to `.env.development.local` (at least the two service-account values and the two sheet ids). Until then only work that needs no Sheets data is done: Phase 0 steps 4–7, Part B, and code that can be written from the existing Sheets code.
@@ -228,3 +230,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T20:44 → 20:45 | 0/step 2 | this commit | Dev branch URL written to `.env.development.local`, connection verified read-only.
 - 2026-10-07T20:45 → 20:47 | 0/step 3 | this commit | Guard + harness. Sheets self-test fails: credentials on this machine are placeholders.
 - 2026-10-07T20:48 → 20:49 | 0/step 4 | this commit | Migration runner + shared tables, applied to dev.
+- 2026-10-07T20:49 → 20:52 | 0/step 5 | this commit | Data-source flag helper. tsc ok, build ok, lint at baseline (10 pre-existing errors).
