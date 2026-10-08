@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 done (report: `docs/migration-reports/checkpoint-0-2026-10-07.md`). Part B next. Full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). Shared migration tables applied to dev. **Sheets cannot be read from this machine** (see Blocked and skipped).
+**Status:** Phase 0 and Part B done (reports in `docs/migration-reports/`). Full auto (no checkpoints). **Sheets cannot be read from this machine** (see Blocked and skipped), so areas can only get the parts that need no data.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -187,8 +187,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Phase 0, step 5: `lib/dataSource.ts` (`dataSource(area)`, `isPostgres(area)`, `allDataSources()`; default `sheets`). `lib/data/<area>.ts` files are created per area in Step 4 of each area.
 - Phase 0, step 6: `OUTBOUND_DRY_RUN=1` (`lib/outbound.ts`) covers `lib/sms.ts`, `lib/email.ts`, `lib/push.ts`, `lib/googleCalendar.ts`, `lib/googleDrive.ts`, and Apps Script writes in `lib/appsScriptFetch.ts` (reads named `get…` still go through). Three raw Apps Script `fetch` calls in `app/api/accounts/route.ts` and `app/api/subcontractors/route.ts` now go through `fetchAppsScriptDirect` (same request when dry-run is off). Proof: `npx tsx scripts/migrate/check-dry-run.mts` (17 checks, network trapped). Not covered: direct Google Sheets writes and Vercel Blob uploads.
 - Phase 0, step 7: `scripts/migrate/parity.mts <area>` + `scripts/migrate/lib/diff.mjs`; each area lists its reads in `scripts/migrate/parity/<area>.mts`. Self-test: `npx tsx scripts/migrate/parity.mts --self-test`.
+- Part B: UI kit in `app/ui/` (`core.tsx`, `controls.tsx`, `toast.tsx`, `words.ts`, `index.ts`), `.ui-*` styles and `--ui-*` tokens appended to `app/globals.css`, preview at `/design-preview`. Checked at 375/768/1280px, keyboard-only pass, 640px (200% zoom). No existing screen uses the kit yet.
 
-**Next step:** Part B (design system): tokens in `app/globals.css`, `app/ui/` components, `app/ui/words.ts`, `app/design-preview/page.tsx`.
+**Next step:** Area 1 (Catalogs). Step 0 is blocked (no Sheets access): do Step 1 schema from the columns in `lib/googleSheets.ts`, write import/verify scripts untested, Step 4 `lib/data/catalogs.ts` + `lib/pg/catalogs.ts`, then Step 5 redesign of `app/documents` and `app/settings/extra-services`. Mark every part that could not be run against real data.
 
 **Deadline:** not set.
 
@@ -198,8 +199,12 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Dry-run also covers Google Drive photo uploads, which the plan did not list | an upload creates a public file in the company Drive, so it reaches the outside world | remove the check in `lib/googleDrive.ts` if uploads should be real during tests.
 - In dry-run, an Apps Script call counts as a read only if its action starts with `get` (or it is a GET with no action); everything else is faked | `sendNewAccountPacket` sends email through a GET, so "POST = write" was not safe | a read that is wrongly faked shows up as `[dry-run]` in the log; add it to the rule in `lib/appsScriptFetch.ts`.
 - Parity tester is `parity.mts` run with `npx tsx`, not `parity.mjs` | it has to import the TypeScript in `lib/data/*` | none needed.
+- Design: no new font (device rounded font), audit colors with darker amber/red for contrast, kit words in EN/ES/PT in `app/ui/words.ts` | fewer moving parts, AA contrast, rule 9 | change `--ui-font` / `--ui-*` in `app/globals.css`.
+- Local-only `ADMIN_SESSION_PASSWORD` / `SUB_SESSION_PASSWORD` and `OUTBOUND_DRY_RUN=1` added to `.env.development.local` | needed to open pages locally; real values are not on this machine | replace with the real values if wanted.
+- Rename proposals (Complaints → Problems, etc.) are listed in `app/ui/words.ts` `PROPOSED_RENAMES` and not applied | rule 12 | approve them and they get applied per area.
 
 **Blocked and skipped:**
+- **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
 - **Reading Google Sheets (every area, Steps 0, 2, 3, and local testing in Step 4).** `.env.local` was written by `vercel env pull`, which replaces sensitive values with the text `[SENSITIVE]`: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_MAIN_SHEET_ID`, `GOOGLE_SHEET_ID`, `GOOGLE_SCRIPT_URL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_TOKEN`, `SUB_SESSION_PASSWORD`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. Not retried another way. **To unblock:** Andres adds the real values to `.env.development.local` (at least the two service-account values and the two sheet ids). Until then only work that needs no Sheets data is done: Phase 0 steps 4–7, Part B, and code that can be written from the existing Sheets code.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
@@ -209,7 +214,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | Area | Status | Est h | Actual h | Started | Finished | Notes |
 |---|---|---|---|---|---|---|
 | 0 Machinery | done | 6 | 0.5 | 2026-10-07 | 2026-10-07 | Sheets self-test fails: no credentials on this machine |
-| B Design system | not started | 14 | | | | |
+| B Design system | done | 14 | 0.2 | 2026-10-07 | 2026-10-07 | Contrast not tool-measured; no real phone |
 | 1 Catalogs | not started | 12 | | | | |
 | 2 People | not started | 11 | | | | |
 | 3 Subs | not started | 24 | | | | |
@@ -239,3 +244,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T20:52 → 20:58 | 0/step 6 | this commit | Outbound dry-run switch + self-test. tsc ok, build ok, lint at baseline.
 - 2026-10-07T20:58 → 21:00 | 0/step 7 | this commit | Parity tester + self-test.
 - 2026-10-07 21:00 | 0/checkpoint | this commit | Checkpoint 0 report written. Area 0 total: 0.5 h vs 6 h estimate.
+- 2026-10-07T21:00 → 21:12 | B | this commit | UI kit + /design-preview. tsc ok, build ok, lint at baseline. Total so far 0.7 h vs 20 h estimate.
