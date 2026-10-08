@@ -226,6 +226,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4b, step 5a: Accounts Center redesigned (tab bar, the three Recent lists, Keys tab, Crew Link queue tab). Same handlers. Headless check at 375 and 1280px passed; nothing saved.
 - Area 4b, step 5b: Account Updates list and update page redesigned. Add form and filters open in sheets; same request, same checks, same 5-latest rule; saves still go to Apps Script. Headless check passed at 375 and 1280px (54 checks across 5a and 5b); nothing saved.
 - Area 4b, step 5c: Account Health redesigned (tiles, guide, search, log cards, add form in a sheet with the same 11 boxes). The page has no data source: it starts from 3 made-up examples, new items live only until the page is reloaded, and no menu links to it.
+- Area 4b, step 5d: Account Map redesigned. Same data, pins, pin limits, auto-location, selection and links; Manager and Sub filters moved into a Filter sheet; the selected account shows as a card under the map instead of floating over it; nearby accounts are cards with a Show on map button.
 
 **Next step:** Area 4b, step 5c: account-health, then map, then the Coverage tab and its map.
 
@@ -287,6 +288,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Account update page: the Update ID box and its note to developers were removed | Part B rule 3 (no raw IDs); the ID is still in the address bar | one block to put back
 - Account Updates: the Add form opens in a sheet from the main button instead of sitting at the bottom of the page; after a save the sheet closes and the saved message shows on the page | one main action per screen | move it back into the page
 - Account Health: an empty Internal notes box now shows the message Internal notes are required (before, the button did nothing and said nothing) | a silent button reads as broken | remove the message
+- Account Map: the selected account card sits under the map, not on top of it | on a phone the floating box covered a third of the map | float it again
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -375,3 +377,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:30 | 2026-10-08T08:30 | 4b/step 0 + 5a | this commit | Discovery; Accounts Center redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:30 | 2026-10-08T08:30 | 4b/step 5b | this commit | Account Updates redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5c | this commit | Account Health redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5d | this commit | Account Map redesigned. tsc ok, build ok, lint at baseline (the map lint error is the old one).

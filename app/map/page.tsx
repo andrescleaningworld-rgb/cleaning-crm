@@ -7,6 +7,7 @@ import Link from "next/link";
 import "leaflet/dist/leaflet.css";
 import type { DivIcon } from "leaflet";
 import { distanceInMiles, formatMiles } from "../lib/distance";
+import { BigButton, Card, EmptyState, ErrorBox, Screen, SearchBar, SelectField, Sheet, StatusPill } from "@/app/ui";
 
 const MapContainer = dynamic(
   () => import("react-leaflet").then((module) => module.MapContainer),
@@ -326,6 +327,8 @@ export default function MapPage() {
   const [managerFilter, setManagerFilter] = useState("All Managers");
   const [subFilter, setSubFilter] = useState("All Subs");
   const [pinLimit, setPinLimit] = useState(INITIAL_PIN_LIMIT);
+  // Layout only: the manager and sub filters open in a sheet.
+  const [showFilters, setShowFilters] = useState(false);
 
   const [currentLocation, setCurrentLocation] = useState("");
   const [currentCoords, setCurrentCoords] = useState<CurrentCoords | null>(null);
@@ -762,163 +765,106 @@ export default function MapPage() {
   }, []); // run once on mount
 
 
+  const filtersOn = (managerFilter !== "All Managers" ? 1 : 0) + (subFilter !== "All Subs" ? 1 : 0);
+  const mapBoxStyle = { height: "68vh", minHeight: 460, width: "100%", borderRadius: 16, overflow: "hidden", border: "2px solid var(--ui-line)" } as const;
+  const mapsSearchUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
   return (
-    <main className="min-h-screen bg-gray-50 p-3 text-gray-900 sm:p-5">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-3 flex flex-col gap-3 sm:mb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-              Cleaning World
-            </p>
-            <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
-              Account Map
-            </h1>
-          </div>
+    <Screen
+      title="Account Map"
+      subtitle="Blue pins are accounts. Orange pin is selected. Green pin is your location."
+      backHref="/accounts"
+      action={<BigButton onClick={useMyLocationButton}>Use my location (load all pins near me)</BigButton>}
+    >
+      {errorMessage ? <ErrorBox title="The map did not load." text={errorMessage} /> : null}
 
-          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-            <button
-              type="button"
-              onClick={useMyLocationButton}
-              className="rounded-xl bg-green-700 px-4 py-3 text-center font-bold text-white shadow-sm hover:bg-green-800 min-h-[48px]"
-            >
-              Use My Location - load all pins near me
-            </button>
+      <SearchBar value={searchText} onChange={setSearchText} label="Search the map" placeholder="Search account, address, manager, or sub" />
 
-            <Link
-              href="/accounts"
-              className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-center font-bold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
-              Back to Accounts
-            </Link>
-          </div>
-        </header>
+      <SelectField
+        label="Select account"
+        hint={
+          !isLoading && filteredAccounts.length > SELECT_OPTION_LIMIT
+            ? `This list shows the first ${SELECT_OPTION_LIMIT} results for speed. Use search or filters to find a specific account.`
+            : undefined
+        }
+        value={selectedAccount?.id || ""}
+        onChange={(event) => setSelectedAccountId(event.target.value)}
+      >
+        <option value="">Select account</option>
+        {selectAccountOptions.map((account) => (
+          <option key={`${account.id}-${account.fullAddress}`} value={account.id}>
+            {account.distance !== null ? `${formatMiles(account.distance)} - ${account.name}` : account.name}
+          </option>
+        ))}
+      </SelectField>
 
-        {errorMessage ? (
-          <section className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-            {errorMessage}
-          </section>
+      <div className="ui-actions-row">
+        <BigButton kind="second" onClick={() => setShowFilters(true)}>
+          {filtersOn ? `Filter (${filtersOn} on)` : "Filter"}
+        </BigButton>
+        <BigButton kind="quiet" onClick={clearFilters}>
+          Clear
+        </BigButton>
+      </div>
+
+      <div role="status">
+        <p className="ui-muted">{locationMessage}</p>
+        <p className="ui-muted">
+          {isLoading
+            ? "Loading accounts…"
+            : `${filteredAccounts.length} found / ${accountsWithPins.length} with pins / showing ${visibleAccountsWithPins.length}`}
+        </p>
+        {!isLoading && geocodingProgress !== null ? (
+          <p className="ui-muted">
+            Finding addresses to add pins: {geocodingProgress.done} / {geocodingProgress.total} done. Pins appear as each address is found. This
+            only runs once per address.
+          </p>
+        ) : !isLoading && accountsMissingPins > 0 ? (
+          <p className="ui-field-error">
+            {accountsMissingPins} account{accountsMissingPins === 1 ? "" : "s"} could not be found on the map and cannot show as pins. Check
+            that addresses are complete (street, city, state).
+          </p>
         ) : null}
+      </div>
 
-        <section className="mb-4 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 bg-white p-3">
-            <div className="grid gap-2 lg:grid-cols-[1fr_auto_auto]">
-              <input
-                type="text"
-                value={searchText}
-                onChange={(event) => setSearchText(event.target.value)}
-                placeholder="Search account, address, manager, or sub..."
-                className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 text-base font-semibold outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              />
+      {!isLoading && outOfServiceAreaAccounts.length > 0 ? (
+        <details className="ui-card">
+          <summary className="ui-strong" style={{ cursor: "pointer", minHeight: 48 }}>
+            {outOfServiceAreaAccounts.length} account{outOfServiceAreaAccounts.length === 1 ? "" : "s"} have a location outside the expected NJ
+            / NYC service area and are hidden from the map. Their address likely needs correcting. Tap to view.
+          </summary>
+          <ul className="ui-list-plain" style={{ marginTop: 8, gap: 4 }}>
+            {outOfServiceAreaAccounts.map((account) => (
+              <li key={account.id}>
+                {account.name}
+                {account.address ? ` — ${account.address}` : ""}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
-              <select
-                value={selectedAccount?.id || ""}
-                onChange={(event) => setSelectedAccountId(event.target.value)}
-                className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 text-base font-semibold outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 lg:w-[320px]"
-              >
-                <option value="">Select account</option>
-
-                {selectAccountOptions.map((account) => (
-                  <option
-                    key={`${account.id}-${account.fullAddress}`}
-                    value={account.id}
-                  >
-                    {account.distance !== null
-                      ? `${formatMiles(account.distance)} - ${account.name}`
-                      : account.name}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="min-h-[48px] rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-800 shadow-sm hover:bg-gray-50"
-              >
-                Clear
-              </button>
-            </div>
-
-            <div className="mt-2 flex flex-col gap-2 text-xs font-semibold text-gray-600 sm:flex-row sm:items-center sm:justify-between">
-              <p>{locationMessage}</p>
-              <p>
-                {isLoading
-                  ? "Loading accounts..."
-                  : `${filteredAccounts.length} found / ${accountsWithPins.length} with pins / showing ${visibleAccountsWithPins.length}`}
-              </p>
-            </div>
-
-            {!isLoading && filteredAccounts.length > SELECT_OPTION_LIMIT ? (
-              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">
-                The dropdown is showing the first {SELECT_OPTION_LIMIT} results
-                for speed. Use search or filters to find a specific account.
-              </div>
-            ) : null}
-
-            {!isLoading && geocodingProgress !== null ? (
-              <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">
-                Auto-geocoding addresses to add pins: {geocodingProgress.done} / {geocodingProgress.total} done — pins appear as each address resolves. Results are cached so this only runs once per address.
-              </div>
-            ) : !isLoading && accountsMissingPins > 0 ? (
-              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
-                {accountsMissingPins} account
-                {accountsMissingPins === 1 ? "" : "s"} could not be geocoded and cannot show as pins. Check that addresses are complete (street, city, state).
-              </div>
-            ) : null}
-
-            {!isLoading && outOfServiceAreaAccounts.length > 0 ? (
-              <details className="mt-2 rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs font-bold text-orange-800">
-                <summary className="cursor-pointer select-none">
-                  {outOfServiceAreaAccounts.length} account
-                  {outOfServiceAreaAccounts.length === 1 ? "" : "s"} have coordinates outside the expected NJ / NYC service area and are hidden from the map. Their address likely needs correcting — click to view.
-                </summary>
-                <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold">
-                  {outOfServiceAreaAccounts.map((account) => (
-                    <li key={account.id}>
-                      {account.name}
-                      {account.address ? ` — ${account.address}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-
-            {!isLoading && hiddenPinCount > 0 ? (
-              <div className="mt-2 flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs font-bold text-gray-700 sm:flex-row sm:items-center sm:justify-between">
-                <span>
-                  Showing {visibleAccountsWithPins.length} pins first for faster
-                  loading. {hiddenPinCount} more pin
-                  {hiddenPinCount === 1 ? "" : "s"} available.
-                </span>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={loadMorePins}
-                    className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700"
-                  >
-                    Load More Pins
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={showAllPins}
-                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-black text-gray-800 hover:bg-gray-50"
-                  >
-                    Show All Pins
-                  </button>
-                </div>
-              </div>
-            ) : null}
+      {!isLoading && hiddenPinCount > 0 ? (
+        <Card>
+          <p className="ui-card-text">
+            Showing {visibleAccountsWithPins.length} pins first for faster loading. {hiddenPinCount} more pin{hiddenPinCount === 1 ? "" : "s"}{" "}
+            available.
+          </p>
+          <div className="ui-actions-row" style={{ marginTop: 12 }}>
+            <BigButton kind="second" onClick={loadMorePins}>
+              Load more pins
+            </BigButton>
+            <BigButton kind="quiet" onClick={showAllPins}>
+              Show all pins
+            </BigButton>
           </div>
+        </Card>
+      ) : null}
 
-          <div className="relative">
-            {isLoading ? (
-              <div className="flex h-[68vh] min-h-[460px] items-center justify-center px-4 text-center text-gray-600">
-                Loading account locations for the map...<br />
-                <span className="text-xs text-gray-500">(This can take 10-30+ seconds if there are many accounts or the backend is busy)</span>
-              </div>
-            ) : accountPinIcon && selectedPinIcon && myLocationIcon ? (
-              <div className="h-[68vh] min-h-[460px] w-full">
+      {isLoading ? (
+        <div className="ui-skeleton" style={{ ...mapBoxStyle, border: 0 }} role="status" aria-label="Loading account locations for the map. This can take 10 to 30 seconds." />
+      ) : accountPinIcon && selectedPinIcon && myLocationIcon ? (
+        <div style={mapBoxStyle}>
                 <MapContainer
                   key={mapKey}
                   center={mapCenter}
@@ -1018,208 +964,94 @@ export default function MapPage() {
                     );
                   })}
                 </MapContainer>
-              </div>
-            ) : (
-              <div className="flex h-[68vh] min-h-[460px] items-center justify-center px-5 text-center text-gray-600">
-                Loading map pins... (rendering limited number for performance)
-              </div>
-            )}
+        </div>
+      ) : (
+        <div className="ui-skeleton" style={{ ...mapBoxStyle, border: 0 }} role="status" aria-label="Loading map pins" />
+      )}
 
-            {selectedAccount ? (
-              <div className="absolute bottom-3 left-3 right-3 z-[500] rounded-2xl border border-orange-200 bg-white/95 p-4 shadow-lg backdrop-blur md:left-auto md:w-[390px]">
-                <div className="mb-2 inline-flex rounded-full bg-orange-600 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
-                  Selected Account
-                </div>
-
-                <Link
-                  href={`/accounts/${encodeURIComponent(selectedAccount.id)}`}
-                  className="block text-lg font-black text-orange-800 hover:underline"
-                >
-                  {selectedAccount.name}
-                </Link>
-
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedAccount.fullAddress)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 block text-sm font-semibold text-gray-700 hover:text-blue-600 hover:underline"
-                >
-                  {selectedAccount.fullAddress}
-                </a>
-
-                {selectedAccount.distance !== null ? (
-                  <p className="mt-2 text-sm font-black text-blue-700">
-                    {formatMiles(selectedAccount.distance)}
-                  </p>
-                ) : null}
-
-                {selectedAccount.latitude === null ||
-                selectedAccount.longitude === null ? (
-                  <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2 text-xs font-bold text-amber-800">
-                    This account has no latitude/longitude yet, so it cannot
-                    show as a pin.
-                  </p>
-                ) : null}
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <a
-                    href={directionsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700"
-                  >
-                    Directions
-                  </a>
-
-                  <a
-                    href={googleMapsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-800 hover:bg-gray-50"
-                  >
-                    Google Maps
-                  </a>
-
-                  <Link
-                    href={`/accounts/${encodeURIComponent(selectedAccount.id)}`}
-                    className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-800 hover:bg-gray-50"
-                  >
-                    Account
-                  </Link>
-                </div>
-              </div>
-            ) : null}
+      {selectedAccount ? (
+        <Card title={selectedAccount.name} right={<StatusPill kind="waiting">Selected</StatusPill>}>
+          <a href={mapsSearchUrl(selectedAccount.fullAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">
+            {selectedAccount.fullAddress}
+          </a>
+          {selectedAccount.distance !== null ? <p className="ui-strong">{formatMiles(selectedAccount.distance)}</p> : null}
+          {selectedAccount.latitude === null || selectedAccount.longitude === null ? (
+            <p className="ui-field-error">This account has no map location yet, so it cannot show as a pin.</p>
+          ) : null}
+          <div className="ui-actions-row" style={{ marginTop: 12 }}>
+            <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="ui-btn ui-btn-second">
+              Directions
+            </a>
+            <a href={googleMapsUrl} target="_blank" rel="noopener noreferrer" className="ui-btn ui-btn-second">
+              Google Maps
+            </a>
+            <BigButton kind="second" href={`/accounts/${encodeURIComponent(selectedAccount.id)}`}>
+              Go to account
+            </BigButton>
           </div>
-        </section>
+        </Card>
+      ) : null}
 
-        <section className="mb-4 grid gap-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm md:grid-cols-3">
-          <select
-            value={managerFilter}
-            onChange={(event) => setManagerFilter(event.target.value)}
-            className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 text-base font-semibold outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          >
-            {managerOptions.map((manager) => (
-              <option key={manager} value={manager}>
-                {manager}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={subFilter}
-            onChange={(event) => setSubFilter(event.target.value)}
-            className="min-h-[48px] rounded-xl border border-gray-300 px-4 py-3 text-base font-semibold outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          >
-            {subOptions.map((sub) => (
-              <option key={sub} value={sub}>
-                {sub}
-              </option>
-            ))}
-          </select>
-
-          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700">
-            Blue pins are accounts. Orange pin is selected. Green pin is your
-            location.
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-black">Nearby Accounts</h2>
-              <p className="text-sm text-gray-500">
-                Tap an account to move the map, highlight the pin, and open
-                directions.
-              </p>
-            </div>
-
-            <span className="font-bold text-gray-500">
-              Showing {nearbyAccounts.length}
-            </span>
-          </div>
-
-          {nearbyAccounts.length === 0 ? (
-            <p className="text-gray-500">No accounts found.</p>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {nearbyAccounts.map((account) => {
-                const isSelected = selectedAccount?.id === account.id;
-                const hasPin =
-                  account.latitude !== null && account.longitude !== null;
-
-                return (
-                  <button
-                    key={`${account.id}-${account.fullAddress}`}
-                    type="button"
-                    onClick={() => setSelectedAccountId(account.id)}
-                    className={`rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
-                      isSelected
-                        ? "border-orange-300 bg-orange-50"
-                        : "border-gray-200 bg-white"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3
-                          className={`font-black ${
-                            isSelected ? "text-orange-800" : "text-gray-900"
-                          }`}
-                        >
-                          {account.name}
-                        </h3>
-
-                        <span
-                          role="link"
-                          tabIndex={0}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(account.fullAddress)}`, "_blank", "noopener,noreferrer");
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(account.fullAddress)}`, "_blank", "noopener,noreferrer");
-                            }
-                          }}
-                          className="mt-2 block text-sm leading-5 text-gray-600 hover:text-blue-600 hover:underline cursor-pointer"
-                        >
-                          {account.fullAddress}
-                        </span>
-                      </div>
-
-                      <div className="flex shrink-0 flex-col items-end gap-2">
-                        {account.distance !== null ? (
-                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">
-                            {formatMiles(account.distance)}
-                          </span>
-                        ) : null}
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-black ${
-                            hasPin
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-amber-100 text-amber-700"
-                          }`}
-                        >
-                          {hasPin ? "Pin" : "No Pin"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid gap-1 text-xs font-semibold text-gray-500">
-                      <p>Manager: {account.manager}</p>
-                      <p>Sub: {account.subcontractor}</p>
-                      <p>Status: {account.status}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </section>
+      <div>
+        <p className="ui-strong">Nearby Accounts</p>
+        <p className="ui-muted">
+          Tap Show on map to move the map and highlight the pin. Showing {nearbyAccounts.length}.
+        </p>
       </div>
-    </main>
+
+      {nearbyAccounts.length === 0 ? (
+        isLoading ? null : (
+          <EmptyState icon="search" title="No accounts found" text="Try a shorter search, or clear the filters." />
+        )
+      ) : (
+        <div className="ui-three">
+          {nearbyAccounts.map((account) => {
+            const isSelected = selectedAccount?.id === account.id;
+            const hasPin = account.latitude !== null && account.longitude !== null;
+
+            return (
+              <Card
+                key={`${account.id}-${account.fullAddress}`}
+                title={account.name}
+                right={isSelected ? <StatusPill kind="waiting">Selected</StatusPill> : undefined}
+              >
+                <a href={mapsSearchUrl(account.fullAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">
+                  {account.fullAddress}
+                </a>
+                <div className="ui-actions-row" style={{ marginTop: 8 }}>
+                  {account.distance !== null ? <StatusPill kind="off">{formatMiles(account.distance)}</StatusPill> : null}
+                  <StatusPill kind={hasPin ? "done" : "waiting"}>{hasPin ? "Pin" : "No Pin"}</StatusPill>
+                </div>
+                <p className="ui-card-text">Manager: {account.manager}</p>
+                <p className="ui-card-text">Sub: {account.subcontractor}</p>
+                <p className="ui-card-text">Status: {account.status}</p>
+                <div style={{ marginTop: 12 }}>
+                  <BigButton kind="second" onClick={() => setSelectedAccountId(account.id)} aria-label={`Show ${account.name} on the map`}>
+                    Show on map
+                  </BigButton>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Sheet open={showFilters} title="Filter" onClose={() => setShowFilters(false)} closeLabel="Done">
+        <SelectField label="Manager" value={managerFilter} onChange={(event) => setManagerFilter(event.target.value)}>
+          {managerOptions.map((manager) => (
+            <option key={manager} value={manager}>
+              {manager}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Subcontractor" value={subFilter} onChange={(event) => setSubFilter(event.target.value)}>
+          {subOptions.map((sub) => (
+            <option key={sub} value={sub}>
+              {sub}
+            </option>
+          ))}
+        </SelectField>
+      </Sheet>
+    </Screen>
   );
 }
