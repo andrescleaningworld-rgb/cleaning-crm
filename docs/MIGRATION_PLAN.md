@@ -259,6 +259,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8 checkpoint report: docs/migration-reports/checkpoint-8-complaints-2026-10-08.md.
 - Area 9, step 0: docs/migration-reports/todos-headers.md. To Do 127 rows, 16 columns (six of them have no header in the sheet: group, outcome, calendar event, sync to calendar, priority); SmsLog 44 rows. Everything already reads and writes the sheet directly (no Apps Script).
 - Area 9, step 1: db/migrations/011_todos.sql applied to dev (todos, todo_sms_log). Flags and priority are kept as the sheet text because the app's rules read the text.
+- Area 9, step 2: scripts/migrate/import-todos.mjs. Dry run, run and re-run clean: 127 to-dos (124 linked to an account), 44 text-log lines. 3 open questions: 1 account name that matches no account, 2 assignee names that are not in the Managers list.
 
 **Next step:** Area 9 (To-Dos), Step 0: discovery (To Do and SmsLog tabs; app/to-do screens; creating a to-do texts the manager and can sync Google Calendar: dry-run only).
 
@@ -459,3 +460,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:23 | 2026-10-08T10:23 | 8/checkpoint | this commit | Report written; Area 8 done.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 0 | this commit | To-Dos headers.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 1 | this commit | To-Dos schema.
+- 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 2 | this commit | To-Dos import; 3 questions.
