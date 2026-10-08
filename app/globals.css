@@ -1527,6 +1527,113 @@ button.ui-card:hover {
   }
 }
 
+/* Calendar pieces (Sub Schedules → Full Calendar). */
+.ui-wide-only {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .ui-wide-only {
+    display: block;
+  }
+
+  .ui-narrow-only {
+    display: none;
+  }
+}
+
+.ui-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.ui-cal-dow {
+  padding: 4px 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ui-muted);
+}
+
+.ui-cal-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 96px;
+  padding: 6px;
+  border: 2px solid var(--ui-line-soft);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+}
+
+.ui-cal-cell > p {
+  margin: 0;
+}
+
+.ui-cal-cell-today {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+}
+
+/* One scheduled visit: a button that jumps to that account's schedules. */
+.ui-visit {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-tap);
+  padding: 6px 10px;
+  border: 2px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-visit:hover {
+  border-color: var(--ui-brand);
+}
+
+.ui-visit > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-week {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 1100px) {
+  .ui-week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+  }
+}
+
+/* The list that drops under a search-and-pick field. */
+.ui-autocomplete-list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 4px;
+  background: var(--ui-surface);
+  border-radius: var(--ui-r-control);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
 /* Small read-only tags (towns, zip codes). Not buttons. */
 .ui-taglist {
   display: flex;

@@ -241,6 +241,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6, step 2: scripts/migrate/import-scheduling.mjs. Dry run, run and re-run clean: 298 schedules (298 linked to an account, 271 to a sub), 0 exceptions, 1 sub visit. 27 open questions, all the same one: 27 schedules carry one email that no current subcontractor has.
 - Area 6, step 3: scripts/migrate/verify-scheduling.mjs → docs/migration-reports/scheduling-verify.md. All 3 tables match Sheets, every row field by field (298 × 17, 0, 1 × 8).
 - Area 6, step 4: lib/pg/scheduling.ts + lib/data/scheduling.ts; 9 files switched. Parity 7/7 reads identical (298 schedules); check-scheduling-writes.mts 25/25 (add, edit, pattern change, supersede, exceptions, sub visits); 3 admin routes byte-identical over HTTP on both sources. Not compared over HTTP: the sub-portal and customer-portal schedule routes (they need a portal login; same functions underneath).
+- Area 6, step 5: Sub Schedules redesigned: list page (cards / 9-column table, chips for the three views, main button per view, confirm sheet before removing an exception), Add / Edit / Exception forms as sheets, Full Calendar (filter sheets, month grid on wide screens and a day list on phones, week, agenda), and the shared AutocompleteField restyled for every screen that uses it. Headless click-through 58 of 58 at 375 and 1280px; nothing saved.
 
 **Next step:** Area 6, step 5: redesign app/sub-schedules (list, schedule form, exception form, full calendar).
 
@@ -309,6 +310,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6: 27 schedules whose SubID email matches no current subcontractor stay unlinked (the email text is kept and the screens keep working from it) | exact email match only | fix the email on the sub or give a schedule_sub override, then re-run the import
 - Area 6: on Postgres a deleted exception or sub visit is removed. In Sheets the cells are blanked, so a deleted row in the middle of the tab comes back as an all-empty entry | an empty entry is noise, not data | none needed
 - Local test login: the forged dev cookie lasts 12 hours; it expired mid-run on 2026-10-08 09:10 and one comparison silently fetched the login page instead of data. Caught by the answer sizes and re-run. From here the comparison script is only trusted when the answers are JSON | a redirect to /login returns status 200 | none needed
+- Full Calendar: on a phone the Month view is a day-by-day list of the same month instead of a 7-column grid | seven columns at 375px gave 45px cells with 10px text | show the grid on phones again (one CSS rule)
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -412,3 +414,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 2 | this commit | Scheduling import; 27 questions (one email).
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 3 | this commit | Scheduling verify: all match.
 - 2026-10-08T09:20 | 2026-10-08T09:20 | 6/step 4 | this commit | Scheduling data layer behind DATA_SOURCE_SCHEDULING. tsc ok, build ok, lint at baseline.
+- 2026-10-08T09:32 | 2026-10-08T09:32 | 6/step 5 | this commit | Sub Schedules screens redesigned. tsc ok, build ok, lint at baseline.

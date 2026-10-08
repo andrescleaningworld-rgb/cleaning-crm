@@ -10,6 +10,7 @@ import {
   SCHEDULE_FREQUENCIES,
   type ScheduleFrequency,
 } from "@/lib/scheduleRecurrence";
+import { BigButton, Card, EmptyState, ErrorBox, FilterChips, SearchBar, Sheet, SkeletonList } from "@/app/ui";
 
 const FREQUENCY_LABELS: Record<string, string> = {
   WEEKLY: "Weekly",
@@ -123,54 +124,40 @@ function MultiSelectFilter({
   }
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-          selected.size > 0 ? "border-blue-400 bg-blue-50 text-blue-800" : "border-slate-300 bg-white text-slate-700"
-        }`}
-      >
-        {label}
-        {selected.size > 0 ? ` (${selected.size})` : ""}
-      </button>
+    <>
+      <BigButton kind="second" onClick={() => setOpen(true)}>
+        {selected.size > 0 ? `${label} (${selected.size})` : label}
+      </BigButton>
 
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
-            {searchable && (
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search..."
-                className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm outline-none focus:border-blue-600"
-              />
-            )}
-            {selected.size > 0 && (
-              <button
-                type="button"
-                onClick={() => onChange(new Set())}
-                className="mb-1 text-xs font-semibold text-blue-700 hover:underline"
-              >
-                Clear
-              </button>
-            )}
-            {visibleOptions.length === 0 ? (
-              <p className="px-1 py-1 text-sm text-slate-500">No matches.</p>
-            ) : (
-              visibleOptions.map((o) => (
-                <label key={o.id} className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-slate-50">
-                  <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggle(o.id)} />
-                  <span className="truncate">{o.label}</span>
-                </label>
-              ))
-            )}
+      <Sheet
+        open={open}
+        title={label}
+        text="Tick the ones to show. With none ticked, everything shows."
+        onClose={() => setOpen(false)}
+        closeLabel="Done"
+      >
+        {searchable ? <SearchBar value={query} onChange={setQuery} label={`Search ${label}`} placeholder="Search" /> : null}
+        {selected.size > 0 ? (
+          <div>
+            <BigButton kind="quiet" onClick={() => onChange(new Set())}>
+              Clear ({selected.size})
+            </BigButton>
           </div>
-        </>
-      )}
-    </div>
+        ) : null}
+        {visibleOptions.length === 0 ? (
+          <p className="ui-muted">No matches.</p>
+        ) : (
+          <div className="ui-checks">
+            {visibleOptions.map((o) => (
+              <label key={o.id} className="ui-check">
+                <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggle(o.id)} />
+                <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{o.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </Sheet>
+    </>
   );
 }
 
@@ -189,18 +176,12 @@ function VisitEntry({
 }) {
   const accountName = resolveAccountName(visit.accountId);
   return (
-    <button
-      type="button"
-      onClick={() => onJumpToAccount(visit.accountId, accountName)}
-      className="block w-full truncate rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-left transition hover:border-indigo-400 hover:bg-indigo-100"
-    >
-      <p className="truncate text-xs font-black text-indigo-900">{accountName}</p>
-      <p className="truncate text-[11px] text-indigo-700">
-        {resolveTeamLeaderName(visit.subId)} · {visit.timeWindow || "—"}
-      </p>
-      <p className="text-[10px] font-bold uppercase text-indigo-500">
-        {FREQUENCY_BADGE[visit.frequency] || visit.frequency}
-      </p>
+    <button type="button" onClick={() => onJumpToAccount(visit.accountId, accountName)} className="ui-visit">
+      <span className="ui-strong">{accountName}</span>
+      <span>
+        {resolveTeamLeaderName(visit.subId)} · {visit.timeWindow || "No time window"}
+      </span>
+      <span className="ui-muted">{FREQUENCY_BADGE[visit.frequency] || visit.frequency}</span>
     </button>
   );
 }
@@ -378,126 +359,81 @@ export default function FullCalendar({
 
   const todayISO = toISO(new Date());
 
+  const gridProps = { visitsByDate, resolveAccountName, resolveTeamLeaderName, onJumpToAccount };
+
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex flex-wrap items-center gap-2">
+    <>
+      <div className="ui-actions-row">
         <MultiSelectFilter label="Subcontractor" options={subFilterOptions} selected={selectedSubIds} onChange={setSelectedSubIds} searchable />
         <MultiSelectFilter label="Account" options={accountFilterOptions} selected={selectedAccountIds} onChange={setSelectedAccountIds} searchable />
         <MultiSelectFilter label="Frequency" options={frequencyFilterOptions} selected={selectedFrequencies} onChange={setSelectedFrequencies} />
         <MultiSelectFilter label="Manager" options={managerOptions} selected={selectedManagers} onChange={setSelectedManagers} />
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-2">
-          {([
-            { id: "month" as const, label: "Month" },
-            { id: "week" as const, label: "Week" },
-            { id: "agenda" as const, label: "Agenda" },
-          ]).map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => handleViewChange(id)}
-              className={`rounded-full px-4 py-1.5 text-sm font-black transition ${
-                viewMode === id ? "bg-blue-700 text-white shadow-sm" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      <FilterChips
+        label="Calendar view"
+        options={[
+          { value: "month", label: "Month" },
+          { value: "week", label: "Week" },
+          { value: "agenda", label: "Agenda" },
+        ]}
+        value={viewMode}
+        onChange={handleViewChange}
+      />
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={viewMode === "week" ? () => setWeekOffset((w) => w - 1) : prevMonth}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            ‹ Prev
-          </button>
-          <button
-            type="button"
-            onClick={goToday}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-black uppercase text-slate-500 hover:bg-slate-50"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={viewMode === "week" ? () => setWeekOffset((w) => w + 1) : nextMonth}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            Next ›
-          </button>
-          <p className="ml-1 text-sm font-black text-slate-900">
-            {viewMode === "week"
-              ? `${formatDateLabel(toISO(weekDates[0]))} – ${formatDateLabel(toISO(weekDates[6]))}`
-              : `${MONTH_NAMES[month]} ${year}`}
-          </p>
-        </div>
+      <div className="ui-actions-row">
+        <BigButton kind="second" onClick={viewMode === "week" ? () => setWeekOffset((w) => w - 1) : prevMonth}>
+          ‹ Prev
+        </BigButton>
+        <BigButton kind="second" onClick={goToday}>
+          Today
+        </BigButton>
+        <BigButton kind="second" onClick={viewMode === "week" ? () => setWeekOffset((w) => w + 1) : nextMonth}>
+          Next ›
+        </BigButton>
       </div>
+      <p className="ui-strong" role="status">
+        {viewMode === "week"
+          ? `${formatDateLabel(toISO(weekDates[0]))} – ${formatDateLabel(toISO(weekDates[6]))}`
+          : `${MONTH_NAMES[month]} ${year}`}
+      </p>
 
       {loading ? (
-        <p className="mt-5 text-sm text-slate-600">Loading calendar...</p>
+        <SkeletonList rows={3} />
       ) : error ? (
-        <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>
+        <ErrorBox title="The calendar did not load." text={error} />
       ) : (
         <>
-          <div className="mt-5">
-            {viewMode === "month" && (
-              <MonthGrid
-                year={year}
-                month={month}
-                todayISO={todayISO}
-                visitsByDate={visitsByDate}
-                resolveAccountName={resolveAccountName}
-                resolveTeamLeaderName={resolveTeamLeaderName}
-                onJumpToAccount={onJumpToAccount}
-              />
-            )}
-            {viewMode === "week" && (
-              <WeekGrid
-                weekDates={weekDates}
-                todayISO={todayISO}
-                visitsByDate={visitsByDate}
-                resolveAccountName={resolveAccountName}
-                resolveTeamLeaderName={resolveTeamLeaderName}
-                onJumpToAccount={onJumpToAccount}
-              />
-            )}
-            {viewMode === "agenda" && (
-              <AgendaList
-                visitsByDate={visitsByDate}
-                resolveAccountName={resolveAccountName}
-                resolveTeamLeaderName={resolveTeamLeaderName}
-                onJumpToAccount={onJumpToAccount}
-              />
-            )}
-          </div>
+          {viewMode === "month" && (
+            <>
+              {/* A 7-column month does not fit a phone: there the same month shows as a day-by-day list. */}
+              <div className="ui-wide-only">
+                <MonthGrid year={year} month={month} todayISO={todayISO} {...gridProps} />
+              </div>
+              <div className="ui-narrow-only">
+                <AgendaList {...gridProps} />
+              </div>
+            </>
+          )}
+          {viewMode === "week" && <WeekGrid weekDates={weekDates} todayISO={todayISO} {...gridProps} />}
+          {viewMode === "agenda" && <AgendaList {...gridProps} />}
 
           {asNeededSchedules.length > 0 && (
-            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-amber-700">
-                As Needed — no fixed dates, add visits manually via Schedule Exceptions
-              </p>
-              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <Card title="As Needed">
+              <p className="ui-card-text">No fixed dates. Add visits one at a time with Schedule Exceptions.</p>
+              <div className="ui-three" style={{ marginTop: 12 }}>
                 {asNeededSchedules.map((s) => (
-                  <button
-                    key={s.scheduleId}
-                    type="button"
-                    onClick={() => onJumpToAccount(s.accountId, resolveAccountName(s.accountId))}
-                    className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-left text-sm hover:border-amber-500"
-                  >
-                    <p className="font-black text-slate-900">{resolveAccountName(s.accountId)}</p>
-                    <p className="text-xs text-slate-500">{resolveTeamLeaderName(s.subId)}</p>
+                  <button key={s.scheduleId} type="button" onClick={() => onJumpToAccount(s.accountId, resolveAccountName(s.accountId))} className="ui-visit">
+                    <span className="ui-strong">{resolveAccountName(s.accountId)}</span>
+                    <span>{resolveTeamLeaderName(s.subId)}</span>
                   </button>
                 ))}
               </div>
-            </div>
+            </Card>
           )}
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -535,36 +471,34 @@ function MonthGrid({
 
   return (
     <div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="ui-cal-grid" aria-hidden="true">
         {DOW_NAMES.map((d) => (
-          <div key={d} className="py-1 text-center text-[10px] font-black uppercase tracking-wide text-slate-400">
+          <div key={d} className="ui-cal-dow">
             {d}
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-1">
+      <div className="ui-cal-grid">
         {cells.map((day, idx) => {
-          if (!day) return <div key={idx} className="min-h-[6rem] rounded-lg" />;
+          if (!day) return <div key={idx} />;
           const ds = dateStr(day);
           const isToday = ds === todayISO;
           const visits = visitsByDate[ds] ?? [];
           return (
-            <div
-              key={idx}
-              className={`min-h-[6rem] rounded-lg border p-1.5 ${isToday ? "border-blue-400 bg-blue-50/40" : "border-slate-200 bg-white"}`}
-            >
-              <p className="text-xs font-black text-slate-500">{day}</p>
-              <div className="mt-1 space-y-1">
-                {visits.map((v, i) => (
-                  <VisitEntry
-                    key={`${v.scheduleId}-${i}`}
-                    visit={v}
-                    resolveAccountName={resolveAccountName}
-                    resolveTeamLeaderName={resolveTeamLeaderName}
-                    onJumpToAccount={onJumpToAccount}
-                  />
-                ))}
-              </div>
+            <div key={idx} className={isToday ? "ui-cal-cell ui-cal-cell-today" : "ui-cal-cell"}>
+              <p className="ui-strong">
+                {day}
+                {isToday ? " · Today" : ""}
+              </p>
+              {visits.map((v, i) => (
+                <VisitEntry
+                  key={`${v.scheduleId}-${i}`}
+                  visit={v}
+                  resolveAccountName={resolveAccountName}
+                  resolveTeamLeaderName={resolveTeamLeaderName}
+                  onJumpToAccount={onJumpToAccount}
+                />
+              ))}
             </div>
           );
         })}
@@ -591,30 +525,31 @@ function WeekGrid({
   onJumpToAccount: (accountId: string, accountLabel: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-7">
+    <div className="ui-week">
       {weekDates.map((d) => {
         const ds = toISO(d);
         const isToday = ds === todayISO;
         const visits = visitsByDate[ds] ?? [];
         return (
-          <div key={ds} className={`rounded-2xl border p-3 ${isToday ? "border-blue-400 bg-blue-50/40" : "border-slate-200 bg-white"}`}>
-            <p className="text-xs font-black uppercase tracking-wide text-slate-500">{dayName(d)}</p>
-            <p className="text-sm font-bold text-slate-800">{formatDateLabel(ds)}</p>
-            <div className="mt-2 space-y-1.5">
-              {visits.length === 0 ? (
-                <p className="text-xs text-slate-400">No visits</p>
-              ) : (
-                visits.map((v, i) => (
-                  <VisitEntry
-                    key={`${v.scheduleId}-${i}`}
-                    visit={v}
-                    resolveAccountName={resolveAccountName}
-                    resolveTeamLeaderName={resolveTeamLeaderName}
-                    onJumpToAccount={onJumpToAccount}
-                  />
-                ))
-              )}
-            </div>
+          <div key={ds} className={isToday ? "ui-cal-cell ui-cal-cell-today" : "ui-cal-cell"}>
+            <p className="ui-strong">
+              {dayName(d)}
+              {isToday ? " · Today" : ""}
+            </p>
+            <p className="ui-muted">{formatDateLabel(ds)}</p>
+            {visits.length === 0 ? (
+              <p className="ui-muted">No visits</p>
+            ) : (
+              visits.map((v, i) => (
+                <VisitEntry
+                  key={`${v.scheduleId}-${i}`}
+                  visit={v}
+                  resolveAccountName={resolveAccountName}
+                  resolveTeamLeaderName={resolveTeamLeaderName}
+                  onJumpToAccount={onJumpToAccount}
+                />
+              ))
+            )}
           </div>
         );
       })}
@@ -638,15 +573,15 @@ function AgendaList({
   const sortedDates = Object.keys(visitsByDate).sort();
 
   if (sortedDates.length === 0) {
-    return <p className="text-sm text-slate-600">No visits in this range.</p>;
+    return <EmptyState title="No visits in this range" text="Try another month, or clear the filters." />;
   }
 
   return (
-    <div className="space-y-4">
+    <>
       {sortedDates.map((ds) => (
         <div key={ds}>
-          <p className="text-xs font-black uppercase tracking-wide text-slate-500">{formatDateLabel(ds)}</p>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <p className="ui-strong">{formatDateLabel(ds)}</p>
+          <div className="ui-three" style={{ marginTop: 8, gap: 8 }}>
             {visitsByDate[ds].map((v, i) => (
               <VisitEntry
                 key={`${v.scheduleId}-${i}`}
@@ -659,6 +594,6 @@ function AgendaList({
           </div>
         </div>
       ))}
-    </div>
+    </>
   );
 }
