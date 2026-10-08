@@ -210,8 +210,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3, step 5b: `app/subcontractors/[id]/page.tsx` (detail) redesigned. Same content: 3 status pills, 8 number tiles, performance score, 11 detail fields, current and past accounts with totals and links, recent complaints (first 25), Print (same sections printed and hidden as before; tables print instead of cards), Refresh, and the edit form (now a sheet). Headless click-through 17/18 on Postgres (the 1 miss was the test reading the site header instead of the page title). Screenshots not committed (names and money).
 - Area 3, step 5c: `app/sub-center/page.tsx` (tab bar now the kit Tabs; `?tab=` and the remembered tab work as before) and `app/sub-center/activity-log.tsx` redesigned (filters in a sheet, cards on phone / table on desktop, first 100 lines with "Show 100 more"). The Sub Center log is still its own thing; nothing was merged with the staff Activity Log. Headless click-through 16/16.
 - Area 4a, step 0: `docs/migration-reports/accounts-headers.md`. Accounts 399 rows with data on 842 sheet rows (443 blank rows in between), 35 columns A:AI. Real layout differs from Part A: G = Key / Alarm / Access Info, H = Monthly Revenue, I = Subcontractor, J = Manager, K = Monthly Subcontractor Pay, V/W = Gross Margin, AC/AD = Latitude/Longitude, AE = Has Key, AF = Alarm Code, AG/AH = City/Zip, AI = Checklist Needed; X–AB are empty. OnboardingChecklist 3 rows. Account Updates 193 rows (848 blank; Update ID and Account ID are formulas, filled for only ~20%). Sub Transfer Proposals 72 rows but only 29 distinct Proposal IDs (one proposal = several account rows).
+- Area 4a, step 1: `db/migrations/005_accounts.sql` applied to dev (`accounts`, `onboarding_checklists`, `account_updates`, `sub_transfer_proposals`). `accounts.id` is UNIQUE but nullable (one row has no ID); every Sheets column is kept as text, with typed dates, money and coordinates next to it.
 
-**Next step:** Area 4a, Step 1 (schema `005_accounts.sql`).
+**Next step:** Area 4a, Step 2 (import).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -318,3 +319,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:38 → 23:42 | 3/step 5c | this commit | Sub Center shell + activity log redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-07T23:43 | 3/checkpoint | this commit | Area 3 report. Area total 0.6 h vs 24 h; running total 2.0 h vs 67 h. Remaining re-estimated at 8–25 h.
 - 2026-10-07T23:44 → 23:44 | 4a/step 0 | this commit | Accounts headers.
+- 2026-10-07T23:48 | 4a/step 1 | this commit | Accounts schema.
