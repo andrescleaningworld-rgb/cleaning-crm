@@ -32,6 +32,7 @@ export {
   PhotoPicker,
   SaveStatus,
   SearchBar,
+  Sheet,
   Stepper,
   Tabs,
   useSaveAction,

@@ -13,6 +13,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { BigButton, Icon, useUiWords, type IconName } from "./core";
 import { showToast } from "./toast";
@@ -345,6 +346,73 @@ export function ConfirmSheet({
         {/* Cancel comes first in the tab order's safe spot: it gets focus when the sheet opens. */}
         <BigButton kind="second" onClick={onCancel} disabled={busy} autoFocus>
           {words.cancel}
+        </BigButton>
+      </div>
+    </dialog>
+  );
+}
+
+/* ---------- Sheet ---------- */
+
+/**
+ * A panel over the screen for one small job (add a thing, send a thing, look
+ * at a history): bottom sheet on a phone, centered box on desktop. Native
+ * <dialog>: focus is trapped, Escape closes. `actions` is the sheet's own
+ * one main button plus, usually, nothing else; a Close/Cancel button is
+ * always added.
+ */
+export function Sheet({
+  open,
+  title,
+  text,
+  onClose,
+  actions,
+  closeLabel,
+  busy = false,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  text?: string;
+  onClose: () => void;
+  actions?: ReactNode;
+  /** Defaults to "Cancel" when there are actions, "Close" when there are none. */
+  closeLabel?: string;
+  /** Blocks closing while a save is running. */
+  busy?: boolean;
+  children?: ReactNode;
+}) {
+  const words = useUiWords();
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={ref}
+      className="ui-sheet ui-sheet-form"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+    >
+      <h2 className="ui-sheet-title" id={titleId}>
+        {title}
+      </h2>
+      {text ? <p className="ui-sheet-text">{text}</p> : null}
+      {/* Children mount only while open, so each opening starts fresh. */}
+      {open ? <div className="ui-sheet-body">{children}</div> : null}
+      <div className="ui-sheet-actions">
+        {actions}
+        <BigButton kind="second" onClick={onClose} disabled={busy}>
+          {closeLabel ?? (actions ? words.cancel : words.close)}
         </BigButton>
       </div>
     </dialog>

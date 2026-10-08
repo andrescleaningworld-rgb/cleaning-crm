@@ -107,6 +107,8 @@ export const LABELS = {
   add: "Add",
   edit: "Change",
   remove: "Remove",
+  // "Delete" is for things that are gone for good; "Remove" takes something off a list.
+  delete: "Delete",
   send: "Send",
   markDone: "Mark done",
   open: "Open",

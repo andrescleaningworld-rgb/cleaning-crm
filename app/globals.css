@@ -812,7 +812,13 @@ button.ui-card:hover {
     border: 1px solid var(--ui-line);
     border-radius: var(--ui-r-panel);
     background: var(--ui-surface);
-    overflow: hidden;
+    /* Not overflow: hidden — a More menu in the last row must be able to hang out of the table. */
+  }
+  .ui-table thead th:first-child {
+    border-top-left-radius: calc(var(--ui-r-panel) - 1px);
+  }
+  .ui-table thead th:last-child {
+    border-top-right-radius: calc(var(--ui-r-panel) - 1px);
   }
 }
 
@@ -1138,12 +1144,64 @@ button.ui-card:hover {
   gap: 8px;
 }
 
+.ui-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-gap);
+  margin-bottom: 20px;
+  min-width: 0;
+}
+
+.ui-sheet-form {
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+
+.ui-list-plain {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-list-plain > li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ui-line-soft);
+}
+
+.ui-list-plain > li:last-child {
+  border-bottom: 0;
+}
+
+.ui-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-strong {
+  margin: 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.ui-muted {
+  margin: 0;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
 .ui-sheet *:focus-visible {
   outline: 3px solid var(--ui-brand);
   outline-offset: 2px;
 }
 
 @media (min-width: 640px) {
+  .ui-sheet-form {
+    width: 560px !important;
+  }
   .ui-sheet {
     width: 480px;
     margin: auto;

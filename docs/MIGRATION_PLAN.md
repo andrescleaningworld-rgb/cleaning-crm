@@ -193,8 +193,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1, step 2: `scripts/migrate/import-catalogs.mjs` + `lib/import-helpers.mjs`. Dry-run, real run, and re-run all clean: 3 / 0 / 4 / 5 / 7 rows, 0 issues. GeocodeCache is empty in Sheets.
 - Area 1, step 3: `scripts/migrate/verify-catalogs.mjs` → `docs/migration-reports/catalogs-verify.md`. All 5 tables match Sheets: every row checked field by field, 0 missing, 0 extra, 0 mismatches. Parity run comes after step 4.
 - Area 1, step 4: `lib/pg/catalogs.ts` + `lib/data/catalogs.ts`; 8 routes (changelog, extra-services ×3, documents ×2, geocode ×2) now import from `@/lib/data/catalogs`. `DATA_SOURCE_CATALOGS` unset = Sheets, as before. Tested: parity 11/11 identical (`docs/migration-reports/catalogs-parity.md`); `check-catalogs-writes.mts` 17/17; over HTTP with the flag on `postgres` and dry-run: all reads, create/change/hide a service, send a document (email logged as `[dry-run]`, send row written to Postgres); with the flag on `sheets` the same reads returned byte-identical JSON. Sheets row counts unchanged after the tests. Test rows removed from dev.
+- Area 1, step 5a: `app/documents/page.tsx` redesigned with the UI kit (added `Sheet` to the kit). Same features: add (was "Upload"), open, send to sub, send history, delete, category filter; new: search box. Headless click-through 16/16 at 375 and 1280px on Postgres + dry-run; screenshots in `docs/migration-reports/screens/documents-*.png`. Not clicked: a real upload (no Blob token here) and a real delete (would remove a real file).
 
-**Next step:** Area 1, Step 5 (redesign `app/documents/page.tsx`, then `app/settings/extra-services/page.tsx`, one page per commit).
+**Next step:** Area 1, Step 5b (redesign `app/settings/extra-services/page.tsx`), then the Area 1 checkpoint report.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -262,3 +263,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T22:36 → 22:39 | 1/steps 1–2 | this commit (schema file is in the commit before) | Schema applied, import run twice, 0 issues. Added `scripts/migrate/progress.mjs` to update this section.
 - 2026-10-07T22:39 | 1/step 3 | this commit | Verify: all tables match.
 - 2026-10-07T22:39 → 22:46 | 1/step 4 | this commit | Data layer behind DATA_SOURCE_CATALOGS. tsc ok, build ok, lint at baseline.
+- 2026-10-07T22:46 → 22:52 | 1/step 5a | this commit | Documents page redesigned. tsc ok, build ok, lint at baseline.
