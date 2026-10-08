@@ -230,6 +230,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4b, step 5e: Sub Center Coverage tab redesigned (By Sub / By Town / Map chips, search that highlights and dims, tag lists) and the coverage map panels restyled (class changes only; the Google map code is untouched). Headless check for 5c–5e at 375 and 1280px: all passed after 2 test fixes; nothing saved. Not tested: the Google map itself (the key does not work on localhost).
 - Area 4b checkpoint report: docs/migration-reports/checkpoint-4b-accounts-secondary-2026-10-08.md.
 - Area 5, step 0: docs/migration-reports/equipment-headers.md. EquipmentCategories 2 rows, Equipment 1, EquipmentCheckouts 1, EquipmentRepairs 0, EquipmentParts 0. Vehicles, staff PINs and the equipment-check reports are already in Postgres (lib/vehiclesDb.ts, lib/equipmentCheckDb.ts) and are not part of this move.
+- Area 5, step 1: db/migrations/007_equipment.sql applied to dev (equipment_categories, equipment, equipment_checkouts, equipment_repairs, equipment_parts). New column sheet_row: the app addresses a checkout by its row number on return, so rows created in Postgres get the next number.
 
 **Next step:** Area 5 (Equipment), Step 0: discovery (tabs, headers, row counts, routes and screens that read them).
 
@@ -384,3 +385,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5e | this commit | Coverage tab redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:40 | 2026-10-08T08:40 | 4b/checkpoint | this commit | Report written; 4b done.
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 0 | this commit | Equipment headers.
+- 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 1 | this commit | Equipment schema.
