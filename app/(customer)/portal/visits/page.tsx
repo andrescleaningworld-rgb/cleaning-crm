@@ -19,7 +19,7 @@ export default async function PortalPastVisitsPage() {
           {visits.map((v, i) => (
             <li key={`${v.date}-${v.kind}-${i}`}>
               <Card title={portalDay(v.date, lang)}>
-                <p>{v.kind === "cleaning" ? words.cleaningVisit : words.checkVisit}</p>
+                <p>{v.kind === "cleaning" ? words.cleaningVisit : v.kind === "scheduled" ? words.scheduledVisit : words.checkVisit}</p>
               </Card>
             </li>
           ))}

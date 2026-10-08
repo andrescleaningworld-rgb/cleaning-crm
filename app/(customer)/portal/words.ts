@@ -87,6 +87,7 @@ const en = {
   noVisits: "No visits on record yet.",
   cleaningVisit: "Cleaning",
   checkVisit: "Quality check",
+  scheduledVisit: "Scheduled cleaning",
 
   // forms
   send: "Send",
@@ -151,6 +152,7 @@ const en = {
 
   // contact
   contactTitle: "Call or text us",
+  officeNumber: "Cleaning World office",
   yourManager: "Your manager",
   call: "Call",
   text: "Text",
@@ -236,6 +238,7 @@ const es: PortalWords = {
   noVisits: "Todavía no hay visitas registradas.",
   cleaningVisit: "Limpieza",
   checkVisit: "Revisión de calidad",
+  scheduledVisit: "Limpieza programada",
 
   send: "Enviar",
   sendingForm: "Enviando…",
@@ -296,6 +299,7 @@ const es: PortalWords = {
   states: { received: "Recibido", working: "Trabajando en ello", done: "Listo" },
 
   contactTitle: "Llámenos o envíe un texto",
+  officeNumber: "Oficina de Cleaning World",
   yourManager: "Su gerente",
   call: "Llamar",
   text: "Texto",

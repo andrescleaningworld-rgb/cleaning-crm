@@ -84,3 +84,34 @@ None.
 
 ### How to undo
 Revert the three commits whose message starts with `portal:`. The database pieces (`db/migrations/017_portal_login.sql`) only add tables and two columns; with the code reverted nothing reads them.
+
+---
+
+## Follow-up, same day (after Andres' answers)
+
+### What was added
+1. **Collecting emails (managers, no phone login).**
+   - Accounts Center has a new tab, **Missing emails**: every active account with no email, a search box, and on each card a "Customer email" box with "Save email". A saved account leaves the list. 297 accounts are on it today.
+   - The account page menu has **Customer email**: a sheet with the one field and Save.
+   - Both save through the same account save the Edit page already uses for the Email field. They work only where accounts are on Postgres; where accounts are still in Google Sheets the tab says so and points to the Edit page. Nothing here writes to Sheets.
+2. **Past visits also shows scheduled cleanings that have passed**, named "Scheduled cleaning" ("Limpieza programada"), next to logged cleanings and quality checks, for the last 60 days. A day with a logged cleaning is not listed twice. "Scheduled cleaning" means it was on the schedule, not that anyone confirmed it was done.
+3. **Call or text us shows one office number for everyone**, with Call and Text buttons, plus the manager's name when the account has one. The number is typed in Settings → Customer Portal Access ("Office number customers see"). **It is empty**: your message had the number blank, so I built the setting instead of guessing. Until you type it, that screen offers email only.
+4. **Preview safety.** `lib/db.ts` is the only place the app picks its database:
+   - Production: always `DATABASE_URL`. `MIGRATION_DATABASE_URL` is ignored there even if set.
+   - Vercel Preview: always `MIGRATION_DATABASE_URL` (the practice database). If it is missing, the preview build stops with a message (`next.config.ts`), and the app refuses to connect.
+   - Local dev: `MIGRATION_DATABASE_URL` when set.
+   Tested as a rule table (10 cases) and by loading the build config with the variable missing.
+
+### Checks
+- Login and home-data script: 39 of 39. Follow-up click-through (Missing emails, office number, Past visits, both languages): 37 of 37. Full portal click-through again: 104 of 104. Account page "Customer email" sheet opens at both widths. `tsc`, lint (16, unchanged), build: pass, run separately.
+- The practice database was put back after the tests: no test email on a real account, office number empty, portal closed, test customer with no password and no requests. Accounts still match the sheet.
+
+Not tested:
+- **A real Vercel preview.** The preview rule was tested by setting the same variables locally, not on Vercel.
+- **Saving from the account page's "Customer email" sheet.** The sheet was opened and measured; the save was exercised through the Missing emails list (same address).
+- The old operator scripts in `scripts/*.js` (set-up scripts run by hand) still read `DATABASE_URL` directly. They are not part of the app and were not changed.
+
+### To know
+- After this branch is merged, **every** preview of **any** branch needs `MIGRATION_DATABASE_URL`, or its build stops. That is the point of the rule, but it will surprise the next unrelated preview.
+- Two active accounts share a name. They are two cards in Missing emails; each saves on its own.
+- The list of accounts without an email in `docs/migration-reports/private/` was written before today's count settled: Missing emails in the app is the live list.

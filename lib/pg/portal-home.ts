@@ -55,16 +55,16 @@ export async function getPortalHomeAccount(accountId: string): Promise<PortalHom
   };
 }
 
-// ─── Next cleanings ──────────────────────────────────────────────────────────
+// ─── The schedule as dates ───────────────────────────────────────────────────
 
 export type PortalCleaning = { date: string; timeWindow: string; moved: boolean };
 
 /**
- * The next cleanings for an account, from its active weekly / every-other-
- * week / monthly pattern, with skipped days taken out and moved days moved.
- * Looks 90 days ahead; returns at most `limit` days, soonest first.
+ * The cleaning days of an account between two days (both included), from
+ * its active weekly / every-other-week / monthly pattern, with skipped days
+ * taken out and moved days moved. Soonest first.
  */
-export async function getNextCleanings(accountId: string, limit = 6): Promise<PortalCleaning[]> {
+async function scheduledDays(accountId: string, fromIso: string, toIso: string): Promise<PortalCleaning[]> {
   const sql = getSql();
   const [schedules, exceptions] = (await Promise.all([
     sql.query(
@@ -80,14 +80,12 @@ export async function getNextCleanings(accountId: string, limit = 6): Promise<Po
     ),
   ])) as Record<string, string>[][];
 
-  const today = todayISO();
-  const start = new Date(`${today}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 90);
-
+  const start = new Date(`${fromIso}T00:00:00`);
+  const end = new Date(`${toIso}T00:00:00`);
   const byDate = new Map<string, PortalCleaning>();
   for (const s of schedules) {
-    if (!isScheduleEffectivelyActive({ status: text(s.status), effectiveEnd: text(s.effective_end) }, today)) continue;
+    // A pattern counts for the days it was in force: active, and not ended before the first day asked for.
+    if (!isScheduleEffectivelyActive({ status: text(s.status), effectiveEnd: text(s.effective_end) }, fromIso)) continue;
     // Rows saved before the frequency column existed are weekly patterns.
     const frequency = text(s.frequency) || (text(s.recurring).toUpperCase() === "N" ? "AS_NEEDED" : "WEEKLY");
     const dates = generateScheduleDates(
@@ -95,40 +93,68 @@ export async function getNextCleanings(accountId: string, limit = 6): Promise<Po
       start,
       end
     );
-    for (const date of dates) if (date >= today && !byDate.has(date)) byDate.set(date, { date, timeWindow: text(s.time_window), moved: false });
+    for (const date of dates) if (date >= fromIso && date <= toIso && !byDate.has(date)) byDate.set(date, { date, timeWindow: text(s.time_window), moved: false });
   }
   for (const e of exceptions) {
-    const original = byDate.get(text(e.original_date));
-    if (!original) continue;
-    byDate.delete(text(e.original_date));
+    const originalDate = text(e.original_date);
+    const original = byDate.get(originalDate);
     const newDate = text(e.new_date);
-    if (text(e.type).toLowerCase() === "reschedule" && newDate && newDate >= today && newDate <= toISO(end)) {
-      byDate.set(newDate, { date: newDate, timeWindow: text(e.new_time_window) || original.timeWindow, moved: true });
+    const isMove = text(e.type).toLowerCase() === "reschedule" && newDate !== "";
+    if (original) byDate.delete(originalDate);
+    // A day moved into the range counts even when the day it came from is outside it.
+    if (isMove && newDate >= fromIso && newDate <= toIso && (original || originalDate < fromIso || originalDate > toIso)) {
+      byDate.set(newDate, { date: newDate, timeWindow: text(e.new_time_window) || original?.timeWindow || "", moved: true });
     }
   }
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(0, limit);
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+const isoPlusDays = (iso: string, days: number) => {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return toISO(d);
+};
+
+// ─── Next cleanings ──────────────────────────────────────────────────────────
+
+/** The next cleanings for an account: today and the 90 days after, at most `limit` days, soonest first. */
+export async function getNextCleanings(accountId: string, limit = 6): Promise<PortalCleaning[]> {
+  const today = todayISO();
+  return (await scheduledDays(accountId, today, isoPlusDays(today, 90))).slice(0, limit);
 }
 
 // ─── Past visits ─────────────────────────────────────────────────────────────
 
-export type PortalPastVisit = { date: string; kind: "cleaning" | "check" };
+export type PortalPastVisit = { date: string; kind: "cleaning" | "check" | "scheduled" };
 
 /**
- * Days somebody was on site, newest first: cleanings the crew logged, and
- * quality checks by a Cleaning World manager. Dates only.
+ * The last 60 days at this location, newest first:
+ *   "cleaning"   a cleaning the crew logged
+ *   "check"      a quality check by a Cleaning World manager
+ *   "scheduled"  a cleaning day on the schedule that has passed and that
+ *                nobody logged. It says what was planned, not that it was
+ *                confirmed done, and the screen names it that way.
+ * A day with a logged cleaning is not also listed as scheduled. Dates only.
  */
-export async function getPastVisits(accountId: string, accountName: string, limit = 30): Promise<PortalPastVisit[]> {
+export async function getPastVisits(accountId: string, accountName: string, limit = 40): Promise<PortalPastVisit[]> {
   const sql = getSql();
-  const rows = (await sql.query(
-    `SELECT visit_date::text AS date, 'cleaning' AS kind FROM subcontractor_visits
-       WHERE visit_date IS NOT NULL AND visit_date <= CURRENT_DATE AND (account_ref = $1::text OR (account_ref IS NULL AND lower(btrim(account_name)) = lower(btrim($2::text))))
-     UNION ALL
-     SELECT visit_date::text AS date, 'check' AS kind FROM visits
-       WHERE visit_date IS NOT NULL AND visit_date <= CURRENT_DATE AND (account_ref = $1::text OR (account_ref IS NULL AND lower(btrim(account_name)) = lower(btrim($2::text))))
-     ORDER BY date DESC LIMIT $3::int`,
-    [accountId, accountName, limit]
-  )) as PortalPastVisit[];
-  return rows;
+  const today = todayISO();
+  const [logged, scheduled] = await Promise.all([
+    sql.query(
+      `SELECT visit_date::text AS date, 'cleaning' AS kind FROM subcontractor_visits
+         WHERE visit_date IS NOT NULL AND visit_date <= CURRENT_DATE AND (account_ref = $1::text OR (account_ref IS NULL AND lower(btrim(account_name)) = lower(btrim($2::text))))
+       UNION ALL
+       SELECT visit_date::text AS date, 'check' AS kind FROM visits
+         WHERE visit_date IS NOT NULL AND visit_date <= CURRENT_DATE AND (account_ref = $1::text OR (account_ref IS NULL AND lower(btrim(account_name)) = lower(btrim($2::text))))`,
+      [accountId, accountName]
+    ) as unknown as Promise<PortalPastVisit[]>,
+    scheduledDays(accountId, isoPlusDays(today, -60), isoPlusDays(today, -1)),
+  ]);
+  const cleaned = new Set(logged.filter((v) => v.kind === "cleaning").map((v) => v.date));
+  const rank = { cleaning: 0, scheduled: 1, check: 2 } as const;
+  return [...logged, ...scheduled.filter((s) => !cleaned.has(s.date)).map((s) => ({ date: s.date, kind: "scheduled" as const }))]
+    .sort((a, b) => b.date.localeCompare(a.date) || rank[a.kind] - rank[b.kind])
+    .slice(0, limit);
 }
 
 // ─── My requests ─────────────────────────────────────────────────────────────

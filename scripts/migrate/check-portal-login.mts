@@ -135,7 +135,12 @@ try {
   await sql.query(`DELETE FROM schedule_exceptions WHERE legacy_key IN ('test-exc-skip', 'test-exc-move')`);
 
   const past = await home.getPastVisits(test.id, test.account_name);
-  check("past visits: 3, newest first, two cleanings and a quality check, dates only", past.length === 3 && past[0].date > past[1].date && past[1].date > past[2].date && past.filter((v) => v.kind === "cleaning").length === 2 && past[2].kind === "check" && Object.keys(past[0]).join(",") === "date,kind");
+  const logged = past.filter((v) => v.kind !== "scheduled");
+  const planned = past.filter((v) => v.kind === "scheduled");
+  const cleanedDays = new Set(past.filter((v) => v.kind === "cleaning").map((v) => v.date));
+  check("past visits: the two logged cleanings and the quality check are there, dates only", logged.filter((v) => v.kind === "cleaning").length === 2 && logged.filter((v) => v.kind === "check").length === 1 && Object.keys(past[0]).join(",") === "date,kind");
+  check("plus the scheduled cleanings that already passed: Mondays and Thursdays of the last 60 days, none today or later, none on a day with a logged cleaning", planned.length >= 14 && planned.length <= 18 && planned.every((v) => [1, 4].includes(weekday(v.date)) && v.date < today && !cleanedDays.has(v.date)), `${planned.length} scheduled`);
+  check("newest first", past.every((v, n) => n === 0 || past[n - 1].date >= v.date));
 
   check("no requests yet", (await home.getMyRequests(test.id)).length === 0);
   await portal.appendPortalRequest("portal-complaints", [test.id, test.account_name, "10/8/2026", "Quality Issue", "check: test problem", "", "New", "", ""]);

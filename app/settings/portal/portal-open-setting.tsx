@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BigButton, Card, ConfirmSheet, ErrorBox, StatusPill, showToast } from "@/app/ui";
+import { BigButton, Card, ConfirmSheet, ErrorBox, Field, StatusPill, showToast } from "@/app/ui";
 
-type Setting = { available: boolean; open: boolean; ready: { withEmail: number; total: number } };
+type Setting = { available: boolean; open: boolean; ready: { withEmail: number; total: number }; officePhone: string };
 
 /**
  * "Portal open to customers". OFF means no real customer can log in, set a
@@ -15,11 +15,17 @@ export default function PortalOpenSetting() {
   const [error, setError] = useState("");
   const [asking, setAsking] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [savingPhone, setSavingPhone] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
 
   useEffect(() => {
     fetch("/api/admin/portal-settings")
       .then((res) => res.json())
-      .then((data: Setting) => setSetting(data))
+      .then((data: Setting) => {
+        setSetting(data);
+        setPhone(data.officePhone ?? "");
+      })
       .catch(() => setError("Could not load the portal setting."));
   }, []);
 
@@ -43,6 +49,27 @@ export default function PortalOpenSetting() {
     }
   }
 
+  async function savePhone() {
+    setSavingPhone(true);
+    setPhoneError("");
+    try {
+      const res = await fetch("/api/admin/portal-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ officePhone: phone }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { officePhone?: string; error?: string };
+      if (!res.ok) throw new Error(data.error || "Could not save the number.");
+      setPhone(data.officePhone ?? "");
+      setSetting((current) => (current ? { ...current, officePhone: data.officePhone ?? "" } : current));
+      showToast(data.officePhone ? "Office number saved." : "Office number removed.");
+    } catch (err) {
+      setPhoneError(err instanceof Error ? err.message : "Could not save the number.");
+    } finally {
+      setSavingPhone(false);
+    }
+  }
+
   if (error && !setting) return <ErrorBox title={error} />;
   if (!setting || !setting.available) return null;
 
@@ -63,6 +90,29 @@ export default function PortalOpenSetting() {
           </BigButton>
         </div>
         {error ? <ErrorBox title={error} /> : null}
+      </Card>
+
+      <Card title="Office number customers see" right={<StatusPill kind={setting.officePhone ? "done" : "needs-you"}>{setting.officePhone ? "Set" : "Not set"}</StatusPill>}>
+        <p>
+          Shown to every customer under &quot;Call or text us&quot;, with one button to call and one to text.
+          {setting.officePhone ? "" : " Until a number is typed here, that screen only offers email."}
+        </p>
+        <Field
+          label="Office phone number"
+          optional
+          type="tel"
+          inputMode="tel"
+          autoComplete="off"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="(201) 555-1234"
+          error={phoneError || undefined}
+        />
+        <div className="ui-actions-row">
+          <BigButton kind="second" busy={savingPhone} busyLabel="Saving…" onClick={() => void savePhone()}>
+            Save number
+          </BigButton>
+        </div>
       </Card>
 
       <ConfirmSheet

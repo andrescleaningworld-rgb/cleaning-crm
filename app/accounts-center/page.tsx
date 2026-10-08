@@ -7,10 +7,11 @@ import ComplaintsPage from "../complaints/page";
 import AccountUpdatesPage from "../account-updates/page";
 import RecentActivitySummary from "./recent-activity";
 import AccountsCenterKeys from "./keys";
+import MissingEmails from "./missing-emails";
 import TeamHubStaffQueue from "./team-hub-queue";
 import { Tabs } from "@/app/ui";
 
-type CenterTab = "all" | "visits" | "complaints" | "updates" | "keys" | "team-hub";
+type CenterTab = "all" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
@@ -20,6 +21,7 @@ const TABS: { value: CenterTab; label: string }[] = [
   { value: "complaints", label: "Complaints" },
   { value: "updates", label: "Updates" },
   { value: "keys", label: "Keys" },
+  { value: "emails", label: "Missing emails" },
   { value: "team-hub", label: "Crew Link" },
 ];
 
@@ -86,6 +88,7 @@ export default function AccountsCenterPage() {
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "updates" && <AccountUpdatesPage />}
       {activeTab === "keys" && <AccountsCenterKeys />}
+      {activeTab === "emails" && <MissingEmails />}
       {activeTab === "team-hub" && <TeamHubStaffQueue />}
     </div>
   );

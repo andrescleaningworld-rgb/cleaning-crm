@@ -42,6 +42,28 @@ export async function setPortalOpen(open: boolean, updatedBy: string): Promise<v
   );
 }
 
+// The one office number every customer sees under "Call or text us". Empty
+// until it is typed in Settings → Customer Portal Access.
+export async function getOfficePhone(): Promise<string> {
+  const sql = getSql();
+  const rows = (await sql.query(`SELECT value FROM portal_settings WHERE key = 'office_phone'`)) as { value: string }[];
+  return rows[0]?.value?.trim() ?? "";
+}
+
+/** Saves the office number. Ten digits (a leading 1 is dropped), stored as (xxx) xxx-xxxx; empty clears it. */
+export async function setOfficePhone(phone: string, updatedBy: string): Promise<string> {
+  const digits = String(phone ?? "").replace(/\D/g, "").replace(/^1(\d{10})$/, "$1");
+  if (digits !== "" && digits.length !== 10) throw new Error("Type a 10-digit phone number.");
+  const value = digits ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : "";
+  const sql = getSql();
+  await sql.query(
+    `INSERT INTO portal_settings (key, value, updated_by, updated_at) VALUES ('office_phone', $1::text, $2::text, now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    [value, updatedBy]
+  );
+  return value;
+}
+
 // ─── Which accounts an email opens ───────────────────────────────────────────
 
 export type PortalAccount = {

@@ -5,6 +5,7 @@ import {
   BigButton,
   Card,
   ErrorBox,
+  Field,
   MoreMenu,
   Screen,
   SelectField,
@@ -296,6 +297,10 @@ export default function AccountDetailPage() {
   // Customer portal invite ("Set your password" email): what the server answered, shown in a sheet.
   const [sendingPortalInvite, setSendingPortalInvite] = useState(false);
   const [portalInvite, setPortalInvite] = useState<{ ok: boolean; message: string; devLink?: string } | null>(null);
+  // "Customer email": the email the customer logs in to the portal with.
+  const [emailDraft, setEmailDraft] = useState<string | null>(null);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailError, setEmailError] = useState("");
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
@@ -555,6 +560,27 @@ export default function AccountDetailPage() {
     matchedSubcontractor.companyName !== subcontractorContactDisplay
       ? matchedSubcontractor.companyName
       : "";
+
+  async function handleSaveCustomerEmail() {
+    if (emailDraft === null || savingEmail) return;
+    setSavingEmail(true);
+    setEmailError("");
+    try {
+      const res = await fetch("/api/admin/account-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: decodeURIComponent(accountIdForUrl), email: emailDraft.trim() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; email?: string; error?: string };
+      if (!res.ok || !data.success) throw new Error(data.error || "Failed to save the email.");
+      setAccount((current) => (current ? { ...current, email: data.email ?? "" } : current));
+      setEmailDraft(null);
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : "Failed to save the email.");
+    } finally {
+      setSavingEmail(false);
+    }
+  }
 
   async function handleSendPortalInvite() {
     if (sendingPortalInvite) return;
@@ -1083,6 +1109,13 @@ export default function AccountDetailPage() {
                       onSelect: () => void handleSendNewAccountPacket(),
                     },
                     {
+                      label: "Customer email",
+                      onSelect: () => {
+                        setEmailError("");
+                        setEmailDraft(contactEmail === "N/A" ? "" : contactEmail);
+                      },
+                    },
+                    {
                       label: sendingPortalInvite ? "Sending portal invite…" : "Send portal invite",
                       onSelect: () => void handleSendPortalInvite(),
                     },
@@ -1091,6 +1124,32 @@ export default function AccountDetailPage() {
                     { label: "Full account info", onSelect: () => setShowFullAccountInfo(true) },
                   ]}
                 />
+                <Sheet
+                  open={emailDraft !== null}
+                  title="Customer email"
+                  text="The customer logs in to the portal with this email."
+                  onClose={() => setEmailDraft(null)}
+                  busy={savingEmail}
+                  actions={
+                    <BigButton busy={savingEmail} busyLabel="Saving…" onClick={() => void handleSaveCustomerEmail()}>
+                      Save email
+                    </BigButton>
+                  }
+                >
+                  <Field
+                    label="Customer email"
+                    optional
+                    type="email"
+                    inputMode="email"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    value={emailDraft ?? ""}
+                    onChange={(event) => setEmailDraft(event.target.value)}
+                    placeholder="name@example.com"
+                    error={emailError || undefined}
+                  />
+                </Sheet>
                 <Sheet
                   open={portalInvite !== null}
                   title={portalInvite?.ok ? "Portal invite" : "Portal invite not sent"}
