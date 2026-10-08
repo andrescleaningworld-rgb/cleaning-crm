@@ -174,7 +174,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 in progress. Branch `migration/postgres` created and pushed. No Neon dev branch, no tables yet.
+**Status:** Phase 0 in progress. Branch `migration/postgres` created locally; **push blocked** (403, wrong GitHub account). No Neon dev branch, no tables yet.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -183,7 +183,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 **Deadline:** not set.
 
-**Open issues:** Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
+**Open issues:** push to origin denied for GitHub account `clubdeltruconj-rgb` (needs Andres); Neon CLI not installed and no Neon login on this machine (needs Andres); Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
 **Area log:**
 
