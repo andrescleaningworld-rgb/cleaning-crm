@@ -276,8 +276,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11, step 2: scripts/migrate/import-customer-portal.mjs. Dry-run, run, re-run clean: portal_access 393 (391 linked to an account, 319 with access on), portal_requests 0. 25 open questions: 2 rows not linked, 2 repeated names, 1 repeated code, 19 phones shared by 49 rows with access. The portal code equals the Account ID on 392 of 393 rows. 2 rows have access on and no phone.
 - Area 11, step 3: scripts/migrate/verify-customer-portal.mjs → docs/migration-reports/customer-portal-verify.md. portal_access matches, every row field by field (393 × 20); the three request tabs are empty on both sides.
 - Area 11, step 4: lib/pg/customer-portal.ts + lib/data/customer-portal.ts; 15 files switched (11 by switch-imports, the 4 request routes now call appendPortalRequest). Parity 13/13 identical (values fingerprinted, none printed); check-customer-portal-writes.mts 24/24; 4 routes byte-identical over HTTP on both sources; on Postgres, end to end with one made-up customer row: login (wrong code refused), dashboard, the four request kinds (emails logged as dry-run), staff list, status change. Not tested: a login on the Sheets source (needs a real customer's phone and code).
+- Area 11, step 5: redesigned with the kit: Portal Requests (cards + a detail sheet for status and notes), Settings → Portal (cards on a phone, table when wide, Edit in a sheet), /portal login, dashboard and the four request forms, and the older /customer-portal pages (restyled in place). Headless click-through 84/84 at 375 and 1280px on Postgres + dry-run with one made-up customer row (removed afterwards). Not clicked: a photo upload, a submit on the older portal (goes to Apps Script), Enable/Disable/Generate code on a real row. Screenshots not committed.
 
-**Next step:** Area 11, Step 5: redesign the portal screens (/portal/*, /customer-portal/*, Portal Requests, Settings → Portal).
+**Next step:** Area 11: checkpoint report, then Area 12 (Supplies), Step 0.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -361,6 +362,11 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11: /api/customer-portal now answers 'no account found' when the phone has no digits in it, on both sources | on Sheets, text such as 'abc' matched the first portal row with access and an empty phone and returned that account to anyone (checked locally: 200 before, 404 after; 2 rows are affected); the login page already demands 10 digits, so no customer is affected | revert the 4 lines in app/api/customer-portal/route.ts
 - Area 11: a billing request from /portal is saved on Postgres although Sheets has no portal-billing-requests tab (there the save fails today) | the table holds all four kinds; refusing it on purpose would copy a fault | none needed
 - Area 11: a local-only PORTAL_SESSION_PASSWORD was added to .env.development.local | needed to open /portal on localhost; the real value is not on this machine | replace it with the real value if wanted
+- Area 11: /api/portal/login now builds a fresh 'Invalid credentials' answer each time | the route reused one answer object, which can be sent only once, so every wrong login after the first got an empty answer and the page said 'Something went wrong' | revert the first hunk in app/api/portal/login/route.ts
+- Area 11: /api/portal/login no longer writes the typed phone and portal code into the server log (it logs given/empty) | they are the customer's login | revert that one line
+- Area 11: Settings → Portal 'Edit' now opens (as a sheet) | on the old page the panel could never open: the row was marked open by account name but checked by name-plus-row-number | none needed; it is the feature the page already described
+- Area 11: the /portal dashboard shows a 'was sent' line after a request | the forms already came back with ?submitted=… but nothing showed it | remove the SENT block in the dashboard page
+- Area 11: complaint photos on /portal use the kit photo picker with a limit of 20 photos (there was no limit) | shared component; 20 is far above normal use | change max on the PhotoPicker
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.

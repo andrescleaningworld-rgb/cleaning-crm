@@ -3,24 +3,27 @@ import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { getCustomerByPortalCode, getCustomerByPhone, normalizePhone } from "@/lib/data/customer-portal";
 
-const INVALID = NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+// A new answer every time: one shared Response can only be sent once, so
+// every wrong login after the first got an empty answer and the page showed
+// "Something went wrong" instead of "Invalid credentials".
+const invalid = () => NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 
 export async function POST(request: NextRequest) {
   let body: { phone?: unknown; portalCode?: unknown };
   try {
     body = await request.json();
   } catch {
-    return INVALID;
+    return invalid();
   }
 
   const phone      = typeof body.phone      === "string" ? body.phone.trim()      : "";
   const portalCode = typeof body.portalCode === "string" ? body.portalCode.trim() : "";
 
-  console.log("[portal/login] incoming →", { phone, portalCode });
+  console.log("[portal/login] incoming →", { phone: phone ? "(given)" : "(empty)", portalCode: portalCode ? "(given)" : "(empty)" });
 
   if (!phone || !portalCode) {
     console.log("[portal/login] missing phone or portalCode");
-    return INVALID;
+    return invalid();
   }
 
   if (normalizePhone(phone).length !== 10) {
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
     if (!match || !byCode || byCode.portalAccess?.toUpperCase() !== "YES") {
       console.log("[portal/login] REJECTED — match:", match,
         "| portalAccess:", byCode?.portalAccess);
-      return INVALID;
+      return invalid();
     }
 
     const response = NextResponse.json({

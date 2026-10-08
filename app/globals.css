@@ -1777,3 +1777,184 @@ button.ui-card:hover {
     transition: none;
   }
 }
+
+/* A code a person copies or reads out (portal code): its own font, never cut. */
+.ui-code-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ui-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+/* Customer portal: logo line on the login screen. */
+.ui-portal-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ui-portal-brand img {
+  border-radius: var(--ui-r-control);
+}
+
+/* Customer portal: one month at a glance. Seven columns that always fit a phone. */
+.ui-mini-cal {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.ui-mini-cal-dow {
+  padding: 4px 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-muted);
+  overflow: hidden;
+}
+
+.ui-mini-cal-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: var(--ui-r-control);
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+/* A day with a visit: tinted, bold and a dot (not color alone). */
+.ui-mini-cal-visit {
+  background: var(--ui-brand-soft);
+  color: var(--ui-brand-ink);
+  font-weight: 800;
+}
+
+.ui-mini-cal-today {
+  outline: 2px solid var(--ui-brand);
+  outline-offset: -2px;
+}
+
+.ui-mini-cal-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-brand);
+}
+
+.ui-mini-cal-day > .ui-mini-cal-dot {
+  position: absolute;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+}
+
+.ui-mini-cal-dot-morning {
+  background: #b7791f;
+}
+
+.ui-mini-cal-dot-midday {
+  background: var(--ui-good);
+}
+
+.ui-mini-cal-dot-afternoon {
+  background: #c05621;
+}
+
+.ui-mini-cal-dot-evening {
+  background: #6b46c1;
+}
+
+.ui-mini-cal-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+/* Older customer portal: the round mark above a title (logo letters, a tick). */
+.ui-portal-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-brand-soft);
+  color: var(--ui-brand-ink);
+  font-size: 28px;
+}
+
+/* A choice with a picture that can be switched on and off (specialty services). */
+.ui-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 12px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-pick-on {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+}
+
+.ui-pick-img {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--ui-r-control);
+  object-fit: cover;
+}
+
+.ui-pick-img-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-off-soft);
+}
+
+/* The tick of a choice: an empty ring when off, a filled one with a tick when on. */
+.ui-pick-mark {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-pill);
+  color: transparent;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.ui-pick-on .ui-pick-mark {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand);
+  color: #fff;
+}
+
+/* A card whose contents are spaced out: the card itself keeps the list spacing. */
+.ui-card.ui-stack {
+  margin-top: 0;
+  gap: 12px;
+}

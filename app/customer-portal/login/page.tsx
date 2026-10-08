@@ -65,30 +65,30 @@ export default function CustomerLoginPage() {
   }
 
   return (
-    <div className="flex min-h-[70vh] items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md">
-        <div className="rounded-3xl border border-purple-100 bg-white p-8 shadow-sm">
-          <div className="text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-purple-700">
-              <span className="text-xl font-black text-white">CW</span>
+    <div className="ui-screen">
+      <div className="ui-stack">
+        <div className="ui-card ui-stack">
+          <div>
+            <div className="ui-portal-mark">
+              <span className="ui-strong">CW</span>
             </div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-purple-700">
+            <p className="ui-strong">
               Cleaning World
             </p>
-            <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
+            <h1 className="ui-screen-title">
               Customer Portal
             </h1>
-            <p className="mt-2 text-sm leading-6 text-slate-500">
+            <p className="ui-muted">
               Enter the phone number on your Cleaning World account to access
               your portal.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+          <form onSubmit={handleSubmit} className="ui-stack">
             <div>
               <label
                 htmlFor="phone"
-                className="mb-2 block text-sm font-semibold text-slate-700"
+                className="ui-label"
               >
                 Phone Number
               </label>
@@ -100,13 +100,13 @@ export default function CustomerLoginPage() {
                 required
                 autoFocus
                 autoComplete="tel"
-                className="min-h-[48px] w-full rounded-xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
+                className="ui-input w-full"
                 placeholder="(555) 555-5555"
               />
             </div>
 
             {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+              <div className="ui-field-error">
                 {error}
               </div>
             )}
@@ -114,13 +114,13 @@ export default function CustomerLoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="min-h-[48px] w-full rounded-xl bg-purple-700 px-4 py-3 text-sm font-bold text-white hover:bg-purple-800 disabled:opacity-60"
+              className="ui-btn ui-btn-main w-full"
             >
               {loading ? "Looking up your account..." : "Access My Account"}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-xs leading-5 text-slate-400">
+          <p className="ui-muted">
             Having trouble? Contact Cleaning World and we&apos;ll help you right
             away.
           </p>

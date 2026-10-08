@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getCustomerHistory, getCustomerRequests } from "../../lib/backend";
@@ -50,73 +51,65 @@ export default function CustomerHistoryPage() {
     loadAll();
   }, [router]);
 
-  function statusClass(status: string | undefined) {
+  function statusKind(status: string | undefined): StatusKind {
     const s = (status || "").toLowerCase();
-    if (s.includes("complet") || s.includes("resolved") || s.includes("closed"))
-      return "bg-emerald-100 text-emerald-700";
-    if (s.includes("open") || s.includes("pending"))
-      return "bg-amber-100 text-amber-700";
-    return "bg-slate-100 text-slate-600";
+    if (s.includes("complet") || s.includes("resolved") || s.includes("closed")) return "done";
+    if (s.includes("open") || s.includes("pending")) return "waiting";
+    return "off";
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-2 py-4 sm:py-6">
+    <div className="ui-screen">
       <Link
         href="/customer-portal"
-        className="text-sm font-semibold text-purple-700 hover:underline"
+        className="ui-link"
       >
         ← Back to My Account
       </Link>
 
-      <h1 className="mt-4 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+      <h1 className="ui-screen-title">
         Full History
       </h1>
-      <p className="mt-1 text-sm text-slate-500">
+      <p className="ui-muted">
         All past service visits, requests, and complaints on your account.
       </p>
 
       {loading ? (
-        <div className="mt-8 rounded-3xl bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">Loading...</p>
+        <div className="ui-card ui-stack">
+          <p className="ui-muted">Loading...</p>
         </div>
       ) : (
-        <div className="mt-6 space-y-8">
+        <div className="ui-stack">
           {/* Service visits */}
           <section>
-            <h2 className="mb-3 text-lg font-black text-slate-950">
+            <h2 className="ui-card-title">
               Service Visits
             </h2>
             {history.length > 0 ? (
-              <div className="divide-y divide-slate-100 rounded-3xl border border-slate-100 bg-white shadow-sm">
+              <div className="ui-card ui-list-plain">
                 {history.map((item, i) => (
-                  <div key={i} className="flex items-start justify-between p-4">
+                  <div key={i} className="ui-card-row">
                     <div>
-                      <p className="text-sm font-bold text-slate-900">
+                      <p className="ui-strong">
                         {item.type || "Service Visit"}
                       </p>
                       {item.date && (
-                        <p className="mt-0.5 text-xs text-slate-500">
+                        <p className="ui-muted">
                           {item.date}
                         </p>
                       )}
                       {item.notes && (
-                        <p className="mt-1 text-xs text-slate-600">
+                        <p className="ui-muted">
                           {item.notes}
                         </p>
                       )}
                     </div>
-                    <span
-                      className={`ml-4 shrink-0 rounded-full px-3 py-1 text-xs font-bold ${statusClass(
-                        item.status
-                      )}`}
-                    >
-                      {item.status || "Completed"}
-                    </span>
+                    <StatusPill kind={statusKind(item.status)}>{item.status || "Completed"}</StatusPill>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-slate-400">
+              <p className="ui-muted">
                 No service visits on record yet.
               </p>
             )}
@@ -124,38 +117,32 @@ export default function CustomerHistoryPage() {
 
           {/* Requests and complaints */}
           <section>
-            <h2 className="mb-3 text-lg font-black text-slate-950">
+            <h2 className="ui-card-title">
               Requests & Complaints
             </h2>
             {requests.length > 0 ? (
-              <div className="divide-y divide-slate-100 rounded-3xl border border-slate-100 bg-white shadow-sm">
+              <div className="ui-card ui-list-plain">
                 {requests.map((req, i) => (
-                  <div key={i} className="p-4">
-                    <div className="flex items-start justify-between">
-                      <p className="text-sm font-bold text-slate-900">
+                  <div key={i}>
+                    <div className="ui-card-row">
+                      <p className="ui-strong">
                         {req.type || (req.issue ? "Complaint" : "Request")}
                       </p>
-                      <span
-                        className={`ml-4 shrink-0 rounded-full px-3 py-1 text-xs font-bold ${statusClass(
-                          req.status
-                        )}`}
-                      >
-                        {req.status || "Pending"}
-                      </span>
+                      <StatusPill kind={statusKind(req.status)}>{req.status || "Pending"}</StatusPill>
                     </div>
                     {(req.details || req.issue) && (
-                      <p className="mt-1 text-xs text-slate-600">
+                      <p className="ui-muted">
                         {String(req.details || req.issue).slice(0, 120)}
                       </p>
                     )}
                     {req.date && (
-                      <p className="mt-1 text-xs text-slate-400">{req.date}</p>
+                      <p className="ui-muted">{req.date}</p>
                     )}
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-slate-400">
+              <p className="ui-muted">
                 No requests or complaints on record.
               </p>
             )}

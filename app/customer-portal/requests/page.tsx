@@ -162,18 +162,18 @@ export default function CustomerRequestsPage() {
 
   if (submitted) {
     return (
-      <div className="mx-auto max-w-md px-4 py-12 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-4xl">
+      <div className="ui-screen">
+        <div className="ui-portal-mark">
           ✅
         </div>
-        <h1 className="text-2xl font-black text-slate-950">Request Received</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <h1 className="ui-screen-title">Request Received</h1>
+        <p className="ui-muted">
           Your request has been sent to the Cleaning World team. We&apos;ll
           contact you within 1 business day.
         </p>
         <Link
           href="/customer-portal"
-          className="mt-6 inline-block rounded-xl bg-purple-700 px-6 py-3 text-sm font-bold text-white hover:bg-purple-800"
+          className="ui-btn ui-btn-second"
         >
           Back to My Account
         </Link>
@@ -182,33 +182,33 @@ export default function CustomerRequestsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-2 py-4 sm:py-6">
+    <div className="ui-screen">
       <Link
         href="/customer-portal"
-        className="text-sm font-semibold text-purple-700 hover:underline"
+        className="ui-link"
       >
         ← Back to My Account
       </Link>
 
-      <h1 className="mt-4 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+      <h1 className="ui-screen-title">
         Submit a Request
       </h1>
-      <p className="mt-2 text-sm leading-6 text-slate-500">
+      <p className="ui-muted">
         Need a specialty service, a schedule change, or something else? Let us
         know and the team will get back to you within 1 business day.
       </p>
 
       {pendingRequests.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <p className="text-sm font-bold text-blue-900">
+        <div className="ui-stat">
+          <p className="ui-strong">
             You have {pendingRequests.length} pending{" "}
             {pendingRequests.length === 1 ? "request" : "requests"}:
           </p>
-          <ul className="mt-2 space-y-1">
+          <ul className="ui-stack">
             {pendingRequests.map((r, i) => (
-              <li key={i} className="text-xs text-blue-800">
+              <li key={i}>
                 · {r.type || "Request"} —{" "}
-                <span className="font-semibold">{r.status || "Pending"}</span>
+                <span className="ui-strong">{r.status || "Pending"}</span>
               </li>
             ))}
           </ul>
@@ -217,16 +217,16 @@ export default function CustomerRequestsPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="mt-6 space-y-5 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm"
+        className="ui-card ui-stack"
       >
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             Request Type
           </label>
           <select
             value={form.type}
             onChange={(e) => handleTypeChange(e.target.value)}
-            className="mt-2 min-h-[48px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500"
+            className="ui-input w-full"
           >
             {REQUEST_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -238,23 +238,23 @@ export default function CustomerRequestsPage() {
 
         {isSpecialty ? (
           <div>
-            <label className="block text-sm font-black text-slate-700">
+            <label className="ui-label">
               Select Service(s) *
             </label>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="ui-muted">
               Choose one or more specialty services you&apos;d like a quote for.
             </p>
 
             {servicesLoading ? (
-              <p className="mt-3 text-sm text-slate-500">Loading services...</p>
+              <p className="ui-muted">Loading services...</p>
             ) : servicesError ? (
-              <p className="mt-3 text-sm font-semibold text-red-700">{servicesError}</p>
+              <p className="ui-field-error">{servicesError}</p>
             ) : services.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">
+              <p className="ui-muted">
                 No specialty services are listed right now — describe what you need below.
               </p>
             ) : (
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="ui-two">
                 {services.map((service) => {
                   const selected = selectedServiceIds.has(service.id);
                   return (
@@ -263,29 +263,25 @@ export default function CustomerRequestsPage() {
                       type="button"
                       onClick={() => toggleService(service.id)}
                       aria-pressed={selected}
-                      className={`flex items-start gap-3 rounded-2xl border p-3 text-left transition ${
-                        selected
-                          ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
-                          : "border-slate-200 bg-white hover:border-purple-300"
-                      }`}
+                      className={`ui-pick ${selected ? "ui-pick-on" : ""}`.trim()}
                     >
                       {service.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element -- external Blob URL, not a local asset
                         <img
                           src={service.imageUrl}
                           alt=""
-                          className="h-14 w-14 shrink-0 rounded-xl border border-slate-100 object-cover"
+                          className="ui-pick-img"
                         />
                       ) : (
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-lg">
+                        <div className="ui-pick-img ui-pick-img-empty">
                           🧹
                         </div>
                       )}
 
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-slate-900">{service.name}</p>
+                        <p className="ui-strong">{service.name}</p>
                         {service.description ? (
-                          <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                          <p className="ui-muted">
                             {service.description}
                           </p>
                         ) : null}
@@ -293,11 +289,7 @@ export default function CustomerRequestsPage() {
 
                       <span
                         aria-hidden
-                        className={`ml-auto mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[10px] font-bold ${
-                          selected
-                            ? "border-purple-600 bg-purple-600 text-white"
-                            : "border-slate-300 text-transparent"
-                        }`}
+                        className="ui-pick-mark"
                       >
                         ✓
                       </span>
@@ -310,14 +302,14 @@ export default function CustomerRequestsPage() {
         ) : null}
 
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             {isSpecialty ? "Additional Details (optional)" : "Details *"}
           </label>
           <textarea
             required={!isSpecialty}
             value={form.details}
             onChange={(e) => setForm({ ...form, details: e.target.value })}
-            className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+            className="ui-input w-full"
             placeholder={
               isSpecialty
                 ? "Anything else we should know? (optional)"
@@ -327,7 +319,7 @@ export default function CustomerRequestsPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             Preferred Date (if applicable)
           </label>
           <input
@@ -336,12 +328,12 @@ export default function CustomerRequestsPage() {
             onChange={(e) =>
               setForm({ ...form, preferredDate: e.target.value })
             }
-            className="mt-2 min-h-[48px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500"
+            className="ui-input w-full"
           />
         </div>
 
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+          <div className="ui-field-error">
             {error}
           </div>
         )}
@@ -349,7 +341,7 @@ export default function CustomerRequestsPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="min-h-[48px] w-full rounded-xl bg-purple-700 py-3 text-sm font-bold text-white hover:bg-purple-800 disabled:opacity-60"
+          className="ui-btn ui-btn-main w-full"
         >
           {submitting ? "Submitting..." : "Submit Request"}
         </button>

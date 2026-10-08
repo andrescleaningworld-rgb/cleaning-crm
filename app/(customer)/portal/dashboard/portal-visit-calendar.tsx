@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "@/app/ui";
 
 type Visit = {
   visitDate: string;
@@ -14,18 +15,11 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-const DOT_COLOR: Record<string, string> = {
-  Morning:   "bg-yellow-500",
-  Midday:    "bg-green-500",
-  Afternoon: "bg-orange-500",
-  Evening:   "bg-purple-500",
-};
-
-const BADGE_COLOR: Record<string, string> = {
-  Morning:   "bg-yellow-100 text-yellow-800",
-  Midday:    "bg-green-100 text-green-800",
-  Afternoon: "bg-orange-100 text-orange-800",
-  Evening:   "bg-purple-100 text-purple-800",
+const DOT_CLASS: Record<string, string> = {
+  Morning:   "ui-mini-cal-dot-morning",
+  Midday:    "ui-mini-cal-dot-midday",
+  Afternoon: "ui-mini-cal-dot-afternoon",
+  Evening:   "ui-mini-cal-dot-evening",
 };
 
 function pad(n: number) { return String(n).padStart(2, "0"); }
@@ -80,103 +74,69 @@ export default function PortalVisitCalendar({ visits }: { visits: Visit[] }) {
     .slice(0, 8);
 
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm">
-      <p className="mb-4 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-        Your Visit Schedule
-      </p>
+    <section className="ui-card ui-stack">
+      <h2 className="ui-card-title">Your Visit Schedule</h2>
 
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={prevMonth}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 active:scale-95"
-        >
-          ‹
+      <div className="ui-card-row">
+        <button type="button" onClick={prevMonth} className="ui-btn ui-btn-second ui-btn-icon" aria-label="Previous month">
+          <Icon name="back" />
         </button>
-        <p className="text-sm font-bold text-slate-800">
+        <p className="ui-strong" aria-live="polite">
           {MONTH_NAMES[month]} {year}
         </p>
-        <button
-          type="button"
-          onClick={nextMonth}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 active:scale-95"
-        >
-          ›
+        <button type="button" onClick={nextMonth} className="ui-btn ui-btn-second ui-btn-icon" aria-label="Next month">
+          <Icon name="chevron" />
         </button>
       </div>
 
-      <div className="mt-3 grid grid-cols-7 gap-0.5">
+      <div className="ui-mini-cal" aria-hidden="true">
         {DOW_NAMES.map((d) => (
-          <div
-            key={d}
-            className="py-1 text-center text-[10px] font-black uppercase tracking-wide text-slate-400"
-          >
+          <div key={d} className="ui-mini-cal-dow">
             {d}
           </div>
         ))}
-      </div>
-
-      <div className="grid grid-cols-7 gap-0.5">
         {cells.map((day, idx) => {
-          if (!day) return <div key={idx} className="h-10 rounded-xl" />;
+          if (!day) return <div key={idx} className="ui-mini-cal-day" />;
 
           const ds = `${year}-${pad(month + 1)}-${pad(day)}`;
           const isToday = ds === today;
           const visit = visitsByDate.get(ds);
-          const dotColor = visit ? (DOT_COLOR[visit.timeWindow] ?? "bg-blue-500") : "";
 
           return (
             <div
               key={idx}
               title={visit ? `${visit.timeWindow}` : undefined}
-              className={[
-                "relative flex h-10 flex-col items-center justify-center rounded-xl text-xs font-bold",
-                visit ? "bg-blue-50 text-blue-700" : "text-slate-500",
-                isToday ? "ring-2 ring-blue-500 ring-offset-1" : "",
-              ].filter(Boolean).join(" ")}
+              className={["ui-mini-cal-day", visit ? "ui-mini-cal-visit" : "", isToday ? "ui-mini-cal-today" : ""].filter(Boolean).join(" ")}
             >
               {day}
-              {dotColor && (
-                <span className={`absolute bottom-1 h-1.5 w-1.5 rounded-full ${dotColor}`} />
-              )}
+              {visit ? <span className={`ui-mini-cal-dot ${DOT_CLASS[visit.timeWindow] ?? ""}`} /> : null}
             </div>
           );
         })}
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-3">
+      <div className="ui-taglist">
         {(["Morning", "Midday", "Afternoon", "Evening"] as const).map((w) => (
-          <span key={w} className="flex items-center gap-1 text-[10px] font-semibold text-slate-500">
-            <span className={`h-2 w-2 rounded-full ${DOT_COLOR[w]}`} />
+          <span key={w} className="ui-mini-cal-legend">
+            <span className={`ui-mini-cal-dot ${DOT_CLASS[w]}`} />
             {w}
           </span>
         ))}
       </div>
 
-      <div className="mt-4">
-        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-          Upcoming Visits
-        </p>
-        {upcoming.length === 0 ? (
-          <p className="text-xs text-slate-400">No upcoming visits scheduled.</p>
-        ) : (
-          <div className="space-y-2">
-            {upcoming.map((v) => (
-              <div
-                key={`${v.visitDate}-${v.timeWindow}`}
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
-              >
-                <span className="text-sm font-semibold text-slate-800">
-                  {formatDisplayDate(v.visitDate)}
-                </span>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${BADGE_COLOR[v.timeWindow] ?? "bg-blue-100 text-blue-800"}`}>
-                  {v.timeWindow}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      <h3 className="ui-card-title">Upcoming Visits</h3>
+      {upcoming.length === 0 ? (
+        <p className="ui-muted">No upcoming visits scheduled.</p>
+      ) : (
+        <ul className="ui-list-plain">
+          {upcoming.map((v) => (
+            <li key={`${v.visitDate}-${v.timeWindow}`} className="ui-card-row">
+              <span className="ui-strong">{formatDisplayDate(v.visitDate)}</span>
+              <span className="ui-tag">{v.timeWindow}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
