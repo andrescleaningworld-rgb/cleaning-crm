@@ -1497,6 +1497,50 @@ button.ui-card:hover {
   }
 }
 
+/* A stack of things inside a card. */
+.ui-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-gap);
+  margin-top: 12px;
+  min-width: 0;
+}
+
+/* Two panels: one above the other on a phone, side by side when wide. */
+.ui-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ui-gap);
+  align-items: start;
+}
+
+@media (min-width: 1100px) {
+  .ui-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* A long list kept to a fixed height with its own scroll. */
+.ui-scrollbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ui-scrollbox > * {
+  flex-shrink: 0;
+}
+
+/* Two tiles side by side inside a narrow panel. */
+.ui-stats-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .ui-nowrap {
   white-space: nowrap;
 }
