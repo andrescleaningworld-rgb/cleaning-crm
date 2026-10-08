@@ -174,7 +174,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 in progress. Branch `migration/postgres` created locally; **push blocked** (403, wrong GitHub account). No Neon dev branch, no tables yet.
+**Status:** Phase 0 in progress. Branch `migration/postgres` created and pushed. Step 2 **blocked**: production database not found in the Neon account logged in here. No Neon dev branch, no tables yet.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -183,7 +183,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 **Deadline:** not set.
 
-**Open issues:** push to origin denied for GitHub account `clubdeltruconj-rgb` (needs Andres); Neon CLI not installed and no Neon login on this machine (needs Andres); Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
+**Open issues:** Neon login `cleaningworldoperations@gmail.com` (org Cleaning World) has zero projects, so production lives in another Neon account or a Vercel-managed one (needs Andres); `.env.local` has no `DATABASE_URL` (A.1 says it points at production – it does not), so the production host for `guard.mjs` is unknown (needs Andres); Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
 **Area log:**
 
@@ -212,3 +212,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-01 | plan | – | Original plan written.
 - 2026-10-07 | plan | – | Condensed version written.
 - 2026-10-07T20:31 → 20:33 | 0/step 1 | this commit | Branch created from `main`, plan file added.
+- 2026-10-07T20:37 → 20:38 | 0/step 2 | – | Push fixed (signed in as repo owner). Step 2 not done: Neon account has no projects; waiting on Andres.
