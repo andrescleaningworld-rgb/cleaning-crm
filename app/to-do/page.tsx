@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { StatusPill, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
@@ -173,31 +174,29 @@ function getAccountName(account: Account) {
 
 // Distinct color per status so state reads at a glance without opening the
 // card — the badge previously used the same gray pill for every status.
-function statusBadgeClasses(status: string): string {
+function statusKind(status: string): StatusKind {
   switch (status) {
-    case "In Progress":
-      return "bg-amber-100 text-amber-800";
     case "Done":
-      return "bg-green-100 text-green-800";
+      return "done";
     case "Cancelled":
-      return "bg-slate-200 text-slate-600";
+      return "off";
+    case "In Progress":
     case "Open":
     default:
-      return "bg-blue-100 text-blue-800";
+      return "waiting";
   }
 }
 
-// Same reasoning as statusBadgeClasses above — a color per tier so priority
-// reads at a glance without opening the card.
-function priorityBadgeClasses(priority: ToDoPriority): string {
+// A kind per tier so priority reads at a glance without opening the card.
+function priorityKind(priority: ToDoPriority): StatusKind {
   switch (priority) {
     case "High":
-      return "bg-red-100 text-red-700";
+      return "needs-you";
     case "Low":
-      return "bg-slate-200 text-slate-600";
+      return "off";
     case "Medium":
     default:
-      return "bg-amber-100 text-amber-800";
+      return "waiting";
   }
 }
 
@@ -276,30 +275,22 @@ function SmsStatusBadge({
 
   return (
     <div className="mt-1 flex flex-wrap items-center gap-2">
-      <span
-        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-          isDelivered
-            ? "bg-green-100 text-green-700"
-            : isFailed
-              ? "bg-red-100 text-red-700"
-              : "bg-slate-100 text-slate-600"
-        }`}
-      >
-        {isDelivered ? "✓ Delivered" : isFailed ? "⚠ Failed" : "Notifying…"}
-      </span>
+      <StatusPill kind={isDelivered ? "done" : isFailed ? "needs-you" : "waiting"}>
+        {isDelivered ? "Text delivered" : isFailed ? "Text failed" : "Sending text…"}
+      </StatusPill>
 
       {showResend ? (
         <button
           type="button"
           onClick={onResend}
           disabled={resending || resendCoolingDown}
-          className="text-xs font-semibold text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline"
+          className="ui-btn ui-btn-quiet"
         >
           {resending ? "Resending..." : "Resend"}
         </button>
       ) : null}
 
-      {resendError ? <span className="text-xs text-red-600">{resendError}</span> : null}
+      {resendError ? <span className="ui-field-error">{resendError}</span> : null}
     </div>
   );
 }
@@ -476,13 +467,13 @@ function ToDoCard({
     <article
       ref={cardRef}
       id={`todo-${todo.id}`}
-      className={`flex gap-3 rounded-2xl bg-white p-5 shadow-sm transition-shadow ${
-        highlighted
-          ? "ring-2 ring-amber-400"
-          : bulkEditMode && bulkSelected
-            ? "ring-2 ring-blue-500"
-            : ""
-      }`}
+      className="ui-card"
+      style={{
+        display: "flex",
+        gap: 12,
+        // Deep-linked to-do: amber outline. Ticked for bulk edit: blue outline.
+        outline: highlighted ? "3px solid var(--ui-warn)" : bulkEditMode && bulkSelected ? "3px solid var(--ui-brand)" : undefined,
+      }}
     >
       {bulkEditMode ? (
         <input
@@ -490,48 +481,26 @@ function ToDoCard({
           checked={bulkSelected}
           onChange={() => onToggleBulkSelected(todo.id)}
           aria-label={`Select to-do: ${todo.why || todo.id}`}
-          className="no-print mt-1 h-5 w-5 shrink-0 rounded border-slate-300"
+          className="no-print shrink-0"
         />
       ) : null}
       <div className="min-w-0 flex-1">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-              {todo.taskType || "Task"}
-            </span>
-
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityBadgeClasses(todo.priority ?? DEFAULT_TO_DO_PRIORITY)}`}>
-              {todo.priority ?? DEFAULT_TO_DO_PRIORITY}
-            </span>
-
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClasses(todo.status)}`}>
-              {todo.status || "Open"}
-            </span>
-
-            {isOverdue(todo) ? (
-              <span className="rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-700">
-                Overdue
-              </span>
-            ) : null}
-
-            {recurringCount > 1 ? (
-              <span className="rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700">
-                Recurring ({recurringCount} accounts)
-              </span>
-            ) : null}
-
+            <StatusPill kind="off">{todo.taskType || "Task"}</StatusPill>
+            <StatusPill kind={priorityKind(todo.priority ?? DEFAULT_TO_DO_PRIORITY)}>{todo.priority ?? DEFAULT_TO_DO_PRIORITY} priority</StatusPill>
+            <StatusPill kind={statusKind(todo.status)}>{todo.status || "Open"}</StatusPill>
+            {isOverdue(todo) ? <StatusPill kind="needs-you">Overdue</StatusPill> : null}
+            {recurringCount > 1 ? <StatusPill kind="off">Recurring ({recurringCount} accounts)</StatusPill> : null}
             {todo.calendarSyncFailed ? (
-              <span
-                className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-700"
-                title="This to-do saved normally, but syncing it to Google Calendar failed. Check Calendar manually."
-              >
-                ⚠ Calendar sync failed
+              <span title="This to-do saved normally, but syncing it to Google Calendar failed. Check Calendar manually.">
+                <StatusPill kind="needs-you">Calendar sync failed</StatusPill>
               </span>
             ) : null}
           </div>
 
-          <h3 className="mt-3 text-lg font-bold">
+          <h3 className="ui-card-title">
             {todo.accountName || `${todo.taskType || "Reminder"} (no account)`}
           </h3>
 
@@ -539,33 +508,33 @@ function ToDoCard({
             onboardingAccountHref ? (
               <Link
                 href={onboardingAccountHref}
-                className="mt-2 inline-block rounded-lg bg-indigo-100 px-3 py-1.5 text-xs font-bold text-indigo-800 hover:bg-indigo-200"
+                className="ui-btn ui-btn-second"
               >
                 Open Onboarding Checklist →
               </Link>
             ) : (
-              <p className="mt-2 text-xs font-semibold text-slate-400">
+              <p className="ui-muted">
                 Couldn&apos;t match this to-do to an account — open it from the account&apos;s own page instead.
               </p>
             )
           ) : null}
 
           {editing ? (
-            <div className="mt-2 space-y-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+            <div className="ui-card ui-stack">
               {editError ? (
-                <p className="text-xs font-semibold text-red-700">{editError}</p>
+                <p className="ui-field-error">{editError}</p>
               ) : null}
 
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-assigned-${todo.id}`}>
+                  <label className="ui-label" htmlFor={`edit-assigned-${todo.id}`}>
                     Assigned To
                   </label>
                   <select
                     id={`edit-assigned-${todo.id}`}
                     value={editDraft.assignedTo}
                     onChange={(event) => setEditDraft((d) => ({ ...d, assignedTo: event.target.value }))}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="ui-input w-full"
                   >
                     <option value="">Select a manager...</option>
                     {managers.map((name) => (
@@ -580,14 +549,14 @@ function ToDoCard({
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-type-${todo.id}`}>
+                  <label className="ui-label" htmlFor={`edit-type-${todo.id}`}>
                     Type
                   </label>
                   <select
                     id={`edit-type-${todo.id}`}
                     value={editDraft.taskType}
                     onChange={(event) => setEditDraft((d) => ({ ...d, taskType: event.target.value }))}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="ui-input w-full"
                   >
                     {taskTypes.map((type) => (
                       <option key={type} value={type}>
@@ -598,7 +567,7 @@ function ToDoCard({
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-due-${todo.id}`}>
+                  <label className="ui-label" htmlFor={`edit-due-${todo.id}`}>
                     Due Date
                   </label>
                   <input
@@ -606,19 +575,19 @@ function ToDoCard({
                     type="date"
                     value={editDraft.dueDate}
                     onChange={(event) => setEditDraft((d) => ({ ...d, dueDate: event.target.value }))}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="ui-input w-full"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-status-${todo.id}`}>
+                  <label className="ui-label" htmlFor={`edit-status-${todo.id}`}>
                     Status
                   </label>
                   <select
                     id={`edit-status-${todo.id}`}
                     value={editDraft.status}
                     onChange={(event) => setEditDraft((d) => ({ ...d, status: event.target.value }))}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="ui-input w-full"
                   >
                     {statuses.map((status) => (
                       <option key={status} value={status}>
@@ -634,22 +603,22 @@ function ToDoCard({
                     id={`edit-sync-${todo.id}`}
                     checked={editDraft.syncToCalendar}
                     onChange={(event) => setEditDraft((d) => ({ ...d, syncToCalendar: event.target.checked }))}
-                    className="h-4 w-4 rounded border-slate-300"
+                    className=""
                   />
-                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-sync-${todo.id}`}>
+                  <label className="ui-label" htmlFor={`edit-sync-${todo.id}`}>
                     Sync to Calendar
                   </label>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-500" htmlFor={`edit-priority-${todo.id}`}>
+                  <label className="ui-label" htmlFor={`edit-priority-${todo.id}`}>
                     Priority
                   </label>
                   <select
                     id={`edit-priority-${todo.id}`}
                     value={editDraft.priority}
                     onChange={(event) => setEditDraft((d) => ({ ...d, priority: event.target.value as ToDoPriority }))}
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                    className="ui-input w-full"
                   >
                     {TO_DO_PRIORITIES.map((priority) => (
                       <option key={priority} value={priority}>
@@ -665,7 +634,7 @@ function ToDoCard({
                   type="button"
                   onClick={handleSaveEdit}
                   disabled={savingEdit}
-                  className="rounded-xl bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+                  className="ui-btn ui-btn-second"
                 >
                   {savingEdit ? "Saving..." : "Save Changes"}
                 </button>
@@ -673,7 +642,7 @@ function ToDoCard({
                   type="button"
                   onClick={handleCancelEdit}
                   disabled={savingEdit}
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60"
+                  className="ui-btn ui-btn-second"
                 >
                   Cancel
                 </button>
@@ -681,8 +650,8 @@ function ToDoCard({
             </div>
           ) : (
             <>
-              <p className="mt-1 text-sm text-slate-600">
-                Assigned to: <span className="font-semibold">{todo.assignedTo}</span>
+              <p className="ui-muted">
+                Assigned to: <span className="ui-strong">{todo.assignedTo}</span>
               </p>
 
               {smsInfo?.hasLog ? (
@@ -697,8 +666,8 @@ function ToDoCard({
               ) : null}
 
               {todo.dueDate ? (
-                <p className="text-sm text-slate-600">
-                  Due: <span className="font-semibold">{todo.dueDate}</span>
+                <p className="ui-muted">
+                  Due: <span className="ui-strong">{todo.dueDate}</span>
                 </p>
               ) : null}
             </>
@@ -710,7 +679,7 @@ function ToDoCard({
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50"
+              className="ui-btn ui-btn-second"
             >
               Edit
             </button>
@@ -721,7 +690,7 @@ function ToDoCard({
               type="button"
               onClick={() => handleStatusChange("In Progress")}
               disabled={savingStatus}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60"
+              className="ui-btn ui-btn-second"
             >
               In Progress
             </button>
@@ -738,7 +707,7 @@ function ToDoCard({
                 }
               }}
               disabled={savingStatus}
-              className="rounded-xl bg-green-700 px-3 py-2 text-xs font-semibold text-white hover:bg-green-600 disabled:opacity-60"
+              className="ui-btn ui-btn-second"
             >
               Done
             </button>
@@ -746,13 +715,13 @@ function ToDoCard({
         </div>
       </div>
 
-      <div className="mt-4 space-y-3 text-sm text-slate-700">
+      <div className="mt-4 space-y-3 text-slate-700">
         <p>
-          <span className="font-semibold">Why:</span> {todo.why}
+          <span className="ui-strong">Why:</span> {todo.why}
         </p>
 
         <div>
-          <label className="text-xs font-semibold text-slate-500" htmlFor={`notes-${todo.id}`}>
+          <label className="ui-label" htmlFor={`notes-${todo.id}`}>
             Latest update
           </label>
           <div className="mt-1 flex gap-2">
@@ -761,13 +730,13 @@ function ToDoCard({
               value={notesDraft}
               onChange={(event) => setNotesDraft(event.target.value)}
               placeholder="e.g. Left message, no answer"
-              className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input flex-1"
             />
             <button
               type="button"
               onClick={() => handleStatusChange(todo.status)}
               disabled={savingStatus || notesDraft === todo.notes}
-              className="no-print shrink-0 rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40"
+              className="ui-btn ui-btn-second no-print shrink-0"
             >
               {savingStatus ? "Saving..." : "Save"}
             </button>
@@ -779,14 +748,14 @@ function ToDoCard({
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
-          className="no-print text-xs font-semibold text-blue-700 hover:text-blue-900"
+          className="ui-btn ui-btn-quiet no-print"
         >
           {expanded ? "▲ Hide details" : "▼ Details"}
         </button>
 
         {expanded ? (
           <div className="mt-3 space-y-2">
-            <label className="text-xs font-semibold text-slate-500" htmlFor={`outcome-${todo.id}`}>
+            <label className="ui-label" htmlFor={`outcome-${todo.id}`}>
               Outcome / findings
             </label>
             <textarea
@@ -795,23 +764,23 @@ function ToDoCard({
               onChange={(event) => setOutcomeDraft(event.target.value)}
               rows={3}
               placeholder="What did the visit find? What was done?"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input w-full"
             />
             <button
               type="button"
               onClick={handleSaveOutcome}
               disabled={savingOutcome || outcomeDraft === (todo.outcome ?? "")}
-              className="no-print rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40"
+              className="ui-btn ui-btn-second no-print"
             >
               {savingOutcome ? "Saving..." : "Save outcome"}
             </button>
 
-            <p className="pt-1 text-xs text-slate-500">
+            <p className="ui-muted">
               Created: {todo.createdDate || "N/A"} &middot; ID: {todo.id || "N/A"}
             </p>
           </div>
         ) : (
-          <p className="mt-2 text-xs text-slate-500">ID: {todo.id || "N/A"}</p>
+          <p className="ui-muted">ID: {todo.id || "N/A"}</p>
         )}
       </div>
       </div>
@@ -1410,7 +1379,7 @@ export default function ToDoPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 p-4 text-slate-900 md:p-8">
+    <main className="ui-screen">
       <style jsx global>{`
         .todo-print-view {
           display: none;
@@ -1455,16 +1424,23 @@ export default function ToDoPage() {
         }
       `}</style>
 
-      <div className="todo-page-content mx-auto max-w-7xl space-y-6">
+      <div className="todo-page-content ui-screen-body">
+        <header className="ui-screen-header">
+          <div className="ui-screen-titles">
+            <h1 className="ui-screen-title">To-Do</h1>
+            <p className="ui-screen-subtitle">Tasks for managers: visits, follow-ups, reminders.</p>
+          </div>
+        </header>
+
         {quotaWarning !== null && !quotaBannerDismissed ? (
-          <div className="no-print flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          <div className="ui-card ui-stack no-print">
             <span>
               SMS quota low ({quotaWarning} left) — refill at Textbelt to keep notifications working.
             </span>
             <button
               type="button"
               onClick={dismissQuotaBanner}
-              className="shrink-0 text-xs font-semibold text-amber-700 hover:underline"
+              className="ui-btn ui-btn-quiet shrink-0"
             >
               Dismiss
             </button>
@@ -1476,7 +1452,7 @@ export default function ToDoPage() {
             href="https://calendar.google.com/calendar/r?cid=cleaningworldoperations%40gmail.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            className="ui-btn ui-btn-second"
           >
             Open Google Calendar
           </a>
@@ -1484,9 +1460,8 @@ export default function ToDoPage() {
           <button
             type="button"
             onClick={toggleBulkEditMode}
-            className={`w-full rounded-xl px-5 py-3 text-sm font-semibold text-white md:w-auto ${
-              bulkEditMode ? "bg-amber-600 hover:bg-amber-700" : "bg-indigo-700 hover:bg-indigo-800"
-            }`}
+            className="ui-btn ui-btn-second"
+            aria-pressed={bulkEditMode}
           >
             {bulkEditMode ? "Cancel Selection" : "Bulk Edit To-Dos"}
           </button>
@@ -1494,21 +1469,21 @@ export default function ToDoPage() {
           <button
             type="button"
             onClick={openPrintModal}
-            className="w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-700 md:w-auto"
+            className="ui-btn ui-btn-second w-full md:w-auto"
           >
             Print Assigned Tasks
           </button>
         </div>
 
         {bulkEditSuccess ? (
-          <div className="no-print rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+          <div className="ui-savestatus ui-savestatus-saved no-print">
             {bulkEditSuccess}
           </div>
         ) : null}
 
         {bulkEditMode ? (
-          <div className="no-print flex flex-col gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-bold text-indigo-900">
+          <div className="ui-card ui-stack no-print">
+            <p className="ui-muted">
               {selectedBulkEditIds.size} to-do{selectedBulkEditIds.size === 1 ? "" : "s"} selected.
               Check the boxes on the to-dos below (filter first to narrow them down), then apply a
               shared update to all of them at once.
@@ -1517,7 +1492,7 @@ export default function ToDoPage() {
               type="button"
               onClick={() => setShowBulkEditForm(true)}
               disabled={selectedBulkEditIds.size === 0}
-              className="shrink-0 rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="ui-btn ui-btn-second shrink-0"
             >
               Bulk Edit Selected ({selectedBulkEditIds.size})
             </button>
@@ -1525,11 +1500,11 @@ export default function ToDoPage() {
         ) : null}
 
         {showBulkEditForm ? (
-          <div className="no-print rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black text-slate-950">
+          <div className="ui-card no-print">
+            <h2 className="ui-card-title">
               Bulk Edit {selectedBulkEditIds.size} To-Do{selectedBulkEditIds.size === 1 ? "" : "s"}
             </h2>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
+            <p className="ui-muted">
               Only fields you fill in below are applied — leave a field blank (or
               &quot;Leave unchanged&quot;) to keep each to-do&apos;s existing value.
               Calendar events sync automatically per to-do if a change affects eligibility
@@ -1537,21 +1512,21 @@ export default function ToDoPage() {
             </p>
 
             {bulkEditError ? (
-              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+              <div className="ui-field-error">
                 {bulkEditError}
               </div>
             ) : null}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-assigned-to">
+                <label className="ui-label" htmlFor="bulk-edit-assigned-to">
                   Assigned To
                 </label>
                 <select
                   id="bulk-edit-assigned-to"
                   value={bulkEditForm.assignedTo}
                   onChange={(e) => setBulkEditForm((f) => ({ ...f, assignedTo: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="ui-input w-full"
                 >
                   <option value="">Leave unchanged</option>
                   {managers.map((name) => (
@@ -1563,14 +1538,14 @@ export default function ToDoPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-type">
+                <label className="ui-label" htmlFor="bulk-edit-type">
                   Type
                 </label>
                 <select
                   id="bulk-edit-type"
                   value={bulkEditForm.taskType}
                   onChange={(e) => setBulkEditForm((f) => ({ ...f, taskType: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="ui-input w-full"
                 >
                   <option value="">Leave unchanged</option>
                   {taskTypes.map((type) => (
@@ -1582,7 +1557,7 @@ export default function ToDoPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-due-date">
+                <label className="ui-label" htmlFor="bulk-edit-due-date">
                   Due Date
                 </label>
                 <input
@@ -1590,19 +1565,19 @@ export default function ToDoPage() {
                   type="date"
                   value={bulkEditForm.dueDate}
                   onChange={(e) => setBulkEditForm((f) => ({ ...f, dueDate: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="ui-input w-full"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-status">
+                <label className="ui-label" htmlFor="bulk-edit-status">
                   Status
                 </label>
                 <select
                   id="bulk-edit-status"
                   value={bulkEditForm.status}
                   onChange={(e) => setBulkEditForm((f) => ({ ...f, status: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="ui-input w-full"
                 >
                   <option value="">Leave unchanged</option>
                   {statuses.map((status) => (
@@ -1614,14 +1589,14 @@ export default function ToDoPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-sync">
+                <label className="ui-label" htmlFor="bulk-edit-sync">
                   Sync to Calendar
                 </label>
                 <select
                   id="bulk-edit-sync"
                   value={bulkEditForm.syncToCalendar}
                   onChange={(e) => setBulkEditForm((f) => ({ ...f, syncToCalendar: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="ui-input w-full"
                 >
                   <option value="">Leave unchanged</option>
                   <option value="true">Sync to Calendar</option>
@@ -1630,14 +1605,14 @@ export default function ToDoPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-edit-priority">
+                <label className="ui-label" htmlFor="bulk-edit-priority">
                   Priority
                 </label>
                 <select
                   id="bulk-edit-priority"
                   value={bulkEditForm.priority}
                   onChange={(e) => setBulkEditForm((f) => ({ ...f, priority: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="ui-input w-full"
                 >
                   <option value="">Leave unchanged</option>
                   {TO_DO_PRIORITIES.map((priority) => (
@@ -1654,7 +1629,7 @@ export default function ToDoPage() {
                 type="button"
                 onClick={submitBulkEdit}
                 disabled={bulkEditSaving}
-                className="rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="ui-btn ui-btn-second"
               >
                 {bulkEditSaving ? "Applying..." : `Apply to ${selectedBulkEditIds.size} To-Do${selectedBulkEditIds.size === 1 ? "" : "s"}`}
               </button>
@@ -1662,7 +1637,7 @@ export default function ToDoPage() {
                 type="button"
                 onClick={() => setShowBulkEditForm(false)}
                 disabled={bulkEditSaving}
-                className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
+                className="ui-btn ui-btn-second"
               >
                 Cancel
               </button>
@@ -1671,31 +1646,31 @@ export default function ToDoPage() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Open</p>
-            <p className="mt-2 text-3xl font-bold">{openCount}</p>
+          <div className="ui-card">
+            <p className="ui-muted">Open</p>
+            <p className="ui-stat-value">{openCount}</p>
           </div>
 
-          <div className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Overdue</p>
-            <p className="mt-2 text-3xl font-bold">{overdueCount}</p>
+          <div className="ui-card">
+            <p className="ui-muted">Overdue</p>
+            <p className="ui-stat-value">{overdueCount}</p>
           </div>
 
-          <div className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Done</p>
-            <p className="mt-2 text-3xl font-bold">{doneCount}</p>
+          <div className="ui-card">
+            <p className="ui-muted">Done</p>
+            <p className="ui-stat-value">{doneCount}</p>
           </div>
         </section>
 
-        <section className="no-print rounded-2xl bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold">New To-Do</h2>
+        <section className="ui-card no-print">
+          <h2 className="ui-card-title">New To-Do</h2>
 
           <form
             onSubmit={handleSubmit}
             className="mt-4 grid gap-4 md:grid-cols-2"
           >
             <div>
-              <label className="text-sm font-semibold">Due Date</label>
+              <label className="ui-label">Due Date</label>
               <input
                 type="date"
                 value={form.dueDate}
@@ -1705,12 +1680,12 @@ export default function ToDoPage() {
                     dueDate: event.target.value,
                   }))
                 }
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="ui-input w-full"
               />
             </div>
 
             <div>
-              <label className="text-sm font-semibold">Assigned To</label>
+              <label className="ui-label">Assigned To</label>
               <select
                 value={form.assignedTo}
                 onChange={(event) =>
@@ -1720,7 +1695,7 @@ export default function ToDoPage() {
                   }))
                 }
                 disabled={loadingManagers}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
+                className="ui-input w-full"
               >
                 <option value="">
                   {loadingManagers ? "Loading managers..." : "Select manager"}
@@ -1734,7 +1709,7 @@ export default function ToDoPage() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold">
+              <label className="ui-label">
                 {form.taskType === "Visit"
                   ? "Accounts"
                   : form.taskType === ACCOUNT_OPTIONAL_TASK_TYPE
@@ -1761,7 +1736,7 @@ export default function ToDoPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold">Task Type</label>
+              <label className="ui-label">Task Type</label>
               <select
                 value={form.taskType}
                 onChange={(event) => {
@@ -1776,7 +1751,7 @@ export default function ToDoPage() {
                     setSelectedAccounts((current) => current.slice(0, 1));
                   }
                 }}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="ui-input w-full"
               >
                 {taskTypes.map((taskType) => (
                   <option key={taskType}>{taskType}</option>
@@ -1785,7 +1760,7 @@ export default function ToDoPage() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold">Priority</label>
+              <label className="ui-label">Priority</label>
               <select
                 value={form.priority}
                 onChange={(event) =>
@@ -1794,7 +1769,7 @@ export default function ToDoPage() {
                     priority: event.target.value as ToDoPriority,
                   }))
                 }
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="ui-input w-full"
               >
                 {TO_DO_PRIORITIES.map((priority) => (
                   <option key={priority} value={priority}>
@@ -1805,7 +1780,7 @@ export default function ToDoPage() {
             </div>
 
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold">Why</label>
+              <label className="ui-label">Why</label>
               <input
                 value={form.why}
                 onChange={(event) =>
@@ -1815,12 +1790,12 @@ export default function ToDoPage() {
                   }))
                 }
                 placeholder="Example: Customer said restrooms need attention"
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="ui-input w-full"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="text-sm font-semibold">Notes</label>
+              <label className="ui-label">Notes</label>
               <textarea
                 value={form.notes}
                 onChange={(event) =>
@@ -1831,7 +1806,7 @@ export default function ToDoPage() {
                 }
                 placeholder="Extra instructions"
                 rows={3}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="ui-input w-full"
               />
             </div>
 
@@ -1846,9 +1821,9 @@ export default function ToDoPage() {
                     syncToCalendar: event.target.checked,
                   }))
                 }
-                className="h-4 w-4 rounded border-slate-300"
+                className=""
               />
-              <label htmlFor="sync-to-calendar" className="text-sm font-semibold">
+              <label htmlFor="sync-to-calendar" className="ui-label">
                 Sync to Calendar
               </label>
             </div>
@@ -1857,7 +1832,7 @@ export default function ToDoPage() {
               <button
                 type="submit"
                 disabled={saving}
-                className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-60"
+                className="ui-btn ui-btn-main"
               >
                 {saving ? "Saving..." : "Add To-Do"}
               </button>
@@ -1865,19 +1840,19 @@ export default function ToDoPage() {
           </form>
         </section>
 
-        <section className="no-print rounded-2xl bg-white p-5 shadow-sm">
+        <section className="ui-card no-print">
           <div className="grid gap-3 md:grid-cols-6">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search..."
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input"
             />
 
             <select
               value={assignedFilter}
               onChange={(event) => setAssignedFilter(event.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input"
             >
               {assignedOptions.map((name) => (
                 <option key={name}>{name}</option>
@@ -1887,7 +1862,7 @@ export default function ToDoPage() {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input"
             >
               <option>Open</option>
               <option>All</option>
@@ -1899,7 +1874,7 @@ export default function ToDoPage() {
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input"
             >
               <option>All</option>
               {taskTypes.map((taskType) => (
@@ -1910,7 +1885,7 @@ export default function ToDoPage() {
             <select
               value={priorityFilter}
               onChange={(event) => setPriorityFilter(event.target.value)}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input"
             >
               <option>All</option>
               {TO_DO_PRIORITIES.map((priority) => (
@@ -1921,7 +1896,7 @@ export default function ToDoPage() {
             <select
               value={sortOrder}
               onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest")}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input"
             >
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
@@ -1932,10 +1907,10 @@ export default function ToDoPage() {
         <section className="space-y-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-xl font-bold">
+              <h2 className="ui-card-title">
                 Visible To-Dos ({filteredTodos.length})
               </h2>
-              <p className="text-sm text-slate-500">
+              <p className="ui-muted">
                 Printed: {new Date().toLocaleDateString()}
               </p>
             </div>
@@ -1943,18 +1918,18 @@ export default function ToDoPage() {
             <button
               type="button"
               onClick={openPrintModal}
-              className="no-print rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              className="ui-btn ui-btn-second no-print"
             >
               Print This List
             </button>
           </div>
 
           {loading ? (
-            <div className="rounded-2xl bg-white p-6 text-sm text-slate-600 shadow-sm">
+            <div className="ui-card">
               Loading...
             </div>
           ) : filteredTodos.length === 0 ? (
-            <div className="rounded-2xl bg-white p-6 text-sm text-slate-600 shadow-sm">
+            <div className="ui-card">
               No to-dos found.
             </div>
           ) : (
@@ -1995,31 +1970,32 @@ export default function ToDoPage() {
           <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+                <p className="ui-strong">
                   Print To-Dos
                 </p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">Choose a layout</h2>
+                <h2 className="ui-card-title">Choose a layout</h2>
               </div>
 
               <button
                 type="button"
                 onClick={closePrintModal}
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
+                className="ui-btn ui-btn-quiet ui-btn-icon"
+                aria-label="Close"
               >
-                X
+                ×
               </button>
             </div>
 
-            <p className="mt-4 text-sm font-semibold text-slate-500">
+            <p className="ui-muted">
               Prints whatever&apos;s currently filtered ({filteredTodos.length} visible).
             </p>
 
-            <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-slate-600">
+            <label className="ui-check">
               <input
                 type="checkbox"
                 checked={includeCompletedInPrint}
                 onChange={(event) => setIncludeCompletedInPrint(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
+                className=""
               />
               Include completed tasks
             </label>
@@ -2028,10 +2004,11 @@ export default function ToDoPage() {
               <button
                 type="button"
                 onClick={() => choosePrintLayout("taskSheet")}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm hover:bg-slate-50"
+                className="ui-btn ui-btn-second"
+                style={{ flexDirection: "column", alignItems: "flex-start", textAlign: "left", height: "auto", whiteSpace: "normal" }}
               >
-                <p className="text-sm font-black text-slate-950">Task Sheet</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
+                <p className="ui-strong">Task Sheet</p>
+                <p className="ui-muted">
                   Flat checklist sorted by due date, with a checkbox next to each task. Hand it
                   out or check off by hand.
                 </p>
@@ -2040,10 +2017,11 @@ export default function ToDoPage() {
               <button
                 type="button"
                 onClick={() => choosePrintLayout("byManager")}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm hover:bg-slate-50"
+                className="ui-btn ui-btn-second"
+                style={{ flexDirection: "column", alignItems: "flex-start", textAlign: "left", height: "auto", whiteSpace: "normal" }}
               >
-                <p className="text-sm font-black text-slate-950">By Manager</p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
+                <p className="ui-strong">By Manager</p>
+                <p className="ui-muted">
                   Grouped by assignee with a task count per manager — a review view, no
                   checkboxes.
                 </p>

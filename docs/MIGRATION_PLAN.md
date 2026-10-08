@@ -262,6 +262,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 9, step 2: scripts/migrate/import-todos.mjs. Dry run, run and re-run clean: 127 to-dos (124 linked to an account), 44 text-log lines. 3 open questions: 1 account name that matches no account, 2 assignee names that are not in the Managers list.
 - Area 9, step 3: scripts/migrate/verify-todos.mjs → docs/migration-reports/todos-verify.md. Both tables match Sheets, every row field by field (127 × 17, 44 × 8).
 - Area 9, step 4: lib/pg/todos.ts + lib/data/todos.ts; 4 route files switched. Parity 7/7 reads identical (127 to-dos, the text log, the quota); check-todos-writes.mts 29/29; /api/to-do (55,748 bytes) and /api/to-do/sms-quota byte-identical over HTTP on both sources. Over HTTP on Postgres with OUTBOUND_DRY_RUN=1: add one, add a batch, status, edit, outcome, unknown id; 2 texts, 2 push messages and 3 Calendar changes were logged, none sent; test rows, text-log lines and audit lines removed. Not called: the text status re-check (it asks the text provider).
+- Area 9, step 5: To-Do page restyled with the UI kit (title bar, kit buttons / inputs / cards / pills; same structure and handlers), VisitCompletionModal and the shared AccountMultiSelect resized. Headless click-through 30 of 30 at 375 and 1280px (details, edit mode, filters, bulk edit, new-to-do form, print chooser); nothing saved; the per-card text-status requests were answered locally (1,016 of them on one page load).
 
 **Next step:** Area 9, step 5: redesign app/to-do/page.tsx, VisitCompletionModal and the print page.
 
@@ -340,6 +341,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8: closing a complaint on Postgres sends nothing | no sign that Apps Script emails on close | tell me if it does
 - Area 8: the Save changes bug on the complaint page (it creates a second complaint and re-sends the notifications instead of editing) is NOT fixed; the Postgres side behaves exactly the same | it changes behavior and needs your OK | approve and editing becomes a real edit on both sources
 - Print: the complaint page, the Visits list and Account Health now print their content | the app hides everything on paper unless a page opts in, and these pages never did, so Print gave a blank page | remove the ui-print-view wrapper on a page to get the blank page back
+- Area 9: the To-Do page was restyled in place, not rearranged into sheets | it is the page managers use most and has the most intricate modes (bulk edit, visit completion, print layouts, deep-link highlight); changing where things are without Andres seeing it first is the riskier choice | proposal 3 in the Area 9 report moves the form and filters into sheets
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -465,3 +467,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 2 | this commit | To-Dos import; 3 questions.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 3 | this commit | To-Dos verify: all match.
 - 2026-10-08T10:33 | 2026-10-08T10:33 | 9/step 4 | this commit | To-Dos data layer behind DATA_SOURCE_TODOS. tsc ok, build ok, lint 16.
+- 2026-10-08T10:43 | 2026-10-08T10:43 | 9/step 5 | this commit | To-Do page restyled. tsc ok, build ok, lint 16.

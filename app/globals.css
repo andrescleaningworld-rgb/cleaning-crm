@@ -1527,6 +1527,15 @@ button.ui-card:hover {
   }
 }
 
+/* To-Do page: tick boxes big enough to hit, and the status buttons in a row that wraps. */
+.todo-page-content input[type="checkbox"],
+.todo-visit-modal input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  accent-color: var(--ui-brand);
+}
+
 /* Printing. The app hides everything on paper (body * { visibility: hidden })
    and each page opts its printable part back in. Wrap that part in
    .ui-print-view; buttons inside it are left out. */
