@@ -3839,6 +3839,18 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
   const complaintRows = ((complaintsRes.data.values ?? []) as string[][]).slice(1);
   const subRows = ((subsRes.data.values ?? []) as string[][]).slice(1);
 
+  return buildSubcontractorPerformanceMap(accountRows, visitRows, complaintRows, subRows);
+}
+
+// The scoring itself, apart from where the rows come from (migration: the
+// Postgres version in lib/pg/performance.ts hands it the same four row
+// lists, built from the tables, so there is one copy of the rules).
+export function buildSubcontractorPerformanceMap(
+  accountRows: string[][],
+  visitRows: string[][],
+  complaintRows: string[][],
+  subRows: string[][]
+): Map<string, SubcontractorPerformance> {
   const result = new Map<string, SubcontractorPerformance>();
   const { allBySubKey, activeCountBySubKey } = buildAccountAssignmentsBySubKey(accountRows, subRows);
 

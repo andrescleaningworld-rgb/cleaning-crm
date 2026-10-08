@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
-import {
-  getSubcontractorPerformanceMap,
-  buildSubcontractorPerformanceKey,
-} from "@/lib/googleSheets";
+import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
 import {
   getAllAccountsForSubEnrichment,
 } from "@/lib/data/accounts";
@@ -13,6 +10,7 @@ import {
   getAllSubcontractorsRaw,
   addSubcontractor,
   getSubcontractorsAppsScriptShape,
+  getSubcontractorPerformanceMap,
   subsOnPostgres,
 } from "@/lib/data/subs";
 import {

@@ -5,6 +5,7 @@
 import { isPostgres } from "@/lib/dataSource";
 import * as sheets from "@/lib/googleSheets";
 import * as pg from "@/lib/pg/subs";
+import * as pgPerformance from "@/lib/pg/performance";
 
 export type { RawSubcontractorRow, SubcontractorActivityLogEntry } from "@/lib/googleSheets";
 
@@ -19,6 +20,14 @@ export const updateSubcontractor: typeof sheets.updateSubcontractor = (...args) 
 // Postgres only when BOTH switches are on.
 export const getSubcontractorActivityLog: typeof sheets.getSubcontractorActivityLog = () =>
   isPostgres("SUBS") && isPostgres("SUB_PORTAL") ? pg.getSubcontractorActivityLog() : sheets.getSubcontractorActivityLog();
+
+// The performance score is worked out from four lists at once: accounts,
+// visits, complaints and subcontractors. It reads Postgres only when all
+// four of those switches are on; until then it reads the four tabs, as today.
+export const getSubcontractorPerformanceMap: typeof sheets.getSubcontractorPerformanceMap = () =>
+  isPostgres("SUBS") && isPostgres("ACCOUNTS") && isPostgres("VISITS") && isPostgres("COMPLAINTS")
+    ? pgPerformance.getSubcontractorPerformanceMap()
+    : sheets.getSubcontractorPerformanceMap();
 
 /** True when adding a subcontractor is handled here instead of by Apps Script. */
 export const subsOnPostgres = () => isPostgres("SUBS");
