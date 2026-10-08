@@ -254,8 +254,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8, step 1: db/migrations/010_complaints.sql applied to dev (complaints). One column the sheet does not have: resolution_note, so the text typed when closing a complaint is kept.
 - Area 8, step 2: scripts/migrate/import-complaints.mjs. Dry run, run and re-run clean: 22 complaints, all 22 linked to an account, 0 open questions.
 - Area 8, step 3: scripts/migrate/verify-complaints.mjs → docs/migration-reports/complaints-verify.md. The table matches Sheets, every row field by field (22 × 17).
+- Area 8, step 4: lib/pg/complaints.ts + lib/data/complaints.ts; app/api/complaints wired (list, add, close, resend on Postgres when DATA_SOURCE_COMPLAINTS=postgres). The Apps Script complaint list rebuilt from Postgres is byte-identical to the live answer (22 rows; check-complaints-apps-script.mts); the list route on Postgres is byte-identical to what the route returns for it (12,784 bytes). check-complaints-writes.mts 18/18. Over HTTP on Postgres with OUTBOUND_DRY_RUN=1: add (2 emails logged, none sent), close, resend, unknown complaint; test rows and audit lines removed.
 
-**Next step:** Area 8, step 4: lib/pg/complaints.ts + lib/data/complaints.ts (list in the Apps Script shape, add, close, resend), wire app/api/complaints, parity, write checks, HTTP checks; then the sub performance score from Postgres.
+**Next step:** Area 8, step 5: redesign app/complaints (list, complaint page, new complaint). Never click Save changes on a complaint page in tests.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -327,6 +328,10 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 7: on Postgres, Add visit saves the visit and sends nothing | the Apps Script addVisit source is not in the repo and nothing in the app or the sheet suggests it emails or texts; the 201 rows it wrote were used to copy its ID and date formats | tell me if adding a visit sends a message today and it gets added
 - Area 7: the customer portal's visit read (getVisitsByAccountName) is copied as it is, wrong columns included: it compares the customer's name with the formula Account ID, so it finds nothing today | parity first; fixing it changes what customers see | approve and it reads the right columns on both sources
 - Area 7: two visits added in the same second get different IDs on Postgres (the second gets -2) | Apps Script would give both the same ID and the Visit page could only ever open the first | none needed
+- Area 8: closing a complaint on Postgres sets Status and Updated At and keeps the resolution text in a new column (resolution_note); the list still shows resolution as blank, as today | the 15 rows Apps Script has closed show it changes only those two cells; the resolution text people are made to type is stored nowhere in the sheet | show the resolution on the screens (one line) once you approve
+- Area 8: Resend subcontractor email on Postgres is sent by the app itself: the same New Complaint email it sends on creation, to the subcontractor named on the complaint's account | Apps Script looks the complaint up in the sheet and cannot see complaints that live in Postgres; its own wording is not in the repo | paste the Apps Script source and the wording gets copied
+- Area 8: closing a complaint on Postgres sends nothing | no sign that Apps Script emails on close | tell me if it does
+- Area 8: the Save changes bug on the complaint page (it creates a second complaint and re-sends the notifications instead of editing) is NOT fixed; the Postgres side behaves exactly the same | it changes behavior and needs your OK | approve and editing becomes a real edit on both sources
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -444,3 +449,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 1 | this commit | Complaints schema.
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 2 | this commit | Complaints import.
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 3 | this commit | Complaints verify: all match.
+- 2026-10-08T10:11 | 2026-10-08T10:11 | 8/step 4 | this commit | Complaints data layer behind DATA_SOURCE_COMPLAINTS. tsc ok, build ok, lint at baseline.

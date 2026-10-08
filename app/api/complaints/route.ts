@@ -4,7 +4,13 @@ import {
   findSubcontractorPhoneByName,
 } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
-import { appendComplaint } from "@/lib/googleSheets";
+import {
+  appendComplaint,
+  closeComplaint,
+  complaintsOnPostgres,
+  getComplaintForResend,
+  getComplaintsAppsScriptShape,
+} from "@/lib/data/complaints";
 import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
@@ -89,8 +95,16 @@ function getText(row: ComplaintPayload, key: string): string {
   return clean(row[key]);
 }
 
+const LIST_HEADERS = { "Cache-Control": "public, max-age=20, stale-while-revalidate=40" };
+
 export async function GET() {
   try {
+    // DATA_SOURCE_COMPLAINTS=postgres: the same list, in the same shape,
+    // without Apps Script.
+    if (complaintsOnPostgres()) {
+      return NextResponse.json({ success: true, complaints: await getComplaintsAppsScriptShape() }, { headers: LIST_HEADERS });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -168,11 +182,7 @@ export async function GET() {
             ? data.data
             : [],
       },
-      {
-        headers: {
-          "Cache-Control": "public, max-age=20, stale-while-revalidate=40",
-        },
-      }
+      { headers: LIST_HEADERS }
     );
   } catch (error) {
     console.error(
@@ -194,7 +204,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!SCRIPT_URL) {
+    const onPostgres = complaintsOnPostgres();
+    if (!onPostgres && !SCRIPT_URL) {
       return NextResponse.json(
         {
           success: false,
@@ -249,10 +260,48 @@ export async function POST(request: NextRequest) {
         },
       };
 
+      // DATA_SOURCE_COMPLAINTS=postgres: closed directly, same answer shape.
+      if (onPostgres) {
+        let closed: { rowNumber: number; status: string };
+        try {
+          closed = await closeComplaint({
+            rowNumber: payload.complaint.rowNumber,
+            id: payload.complaint.id,
+            status: payload.complaint.status,
+            resolution: payload.complaint.resolution,
+          });
+        } catch (error) {
+          return NextResponse.json(
+            { success: false, error: error instanceof Error ? error.message : "Failed to close complaint.", sentPayload: payload },
+            { status: 500 }
+          );
+        }
+
+        const actor = await getAdminIdentity(request);
+        if (actor?.accountId) {
+          await logActivity({
+            actorAccountId: actor.accountId,
+            actorRole: actor.role ?? "manager",
+            actorName: actor.name || "",
+            action: "update",
+            entityType: "complaint",
+            entityId: String(closed.rowNumber),
+          });
+        }
+
+        return NextResponse.json({
+          success: true,
+          rowNumber: closed.rowNumber,
+          status: closed.status,
+          message: "Complaint closed successfully.",
+          scriptResponse: { success: true, rowNumber: closed.rowNumber, status: closed.status },
+        });
+      }
+
       let response: Response;
       try {
         response = await fetchAppsScript(
-          SCRIPT_URL,
+          SCRIPT_URL!,
           {
             method: "POST",
             headers: {
@@ -356,10 +405,38 @@ export async function POST(request: NextRequest) {
         },
       };
 
+      // DATA_SOURCE_COMPLAINTS=postgres: Apps Script cannot see complaints
+      // that live in Postgres, so the app sends the email itself: the same
+      // "New Complaint" email it sends when a complaint is created, to the
+      // subcontractor named on the complaint's account.
+      if (onPostgres) {
+        const found = await getComplaintForResend(payload.complaint.rowNumber, payload.complaint.id);
+        if (!found) {
+          return NextResponse.json({ success: false, error: "Complaint not found.", sentPayload: payload }, { status: 500 });
+        }
+        const notSent = (reason: string) =>
+          NextResponse.json({ success: true, notification: { sent: false, reason }, message: "Resend attempted." });
+        if (!found.subcontractorName) return notSent("No subcontractor is set on this complaint's account.");
+        const email = await findSubcontractorEmailByName(found.subcontractorName);
+        if (!email) return notSent(`No email on file for subcontractor "${found.subcontractorName}".`);
+        const sent = await sendSubcontractorNotification(email, `New Complaint - ${found.accountName || "Account"}`, [
+          `Account Name: ${found.accountName || "-"}`,
+          `Complaint Date: ${found.complaintDate || "-"}`,
+          `Priority: ${found.priority || "-"}`,
+          `Validity: ${found.complaintValidity || "-"}`,
+          `Description: ${found.issue || found.accountName || "-"}`,
+          `Follow-Up Date: ${found.lastFollowUpDate || "-"}`,
+          `Cleaning World Contact: ${found.assignedTo || "Cleaning World Office"}`,
+        ]);
+        return sent
+          ? NextResponse.json({ success: true, notification: { sent: true }, message: "Resend attempted." })
+          : notSent("The email could not be sent.");
+      }
+
       let response: Response;
       try {
         response = await fetchAppsScript(
-          SCRIPT_URL,
+          SCRIPT_URL!,
           {
             method: "POST",
             headers: {
