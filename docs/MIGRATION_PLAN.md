@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b and 5 done; reports in `docs/migration-reports/`. Area 6 (Scheduling) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 4.8 h used of 141 h estimated; roughly 7–20 h of Claude work left.
+**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b, 5 and 6 done; reports in `docs/migration-reports/`. Area 7 (Visits) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 5.6 h used of 163 h estimated; roughly 6–18 h of Claude work left.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -242,8 +242,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6, step 3: scripts/migrate/verify-scheduling.mjs → docs/migration-reports/scheduling-verify.md. All 3 tables match Sheets, every row field by field (298 × 17, 0, 1 × 8).
 - Area 6, step 4: lib/pg/scheduling.ts + lib/data/scheduling.ts; 9 files switched. Parity 7/7 reads identical (298 schedules); check-scheduling-writes.mts 25/25 (add, edit, pattern change, supersede, exceptions, sub visits); 3 admin routes byte-identical over HTTP on both sources. Not compared over HTTP: the sub-portal and customer-portal schedule routes (they need a portal login; same functions underneath).
 - Area 6, step 5: Sub Schedules redesigned: list page (cards / 9-column table, chips for the three views, main button per view, confirm sheet before removing an exception), Add / Edit / Exception forms as sheets, Full Calendar (filter sheets, month grid on wide screens and a day list on phones, week, agenda), and the shared AutocompleteField restyled for every screen that uses it. Headless click-through 58 of 58 at 375 and 1280px; nothing saved.
+- Area 6 checkpoint report: docs/migration-reports/checkpoint-6-scheduling-2026-10-08.md.
 
-**Next step:** Area 6, step 5: redesign app/sub-schedules (list, schedule form, exception form, full calendar).
+**Next step:** Area 7 (Visits), Step 0: discovery (Visits tab and anything else the visits screens read; app/visits/page.tsx and app/visits/[id]/page.tsx are protected files with standing approval).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -336,7 +337,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 4a Accounts core | done | 34 | 1.6 | 2026-10-07 | 2026-10-08 | 25 questions open (Leo number missing, 9 managers, 3 subs); Account Updates, transfer proposals and the packet stay on Apps Script; transfer builder restyled |
 | 4b Accounts secondary | done | 20 | 0.5 | 2026-10-08 | 2026-10-08 | No new tables; 8 screens redesigned; Keys and Account Health bugs reported, not fixed; Google coverage map not testable locally |
 | 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
-| 6 Scheduling | in progress | 20 |  | 2026-10-08 |  |  |
+| 6 Scheduling | done | 20 | 0.8 | 2026-10-08 | 2026-10-08 | 298 schedules; 27 carry one email no sub has; sub portal and customer portal schedule views not opened (Areas 11, 13) |
 | 7 Visits | not started | 14 | | | | |
 | 8 Complaints | not started | 24 | | | | |
 | 9 To-Dos | not started | 20 | | | | |
@@ -415,3 +416,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 3 | this commit | Scheduling verify: all match.
 - 2026-10-08T09:20 | 2026-10-08T09:20 | 6/step 4 | this commit | Scheduling data layer behind DATA_SOURCE_SCHEDULING. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:32 | 2026-10-08T09:32 | 6/step 5 | this commit | Sub Schedules screens redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-08T09:32 | 2026-10-08T09:32 | 6/checkpoint | this commit | Report written; Area 6 done.
