@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B and Areas 1 through 12 done; reports in `docs/migration-reports/`. Area 13 (Sub portal) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 9.5 h used of 237 h estimated; roughly 2–6 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
+**Status:** Phase 0, Part B and Areas 1 through 13 done; reports in `docs/migration-reports/`. Area 14 (Shell/rest) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 10.2 h used of 237 h estimated; roughly 1–3 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -290,7 +290,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 13, step 4: lib/pg/sub-portal.ts + lib/data/sub-portal.ts; app/api/subcontractor-portal and app/api/notifications use Postgres when DATA_SOURCE_SUB_PORTAL=postgres (Apps Script is not called; unset = as before). The issue list is identical to the live Apps Script answer; check-sub-portal-writes.mts 22/22 (the login answer's rules on real rows with counts only, activity lines, issues, status changes); over HTTP with one made-up sub, two made-up accounts and a made-up complaint: unknown email refused, login, session read, activity line, issue (office email dry-run), supply order (office email dry-run), resolve complaint, logout; the sub's identity always comes from the session, never from what the page sends. Revenue and margin are still stripped from the accounts a sub gets. The supply order email helper moved to lib/supplyOrderEmail.ts. Not compared: the login answer against a live Apps Script login.
 - Area 13, step 5: the sub portal page (protected: class names only), its five tab components and app/notifications restyled in place with the kit; kit text on the dark banners made readable (.ui-on-dark). Headless click-through 35/35 at 375 and 1280px on Postgres + dry-run as one made-up sub (removed afterwards): login, unknown email refused, six tabs measured, Mark Resolved by Sub, logout, Notifications. /api/notifications byte-identical on both sources. Not pressed: Submit Issue, Submit Supply Order and Schedule Visit in the screen (the same saves passed over HTTP and in the function checks), a photo upload.
 
-**Next step:** Area 13: checkpoint report, then Area 14 (Shell/rest), Step 0.
+**Next step:** Area 14 (Shell/rest), Step 0: list every screen not yet on the UI kit (home, header/nav, settings, login pages (protected, approved), activity log (owner-only gating must not change), Team Hub screens stay as they are).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -423,7 +423,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 10 Sales/Reports | done | 18 | 0.4 | 2026-10-08 | 2026-10-08 | 2 sales; one shows $0 (amount in the old column); Sales and Reports restyled in place; kit overflow fix |
 | 11 Customer portal | done | 22 | 0.8 | 2026-10-08 | 2026-10-08 | 393 portal rows; request tabs empty; both portals kept; a no-digits lookup that returned an account is closed; 30 customers locked out of /portal by shared phones |
 | 12 Supplies | done | 24 | 0.5 | 2026-10-08 | 2026-10-08 | 51 supplies, 13 order rows; own tables (not merged into Team Hub's); lists identical to Apps Script; stock columns never shown; sub-portal order path waits for Area 13 |
-| 13 Sub portal | not started | 28 | | | | |
+| 13 Sub portal | done | 28 | 0.7 | 2026-10-08 | 2026-10-08 | 1 issue, 3 photos; portal actions on Postgres behind the switch; login answer not compared with a live login (needs a real sub); email-only login reported; photos stay on Apps Script |
 | 14 Shell/rest | not started | 12 | | | | |
 | 15 Wrap-up | not started | 6 | | | | |
 
@@ -527,3 +527,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T11:01 | Area 11 step 0 done
 - 2026-10-08T11:48 | Area 11 done, report written
 - 2026-10-08T12:11 | Area 12 done, report written
+- 2026-10-08T12:35 | Area 13 done, report written
