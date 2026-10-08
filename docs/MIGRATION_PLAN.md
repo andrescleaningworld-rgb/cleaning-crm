@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Area 1 (Catalogs) and Area 2 (People) done; reports in `docs/migration-reports/`. Area 3 (Subcontractors) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets.
+**Status:** Phase 0, Part B, Areas 1 (Catalogs), 2 (People) and 3 (Subcontractors) done; reports in `docs/migration-reports/`. Area 4a (Accounts core) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. Measured pace is about 3% of the plan estimate: roughly 8–25 h of Claude work left; the open questions in the reports are now the slow part.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -210,7 +210,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3, step 5b: `app/subcontractors/[id]/page.tsx` (detail) redesigned. Same content: 3 status pills, 8 number tiles, performance score, 11 detail fields, current and past accounts with totals and links, recent complaints (first 25), Print (same sections printed and hidden as before; tables print instead of cards), Refresh, and the edit form (now a sheet). Headless click-through 17/18 on Postgres (the 1 miss was the test reading the site header instead of the page title). Screenshots not committed (names and money).
 - Area 3, step 5c: `app/sub-center/page.tsx` (tab bar now the kit Tabs; `?tab=` and the remembered tab work as before) and `app/sub-center/activity-log.tsx` redesigned (filters in a sheet, cards on phone / table on desktop, first 100 lines with "Show 100 more"). The Sub Center log is still its own thing; nothing was merged with the staff Activity Log. Headless click-through 16/16.
 
-**Next step:** Area 3, Step 5d: `app/sub-center/coverage.tsx` (434 lines) and `coverage-map.tsx` (863, Google Maps). The map cannot be checked on this machine without `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`; redesign what can be verified and log the rest. `team-hub.tsx` is hidden and stays untouched. Then the Area 3 checkpoint report with a re-estimate.
+**Next step:** Area 4a (Accounts core), Step 0: `node scripts/migrate/discover.mjs accounts`. Biggest area: Accounts tab A:AI with secrets (Key/Alarm, revenue, sub pay), free-text Subcontractor and Manager names to resolve against `sub_name_aliases` / `managers`, and Apps Script writes to rebuild without source (`addAccount` incl. its ID rule, `updateAccount`, `updateAccountFields`, `sendNewAccountPacket` email, `createSubTransferProposal` + email). Compare every Apps Script read (`getAccounts`, `getAllAccounts`, `getMapAccounts`) against the live answer, the way `scripts/migrate/parity/subs.mts` does.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -247,6 +247,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3: "Clear filters" now also clears the Schedule filter | the old button forgot it (it reset the other three and the sort) | one line in `clearFilters`.
 - Area 3 detail page: the line "Subcontractor ID: SUB-ROW-n" under the name is gone; the contact name is there instead | Part B rule 3 (no raw IDs), and that ID is a row number that changes | one line to put back.
 - Area 3 detail page: an Inactive status now shows gray, not green | the old color check looked for the word "active", which "Inactive" contains | cosmetic; revert in `statusKind`.
+- Area 3: `app/sub-center/coverage.tsx` and `coverage-map.tsx` are redesigned in Area 4b, not here | they show account data (`/api/accounts`), and the plan already puts "coverage map" in 4b; the map also needs a Google Maps key to check | none needed.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -265,7 +266,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | B Design system | done | 14 | 0.2 | 2026-10-07 | 2026-10-07 | Contrast not tool-measured; no real phone |
 | 1 Catalogs | done | 12 | 0.5 | 2026-10-07 | 2026-10-07 | 19 rows, 0 issues; real file upload/delete not clicked |
 | 2 People | done | 11 | 0.2 | 2026-10-07 | 2026-10-07 | 21 rows; 6 manager↔staff questions open; no screens in this area |
-| 3 Subs | in progress | 24 |  | 2026-10-07 |  |  |
+| 3 Subs | done | 24 | 0.6 | 2026-10-07 | 2026-10-07 | 17 questions open (Leo twice, phones in the wrong column); Coverage tab moved to 4b |
 | 4a Accounts core | not started | 34 | | | | |
 | 4b Accounts secondary | not started | 20 | | | | |
 | 5 Equipment | not started | 20 | | | | |
@@ -314,3 +315,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:23 → 23:29 | 3/step 5a | this commit | Subcontractors list redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-07T23:29 → 23:38 | 3/step 5b | this commit | Subcontractor detail page redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-07T23:38 → 23:42 | 3/step 5c | this commit | Sub Center shell + activity log redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-07T23:43 | 3/checkpoint | this commit | Area 3 report. Area total 0.6 h vs 24 h; running total 2.0 h vs 67 h. Remaining re-estimated at 8–25 h.
