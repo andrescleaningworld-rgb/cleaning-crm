@@ -275,8 +275,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11, step 1: db/migrations/013_customer_portal.sql applied to dev (portal_access; portal_requests with the tab name as the kind and three per-kind fields).
 - Area 11, step 2: scripts/migrate/import-customer-portal.mjs. Dry-run, run, re-run clean: portal_access 393 (391 linked to an account, 319 with access on), portal_requests 0. 25 open questions: 2 rows not linked, 2 repeated names, 1 repeated code, 19 phones shared by 49 rows with access. The portal code equals the Account ID on 392 of 393 rows. 2 rows have access on and no phone.
 - Area 11, step 3: scripts/migrate/verify-customer-portal.mjs → docs/migration-reports/customer-portal-verify.md. portal_access matches, every row field by field (393 × 20); the three request tabs are empty on both sides.
+- Area 11, step 4: lib/pg/customer-portal.ts + lib/data/customer-portal.ts; 15 files switched (11 by switch-imports, the 4 request routes now call appendPortalRequest). Parity 13/13 identical (values fingerprinted, none printed); check-customer-portal-writes.mts 24/24; 4 routes byte-identical over HTTP on both sources; on Postgres, end to end with one made-up customer row: login (wrong code refused), dashboard, the four request kinds (emails logged as dry-run), staff list, status change. Not tested: a login on the Sheets source (needs a real customer's phone and code).
 
-**Next step:** Area 11, Step 4: Postgres data layer behind DATA_SOURCE_CUSTOMER_PORTAL.
+**Next step:** Area 11, Step 5: redesign the portal screens (/portal/*, /customer-portal/*, Portal Requests, Settings → Portal).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -357,6 +358,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10: Sales and Reports were restyled in place, not rearranged; tables stay tables and scroll inside their own box on a phone | both are long table-and-print pages; a full rebuild into cards and sheets changes how they are used | proposals 1 and 2 in the Area 10 report
 - Area 11: which customer portal is live was not asked; both are treated as live | the staff menu and the login page link to /customer-portal, Settings → Portal hands out the codes only /portal uses, and both read the same access list, so moving the data covers both | say which one to retire and it gets removed in the wrap-up
 - Area 11: the requests, complaints and history of /customer-portal stay on Apps Script | the Apps Script source is not in the repo and reading them needs a real customer phone | moves when the Apps Script source is available (Area 15 list)
+- Area 11: /api/customer-portal now answers 'no account found' when the phone has no digits in it, on both sources | on Sheets, text such as 'abc' matched the first portal row with access and an empty phone and returned that account to anyone (checked locally: 200 before, 404 after; 2 rows are affected); the login page already demands 10 digits, so no customer is affected | revert the 4 lines in app/api/customer-portal/route.ts
+- Area 11: a billing request from /portal is saved on Postgres although Sheets has no portal-billing-requests tab (there the save fails today) | the table holds all four kinds; refusing it on purpose would copy a fault | none needed
+- Area 11: a local-only PORTAL_SESSION_PASSWORD was added to .env.development.local | needed to open /portal on localhost; the real value is not on this machine | replace it with the real value if wanted
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.

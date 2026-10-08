@@ -4,7 +4,7 @@ import { getIronSession } from "iron-session";
 import Image from "next/image";
 import Link from "next/link";
 import { sessionOptions, SESSION_COOKIE, type PortalSessionData } from "@/lib/portalSession";
-import { getCustomerByPortalCode } from "@/lib/googleSheets";
+import { getCustomerByPortalCode } from "@/lib/data/customer-portal";
 import { getVisitsByAccountName } from "@/lib/data/visits";
 import { getMainAccountByName } from "@/lib/data/accounts";
 import PortalVisitCalendar from "./portal-visit-calendar";

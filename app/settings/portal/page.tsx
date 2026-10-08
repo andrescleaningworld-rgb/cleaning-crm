@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getMergedPortalAccounts } from "@/lib/googleSheets";
+import { getMergedPortalAccounts } from "@/lib/data/customer-portal";
 import PortalTable from "./portal-table";
 
 // No cookies()/headers() call here (auth is enforced by proxy.ts, not read

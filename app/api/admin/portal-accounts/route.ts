@@ -3,7 +3,7 @@ import {
   getMergedPortalAccounts,
   enablePortalAccount,
   updatePortalAccountFields,
-} from "@/lib/googleSheets";
+} from "@/lib/data/customer-portal";
 
 export async function GET() {
   try {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { appendToSheet } from "@/lib/googleSheets";
+import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   const photos = (body.photos ?? []).join(", ");
 
   try {
-    await appendToSheet("portal-complaints", [
+    await appendPortalRequest("portal-complaints", [
       session.accountId,
       session.accountName ?? "",
       today,

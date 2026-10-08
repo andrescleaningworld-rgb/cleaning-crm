@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import type { MergedPortalAccount } from "@/lib/googleSheets";
+import type { MergedPortalAccount } from "@/lib/data/customer-portal";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);

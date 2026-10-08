@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listPortalSubmissions, updateSubmissionStatus } from "@/lib/googleSheets";
-import type { PortalSubmission } from "@/lib/googleSheets";
+import { listPortalSubmissions, updateSubmissionStatus } from "@/lib/data/customer-portal";
+import type { PortalSubmission } from "@/lib/data/customer-portal";
 
 export async function GET() {
   try {

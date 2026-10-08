@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortalNewCount } from "@/lib/googleSheets";
+import { getPortalNewCount } from "@/lib/data/customer-portal";
 
 // Exposes getPortalNewCount() (direct Sheets API, internally cached/timeout-
 // bounded — see lib/googleSheets.ts) to the client so the "Portal" nav badge

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { PortalSubmission } from "@/lib/googleSheets";
+import type { PortalSubmission } from "@/lib/data/customer-portal";
 
 const TAB_LABELS: Record<string, string> = {
   "portal-complaints": "Complaint",

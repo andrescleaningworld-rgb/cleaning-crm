@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { getCustomerByPortalCode, getCustomerByPhone, normalizePhone } from "@/lib/googleSheets";
+import { getCustomerByPortalCode, getCustomerByPhone, normalizePhone } from "@/lib/data/customer-portal";
 
 const INVALID = NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 

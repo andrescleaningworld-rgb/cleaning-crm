@@ -1,4 +1,4 @@
-import { listPortalSubmissions } from "@/lib/googleSheets";
+import { listPortalSubmissions } from "@/lib/data/customer-portal";
 import SubmissionsView from "./submissions-view";
 
 // No cookies()/headers() call here (auth is enforced by proxy.ts, not read

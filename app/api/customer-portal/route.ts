@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCustomerByPhone } from "@/lib/googleSheets";
+import { getCustomerByPhone, normalizePhone } from "@/lib/data/customer-portal";
 import { getMainAccountByName } from "@/lib/data/accounts";
 import { fetchManagers } from "@/lib/data/people";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
@@ -51,7 +51,10 @@ export async function POST(request: Request) {
       typeof body.phone === "string" &&
       body.phone.trim()
     ) {
-      const customer = await getCustomerByPhone(body.phone);
+      // Text with no digits in it ("abc") would match the first portal row
+      // that has access and an empty phone, and hand that account to
+      // whoever asked. A phone with no digits finds nobody.
+      const customer = normalizePhone(body.phone) ? await getCustomerByPhone(body.phone) : null;
       if (!customer) {
         return NextResponse.json(
           { success: false, error: "No account found with that phone number.", account: null, accounts: [] },
