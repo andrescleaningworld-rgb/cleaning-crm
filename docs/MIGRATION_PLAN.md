@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B and Areas 1 through 10 done; reports in `docs/migration-reports/`. Area 11 (Customer portal) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 8.2 h used of 237 h estimated; roughly 3–10 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
+**Status:** Phase 0, Part B and Areas 1 through 11 done; reports in `docs/migration-reports/`. Area 12 (Supplies) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 9.0 h used of 237 h estimated; roughly 3–8 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -278,7 +278,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11, step 4: lib/pg/customer-portal.ts + lib/data/customer-portal.ts; 15 files switched (11 by switch-imports, the 4 request routes now call appendPortalRequest). Parity 13/13 identical (values fingerprinted, none printed); check-customer-portal-writes.mts 24/24; 4 routes byte-identical over HTTP on both sources; on Postgres, end to end with one made-up customer row: login (wrong code refused), dashboard, the four request kinds (emails logged as dry-run), staff list, status change. Not tested: a login on the Sheets source (needs a real customer's phone and code).
 - Area 11, step 5: redesigned with the kit: Portal Requests (cards + a detail sheet for status and notes), Settings → Portal (cards on a phone, table when wide, Edit in a sheet), /portal login, dashboard and the four request forms, and the older /customer-portal pages (restyled in place). Headless click-through 84/84 at 375 and 1280px on Postgres + dry-run with one made-up customer row (removed afterwards). Not clicked: a photo upload, a submit on the older portal (goes to Apps Script), Enable/Disable/Generate code on a real row. Screenshots not committed.
 
-**Next step:** Area 11: checkpoint report, then Area 12 (Supplies), Step 0.
+**Next step:** Area 12 (Supplies), Step 0: discovery (Supplies and Supply Orders are Apps Script only; supply orders send email: dry-run).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -399,7 +399,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 8 Complaints | done | 24 | 0.7 | 2026-10-08 | 2026-10-08 | 22 complaints; list byte-identical to Apps Script; Edit creates a duplicate complaint today (copied, reported, fix proposed) |
 | 9 To-Dos | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 127 to-dos, 44 text-log lines; text credit is at 0 (reported); page restyled in place, rearranging proposed |
 | 10 Sales/Reports | done | 18 | 0.4 | 2026-10-08 | 2026-10-08 | 2 sales; one shows $0 (amount in the old column); Sales and Reports restyled in place; kit overflow fix |
-| 11 Customer portal | not started | 22 | | | | |
+| 11 Customer portal | done | 22 | 0.8 | 2026-10-08 | 2026-10-08 | 393 portal rows; request tabs empty; both portals kept; a no-digits lookup that returned an account is closed; 30 customers locked out of /portal by shared phones |
 | 12 Supplies | not started | 24 | | | | |
 | 13 Sub portal | not started | 28 | | | | |
 | 14 Shell/rest | not started | 12 | | | | |
@@ -503,3 +503,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 5 | this commit | Sales and Reports restyled; kit overflow fix. tsc ok, build ok, lint 16.
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/checkpoint | this commit | Report written; Area 10 done.
 - 2026-10-08T11:01 | Area 11 step 0 done
+- 2026-10-08T11:48 | Area 11 done, report written
