@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Areas 1 (Catalogs), 2 (People) and 3 (Subcontractors) done; reports in `docs/migration-reports/`. Area 4a (Accounts core) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. Measured pace is about 3% of the plan estimate: roughly 8–25 h of Claude work left; the open questions in the reports are now the slow part.
+**Status:** Phase 0, Part B, Areas 1 (Catalogs), 2 (People), 3 (Subcontractors) and 4a (Accounts core) done; reports in `docs/migration-reports/`. Area 4b (Accounts secondary) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 3.6 h used of 101 h estimated; roughly 9–25 h of Claude work left.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -221,8 +221,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4a, step 5c: `app/accounts/[id]/page.tsx` redesigned. Same content and actions: status + health pills, 5 tiles, Account Snapshot (10 facts), Notes, onboarding checklist, checklist editor, History, print packet view; main button Edit account; Add visit / Add complaint / Add update as a row; the other 7 actions in More (Change status, Portal access ON/OFF, Print PDF, Send new account packet, Onboarding checklist, Add sale, Full account info); the three pop-ups are now sheets. Headless click-through 18/18 at 375 and 1280px on Postgres. Not clicked: Portal access (writes to the portal sheet), Send packet and the PDF download.
 - Area 4a, step 5d: `app/accounts/page.tsx` (list) redesigned, 3,971 → 3,400 lines: header + More menu (Transfer proposal, Create to-dos for multiple, Print sub account list, Print), one search box with a Search button, all 10 filter/sort controls in a "Filter and sort" sheet, 7 tiles, cards on phone / 6-column table on desktop, Show 15 more, and the three pop-ups (Change status, New to-do, multi to-do) as sheets. Behavior unchanged: loads the default view on arrival, Search/Enter reloads, Clear filters empties the list. Headless click-through 25/25 at 375 and 1280px on Postgres; nothing was saved. The transfer-proposal builder inside the page keeps its old markup in this commit.
 - Area 4a step 5e: transfer proposal builder on /accounts redesigned with the UI kit (same handlers; saves still go to Apps Script). Headless check at 375 and 1280px: 38 of 38 pass, nothing saved.
+- Area 4a checkpoint report: docs/migration-reports/checkpoint-4a-accounts-2026-10-08.md.
 
-**Next step:** Area 4a checkpoint report (docs/migration-reports/checkpoint-4a-accounts-2026-10-08.md), then Area 4b Step 0 discovery (account-updates, account-health, accounts-center, map, coverage).
+**Next step:** Area 4b, Step 0: discovery for account-updates, account-health, accounts-center, map, coverage map and app/sub-center/coverage.tsx (which tabs and routes they read; Account Updates and Sub Transfer Proposals stay on Apps Script).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -275,6 +276,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Account page: the embedded onboarding checklist, checklist editor and History keep their old look for now | they are shared components (`app/components/*`) used by other screens too; they get the new look with the shell in Area 14 | none needed.
 - Accounts list: the line "ID: <account id>" under each name is gone | Part B rule 3 (no raw IDs); the ID is still in the address bar and in Full account info | one line to put back.
 - Accounts list is not yet split into component files | the split is safer done together with the transfer-proposal builder, which is the other half of the file | next step.
+- Area 4a: the Accounts list was not split into app/accounts/_components/ files | a pure file move with no visible change; safer once no other screen work touches the file | split any time, no behavior depends on it
+- Transfer proposals: status Sent shows amber (waiting) instead of blue | the UI kit has no blue status; sent means waiting on the sub | add a pill kind if blue is wanted
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -297,7 +300,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 1 Catalogs | done | 12 | 0.5 | 2026-10-07 | 2026-10-07 | 19 rows, 0 issues; real file upload/delete not clicked |
 | 2 People | done | 11 | 0.2 | 2026-10-07 | 2026-10-07 | 21 rows; 6 manager↔staff questions open; no screens in this area |
 | 3 Subs | done | 24 | 0.6 | 2026-10-07 | 2026-10-07 | 17 questions open (Leo twice, phones in the wrong column); Coverage tab moved to 4b |
-| 4a Accounts core | in progress | 34 |  | 2026-10-07 |  |  |
+| 4a Accounts core | done | 34 | 1.6 | 2026-10-07 | 2026-10-08 | 25 questions open (Leo number missing, 9 managers, 3 subs); Account Updates, transfer proposals and the packet stay on Apps Script; transfer builder restyled |
 | 4b Accounts secondary | not started | 20 | | | | |
 | 5 Equipment | not started | 20 | | | | |
 | 6 Scheduling | not started | 20 | | | | |
@@ -359,3 +362,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T07:46 → 07:52 | 4a/step 5c | this commit | Account detail page redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T07:52 → 08:01 | 4a/step 5d | this commit | Accounts list redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:15 | 2026-10-08T08:15:01-04:00 accounts step 5e done (transfer builder)
+- 2026-10-08T08:16 | 2026-10-08T08:16 | 4a/checkpoint | this commit | Report written; 4a done.
