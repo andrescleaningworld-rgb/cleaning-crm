@@ -206,8 +206,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3, step 2: `scripts/migrate/import-subs.mjs`. Run + re-run clean: 39 subs (ids SUB-001…SUB-039), 71 unambiguous name aliases, 385 log lines (366 linked to a sub by email), and all 7 Area 1 document sends now resolved to a permanent sub id. 17 open questions in `migration_issues`.
 - Area 3, step 3: `scripts/migrate/verify-subs.mjs` → `docs/migration-reports/subs-verify.md`. Both tables match, every row field by field (39 × 18 columns, 385 × 5).
 - Area 3, step 4: `lib/pg/subs.ts` + `lib/data/subs.ts`; 6 files switched. With `DATA_SOURCE_SUBS=postgres`: reads, `updateSubcontractor`, a Postgres `addSubcontractor` (replaces the Apps Script action; no email/SMS is known to be sent by it), and the Apps Script `getSubcontractors` list rebuilt from Postgres for the two callers that still used it (notification name → phone/email lookup in `app/api/subcontractors/route.ts`, admin account PDF). Parity 4/4 incl. 39/39 rows identical to the live Apps Script list; `check-subs-writes.mts` 15/15; 5 routes byte-identical over HTTP; add + update over HTTP on Postgres.
+- Area 3, step 5a: `app/subcontractors/page.tsx` (list) redesigned. Same features: search, the 4 filters + 14 sorts (now in a "Filter and sort" sheet, with a count of how many are on), add form with all 16 fields, Service Log tab, Open (was View / Edit), Add schedule. Headless click-through 18/19 at 375 and 1280px on Postgres (the 1 miss was the test expecting "2 on" after it had set 3 filters). Screenshots are NOT committed for this page: they show real company names and revenue.
 
-**Next step:** Area 3, Step 5: redesign `app/subcontractors/page.tsx` (1,097 lines), `app/subcontractors/[id]/page.tsx` (1,476), `app/sub-center/*` (5 files, ~2,000 lines; the two logs stay separate). One page per commit. Then the Area 3 checkpoint report and a real re-estimate.
+**Next step:** Area 3, Step 5b: redesign `app/subcontractors/[id]/page.tsx` (1,476 lines), then `app/sub-center/*`.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -240,6 +241,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3: the activity-log read follows Postgres only when `DATA_SOURCE_SUBS` and `DATA_SOURCE_SUB_PORTAL` are both `postgres` | new log lines are still written by Apps Script until Area 13; reading Postgres earlier would hide them | none needed; it switches itself once Area 13 is on.
 - Area 3: on Postgres, the phone used to text a sub still comes from the SECOND Phone column, exactly like Apps Script does today (only 8 of 39 subs have a number there; 28 have one in the first column) | rule 12: changing who gets texts is a behavior change | approve "text the first Phone column, fall back to the second" and it is a 3-line change in `getSubcontractorsAppsScriptShape`.
 - Area 3: `addSubcontractor` on Postgres stores the profile fields only and sends nothing | Apps Script source is not in the repo; the rows it made have no Created At / Updated At and no trace of a welcome message | if Apps Script does send something when a sub is added, say so and it gets rebuilt.
+- Area 3: screenshots that show real names, phone numbers or money are not saved in the repo | the repo is on GitHub; reports stay free of customer data | they can be regenerated locally with the scripts in the scratch folder, or say "commit them".
+- Area 3: "Clear filters" now also clears the Schedule filter | the old button forgot it (it reset the other three and the sort) | one line in `clearFilters`.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -303,3 +306,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:14 | 3/step 2 | this commit | Subs import; 17 questions logged.
 - 2026-10-07T23:14 | 3/step 3 | this commit | Subs verify: all match.
 - 2026-10-07T23:14 → 23:23 | 3/step 4 | this commit | Subs data layer behind DATA_SOURCE_SUBS. tsc ok, build ok, lint at baseline.
+- 2026-10-07T23:23 → 23:29 | 3/step 5a | this commit | Subcontractors list redesigned. tsc ok, build ok, lint at baseline.

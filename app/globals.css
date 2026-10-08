@@ -1370,6 +1370,10 @@ button.ui-card:hover {
   font-size: 13px;
 }
 
+.ui-nowrap {
+  white-space: nowrap;
+}
+
 /* Two lines at most, for long text in table cells. */
 .ui-clamp {
   display: -webkit-box;
