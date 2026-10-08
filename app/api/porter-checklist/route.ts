@@ -4,7 +4,7 @@
 // template editing is app/api/checklist-templates/route.ts, which is NOT
 // public.
 import { NextRequest, NextResponse } from "next/server";
-import { getMainAccountById } from "@/lib/googleSheets";
+import { getMainAccountById } from "@/lib/data/accounts";
 import { getTabForAccount, getTemplateByPorterCode, insertSubmission, listActiveTabs, setSubmissionNotesTranslation } from "@/lib/checklistDb";
 import { waitUntil } from "@vercel/functions";
 import { translateToEnglish } from "@/lib/translate";

@@ -4,8 +4,10 @@ import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/
 import {
   getSubcontractorPerformanceMap,
   buildSubcontractorPerformanceKey,
-  getAllAccountsForSubEnrichment,
 } from "@/lib/googleSheets";
+import {
+  getAllAccountsForSubEnrichment,
+} from "@/lib/data/accounts";
 import {
   updateSubcontractor,
   getAllSubcontractorsRaw,

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getCustomerByPhone, getMainAccountByName } from "@/lib/googleSheets";
+import { getCustomerByPhone } from "@/lib/googleSheets";
+import { getMainAccountByName } from "@/lib/data/accounts";
 import { fetchManagers } from "@/lib/data/people";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 

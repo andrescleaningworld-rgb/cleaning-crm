@@ -5,7 +5,7 @@
 //   same check app/api/porter-checklist has always made);
 // - supplyOrders / problemReports: checklist_templates columns (Postgres).
 // The link is live when any module is on. Account data is read only.
-import { getMainAccountById } from "@/lib/googleSheets";
+import { getMainAccountById } from "@/lib/data/accounts";
 import { getTemplateByPorterCode, type ChecklistTemplateRow } from "@/lib/checklistDb";
 
 export type CrewLinkModules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };

@@ -2,7 +2,7 @@
 // proxy.ts admin-cookie check) — this exposes the same sensitive submission
 // data, just packaged as a PDF instead of JSON, so it gets the same gate.
 import { NextRequest, NextResponse } from "next/server";
-import { getMainAccountById } from "@/lib/googleSheets";
+import { getMainAccountById } from "@/lib/data/accounts";
 import { listSubmissionsForReport } from "@/lib/checklistDb";
 import { renderPorterChecklistReportPdf } from "@/lib/pdf/porter-checklist-report";
 

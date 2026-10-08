@@ -2,7 +2,7 @@
 // route at all (their surface is app/api/porter-checklist/route.ts, which is
 // public and has no read-list capability).
 import { NextRequest, NextResponse } from "next/server";
-import { fetchAllMainAccounts } from "@/lib/googleSheets";
+import { fetchAllMainAccounts } from "@/lib/data/accounts";
 import { getSubmissionDetail, listSubmissions } from "@/lib/checklistDb";
 
 export async function GET(request: NextRequest) {

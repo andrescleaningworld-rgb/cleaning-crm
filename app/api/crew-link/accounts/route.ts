@@ -4,7 +4,7 @@
 // Sheets: fetchAllMainAccounts (read-only, cached) for name / address /
 // status / "Checklist Needed". Everything else is Postgres.
 import { NextResponse } from "next/server";
-import { fetchAllMainAccounts } from "@/lib/googleSheets";
+import { fetchAllMainAccounts } from "@/lib/data/accounts";
 import { getSql } from "@/lib/db";
 
 export async function GET() {

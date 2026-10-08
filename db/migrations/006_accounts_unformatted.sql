@@ -1,0 +1,11 @@
+-- Area 4 – the Accounts row as Sheets holds it underneath the display format.
+-- Idempotent. Never edit after applying.
+--
+-- The app reads Accounts two ways today. The direct Sheets reads get the
+-- text a cell SHOWS ("$1,560", "(201) 555-0100"); the Apps Script backend
+-- gets the value the cell HOLDS (1560, 2015550100). The *_raw columns keep
+-- the first; this keeps the second, as the whole row in column order
+-- (A = element 0), so the Postgres version of the Apps Script account list
+-- can return exactly what Apps Script returns. Dates are kept as the text
+-- the sheet shows. Holds the same secrets as the table itself.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS unformatted JSONB NOT NULL DEFAULT '[]'::jsonb;

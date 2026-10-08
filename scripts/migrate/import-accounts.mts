@@ -58,6 +58,9 @@ try {
 
   /* ---------- Accounts ---------- */
   const accountsTab = await dataRows("MAIN", "Accounts", "A:AI");
+  // Same rows again as the values the cells hold (numbers as numbers), kept
+  // as text so nothing is rounded: what Apps Script sees. See 006.
+  const unformattedRows = (await readTab("MAIN", "Accounts", { range: "A:AI", unformatted: true })) as string[][];
   const unresolvedSubs = grouped<{ candidates: number }>();
   const unresolvedManagers = grouped<{ why: string }>();
   let subResolved = 0;
@@ -160,6 +163,7 @@ try {
       city: cell(row, 32),
       zip: cell(row, 33),
       checklist_needed: cell(row, 34),
+      unformatted: JSON.stringify(Array.from({ length: 35 }, (_, i) => String(unformattedRows[sourceRow - 1]?.[i] ?? ""))),
       source_sheet: "MAIN",
       source_row: sourceRow,
     };
