@@ -1,6 +1,6 @@
 # catalogs – verify
 
-Run 2026-10-07 by `scripts/migrate/verify-catalogs.mjs`. Sheets (read-only) compared with the Neon dev branch. Counts only, no cell values.
+Run 2026-10-08 by `scripts/migrate/verify-catalogs.mjs`. Sheets (read-only) compared with the Neon dev branch. Counts only, no cell values.
 
 **Result: all tables match.** Open questions in `migration_issues`: 0.
 

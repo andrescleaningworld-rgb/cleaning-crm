@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B and Areas 1 through 14 done; reports in `docs/migration-reports/`. Area 15 (Wrap-up) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 10.7 h used of 237 h estimated; under 1 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
+**Status:** ALL 15 AREAS DONE on branch `migration/postgres` (2026-10-08). Production is unchanged: no `DATA_SOURCE_*` flag is on anywhere, nothing merged, nothing deployed. About 11.2 h used of 237 h estimated. Next is Andres: read the reports, rehearse on a preview, then `docs/CUTOVER_RUNBOOK.md`. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -292,8 +292,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 14: no data. Kit look for the header (full-size links; on a phone they fold behind a Menu button), Dashboard, Help, Settings, Logs, Activity Log (owner-only rule untouched), Follow-ups, Equipment Categories, Crew Link staff page, checklist submissions, the sub's equipment page and the Login page (protected: class names only). Measured at 375 and 1280px; the phone menu clicked. All earlier screens re-measured with the cut-off check: pass. Slip: the scripted pass squeezed the three Login choices and 11 similar cards; the measuring passed them, a screenshot caught it; searched all screens for the pattern and fixed the 12 places. Left alone on purpose: Team Hub, the porter page, the equipment-check page, print pages.
 - Area 15, step 1: the last direct Sheets reader moved behind the switches. The subcontractor performance score reads Postgres when SUBS, ACCOUNTS, VISITS and COMPLAINTS are all on (lib/pg/performance.ts via lib/data/subs.ts); the scoring rules stay in one place (lib/googleSheets.ts, split into 'read the rows' and 'score the rows', no rule changed). check-performance.mts: 38 of 38 subs identical between Sheets and Postgres. Not re-compared over HTTP.
 - Area 15, step 2: db/migrations/016_foreign_keys.sql applied to dev: 17 links (account_ref → accounts, subcontractor_id → subcontractors) became foreign keys, ON DELETE SET NULL, ON UPDATE CASCADE; 0 orphans before; all ten areas' write checks still pass. The three keys to staff stay out until People is on in production.
+- Area 15, step 3: docs/DATA_MODEL.md (from scripts/migrate/data-model.mjs), docs/CUTOVER_RUNBOOK.md (rehearsal, two-stage switch, rollback, what stays on Apps Script, frozen tabs), and the final report docs/migration-reports/checkpoint-15-wrap-up-2026-10-08.md. Final verify of every area against the live sheets: all 33 tables match (2,707 rows). No test rows left on the practice database.
 
-**Next step:** Area 15, step 3: docs/DATA_MODEL.md and docs/CUTOVER_RUNBOOK.md.
+**Next step:** Nothing left on the plan. Waiting for Andres: (1) read docs/migration-reports/checkpoint-15-wrap-up-2026-10-08.md and the 'Read this first' parts of the Area 11 and 13 reports; (2) preview with no switch; (3) preview with all switches + OUTBOUND_DRY_RUN=1; (4) docs/CUTOVER_RUNBOOK.md. Do not start the cutover without his go-ahead.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -395,6 +396,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 14: the header's links fold behind a Menu button on phones | at 48px each the 11 staff links filled the whole first screen of every page | remove the button and the hidden/sm:flex classes in app/components/CWHeader.tsx
 - Area 14: the porter page, the equipment-check page and Team Hub were not restyled | they have their own large-text field design, and rule 14 keeps Team Hub as it is | say so and they get the kit look
 - Area 15: lib/googleSheets.ts got a second additive change: getSubcontractorPerformanceMap now calls an exported buildSubcontractorPerformanceMap with the rows it read | copying 150 lines of scoring rules into a Postgres twin would let the two drift apart | inline the function again; nothing else depends on the split
+- Area 15: the runbook recommends switching in two stages (CATALOGS + PEOPLE + EQUIPMENT, then the other ten together) instead of one area at a time | an area left on Sheets reads the Accounts tab, which stops changing once Accounts is on Postgres | Andres decides; the switches stay independent in the code
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -431,7 +433,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 12 Supplies | done | 24 | 0.5 | 2026-10-08 | 2026-10-08 | 51 supplies, 13 order rows; own tables (not merged into Team Hub's); lists identical to Apps Script; stock columns never shown; sub-portal order path waits for Area 13 |
 | 13 Sub portal | done | 28 | 0.7 | 2026-10-08 | 2026-10-08 | 1 issue, 3 photos; portal actions on Postgres behind the switch; login answer not compared with a live login (needs a real sub); email-only login reported; photos stay on Apps Script |
 | 14 Shell/rest | done | 12 | 0.5 | 2026-10-08 | 2026-10-08 | header (phone Menu button), dashboard, help, settings, logs, login restyled; every earlier screen re-measured for cut-off content; nothing saved or pressed on these screens |
-| 15 Wrap-up | not started | 6 | | | | |
+| 15 Wrap-up | done | 6 | 0.5 | 2026-10-08 | 2026-10-08 | performance score behind the switches (38/38 identical); 17 foreign keys on dev; DATA_MODEL.md; CUTOVER_RUNBOOK.md; final verify: 33 tables match |
 
 **Step log** (`YYYY-MM-DDThh:mm start → end | area/step | commit | note`):
 - 2026-10-01 | plan | – | Original plan written.
@@ -535,3 +537,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T12:11 | Area 12 done, report written
 - 2026-10-08T12:35 | Area 13 done, report written
 - 2026-10-08T12:55 | Area 14 done, report written
+- 2026-10-08T13:07 | Area 15 done; plan complete

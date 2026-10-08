@@ -1,8 +1,8 @@
 # people – verify
 
-Run 2026-10-07 by `scripts/migrate/verify-people.mjs`. Sheets (read-only) compared with the Neon dev branch. Counts only, no cell values.
+Run 2026-10-08 by `scripts/migrate/verify-people.mjs`. Sheets (read-only) compared with the Neon dev branch. Counts only, no cell values.
 
-**Result: all tables match.** Open questions in `migration_issues`: 6.
+**Result: all tables match.** Open questions in `migration_issues`: 1.
 
 | Table | From | Sheet rows | Skipped by rule | Duplicate keys | Postgres rows | Missing | Extra | Field mismatches | Created in Postgres | OK |
 |---|---|---|---|---|---|---|---|---|---|---|
