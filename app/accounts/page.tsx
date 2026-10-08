@@ -2,6 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  BigButton,
+  Card,
+  CardList,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  MoreMenu,
+  Screen,
+  SearchBar,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  StatusPill,
+  TextAreaField,
+  type StatusKind,
+} from "@/app/ui";
 import { getGoogleMapsUrl } from "../lib/backend";
 import { distanceInMiles, formatMiles } from "../lib/distance";
 import { useCustomerSearch, AutocompleteField } from "../sub-schedules/autocomplete";
@@ -364,22 +382,6 @@ function getStatusCategory(status: string | undefined): StatusFilter {
   return "Other";
 }
 
-function getStatusClass(status: string | undefined): string {
-  const category = getStatusCategory(status);
-  if (category === "Active") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (category === "Cancelled") return "border-red-200 bg-red-50 text-red-800";
-  if (category === "Paused" || category === "Over 90 Days") return "border-amber-200 bg-amber-50 text-amber-800";
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
-function getHealthClass(health: string | undefined): string {
-  const clean = normalizeLower(health);
-  if (clean.includes("high risk")) return "border-red-200 bg-red-50 text-red-800";
-  if (clean.includes("attention")) return "border-amber-200 bg-amber-50 text-amber-800";
-  if (clean.includes("stable") || clean.includes("good") || clean.includes("excellent")) return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
 function moneyToNumber(value: string | number | undefined): number {
   if (value === undefined || value === null || value === "") return 0;
   if (typeof value === "number") return Number.isNaN(value) ? 0 : value;
@@ -715,46 +717,6 @@ function useDebounce<T>(value: T, delay: number): T {
 // useFocusTrap hook — keeps keyboard focus inside a modal
 // ---------------------------------------------------------------------------
 
-function useFocusTrap(active: boolean) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!active || !ref.current) return;
-
-    const container = ref.current;
-    const focusable = container.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-
-    // Move focus into the dialog
-    first?.focus();
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Tab") return;
-      if (focusable.length === 0) { event.preventDefault(); return; }
-
-      if (event.shiftKey) {
-        if (document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [active]);
-
-  return ref;
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -854,6 +816,7 @@ export default function AccountsPage() {
   // Minimal self-contained toast — no shared toast component exists
   // elsewhere in the app yet, so this stays local to this page.
   const [toast, setToast] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -884,8 +847,6 @@ export default function AccountsPage() {
     toastTimeoutRef.current = setTimeout(() => setToast(""), 4000);
   }
 
-  const modalRef = useFocusTrap(statusModalAccount !== null);
-  const quickToDoModalRef = useFocusTrap(quickToDoAccount !== null);
 
   // -------------------------------------------------------------------------
   // Data loading
@@ -1490,13 +1451,6 @@ export default function AccountsPage() {
     setQuickToDoError("");
   }
 
-  function handleQuickToDoOverlayClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) closeQuickToDoModal();
-  }
-
-  function handleQuickToDoOverlayKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") closeQuickToDoModal();
-  }
 
   async function submitQuickToDo() {
     if (!quickToDoAccount) return;
@@ -2228,13 +2182,6 @@ async function handleSaveTransferProposal() {
     setStatusError("");
   }
 
-  function handleOverlayClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) closeStatusModal();
-  }
-
-  function handleOverlayKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") closeStatusModal();
-  }
 
   async function handleSaveStatusChange() {
     if (!statusModalAccount) return;
@@ -2317,528 +2264,259 @@ async function handleSaveTransferProposal() {
     }
   }
 
+  const money0 = (value: number) =>
+    value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+  const filtersOn =
+    (statusFilter !== "Active" ? 1 : 0) +
+    (managerFilter !== "All" ? 1 : 0) +
+    (subcontractorFilter !== "All" ? 1 : 0) +
+    (nearAccountRef ? 1 : 0) +
+    [minRevenueFilter, maxRevenueFilter, minSubPayFilter, maxSubPayFilter].filter((v) => v.trim() !== "").length +
+    (!nearAccountRef && sortOption !== "Account Name" ? 1 : 0);
+
+  const selectedCount = selectedBulkToDoIds.size;
+  const plural = (n: number) => (n === 1 ? "" : "s");
+
   return (
-    <div>
-      <section className="rounded-3xl bg-white p-4 shadow-sm sm:p-6">
+    <Screen
+      title="Accounts"
+      subtitle="The default view shows active accounts."
+      headerRight={
+        <MoreMenu
+          items={[
+            { label: transferMode ? "Close transfer" : "Transfer proposal", onSelect: toggleTransferMode },
+            { label: bulkToDoMode ? "Cancel selection" : "Create to-dos for multiple", icon: "plus", onSelect: toggleBulkToDoMode },
+            ...(hasSearched ? [{ label: "Print sub account list", onSelect: handlePrintSubcontractorAccountList }] : []),
+            { label: LABELS.print, onSelect: () => window.print() },
+          ]}
+        />
+      }
+      action={
+        <BigButton icon="plus" href="/accounts/new">
+          Add account
+        </BigButton>
+      }
+    >
+      {error ? <ErrorBox title="Something did not load." text={error} onRetry={handleSearch} /> : null}
+      {subcontractorWarning ? <ErrorBox title="Some subcontractor details did not load." text={subcontractorWarning} /> : null}
 
-        {/* Soft error banner (e.g. partial failures after load) */}
-        {error ? (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-            {error}
+      {bulkToDoMode ? (
+        <Card title={`${selectedCount} account${plural(selectedCount)} selected`}>
+          <p className="ui-card-text">Tick the boxes next to accounts below, then create to-dos for all of them at once.</p>
+          <div style={{ marginTop: 12 }}>
+            <BigButton kind="second" disabled={selectedCount === 0} onClick={() => setShowBulkToDoForm(true)}>
+              Create to-dos for selected ({selectedCount})
+            </BigButton>
           </div>
+        </Card>
+      ) : null}
+
+      {bulkToDoSuccess ? (
+        <p className="ui-savestatus ui-savestatus-saved" role="status">
+          {bulkToDoSuccess}
+        </p>
+      ) : null}
+
+      {/* One search box. Accounts load when Search is tapped (or Enter is
+          pressed), with or without a search term, exactly as before. */}
+      <form
+        className="ui-searchrow"
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSearch();
+        }}
+      >
+        <SearchBar value={searchText} onChange={setSearchText} label="Search accounts" placeholder="Search accounts, or leave blank to see all" />
+        <BigButton type="submit" kind="second" busy={loading} busyLabel="Searching…">
+          Search
+        </BigButton>
+      </form>
+
+      <div className="ui-actions-row">
+        <BigButton kind="second" onClick={() => setShowFilters(true)}>
+          {filtersOn ? `Filter and sort (${filtersOn} on)` : "Filter and sort"}
+        </BigButton>
+        {hasSearched ? (
+          <BigButton kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </BigButton>
         ) : null}
+      </div>
 
-        {/* Subcontractor data warning */}
-        {subcontractorWarning ? (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-            {subcontractorWarning}
-          </div>
-        ) : null}
-
-        {/* Header */}
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
-              Cleaning World
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
-              Accounts
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-              View accounts by status, manager, subcontractor, revenue, start date, and account details.
-              The default view shows active accounts.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row sm:flex-wrap">
-            <Link
-              href="/accounts/new"
-              className="rounded-2xl bg-blue-700 px-5 py-3.5 text-center text-sm font-black text-white shadow-sm no-underline hover:bg-blue-800"
-            >
-              + Add Account
-            </Link>
-            <button
-              type="button"
-              onClick={toggleTransferMode}
-              className={`rounded-2xl px-5 py-3.5 text-sm font-black shadow-sm ${
-                transferMode
-                  ? "bg-amber-500 text-white hover:bg-amber-600"
-                  : "bg-emerald-700 text-white hover:bg-emerald-800"
-              }`}
-            >
-              {transferMode ? "Close Transfer" : "Transfer Proposal"}
-            </button>
-            <button
-              type="button"
-              onClick={toggleBulkToDoMode}
-              className={`rounded-2xl px-5 py-3.5 text-sm font-black shadow-sm ${
-                bulkToDoMode
-                  ? "bg-amber-500 text-white hover:bg-amber-600"
-                  : "bg-indigo-700 text-white hover:bg-indigo-800"
-              }`}
-            >
-              {bulkToDoMode ? "Cancel Selection" : "Create To-Dos for Multiple"}
-            </button>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="rounded-2xl bg-slate-950 px-5 py-3.5 text-sm font-black text-white shadow-sm hover:bg-blue-950"
-            >
-              Print
-            </button>
-          </div>
+      <div className="ui-stats">
+        <div className="ui-stat">
+          <p className="ui-stat-label">Total Loaded</p>
+          <p className="ui-stat-value">{accounts.length}</p>
         </div>
-
-        {bulkToDoMode ? (
-          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-bold text-indigo-900">
-              {selectedBulkToDoIds.size} account{selectedBulkToDoIds.size === 1 ? "" : "s"} selected.
-              Check the boxes next to accounts below, then create to-dos for all of them at once.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowBulkToDoForm(true)}
-              disabled={selectedBulkToDoIds.size === 0}
-              className="shrink-0 rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Create To-Dos for Selected ({selectedBulkToDoIds.size})
-            </button>
-          </div>
-        ) : null}
-
-        {bulkToDoSuccess ? (
-          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-            {bulkToDoSuccess}
-          </div>
-        ) : null}
-
-        {showBulkToDoForm ? (
-          <div className="mt-4 rounded-2xl border border-indigo-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-black text-slate-950">
-              Create To-Dos for {selectedBulkToDoIds.size} Account{selectedBulkToDoIds.size === 1 ? "" : "s"}
-            </h2>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
-              One independent to-do is created per selected account — each fully separate afterward,
-              including its own Calendar sync if the type is calendar-eligible.
-            </p>
-
-            {bulkToDoError ? (
-              <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
-                {bulkToDoError}
-              </div>
-            ) : null}
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-assigned-to">
-                  Assigned To
-                </label>
-                <select
-                  id="bulk-todo-assigned-to"
-                  value={bulkToDoForm.assignedTo}
-                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, assignedTo: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="">Select a manager...</option>
-                  {bulkToDoManagers.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-type">
-                  Type
-                </label>
-                <select
-                  id="bulk-todo-type"
-                  value={bulkToDoForm.taskType}
-                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, taskType: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                >
-                  {BULK_TODO_TASK_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-due-date">
-                  Due Date
-                </label>
-                <input
-                  id="bulk-todo-due-date"
-                  type="date"
-                  value={bulkToDoForm.dueDate}
-                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, dueDate: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-why">
-                  Why
-                </label>
-                <input
-                  id="bulk-todo-why"
-                  value={bulkToDoForm.why}
-                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, why: e.target.value }))}
-                  placeholder="e.g. Routine check-in visit"
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-slate-500" htmlFor="bulk-todo-notes">
-                  Notes (applied to every to-do created)
-                </label>
-                <input
-                  id="bulk-todo-notes"
-                  value={bulkToDoForm.notes}
-                  onChange={(e) => setBulkToDoForm((f) => ({ ...f, notes: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={submitBulkToDos}
-                disabled={bulkToDoSaving}
-                className="rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {bulkToDoSaving ? "Creating..." : `Create ${selectedBulkToDoIds.size} To-Do${selectedBulkToDoIds.size === 1 ? "" : "s"}`}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowBulkToDoForm(false)}
-                disabled={bulkToDoSaving}
-                className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Mobile-only search — on small screens the stat cards and money
-            tiles below push the real search box (in the Filters grid
-            further down) below the fold. This duplicate, bound to the same
-            searchText state, keeps search reachable without scrolling;
-            hidden from lg: up where the original is already visible in place. */}
-        <div className="mt-4 flex gap-2 lg:hidden">
-          <input
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") handleSearch();
-            }}
-            placeholder="Search accounts, or leave blank to see all..."
-            aria-label="Search accounts"
-            className="min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500"
-          />
-          <button
-            type="button"
-            onClick={handleSearch}
-            disabled={loading}
-            className="min-h-[48px] shrink-0 rounded-2xl bg-blue-700 px-5 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "..." : "Search"}
-          </button>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Active</p>
+          <p className="ui-stat-value">{activeCount}</p>
         </div>
-
-        {/* Summary stats */}
-        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-blue-700 sm:text-xs">Total Loaded</p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{accounts.length}</p>
-          </div>
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-emerald-700 sm:text-xs">Active</p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{activeCount}</p>
-          </div>
-          <div className="rounded-2xl border border-red-100 bg-red-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-red-700 sm:text-xs">Cancelled</p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{cancelledCount}</p>
-          </div>
-          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 sm:p-5">
-            <p className="text-[11px] font-black uppercase tracking-wide text-amber-700 sm:text-xs">High Risk</p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">{highRiskCount}</p>
-          </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Cancelled</p>
+          <p className="ui-stat-value">{cancelledCount}</p>
         </div>
-
-        {/* Money summary tiles */}
-        <div className="mt-4 grid gap-3 lg:grid-cols-3">
-          <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Revenue In Current View
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {filteredRevenue.toLocaleString("en-US", {
-                style: "currency",
-                currency: "USD",
-                maximumFractionDigits: 0,
-              })}
-            </p>
-            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-              Updates when you filter accounts.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-emerald-700">
-              Sub Pay In Current View
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {filteredSubPay.toLocaleString("en-US", {
-                style: "currency",
-                currency: "USD",
-                maximumFractionDigits: 0,
-              })}
-            </p>
-            <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">
-              Total subcontractor pay for the filtered accounts.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm sm:p-5">
-            <p className="text-xs font-black uppercase tracking-wide text-amber-700">
-              Gross Margin In Current View
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 sm:text-3xl">
-              {filteredGrossMargin.toLocaleString("en-US", {
-                style: "currency",
-                currency: "USD",
-                maximumFractionDigits: 0,
-              })}
-            </p>
-            <p className="mt-1 text-xs font-semibold leading-5 text-amber-700">
-              {filteredMarginPercent}% of revenue
-            </p>
-          </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">High Risk</p>
+          <p className="ui-stat-value">{highRiskCount}</p>
         </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Revenue In Current View</p>
+          <p className="ui-stat-value">{money0(filteredRevenue)}</p>
+          <p className="ui-muted">Updates when you filter accounts.</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Sub Pay In Current View</p>
+          <p className="ui-stat-value">{money0(filteredSubPay)}</p>
+          <p className="ui-muted">Total subcontractor pay for the filtered accounts.</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Gross Margin In Current View</p>
+          <p className="ui-stat-value">{money0(filteredGrossMargin)}</p>
+          <p className="ui-muted">{filteredMarginPercent}% of revenue</p>
+        </div>
+      </div>
 
-        {/* Filters */}
-        <div className="mt-3 sm:mt-6 grid gap-3 lg:grid-cols-7">
-          <input
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") handleSearch();
-            }}
-            placeholder="Search accounts, or leave blank to see all..."
-            aria-label="Search accounts"
-            autoFocus
-            className="hidden min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm lg:block"
-          />
+      {hasSearched ? (
+        <div role="status">
+          <p className="ui-muted">
+            Showing <span className="ui-strong">{visibleAccounts.length}</span> of{" "}
+            <span className="ui-strong">{filteredAccounts.length}</span> matching account{plural(filteredAccounts.length)}
+            {loading && accounts.length > 0 ? " · Refreshing…" : ""}
+          </p>
+          {nearAccountRef && !nearAccountCoords ? (
+            <p className="ui-field-error">
+              {nearAccountRef.accountName || "The selected account"} has no stored location, so distance can&apos;t be calculated.
+            </p>
+          ) : null}
+          {nearAccountRef && nearAccountCoords && nearAccountMissingCoordsCount > 0 ? (
+            <p className="ui-field-error">
+              {nearAccountMissingCoordsCount} account{plural(nearAccountMissingCoordsCount)} otherwise matching your filters
+              have no stored location and are excluded from these results.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            aria-label="Filter by status"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          >
-            {statusOptions.map((s) => (
+      <Sheet
+        open={showBulkToDoForm}
+        title={`Create to-dos for ${selectedCount} account${plural(selectedCount)}`}
+        text="One independent to-do is created per selected account — each fully separate afterward, including its own Calendar sync if the type is calendar-eligible."
+        onClose={() => setShowBulkToDoForm(false)}
+        busy={bulkToDoSaving}
+        actions={
+          <BigButton busy={bulkToDoSaving} busyLabel="Creating…" onClick={() => void submitBulkToDos()}>
+            {`Create ${selectedCount} to-do${plural(selectedCount)}`}
+          </BigButton>
+        }
+      >
+        <SelectField label="Assigned to" value={bulkToDoForm.assignedTo} onChange={(e) => setBulkToDoForm((f) => ({ ...f, assignedTo: e.target.value }))}>
+          <option value="">Select a manager…</option>
+          {bulkToDoManagers.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Type" value={bulkToDoForm.taskType} onChange={(e) => setBulkToDoForm((f) => ({ ...f, taskType: e.target.value }))}>
+          {BULK_TODO_TASK_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </SelectField>
+        <Field label="Due date" type="date" optional value={bulkToDoForm.dueDate} onChange={(e) => setBulkToDoForm((f) => ({ ...f, dueDate: e.target.value }))} />
+        <Field label="Why" optional placeholder="Routine check-in visit" value={bulkToDoForm.why} onChange={(e) => setBulkToDoForm((f) => ({ ...f, why: e.target.value }))} />
+        <Field label="Notes" hint="Applied to every to-do created." optional value={bulkToDoForm.notes} onChange={(e) => setBulkToDoForm((f) => ({ ...f, notes: e.target.value }))} />
+        {bulkToDoError ? <ErrorBox title="The to-dos were not created." text={bulkToDoError} /> : null}
+      </Sheet>
+
+      <Sheet open={showFilters} title="Filter and sort" onClose={() => setShowFilters(false)} closeLabel="Done">
+        <SelectField label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+          {statusOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Manager" value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
+          {managers.map((m) => (
+            <option key={String(m)} value={String(m)}>
+              {m}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Subcontractor" value={subcontractorFilter} onChange={(e) => setSubcontractorFilter(e.target.value)}>
+          {subcontractors.map((sub) => (
+            <option key={sub.value} value={sub.value}>
+              {sub.label}
+            </option>
+          ))}
+        </SelectField>
+
+        <AutocompleteField
+          label="Near Account"
+          placeholder="Find accounts near..."
+          query={nearAccountSearch.query}
+          onQueryChange={nearAccountSearch.setQuery}
+          options={nearAccountSearch.options}
+          loading={nearAccountSearch.loading}
+          selected={nearAccountSearch.selected}
+          onSelect={nearAccountSearch.select}
+          onClear={nearAccountSearch.clear}
+          className="min-w-0 w-full [&_input]:w-full [&_input]:min-h-[48px] [&>div:nth-child(2)]:w-full"
+        />
+        <SelectField
+          label="Radius"
+          hint={nearAccountSearch.selected ? undefined : "Pick a Near Account first."}
+          value={String(nearAccountRadius)}
+          onChange={(e) => setNearAccountRadius(Number(e.target.value))}
+          disabled={!nearAccountSearch.selected}
+        >
+          {NEAR_ACCOUNT_RADIUS_OPTIONS.map((miles) => (
+            <option key={miles} value={miles}>
+              {miles} mi
+            </option>
+          ))}
+        </SelectField>
+
+        <Field label="Min revenue" optional inputMode="decimal" value={minRevenueFilter} onChange={(e) => setMinRevenueFilter(e.target.value)} />
+        <Field label="Max revenue" optional inputMode="decimal" value={maxRevenueFilter} onChange={(e) => setMaxRevenueFilter(e.target.value)} />
+        <Field label="Min sub pay" optional inputMode="decimal" value={minSubPayFilter} onChange={(e) => setMinSubPayFilter(e.target.value)} />
+        <Field label="Max sub pay" optional inputMode="decimal" value={maxSubPayFilter} onChange={(e) => setMaxSubPayFilter(e.target.value)} />
+
+        <SelectField
+          label="Sort"
+          hint={nearAccountRef ? "Sorted by distance while Near Account is on." : undefined}
+          value={nearAccountRef ? "Distance" : sortOption}
+          onChange={(e) => setSortOption(e.target.value as SortOption)}
+          disabled={Boolean(nearAccountRef)}
+        >
+          {nearAccountRef ? (
+            <option value="Distance">Distance (Near Account active)</option>
+          ) : (
+            sortOptions.map((s) => (
               <option key={s} value={s}>
-                Status: {s}
+                {s}
               </option>
-            ))}
-          </select>
-
-          <select
-            value={managerFilter}
-            onChange={(e) => setManagerFilter(e.target.value)}
-            aria-label="Filter by manager"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          >
-            {managers.map((m) => (
-              <option key={String(m)} value={String(m)}>
-                Manager: {m}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={subcontractorFilter}
-            onChange={(e) => setSubcontractorFilter(e.target.value)}
-            aria-label="Filter by subcontractor"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          >
-            {subcontractors.map((sub) => (
-              <option key={sub.value} value={sub.value}>
-                Sub: {sub.label}
-              </option>
-            ))}
-          </select>
-
-          <div className="flex gap-2 lg:col-span-2">
-            <AutocompleteField
-              label="Near Account"
-              placeholder="Find accounts near..."
-              query={nearAccountSearch.query}
-              onQueryChange={nearAccountSearch.setQuery}
-              options={nearAccountSearch.options}
-              loading={nearAccountSearch.loading}
-              selected={nearAccountSearch.selected}
-              onSelect={nearAccountSearch.select}
-              onClear={nearAccountSearch.clear}
-              className="min-w-0 flex-1 sm:w-full [&_input]:w-full [&_input]:sm:w-full [&>div:nth-child(2)]:w-full [&>div:nth-child(2)]:sm:w-full"
-            />
-
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500" htmlFor="near-account-radius">
-                Radius
-              </label>
-              <select
-                id="near-account-radius"
-                value={nearAccountRadius}
-                onChange={(e) => setNearAccountRadius(Number(e.target.value))}
-                disabled={!nearAccountSearch.selected}
-                aria-label="Near account radius in miles"
-                className="mt-1 min-h-[42px] w-20 shrink-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold text-slate-900 outline-none focus:border-blue-600 disabled:cursor-not-allowed disabled:bg-slate-100 sm:mt-1"
-              >
-                {NEAR_ACCOUNT_RADIUS_OPTIONS.map((miles) => (
-                  <option key={miles} value={miles}>
-                    {miles} mi
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSearch}
-            disabled={loading}
-            className="min-h-[48px] rounded-2xl bg-blue-700 px-4 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
-          >
-            {loading ? "Searching..." : "Search"}
-          </button>
-        </div>
-
-        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          <input
-            value={minRevenueFilter}
-            onChange={(e) => setMinRevenueFilter(e.target.value)}
-            inputMode="decimal"
-            placeholder="Min revenue"
-            aria-label="Minimum monthly revenue"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          />
-
-          <input
-            value={maxRevenueFilter}
-            onChange={(e) => setMaxRevenueFilter(e.target.value)}
-            inputMode="decimal"
-            placeholder="Max revenue"
-            aria-label="Maximum monthly revenue"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          />
-
-          <input
-            value={minSubPayFilter}
-            onChange={(e) => setMinSubPayFilter(e.target.value)}
-            inputMode="decimal"
-            placeholder="Min sub pay"
-            aria-label="Minimum subcontractor pay"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          />
-
-          <input
-            value={maxSubPayFilter}
-            onChange={(e) => setMaxSubPayFilter(e.target.value)}
-            inputMode="decimal"
-            placeholder="Max sub pay"
-            aria-label="Maximum subcontractor pay"
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 sm:text-sm"
-          />
-
-          <select
-            value={nearAccountRef ? "Distance" : sortOption}
-            onChange={(e) => setSortOption(e.target.value as SortOption)}
-            disabled={Boolean(nearAccountRef)}
-            aria-label="Sort accounts"
-            title={nearAccountRef ? "Sorted by distance while Near Account is active" : undefined}
-            className="min-h-[48px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-          >
-            {nearAccountRef ? (
-              <option value="Distance">Sort: Distance (Near Account active)</option>
-            ) : (
-              sortOptions.map((s) => (
-                <option key={s} value={s}>
-                  Sort: {s}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
+            ))
+          )}
+        </SelectField>
 
         {hasSearched ? (
-          <div className="mt-4 flex flex-col gap-3 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p>
-                Showing{" "}
-                <span className="font-black text-slate-900">
-                  {visibleAccounts.length}
-                </span>{" "}
-                of{" "}
-                <span className="font-black text-slate-900">
-                  {filteredAccounts.length}
-                </span>{" "}
-                matching account{filteredAccounts.length === 1 ? "" : "s"}
-                {loading && accounts.length > 0 ? (
-                  <span className="ml-2 text-xs font-semibold text-blue-600">Refreshing…</span>
-                ) : null}
-              </p>
-
-              <p className="mt-1 text-xs">
-                Tap any account name to open the account detail page.
-              </p>
-
-              {nearAccountRef && !nearAccountCoords ? (
-                <p className="mt-1 text-xs font-bold text-amber-700">
-                  {nearAccountRef.accountName || "The selected account"} has no stored location, so distance can&apos;t be calculated.
-                </p>
-              ) : null}
-
-              {nearAccountRef && nearAccountCoords && nearAccountMissingCoordsCount > 0 ? (
-                <p className="mt-1 text-xs font-bold text-amber-700">
-                  {nearAccountMissingCoordsCount} account
-                  {nearAccountMissingCoordsCount === 1 ? "" : "s"} otherwise matching your filters have no stored location and are excluded from these results.
-                </p>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handlePrintSubcontractorAccountList}
-                className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-black text-blue-800 hover:bg-blue-100"
-              >
-                Print Sub Account List
-              </button>
-
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
-              >
-                Clear Filters
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        ) : null}
+          <p className="ui-muted" role="status">
+            {filteredAccounts.length} matching account{plural(filteredAccounts.length)}
+          </p>
+        ) : (
+          <p className="ui-muted">Tap Done, then Search to load accounts.</p>
+        )}
+        <div>
+          <BigButton kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </BigButton>
+        </div>
+      </Sheet>
 
         {/* Transfer proposal panel */}
         {transferMode ? (
@@ -3472,500 +3150,321 @@ async function handleSaveTransferProposal() {
           </div>
         ) : null}
 
-        {/* Accounts table */}
-        {!transferMode ? (
-          <>
-        <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200">
-          <div className="hidden grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-500 lg:grid">
-            <div className="col-span-3">Account</div>
-            <div className="col-span-2">Manager</div>
-            <div className="col-span-2">Subcontractor</div>
-            <div className="col-span-1">Status</div>
-            <div className="col-span-1">Health</div>
-            <div className="col-span-1">Start Date</div>
-            <div className="col-span-1 text-right">Revenue / Margin</div>
-            <div className="col-span-1 text-right">Action</div>
-          </div>
-
+      {/* Accounts list */}
+      {!transferMode ? (
+        <>
           {/* `loading` alone used to gate this whole block, which blanked the
-              entire table back to a "Loading accounts..." placeholder on
-              every refetch (Search click, or any future re-fetch trigger) —
+              entire list back to a loading placeholder on every refetch —
               even though the previous `accounts` data was still sitting in
-              state the whole time, untouched, until the new response
-              arrived. Now the full-page loading state only shows when there
-              is nothing to show yet (first load); a refetch with existing
-              data keeps rendering the current rows below and only swaps
-              them once the new results land. */}
+              state the whole time. The placeholder only shows when there is
+              nothing to show yet (first load); a refetch with existing data
+              keeps the current rows and swaps them once the new results land. */}
           {loading && accounts.length === 0 ? (
-            <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
-              Loading accounts...
-            </div>
+            <SkeletonList rows={4} />
           ) : !hasSearched ? (
-            <div className="bg-white px-4 py-10 text-center">
-              <p className="text-2xl font-black text-slate-300">&#x1F50D;</p>
-              <p className="mt-2 text-sm font-semibold text-slate-500">
-                Click Search to get started.
-              </p>
-              <p className="mt-1 text-xs font-medium text-slate-400">
-                Type a search term first, or leave it blank to browse all accounts.
-              </p>
-            </div>
+            <EmptyState
+              icon="search"
+              title="Tap Search to get started"
+              text="Type a search term first, or leave it blank to browse all accounts."
+              action={
+                <BigButton kind="second" onClick={handleSearch}>
+                  Search
+                </BigButton>
+              }
+            />
           ) : visibleAccounts.length === 0 ? (
-            <div className="bg-white px-4 py-8 text-sm font-semibold text-slate-500">
-              {loading ? "Loading accounts..." : "No accounts found for this search."}
-            </div>
+            loading ? (
+              <SkeletonList rows={3} />
+            ) : (
+              <EmptyState
+                title="No accounts found for this search"
+                text="Try a shorter search, or clear the filters."
+                action={
+                  <BigButton kind="second" onClick={clearFilters}>
+                    Clear filters
+                  </BigButton>
+                }
+              />
+            )
           ) : (
-            <div className="divide-y divide-slate-100 bg-white">
-              {visibleAccounts.map((account, index) => {
-                const accountId = getAccountId(account);
-                const accountHref = `/accounts/${encodeURIComponent(accountId)}`;
-                const subDisplay = account._subDisplay ?? { contactName: "", companyName: "", fallback: normalizeText(account.subcontractor) || "Unassigned" };
-
-                return (
-                  <div
-                    key={`${accountId}-${index}`}
-                    className="px-4 py-4 text-sm hover:bg-blue-50 lg:grid lg:grid-cols-12 lg:gap-3"
-                  >
-                    <div className="lg:col-span-3">
-                      <div className="flex items-start gap-3">
-                        {bulkToDoMode ? (
-                          <input
-                            type="checkbox"
-                            checked={selectedBulkToDoIds.has(accountId)}
-                            onChange={() => toggleBulkToDoAccount(account)}
-                            aria-label={`Select ${account.accountName || "account"} for bulk to-do creation`}
-                            className="mt-1 h-5 w-5 shrink-0 rounded border-slate-300"
-                          />
-                        ) : null}
-                        <Link href={accountHref} className="block flex-1 no-underline">
-                      <div className="flex items-start justify-between gap-3 lg:block">
-                        <div>
-                          <p className="text-base font-black leading-6 text-blue-900 lg:text-sm">
-                            {account.accountName || "Unnamed Account"}
-                          </p>
-                          {(openTeamHubProblems[accountId] ?? 0) > 0 && (
-                            <span className="mt-1 inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold text-white">
-                              {openTeamHubProblems[accountId]} open problem{openTeamHubProblems[accountId] === 1 ? "" : "s"}
-                            </span>
-                          )}
-                          <span
-                            role="link"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const url = getGoogleMapsUrl(account.address);
-                              if (url !== "#") window.open(url, "_blank", "noopener,noreferrer");
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const url = getGoogleMapsUrl(account.address);
-                                if (url !== "#") window.open(url, "_blank", "noopener,noreferrer");
-                              }
-                            }}
-                            className="mt-1 block text-xs font-semibold leading-5 text-slate-500 hover:text-blue-600 hover:underline cursor-pointer"
-                          >
-                            {account.address || "No address"}
-                          </span>
-                          <p className="mt-1 text-xs font-bold text-slate-400">
-                            ID: {accountId || "N/A"}
-                          </p>
-                          {account._distanceMiles != null ? (
-                            <p className="mt-1 text-xs font-black text-blue-700">
-                              {formatMiles(account._distanceMiles)} away
-                            </p>
-                          ) : null}
-                        </div>
-                        <div className="text-right lg:hidden">
-                          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
-                            Revenue
-                          </p>
-                          <p className="text-sm font-black text-slate-950">
-                            {formatMoney(account.monthlyRevenue)}
-                            <span className="ml-1 text-xs font-normal text-gray-500">({account._revenuePercent ?? 0}%)</span>
-                          </p>
-                          <p className="mt-1 text-xs font-bold text-emerald-700">
-                            Sub Pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
-                          </p>
-                          <p className="mt-1 text-xs font-bold text-amber-600">
-                            Margin: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} ({account._grossMarginPercent ?? 0}%)
-                          </p>
-                        </div>
-                      </div>
-                        </Link>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3 lg:col-span-9 lg:mt-0 lg:grid-cols-9">
-                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Manager</p>
-                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">{account.manager || "Unassigned"}</p>
-                      </div>
-
-                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-2 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Subcontractor</p>
-                        <p className="mt-1 font-bold text-slate-700 lg:mt-0">
-                          {getSubDisplayLabel(subDisplay)}
-                        </p>
-                      </div>
-
-                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Status</p>
-                        <span
-                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getStatusClass(account.status)}`}
-                          aria-label={`Status: ${account.status ?? "N/A"}`}
-                        >
-                          {account.status || "N/A"}
-                        </span>
-                      </div>
-
-                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Health</p>
-                        <span
-                          className={`mt-1 inline-flex rounded-full border px-2 py-1 text-xs font-black lg:mt-0 ${getHealthClass(account.accountHealth)}`}
-                          aria-label={`Account health: ${account.accountHealth ?? "N/A"}`}
-                        >
-                          {account.accountHealth || "N/A"}
-                        </span>
-                      </div>
-
-                      <div className="rounded-2xl bg-slate-50 p-3 lg:col-span-1 lg:rounded-none lg:bg-transparent lg:p-0">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 lg:hidden">Start Date</p>
-                        <p className="mt-1 text-xs font-bold text-slate-600 lg:mt-0">
-                          {formatDate(account.accountStartDate) || "-"}
-                        </p>
-                      </div>
-
-                      <div className="hidden text-right lg:col-span-1 lg:block">
-                        <p className="font-black text-slate-950">
-                          {formatMoney(account.monthlyRevenue)}
-                          <span className="ml-1 text-xs font-normal text-gray-500">({account._revenuePercent ?? 0}%)</span>
-                        </p>
-                        <p className="mt-1 text-[11px] font-bold text-emerald-700">
-                          Sub: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}
-                        </p>
-                        <p className="mt-1 text-[11px] font-bold text-amber-600">
-                          Margin: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} ({account._grossMarginPercent ?? 0}%)
-                        </p>
-                        {normalizeText(account._frequencyText) ? (
-                          <p className="mt-1 text-[11px] font-bold text-slate-400">
-                            {account._frequencyText}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div className="col-span-2 flex flex-col gap-2 lg:col-span-1 lg:items-end">
-                        <button
-                          type="button"
-                          onClick={() => openStatusModal(account)}
-                          aria-label={`Change status for ${account.accountName ?? "this account"}`}
-                          className="w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 lg:w-auto"
-                        >
-                          Change Status
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openQuickToDoModal(account)}
-                          aria-label={`Add to-do for ${account.accountName ?? "this account"}`}
-                          className="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-800 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 lg:w-auto"
-                        >
-                          + To-Do
-                        </button>
-                      </div>
-                    </div>
+            <CardList
+              label="Accounts"
+              items={visibleAccounts.map((account, index) => ({ account, index }))}
+              getKey={({ account, index }) => `${getAccountId(account)}-${index}`}
+              renderCard={({ account }) => (
+                <Card>
+                  <AccountNameBlock
+                    account={account}
+                    openProblems={openTeamHubProblems[getAccountId(account)] ?? 0}
+                    selecting={bulkToDoMode}
+                    selected={selectedBulkToDoIds.has(getAccountId(account))}
+                    onToggle={() => toggleBulkToDoAccount(account)}
+                  />
+                  <div className="ui-actions-row" style={{ marginTop: 8 }}>
+                    <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
+                    <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "N/A"}</StatusPill>
                   </div>
-                );
-              })}
-            </div>
+                  <p className="ui-card-text">
+                    Manager: {account.manager || "Unassigned"} · Sub: {getSubDisplayLabel(subDisplayOf(account))}
+                  </p>
+                  <p className="ui-card-text">Started {formatDate(account.accountStartDate) || "not set"}</p>
+                  <AccountMoneyBlock account={account} />
+                  <div style={{ marginTop: 12 }}>
+                    <AccountRowActions account={account} onStatus={openStatusModal} onToDo={openQuickToDoModal} />
+                  </div>
+                </Card>
+              )}
+              columns={[
+                {
+                  header: "Account",
+                  cell: ({ account }) => (
+                    <AccountNameBlock
+                      account={account}
+                      openProblems={openTeamHubProblems[getAccountId(account)] ?? 0}
+                      selecting={bulkToDoMode}
+                      selected={selectedBulkToDoIds.has(getAccountId(account))}
+                      onToggle={() => toggleBulkToDoAccount(account)}
+                    />
+                  ),
+                },
+                {
+                  header: "Manager / Subcontractor",
+                  cell: ({ account }) => (
+                    <>
+                      <p className="ui-strong">{account.manager || "Unassigned"}</p>
+                      <p className="ui-muted">{getSubDisplayLabel(subDisplayOf(account))}</p>
+                    </>
+                  ),
+                },
+                {
+                  header: "Status / Health",
+                  cell: ({ account }) => (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                      <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
+                      <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "N/A"}</StatusPill>
+                    </div>
+                  ),
+                },
+                { header: "Start Date", cell: ({ account }) => <span className="ui-nowrap">{formatDate(account.accountStartDate) || "Not set"}</span> },
+                { header: "Revenue / Margin", cell: ({ account }) => <AccountMoneyBlock account={account} /> },
+                { header: "Action", cell: ({ account }) => <AccountRowActions account={account} onStatus={openStatusModal} onToDo={openQuickToDoModal} /> },
+              ]}
+            />
           )}
-        </div>
 
-        {/* Load more */}
-        {visibleCount < filteredAccounts.length ? (
-          <div className="mt-5 flex justify-center">
-            <button
-              type="button"
-              onClick={() => setVisibleCount((n) => n + LOAD_MORE_COUNT)}
-              className="rounded-2xl bg-slate-950 px-6 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-950"
-            >
-              Load 15 More
-            </button>
-          </div>
-        ) : null}
-          </>
-        ) : null}
-      </section>
-
-      {/* ----------------------------------------------------------------- */}
-      {/* Status modal                                                        */}
-      {/* ----------------------------------------------------------------- */}
-
-      {statusModalAccount ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-          role="presentation"
-          onClick={handleOverlayClick}
-          onKeyDown={handleOverlayKeyDown}
-        >
-          <div
-            ref={modalRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="status-modal-title"
-            className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
-                  Quick Status Change
-                </p>
-                <h2 id="status-modal-title" className="mt-2 text-2xl font-black text-slate-950">
-                  {statusModalAccount.accountName || "Unnamed Account"}
-                </h2>
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Current status:{" "}
-                  <span className="font-black text-slate-800">{statusModalAccount.status || "N/A"}</span>
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeStatusModal}
-                disabled={savingStatus}
-                aria-label="Close dialog"
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                ✕
-              </button>
+          {/* Load more */}
+          {visibleCount < filteredAccounts.length ? (
+            <div>
+              <BigButton kind="second" onClick={() => setVisibleCount((n) => n + LOAD_MORE_COUNT)}>
+                Show 15 more
+              </BigButton>
             </div>
-
-            <div className="mt-5 grid gap-4">
-              <div>
-                <label htmlFor="new-status" className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  New Status
-                </label>
-                <select
-                  id="new-status"
-                  value={newStatus}
-                  onChange={(e) => setNewStatus(e.target.value as QuickStatusOption)}
-                  disabled={savingStatus}
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                >
-                  {quickStatusOptions.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="status-reason" className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Reason / History Note
-                </label>
-                <textarea
-                  id="status-reason"
-                  value={statusReason}
-                  onChange={(e) => setStatusReason(e.target.value)}
-                  disabled={savingStatus}
-                  placeholder="Example: Customer requested cancellation effective July 1. / Paused due to remodeling."
-                  rows={5}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                />
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                  This also creates an Account Update history note.
-                </p>
-              </div>
-
-              {statusError ? (
-                <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
-                  {statusError}
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={closeStatusModal}
-                  disabled={savingStatus}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveStatusChange}
-                  disabled={savingStatus}
-                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {savingStatus ? "Saving..." : "Save Status Change"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+          ) : null}
+        </>
       ) : null}
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Quick to-do modal                                                  */}
-      {/* ----------------------------------------------------------------- */}
+      {/* Status change */}
+      <Sheet
+        open={statusModalAccount !== null}
+        title="Change status"
+        text={statusModalAccount ? `${statusModalAccount.accountName || "Unnamed Account"}. Current status: ${statusModalAccount.status || "N/A"}.` : undefined}
+        onClose={closeStatusModal}
+        busy={savingStatus}
+        actions={
+          <BigButton busy={savingStatus} busyLabel="Saving…" onClick={() => void handleSaveStatusChange()}>
+            Save status change
+          </BigButton>
+        }
+      >
+        <SelectField label="New status" value={newStatus} onChange={(e) => setNewStatus(e.target.value as QuickStatusOption)} disabled={savingStatus}>
+          {quickStatusOptions.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </SelectField>
+        <TextAreaField
+          label="Reason / history note"
+          hint="This also creates an Account Update history note."
+          optional
+          rows={5}
+          placeholder="Customer requested cancellation effective July 1. / Paused due to remodeling."
+          value={statusReason}
+          onChange={(e) => setStatusReason(e.target.value)}
+          disabled={savingStatus}
+        />
+        {statusError ? <ErrorBox title="The status was not changed." text={statusError} /> : null}
+      </Sheet>
 
-      {quickToDoAccount ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-          role="presentation"
-          onClick={handleQuickToDoOverlayClick}
-          onKeyDown={handleQuickToDoOverlayKeyDown}
-        >
-          <div
-            ref={quickToDoModalRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="quick-todo-modal-title"
-            className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-indigo-700">
-                  New To-Do
-                </p>
-                <h2 id="quick-todo-modal-title" className="mt-2 text-2xl font-black text-slate-950">
-                  {quickToDoAccount.accountName || "Unnamed Account"}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeQuickToDoModal}
-                disabled={quickToDoSaving}
-                aria-label="Close dialog"
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-assigned-to">
-                  Assigned To
-                </label>
-                <select
-                  id="quick-todo-assigned-to"
-                  value={quickToDoForm.assignedTo}
-                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, assignedTo: e.target.value }))}
-                  disabled={quickToDoSaving}
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                >
-                  <option value="">Select a manager...</option>
-                  {bulkToDoManagers.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-type">
-                  Type
-                </label>
-                <select
-                  id="quick-todo-type"
-                  value={quickToDoForm.taskType}
-                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, taskType: e.target.value }))}
-                  disabled={quickToDoSaving}
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                >
-                  {BULK_TODO_TASK_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-due-date">
-                  Due Date
-                </label>
-                <input
-                  id="quick-todo-due-date"
-                  type="date"
-                  value={quickToDoForm.dueDate}
-                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, dueDate: e.target.value }))}
-                  disabled={quickToDoSaving}
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-why">
-                  Why
-                </label>
-                <input
-                  id="quick-todo-why"
-                  value={quickToDoForm.why}
-                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, why: e.target.value }))}
-                  disabled={quickToDoSaving}
-                  placeholder="Example: Customer said restrooms need attention"
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500" htmlFor="quick-todo-notes">
-                  Notes
-                </label>
-                <textarea
-                  id="quick-todo-notes"
-                  value={quickToDoForm.notes}
-                  onChange={(e) => setQuickToDoForm((f) => ({ ...f, notes: e.target.value }))}
-                  disabled={quickToDoSaving}
-                  placeholder="Extra instructions"
-                  rows={3}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                />
-              </div>
-
-              {quickToDoError ? (
-                <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700 sm:col-span-2">
-                  {quickToDoError}
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={closeQuickToDoModal}
-                  disabled={quickToDoSaving}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={submitQuickToDo}
-                  disabled={quickToDoSaving}
-                  className="rounded-2xl bg-indigo-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {quickToDoSaving ? "Creating..." : "Create To-Do"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {/* Quick to-do for one account */}
+      <Sheet
+        open={quickToDoAccount !== null}
+        title="New to-do"
+        text={quickToDoAccount ? quickToDoAccount.accountName || "Unnamed Account" : undefined}
+        onClose={closeQuickToDoModal}
+        busy={quickToDoSaving}
+        actions={
+          <BigButton busy={quickToDoSaving} busyLabel="Creating…" onClick={() => void submitQuickToDo()}>
+            Create to-do
+          </BigButton>
+        }
+      >
+        <SelectField label="Assigned to" value={quickToDoForm.assignedTo} onChange={(e) => setQuickToDoForm((f) => ({ ...f, assignedTo: e.target.value }))} disabled={quickToDoSaving}>
+          <option value="">Select a manager…</option>
+          {bulkToDoManagers.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Type" value={quickToDoForm.taskType} onChange={(e) => setQuickToDoForm((f) => ({ ...f, taskType: e.target.value }))} disabled={quickToDoSaving}>
+          {BULK_TODO_TASK_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </SelectField>
+        <Field label="Due date" type="date" optional value={quickToDoForm.dueDate} onChange={(e) => setQuickToDoForm((f) => ({ ...f, dueDate: e.target.value }))} disabled={quickToDoSaving} />
+        <Field
+          label="Why"
+          optional
+          placeholder="Customer said restrooms need attention"
+          value={quickToDoForm.why}
+          onChange={(e) => setQuickToDoForm((f) => ({ ...f, why: e.target.value }))}
+          disabled={quickToDoSaving}
+        />
+        <TextAreaField
+          label="Notes"
+          optional
+          rows={3}
+          placeholder="Extra instructions"
+          value={quickToDoForm.notes}
+          onChange={(e) => setQuickToDoForm((f) => ({ ...f, notes: e.target.value }))}
+          disabled={quickToDoSaving}
+        />
+        {quickToDoError ? <ErrorBox title="The to-do was not created." text={quickToDoError} /> : null}
+      </Sheet>
 
       {toast ? (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed bottom-6 right-6 z-[60] rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-sm font-semibold text-emerald-800 shadow-lg"
-        >
-          {toast}
+        <div className="ui-toast-region" role="status" aria-live="polite">
+          <div className="ui-toast">{toast}</div>
         </div>
       ) : null}
+    </Screen>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row pieces (shared by the phone cards and the wide-screen table)
+// ---------------------------------------------------------------------------
+
+function subDisplayOf(account: Account): SubcontractorDisplay {
+  return account._subDisplay ?? { contactName: "", companyName: "", fallback: normalizeText(account.subcontractor) || "Unassigned" };
+}
+
+// Same categories as the old color classes: Active green, Cancelled red,
+// Paused / Over 90 Days amber, anything else gray.
+function accountStatusKind(status: string | undefined): StatusKind {
+  const category = getStatusCategory(status);
+  if (category === "Active") return "done";
+  if (category === "Cancelled") return "needs-you";
+  if (category === "Paused" || category === "Over 90 Days") return "waiting";
+  return "off";
+}
+
+function accountHealthKind(health: string | undefined): StatusKind {
+  const clean = normalizeLower(health);
+  if (clean.includes("high risk")) return "needs-you";
+  if (clean.includes("attention")) return "waiting";
+  if (clean.includes("stable") || clean.includes("good") || clean.includes("excellent")) return "done";
+  return "off";
+}
+
+function AccountNameBlock({
+  account,
+  openProblems,
+  selecting,
+  selected,
+  onToggle,
+}: {
+  account: Account;
+  openProblems: number;
+  selecting: boolean;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const accountId = getAccountId(account);
+  const mapsUrl = getGoogleMapsUrl(account.address);
+  return (
+    <div style={{ minWidth: 0 }}>
+      {selecting ? (
+        <label className="ui-check" style={{ marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            aria-label={`Select ${account.accountName || "account"} for bulk to-do creation`}
+          />
+          <span>Select</span>
+        </label>
+      ) : null}
+      <Link href={`/accounts/${encodeURIComponent(accountId)}`} className="ui-table-rowlink">
+        {account.accountName || "Unnamed Account"}
+      </Link>
+      {openProblems > 0 ? (
+        <div>
+          <StatusPill kind="needs-you">
+            {openProblems} open problem{openProblems === 1 ? "" : "s"}
+          </StatusPill>
+        </div>
+      ) : null}
+      <div>
+        {mapsUrl !== "#" ? (
+          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
+            {account.address || "No address"}
+          </a>
+        ) : (
+          <span className="ui-muted">{account.address || "No address"}</span>
+        )}
+      </div>
+      {account._distanceMiles != null ? <p className="ui-strong">{formatMiles(account._distanceMiles)} away</p> : null}
+    </div>
+  );
+}
+
+function AccountMoneyBlock({ account }: { account: Account }) {
+  return (
+    <div>
+      <p className="ui-strong ui-nowrap">
+        {formatMoney(account.monthlyRevenue)} <span className="ui-muted">({account._revenuePercent ?? 0}%)</span>
+      </p>
+      <p className="ui-muted ui-nowrap">Sub pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}</p>
+      <p className="ui-muted ui-nowrap">
+        Margin: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} (
+        {account._grossMarginPercent ?? 0}%)
+      </p>
+      {normalizeText(account._frequencyText) ? <p className="ui-muted">{account._frequencyText}</p> : null}
+    </div>
+  );
+}
+
+function AccountRowActions({
+  account,
+  onStatus,
+  onToDo,
+}: {
+  account: Account;
+  onStatus: (account: Account) => void;
+  onToDo: (account: Account) => void;
+}) {
+  return (
+    <div className="ui-actions-row">
+      <BigButton kind="second" onClick={() => onStatus(account)} aria-label={`Change status for ${account.accountName ?? "this account"}`}>
+        Change status
+      </BigButton>
+      <BigButton kind="second" icon="plus" onClick={() => onToDo(account)} aria-label={`Add to-do for ${account.accountName ?? "this account"}`}>
+        To-do
+      </BigButton>
     </div>
   );
 }

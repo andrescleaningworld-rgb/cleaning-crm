@@ -1480,6 +1480,23 @@ button.ui-card:hover {
   overflow-wrap: anywhere;
 }
 
+/* Search box with its Search button: stacked on a phone, side by side when wide. */
+.ui-searchrow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .ui-searchrow {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .ui-searchrow > .ui-search {
+    flex: 1;
+  }
+}
+
 .ui-nowrap {
   white-space: nowrap;
 }
