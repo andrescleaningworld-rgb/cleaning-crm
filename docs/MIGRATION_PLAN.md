@@ -189,8 +189,10 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Phase 0, step 7: `scripts/migrate/parity.mts <area>` + `scripts/migrate/lib/diff.mjs`; each area lists its reads in `scripts/migrate/parity/<area>.mts`. Self-test: `npx tsx scripts/migrate/parity.mts --self-test`.
 - Part B: UI kit in `app/ui/` (`core.tsx`, `controls.tsx`, `toast.tsx`, `words.ts`, `index.ts`), `.ui-*` styles and `--ui-*` tokens appended to `app/globals.css`, preview at `/design-preview`. Checked at 375/768/1280px, keyboard-only pass, 640px (200% zoom). No existing screen uses the kit yet.
 - Area 1, step 0: `scripts/migrate/discover.mjs <area>` (headers + counts only, no cell values; `--tabs` lists tabs no area claims) → `docs/migration-reports/catalogs-headers.md`. ChangeLog 3 rows, GeocodeCache 0, ExtraServices 4, Documents 5, DocumentSends 7.
+- Area 1, step 1: `db/migrations/002_catalogs.sql` applied to dev (`changelog_entries`, `geocode_cache`, `extra_services`, `documents`, `document_sends`). Dates keep the Sheets text in `*_raw` next to a typed column.
+- Area 1, step 2: `scripts/migrate/import-catalogs.mjs` + `lib/import-helpers.mjs`. Dry-run, real run, and re-run all clean: 3 / 0 / 4 / 5 / 7 rows, 0 issues. GeocodeCache is empty in Sheets.
 
-**Next step:** Area 1, Step 1 (schema `db/migrations/002_catalogs.sql`).
+**Next step:** Area 1, Step 3 (verify report).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -254,3 +256,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07 21:00 | 0/checkpoint | this commit | Checkpoint 0 report written. Area 0 total: 0.5 h vs 6 h estimate.
 - 2026-10-07T21:00 → 21:12 | B | this commit | UI kit + /design-preview. tsc ok, build ok, lint at baseline. Total so far 0.7 h vs 20 h estimate.
 - 2026-10-07T22:34 → 22:35 | 1/step 0 | this commit | Discovery script + catalogs headers report.
+- 2026-10-07T22:36 → 22:39 | 1/steps 1–2 | this commit (schema file is in the commit before) | Schema applied, import run twice, 0 issues. Added `scripts/migrate/progress.mjs` to update this section.
