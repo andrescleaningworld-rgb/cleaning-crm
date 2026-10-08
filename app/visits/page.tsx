@@ -2,8 +2,24 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { parseISO, toISO } from "@/lib/dateUtils";
+import {
+  BigButton,
+  Card,
+  CardList,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  MoreMenu,
+  Screen,
+  SearchBar,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  StatusPill,
+  type StatusKind,
+} from "@/app/ui";
 
 type Visit = {
   id?: string;
@@ -48,7 +64,7 @@ function toISODate(value: unknown): string {
 
 function formatDate(value: unknown): string {
   const text = clean(value);
-  if (!text) return "-";
+  if (!text) return "";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(text) ? parseISO(text) : new Date(text);
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleDateString("en-US", {
@@ -58,14 +74,16 @@ function formatDate(value: unknown): string {
   });
 }
 
-function getConditionClass(value: unknown): string {
-  const score = Number(value);
-  if (Number.isNaN(score)) return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
-  if (score >= 9) return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
-  if (score >= 8) return "rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700";
-  if (score >= 7) return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
-  return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
+function conditionKind(value: unknown): StatusKind {
+  const text = clean(value);
+  const score = Number(text);
+  if (!text || Number.isNaN(score)) return "off";
+  if (score >= 8) return "done";
+  if (score >= 7) return "waiting";
+  return "needs-you";
 }
+
+const PAGE_SIZE = 50;
 
 function deriveStatus(visit: Visit): "Visited" | "Scheduled" | "Missed" {
   const iso = toISODate(visit.date);
@@ -85,7 +103,6 @@ function getLoadedVisits(data: VisitsApiResponse | Visit[]): Visit[] {
 }
 
 export default function VisitsPage() {
-  const router = useRouter();
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -98,6 +115,9 @@ export default function VisitsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortBy, setSortBy] = useState<"recent" | "account">("recent");
+  // Layout only: filters open in a sheet, and the list shows 50 at a time.
+  const [showFilters, setShowFilters] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   useEffect(() => {
     async function loadVisits() {
@@ -198,316 +218,176 @@ export default function VisitsPage() {
     setDateTo("");
   }
 
-  const pillBase =
-    "rounded-full border px-3 py-1.5 text-xs font-bold outline-none transition cursor-pointer";
-  const pillActive = "border-blue-500 bg-blue-600 text-white";
-  const pillInactive = "border-gray-300 bg-white text-gray-700 hover:border-blue-400";
+  const filtersOn =
+    [filterAccount, filterSub, filterManager, filterStatus, dateFrom, dateTo].filter(Boolean).length + (sortBy !== "recent" ? 1 : 0);
+  const visibleVisits = filteredVisits.slice(0, visibleCount);
+
+  // Printing puts every matching visit on paper, not only the first 50.
+  function printAll() {
+    setVisibleCount(filteredVisits.length || PAGE_SIZE);
+    window.setTimeout(() => window.print(), 100);
+  }
+
+  const conditionPill = (visit: Visit) => (
+    <StatusPill kind={conditionKind(visit.condition)}>{clean(visit.condition) ? `Condition ${clean(visit.condition)}` : "No score"}</StatusPill>
+  );
+  const visitHref = (visit: Visit) => `/visits/${encodeURIComponent(visit.id ?? "")}`;
+  const followUpText = (visit: Visit) =>
+    `${clean(visit.followUpNeeded) || "Not set"}${formatDate(visit.followUpDate) ? `, ${formatDate(visit.followUpDate)}` : ""}`;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-      {/* Header */}
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Cleaning World</p>
-          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Visits</h1>
-          <p className="mt-2 text-sm leading-6 text-gray-500 sm:text-base">
-            Track account visits, conditions, follow-ups, managers, and notes.
-          </p>
-        </div>
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={filterAccount}
-              onChange={(e) => setFilterAccount(e.target.value)}
-              className={`${pillBase} ${filterAccount ? pillActive : pillInactive}`}
-            >
-              <option value="">All Accounts</option>
-              {uniqueAccounts.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <select
-              value={filterSub}
-              onChange={(e) => setFilterSub(e.target.value)}
-              className={`${pillBase} ${filterSub ? pillActive : pillInactive}`}
-            >
-              <option value="">All Subs</option>
-              {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/visits/new"
-              className="rounded-xl bg-blue-600 px-4 py-3 text-center font-bold text-white no-underline"
-            >
-              + Add Visit
-            </Link>
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white"
-            >
-              Print
-            </button>
-          </div>
-        </div>
-      </div>
-
+    <Screen
+      title="Visits"
+      subtitle="Track account visits, conditions, follow-ups, managers, and notes."
+      headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: printAll }]} />}
+      action={
+        <BigButton icon="plus" href="/visits/new">
+          Add visit
+        </BigButton>
+      }
+    >
       {loading ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          Loading visits...
-        </div>
+        <SkeletonList rows={4} />
       ) : error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-6 font-bold text-red-700">
-          {error}
-        </div>
+        <ErrorBox title="The visits did not load." text={error} />
       ) : (
         <>
-          {/* Stats */}
-          <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Total Visits</p>
-              <h2 className="mt-2 text-3xl font-bold">{visits.length}</h2>
-              <p className="mt-2 text-sm text-gray-500">Loaded from Google Sheets</p>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Showing</p>
-              <h2 className="mt-2 text-3xl font-bold">{filteredVisits.length}</h2>
-              <p className="mt-2 text-sm text-gray-500">After filters</p>
-            </div>
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Follow-Ups Needed</p>
-              <h2 className="mt-2 text-3xl font-bold">{followUpsNeeded}</h2>
-              <p className="mt-2 text-sm text-gray-500">Marked Yes</p>
-            </div>
-          </section>
+          <SearchBar value={search} onChange={setSearch} label="Search visits" placeholder="Search by account, manager, type or notes" />
 
-          {/* ── List filters ── */}
-          <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by account name…"
-                className="min-h-[44px] rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500 sm:col-span-2 lg:col-span-1"
+          <div className="ui-actions-row">
+            <BigButton kind="second" onClick={() => setShowFilters(true)}>
+              {filtersOn ? `Filter and sort (${filtersOn} on)` : "Filter and sort"}
+            </BigButton>
+            {hasActiveFilters ? (
+              <BigButton kind="quiet" onClick={clearFilters}>
+                Clear filters
+              </BigButton>
+            ) : null}
+          </div>
+
+          <div className="ui-stats">
+            <div className="ui-stat">
+              <p className="ui-stat-label">Total Visits</p>
+              <p className="ui-stat-value">{visits.length}</p>
+            </div>
+            <div className="ui-stat">
+              <p className="ui-stat-label">Showing</p>
+              <p className="ui-stat-value">{filteredVisits.length}</p>
+              <p className="ui-muted">After filters</p>
+            </div>
+            <div className="ui-stat">
+              <p className="ui-stat-label">Follow-Ups Needed</p>
+              <p className="ui-stat-value">{followUpsNeeded}</p>
+              <p className="ui-muted">Marked Yes</p>
+            </div>
+          </div>
+
+          {filteredVisits.length === 0 ? (
+            <EmptyState icon="search" title="No visits found" text="Try a shorter search, or clear the filters." />
+          ) : (
+            <>
+              <CardList
+                label="Visits"
+                items={visibleVisits.map((visit, index) => ({ visit, index }))}
+                getKey={({ visit, index }) => `${visit.id || "visit"}-${index}`}
+                renderCard={({ visit }) => (
+                  <Card title={clean(visit.accountName) || "No account name"} right={conditionPill(visit)}>
+                    <p className="ui-card-text">
+                      {formatDate(visit.date) || "No date"} · {clean(visit.visitType) || "No type"} · {clean(visit.manager) || "No manager"}
+                    </p>
+                    {clean(visit.subcontractor) ? <p className="ui-card-text">Sub: {clean(visit.subcontractor)}</p> : null}
+                    <p className="ui-card-text">Follow-up: {followUpText(visit)}</p>
+                    {clean(visit.notes) ? <p className="ui-card-text ui-clamp">{clean(visit.notes)}</p> : null}
+                    {visit.id ? (
+                      <div style={{ marginTop: 12 }}>
+                        <BigButton kind="second" href={visitHref(visit)} aria-label={`Open the visit to ${clean(visit.accountName) || "this account"} on ${formatDate(visit.date) || "an unknown date"}`}>
+                          {LABELS.open}
+                        </BigButton>
+                      </div>
+                    ) : null}
+                  </Card>
+                )}
+                columns={[
+                  { header: "Date", cell: ({ visit }) => <span className="ui-nowrap">{formatDate(visit.date) || "No date"}</span> },
+                  {
+                    header: "Account",
+                    cell: ({ visit }) =>
+                      visit.id ? (
+                        <Link href={visitHref(visit)} className="ui-table-rowlink">
+                          {clean(visit.accountName) || "No account name"}
+                        </Link>
+                      ) : (
+                        <span className="ui-strong">{clean(visit.accountName) || "No account name"}</span>
+                      ),
+                  },
+                  { header: "Visit Type", cell: ({ visit }) => clean(visit.visitType) || "None" },
+                  { header: "Completed By", cell: ({ visit }) => clean(visit.manager) || "None" },
+                  { header: "Subcontractor", cell: ({ visit }) => clean(visit.subcontractor) || "None" },
+                  { header: "Condition", cell: ({ visit }) => conditionPill(visit) },
+                  { header: "Follow-Up", cell: ({ visit }) => clean(visit.followUpNeeded) || "Not set" },
+                  { header: "Follow-Up Date", cell: ({ visit }) => <span className="ui-nowrap">{formatDate(visit.followUpDate) || "None"}</span> },
+                  { header: "Notes", cell: ({ visit }) => <span className="ui-clamp">{clean(visit.notes) || "None"}</span> },
+                ]}
               />
 
-              <select
-                value={filterAccount}
-                onChange={(e) => setFilterAccount(e.target.value)}
-                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-              >
-                <option value="">Filter by Account</option>
-                {uniqueAccounts.map((a) => <option key={a} value={a}>{a}</option>)}
-              </select>
-
-              <select
-                value={filterSub}
-                onChange={(e) => setFilterSub(e.target.value)}
-                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-              >
-                <option value="">Filter by Subcontractor</option>
-                {uniqueSubs.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-
-              <select
-                value={filterManager}
-                onChange={(e) => setFilterManager(e.target.value)}
-                title="Filter by Completed By"
-                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-              >
-                <option value="">All Managers</option>
-                {uniqueManagers.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-              >
-                <option value="">Filter by Status</option>
-                <option value="Visited">Visited</option>
-                <option value="Scheduled">Scheduled</option>
-                <option value="Missed">Missed</option>
-              </select>
-
-              <div className="flex gap-2">
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  title="From date"
-                  className="min-h-[44px] flex-1 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  title="To date"
-                  className="min-h-[44px] flex-1 rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </div>
-
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="min-h-[44px] rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-50"
-                >
-                  Clear Filters
-                </button>
-              )}
-            </div>
-          </section>
-
-          {/* ── Visit list ── */}
-          <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="mb-4 flex flex-col gap-3">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-xl font-bold">Visit List</h2>
-                <span className="font-bold text-gray-500">{filteredVisits.length} visits</span>
-              </div>
-              {/* Sort + filter bar */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wide text-gray-400">Sort:</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as "recent" | "account")}
-                  className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                >
-                  <option value="recent">Most Recent</option>
-                  <option value="account">Account A–Z</option>
-                </select>
-                <span className="text-gray-200 select-none">|</span>
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className={`${pillBase} ${filterStatus ? pillActive : pillInactive}`}
-                >
-                  <option value="">All Statuses</option>
-                  <option value="Visited">Visited</option>
-                  <option value="Scheduled">Scheduled</option>
-                  <option value="Missed">Missed</option>
-                </select>
-              </div>
-            </div>
-
-            {filteredVisits.length === 0 ? (
-              <p className="text-gray-500">No visits found.</p>
-            ) : (
-              <>
-                {/* Mobile cards */}
-                <div className="space-y-4 md:hidden">
-                  {filteredVisits.map((visit, index) => (
-                    <div
-                      key={`${visit.id || "visit"}-${index}-mobile`}
-                      onClick={() => visit.id && router.push(`/visits/${encodeURIComponent(visit.id)}`)}
-                      className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-shadow"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                            {formatDate(visit.date)}
-                          </p>
-                          <h3 className="mt-1 text-lg font-black text-blue-900">
-                            {clean(visit.accountName) || "-"}
-                          </h3>
-                          {clean(visit.accountId) ? (
-                            <p className="mt-1 text-xs font-bold text-gray-400">
-                              ID: {clean(visit.accountId)}
-                            </p>
-                          ) : null}
-                        </div>
-                        <span className={getConditionClass(visit.condition)}>
-                          {clean(visit.condition) || "-"}
-                        </span>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Type</p>
-                          <p className="mt-1 font-bold">{clean(visit.visitType) || "-"}</p>
-                        </div>
-                        <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Manager</p>
-                          <p className="mt-1 font-bold">{clean(visit.manager) || "-"}</p>
-                        </div>
-                        <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Sub</p>
-                          <p className="mt-1 font-bold">{clean(visit.subcontractor) || "-"}</p>
-                        </div>
-                        <div className="rounded-xl bg-gray-50 p-3">
-                          <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Follow-Up</p>
-                          <p className="mt-1 font-bold">{clean(visit.followUpNeeded) || "-"}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 rounded-xl bg-gray-50 p-3">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">
-                          Follow-Up Date
-                        </p>
-                        <p className="mt-1 font-bold">{formatDate(visit.followUpDate)}</p>
-                      </div>
-
-                      <div className="mt-3 rounded-xl bg-gray-50 p-3">
-                        <p className="text-[11px] font-black uppercase tracking-wide text-gray-400">Notes</p>
-                        <p className="mt-1 text-sm leading-6 text-gray-700">
-                          {clean(visit.notes) || "-"}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+              {visibleCount < filteredVisits.length ? (
+                <div>
+                  <BigButton kind="second" onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}>
+                    Show {Math.min(PAGE_SIZE, filteredVisits.length - visibleCount)} more
+                  </BigButton>
                 </div>
-
-                {/* Desktop table */}
-                <div className="hidden overflow-x-auto md:block">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                        <th className="p-3">Date</th>
-                        <th className="p-3">Account</th>
-                        <th className="p-3">Visit Type</th>
-                        <th className="p-3">Completed By</th>
-                        <th className="p-3">Subcontractor</th>
-                        <th className="p-3">Condition</th>
-                        <th className="p-3">Follow-Up</th>
-                        <th className="p-3">Follow-Up Date</th>
-                        <th className="p-3">Notes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredVisits.map((visit, index) => (
-                        <tr
-                          key={`${visit.id || "visit"}-${index}`}
-                          onClick={() => visit.id && router.push(`/visits/${encodeURIComponent(visit.id)}`)}
-                          className="border-b last:border-b-0 cursor-pointer hover:bg-blue-50 transition-colors"
-                        >
-                          <td className="whitespace-nowrap p-3">{formatDate(visit.date)}</td>
-                          <td className="p-3">
-                            <div className="font-bold">{clean(visit.accountName) || "-"}</div>
-                            {clean(visit.accountId) ? (
-                              <div className="text-xs text-gray-500">{clean(visit.accountId)}</div>
-                            ) : null}
-                          </td>
-                          <td className="p-3">{clean(visit.visitType) || "-"}</td>
-                          <td className="p-3">{clean(visit.manager) || "-"}</td>
-                          <td className="p-3">{clean(visit.subcontractor) || "-"}</td>
-                          <td className="p-3">
-                            <span className={getConditionClass(visit.condition)}>
-                              {clean(visit.condition) || "-"}
-                            </span>
-                          </td>
-                          <td className="p-3">{clean(visit.followUpNeeded) || "-"}</td>
-                          <td className="whitespace-nowrap p-3">{formatDate(visit.followUpDate)}</td>
-                          <td className="min-w-[320px] p-3">{clean(visit.notes) || "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-          </section>
+              ) : null}
+            </>
+          )}
         </>
       )}
-    </main>
+
+      <Sheet open={showFilters} title="Filter and sort" onClose={() => setShowFilters(false)} closeLabel="Done">
+        <SelectField label="Account" value={filterAccount} onChange={(e) => setFilterAccount(e.target.value)}>
+          <option value="">All Accounts</option>
+          {uniqueAccounts.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Subcontractor" value={filterSub} onChange={(e) => setFilterSub(e.target.value)}>
+          <option value="">All Subs</option>
+          {uniqueSubs.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Completed by" value={filterManager} onChange={(e) => setFilterManager(e.target.value)}>
+          <option value="">All Managers</option>
+          {uniqueManagers.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Status" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <option value="">All Statuses</option>
+          <option value="Visited">Visited</option>
+          <option value="Scheduled">Scheduled</option>
+          <option value="Missed">Missed</option>
+        </SelectField>
+        <Field label="From date" optional type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        <Field label="To date" optional type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <SelectField label="Sort" value={sortBy} onChange={(e) => setSortBy(e.target.value as "recent" | "account")}>
+          <option value="recent">Most Recent</option>
+          <option value="account">Account A–Z</option>
+        </SelectField>
+        <p className="ui-muted" role="status">
+          {filteredVisits.length} visit{filteredVisits.length === 1 ? "" : "s"}
+        </p>
+        <div>
+          <BigButton kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </BigButton>
+        </div>
+      </Sheet>
+    </Screen>
   );
 }

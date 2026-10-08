@@ -248,6 +248,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 7, step 2: scripts/migrate/import-visits.mjs. Dry run, run and re-run clean: 611 visits (553 linked to an account by exact name), 6 edit-log lines. 39 open questions: 36 account names (58 visits) that match no account or more than one, 1 visit without a date, 2 others.
 - Area 7, step 3: scripts/migrate/verify-visits.mjs → docs/migration-reports/visits-verify.md. Both tables match Sheets, every row field by field (611 × 14, 6 × 5).
 - Area 7, step 4: lib/pg/visits.ts + lib/data/visits.ts; app/api/visits wired (list and add visit on Postgres when DATA_SOURCE_VISITS=postgres), 2 more files switched. The Apps Script visit list rebuilt from Postgres: 611 of 611 rows identical to the live answer, same keys, same order (check-visits-apps-script.mts). Parity 19/19 direct reads; check-visits-writes.mts 23/23; the list route on Postgres is byte-identical to what the route returns for the live answer (268,430 bytes), 3 by-id routes byte-identical on both sources; add + edit + edit history over HTTP on Postgres, test rows removed.
+- Area 7, step 5: Visits list, Visit page and Add visit redesigned. List: search, one Filter and sort sheet (7 controls), 3 tiles, cards / 9-column table, 50 at a time with print-all. Visit page: 9 facts, edit form in a sheet, edit history. Add visit: same 9 boxes. Headless click-through 48 of 48 at 375 and 1280px; nothing saved. Protected files edited (standing approval): app/visits/page.tsx and app/visits/[id]/page.tsx, layout only.
 
 **Next step:** Area 7, step 5: redesign app/visits/page.tsx, app/visits/[id]/page.tsx (both protected, standing approval) and app/visits/new/page.tsx.
 
@@ -432,3 +433,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 2 | this commit | Visits import; 39 questions.
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 3 | this commit | Visits verify: all match.
 - 2026-10-08T09:49 | 2026-10-08T09:49 | 7/step 4 | this commit | Visits data layer behind DATA_SOURCE_VISITS. tsc ok, build ok, lint at baseline.
+- 2026-10-08T10:01 | 2026-10-08T10:01 | 7/step 5 | this commit | Visits screens redesigned. tsc ok, build ok, lint at baseline.
