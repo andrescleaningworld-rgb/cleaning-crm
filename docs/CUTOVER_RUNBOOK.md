@@ -60,6 +60,17 @@ For the areas in the window:
 - **After step 7:** unset the switches and redeploy; the app reads Sheets again within a minute. **Anything saved while the switches were on is in Postgres only and will not be in Sheets.** There is no script that writes back to Sheets (by rule, nothing in this work writes to Sheets). So decide quickly: the longer the switches stay on, the more would have to be re-typed after a rollback.
 - The database undo is the Neon branch from step 2. The new tables can also simply be left in place; with the switches off nothing reads them.
 
+### The customer portal on the day of the switch (added with the portal redesign)
+
+The new customer portal (email and password, at `/portal`) starts working the moment `DATA_SOURCE_CUSTOMER_PORTAL` is on, and at that same moment both old logins stop: the phone + code login is closed and `/customer-portal` redirects to `/portal`. But the new portal is **closed to customers** until "Portal open to customers" is turned ON in Settings → Customer Portal Access. So:
+
+1. Before Stage 2, decide the email question: only customers with an email on their account can log in (19 of 311 on 2026-10-08; the list of the rest is in `docs/migration-reports/private/accounts-without-email.csv` on Andres' computer).
+2. Migration `017_portal_login.sql` is part of `apply.mjs` like the others. Run `node scripts/migrate/randomize-portal-codes.mjs` once after the customer-portal import (it needs the same guard change as the imports).
+3. Do **not** run `create-test-customer.mts` on production unless you want a test customer there. If you do, it is hidden from every staff list.
+4. Right after the switches are on, turn "Portal open to customers" ON, or customers have no portal.
+5. Then send invites one by one from the account page ("Send portal invite"), or tell customers to use "First time here? Set your password".
+6. `PORTAL_SESSION_PASSWORD` must be set for the Production scope (the old portal already needs it).
+
 ## Part 4. What stays on Apps Script and Sheets after the cutover
 
 These were not moved. They keep working as today and their tabs stay live:

@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** ALL 15 AREAS DONE on branch `migration/postgres` (2026-10-08). Production is unchanged: no `DATA_SOURCE_*` flag is on anywhere, nothing merged, nothing deployed. About 11.2 h used of 237 h estimated. Next is Andres: read the reports, rehearse on a preview, then `docs/CUTOVER_RUNBOOK.md`. Lint baseline: 16 problems (10 errors, 6 warnings).
+**Status:** ALL 15 AREAS DONE plus the customer portal redesign, on branch `migration/postgres` (2026-10-08). Production data is unchanged: no `DATA_SOURCE_*` flag is on anywhere, the branch is not merged. One fix went to `main` on Andres' instruction (0b84133, the no-digit phone lookup). 'Portal open to customers' is OFF. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -294,8 +294,10 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 15, step 2: db/migrations/016_foreign_keys.sql applied to dev: 17 links (account_ref → accounts, subcontractor_id → subcontractors) became foreign keys, ON DELETE SET NULL, ON UPDATE CASCADE; 0 orphans before; all ten areas' write checks still pass. The three keys to staff stay out until People is on in production.
 - Area 15, step 3: docs/DATA_MODEL.md (from scripts/migrate/data-model.mjs), docs/CUTOVER_RUNBOOK.md (rehearsal, two-stage switch, rollback, what stays on Apps Script, frozen tabs), and the final report docs/migration-reports/checkpoint-15-wrap-up-2026-10-08.md. Final verify of every area against the live sheets: all 33 tables match (2,707 rows). No test rows left on the practice database.
 - Portal redesign, step 1 (database + server): db/migrations/017_portal_login.sql (portal_users, portal_tokens, portal_settings with open_to_customers = false, accounts.is_test, portal_access.portal_code_randomized_at); lib/pg/portal-auth.ts (email + password, 24 h one-use links stored as fingerprints, bcrypt, 5 tries then 15 minutes, closed-portal rule), lib/pg/portal-home.ts (next cleanings, past visits, my requests), lib/portalAuth.ts, routes under /api/portal/auth and /api/admin/portal-invite, /api/admin/portal-settings; the old phone + code login and the older portal's lookup answer 410 where the new portal runs; the request routes re-check the login; test accounts left out of staff lists; 392 portal codes that equalled the Account ID randomized on dev (import and verify know); scripts create-test-customer.mts, randomize-portal-codes.mjs, check-portal-login.mts (37/37).
+- Portal redesign, step 2 (screens): /portal home with eight big buttons, login, first-time and forgot-password, set-password, Which location, Next cleanings, Past visits, the four request forms, Sent, My requests, Call or text us, English / Español; /customer-portal and the old /portal pages redirect where the new portal runs; staff: 'Portal open to customers' card (OFF) in Settings → Portal and 'Send portal invite' on the account page. Headless click-through 104/104 at 375 and 1280px as the test customer; 9/9 with the switch off (old portals unchanged). Not done on a real phone; no photo attached; portal never opened to customers.
+- Portal redesign, step 3: docs/migration-reports/portal-redesign-2026-10-08.md; runbook section for the portal on the day of the switch. 19 of 311 customers with portal access have an email on their account; the list of the 372 accounts without one is in docs/migration-reports/private/ (git-ignored). Today's 3 new visits imported; all tables match the sheets.
 
-**Next step:** Portal redesign, step 2: screens.
+**Next step:** Waiting for Andres: phone test of the new portal as ZZ Test Customer on a preview (steps in the last message and in docs/migration-reports/portal-redesign-2026-10-08.md); then the email question; then docs/CUTOVER_RUNBOOK.md. Do not open the portal to customers and do not start the cutover without his go-ahead.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -543,3 +545,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T12:35 | Area 13 done, report written
 - 2026-10-08T12:55 | Area 14 done, report written
 - 2026-10-08T13:07 | Area 15 done; plan complete
+- 2026-10-08T18:06 | Portal redesign done
