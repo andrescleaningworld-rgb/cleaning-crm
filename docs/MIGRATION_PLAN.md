@@ -203,8 +203,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 2, step 5: no screens in this area (Staff screen is `app/equipment/staff`, Area 5; Managers are on `app/settings/page.tsx`, Area 14).
 - Area 3, step 0: `docs/migration-reports/subs-headers.md`. Subcontractors 39 rows, 18 columns (A:R, not A:Z). Column A formula is `"SUB-" & (row - 1)`, so SUB-0NN is a row number too, not an id. Extra legacy columns at the far right: a second `ID` (5 rows), a second `Phone` (8 rows), a second `Insurance Expiration`. Activity log 385 rows, 9 action types, Jul 13 – Oct 6 2026.
 - Area 3, step 1: `db/migrations/004_subs.sql` applied to dev (`subcontractors`, `sub_name_aliases`, `sub_activity_log`). Permanent `id` + `legacy_row_id` (`SUB-ROW-n`, what the app still uses) + `fingerprint` (contact + company + email) to follow a row that moves.
+- Area 3, step 2: `scripts/migrate/import-subs.mjs`. Run + re-run clean: 39 subs (ids SUB-001…SUB-039), 71 unambiguous name aliases, 385 log lines (366 linked to a sub by email), and all 7 Area 1 document sends now resolved to a permanent sub id. 17 open questions in `migration_issues`.
 
-**Next step:** Area 3, Step 2 (import).
+**Next step:** Area 3, Step 3 (verify).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -229,6 +230,11 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 2: no manager is linked to a Staff record (`managers.staff_id` stays empty) | the plan says never auto-set it; 5 of 6 have exactly one same-name Staff record, 1 has none | answer in `migration_overrides` (area people, kind manager_staff, legacy_key = Manager ID, resolved_id = Staff ID) and re-run the import.
 - Area 2: foreign keys from `manager_accounts`, `equipment_staff_pins` and `vehicles` to `staff` are NOT added yet, although every value matches today | while Staff is still saved in Sheets, a new staff member would not be in Postgres and the foreign key would block their login, PIN or vehicle in production | add them in the Area 15 wrap-up, after the People switch is on in production.
 - Area 2: `staffHasEquipmentCheckoutHistory` always asks Sheets, even with People on Postgres | EquipmentCheckouts moves in Area 5 | Area 5 moves it into `lib/data/equipment.ts`.
+- Leo (SUB-004 and SUB-037, same contact, company and email): both kept as two subcontractors, nothing merged, and the names "leo" / "anvil clean" resolve to neither | merging or picking one could attach accounts and pay to the wrong row | Andres picks; a `sub_alias` override points the name at the one to keep.
+- Company name "Cleaning World" (SUB-006, SUB-007, SUB-008) is not used to resolve a sub | three different contacts share it | resolve those by contact name; add an override if needed.
+- Sub emails are not made unique in the database yet | Leo appears twice with one email | tighten after the Leo answer.
+- Permanent sub id = the SUB-0NN shown in column A on 2026-10-07; later subs get the next free number | plan default | none needed; ids never change again.
+- 19 activity-log lines whose email matches no current sub stay unlinked | no certain owner | fix the email on the sub and re-run the import.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -288,3 +294,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:09 | 2/checkpoint | this commit | Area 2 report. Area total 0.2 h vs 11 h; running total 1.4 h vs 43 h. Estimate not rescaled until Area 3 is measured.
 - 2026-10-07T23:09 → 23:14 | 3/step 0 | this commit | Subs headers.
 - 2026-10-07T23:14 | 3/step 1 | this commit | Subs schema.
+- 2026-10-07T23:14 | 3/step 2 | this commit | Subs import; 17 questions logged.

@@ -65,11 +65,14 @@ export async function listTabs(sheet) {
  * position: rows[i] is sheet row i + 1. Trailing empty cells are missing, as
  * the Sheets API returns them.
  */
-export async function readTab(sheet, tab, { range, formulas = false } = {}) {
+export async function readTab(sheet, tab, { range, formulas = false, unformatted = false } = {}) {
   const res = await api().spreadsheets.values.get({
     spreadsheetId: spreadsheetId(sheet),
     range: range ? `'${tab}'!${range}` : `'${tab}'`,
-    valueRenderOption: formulas ? "FORMULA" : "FORMATTED_VALUE",
+    // unformatted: raw numbers, but dates still as the text the sheet shows —
+    // the same options getSubcontractorActivityLog uses in lib/googleSheets.ts.
+    valueRenderOption: formulas ? "FORMULA" : unformatted ? "UNFORMATTED_VALUE" : "FORMATTED_VALUE",
+    ...(unformatted ? { dateTimeRenderOption: "FORMATTED_STRING" } : {}),
   });
   return (res.data.values ?? []).map((row) => row.map((cell) => String(cell ?? "")));
 }
