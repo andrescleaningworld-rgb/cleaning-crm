@@ -267,6 +267,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10, step 0: docs/migration-reports/sales-headers.md. Sales & Commissions 2 rows, 20 columns (Q is an old duplicate of Amount Sold, R a dead duplicate of Commission). Reports has no data of its own: it reads accounts, visits, complaints and sales.
 - Area 10, step 1: db/migrations/012_sales.sql applied to dev (sales).
 - Area 10, step 2: scripts/migrate/import-sales.mjs. Dry run, run and re-run clean: 2 sales, both linked to an account. 1 open question: one sale has no Amount Sold (column H) but has a value in the old Amount column (Q), so the screens that read H show it as 0.
+- Area 10, step 3: scripts/migrate/verify-sales.mjs → docs/migration-reports/sales-verify.md. The table matches Sheets, every row field by field (2 × 21).
 
 **Next step:** Area 10 (Sales / Reports), Step 0: discovery (Sales & Commissions tab; app/sales and app/reports; what the dashboard and reports read).
 
@@ -476,3 +477,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 0 | this commit | Sales headers.
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 1 | this commit | Sales schema.
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 2 | this commit | Sales import; 1 question.
+- 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 3 | this commit | Sales verify: all match.
