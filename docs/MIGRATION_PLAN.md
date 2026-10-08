@@ -237,6 +237,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5, step 5: Equipment screens put in the shared page frame (EquipmentShell → app/ui Screen); Check out / Return and Repair pop-ups are now kit sheets; small text in the tablet-report block raised to 16px. Headless measurement at 375 and 1280px on 8 screens + 2 sheets: 50 of 50, nothing saved. The tablet app and the sub portal equipment page were not opened.
 - Area 5 checkpoint report: docs/migration-reports/checkpoint-5-equipment-2026-10-08.md.
 - Area 6, step 0: docs/migration-reports/scheduling-headers.md. SubSchedules 298 rows / 16 columns (all Active; SubID holds the sub's email; AccountID is the account ID), ScheduleExceptions 0 rows (the code reads 9 columns, the header row has 8: CreatedDate has no header), subcontractor-visits 1 row (PORTAL sheet).
+- Area 6, step 1: db/migrations/008_scheduling.sql applied to dev (sub_schedules, schedule_exceptions, subcontractor_visits). The app's own IDs are text, not keys; sheet_row is unique per table because every edit and delete addresses a row by its number.
 
 **Next step:** Area 6 (Scheduling), Step 0: discovery (SubSchedules, ScheduleExceptions, subcontractor-visits; routes and screens that read them).
 
@@ -401,3 +402,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:09 | 2026-10-08T09:09 | 5/step 5 | this commit | Equipment screens: shared frame, sheets. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:09 | 2026-10-08T09:09 | 5/checkpoint | this commit | Report written; Area 5 done.
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 0 | this commit | Scheduling headers.
+- 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 1 | this commit | Scheduling schema.
