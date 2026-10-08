@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendEquipmentCategory, fetchEquipmentCategories } from "@/lib/googleSheets";
+import { appendEquipmentCategory, fetchEquipmentCategories } from "@/lib/data/equipment";
 
 export async function GET() {
   try {

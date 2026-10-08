@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEquipmentById, updateEquipmentFields } from "@/lib/googleSheets";
+import { getEquipmentById, updateEquipmentFields } from "@/lib/data/equipment";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

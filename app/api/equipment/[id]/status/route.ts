@@ -10,7 +10,7 @@
 // Sheets: retire/restore write only the existing Status column of the
 // Equipment tab through updateEquipmentFields. "found" writes Postgres only.
 import { NextRequest, NextResponse } from "next/server";
-import { getEquipmentById, updateEquipmentFields } from "@/lib/googleSheets";
+import { getEquipmentById, updateEquipmentFields } from "@/lib/data/equipment";
 import { createEquipmentReport } from "@/lib/equipmentCheckDb";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";

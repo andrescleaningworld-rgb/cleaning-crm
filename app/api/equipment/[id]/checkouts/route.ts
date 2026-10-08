@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchEquipmentCheckouts } from "@/lib/googleSheets";
+import { fetchEquipmentCheckouts } from "@/lib/data/equipment";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

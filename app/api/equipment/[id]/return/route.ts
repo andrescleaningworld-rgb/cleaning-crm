@@ -5,7 +5,7 @@ import {
   getOpenCheckoutForEquipment,
   updateEquipmentCheckout,
   updateEquipmentFields,
-} from "@/lib/googleSheets";
+} from "@/lib/data/equipment";
 import {
   getActiveSigningStaffById,
 } from "@/lib/data/people";

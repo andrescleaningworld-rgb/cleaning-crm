@@ -5,7 +5,7 @@
 // (equipment_reports) plus the cached EquipmentRepairs tab — no writes.
 import { NextResponse } from "next/server";
 import { listLatestEquipmentReports } from "@/lib/equipmentCheckDb";
-import { fetchEquipmentRepairs } from "@/lib/googleSheets";
+import { fetchEquipmentRepairs } from "@/lib/data/equipment";
 
 export type EquipmentTabletFlag = { condition: "lost" | "damaged"; reportedAt: string };
 

@@ -4,7 +4,7 @@ import {
   getEquipmentById,
   updateEquipmentFields,
   type EquipmentHolderType,
-} from "@/lib/googleSheets";
+} from "@/lib/data/equipment";
 import {
   getAllSubcontractorsRaw,
 } from "@/lib/data/subs";

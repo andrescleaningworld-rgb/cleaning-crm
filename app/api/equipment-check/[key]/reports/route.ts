@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { waitUntil } from "@vercel/functions";
-import { getEquipmentById } from "@/lib/googleSheets";
+import { getEquipmentById } from "@/lib/data/equipment";
 import {
   createEquipmentReport,
   setEquipmentReportPhotos,

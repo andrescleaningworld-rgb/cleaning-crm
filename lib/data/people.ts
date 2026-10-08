@@ -26,7 +26,6 @@ export const updateStaff: typeof sheets.updateStaff = (...args) => source().upda
 export const deleteStaff: typeof sheets.deleteStaff = (...args) => source().deleteStaff(...args);
 
 // Equipment sign-off history lives in the EquipmentCheckouts tab, which
-// belongs to the Equipment area (Area 5). Until that area has its own
-// switch, this always asks Sheets, whichever source People is on.
-export const staffHasEquipmentCheckoutHistory: typeof sheets.staffHasEquipmentCheckoutHistory = (...args) =>
-  sheets.staffHasEquipmentCheckoutHistory(...args);
+// belongs to the Equipment area: DATA_SOURCE_EQUIPMENT decides where this
+// looks, whichever source People is on.
+export { staffHasEquipmentCheckoutHistory } from "@/lib/data/equipment";

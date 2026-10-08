@@ -233,8 +233,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5, step 1: db/migrations/007_equipment.sql applied to dev (equipment_categories, equipment, equipment_checkouts, equipment_repairs, equipment_parts). New column sheet_row: the app addresses a checkout by its row number on return, so rows created in Postgres get the next number.
 - Area 5, step 2: scripts/migrate/import-equipment.mjs. Dry run, run and re-run clean: 2 categories, 1 item, 1 checkout, 0 repairs, 0 parts, 0 issues.
 - Area 5, step 3: scripts/migrate/verify-equipment.mjs → docs/migration-reports/equipment-verify.md. All 5 tables match Sheets, every row field by field.
+- Area 5, step 4: lib/pg/equipment.ts + lib/data/equipment.ts; 18 files switched; staffHasEquipmentCheckoutHistory now follows DATA_SOURCE_EQUIPMENT. Parity 13/13 reads identical; check-equipment-writes.mts 40/40; 9 routes byte-identical over HTTP on both sources; add category over HTTP on Postgres. Not exercised over HTTP: checkout, return, repair, photo upload (covered at function level).
 
-**Next step:** Area 5, step 4: lib/pg/equipment.ts + lib/data/equipment.ts, switch imports, parity, write checks, HTTP checks.
+**Next step:** Area 5, step 5: redesign app/equipment (list, item page, new item, parts, vehicles, staff) and the equipment-check tablet page.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -295,6 +296,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Account Updates: the Add form opens in a sheet from the main button instead of sitting at the bottom of the page; after a save the sheet closes and the saved message shows on the page | one main action per screen | move it back into the page
 - Account Health: an empty Internal notes box now shows the message Internal notes are required (before, the button did nothing and said nothing) | a silent button reads as broken | remove the message
 - Account Map: the selected account card sits under the map, not on top of it | on a phone the floating box covered a third of the map | float it again
+- Area 5: on return, the Sheets code writes who signed the item IN into the Signed OUT by columns (L and M instead of N and O), so the original signer is lost and Signed in by stays empty. The Postgres version does exactly the same | parity first; fixing it changes stored data | approve the fix and both versions get it (two letters in Sheets, two column names in Postgres)
+- Area 5: values written on Postgres are kept as typed (purchase date 2026-05-04 stays 2026-05-04); Sheets may reformat what it is given (USER_ENTERED) | no way to copy the sheet locale exactly; imported rows keep the sheet text | none needed
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -390,3 +393,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 1 | this commit | Equipment schema.
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 2 | this commit | Equipment import.
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 3 | this commit | Equipment verify: all match.
+- 2026-10-08T08:54 | 2026-10-08T08:54 | 5/step 4 | this commit | Equipment data layer behind DATA_SOURCE_EQUIPMENT. tsc ok, build ok, lint at baseline.
