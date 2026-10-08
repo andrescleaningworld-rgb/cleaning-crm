@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B and Areas 1 through 11 done; reports in `docs/migration-reports/`. Area 12 (Supplies) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 9.0 h used of 237 h estimated; roughly 3–8 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
+**Status:** Phase 0, Part B and Areas 1 through 12 done; reports in `docs/migration-reports/`. Area 13 (Sub portal) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 9.5 h used of 237 h estimated; roughly 2–6 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -284,7 +284,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12, step 4: lib/pg/supplies.ts + lib/data/supplies.ts; app/api/supplies and app/api/supply-orders use Postgres when DATA_SOURCE_SUPPLIES=postgres (Apps Script is not called; unset = as before). The two Apps Script lists rebuilt from Postgres: 51/51 and 13/13 rows identical to the live answers (check-supplies-apps-script.mts); 3 routes byte-identical over HTTP on both sources; check-supplies-writes.mts 22/22; add, change, remove an item, create an order (office email logged as dry-run) and change its status over HTTP on Postgres. Test rows removed. Not wired yet: the order a sub sends from the sub portal (submitSupplyOrder goes through /api/subcontractor-portal: Area 13).
 - Area 12, step 5: app/supplies/page.tsx redesigned (cards / table, Add and Edit in a sheet, Remove asks in a sheet); app/supply-orders/page.tsx restyled in place (print view and PO PDF untouched). Headless click-through 42/42 at 375 and 1280px on Postgres + dry-run, on rows the test made (removed). Not pressed: Generate PO, Share, Download PDF. On Postgres an edit that sends no stock number keeps the stored one (write checks now 23/23).
 
-**Next step:** Area 12: checkpoint report, then Area 13 (Sub portal), Step 0.
+**Next step:** Area 13 (Sub portal), Step 0: discovery (app/subcontractor-portal is a protected file, approved; sub login is a real login: never enter real credentials).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -409,7 +409,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 9 To-Dos | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 127 to-dos, 44 text-log lines; text credit is at 0 (reported); page restyled in place, rearranging proposed |
 | 10 Sales/Reports | done | 18 | 0.4 | 2026-10-08 | 2026-10-08 | 2 sales; one shows $0 (amount in the old column); Sales and Reports restyled in place; kit overflow fix |
 | 11 Customer portal | done | 22 | 0.8 | 2026-10-08 | 2026-10-08 | 393 portal rows; request tabs empty; both portals kept; a no-digits lookup that returned an account is closed; 30 customers locked out of /portal by shared phones |
-| 12 Supplies | not started | 24 | | | | |
+| 12 Supplies | done | 24 | 0.5 | 2026-10-08 | 2026-10-08 | 51 supplies, 13 order rows; own tables (not merged into Team Hub's); lists identical to Apps Script; stock columns never shown; sub-portal order path waits for Area 13 |
 | 13 Sub portal | not started | 28 | | | | |
 | 14 Shell/rest | not started | 12 | | | | |
 | 15 Wrap-up | not started | 6 | | | | |
@@ -513,3 +513,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/checkpoint | this commit | Report written; Area 10 done.
 - 2026-10-08T11:01 | Area 11 step 0 done
 - 2026-10-08T11:48 | Area 11 done, report written
+- 2026-10-08T12:11 | Area 12 done, report written
