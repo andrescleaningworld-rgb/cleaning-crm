@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
-import { logSubcontractorVisit, getSubcontractorVisits } from "@/lib/googleSheets";
+import { logSubcontractorVisit, getSubcontractorVisits } from "@/lib/data/scheduling";
 
 export async function GET(request: NextRequest) {
   const session = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());

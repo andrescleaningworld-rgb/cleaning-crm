@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchScheduleExceptions } from "@/lib/googleSheets";
+import { fetchScheduleExceptions } from "@/lib/data/scheduling";
 
 export async function GET() {
   try {

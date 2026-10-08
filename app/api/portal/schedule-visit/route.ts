@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendSubSchedule, listPortalAccounts, updatePortalAccountFields } from "@/lib/googleSheets";
+import { listPortalAccounts, updatePortalAccountFields } from "@/lib/googleSheets";
+import { appendSubSchedule } from "@/lib/data/scheduling";
 
 const VALID_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"] as const;
 

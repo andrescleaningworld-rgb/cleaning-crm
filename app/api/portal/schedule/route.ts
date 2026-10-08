@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { fetchScheduleExceptions, fetchSubSchedules } from "@/lib/googleSheets";
+import { fetchScheduleExceptions, fetchSubSchedules } from "@/lib/data/scheduling";
 import { isScheduleEffectivelyActive, todayISO } from "@/lib/scheduleRecurrence";
 
 export async function GET() {
