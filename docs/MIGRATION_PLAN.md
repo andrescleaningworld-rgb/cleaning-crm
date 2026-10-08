@@ -236,6 +236,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5, step 4: lib/pg/equipment.ts + lib/data/equipment.ts; 18 files switched; staffHasEquipmentCheckoutHistory now follows DATA_SOURCE_EQUIPMENT. Parity 13/13 reads identical; check-equipment-writes.mts 40/40; 9 routes byte-identical over HTTP on both sources; add category over HTTP on Postgres. Not exercised over HTTP: checkout, return, repair, photo upload (covered at function level).
 - Area 5, step 5: Equipment screens put in the shared page frame (EquipmentShell → app/ui Screen); Check out / Return and Repair pop-ups are now kit sheets; small text in the tablet-report block raised to 16px. Headless measurement at 375 and 1280px on 8 screens + 2 sheets: 50 of 50, nothing saved. The tablet app and the sub portal equipment page were not opened.
 - Area 5 checkpoint report: docs/migration-reports/checkpoint-5-equipment-2026-10-08.md.
+- Area 6, step 0: docs/migration-reports/scheduling-headers.md. SubSchedules 298 rows / 16 columns (all Active; SubID holds the sub's email; AccountID is the account ID), ScheduleExceptions 0 rows (the code reads 9 columns, the header row has 8: CreatedDate has no header), subcontractor-visits 1 row (PORTAL sheet).
 
 **Next step:** Area 6 (Scheduling), Step 0: discovery (SubSchedules, ScheduleExceptions, subcontractor-visits; routes and screens that read them).
 
@@ -326,7 +327,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 4a Accounts core | done | 34 | 1.6 | 2026-10-07 | 2026-10-08 | 25 questions open (Leo number missing, 9 managers, 3 subs); Account Updates, transfer proposals and the packet stay on Apps Script; transfer builder restyled |
 | 4b Accounts secondary | done | 20 | 0.5 | 2026-10-08 | 2026-10-08 | No new tables; 8 screens redesigned; Keys and Account Health bugs reported, not fixed; Google coverage map not testable locally |
 | 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
-| 6 Scheduling | not started | 20 | | | | |
+| 6 Scheduling | in progress | 20 |  | 2026-10-08 |  |  |
 | 7 Visits | not started | 14 | | | | |
 | 8 Complaints | not started | 24 | | | | |
 | 9 To-Dos | not started | 20 | | | | |
@@ -399,3 +400,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:54 | 2026-10-08T08:54 | 5/step 4 | this commit | Equipment data layer behind DATA_SOURCE_EQUIPMENT. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:09 | 2026-10-08T09:09 | 5/step 5 | this commit | Equipment screens: shared frame, sheets. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:09 | 2026-10-08T09:09 | 5/checkpoint | this commit | Report written; Area 5 done.
+- 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 0 | this commit | Scheduling headers.
