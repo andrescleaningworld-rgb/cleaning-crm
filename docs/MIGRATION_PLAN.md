@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B and Areas 1 through 9 done; reports in `docs/migration-reports/`. Area 10 (Sales / Reports) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 7.8 h used of 219 h estimated; roughly 4–12 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
+**Status:** Phase 0, Part B and Areas 1 through 10 done; reports in `docs/migration-reports/`. Area 11 (Customer portal) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 8.2 h used of 237 h estimated; roughly 3–10 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -270,8 +270,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10, step 3: scripts/migrate/verify-sales.mjs → docs/migration-reports/sales-verify.md. The table matches Sheets, every row field by field (2 × 21).
 - Area 10, step 4: lib/pg/sales.ts + lib/data/sales.ts; app/api/sales switched. Parity 1/1; check-sales-writes.mts 8/8; /api/sales byte-identical over HTTP on both sources.
 - Area 10, step 5: Sales and Reports restyled with the UI kit in place (scripted class mapping + hand pass; structure and handlers unchanged). Kit fix: children of a screen can no longer be wider than the screen (a wide table was pushing content off the right edge on phones, clipped). The measuring script now also checks for clipped content. Measured at 375 and 1280px: Sales, Reports and To-Do pass; nothing saved.
+- Area 10 checkpoint report: docs/migration-reports/checkpoint-10-sales-2026-10-08.md.
 
-**Next step:** Area 10 (Sales / Reports), Step 0: discovery (Sales & Commissions tab; app/sales and app/reports; what the dashboard and reports read).
+**Next step:** Area 11 (Customer portal), Step 0: discovery (PORTAL sheet: customer-portal, portal-complaints, portal-service-requests, portal-date-changes; app/(customer) screens; the customer login is a real login: never enter real credentials).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -381,7 +382,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 7 Visits | done | 14 | 0.8 | 2026-10-08 | 2026-10-08 | 611 visits; Apps Script list rebuilt 611/611; 58 visits name an unknown account; customer-portal visit read is broken today (copied, reported) |
 | 8 Complaints | done | 24 | 0.7 | 2026-10-08 | 2026-10-08 | 22 complaints; list byte-identical to Apps Script; Edit creates a duplicate complaint today (copied, reported, fix proposed) |
 | 9 To-Dos | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 127 to-dos, 44 text-log lines; text credit is at 0 (reported); page restyled in place, rearranging proposed |
-| 10 Sales/Reports | in progress | 18 |  | 2026-10-08 |  |  |
+| 10 Sales/Reports | done | 18 | 0.4 | 2026-10-08 | 2026-10-08 | 2 sales; one shows $0 (amount in the old column); Sales and Reports restyled in place; kit overflow fix |
 | 11 Customer portal | not started | 22 | | | | |
 | 12 Supplies | not started | 24 | | | | |
 | 13 Sub portal | not started | 28 | | | | |
@@ -484,3 +485,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 3 | this commit | Sales verify: all match.
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 4 | this commit | Sales data layer behind DATA_SOURCE_SALES. tsc ok, build ok, lint 16.
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 5 | this commit | Sales and Reports restyled; kit overflow fix. tsc ok, build ok, lint 16.
+- 2026-10-08T10:57 | 2026-10-08T10:57 | 10/checkpoint | this commit | Report written; Area 10 done.
