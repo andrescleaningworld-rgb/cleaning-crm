@@ -285,8 +285,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12, step 5: app/supplies/page.tsx redesigned (cards / table, Add and Edit in a sheet, Remove asks in a sheet); app/supply-orders/page.tsx restyled in place (print view and PO PDF untouched). Headless click-through 42/42 at 375 and 1280px on Postgres + dry-run, on rows the test made (removed). Not pressed: Generate PO, Share, Download PDF. On Postgres an edit that sends no stock number keeps the stored one (write checks now 23/23).
 - Area 13, step 0: docs/migration-reports/sub-portal-headers.md. Sub Portal Issues 1 row / 12 columns, Photos 3 rows / 14 columns (both MAIN, Apps Script only). The sub portal login is the email alone (no password). Its six actions: load by email, load by session, resolve a complaint, report an issue, order supplies, write an activity line. Live read-only answers saved locally: getSubPortalIssues, getPhotos. The login answer was NOT fetched: it needs a real sub's email and it is not known whether Apps Script writes a line when it is called.
 - Area 13, step 1: db/migrations/015_sub_portal.sql applied to dev (sub_portal_issues, photos).
+- Area 13, step 2: scripts/migrate/import-sub-portal.mjs. Dry-run, run, re-run clean: 1 issue (linked to a sub and an account), 3 photos (all belong to a complaint that exists), 0 open questions.
 
-**Next step:** Area 13, Step 2: import.
+**Next step:** Area 13, Step 3: verify.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
