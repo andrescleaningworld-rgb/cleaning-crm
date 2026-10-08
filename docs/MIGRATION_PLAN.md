@@ -8,15 +8,17 @@ Condensed version, 2026-10-07 (original written 2026-10-01). **This file is the 
 
 ## AUTO MODE RULES (read first, every session)
 
+> **Changed by Andres on 2026-10-07 (full auto, no checkpoints).** Rules 5, 10 and 11 below were rewritten and rule 15 was added. Wherever the rest of this file says "stop", "ask Andres", "needs approval at a checkpoint" or "CHECKPOINT", apply rules 5, 10, 11 and 15 instead. Rules 1–4, 6–9 and 12–14 are unchanged.
+
 1. **Branch.** Work only on `migration/postgres`. Commit and push to that branch only. Never commit/push to `main`, never merge, never open a PR unless Andres asks, never deploy to production (no `vercel deploy --prod`, promote, or alias changes).
 2. **Database.** Use only the Neon **dev branch**, stored as `MIGRATION_DATABASE_URL` in `.env.development.local`. Never the production DB. Every script that connects to Postgres calls `scripts/migrate/lib/guard.mjs`, which refuses to run if the host is the production host.
 3. **Google Sheets are read-only.** Never write, rename, or delete anything in Sheets. Import/verify scripts use the `spreadsheets.readonly` scope only. When running the app locally with an area on `sheets`, never click a save button (local dev uses the live sheets). Browsing is fine.
 4. **No real messages from testing.** Every local test runs with `OUTBOUND_DRY_RUN=1` (SMS/Textbelt, email/Resend/Gmail, push/OneSignal, Google Calendar, Apps Script writes). If unsure whether an action reaches the outside world, don't run it.
-5. **Protected files** need Andres's explicit approval at a checkpoint, one task at a time:
+5. **Protected files.** Andres approved editing these on the `migration/postgres` branch only, for this whole migration (2026-10-07). They are still the riskiest files: change them only when an area needs it, keep every feature working, and list each edit in the area report:
    - `app/visits/page.tsx`, `app/visits/[id]/page.tsx`
    - `app/subcontractor-portal/page.tsx`
    - Staff login: `app/login/page.tsx`, `app/api/login/**`, `app/api/logout/route.ts`, `lib/adminSession.ts`, `lib/managerAccounts.ts`, `proxy.ts`
-   - If a file might be protected, treat it as protected and ask.
+   - If a file might be protected, treat it as protected: same care, and list it in the report.
 6. **Checks.** Three separate commands, never chained:
    - `npx tsc --noEmit`
    - `npm run lint`
@@ -25,11 +27,12 @@ Condensed version, 2026-10-07 (original written 2026-10-01). **This file is the 
 7. **Commit after every completed step**: `migration(<area>): step N – <what>`. One step per commit.
 8. **PROGRESS.** After every step, update PROGRESS (done, next step, open issues, start/end time) in the same commit.
 9. **Time tracking.** Run `date -Iseconds` at the start and end of every step and log both. After each area, total hours, compare to estimate, update remaining estimate and projected finish.
-10. **Checkpoints = full stop.** Write the report (template in C.1), commit, push the branch, end the session. Don't start the next area until Andres approves.
-11. **Blocked = stop.** If a write or command is blocked by a permission or classifier, stop and report. Never retry it smaller, reworded, or another way.
+10. **Checkpoints do not stop.** At each checkpoint write the report (template in C.1) to `docs/migration-reports/`, commit, push the branch, and keep going to the next area.
+11. **Blocked = log, skip, continue.** If a write or command is blocked by a permission or classifier, never retry it smaller, reworded, or another way. Log it under "Blocked and skipped" in PROGRESS, skip that task, and continue with the next one that can be done.
 12. **Keep features working.** The redesign changes visuals and layout only. Every feature, field, and permission keeps working. Behavior changes, removed features, or renames (e.g. "Complaints" → "Problems") need approval; list them under "Proposals awaiting approval".
 13. **Never merge the two activity logs** (Sub Center log vs Settings → Activity Log). Never change owner-only gating on `/settings/activity-log`.
 14. **Never delete Team Hub** code or tables. Hidden, not removed.
+15. **Questions for Andres are not asked.** For every open question (Leo, Giovanna/Cesar, which portal is live, CUSTVISITS, and anything new): make the safest choice, never auto-merge or delete data, write the decision in "Decisions made without Andres" in PROGRESS (what, why, how to change it), and keep going. Rule 12 proposals (behavior changes, removed features, renames) are still not built: list them in the area report and keep the current behavior.
 
 ---
 
@@ -149,7 +152,7 @@ How to undo: DATA_SOURCE_<AREA>=sheets + redeploy. Code: git revert <commits>.
 14. **Shell & rest (redesign only):** dashboard `app/page.tsx`, `CWHeader`, help, settings hub/logs/activity-log (keep owner gating), sub-center shell, crew-link/porter (tokens only), login (protected).
 15. **Wrap-up:** final FKs, `docs/DATA_MODEL.md`, production cutover runbook, list of Sheets tabs that become frozen archives. Nothing deleted.
 
-### C.3 Open questions for Andres (ask at Checkpoint 0; keep working on Areas 1–3 meanwhile)
+### C.3 Open questions for Andres (not asked; decided per rule 15 and logged in PROGRESS)
 1. Paste the Apps Script source (`.gs` files) into `docs/apps-script/`?
 2. Leo: keep SUB-004 or SUB-037? Giovanna/Cesar: pick per account from a list.
 3. Which customer portal is live: `/portal` or `/customer-portal`?
@@ -174,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 in progress. Branch `migration/postgres` created and pushed. Step 2 **blocked**: production database not found in the Neon account logged in here. No Neon dev branch, no tables yet.
+**Status:** Phase 0 in progress, full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch pending in step 2.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -182,6 +185,12 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 **Next step:** Phase 0, step 2 (create Neon dev branch `migration-dev` from production, write its pooled URL to `.env.development.local` as `MIGRATION_DATABASE_URL` and `DATABASE_URL`). Stop and ask if it needs Andres's login.
 
 **Deadline:** not set.
+
+**Decisions made without Andres** (what | why | how to change it):
+- (none yet)
+
+**Blocked and skipped:**
+- (none yet)
 
 **Open issues:** Neon login `cleaningworldoperations@gmail.com` (org Cleaning World) has zero projects, so production lives in another Neon account or a Vercel-managed one (needs Andres); `.env.local` has no `DATABASE_URL` (A.1 says it points at production – it does not), so the production host for `guard.mjs` is unknown (needs Andres); Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
