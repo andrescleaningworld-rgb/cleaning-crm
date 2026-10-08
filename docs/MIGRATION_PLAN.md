@@ -244,6 +244,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6, step 5: Sub Schedules redesigned: list page (cards / 9-column table, chips for the three views, main button per view, confirm sheet before removing an exception), Add / Edit / Exception forms as sheets, Full Calendar (filter sheets, month grid on wide screens and a day list on phones, week, agenda), and the shared AutocompleteField restyled for every screen that uses it. Headless click-through 58 of 58 at 375 and 1280px; nothing saved.
 - Area 6 checkpoint report: docs/migration-reports/checkpoint-6-scheduling-2026-10-08.md.
 - Area 7, step 0: docs/migration-reports/visits-headers.md. Visits 611 rows with data on 1,348 sheet rows (737 blank), 13 columns; column B (Account ID) is a formula (ACC- + row number in hex), column I is an empty duplicate of M. VisitEditLog 6 rows. The visit list and Add visit go through Apps Script (getVisits / addVisit); the Visit page reads and edits the tab directly. Live getVisits answer captured once (read-only) and matched to the sheet: 611 of 611 rows, same order, every field explained.
+- Area 7, step 1: db/migrations/009_visits.sql applied to dev (visits, visit_edit_log). The formula Account ID is kept as text and never used as a link; account_ref holds the real account found by exact name.
 
 **Next step:** Area 7 (Visits), Step 0: discovery (Visits tab and anything else the visits screens read; app/visits/page.tsx and app/visits/[id]/page.tsx are protected files with standing approval).
 
@@ -419,3 +420,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:32 | 2026-10-08T09:32 | 6/step 5 | this commit | Sub Schedules screens redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:32 | 2026-10-08T09:32 | 6/checkpoint | this commit | Report written; Area 6 done.
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 0 | this commit | Visits headers.
+- 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 1 | this commit | Visits schema.
