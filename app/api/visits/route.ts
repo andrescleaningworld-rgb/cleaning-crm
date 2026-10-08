@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { addVisit, getVisitsAppsScriptShape, visitsOnPostgres } from "@/lib/data/visits";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -38,8 +39,16 @@ function clean(value: unknown): string {
   return String(value ?? "").trim();
 }
 
+const LIST_HEADERS = { "Cache-Control": "public, max-age=30, stale-while-revalidate=60" };
+
 export async function GET() {
   try {
+    // DATA_SOURCE_VISITS=postgres: the same list, in the same shape, without
+    // Apps Script.
+    if (visitsOnPostgres()) {
+      return NextResponse.json({ success: true, visits: await getVisitsAppsScriptShape() }, { headers: LIST_HEADERS });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -116,11 +125,7 @@ export async function GET() {
             ? data.data
             : [],
       },
-      {
-        headers: {
-          "Cache-Control": "public, max-age=30, stale-while-revalidate=60",
-        },
-      }
+      { headers: LIST_HEADERS }
     );
   } catch (error) {
     console.error(
@@ -142,7 +147,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    if (!SCRIPT_URL) {
+    if (!visitsOnPostgres() && !SCRIPT_URL) {
       return NextResponse.json(
         {
           success: false,
@@ -180,6 +185,29 @@ export async function POST(request: Request) {
     };
 
     console.log("Saving visit payload:", payload);
+
+    // DATA_SOURCE_VISITS=postgres: saved directly, same answer shape.
+    if (visitsOnPostgres()) {
+      const saved = await addVisit({
+        accountName: payload.accountName,
+        visitDate: payload.visitDate,
+        visitType: payload.visitType,
+        completedBy: payload.completedBy,
+        condition: payload.conditionScore,
+        followUpNeeded: payload.followUpNeeded,
+        followUpDate: payload.followUpDate,
+        notes: payload.notes,
+      });
+      return NextResponse.json({
+        success: true,
+        id: saved.id,
+        message: "Visit saved successfully.",
+        sentPayload: payload,
+        scriptResponse: { success: true, id: saved.id },
+      });
+    }
+
+    if (!SCRIPT_URL) throw new Error("Missing GOOGLE_SCRIPT_URL in .env.local");
 
     let response: Response;
     try {

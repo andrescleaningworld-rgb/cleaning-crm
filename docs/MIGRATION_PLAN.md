@@ -247,8 +247,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 7, step 1: db/migrations/009_visits.sql applied to dev (visits, visit_edit_log). The formula Account ID is kept as text and never used as a link; account_ref holds the real account found by exact name.
 - Area 7, step 2: scripts/migrate/import-visits.mjs. Dry run, run and re-run clean: 611 visits (553 linked to an account by exact name), 6 edit-log lines. 39 open questions: 36 account names (58 visits) that match no account or more than one, 1 visit without a date, 2 others.
 - Area 7, step 3: scripts/migrate/verify-visits.mjs → docs/migration-reports/visits-verify.md. Both tables match Sheets, every row field by field (611 × 14, 6 × 5).
+- Area 7, step 4: lib/pg/visits.ts + lib/data/visits.ts; app/api/visits wired (list and add visit on Postgres when DATA_SOURCE_VISITS=postgres), 2 more files switched. The Apps Script visit list rebuilt from Postgres: 611 of 611 rows identical to the live answer, same keys, same order (check-visits-apps-script.mts). Parity 19/19 direct reads; check-visits-writes.mts 23/23; the list route on Postgres is byte-identical to what the route returns for the live answer (268,430 bytes), 3 by-id routes byte-identical on both sources; add + edit + edit history over HTTP on Postgres, test rows removed.
 
-**Next step:** Area 7, step 4: lib/pg/visits.ts + lib/data/visits.ts (by-id read, edit, edit log, the customer-portal read, the Apps Script visit list rebuilt from Postgres, and add visit), wire app/api/visits, parity, write checks, HTTP checks.
+**Next step:** Area 7, step 5: redesign app/visits/page.tsx, app/visits/[id]/page.tsx (both protected, standing approval) and app/visits/new/page.tsx.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -317,6 +318,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Local test login: the forged dev cookie lasts 12 hours; it expired mid-run on 2026-10-08 09:10 and one comparison silently fetched the login page instead of data. Caught by the answer sizes and re-run. From here the comparison script is only trusted when the answers are JSON | a redirect to /login returns status 200 | none needed
 - Full Calendar: on a phone the Month view is a day-by-day list of the same month instead of a 7-column grid | seven columns at 375px gave 45px cells with 10px text | show the grid on phones again (one CSS rule)
 - Area 7: 58 visits whose Account Name matches no account (or more than one) stay unlinked; the name text is kept and every screen keeps working from it | exact name match only, never guessed | rename in Sheets or give a visit_account override, then re-run the import
+- Area 7: on Postgres, Add visit saves the visit and sends nothing | the Apps Script addVisit source is not in the repo and nothing in the app or the sheet suggests it emails or texts; the 201 rows it wrote were used to copy its ID and date formats | tell me if adding a visit sends a message today and it gets added
+- Area 7: the customer portal's visit read (getVisitsByAccountName) is copied as it is, wrong columns included: it compares the customer's name with the formula Account ID, so it finds nothing today | parity first; fixing it changes what customers see | approve and it reads the right columns on both sources
+- Area 7: two visits added in the same second get different IDs on Postgres (the second gets -2) | Apps Script would give both the same ID and the Visit page could only ever open the first | none needed
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -327,6 +331,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Slip on 2026-10-07 23:48: the three Area 4a commits `migration(accounts): step 1–3` were pushed while `npx tsc --noEmit` was failing (6 type errors in `scripts/migrate/import-accounts.mts`; the script itself ran correctly). Fixed in the next commit by typing two helpers. Cause: the commit command did not stop on the failed check. From here on the check result is read before the commit command is built.
 - Apps Script `getAllAccounts` (the list most staff screens load) answered "Page Not Found" 4 times out of 6 on 2026-10-08 between 07:10 and 07:25 (once after 134 s), while `getAccounts` answered in 3 s. Not caused by any write (none were made). The rebuilt `getAllAccounts` is therefore checked against the live answer only for the fields it shares with `getAccounts`; its one extra field, `cancelledDate`, is checked by format only. Andres: check that the live Accounts screen loads. Apps Script reads are now cached and spaced 20 s apart (`check-accounts-apps-script.mts`).
 - Other code still reads the Accounts tab straight from Sheets inside `lib/googleSheets.ts`: the performance score (`getSubcontractorPerformanceMap`), the customer-portal account merge (`getMergedPortalAccounts`, `getCustomerByPhone` …), To-Do, Complaints and Visits lookups. They move with Areas 6–11. Until then `DATA_SOURCE_ACCOUNTS` must not be turned on in production (the plan already says not before Areas 11 and 13).
+- Slip 2026-10-08 10:05: the first visits parity run asked the Sheets API for the whole Visits tab 611 times in a row (one read listed every visit by id; the Sheets function re-reads the tab on each call). Google answered Quota exceeded for about a minute. Read-only, nothing was written, but if the live app shares that quota it may have been slowed for that minute. That read is removed; parity lists now stay under 20 Sheets reads.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -426,3 +431,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 1 | this commit | Visits schema.
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 2 | this commit | Visits import; 39 questions.
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 3 | this commit | Visits verify: all match.
+- 2026-10-08T09:49 | 2026-10-08T09:49 | 7/step 4 | this commit | Visits data layer behind DATA_SOURCE_VISITS. tsc ok, build ok, lint at baseline.
