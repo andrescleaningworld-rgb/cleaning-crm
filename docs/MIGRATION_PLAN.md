@@ -227,8 +227,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4b, step 5b: Account Updates list and update page redesigned. Add form and filters open in sheets; same request, same checks, same 5-latest rule; saves still go to Apps Script. Headless check passed at 375 and 1280px (54 checks across 5a and 5b); nothing saved.
 - Area 4b, step 5c: Account Health redesigned (tiles, guide, search, log cards, add form in a sheet with the same 11 boxes). The page has no data source: it starts from 3 made-up examples, new items live only until the page is reloaded, and no menu links to it.
 - Area 4b, step 5d: Account Map redesigned. Same data, pins, pin limits, auto-location, selection and links; Manager and Sub filters moved into a Filter sheet; the selected account shows as a card under the map instead of floating over it; nearby accounts are cards with a Show on map button.
+- Area 4b, step 5e: Sub Center Coverage tab redesigned (By Sub / By Town / Map chips, search that highlights and dims, tag lists) and the coverage map panels restyled (class changes only; the Google map code is untouched). Headless check for 5c–5e at 375 and 1280px: all passed after 2 test fixes; nothing saved. Not tested: the Google map itself (the key does not work on localhost).
 
-**Next step:** Area 4b, step 5c: account-health, then map, then the Coverage tab and its map.
+**Next step:** Area 4b checkpoint report, then Area 5 (Equipment) Step 0 discovery.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -378,3 +379,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:30 | 2026-10-08T08:30 | 4b/step 5b | this commit | Account Updates redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5c | this commit | Account Health redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5d | this commit | Account Map redesigned. tsc ok, build ok, lint at baseline (the map lint error is the old one).
+- 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5e | this commit | Coverage tab redesigned. tsc ok, build ok, lint at baseline.

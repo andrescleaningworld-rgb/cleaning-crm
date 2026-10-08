@@ -1527,6 +1527,37 @@ button.ui-card:hover {
   }
 }
 
+/* Small read-only tags (towns, zip codes). Not buttons. */
+.ui-taglist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-tag {
+  padding: 4px 12px;
+  border: 2px solid var(--ui-line-soft);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* A tag or name that matches the search: darker border, bold, and an underline (not color alone). */
+.ui-tag-match {
+  border-color: var(--ui-brand);
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.ui-match {
+  color: var(--ui-brand-ink);
+  text-decoration: underline;
+}
+
 /* Three panels: stacked on a phone, side by side when wide. */
 .ui-three {
   display: grid;
