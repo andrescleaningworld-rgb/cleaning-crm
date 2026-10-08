@@ -188,7 +188,10 @@ function AddDocumentForm({ open, onClose, onAdded }: { open: boolean; onClose: (
       <Field
         label="Name"
         value={name}
-        onChange={(event) => setName(event.target.value)}
+        onChange={(event) => {
+          setName(event.target.value);
+          setNameError("");
+        }}
         placeholder="2026 Subcontractor Agreement"
         disabled={save.saving}
         error={nameError}

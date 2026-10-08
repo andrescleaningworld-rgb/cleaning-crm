@@ -1356,6 +1356,30 @@ button.ui-card:hover {
   border-radius: 0 0 0 var(--ui-r-control);
 }
 
+.ui-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--ui-line);
+  background: transparent;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.ui-thumb-empty .ui-hint {
+  font-size: 13px;
+}
+
+/* Two lines at most, for long text in table cells. */
+.ui-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 44ch;
+}
+
 .ui-visually-hidden {
   position: absolute;
   width: 1px;
