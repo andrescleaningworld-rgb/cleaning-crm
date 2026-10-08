@@ -196,8 +196,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1, step 5a: `app/documents/page.tsx` redesigned with the UI kit (added `Sheet` to the kit). Same features: add (was "Upload"), open, send to sub, send history, delete, category filter; new: search box. Headless click-through 16/16 at 375 and 1280px on Postgres + dry-run; screenshots in `docs/migration-reports/screens/documents-*.png`. Not clicked: a real upload (no Blob token here) and a real delete (would remove a real file).
 - Area 1, step 5b: `app/settings/extra-services/page.tsx` redesigned. Same features (add, change, picture upload, sort order, hide / show again). Headless click-through 12/12 at 375 and 1280px on Postgres + dry-run. Not clicked: a real picture upload (no Blob token here).
 - Area 2, step 0: `docs/migration-reports/people-headers.md`. Staff 15 rows (ID, Name, Role, Active). Managers 6 rows (A–F as in Part A; G has no header and holds the calendar color). Email and Notes are empty for every manager.
+- Area 2, step 1: `db/migrations/003_people.sql` applied to dev (`staff`, `managers`). `managers.row_no` keeps the "sheetRow" number the app saves by; `managers.staff_id` is only set from an override.
 
-**Next step:** Area 2, Step 1 (schema).
+**Next step:** Area 2, Step 2 (import).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -271,3 +272,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T22:52 → 22:59 | 1/step 5b | this commit | Extra Services page redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-07T22:59 | 1/checkpoint | this commit | Area 1 report. Area total 0.5 h vs 12 h; running total 1.2 h vs 32 h.
 - 2026-10-07T22:59 → 23:02 | 2/step 0 | this commit | People headers.
+- 2026-10-07T23:02 | 2/step 1 | this commit | People schema.
