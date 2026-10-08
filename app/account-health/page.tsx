@@ -1,6 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import {
+  BigButton,
+  Card,
+  EmptyState,
+  Field,
+  LABELS,
+  MoreMenu,
+  Screen,
+  SearchBar,
+  SelectField,
+  Sheet,
+  StatusPill,
+  TextAreaField,
+  type StatusKind,
+} from "@/app/ui";
 
 type HealthStatus = "Good" | "Watch" | "Problem" | "Critical";
 type ImprovementStatus = "Open" | "In Progress" | "Completed";
@@ -147,32 +162,14 @@ function getHealthStatusDescription(status: HealthStatus) {
   return "8–10: Stable account";
 }
 
-function getHealthStatusClass(status: HealthStatus) {
-  if (status === "Critical") {
-    return "bg-red-200 text-red-900";
-  }
-
-  if (status === "Problem") {
-    return "bg-red-100 text-red-800";
-  }
-
-  if (status === "Watch") {
-    return "bg-yellow-100 text-yellow-800";
-  }
-
-  return "bg-green-100 text-green-800";
+function healthKind(status: HealthStatus): StatusKind {
+  if (status === "Critical" || status === "Problem") return "needs-you";
+  if (status === "Watch") return "waiting";
+  return "done";
 }
 
-function getImprovementStatusClass(status: ImprovementStatus) {
-  if (status === "Completed") {
-    return "bg-green-100 text-green-800";
-  }
-
-  if (status === "In Progress") {
-    return "bg-blue-100 text-blue-800";
-  }
-
-  return "bg-yellow-100 text-yellow-800";
+function improvementKind(status: ImprovementStatus): StatusKind {
+  return status === "Completed" ? "done" : "waiting";
 }
 
 export default function AccountHealthPage() {
@@ -180,6 +177,9 @@ export default function AccountHealthPage() {
     useState<AccountHealthItem[]>(startingHealthItems);
 
   const [searchText, setSearchText] = useState("");
+  // Layout only: the add form opens in a sheet.
+  const [showForm, setShowForm] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const [formData, setFormData] = useState({
     date: getTodayDate(),
@@ -250,12 +250,15 @@ export default function AccountHealthPage() {
     });
   }
 
-  function handleAddHealthItem(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleAddHealthItem(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
 
     if (!formData.internalNotes.trim()) {
+      setFormError("Internal notes are required.");
       return;
     }
+    setFormError("");
+    setShowForm(false);
 
     const healthStatus = getHealthStatusFromScore(formData.healthScore);
 
@@ -305,450 +308,201 @@ export default function AccountHealthPage() {
     });
   }
 
+  const autoStatus = getHealthStatusFromScore(formData.healthScore);
+
   return (
-    <main className="min-h-screen bg-gray-100 p-4 print:bg-white sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Account Health
-            </h1>
-
-            <p className="mt-1 text-gray-600">
-              Track account condition, improvement plans, follow-up dates, and
-              problem accounts before they get worse.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="w-fit rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700 print:hidden"
-          >
-            Print Account Health
-          </button>
+    <Screen
+      title="Account Health"
+      subtitle="Track account condition, improvement plans, follow-up dates, and problem accounts before they get worse."
+      headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: () => window.print() }]} />}
+      action={
+        <BigButton
+          icon="plus"
+          onClick={() => {
+            setFormError("");
+            setShowForm(true);
+          }}
+        >
+          Add health item
+        </BigButton>
+      }
+    >
+      <div className="ui-stats">
+        <div className="ui-stat">
+          <p className="ui-stat-label">Tracked Items</p>
+          <p className="ui-stat-value">{totalTrackedAccounts}</p>
         </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Watch or Worse</p>
+          <p className="ui-stat-value">{watchOrWorse}</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Open Improvements</p>
+          <p className="ui-stat-value">{openImprovements}</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Avg. Health Score</p>
+          <p className="ui-stat-value">{averageHealthScore.toFixed(1)}/10</p>
+        </div>
+      </div>
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Tracked Items</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {totalTrackedAccounts}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Watch or Worse</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {watchOrWorse}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Open Improvements</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {openImprovements}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Avg. Health Score</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {averageHealthScore.toFixed(1)}/10
-            </p>
-          </div>
-        </section>
-
-        <section className="rounded-xl bg-white p-5 shadow print:hidden">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">
-                Smart Health Status Guide
-              </h2>
-
-              <p className="mt-1 text-sm text-gray-500">
-                The system automatically calculates account health from the
-                health score. Later, this can also include complaints, visits,
-                follow-ups, and subcontractor performance.
-              </p>
-            </div>
-
-            <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
-              Current logic: score-based
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="no-print">
+        <Card title="Smart Health Status Guide">
+          <p className="ui-card-text">
+            The system automatically calculates account health from the health score. Later, this can also include complaints, visits,
+            follow-ups, and subcontractor performance.
+          </p>
+          <p className="ui-card-text ui-strong">Current logic: score-based</p>
+          <div className="ui-stats" style={{ marginTop: 12 }}>
             {healthStatusOptions.map((status) => (
-              <div key={status} className="rounded-lg border border-gray-200 p-3">
-                <span
-                  className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getHealthStatusClass(
-                    status
-                  )}`}
-                >
-                  {status}
-                </span>
-
-                <p className="mt-2 text-sm text-gray-600">
-                  {getHealthStatusDescription(status)}
-                </p>
+              <div key={status} className="ui-stat">
+                <StatusPill kind={healthKind(status)}>{status}</StatusPill>
+                <p className="ui-muted">{getHealthStatusDescription(status)}</p>
               </div>
             ))}
           </div>
-        </section>
-
-        <section className="rounded-xl bg-white p-6 shadow print:hidden">
-          <h2 className="text-xl font-bold text-gray-900">
-            Search Account Health
-          </h2>
-
-          <p className="mt-1 text-sm text-gray-500">
-            Search by account, manager, subcontractor, status, issue category,
-            follow-up date, or notes.
-          </p>
-
-          <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center">
-            <input
-              type="text"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search account health..."
-              className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-
-            {searchText && (
-              <button
-                type="button"
-                onClick={() => setSearchText("")}
-                className="w-fit rounded-lg bg-gray-200 px-4 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-300"
-              >
-                Clear
-              </button>
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-xl bg-white p-6 shadow print:hidden">
-          <h2 className="text-xl font-bold text-gray-900">
-            Add Account Health / Improvement Item
-          </h2>
-
-          <p className="mt-1 text-sm text-gray-500">
-            Internal notes are required. Subcontractor instructions should only
-            include information that can be shared with the subcontractor.
-          </p>
-
-          <form onSubmit={handleAddHealthItem} className="mt-5 space-y-4">
-            <div className="grid gap-4 md:grid-cols-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Date
-                </label>
-                <input
-                  type="date"
-                  value={formData.date}
-                  onChange={(event) => updateField("date", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Account
-                </label>
-                <input
-                  type="text"
-                  list="health-account-options"
-                  value={formData.accountName}
-                  onChange={(event) =>
-                    updateField("accountName", event.target.value)
-                  }
-                  placeholder="Type account name..."
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-
-                <datalist id="health-account-options">
-                  {accountOptions.map((account) => (
-                    <option key={account} value={account} />
-                  ))}
-                </datalist>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Manager
-                </label>
-                <select
-                  value={formData.manager}
-                  onChange={(event) =>
-                    updateField("manager", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  {managerOptions.map((manager) => (
-                    <option key={manager}>{manager}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Subcontractor
-                </label>
-                <select
-                  value={formData.subcontractor}
-                  onChange={(event) =>
-                    updateField("subcontractor", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  {subcontractorOptions.map((subcontractor) => (
-                    <option key={subcontractor}>{subcontractor}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-5">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Health Score
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="10"
-                  value={formData.healthScore}
-                  onChange={(event) =>
-                    updateField("healthScore", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-
-                <p className="mt-1 text-xs text-gray-500">
-                  0 = critical, 10 = excellent
-                </p>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Auto Status
-                </label>
-                <div
-                  className={`mt-1 rounded-lg px-4 py-2 text-sm font-semibold ${getHealthStatusClass(
-                    getHealthStatusFromScore(formData.healthScore)
-                  )}`}
-                >
-                  {getHealthStatusFromScore(formData.healthScore)}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Issue Category
-                </label>
-                <select
-                  value={formData.issueCategory}
-                  onChange={(event) =>
-                    updateField("issueCategory", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  {issueCategoryOptions.map((category) => (
-                    <option key={category}>{category}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Improvement Status
-                </label>
-                <select
-                  value={formData.improvementStatus}
-                  onChange={(event) =>
-                    updateField("improvementStatus", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  {improvementStatusOptions.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Follow-Up Date
-                </label>
-                <input
-                  type="date"
-                  value={formData.followUpDate}
-                  onChange={(event) =>
-                    updateField("followUpDate", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Visible to Subcontractor?
-              </label>
-              <select
-                value={formData.visibleToSubcontractor}
-                onChange={(event) =>
-                  updateField("visibleToSubcontractor", event.target.value)
-                }
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              >
-                <option>Yes</option>
-                <option>No</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Subcontractor Instructions
-              </label>
-              <textarea
-                value={formData.subcontractorInstructions}
-                onChange={(event) =>
-                  updateField("subcontractorInstructions", event.target.value)
-                }
-                rows={3}
-                placeholder="Only write what the subcontractor needs to know or improve."
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Internal Notes / Improvement Plan
-              </label>
-              <textarea
-                value={formData.internalNotes}
-                onChange={(event) =>
-                  updateField("internalNotes", event.target.value)
-                }
-                rows={4}
-                placeholder="Internal improvement plan, risks, customer concerns, follow-up action, etc."
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-500"
-              >
-                Add Health Item
-              </button>
-
-              <button
-                type="button"
-                onClick={clearForm}
-                className="rounded-lg bg-gray-200 px-5 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-300"
-              >
-                Clear Form
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section className="rounded-xl bg-white shadow">
-          <div className="border-b p-4">
-            <h2 className="text-xl font-bold text-gray-900">
-              Account Health Log
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Latest health and improvement items appear first.
-            </p>
-          </div>
-
-          <div className="divide-y">
-            {filteredHealthItems.length === 0 ? (
-              <div className="p-4 text-sm text-gray-600">
-                No account health items found for “{searchText}”.
-              </div>
-            ) : (
-              filteredHealthItems.map((item) => (
-                <div key={item.id} className="p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-bold text-gray-900">
-                          {item.accountName}
-                        </h3>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${getHealthStatusClass(
-                            item.healthStatus
-                          )}`}
-                        >
-                          {item.healthStatus} • {item.healthScore}/10
-                        </span>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${getImprovementStatusClass(
-                            item.improvementStatus
-                          )}`}
-                        >
-                          {item.improvementStatus}
-                        </span>
-
-                        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">
-                          {item.issueCategory}
-                        </span>
-                      </div>
-
-                      <p className="mt-1 text-sm text-gray-500">
-                        {item.date} • Manager: {item.manager} • Subcontractor:{" "}
-                        {item.subcontractor} • Follow-Up: {item.followUpDate} •
-                        Visible to Sub: {item.visibleToSubcontractor}
-                      </p>
-                    </div>
-                  </div>
-
-                  {item.subcontractorInstructions && (
-                    <div className="mt-3 rounded-lg bg-gray-50 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                        Subcontractor Instructions
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-gray-700">
-                        {item.subcontractorInstructions}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="mt-3 rounded-lg bg-gray-50 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      Internal Notes / Improvement Plan
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-gray-700">
-                      {item.internalNotes}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="rounded-xl bg-white p-6 shadow print:hidden">
-          <h2 className="text-xl font-bold text-gray-900">
-            Future Smart Connection
-          </h2>
-
-          <p className="mt-3 text-sm leading-6 text-gray-700">
-            Later, account health will connect to complaints, visits, account
-            updates, subcontractor performance, manager reports, and the
-            dashboard. This will help identify problem accounts earlier using
-            real data instead of only memory or customer complaints.
-          </p>
-        </section>
+        </Card>
       </div>
-    </main>
+
+      <div className="no-print">
+        <SearchBar value={searchText} onChange={setSearchText} label="Search account health" placeholder="Search account health" />
+        <p className="ui-hint">Search by account, manager, subcontractor, status, issue category, follow-up date, or notes.</p>
+      </div>
+
+      <div>
+        <p className="ui-strong">Account Health Log</p>
+        <p className="ui-muted">Latest health and improvement items appear first.</p>
+      </div>
+
+      {filteredHealthItems.length === 0 ? (
+        <EmptyState icon="search" title="No account health items found" text={`Nothing matches “${searchText}”.`} />
+      ) : (
+        filteredHealthItems.map((item) => (
+          <Card key={item.id} title={item.accountName}>
+            <div className="ui-actions-row" style={{ marginTop: 4 }}>
+              <StatusPill kind={healthKind(item.healthStatus)}>
+                {item.healthStatus} • {item.healthScore}/10
+              </StatusPill>
+              <StatusPill kind={improvementKind(item.improvementStatus)}>{item.improvementStatus}</StatusPill>
+              <StatusPill kind="off">{item.issueCategory}</StatusPill>
+            </div>
+            <p className="ui-card-text">
+              {item.date} • Manager: {item.manager} • Subcontractor: {item.subcontractor} • Follow-Up: {item.followUpDate} • Visible to Sub:{" "}
+              {item.visibleToSubcontractor}
+            </p>
+            <dl className="ui-details">
+              {item.subcontractorInstructions ? (
+                <div className="ui-detail ui-detail-full">
+                  <dt>Subcontractor Instructions</dt>
+                  <dd>{item.subcontractorInstructions}</dd>
+                </div>
+              ) : null}
+              <div className="ui-detail ui-detail-full">
+                <dt>Internal Notes / Improvement Plan</dt>
+                <dd>{item.internalNotes}</dd>
+              </div>
+            </dl>
+          </Card>
+        ))
+      )}
+
+      <div className="no-print">
+        <Card title="Future Smart Connection">
+          <p className="ui-card-text">
+            Later, account health will connect to complaints, visits, account updates, subcontractor performance, manager reports, and the
+            dashboard. This will help identify problem accounts earlier using real data instead of only memory or customer complaints.
+          </p>
+        </Card>
+      </div>
+
+      <Sheet
+        open={showForm}
+        title="Add health item"
+        text="Internal notes are required. Subcontractor instructions should only include information that can be shared with the subcontractor."
+        onClose={() => setShowForm(false)}
+        actions={<BigButton onClick={() => handleAddHealthItem()}>Add health item</BigButton>}
+      >
+        <Field label="Date" type="date" value={formData.date} onChange={(event) => updateField("date", event.target.value)} />
+        <Field
+          label="Account"
+          list="health-account-options"
+          value={formData.accountName}
+          onChange={(event) => updateField("accountName", event.target.value)}
+          placeholder="Type account name..."
+        />
+        <datalist id="health-account-options">
+          {accountOptions.map((account) => (
+            <option key={account} value={account} />
+          ))}
+        </datalist>
+        <SelectField label="Manager" value={formData.manager} onChange={(event) => updateField("manager", event.target.value)}>
+          {managerOptions.map((manager) => (
+            <option key={manager}>{manager}</option>
+          ))}
+        </SelectField>
+        <SelectField label="Subcontractor" value={formData.subcontractor} onChange={(event) => updateField("subcontractor", event.target.value)}>
+          {subcontractorOptions.map((subcontractor) => (
+            <option key={subcontractor}>{subcontractor}</option>
+          ))}
+        </SelectField>
+        <Field
+          label="Health score"
+          hint="0 = critical, 10 = excellent"
+          type="number"
+          min="0"
+          max="10"
+          value={formData.healthScore}
+          onChange={(event) => updateField("healthScore", event.target.value)}
+        />
+        <div>
+          <p className="ui-label">Auto status</p>
+          <StatusPill kind={healthKind(autoStatus)}>{autoStatus}</StatusPill>
+        </div>
+        <SelectField label="Issue category" value={formData.issueCategory} onChange={(event) => updateField("issueCategory", event.target.value)}>
+          {issueCategoryOptions.map((category) => (
+            <option key={category}>{category}</option>
+          ))}
+        </SelectField>
+        <SelectField
+          label="Improvement status"
+          value={formData.improvementStatus}
+          onChange={(event) => updateField("improvementStatus", event.target.value)}
+        >
+          {improvementStatusOptions.map((status) => (
+            <option key={status}>{status}</option>
+          ))}
+        </SelectField>
+        <Field label="Follow-up date" type="date" value={formData.followUpDate} onChange={(event) => updateField("followUpDate", event.target.value)} />
+        <SelectField
+          label="Visible to subcontractor?"
+          value={formData.visibleToSubcontractor}
+          onChange={(event) => updateField("visibleToSubcontractor", event.target.value)}
+        >
+          <option>Yes</option>
+          <option>No</option>
+        </SelectField>
+        <TextAreaField
+          label="Subcontractor instructions"
+          optional
+          rows={3}
+          value={formData.subcontractorInstructions}
+          onChange={(event) => updateField("subcontractorInstructions", event.target.value)}
+          placeholder="Only write what the subcontractor needs to know or improve."
+        />
+        <TextAreaField
+          label="Internal notes / improvement plan"
+          rows={4}
+          error={formError || undefined}
+          value={formData.internalNotes}
+          onChange={(event) => updateField("internalNotes", event.target.value)}
+          placeholder="Internal improvement plan, risks, customer concerns, follow-up action, etc."
+        />
+        <div>
+          <BigButton kind="quiet" onClick={clearForm}>
+            Clear form
+          </BigButton>
+        </div>
+      </Sheet>
+    </Screen>
   );
 }
