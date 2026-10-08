@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
 import { getAccountByStaffId, touchLastLogin, verifyManagerPassword } from "@/lib/managerAccounts";
-import { fetchStaff } from "@/lib/googleSheets";
+import { fetchStaff } from "@/lib/data/people";
 import { logActivity } from "@/lib/activityLog";
 
 export async function POST(request: NextRequest) {

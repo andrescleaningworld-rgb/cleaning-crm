@@ -3,7 +3,6 @@ import {
   appendSmsLog,
   appendToDo,
   appendToDos,
-  fetchManagers,
   fetchToDos,
   setToDoCalendarFields,
   setToDoCalendarFieldsBatch,
@@ -13,6 +12,9 @@ import {
   updateToDosBatch,
   updateToDoStatus,
 } from "@/lib/googleSheets";
+import {
+  fetchManagers,
+} from "@/lib/data/people";
 import {
   createCalendarEventForToDo,
   deleteCalendarEventForToDo,

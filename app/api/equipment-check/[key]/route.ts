@@ -3,7 +3,7 @@
 // active Staff (Sheets Staff tab, read only) who have a PIN or an open PIN
 // setup window. Never returns PIN hashes, lock state, or roles.
 import { NextRequest, NextResponse } from "next/server";
-import { fetchStaff } from "@/lib/googleSheets";
+import { fetchStaff } from "@/lib/data/people";
 import { checkEquipmentCheckLinkKey, listEquipmentStaffPinStatuses } from "@/lib/equipmentCheckDb";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 

@@ -2,7 +2,7 @@
 // any existing PIN and lockout, opens a 48-hour window for the person to
 // create their own PIN on the tablet). Only for Active Staff.
 import { NextRequest, NextResponse } from "next/server";
-import { getStaffById } from "@/lib/googleSheets";
+import { getStaffById } from "@/lib/data/people";
 import { allowEquipmentPinSetup } from "@/lib/equipmentCheckDb";
 
 export async function POST(_request: NextRequest, { params }: { params: Promise<{ staffId: string }> }) {

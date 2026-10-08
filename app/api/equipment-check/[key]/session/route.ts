@@ -4,7 +4,7 @@
 // locked out.
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { getStaffById } from "@/lib/googleSheets";
+import { getStaffById } from "@/lib/data/people";
 import { checkEquipmentCheckLinkKey, verifyEquipmentStaffPin } from "@/lib/equipmentCheckDb";
 import { startEquipmentCheckSession, endEquipmentCheckSession } from "@/lib/equipmentCheckSession";
 import { MAX_FAILED_ATTEMPTS } from "@/lib/pinAuth";

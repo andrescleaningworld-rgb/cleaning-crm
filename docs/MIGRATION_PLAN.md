@@ -199,8 +199,10 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 2, step 1: `db/migrations/003_people.sql` applied to dev (`staff`, `managers`). `managers.row_no` keeps the "sheetRow" number the app saves by; `managers.staff_id` is only set from an override.
 - Area 2, step 2: `scripts/migrate/import-people.mjs`. Dry-run, run, re-run clean: staff 15, managers 6. All staff ids used by `manager_accounts` (6), `equipment_staff_pins` (12) and `vehicles.driver_staff_id` (2) exist in Staff. 6 open questions in `migration_issues`: which Staff record each manager is (5 have one same-name match, 1 has none).
 - Area 2, step 3: `scripts/migrate/verify-people.mjs` (+ shared `lib/verify-helpers.mjs`) → `docs/migration-reports/people-verify.md`. Both tables match, every row field by field.
+- Area 2, step 4: `lib/pg/people.ts` + `lib/data/people.ts`; 18 files switched with the new `scripts/migrate/switch-imports.mjs`. Protected files touched by one import line each: `lib/managerAccounts.ts`, `app/api/login/route.ts`, `app/api/login/setup-password/route.ts`. Parity 9/9; `check-people-writes.mts` 21/21; 7 routes byte-identical over HTTP on both sources; staff create/deactivate/delete over HTTP on Postgres. Not tested: a real password login.
+- Area 2, step 5: no screens in this area (Staff screen is `app/equipment/staff`, Area 5; Managers are on `app/settings/page.tsx`, Area 14).
 
-**Next step:** Area 2, Step 4 (`lib/pg/people.ts`, `lib/data/people.ts`, switch callers incl. login files, parity, write tests).
+**Next step:** Area 2 checkpoint report, then Area 3 (Subcontractors), Step 0: `node scripts/migrate/discover.mjs subs`.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -224,6 +226,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1: button words changed on Documents and Extra Services (Upload → Add document, View → Open, Edit → Change, Unhide → Show again, Image → Picture); no page or feature renamed | Part B rule 3 | listed in the Area 1 report for Andres to veto.
 - Area 2: no manager is linked to a Staff record (`managers.staff_id` stays empty) | the plan says never auto-set it; 5 of 6 have exactly one same-name Staff record, 1 has none | answer in `migration_overrides` (area people, kind manager_staff, legacy_key = Manager ID, resolved_id = Staff ID) and re-run the import.
 - Area 2: foreign keys from `manager_accounts`, `equipment_staff_pins` and `vehicles` to `staff` are NOT added yet, although every value matches today | while Staff is still saved in Sheets, a new staff member would not be in Postgres and the foreign key would block their login, PIN or vehicle in production | add them in the Area 15 wrap-up, after the People switch is on in production.
+- Area 2: `staffHasEquipmentCheckoutHistory` always asks Sheets, even with People on Postgres | EquipmentCheckouts moves in Area 5 | Area 5 moves it into `lib/data/equipment.ts`.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -279,3 +282,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:02 | 2/step 1 | this commit | People schema.
 - 2026-10-07T23:02 | 2/step 2 | this commit | People import; 6 questions logged.
 - 2026-10-07T23:02 | 2/step 3 | this commit | People verify: all match.
+- 2026-10-07T22:59 → 23:09 | 2/step 4 | this commit | People data layer behind DATA_SOURCE_PEOPLE. tsc ok, build ok, lint at baseline.

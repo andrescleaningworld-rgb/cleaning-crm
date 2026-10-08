@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { getManagerCalendarColorId } from "./googleSheets";
+import { getManagerCalendarColorId } from "@/lib/data/people";
 import { isOutboundDryRun, logDryRun } from "./outbound";
 
 // One-way sync only: this file WRITES to Calendar (create/patch) and never
