@@ -253,8 +253,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8, step 0: docs/migration-reports/complaints-headers.md. Complaints 22 rows, 16 columns (Resolution Date, Created At and Last Follow-Up are empty on every row). The list is an Apps Script action (getComplaints), creating a complaint writes the sheet directly, closing and resending go through Apps Script. Live getComplaints answer captured once (read-only): 22 rows in sheet order, 17 fields, 4 of them always blank (complaintType, subcontractor, resolution, followUpDate).
 - Area 8, step 1: db/migrations/010_complaints.sql applied to dev (complaints). One column the sheet does not have: resolution_note, so the text typed when closing a complaint is kept.
 - Area 8, step 2: scripts/migrate/import-complaints.mjs. Dry run, run and re-run clean: 22 complaints, all 22 linked to an account, 0 open questions.
+- Area 8, step 3: scripts/migrate/verify-complaints.mjs → docs/migration-reports/complaints-verify.md. The table matches Sheets, every row field by field (22 × 17).
 
-**Next step:** Area 8 (Complaints), Step 0: discovery (Complaints tab, the complaints routes and screens, what Apps Script does on a new complaint: it texts and emails, so dry-run only).
+**Next step:** Area 8, step 4: lib/pg/complaints.ts + lib/data/complaints.ts (list in the Apps Script shape, add, close, resend), wire app/api/complaints, parity, write checks, HTTP checks; then the sub performance score from Postgres.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -442,3 +443,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 0 | this commit | Complaints headers.
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 1 | this commit | Complaints schema.
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 2 | this commit | Complaints import.
+- 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 3 | this commit | Complaints verify: all match.
