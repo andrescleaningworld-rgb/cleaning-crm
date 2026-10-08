@@ -8,6 +8,7 @@
 // caller's request" convention as sendSms.
 
 import { ONESIGNAL_APP_ID } from "./oneSignalAppId";
+import { isOutboundDryRun, logDryRun } from "./outbound";
 
 const ONESIGNAL_API_URL = "https://api.onesignal.com/notifications";
 
@@ -18,6 +19,11 @@ export async function sendPush(
   url: string,
   routeContext: string = "unknown"
 ): Promise<{ success: boolean }> {
+  if (isOutboundDryRun()) {
+    logDryRun("push", `(${routeContext}) to ${externalUserId}: ${title} – ${body}`);
+    return { success: true };
+  }
+
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!restApiKey) {
     console.warn(`[push] skip (${routeContext}): ONESIGNAL_REST_API_KEY not configured`);

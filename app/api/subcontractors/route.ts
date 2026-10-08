@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrFetch, invalidateCached } from "@/lib/serverCache";
-import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import {
   updateSubcontractor,
   getSubcontractorPerformanceMap,
@@ -538,7 +538,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await fetch(SCRIPT_URL, {
+    const response = await fetchAppsScriptDirect(SCRIPT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8",

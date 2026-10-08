@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { Readable } from "stream";
+import { isOutboundDryRun, logDryRun } from "./outbound";
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
@@ -31,6 +32,11 @@ export async function uploadPhotoToDrive(
 ): Promise<string> {
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID is not configured.");
+
+  if (isOutboundDryRun()) {
+    logDryRun("drive upload", `${originalName} (${mimeType}, ${buffer.length} bytes) for account ${accountId}`);
+    return "https://drive.google.com/file/d/dry-run/view";
+  }
 
   const drive = getDriveClient();
   const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");

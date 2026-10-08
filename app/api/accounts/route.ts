@@ -1,7 +1,7 @@
 import { describeAccountChanges } from "@/lib/accountChanges";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
-import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import { setAccountChecklistNeeded, updateAccountFieldsDirect } from "@/lib/googleSheets";
@@ -349,7 +349,7 @@ export async function POST(request: NextRequest) {
 
     // === NEW: Handle Send New Account Packet ===
     if (action === "sendNewAccountPacket") {
-      const response = await fetch(SCRIPT_URL, {
+      const response = await fetchAppsScriptDirect(SCRIPT_URL, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(body),
@@ -393,7 +393,7 @@ export async function POST(request: NextRequest) {
         manager:                String(body.manager                ?? ""),
       });
 
-      const response = await fetch(`${SCRIPT_URL}?${params.toString()}`, {
+      const response = await fetchAppsScriptDirect(`${SCRIPT_URL}?${params.toString()}`, {
         method: "GET",
         cache: "no-store",
       });

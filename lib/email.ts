@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import nodemailer, { type Transporter } from "nodemailer";
+import { isOutboundDryRun, logDryRun } from "./outbound";
 
 // Requires RESEND_API_KEY in .env.local — silently skips if not set.
 // Also requires a verified sending domain in Resend dashboard.
@@ -107,6 +108,11 @@ function sendPlainTextEmail(
   lines: string[],
   attachments?: EmailAttachment[]
 ): Promise<boolean> {
+  if (isOutboundDryRun()) {
+    logDryRun("email", `to ${to.join(", ")} – "${subject}" (${lines.length} lines, ${attachments?.length ?? 0} attachments)`);
+    return Promise.resolve(true);
+  }
+
   const provider = (process.env.EMAIL_PROVIDER || "gmail").trim().toLowerCase();
   return provider === "resend"
     ? sendViaResend(to, subject, lines, attachments)
@@ -158,6 +164,11 @@ export async function sendPortalNotification({
   accountId: string;
   lines: string[];
 }): Promise<void> {
+  if (isOutboundDryRun()) {
+    logDryRun("portal email", `"[Portal] ${subject} — ${accountName}" (${lines.length} lines)`);
+    return;
+  }
+
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return;
 

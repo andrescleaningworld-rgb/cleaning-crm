@@ -5,6 +5,8 @@
 // per-attempt timeout plus one retry gives a slow-but-working response a
 // real chance to succeed instead of surfacing as a hard failure.
 
+import { isOutboundDryRun, logDryRun } from "./outbound";
+
 const DEFAULT_TIMEOUT_MS = 18_000; // comfortably above the ~14s spikes observed
 const RETRY_DELAY_MS = 750;
 
@@ -32,6 +34,50 @@ async function fetchOnce(url: string, init: RequestInit, timeoutMs: number): Pro
   }
 }
 
+// The Apps Script action of a call: the "action" query parameter, or the
+// "action" field of a JSON body. "" when there is none.
+function appsScriptAction(url: string, init: RequestInit): string {
+  try {
+    const fromQuery = new URL(url).searchParams.get("action");
+    if (fromQuery) return fromQuery;
+  } catch {
+    // Not a parseable URL — fall through to the body.
+  }
+  if (typeof init.body === "string") {
+    try {
+      const parsed = JSON.parse(init.body) as { action?: unknown };
+      if (typeof parsed.action === "string") return parsed.action;
+    } catch {
+      // Not JSON.
+    }
+  }
+  return "";
+}
+
+// With OUTBOUND_DRY_RUN=1, only reads reach Apps Script: actions named
+// "get…" (GET or POST), and GETs with no action at all. Everything else is a
+// write or sends email/SMS (e.g. sendNewAccountPacket is called with GET), so
+// it is logged and answered with a fake success instead of being sent.
+function appsScriptDryRunResponse(url: string, init: RequestInit): Response | null {
+  if (!isOutboundDryRun()) return null;
+  const action = appsScriptAction(url, init);
+  const method = (init.method ?? "GET").toUpperCase();
+  const isRead = /^get/i.test(action) || (action === "" && method === "GET");
+  if (isRead) return null;
+  logDryRun("Apps Script request", `${method} action=${action || "(none)"}`);
+  return new Response(JSON.stringify({ success: true, dryRun: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+// Plain fetch to Apps Script with no timeout or retry, for the call sites
+// that never used fetchAppsScript's retry behavior. Only adds the dry-run
+// check above.
+export async function fetchAppsScriptDirect(url: string, init: RequestInit = {}): Promise<Response> {
+  return appsScriptDryRunResponse(url, init) ?? fetch(url, init);
+}
+
 export type FetchAppsScriptRetryOptions = {
   // A >=500 response means the server explicitly rejected the request —
   // nothing was written, so retrying is safe regardless of the action's
@@ -57,6 +103,9 @@ export async function fetchAppsScript(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
   retryOptions: FetchAppsScriptRetryOptions = {}
 ): Promise<Response> {
+  const dryRun = appsScriptDryRunResponse(url, init);
+  if (dryRun) return dryRun;
+
   const retryOn5xx = retryOptions.retryOn5xx ?? true;
   const retryOnThrow = retryOptions.retryOnThrow ?? true;
 
