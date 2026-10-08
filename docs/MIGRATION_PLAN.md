@@ -260,8 +260,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 9, step 0: docs/migration-reports/todos-headers.md. To Do 127 rows, 16 columns (six of them have no header in the sheet: group, outcome, calendar event, sync to calendar, priority); SmsLog 44 rows. Everything already reads and writes the sheet directly (no Apps Script).
 - Area 9, step 1: db/migrations/011_todos.sql applied to dev (todos, todo_sms_log). Flags and priority are kept as the sheet text because the app's rules read the text.
 - Area 9, step 2: scripts/migrate/import-todos.mjs. Dry run, run and re-run clean: 127 to-dos (124 linked to an account), 44 text-log lines. 3 open questions: 1 account name that matches no account, 2 assignee names that are not in the Managers list.
+- Area 9, step 3: scripts/migrate/verify-todos.mjs → docs/migration-reports/todos-verify.md. Both tables match Sheets, every row field by field (127 × 17, 44 × 8).
 
-**Next step:** Area 9 (To-Dos), Step 0: discovery (To Do and SmsLog tabs; app/to-do screens; creating a to-do texts the manager and can sync Google Calendar: dry-run only).
+**Next step:** Area 9, step 4: lib/pg/todos.ts + lib/data/todos.ts, switch imports, parity, write checks, HTTP checks (texts and Calendar in dry-run).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -461,3 +462,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 0 | this commit | To-Dos headers.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 1 | this commit | To-Dos schema.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 2 | this commit | To-Dos import; 3 questions.
+- 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 3 | this commit | To-Dos verify: all match.
