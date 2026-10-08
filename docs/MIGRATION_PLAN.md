@@ -280,8 +280,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12, step 0: docs/migration-reports/supplies-headers.md. MAIN has a Supplies tab (51 rows, 13 columns) and a Supply Orders tab (13 rows, 14 columns); the app reaches both only through Apps Script. Live read-only answers saved locally for comparison: getSupplyItemsAdmin (51), getSupplyItems (51), getSupplyOrders (13); getSupplies is not an action the script knows.
 - Area 12, step 1: db/migrations/014_supplies.sql applied to dev (sub_supplies, sub_supply_orders). Team Hub's supply tables untouched.
 - Area 12, step 2: scripts/migrate/import-supplies.mjs. Dry-run, run, re-run clean: 51 supplies, 13 order rows (all 13 linked to a sub and to an account), 0 open questions. 9 of the 13 orders name an item that is not in the catalog today; 5 quantities are text such as '8 boxes'.
+- Area 12, step 3: scripts/migrate/verify-supplies.mjs → docs/migration-reports/supplies-verify.md. Both tables match, every row field by field (51 × 14, 13 × 15).
 
-**Next step:** Area 12, Step 3: verify.
+**Next step:** Area 12, Step 4: Postgres data layer behind DATA_SOURCE_SUPPLIES (the Apps Script answers rebuilt from Postgres; order email through lib/email).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
