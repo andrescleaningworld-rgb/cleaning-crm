@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
+import { BigButton, Card, ErrorBox, Screen, SkeletonList, StatusPill } from "@/app/ui";
 
 type QueueSource = "team-hub" | "crew-link";
 
@@ -117,106 +118,106 @@ export default function TeamHubStaffQueue() {
     }
   }
 
-  if (loading) return <p className="p-6 text-sm text-gray-500">Loading Team Hub queue...</p>;
-
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>}
+    <Screen title="Crew Link" subtitle="Open problems and supply orders sent by the crews.">
+      {error ? <ErrorBox title="That did not work." text={error} onRetry={() => void load()} /> : null}
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="text-xl font-bold text-gray-900">Open Problems ({issues.length})</h2>
-        <div className="mt-3 space-y-3">
-          {issues.map((issue) => (
-            <div key={issue.id} className="rounded-lg border border-gray-200 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <Link href={accountHref(issue.accountId, issue.source)} className="font-bold text-blue-700 hover:underline">
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : (
+        <>
+          <Card title={`Open Problems (${issues.length})`}>
+            <div className="ui-stack">
+              {issues.map((issue) => (
+                <div key={issue.id} className="ui-stat">
+                  <Link href={accountHref(issue.accountId, issue.source)} className="ui-table-rowlink">
                     {accountNames[issue.accountId] ?? issue.accountId}
                   </Link>
-                  <p className="text-sm text-gray-500">
+                  <p className="ui-muted">
                     {sourceLine(issue)} · {issue.category}
                     {issue.runId ? " · during a checklist run" : ""}
                   </p>
                   {issue.note && (
-                    <p className="mt-1 text-sm text-gray-700">
+                    <p style={{ margin: "4px 0 0" }}>
                       <TranslatedText original={issue.note} english={issue.noteEnglish} language={issue.noteLanguage} />
                     </p>
                   )}
                   {issue.photos.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="ui-photos" style={{ marginTop: 8 }}>
                       {issue.photos.map((url) => (
                         // eslint-disable-next-line @next/next/no-img-element -- external Blob URLs, same pattern as the per-account Orders & Problems view
-                        <img key={url} src={url} alt="Problem photo" className="h-16 w-16 rounded object-cover" />
+                        <img key={url} src={url} alt="Problem photo" style={{ width: 72, height: 72, borderRadius: 8, objectFit: "cover" }} />
                       ))}
                     </div>
                   )}
-                  <p className="mt-1 text-xs text-gray-400">{issue.workerFirstName ?? "Unknown"} · {formatCrewDateTime(issue.createdAt)}</p>
+                  <p className="ui-muted">
+                    {issue.workerFirstName ?? "Unknown"} · {formatCrewDateTime(issue.createdAt)}
+                  </p>
+                  <div className="ui-actions-row" style={{ marginTop: 8 }}>
+                    <BigButton kind="second" onClick={() => void resolveIssue(issue.id)}>
+                      Resolve
+                    </BigButton>
+                  </div>
                 </div>
-                <button type="button" onClick={() => resolveIssue(issue.id)} className="shrink-0 rounded-lg bg-green-700 px-4 py-2 text-sm font-semibold text-white hover:bg-green-800">
-                  Resolve
-                </button>
-              </div>
+              ))}
+              {issues.length === 0 && <p className="ui-muted">No open problems.</p>}
             </div>
-          ))}
-          {issues.length === 0 && <p className="text-sm text-gray-500">No open problems.</p>}
-        </div>
-      </section>
+          </Card>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-        <h2 className="text-xl font-bold text-gray-900">Open Supply Orders ({orders.length})</h2>
-        <div className="mt-3 space-y-3">
-          {orders.map((order) => (
-            <div key={order.id} className="rounded-lg border border-gray-200 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <Link href={accountHref(order.accountId, order.source)} className="font-bold text-blue-700 hover:underline">
-                    {accountNames[order.accountId] ?? order.accountId}
-                  </Link>
-                  <p className="text-sm text-gray-500">{sourceLine(order)} · {ORDER_STATUS_LABEL[order.status]}</p>
-                  <ul className="mt-1 text-sm text-gray-700">
+          <Card title={`Open Supply Orders (${orders.length})`}>
+            <div className="ui-stack">
+              {orders.map((order) => (
+                <div key={order.id} className="ui-stat">
+                  <div className="ui-card-row">
+                    <Link href={accountHref(order.accountId, order.source)} className="ui-table-rowlink">
+                      {accountNames[order.accountId] ?? order.accountId}
+                    </Link>
+                    <StatusPill kind="waiting">{ORDER_STATUS_LABEL[order.status]}</StatusPill>
+                  </div>
+                  <p className="ui-muted">{sourceLine(order)}</p>
+                  <ul className="ui-list-plain" style={{ marginTop: 4 }}>
                     {order.lines.map((line, i) => (
-                      <li key={i}>{line.qty} × {line.itemName} ({line.unit})</li>
+                      <li key={i}>
+                        {line.qty} × {line.itemName} ({line.unit})
+                      </li>
                     ))}
                   </ul>
                   {order.otherItems && (
-                    <p className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-900">
-                      <span className="font-bold">Other supplies:</span> {order.otherItems}
+                    <p style={{ margin: "4px 0 0" }}>
+                      <span className="ui-strong">Other supplies:</span> {order.otherItems}
                     </p>
                   )}
                   {order.note && (
-                    <p className="mt-1 text-sm italic text-gray-500">
+                    <p className="ui-muted" style={{ fontStyle: "italic" }}>
                       &quot;<TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />&quot;
                     </p>
                   )}
-                  <p className="mt-1 text-xs text-gray-400">{order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}</p>
+                  <p className="ui-muted">
+                    {order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}
+                  </p>
+                  <div className="ui-actions-row" style={{ marginTop: 8 }}>
+                    {order.status === "new" && (
+                      <BigButton kind="second" onClick={() => void advanceOrder(order.id, "ordered")}>
+                        Mark Ordered
+                      </BigButton>
+                    )}
+                    <BigButton kind="second" onClick={() => void advanceOrder(order.id, "delivered")}>
+                      Mark Delivered
+                    </BigButton>
+                    <a href={`/crew-link/print/order/${order.id}`} target="_blank" rel="noopener" className="ui-btn ui-btn-second">
+                      Print
+                    </a>
+                    <BigButton kind="quiet" onClick={() => void advanceOrder(order.id, "cancelled")}>
+                      Cancel
+                    </BigButton>
+                  </div>
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <a
-                    href={`/crew-link/print/order/${order.id}`}
-                    target="_blank"
-                    rel="noopener"
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    🖨️ Print
-                  </a>
-                  {order.status === "new" && (
-                    <button type="button" onClick={() => advanceOrder(order.id, "ordered")} className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-                      Mark Ordered
-                    </button>
-                  )}
-                  <button type="button" onClick={() => advanceOrder(order.id, "delivered")} className="rounded-lg bg-green-700 px-3 py-2 text-sm font-semibold text-white hover:bg-green-800">
-                    Mark Delivered
-                  </button>
-                  <button type="button" onClick={() => advanceOrder(order.id, "cancelled")} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              ))}
+              {orders.length === 0 && <p className="ui-muted">No open supply orders.</p>}
             </div>
-          ))}
-          {orders.length === 0 && <p className="text-sm text-gray-500">No open supply orders.</p>}
-        </div>
-      </section>
-    </div>
+          </Card>
+        </>
+      )}
+    </Screen>
   );
 }

@@ -222,8 +222,10 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4a, step 5d: `app/accounts/page.tsx` (list) redesigned, 3,971 → 3,400 lines: header + More menu (Transfer proposal, Create to-dos for multiple, Print sub account list, Print), one search box with a Search button, all 10 filter/sort controls in a "Filter and sort" sheet, 7 tiles, cards on phone / 6-column table on desktop, Show 15 more, and the three pop-ups (Change status, New to-do, multi to-do) as sheets. Behavior unchanged: loads the default view on arrival, Search/Enter reloads, Clear filters empties the list. Headless click-through 25/25 at 375 and 1280px on Postgres; nothing was saved. The transfer-proposal builder inside the page keeps its old markup in this commit.
 - Area 4a step 5e: transfer proposal builder on /accounts redesigned with the UI kit (same handlers; saves still go to Apps Script). Headless check at 375 and 1280px: 38 of 38 pass, nothing saved.
 - Area 4a checkpoint report: docs/migration-reports/checkpoint-4a-accounts-2026-10-08.md.
+- Area 4b, step 0: discovery. No new tabs: account-updates reads/saves through Apps Script (kept, see 4a decision); account-health is a form with no data source at all; accounts-center, map and the Coverage tab read /api/accounts (already switched) plus /api/geocode (Catalogs, switched). Steps 1–4 have nothing to build; 4b is screen work.
+- Area 4b, step 5a: Accounts Center redesigned (tab bar, the three Recent lists, Keys tab, Crew Link queue tab). Same handlers. Headless check at 375 and 1280px passed; nothing saved.
 
-**Next step:** Area 4b, Step 0: discovery for account-updates, account-health, accounts-center, map, coverage map and app/sub-center/coverage.tsx (which tabs and routes they read; Account Updates and Sub Transfer Proposals stay on Apps Script).
+**Next step:** Area 4b, step 5b commit (Account Updates list + update page), then account-health, map, Coverage tab.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -278,6 +280,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Accounts list is not yet split into component files | the split is safer done together with the transfer-proposal builder, which is the other half of the file | next step.
 - Area 4a: the Accounts list was not split into app/accounts/_components/ files | a pure file move with no visible change; safer once no other screen work touches the file | split any time, no behavior depends on it
 - Transfer proposals: status Sent shows amber (waiting) instead of blue | the UI kit has no blue status; sent means waiting on the sub | add a pill kind if blue is wanted
+- Keys tab: every Cleaner dropdown shows Unassigned even when the account has a cleaner (the dropdown compares the cleaner's name with the sub's ID; 383 of 395 would match by contact name). Same before the redesign and on Sheets | fixing it changes what the screen shows and saves, so it needs approval | say yes and it is a 3-line fix
+- Keys tab: Generate code and the Copy tick box are not stored anywhere (the Accounts sheet has no Key Code or Copy column; the save reports success and the value is gone after a reload). Left exactly as is on both sources | adding columns is a new feature | approve two new columns (Postgres only) or remove the two controls
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -301,7 +305,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 2 People | done | 11 | 0.2 | 2026-10-07 | 2026-10-07 | 21 rows; 6 manager↔staff questions open; no screens in this area |
 | 3 Subs | done | 24 | 0.6 | 2026-10-07 | 2026-10-07 | 17 questions open (Leo twice, phones in the wrong column); Coverage tab moved to 4b |
 | 4a Accounts core | done | 34 | 1.6 | 2026-10-07 | 2026-10-08 | 25 questions open (Leo number missing, 9 managers, 3 subs); Account Updates, transfer proposals and the packet stay on Apps Script; transfer builder restyled |
-| 4b Accounts secondary | not started | 20 | | | | |
+| 4b Accounts secondary | in progress | 20 |  | 2026-10-08 |  |  |
 | 5 Equipment | not started | 20 | | | | |
 | 6 Scheduling | not started | 20 | | | | |
 | 7 Visits | not started | 14 | | | | |
@@ -363,3 +367,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T07:52 → 08:01 | 4a/step 5d | this commit | Accounts list redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:15 | 2026-10-08T08:15:01-04:00 accounts step 5e done (transfer builder)
 - 2026-10-08T08:16 | 2026-10-08T08:16 | 4a/checkpoint | this commit | Report written; 4a done.
+- 2026-10-08T08:30 | 2026-10-08T08:30 | 4b/step 0 + 5a | this commit | Discovery; Accounts Center redesigned. tsc ok, build ok, lint at baseline.

@@ -8,18 +8,19 @@ import AccountUpdatesPage from "../account-updates/page";
 import RecentActivitySummary from "./recent-activity";
 import AccountsCenterKeys from "./keys";
 import TeamHubStaffQueue from "./team-hub-queue";
+import { Tabs } from "@/app/ui";
 
 type CenterTab = "all" | "visits" | "complaints" | "updates" | "keys" | "team-hub";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
-const TABS: { id: CenterTab; label: string }[] = [
-  { id: "all", label: "All accounts" },
-  { id: "visits", label: "Visits" },
-  { id: "complaints", label: "Complaints" },
-  { id: "updates", label: "Updates" },
-  { id: "keys", label: "Keys" },
-  { id: "team-hub", label: "Crew Link" },
+const TABS: { value: CenterTab; label: string }[] = [
+  { value: "all", label: "All accounts" },
+  { value: "visits", label: "Visits" },
+  { value: "complaints", label: "Complaints" },
+  { value: "updates", label: "Updates" },
+  { value: "keys", label: "Keys" },
+  { value: "team-hub", label: "Crew Link" },
 ];
 
 function getStoredTab(): CenterTab {
@@ -63,36 +64,17 @@ export default function AccountsCenterPage() {
     if (typeof window !== "undefined") window.localStorage.setItem(TAB_STORAGE_KEY, next);
   }
 
+  // The open-problem count rides in the tab's own label so staff notice it
+  // without opening the tab.
+  const tabs = TABS.map((tab) =>
+    tab.value === "team-hub" && openTeamHubCount > 0 ? { ...tab, label: `${tab.label} (${openTeamHubCount})` } : tab
+  );
+
   return (
-    <div>
-      <div className="border-b border-slate-200 bg-white px-4 pt-4 sm:px-6">
-        {/* overflow-x-auto + shrink-0: on narrow screens the 5 tabs don't
-            fit in one row, and with no wrap they'd otherwise get clipped
-            by globals.css's html/body overflow-x:hidden with no way to
-            reach the cut-off tabs (e.g. Keys). Scrolling keeps the
-            folder-tab look intact instead of wrapping to a second row. */}
-        <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => handleTabChange(id)}
-              className={`shrink-0 rounded-t-lg px-5 py-2.5 text-sm font-black transition ${
-                activeTab === id
-                  ? "bg-blue-700 text-white shadow-sm"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {label}
-              {id === "team-hub" && openTeamHubCount > 0 && (
-                <span className="ml-2 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-bold text-white">
-                  {openTeamHubCount}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+    // .ui-screen here only sets the type and focus styles for the tab bar;
+    // each tab below brings its own Screen (title, back, main action).
+    <div className="ui-screen">
+      <Tabs label="Accounts Center sections" tabs={tabs} value={activeTab} onChange={handleTabChange} />
 
       {activeTab === "all" && (
         <>

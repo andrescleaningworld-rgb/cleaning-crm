@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Card, ErrorBox, Skeleton } from "@/app/ui";
 
 type RecentItem = {
   name: string;
@@ -40,7 +41,7 @@ function getTime(value: string): number {
 }
 
 function formatDate(value: string): string {
-  if (!value) return "-";
+  if (!value) return "No date";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -120,37 +121,31 @@ function RecentList({
   emptyLabel: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <h3 className="text-xs font-black uppercase tracking-wide text-gray-500">{title}</h3>
+    <Card title={title}>
       {loading ? (
-        <p className="mt-3 text-sm text-gray-500">Loading...</p>
+        <div className="ui-stack" aria-hidden="true">
+          <Skeleton />
+          <Skeleton />
+        </div>
       ) : items.length === 0 ? (
-        <p className="mt-3 text-sm text-gray-500">{emptyLabel}</p>
+        <p className="ui-card-text">{emptyLabel}</p>
       ) : (
-        <ul className="mt-3 space-y-2">
-          {items.map((item, index) =>
-            item.accountId ? (
-              <li key={`${index}-${item.name}`}>
-                <Link
-                  href={`/accounts/${encodeURIComponent(item.accountId)}`}
-                  className="group flex items-center justify-between gap-3 rounded-lg text-sm no-underline transition hover:bg-blue-50"
-                >
-                  <span className="truncate font-semibold text-gray-900 group-hover:text-blue-700">
-                    {item.name}
-                  </span>
-                  <span className="shrink-0 text-xs text-gray-500">{formatDate(item.date)}</span>
+        <ul className="ui-list-plain">
+          {items.map((item, index) => (
+            <li key={`${index}-${item.name}`} className="ui-card-row">
+              {item.accountId ? (
+                <Link href={`/accounts/${encodeURIComponent(item.accountId)}`} className="ui-table-rowlink" style={{ minWidth: 0 }}>
+                  {item.name}
                 </Link>
-              </li>
-            ) : (
-              <li key={`${index}-${item.name}`} className="flex items-center justify-between gap-3 text-sm">
-                <span className="truncate font-semibold text-gray-900">{item.name}</span>
-                <span className="shrink-0 text-xs text-gray-500">{formatDate(item.date)}</span>
-              </li>
-            )
-          )}
+              ) : (
+                <span className="ui-strong">{item.name}</span>
+              )}
+              <span className="ui-muted ui-nowrap">{formatDate(item.date)}</span>
+            </li>
+          ))}
         </ul>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -188,21 +183,12 @@ export default function RecentActivitySummary() {
   }, []);
 
   return (
-    <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
-      {error ? (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-          {error}
-        </div>
-      ) : null}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <section className="ui-stack" aria-label="Recent activity">
+      {error ? <ErrorBox title="Recent activity did not load." text={error} /> : null}
+      <div className="ui-three">
         <RecentList title="Recent Accounts" items={recentAccounts} loading={loading} emptyLabel="No recent accounts." />
         <RecentList title="Recent Visits" items={recentVisits} loading={loading} emptyLabel="No recent visits." />
-        <RecentList
-          title="Recent Complaints"
-          items={recentComplaints}
-          loading={loading}
-          emptyLabel="No recent complaints."
-        />
+        <RecentList title="Recent Complaints" items={recentComplaints} loading={loading} emptyLabel="No recent complaints." />
       </div>
     </section>
   );
