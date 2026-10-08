@@ -272,8 +272,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10, step 5: Sales and Reports restyled with the UI kit in place (scripted class mapping + hand pass; structure and handlers unchanged). Kit fix: children of a screen can no longer be wider than the screen (a wide table was pushing content off the right edge on phones, clipped). The measuring script now also checks for clipped content. Measured at 375 and 1280px: Sales, Reports and To-Do pass; nothing saved.
 - Area 10 checkpoint report: docs/migration-reports/checkpoint-10-sales-2026-10-08.md.
 - Area 11, step 0: docs/migration-reports/customer-portal-headers.md. customer-portal 393 rows / 19 columns (mostly only Account Name, Phone, Portal Code, Portal Access are filled; Account ID is a formula); portal-complaints, portal-service-requests, portal-date-changes have 0 rows; there is no portal-billing-requests tab, so a billing request from /portal cannot be saved today. Both portals read the same access list: /portal (phone + code, session cookie, saves requests to the portal-* tabs) and /customer-portal (phone only, kept in the browser, requests/complaints/history go to Apps Script).
+- Area 11, step 1: db/migrations/013_customer_portal.sql applied to dev (portal_access; portal_requests with the tab name as the kind and three per-kind fields).
 
-**Next step:** Area 11 (Customer portal), Step 1: schema (portal_access, portal_requests with kind).
+**Next step:** Area 11, Step 2: import.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
