@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a and 4b done; reports in `docs/migration-reports/`. Area 5 (Equipment) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 4.1 h used of 121 h estimated; roughly 8–22 h of Claude work left.
+**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b and 5 done; reports in `docs/migration-reports/`. Area 6 (Scheduling) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 4.8 h used of 141 h estimated; roughly 7–20 h of Claude work left.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -235,8 +235,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5, step 3: scripts/migrate/verify-equipment.mjs → docs/migration-reports/equipment-verify.md. All 5 tables match Sheets, every row field by field.
 - Area 5, step 4: lib/pg/equipment.ts + lib/data/equipment.ts; 18 files switched; staffHasEquipmentCheckoutHistory now follows DATA_SOURCE_EQUIPMENT. Parity 13/13 reads identical; check-equipment-writes.mts 40/40; 9 routes byte-identical over HTTP on both sources; add category over HTTP on Postgres. Not exercised over HTTP: checkout, return, repair, photo upload (covered at function level).
 - Area 5, step 5: Equipment screens put in the shared page frame (EquipmentShell → app/ui Screen); Check out / Return and Repair pop-ups are now kit sheets; small text in the tablet-report block raised to 16px. Headless measurement at 375 and 1280px on 8 screens + 2 sheets: 50 of 50, nothing saved. The tablet app and the sub portal equipment page were not opened.
+- Area 5 checkpoint report: docs/migration-reports/checkpoint-5-equipment-2026-10-08.md.
 
-**Next step:** Area 5, step 5: redesign app/equipment (list, item page, new item, parts, vehicles, staff) and the equipment-check tablet page.
+**Next step:** Area 6 (Scheduling), Step 0: discovery (SubSchedules, ScheduleExceptions, subcontractor-visits; routes and screens that read them).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -324,7 +325,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 3 Subs | done | 24 | 0.6 | 2026-10-07 | 2026-10-07 | 17 questions open (Leo twice, phones in the wrong column); Coverage tab moved to 4b |
 | 4a Accounts core | done | 34 | 1.6 | 2026-10-07 | 2026-10-08 | 25 questions open (Leo number missing, 9 managers, 3 subs); Account Updates, transfer proposals and the packet stay on Apps Script; transfer builder restyled |
 | 4b Accounts secondary | done | 20 | 0.5 | 2026-10-08 | 2026-10-08 | No new tables; 8 screens redesigned; Keys and Account Health bugs reported, not fixed; Google coverage map not testable locally |
-| 5 Equipment | in progress | 20 |  | 2026-10-08 |  |  |
+| 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
 | 6 Scheduling | not started | 20 | | | | |
 | 7 Visits | not started | 14 | | | | |
 | 8 Complaints | not started | 24 | | | | |
@@ -397,3 +398,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 3 | this commit | Equipment verify: all match.
 - 2026-10-08T08:54 | 2026-10-08T08:54 | 5/step 4 | this commit | Equipment data layer behind DATA_SOURCE_EQUIPMENT. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:09 | 2026-10-08T09:09 | 5/step 5 | this commit | Equipment screens: shared frame, sheets. tsc ok, build ok, lint at baseline.
+- 2026-10-08T09:09 | 2026-10-08T09:09 | 5/checkpoint | this commit | Report written; Area 5 done.
