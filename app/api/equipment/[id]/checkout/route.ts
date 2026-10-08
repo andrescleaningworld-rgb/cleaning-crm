@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   appendEquipmentCheckout,
-  getAllSubcontractorsRaw,
   getEquipmentById,
   updateEquipmentFields,
   type EquipmentHolderType,
 } from "@/lib/googleSheets";
+import {
+  getAllSubcontractorsRaw,
+} from "@/lib/data/subs";
 import {
   getActiveSigningStaffById,
   getStaffById,

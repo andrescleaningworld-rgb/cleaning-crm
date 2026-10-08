@@ -11,7 +11,8 @@
 // never call this from a public (no-login, crew-facing) code path. Team Hub
 // tables themselves never store any of these fields (direction 8), only
 // the account_id used to look them up here on demand.
-import { getAccountSummaryById, getAccountSummariesByIds, getAllSubcontractorsRaw, type AccountSummary } from "@/lib/googleSheets";
+import { getAccountSummaryById, getAccountSummariesByIds, type AccountSummary } from "@/lib/googleSheets";
+import { getAllSubcontractorsRaw } from "@/lib/data/subs";
 import { normalizeSubName, resolveAssignedSubKeyWithCandidateCount } from "@/lib/subAccountMatching";
 
 export type { AccountSummary };

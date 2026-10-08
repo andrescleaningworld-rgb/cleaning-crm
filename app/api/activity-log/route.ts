@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrFetch } from "@/lib/serverCache";
-import { getSubcontractorActivityLog } from "@/lib/googleSheets";
+import { getSubcontractorActivityLog } from "@/lib/data/subs";
 
 export const maxDuration = 45;
 

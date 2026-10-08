@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrFetch } from "@/lib/serverCache";
 import { fetchAppsScript } from "@/lib/appsScriptFetch";
+import { getSubcontractorsAppsScriptShape, subsOnPostgres } from "@/lib/data/subs";
 import { fetchAccountsForAction, AccountsFetchError } from "@/app/api/accounts/route";
 import { renderAccountPacketAdminPdf } from "@/lib/pdf/account-packet-admin";
 
@@ -101,6 +102,9 @@ function findAccountByUrlId(
 // to populate the cache. This fetches and caches only the plain list, under
 // its own dedicated key, so there's no ambiguity about what's in it.
 async function fetchRawSubcontractors(): Promise<Record<string, unknown>[]> {
+  // With DATA_SOURCE_SUBS=postgres the same list is built from Postgres.
+  if (subsOnPostgres()) return getSubcontractorsAppsScriptShape();
+
   if (!SCRIPT_URL) {
     throw new Error("Missing GOOGLE_SCRIPT_URL in .env.local");
   }

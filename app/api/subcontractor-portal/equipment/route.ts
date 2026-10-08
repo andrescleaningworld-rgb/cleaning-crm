@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
-import { fetchEquipmentList, getAllSubcontractorsRaw } from "@/lib/googleSheets";
+import { fetchEquipmentList } from "@/lib/googleSheets";
+import { getAllSubcontractorsRaw } from "@/lib/data/subs";
 
 // Session-scoped read for the subcontractor portal's equipment view — never
 // exposes the full inventory (cost, other subs' assignments) to a logged-in
