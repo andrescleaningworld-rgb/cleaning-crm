@@ -224,10 +224,12 @@ export async function addSubcontractor(fields: Record<string, unknown>): Promise
 // field), and is checked by scripts/migrate/parity/subs.mts:
 //
 //   id / subcontractorId   the far-right "ID" column if filled, else SUB-ROW-<n>
-//   phone                  the SECOND "Phone" column, not the first. That is
-//                          what Apps Script does today, so only subs with a
-//                          number there get texts. Kept as is on purpose;
-//                          changing it is a proposal, not a migration step.
+//   phone                  the normal (first) "Phone" column, falling back to
+//                          the second one when it is empty. This is the ONE
+//                          deliberate difference from Apps Script, which
+//                          reads only the second column and so reaches 8 of
+//                          39 subs. Approved by Andres on 2026-10-08, for the
+//                          Postgres version only.
 //   status                 blank counts as "Active"
 //   name                   contact, or company when there is no contact
 //   displayName / dropdownLabel   "<contact> — <company>"
@@ -273,7 +275,7 @@ export async function getSubcontractorsAppsScriptShape(): Promise<AppsScriptSubc
       subcontractor: company,
       displayName: label,
       dropdownLabel: label,
-      phone: text("extra_phone_raw"),
+      phone: text("phone") || text("extra_phone_raw"),
       email: text("email"),
       address: text("address"),
       areasServiced: text("areas_serviced"),

@@ -71,7 +71,12 @@ try {
 
   // The Apps Script-shaped list.
   const shape = (await data.getSubcontractorsAppsScriptShape()).find((s) => s.companyName === MARK)!;
-  check("Apps Script-shaped list: label, status default, phone from the second column", shape.displayName === `Test Person — ${MARK}` && shape.status === "Paused" && shape.phone === "" && shape.id === created.id);
+  check("Apps Script-shaped list: label, status as saved, id", shape.displayName === `Test Person — ${MARK}` && shape.status === "Paused" && shape.id === created.id);
+  check("texting uses the normal Phone column", shape.phone === "5555550199", shape.phone);
+  await sql`UPDATE subcontractors SET phone = '', extra_phone_raw = '5555550111' WHERE id = ${created.subcontractorId}`;
+  check("…and falls back to the second Phone column when the first is empty", (await data.getSubcontractorsAppsScriptShape()).find((s) => s.companyName === MARK)!.phone === "5555550111");
+  const withPhone = (await data.getSubcontractorsAppsScriptShape()).filter((s) => s.phone && s.companyName !== MARK).length;
+  check("subs that can now be texted", withPhone > 8, `${withPhone} of 39 (was 8)`);
 } finally {
   await sql`DELETE FROM subcontractors WHERE source_sheet IS NULL AND company_name = ${MARK}`;
 }
