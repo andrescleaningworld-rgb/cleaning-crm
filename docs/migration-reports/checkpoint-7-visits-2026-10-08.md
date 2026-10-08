@@ -94,7 +94,7 @@ Not tested:
 - `app/visits/[id]/page.tsx`: new layout only. Loading, the account lookup by name, the edit request and the "your name" rule are unchanged; the edit form moved into a sheet.
 
 ### Slips (mine)
-- **I hit Google's read limit for about a minute.** One of my comparison reads asked the Sheets API for the whole Visits tab 611 times in a row. Google refused further reads for about a minute. Nothing was written. If the live app uses the same Google account, it may have been slow or shown load errors during that minute (about 10:05). I removed that read and capped these comparisons at under 20 reads.
+- **I hit Google's read limit for about a minute.** One of my comparison reads asked the Sheets API for the whole Visits tab 611 times in a row. Google refused further reads for about a minute. Nothing was written. If the live app uses the same Google account, it may have been slow or shown load errors during that minute (about 9:45). I removed that read and capped these comparisons at under 20 reads.
 
 ### Readers still on Sheets / Apps Script
 - Inside `lib/googleSheets.ts` other areas still read the Visits tab directly (the subcontractor performance score, the dashboard counts). They move with their own areas.

@@ -250,6 +250,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 7, step 4: lib/pg/visits.ts + lib/data/visits.ts; app/api/visits wired (list and add visit on Postgres when DATA_SOURCE_VISITS=postgres), 2 more files switched. The Apps Script visit list rebuilt from Postgres: 611 of 611 rows identical to the live answer, same keys, same order (check-visits-apps-script.mts). Parity 19/19 direct reads; check-visits-writes.mts 23/23; the list route on Postgres is byte-identical to what the route returns for the live answer (268,430 bytes), 3 by-id routes byte-identical on both sources; add + edit + edit history over HTTP on Postgres, test rows removed.
 - Area 7, step 5: Visits list, Visit page and Add visit redesigned. List: search, one Filter and sort sheet (7 controls), 3 tiles, cards / 9-column table, 50 at a time with print-all. Visit page: 9 facts, edit form in a sheet, edit history. Add visit: same 9 boxes. Headless click-through 48 of 48 at 375 and 1280px; nothing saved. Protected files edited (standing approval): app/visits/page.tsx and app/visits/[id]/page.tsx, layout only.
 - Area 7 checkpoint report: docs/migration-reports/checkpoint-7-visits-2026-10-08.md.
+- Area 8, step 0: docs/migration-reports/complaints-headers.md. Complaints 22 rows, 16 columns (Resolution Date, Created At and Last Follow-Up are empty on every row). The list is an Apps Script action (getComplaints), creating a complaint writes the sheet directly, closing and resending go through Apps Script. Live getComplaints answer captured once (read-only): 22 rows in sheet order, 17 fields, 4 of them always blank (complaintType, subcontractor, resolution, followUpDate).
 
 **Next step:** Area 8 (Complaints), Step 0: discovery (Complaints tab, the complaints routes and screens, what Apps Script does on a new complaint: it texts and emails, so dry-run only).
 
@@ -333,7 +334,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Slip on 2026-10-07 23:48: the three Area 4a commits `migration(accounts): step 1–3` were pushed while `npx tsc --noEmit` was failing (6 type errors in `scripts/migrate/import-accounts.mts`; the script itself ran correctly). Fixed in the next commit by typing two helpers. Cause: the commit command did not stop on the failed check. From here on the check result is read before the commit command is built.
 - Apps Script `getAllAccounts` (the list most staff screens load) answered "Page Not Found" 4 times out of 6 on 2026-10-08 between 07:10 and 07:25 (once after 134 s), while `getAccounts` answered in 3 s. Not caused by any write (none were made). The rebuilt `getAllAccounts` is therefore checked against the live answer only for the fields it shares with `getAccounts`; its one extra field, `cancelledDate`, is checked by format only. Andres: check that the live Accounts screen loads. Apps Script reads are now cached and spaced 20 s apart (`check-accounts-apps-script.mts`).
 - Other code still reads the Accounts tab straight from Sheets inside `lib/googleSheets.ts`: the performance score (`getSubcontractorPerformanceMap`), the customer-portal account merge (`getMergedPortalAccounts`, `getCustomerByPhone` …), To-Do, Complaints and Visits lookups. They move with Areas 6–11. Until then `DATA_SOURCE_ACCOUNTS` must not be turned on in production (the plan already says not before Areas 11 and 13).
-- Slip 2026-10-08 10:05: the first visits parity run asked the Sheets API for the whole Visits tab 611 times in a row (one read listed every visit by id; the Sheets function re-reads the tab on each call). Google answered Quota exceeded for about a minute. Read-only, nothing was written, but if the live app shares that quota it may have been slowed for that minute. That read is removed; parity lists now stay under 20 Sheets reads.
+- Slip 2026-10-08, about 09:45: the first visits parity run asked the Sheets API for the whole Visits tab 611 times in a row (one read listed every visit by id; the Sheets function re-reads the tab on each call). Google answered Quota exceeded for about a minute. Read-only, nothing was written, but if the live app shares that quota it may have been slowed for that minute. That read is removed; parity lists now stay under 20 Sheets reads.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -351,7 +352,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
 | 6 Scheduling | done | 20 | 0.8 | 2026-10-08 | 2026-10-08 | 298 schedules; 27 carry one email no sub has; sub portal and customer portal schedule views not opened (Areas 11, 13) |
 | 7 Visits | done | 14 | 0.8 | 2026-10-08 | 2026-10-08 | 611 visits; Apps Script list rebuilt 611/611; 58 visits name an unknown account; customer-portal visit read is broken today (copied, reported) |
-| 8 Complaints | not started | 24 | | | | |
+| 8 Complaints | in progress | 24 |  | 2026-10-08 |  |  |
 | 9 To-Dos | not started | 20 | | | | |
 | 10 Sales/Reports | not started | 18 | | | | |
 | 11 Customer portal | not started | 22 | | | | |
@@ -436,3 +437,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:49 | 2026-10-08T09:49 | 7/step 4 | this commit | Visits data layer behind DATA_SOURCE_VISITS. tsc ok, build ok, lint at baseline.
 - 2026-10-08T10:01 | 2026-10-08T10:01 | 7/step 5 | this commit | Visits screens redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T10:01 | 2026-10-08T10:01 | 7/checkpoint | this commit | Report written; Area 7 done.
+- 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 0 | this commit | Complaints headers.
