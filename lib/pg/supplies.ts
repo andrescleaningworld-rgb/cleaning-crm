@@ -145,6 +145,9 @@ export async function addSupplyItem(body: SupplyBody, updatedBy = ""): Promise<{
   return { id: `SUP-${rows[0].sheet_row}`, rowNumber: rows[0].sheet_row };
 }
 
+// The list the screen edits from does not carry the stock numbers (the Apps
+// Script list never did), so the edit form sends them empty: an empty stock
+// value leaves the stored one alone instead of erasing it.
 export async function updateSupplyItem(body: SupplyBody, updatedBy = ""): Promise<void> {
   const row = supplyRowOf(body);
   const f = supplyFields(body);
@@ -153,7 +156,9 @@ export async function updateSupplyItem(body: SupplyBody, updatedBy = ""): Promis
   const updated = row
     ? ((await sql.query(
         `UPDATE sub_supplies SET supply_item = $2::text, category = $3::text, description = $4::text, unit = $5::text, status = $6::text,
-           notes = $7::text, active_raw = $8::text, current_stock_raw = $9::text, minimum_stock_raw = $10::text,
+           notes = $7::text, active_raw = $8::text,
+           current_stock_raw = CASE WHEN $9::text = '' THEN current_stock_raw ELSE $9::text END,
+           minimum_stock_raw = CASE WHEN $10::text = '' THEN minimum_stock_raw ELSE $10::text END,
            last_updated_raw = $11::text, updated_by = $12::text, updated_at = now()
          WHERE sheet_row = $1::int RETURNING sheet_row`,
         [row, f.name, f.category, f.description, f.unit, f.status, f.notes, f.active, f.currentStock, f.minimumStock, sheetStamp(), updatedBy]

@@ -57,6 +57,9 @@ try {
   mine = (await data.getSupplyItemsAdminShape()).find((i) => i.id === added.id);
   check("an edit found by SUP-<row> alone works; an empty status shows as Active", mine?.status === "Active" && mine.category === "");
 
+  const kept = await one<{ current_stock_raw: string; minimum_stock_raw: string }>(`SELECT current_stock_raw, minimum_stock_raw FROM sub_supplies WHERE sheet_row = $1`, [added.rowNumber]);
+  check("edits that send no stock numbers leave the stored ones alone", kept.current_stock_raw === "4" && kept.minimum_stock_raw === "2");
+
   await data.deactivateSupplyItem({ supplyId: added.id, rowNumber: added.rowNumber, status: "Inactive", active: "no" });
   list = await data.getSupplyItemsAdminShape();
   mine = list.find((i) => i.id === added.id);

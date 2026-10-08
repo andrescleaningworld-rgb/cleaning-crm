@@ -282,8 +282,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12, step 2: scripts/migrate/import-supplies.mjs. Dry-run, run, re-run clean: 51 supplies, 13 order rows (all 13 linked to a sub and to an account), 0 open questions. 9 of the 13 orders name an item that is not in the catalog today; 5 quantities are text such as '8 boxes'.
 - Area 12, step 3: scripts/migrate/verify-supplies.mjs → docs/migration-reports/supplies-verify.md. Both tables match, every row field by field (51 × 14, 13 × 15).
 - Area 12, step 4: lib/pg/supplies.ts + lib/data/supplies.ts; app/api/supplies and app/api/supply-orders use Postgres when DATA_SOURCE_SUPPLIES=postgres (Apps Script is not called; unset = as before). The two Apps Script lists rebuilt from Postgres: 51/51 and 13/13 rows identical to the live answers (check-supplies-apps-script.mts); 3 routes byte-identical over HTTP on both sources; check-supplies-writes.mts 22/22; add, change, remove an item, create an order (office email logged as dry-run) and change its status over HTTP on Postgres. Test rows removed. Not wired yet: the order a sub sends from the sub portal (submitSupplyOrder goes through /api/subcontractor-portal: Area 13).
+- Area 12, step 5: app/supplies/page.tsx redesigned (cards / table, Add and Edit in a sheet, Remove asks in a sheet); app/supply-orders/page.tsx restyled in place (print view and PO PDF untouched). Headless click-through 42/42 at 375 and 1280px on Postgres + dry-run, on rows the test made (removed). Not pressed: Generate PO, Share, Download PDF. On Postgres an edit that sends no stock number keeps the stored one (write checks now 23/23).
 
-**Next step:** Area 12, Step 5: redesign Supplies and Supply Orders.
+**Next step:** Area 12: checkpoint report, then Area 13 (Sub portal), Step 0.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
