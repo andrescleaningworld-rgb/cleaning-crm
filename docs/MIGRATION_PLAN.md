@@ -239,8 +239,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6, step 0: docs/migration-reports/scheduling-headers.md. SubSchedules 298 rows / 16 columns (all Active; SubID holds the sub's email; AccountID is the account ID), ScheduleExceptions 0 rows (the code reads 9 columns, the header row has 8: CreatedDate has no header), subcontractor-visits 1 row (PORTAL sheet).
 - Area 6, step 1: db/migrations/008_scheduling.sql applied to dev (sub_schedules, schedule_exceptions, subcontractor_visits). The app's own IDs are text, not keys; sheet_row is unique per table because every edit and delete addresses a row by its number.
 - Area 6, step 2: scripts/migrate/import-scheduling.mjs. Dry run, run and re-run clean: 298 schedules (298 linked to an account, 271 to a sub), 0 exceptions, 1 sub visit. 27 open questions, all the same one: 27 schedules carry one email that no current subcontractor has.
+- Area 6, step 3: scripts/migrate/verify-scheduling.mjs → docs/migration-reports/scheduling-verify.md. All 3 tables match Sheets, every row field by field (298 × 17, 0, 1 × 8).
 
-**Next step:** Area 6 (Scheduling), Step 0: discovery (SubSchedules, ScheduleExceptions, subcontractor-visits; routes and screens that read them).
+**Next step:** Area 6, step 4: lib/pg/scheduling.ts + lib/data/scheduling.ts, switch imports, parity, write checks, HTTP checks.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -406,3 +407,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 0 | this commit | Scheduling headers.
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 1 | this commit | Scheduling schema.
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 2 | this commit | Scheduling import; 27 questions (one email).
+- 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 3 | this commit | Scheduling verify: all match.
