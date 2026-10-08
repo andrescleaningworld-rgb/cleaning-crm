@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 in progress, full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). Shared migration tables applied to dev. **Sheets cannot be read from this machine** (see Blocked and skipped).
+**Status:** Phase 0 done (report: `docs/migration-reports/checkpoint-0-2026-10-07.md`). Part B next. Full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). Shared migration tables applied to dev. **Sheets cannot be read from this machine** (see Blocked and skipped).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -188,7 +188,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Phase 0, step 6: `OUTBOUND_DRY_RUN=1` (`lib/outbound.ts`) covers `lib/sms.ts`, `lib/email.ts`, `lib/push.ts`, `lib/googleCalendar.ts`, `lib/googleDrive.ts`, and Apps Script writes in `lib/appsScriptFetch.ts` (reads named `get…` still go through). Three raw Apps Script `fetch` calls in `app/api/accounts/route.ts` and `app/api/subcontractors/route.ts` now go through `fetchAppsScriptDirect` (same request when dry-run is off). Proof: `npx tsx scripts/migrate/check-dry-run.mts` (17 checks, network trapped). Not covered: direct Google Sheets writes and Vercel Blob uploads.
 - Phase 0, step 7: `scripts/migrate/parity.mts <area>` + `scripts/migrate/lib/diff.mjs`; each area lists its reads in `scripts/migrate/parity/<area>.mts`. Self-test: `npx tsx scripts/migrate/parity.mts --self-test`.
 
-**Next step:** Checkpoint 0 report, then Part B (design system).
+**Next step:** Part B (design system): tokens in `app/globals.css`, `app/ui/` components, `app/ui/words.ts`, `app/design-preview/page.tsx`.
 
 **Deadline:** not set.
 
@@ -208,7 +208,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 | Area | Status | Est h | Actual h | Started | Finished | Notes |
 |---|---|---|---|---|---|---|
-| 0 Machinery | in progress | 6 | | 2026-10-07 | | |
+| 0 Machinery | done | 6 | 0.5 | 2026-10-07 | 2026-10-07 | Sheets self-test fails: no credentials on this machine |
 | B Design system | not started | 14 | | | | |
 | 1 Catalogs | not started | 12 | | | | |
 | 2 People | not started | 11 | | | | |
@@ -238,3 +238,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T20:49 → 20:52 | 0/step 5 | this commit | Data-source flag helper. tsc ok, build ok, lint at baseline (10 pre-existing errors).
 - 2026-10-07T20:52 → 20:58 | 0/step 6 | this commit | Outbound dry-run switch + self-test. tsc ok, build ok, lint at baseline.
 - 2026-10-07T20:58 → 21:00 | 0/step 7 | this commit | Parity tester + self-test.
+- 2026-10-07 21:00 | 0/checkpoint | this commit | Checkpoint 0 report written. Area 0 total: 0.5 h vs 6 h estimate.
