@@ -232,8 +232,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5, step 0: docs/migration-reports/equipment-headers.md. EquipmentCategories 2 rows, Equipment 1, EquipmentCheckouts 1, EquipmentRepairs 0, EquipmentParts 0. Vehicles, staff PINs and the equipment-check reports are already in Postgres (lib/vehiclesDb.ts, lib/equipmentCheckDb.ts) and are not part of this move.
 - Area 5, step 1: db/migrations/007_equipment.sql applied to dev (equipment_categories, equipment, equipment_checkouts, equipment_repairs, equipment_parts). New column sheet_row: the app addresses a checkout by its row number on return, so rows created in Postgres get the next number.
 - Area 5, step 2: scripts/migrate/import-equipment.mjs. Dry run, run and re-run clean: 2 categories, 1 item, 1 checkout, 0 repairs, 0 parts, 0 issues.
+- Area 5, step 3: scripts/migrate/verify-equipment.mjs → docs/migration-reports/equipment-verify.md. All 5 tables match Sheets, every row field by field.
 
-**Next step:** Area 5 (Equipment), Step 0: discovery (tabs, headers, row counts, routes and screens that read them).
+**Next step:** Area 5, step 4: lib/pg/equipment.ts + lib/data/equipment.ts, switch imports, parity, write checks, HTTP checks.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -388,3 +389,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 0 | this commit | Equipment headers.
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 1 | this commit | Equipment schema.
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 2 | this commit | Equipment import.
+- 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 3 | this commit | Equipment verify: all match.
