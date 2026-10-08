@@ -191,8 +191,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1, step 0: `scripts/migrate/discover.mjs <area>` (headers + counts only, no cell values; `--tabs` lists tabs no area claims) → `docs/migration-reports/catalogs-headers.md`. ChangeLog 3 rows, GeocodeCache 0, ExtraServices 4, Documents 5, DocumentSends 7.
 - Area 1, step 1: `db/migrations/002_catalogs.sql` applied to dev (`changelog_entries`, `geocode_cache`, `extra_services`, `documents`, `document_sends`). Dates keep the Sheets text in `*_raw` next to a typed column.
 - Area 1, step 2: `scripts/migrate/import-catalogs.mjs` + `lib/import-helpers.mjs`. Dry-run, real run, and re-run all clean: 3 / 0 / 4 / 5 / 7 rows, 0 issues. GeocodeCache is empty in Sheets.
+- Area 1, step 3: `scripts/migrate/verify-catalogs.mjs` → `docs/migration-reports/catalogs-verify.md`. All 5 tables match Sheets: every row checked field by field, 0 missing, 0 extra, 0 mismatches. Parity run comes after step 4.
 
-**Next step:** Area 1, Step 3 (verify report).
+**Next step:** Area 1, Step 4 (`lib/pg/catalogs.ts`, `lib/data/catalogs.ts`, switch routes, parity).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -257,3 +258,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T21:00 → 21:12 | B | this commit | UI kit + /design-preview. tsc ok, build ok, lint at baseline. Total so far 0.7 h vs 20 h estimate.
 - 2026-10-07T22:34 → 22:35 | 1/step 0 | this commit | Discovery script + catalogs headers report.
 - 2026-10-07T22:36 → 22:39 | 1/steps 1–2 | this commit (schema file is in the commit before) | Schema applied, import run twice, 0 issues. Added `scripts/migrate/progress.mjs` to update this section.
+- 2026-10-07T22:39 | 1/step 3 | this commit | Verify: all tables match.
