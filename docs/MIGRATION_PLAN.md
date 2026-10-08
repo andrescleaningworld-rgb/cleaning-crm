@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 and Part B done. Area 1 (Catalogs) in progress. Full auto (no checkpoints). Sheets can be read from this machine since 2026-10-07 22:30 (`node scripts/migrate/check-harness.mjs` passes 9 of 9).
+**Status:** Phase 0, Part B and Area 1 (Catalogs) done; reports in `docs/migration-reports/`. Area 2 (People) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -196,7 +196,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1, step 5a: `app/documents/page.tsx` redesigned with the UI kit (added `Sheet` to the kit). Same features: add (was "Upload"), open, send to sub, send history, delete, category filter; new: search box. Headless click-through 16/16 at 375 and 1280px on Postgres + dry-run; screenshots in `docs/migration-reports/screens/documents-*.png`. Not clicked: a real upload (no Blob token here) and a real delete (would remove a real file).
 - Area 1, step 5b: `app/settings/extra-services/page.tsx` redesigned. Same features (add, change, picture upload, sort order, hide / show again). Headless click-through 12/12 at 375 and 1280px on Postgres + dry-run. Not clicked: a real picture upload (no Blob token here).
 
-**Next step:** Area 1 checkpoint report, then Area 2 (People), Step 0: `node scripts/migrate/discover.mjs people`.
+**Next step:** Area 2 (People), Step 0: `node scripts/migrate/discover.mjs people`.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -216,6 +216,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Design: no new font (device rounded font), audit colors with darker amber/red for contrast, kit words in EN/ES/PT in `app/ui/words.ts` | fewer moving parts, AA contrast, rule 9 | change `--ui-font` / `--ui-*` in `app/globals.css`.
 - Local-only `ADMIN_SESSION_PASSWORD` / `SUB_SESSION_PASSWORD` and `OUTBOUND_DRY_RUN=1` added to `.env.development.local` | needed to open pages locally; real values are not on this machine | replace with the real values if wanted.
 - Rename proposals (Complaints → Problems, etc.) are listed in `app/ui/words.ts` `PROPOSED_RENAMES` and not applied | rule 12 | approve them and they get applied per area.
+- Area 1: dates stored as Sheets text + typed column; screens get the text | exact parity with today | read the typed column later when screens format dates themselves.
+- Area 1: button words changed on Documents and Extra Services (Upload → Add document, View → Open, Edit → Change, Unhide → Show again, Image → Picture); no page or feature renamed | Part B rule 3 | listed in the Area 1 report for Andres to veto.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -230,7 +232,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 |---|---|---|---|---|---|---|
 | 0 Machinery | done | 6 | 0.5 | 2026-10-07 | 2026-10-07 | Sheets self-test fails: no credentials on this machine |
 | B Design system | done | 14 | 0.2 | 2026-10-07 | 2026-10-07 | Contrast not tool-measured; no real phone |
-| 1 Catalogs | in progress | 12 | | 2026-10-07 | | |
+| 1 Catalogs | done | 12 | 0.5 | 2026-10-07 | 2026-10-07 | 19 rows, 0 issues; real file upload/delete not clicked |
 | 2 People | not started | 11 | | | | |
 | 3 Subs | not started | 24 | | | | |
 | 4a Accounts core | not started | 34 | | | | |
@@ -266,3 +268,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T22:39 → 22:46 | 1/step 4 | this commit | Data layer behind DATA_SOURCE_CATALOGS. tsc ok, build ok, lint at baseline.
 - 2026-10-07T22:46 → 22:52 | 1/step 5a | this commit | Documents page redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-07T22:52 → 22:59 | 1/step 5b | this commit | Extra Services page redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-07T22:59 | 1/checkpoint | this commit | Area 1 report. Area total 0.5 h vs 12 h; running total 1.2 h vs 32 h.
