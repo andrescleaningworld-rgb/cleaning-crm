@@ -177,13 +177,14 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 in progress, full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). No migration tables yet.
+**Status:** Phase 0 in progress, full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). No migration tables yet. **Sheets cannot be read from this machine** (see Blocked and skipped).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
 - Phase 0, step 2: Andres created Neon branch `migration-dev`; its pooled URL is in `.env.development.local` (git-ignored) as `MIGRATION_DATABASE_URL` and `DATABASE_URL`. Dev host: `ep-small-credit-auvaagcl-pooler.c-10.us-east-1.aws.neon.tech`. Read-only connection test passed.
+- Phase 0, step 3: `scripts/migrate/lib/` (`env.mjs`, `guard.mjs`, `pg.mjs`, `sheets-readonly.mjs`, `report.mjs`) + `scripts/migrate/check-harness.mjs`. Guard refuses other Neon endpoints, non-Neon hosts, look-alike hosts, and a missing URL; accepts the dev branch. Sheets part of the self-test fails (no credentials).
 
-**Next step:** Phase 0, step 3 (guard + harness in `scripts/migrate/lib/`).
+**Next step:** Phase 0, step 4 (schema migrations runner + shared migration tables).
 
 **Deadline:** not set.
 
@@ -191,7 +192,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - `guard.mjs` will be an allow-list (only the `migration-dev` endpoint `ep-small-credit-auvaagcl` may be used) instead of a forbid-list | the production host is not known on this machine (`.env.local` has no `DATABASE_URL`) and Andres said "use this one only"; an allow-list also blocks any other database | add the production host to `FORBIDDEN_HOSTS` in `guard.mjs` when known; change `ALLOWED_ENDPOINTS` if the dev branch is recreated.
 
 **Blocked and skipped:**
-- (none yet)
+- **Reading Google Sheets (every area, Steps 0, 2, 3, and local testing in Step 4).** `.env.local` was written by `vercel env pull`, which replaces sensitive values with the text `[SENSITIVE]`: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_MAIN_SHEET_ID`, `GOOGLE_SHEET_ID`, `GOOGLE_SCRIPT_URL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_TOKEN`, `SUB_SESSION_PASSWORD`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. Not retried another way. **To unblock:** Andres adds the real values to `.env.development.local` (at least the two service-account values and the two sheet ids). Until then only work that needs no Sheets data is done: Phase 0 steps 4–7, Part B, and code that can be written from the existing Sheets code.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -224,3 +225,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T20:31 → 20:33 | 0/step 1 | this commit | Branch created from `main`, plan file added.
 - 2026-10-07T20:37 → 20:38 | 0/step 2 | – | Push fixed (signed in as repo owner). Step 2 not done: Neon account has no projects; waiting on Andres.
 - 2026-10-07T20:44 → 20:45 | 0/step 2 | this commit | Dev branch URL written to `.env.development.local`, connection verified read-only.
+- 2026-10-07T20:45 → 20:47 | 0/step 3 | this commit | Guard + harness. Sheets self-test fails: credentials on this machine are placeholders.
