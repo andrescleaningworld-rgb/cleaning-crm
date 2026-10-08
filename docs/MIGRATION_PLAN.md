@@ -211,8 +211,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3, step 5c: `app/sub-center/page.tsx` (tab bar now the kit Tabs; `?tab=` and the remembered tab work as before) and `app/sub-center/activity-log.tsx` redesigned (filters in a sheet, cards on phone / table on desktop, first 100 lines with "Show 100 more"). The Sub Center log is still its own thing; nothing was merged with the staff Activity Log. Headless click-through 16/16.
 - Area 4a, step 0: `docs/migration-reports/accounts-headers.md`. Accounts 399 rows with data on 842 sheet rows (443 blank rows in between), 35 columns A:AI. Real layout differs from Part A: G = Key / Alarm / Access Info, H = Monthly Revenue, I = Subcontractor, J = Manager, K = Monthly Subcontractor Pay, V/W = Gross Margin, AC/AD = Latitude/Longitude, AE = Has Key, AF = Alarm Code, AG/AH = City/Zip, AI = Checklist Needed; X–AB are empty. OnboardingChecklist 3 rows. Account Updates 193 rows (848 blank; Update ID and Account ID are formulas, filled for only ~20%). Sub Transfer Proposals 72 rows but only 29 distinct Proposal IDs (one proposal = several account rows).
 - Area 4a, step 1: `db/migrations/005_accounts.sql` applied to dev (`accounts`, `onboarding_checklists`, `account_updates`, `sub_transfer_proposals`). `accounts.id` is UNIQUE but nullable (one row has no ID); every Sheets column is kept as text, with typed dates, money and coordinates next to it.
+- Area 4a, step 2: `scripts/migrate/import-accounts.mts` (run with `npx tsx`; it uses the app own `lib/subAccountMatching.ts`). Run + re-run clean: 399 accounts, 3 checklists, 193 updates, 72 proposal rows (29 proposals). Subcontractor linked on 393 of 396 accounts, using the same rule the screens use. Manager linked on 242 of 396. Updates linked to an account by exact name: 183 of 193; proposal rows: 66 of 72. 25 open questions.
 
-**Next step:** Area 4a, Step 2 (import).
+**Next step:** Area 4a, Step 3 (verify).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -250,6 +251,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3 detail page: the line "Subcontractor ID: SUB-ROW-n" under the name is gone; the contact name is there instead | Part B rule 3 (no raw IDs), and that ID is a row number that changes | one line to put back.
 - Area 3 detail page: an Inactive status now shows gray, not green | the old color check looked for the word "active", which "Inactive" contains | cosmetic; revert in `statusKind`.
 - Area 3: `app/sub-center/coverage.tsx` and `coverage-map.tsx` are redesigned in Area 4b, not here | they show account data (`/api/accounts`), and the plan already puts "coverage map" in 4b; the map also needs a Google Maps key to check | none needed.
+- Area 4a: 154 accounts have no linked manager, 145 of them because the Manager cell holds a name that is not in the Managers tab (the owner first name), the rest because the cell holds two names or an accented spelling | exact name match only, never guessed | add the missing manager to the Managers tab, or give an `account_manager` override, and re-run the import.
+- Area 4a: 3 accounts whose Subcontractor text fits no sub stay unlinked; the same accounts already show under no sub in the app | same rule as the screens | `account_sub` override.
+- Area 4a: the account row with no Account ID (sheet row 843) and the two rows with no name are imported as they are | nothing is dropped | fix in Sheets and re-run.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -320,3 +324,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:43 | 3/checkpoint | this commit | Area 3 report. Area total 0.6 h vs 24 h; running total 2.0 h vs 67 h. Remaining re-estimated at 8–25 h.
 - 2026-10-07T23:44 → 23:44 | 4a/step 0 | this commit | Accounts headers.
 - 2026-10-07T23:48 | 4a/step 1 | this commit | Accounts schema.
+- 2026-10-07T23:48 | 4a/step 2 | this commit | Accounts import; 25 questions logged.
