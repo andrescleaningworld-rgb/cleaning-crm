@@ -207,8 +207,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3, step 3: `scripts/migrate/verify-subs.mjs` → `docs/migration-reports/subs-verify.md`. Both tables match, every row field by field (39 × 18 columns, 385 × 5).
 - Area 3, step 4: `lib/pg/subs.ts` + `lib/data/subs.ts`; 6 files switched. With `DATA_SOURCE_SUBS=postgres`: reads, `updateSubcontractor`, a Postgres `addSubcontractor` (replaces the Apps Script action; no email/SMS is known to be sent by it), and the Apps Script `getSubcontractors` list rebuilt from Postgres for the two callers that still used it (notification name → phone/email lookup in `app/api/subcontractors/route.ts`, admin account PDF). Parity 4/4 incl. 39/39 rows identical to the live Apps Script list; `check-subs-writes.mts` 15/15; 5 routes byte-identical over HTTP; add + update over HTTP on Postgres.
 - Area 3, step 5a: `app/subcontractors/page.tsx` (list) redesigned. Same features: search, the 4 filters + 14 sorts (now in a "Filter and sort" sheet, with a count of how many are on), add form with all 16 fields, Service Log tab, Open (was View / Edit), Add schedule. Headless click-through 18/19 at 375 and 1280px on Postgres (the 1 miss was the test expecting "2 on" after it had set 3 filters). Screenshots are NOT committed for this page: they show real company names and revenue.
+- Area 3, step 5b: `app/subcontractors/[id]/page.tsx` (detail) redesigned. Same content: 3 status pills, 8 number tiles, performance score, 11 detail fields, current and past accounts with totals and links, recent complaints (first 25), Print (same sections printed and hidden as before; tables print instead of cards), Refresh, and the edit form (now a sheet). Headless click-through 17/18 on Postgres (the 1 miss was the test reading the site header instead of the page title). Screenshots not committed (names and money).
 
-**Next step:** Area 3, Step 5b: redesign `app/subcontractors/[id]/page.tsx` (1,476 lines), then `app/sub-center/*`.
+**Next step:** Area 3, Step 5c: redesign `app/sub-center/*` (page shell 92 lines, activity-log 409, coverage 434, coverage-map 863, team-hub 180 hidden). The Sub Center log and the staff Activity Log stay separate. Then the Area 3 checkpoint report with a real re-estimate.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -243,12 +244,15 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 3: `addSubcontractor` on Postgres stores the profile fields only and sends nothing | Apps Script source is not in the repo; the rows it made have no Created At / Updated At and no trace of a welcome message | if Apps Script does send something when a sub is added, say so and it gets rebuilt.
 - Area 3: screenshots that show real names, phone numbers or money are not saved in the repo | the repo is on GitHub; reports stay free of customer data | they can be regenerated locally with the scripts in the scratch folder, or say "commit them".
 - Area 3: "Clear filters" now also clears the Schedule filter | the old button forgot it (it reset the other three and the sort) | one line in `clearFilters`.
+- Area 3 detail page: the line "Subcontractor ID: SUB-ROW-n" under the name is gone; the contact name is there instead | Part B rule 3 (no raw IDs), and that ID is a row number that changes | one line to put back.
+- Area 3 detail page: an Inactive status now shows gray, not green | the old color check looked for the word "active", which "Inactive" contains | cosmetic; revert in `statusKind`.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
 - (resolved 2026-10-07) Reading Google Sheets was blocked until Andres supplied a service-account key, both sheet ids and the Apps Script URL.
 - Not tested over HTTP in Area 1: uploading a document (needs a Vercel Blob token, not on this machine) and the geocode routes (need the real Google Maps key). Their Postgres functions are covered by `check-catalogs-writes.mts`.
 - Sub-portal login and "log activity" still go through Apps Script (Area 13). A sub added while `DATA_SOURCE_SUBS=postgres` would not be able to log in to the portal until Area 13 is done, so SUBS must not be switched on in production before Area 13.
+- Noticed, not changed (existing behavior on both the old and new detail page): saving the edit form for a sub whose Status is blank writes "Active" into Status, because the form shows "Active" when blank. 27 of 39 subs have a blank Status today.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -307,3 +311,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:14 | 3/step 3 | this commit | Subs verify: all match.
 - 2026-10-07T23:14 → 23:23 | 3/step 4 | this commit | Subs data layer behind DATA_SOURCE_SUBS. tsc ok, build ok, lint at baseline.
 - 2026-10-07T23:23 → 23:29 | 3/step 5a | this commit | Subcontractors list redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-07T23:29 → 23:38 | 3/step 5b | this commit | Subcontractor detail page redesigned. tsc ok, build ok, lint at baseline.

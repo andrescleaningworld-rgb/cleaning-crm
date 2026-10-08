@@ -1,8 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import {
+  BigButton,
+  Card,
+  CardList,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  MoreMenu,
+  SaveStatus,
+  Screen,
+  SelectField,
+  Sheet,
+  showToast,
+  SkeletonList,
+  StatusPill,
+  TextAreaField,
+  useSaveAction,
+  type StatusKind,
+} from "@/app/ui";
 import {
   normalizeSubName,
   resolveAssignedSubKey,
@@ -164,125 +184,78 @@ function numberValue(value: unknown) {
   return Number(clean(value).replace(/[$,% ,]/g, "") || 0);
 }
 
-function safeDate(value: unknown) {
+// "Tue, Oct 7" (with the year when it is not this year). Text that is not a
+// date is shown as typed; blank stays blank.
+function niceDate(value: unknown) {
   const text = clean(value);
+  if (!text) return "";
 
-  if (!text) return "-";
+  // A bare YYYY-MM-DD is a calendar day: build it in local time so it never
+  // shows as the day before.
+  const dayOnly = /^(d{4})-(d{2})-(d{2})$/.exec(text);
+  const date = dayOnly ? new Date(Number(dayOnly[1]), Number(dayOnly[2]) - 1, Number(dayOnly[3])) : new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
 
-  const date = new Date(text);
-
-  if (Number.isNaN(date.getTime())) {
-    return text;
-  }
-
-  return date.toLocaleDateString();
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
 }
 
-function getScoreStatus(scoreValue: string, existingStatus?: string) {
+// Same score bands as before; `kind` is the pill color + icon.
+function getScoreStatus(scoreValue: string, existingStatus?: string): { label: string; kind: StatusKind } {
   if (existingStatus) {
-    return {
-      label: existingStatus,
-      className: getScoreStatusClass(existingStatus),
-    };
+    return { label: existingStatus, kind: scoreStatusKind(existingStatus) };
   }
 
   const score = Number(scoreValue);
 
-  if (!scoreValue || Number.isNaN(score)) {
-    return {
-      label: "Not Scored",
-      className: "bg-slate-100 text-slate-700",
-    };
-  }
-
-  if (score >= 9) {
-    return {
-      label: "Excellent",
-      className: "bg-green-100 text-green-800",
-    };
-  }
-
-  if (score >= 8) {
-    return {
-      label: "Good",
-      className: "bg-blue-100 text-blue-800",
-    };
-  }
-
-  if (score >= 7) {
-    return {
-      label: "Needs Attention",
-      className: "bg-yellow-100 text-yellow-800",
-    };
-  }
-
-  return {
-    label: "High Risk",
-    className: "bg-red-100 text-red-800",
-  };
+  if (!scoreValue || Number.isNaN(score)) return { label: "Not Scored", kind: "off" };
+  if (score >= 9) return { label: "Excellent", kind: "done" };
+  if (score >= 8) return { label: "Good", kind: "done" };
+  if (score >= 7) return { label: "Needs Attention", kind: "waiting" };
+  return { label: "High Risk", kind: "needs-you" };
 }
 
-function getScoreStatusClass(status: string) {
+function scoreStatusKind(status: string): StatusKind {
   const cleanStatus = status.toLowerCase();
 
-  if (cleanStatus === "excellent") return "bg-green-100 text-green-800";
-  if (cleanStatus === "good") return "bg-blue-100 text-blue-800";
-  if (cleanStatus === "needs attention") return "bg-yellow-100 text-yellow-800";
-  if (cleanStatus === "high risk") return "bg-red-100 text-red-800";
+  if (cleanStatus === "excellent" || cleanStatus === "good") return "done";
+  if (cleanStatus === "needs attention") return "waiting";
+  if (cleanStatus === "high risk") return "needs-you";
 
-  return "bg-slate-100 text-slate-700";
+  return "off";
 }
 
-function getStatusClass(statusValue: string) {
+// Same order of checks as before ("inactive" contains "active").
+function statusKind(statusValue: string): StatusKind {
   const status = statusValue.toLowerCase();
 
-  if (status.includes("active")) return "bg-green-100 text-green-800";
-  if (status.includes("cancel")) return "bg-red-100 text-red-800";
-  if (status.includes("paused")) return "bg-yellow-100 text-yellow-800";
-  if (status.includes("inactive")) return "bg-slate-100 text-slate-700";
+  if (status.includes("active") && !status.includes("inactive")) return "done";
+  if (status.includes("cancel")) return "needs-you";
+  if (status.includes("paused")) return "waiting";
 
-  return "bg-slate-100 text-slate-700";
+  return "off";
 }
 
-function getInsuranceStatus(expirationValue: string) {
-  if (!expirationValue) {
-    return {
-      label: "No Date",
-      className: "bg-slate-100 text-slate-700",
-    };
-  }
+function getInsuranceStatus(expirationValue: string): { label: string; kind: StatusKind } {
+  if (!expirationValue) return { label: "No Date", kind: "off" };
 
   const expiration = new Date(expirationValue);
 
-  if (Number.isNaN(expiration.getTime())) {
-    return {
-      label: "Check Date",
-      className: "bg-yellow-100 text-yellow-800",
-    };
-  }
+  if (Number.isNaN(expiration.getTime())) return { label: "Check Date", kind: "waiting" };
 
   const today = new Date();
   const soon = new Date();
   soon.setDate(today.getDate() + 30);
 
-  if (expiration < today) {
-    return {
-      label: "Expired",
-      className: "bg-red-100 text-red-800",
-    };
-  }
+  if (expiration < today) return { label: "Expired", kind: "needs-you" };
+  if (expiration <= soon) return { label: "Expiring Soon", kind: "waiting" };
 
-  if (expiration <= soon) {
-    return {
-      label: "Expiring Soon",
-      className: "bg-yellow-100 text-yellow-800",
-    };
-  }
-
-  return {
-    label: "Current",
-    className: "bg-green-100 text-green-800",
-  };
+  return { label: "Current", kind: "done" };
 }
 
 function getAccountId(account: AnyRow) {
@@ -521,6 +494,158 @@ async function readResult(
   return [];
 }
 
+const EMPTY_FORM = {
+  companyName: "",
+  contactName: "",
+  phone: "",
+  email: "",
+  address: "",
+  areasServiced: "",
+  servicesProvided: "",
+  employeeCapacity: "",
+  insuranceExpiration: "",
+  status: "Active",
+  notes: "",
+};
+
+type SubForm = typeof EMPTY_FORM;
+
+function formFromSubcontractor(subcontractor: Subcontractor): SubForm {
+  return {
+    companyName:
+      getAnyValue(subcontractorToRow(subcontractor), [
+        "companyName",
+        "CompanyName",
+        "Company Name",
+        "company",
+        "Company",
+      ]) || "",
+    contactName: getValue(subcontractor, "contactName", "ContactName", "Contact Name"),
+    phone: getValue(subcontractor, "phone", "Phone"),
+    email: getValue(subcontractor, "email", "Email"),
+    address: getValue(subcontractor, "address", "Address"),
+    areasServiced: getValue(subcontractor, "areasServiced", "AreasServiced", "Areas Serviced"),
+    servicesProvided: getValue(subcontractor, "servicesProvided", "ServicesProvided", "Services Provided"),
+    employeeCapacity: getValue(subcontractor, "employeeCapacity", "EmployeeCapacity", "Employee Capacity"),
+    insuranceExpiration: getValue(subcontractor, "insuranceExpiration", "InsuranceExpiration", "Insurance Expiration"),
+    status: subcontractor.status || subcontractor.Status || "Active",
+    notes: getValue(subcontractor, "notes", "Notes"),
+  };
+}
+
+function EditSubcontractorSheet({
+  pageId,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  pageId: string;
+  initial: SubForm;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [form, setForm] = useState<SubForm>(initial);
+  const [nameError, setNameError] = useState("");
+
+  function updateForm(field: keyof SubForm, value: string) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  const save = useSaveAction(
+    async (values: SubForm) => {
+      let res: Response;
+      try {
+        res = await fetch("/api/subcontractors", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "updateSubcontractor",
+            id: pageId,
+            companyName: values.companyName,
+            contactName: values.contactName,
+            phone: values.phone,
+            email: values.email,
+            address: values.address,
+            areasServiced: values.areasServiced,
+            servicesProvided: values.servicesProvided,
+            employeeCapacity: values.employeeCapacity,
+            insuranceExpiration: values.insuranceExpiration,
+            status: values.status,
+            notes: values.notes,
+          }),
+        });
+      } catch {
+        throw new Error("The internet dropped. Check your connection and try again.");
+      }
+      const data = (await res.json().catch(() => ({}))) as SaveResponse;
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || "Your changes were not saved.");
+      }
+      await onSaved();
+    },
+    { savedMessage: "Subcontractor saved", onSaved: onClose }
+  );
+
+  function handleSave() {
+    if (!form.companyName.trim()) {
+      setNameError("Type the company name.");
+      return;
+    }
+    setNameError("");
+    void save.run(form);
+  }
+
+  const disabled = save.saving;
+
+  return (
+    <Sheet
+      open
+      title="Change details"
+      text="The performance score is automatic and cannot be changed here. It updates from visits, complaints, and accounts assigned to this subcontractor."
+      onClose={onClose}
+      busy={save.saving}
+      actions={
+        <BigButton busy={save.saving} busyLabel="Saving…" onClick={handleSave}>
+          Save changes
+        </BigButton>
+      }
+    >
+      <Field
+        label="Company name"
+        value={form.companyName}
+        onChange={(e) => {
+          updateForm("companyName", e.target.value);
+          setNameError("");
+        }}
+        error={nameError}
+        disabled={disabled}
+      />
+      <Field label="Contact name" optional value={form.contactName} onChange={(e) => updateForm("contactName", e.target.value)} disabled={disabled} />
+      <Field label="Phone" optional type="tel" inputMode="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} disabled={disabled} />
+      <Field label="Email" optional type="email" inputMode="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} disabled={disabled} />
+      <Field label="Address" optional value={form.address} onChange={(e) => updateForm("address", e.target.value)} disabled={disabled} />
+      <Field label="Areas serviced" optional value={form.areasServiced} onChange={(e) => updateForm("areasServiced", e.target.value)} disabled={disabled} />
+      <Field label="Services provided" optional value={form.servicesProvided} onChange={(e) => updateForm("servicesProvided", e.target.value)} disabled={disabled} />
+      <Field label="Employee capacity" optional value={form.employeeCapacity} onChange={(e) => updateForm("employeeCapacity", e.target.value)} disabled={disabled} />
+      <Field
+        label="Insurance expiration"
+        optional
+        type="date"
+        value={form.insuranceExpiration}
+        onChange={(e) => updateForm("insuranceExpiration", e.target.value)}
+        disabled={disabled}
+      />
+      <SelectField label="Status" value={form.status} onChange={(e) => updateForm("status", e.target.value)} disabled={disabled}>
+        <option value="Active">Active</option>
+        <option value="Paused">Paused</option>
+        <option value="Inactive">Inactive</option>
+      </SelectField>
+      <TextAreaField label="Notes" optional rows={4} value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} disabled={disabled} />
+      {save.state === "error" ? <SaveStatus action={save} /> : null}
+    </Sheet>
+  );
+}
+
 export default function SubcontractorDetailPage() {
   const params = useParams();
 
@@ -532,32 +657,18 @@ export default function SubcontractorDetailPage() {
   const [complaintsData, setComplaintsData] = useState<AnyRow[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
-
-  const [form, setForm] = useState({
-    companyName: "",
-    contactName: "",
-    phone: "",
-    email: "",
-    address: "",
-    areasServiced: "",
-    servicesProvided: "",
-    employeeCapacity: "",
-    insuranceExpiration: "",
-    status: "Active",
-    notes: "",
-  });
 
   function handlePrint() {
     window.print();
   }
 
-  async function loadData() {
+  // The first load shows placeholders; later reloads (Refresh, after a save)
+  // keep the page on screen and swap the data in when it arrives.
+  const loadData = useCallback(async () => {
     try {
-      setLoading(true);
       setError("");
 
       const [subcontractorsRes, accountsRes, complaintsRes] =
@@ -582,11 +693,18 @@ export default function SubcontractorDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [loadData]);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+    showToast("Up to date");
+  }
 
   const subcontractor = useMemo(() => {
     return subcontractors.find((sub) => {
@@ -595,108 +713,7 @@ export default function SubcontractorDetailPage() {
     });
   }, [subcontractors, pageId]);
 
-  useEffect(() => {
-    if (!subcontractor) return;
-
-    setForm({
-      companyName:
-        getAnyValue(subcontractorToRow(subcontractor), [
-          "companyName",
-          "CompanyName",
-          "Company Name",
-          "company",
-          "Company",
-        ]) || "",
-      contactName: getValue(
-        subcontractor,
-        "contactName",
-        "ContactName",
-        "Contact Name"
-      ),
-      phone: getValue(subcontractor, "phone", "Phone"),
-      email: getValue(subcontractor, "email", "Email"),
-      address: getValue(subcontractor, "address", "Address"),
-      areasServiced: getValue(
-        subcontractor,
-        "areasServiced",
-        "AreasServiced",
-        "Areas Serviced"
-      ),
-      servicesProvided: getValue(
-        subcontractor,
-        "servicesProvided",
-        "ServicesProvided",
-        "Services Provided"
-      ),
-      employeeCapacity: getValue(
-        subcontractor,
-        "employeeCapacity",
-        "EmployeeCapacity",
-        "Employee Capacity"
-      ),
-      insuranceExpiration: getValue(
-        subcontractor,
-        "insuranceExpiration",
-        "InsuranceExpiration",
-        "Insurance Expiration"
-      ),
-      status: subcontractor.status || subcontractor.Status || "Active",
-      notes: getValue(subcontractor, "notes", "Notes"),
-    });
-  }, [subcontractor]);
-
-  function updateForm(field: string, value: string) {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  }
-
-  async function handleSave(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-
-    try {
-      setSaving(true);
-      setError("");
-      setSuccessMessage("");
-
-      const res = await fetch("/api/subcontractors", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "updateSubcontractor",
-          id: pageId,
-          companyName: form.companyName,
-          contactName: form.contactName,
-          phone: form.phone,
-          email: form.email,
-          address: form.address,
-          areasServiced: form.areasServiced,
-          servicesProvided: form.servicesProvided,
-          employeeCapacity: form.employeeCapacity,
-          insuranceExpiration: form.insuranceExpiration,
-          status: form.status,
-          notes: form.notes,
-        }),
-      });
-
-      const data = (await res.json()) as SaveResponse;
-
-      if (!res.ok || data.success === false) {
-        throw new Error(data.error || "Failed to update subcontractor.");
-      }
-
-      setSuccessMessage("Subcontractor updated successfully.");
-      setEditing(false);
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const form = useMemo(() => (subcontractor ? formFromSubcontractor(subcontractor) : EMPTY_FORM), [subcontractor]);
 
   const score = subcontractor ? getValue(subcontractor, "score", "Score") : "";
   const scoreStatusValue = subcontractor
@@ -836,314 +853,103 @@ export default function SubcontractorDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-6 shadow-sm">
-          <p className="text-sm text-slate-600">Loading subcontractor...</p>
-        </div>
-      </main>
+      <Screen title="Subcontractor" backHref="/subcontractors">
+        <SkeletonList rows={4} />
+      </Screen>
     );
   }
 
   if (!subcontractor) {
     return (
-      <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-        <div className="mx-auto max-w-5xl rounded-2xl bg-white p-6 shadow-sm">
-          <h1 className="text-2xl font-bold">Subcontractor Not Found</h1>
-
-          <p className="mt-2 text-slate-700">
-            We could not find a subcontractor matching this ID.
-          </p>
-
-          <div className="mt-5">
-            <Link
-              href="/subcontractors"
-              className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white no-underline hover:bg-blue-800"
-            >
-              Back to Subcontractors
-            </Link>
-          </div>
-        </div>
-      </main>
+      <Screen title="Subcontractor not found" backHref="/subcontractors">
+        {error ? <ErrorBox title="We could not load this subcontractor." text={error} onRetry={() => void loadData()} /> : null}
+        <EmptyState
+          title="We could not find this subcontractor"
+          text="It may have been removed, or the link is old."
+          action={
+            <BigButton kind="second" href="/subcontractors">
+              Back to subcontractors
+            </BigButton>
+          }
+        />
+      </Screen>
     );
   }
 
   return (
-    <main className="sub-detail-print-page min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-      <div className="sub-detail-print mx-auto max-w-7xl space-y-6">
-        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="sub-detail-print-hide mb-3">
-                <Link
-                  href="/subcontractors"
-                  className="text-sm font-semibold text-blue-700 no-underline hover:underline"
-                >
-                  ← Back to Subcontractors
-                </Link>
-              </div>
-
-              <h1 className="text-2xl font-bold sm:text-3xl">
-                {getCompanyName(subcontractor)}
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-600">
-                Subcontractor ID: {pageId}
-              </p>
-
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
-                    form.status || "Active"
-                  )}`}
-                >
-                  {form.status || "Active"}
-                </span>
-
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${scoreStatus.className}`}
-                >
-                  {scoreStatus.label}
-                </span>
-
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${insuranceStatus.className}`}
-                >
-                  Insurance: {insuranceStatus.label}
-                </span>
-              </div>
-            </div>
-
-            <div className="sub-detail-print-hide grid grid-cols-1 gap-2 sm:flex sm:flex-row">
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Print
-              </button>
-
-              <button
-                type="button"
-                onClick={loadData}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Refresh
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setEditing((prev) => !prev)}
-                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
-              >
-                {editing ? "Cancel Edit" : "Edit Subcontractor"}
-              </button>
-            </div>
-          </div>
-
-          {successMessage && (
-            <div className="sub-detail-print-hide mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              {successMessage}
-            </div>
-          )}
-
-          {error && (
-            <div className="sub-detail-print-hide mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {error}
-            </div>
-          )}
+    <div className="sub-detail-print-page sub-detail-print">
+      <Screen
+        title={getCompanyName(subcontractor)}
+        subtitle={form.contactName || undefined}
+        backHref="/subcontractors"
+        headerRight={
+          <MoreMenu
+            items={[
+              { label: LABELS.print, onSelect: handlePrint },
+              { label: refreshing ? "Refreshing…" : "Refresh", icon: "clock", onSelect: () => void handleRefresh() },
+            ]}
+          />
+        }
+        action={
+          <BigButton onClick={() => setEditing(true)}>
+            Change details
+          </BigButton>
+        }
+      >
+        <div className="ui-actions-row">
+          <StatusPill kind={statusKind(form.status || "Active")}>{form.status || "Active"}</StatusPill>
+          <StatusPill kind={scoreStatus.kind}>{scoreStatus.label}</StatusPill>
+          <StatusPill kind={insuranceStatus.kind}>Insurance: {insuranceStatus.label}</StatusPill>
         </div>
 
-        <section className="sub-detail-print-hide grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+        {error ? <ErrorBox title="Some of this page did not load." text={error} onRetry={() => void loadData()} /> : null}
+
+        <div className="sub-detail-print-hide ui-stats">
           <StatCard label="Active Accounts" value={String(currentAccounts.length)} />
           <StatCard label="Past Accounts" value={String(pastAccounts.length)} />
-          <StatCard
-            label="Monthly Revenue"
-            value={money(totals.activeRevenue)}
-          />
+          <StatCard label="Monthly Revenue" value={money(totals.activeRevenue)} />
           <StatCard label="Monthly Sub Pay" value={money(totals.activeSubPay)} />
           <StatCard label="Gross Margin" value={money(totals.grossMargin)} />
-          <StatCard
-            label="Gross Margin %"
-            value={`${totals.grossMarginPercent.toFixed(1)}%`}
-          />
+          <StatCard label="Gross Margin %" value={`${totals.grossMarginPercent.toFixed(1)}%`} />
           <StatCard label="Open Complaints" value={String(openComplaints.length)} />
           <StatCard label="Valid Complaints" value={String(validComplaints.length)} />
-        </section>
+        </div>
 
-        <section className="sub-detail-print-hide rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-lg font-bold">Automatic Performance Score</h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                This score is calculated from visits, complaints, and assigned
-                accounts.
-              </p>
-            </div>
+        <div className="sub-detail-print-hide">
+          <Card title="Automatic Performance Score" right={<StatusPill kind={scoreStatus.kind}>{scoreStatus.label}</StatusPill>}>
+            <p className="ui-card-text">This score is calculated from visits, complaints, and assigned accounts.</p>
+            <dl className="ui-details">
+              <Detail label="Score" value={score ? `${score} / 10` : ""} />
+              <Detail label="Performance" value={scoreStatus.label} />
+              <Detail label="Open Complaints" value={String(openComplaints.length)} />
+              <Detail label="Avg Visit Condition" value={avgCondition} />
+              <Detail label="Accounts Assigned" value={String(currentAccounts.length)} />
+              <Detail label="Last Activity" value={lastReview} />
+            </dl>
+            <p className="ui-card-text">
+              Score logic: starts from average visit condition, then subtracts 0.5 for each open complaint. Status: 9–10
+              Excellent, 8–8.9 Good, 7–7.9 Needs Attention, below 7 High Risk.
+            </p>
+          </Card>
+        </div>
 
-            <span
-              className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${scoreStatus.className}`}
-            >
-              {scoreStatus.label}
-            </span>
-          </div>
+        <Card title="Subcontractor Details">
+          <dl className="ui-details">
+            <Detail label="Company Name" value={form.companyName} />
+            <Detail label="Contact Name" value={form.contactName} />
+            <Detail label="Phone" value={form.phone} />
+            <Detail label="Email" value={form.email} />
+            <Detail label="Address" value={form.address} />
+            <Detail label="Areas Serviced" value={form.areasServiced} />
+            <Detail label="Services Provided" value={form.servicesProvided} />
+            <Detail label="Employee Capacity" value={form.employeeCapacity} />
+            <Detail label="Insurance Expiration" value={niceDate(form.insuranceExpiration)} />
+            <Detail label="Status" value={form.status} />
+            <Detail label="Notes" value={form.notes} full />
+          </dl>
+        </Card>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
-            <Detail label="Score" value={score ? `${score} / 10` : "-"} />
-            <Detail label="Performance" value={scoreStatus.label} />
-            <Detail label="Open Complaints" value={String(openComplaints.length)} />
-            <Detail label="Avg Visit Condition" value={avgCondition || "-"} />
-            <Detail
-              label="Accounts Assigned"
-              value={String(currentAccounts.length)}
-            />
-            <Detail label="Last Activity" value={lastReview || "-"} />
-          </div>
-
-          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-            Score logic: starts from average visit condition, then subtracts 0.5
-            for each open complaint. Status: 9–10 Excellent, 8–8.9 Good,
-            7–7.9 Needs Attention, below 7 High Risk.
-          </div>
-        </section>
-
-        {!editing ? (
-          <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-lg font-bold">Subcontractor Details</h2>
-
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Detail label="Company Name" value={form.companyName} />
-              <Detail label="Contact Name" value={form.contactName} />
-              <Detail label="Phone" value={form.phone} />
-              <Detail label="Email" value={form.email} />
-              <Detail label="Address" value={form.address} />
-              <Detail label="Areas Serviced" value={form.areasServiced} />
-              <Detail label="Services Provided" value={form.servicesProvided} />
-              <Detail label="Employee Capacity" value={form.employeeCapacity} />
-              <Detail
-                label="Insurance Expiration"
-                value={safeDate(form.insuranceExpiration)}
-              />
-              <Detail label="Status" value={form.status} />
-              <Detail label="Notes" value={form.notes} full />
-            </div>
-          </section>
-        ) : (
-          <form
-            onSubmit={handleSave}
-            className="sub-detail-print-hide rounded-2xl bg-white p-5 shadow-sm sm:p-6"
-          >
-            <h2 className="text-lg font-bold">Edit Subcontractor</h2>
-
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Input
-                label="Company Name"
-                value={form.companyName}
-                onChange={(value) => updateForm("companyName", value)}
-                required
-              />
-
-              <Input
-                label="Contact Name"
-                value={form.contactName}
-                onChange={(value) => updateForm("contactName", value)}
-              />
-
-              <Input
-                label="Phone"
-                value={form.phone}
-                onChange={(value) => updateForm("phone", value)}
-              />
-
-              <Input
-                label="Email"
-                type="email"
-                value={form.email}
-                onChange={(value) => updateForm("email", value)}
-              />
-
-              <Input
-                label="Address"
-                value={form.address}
-                onChange={(value) => updateForm("address", value)}
-                full
-              />
-
-              <Input
-                label="Areas Serviced"
-                value={form.areasServiced}
-                onChange={(value) => updateForm("areasServiced", value)}
-              />
-
-              <Input
-                label="Services Provided"
-                value={form.servicesProvided}
-                onChange={(value) => updateForm("servicesProvided", value)}
-              />
-
-              <Input
-                label="Employee Capacity"
-                value={form.employeeCapacity}
-                onChange={(value) => updateForm("employeeCapacity", value)}
-              />
-
-              <Input
-                label="Insurance Expiration"
-                type="date"
-                value={form.insuranceExpiration}
-                onChange={(value) => updateForm("insuranceExpiration", value)}
-              />
-
-              <div>
-                <label className="text-sm font-semibold">Status</label>
-                <select
-                  value={form.status}
-                  onChange={(e) => updateForm("status", e.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                >
-                  <option value="Active">Active</option>
-                  <option value="Paused">Paused</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-semibold">Notes</label>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => updateForm("notes", e.target.value)}
-                  rows={4}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-              The performance score is automatic and cannot be edited here. It
-              updates from visits, complaints, and accounts assigned to this
-              subcontractor.
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap">
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
-                {saving ? "Saving..." : "Save Changes"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-
-        <AccountsTable
+        <AccountsList
           title="Current Accounts"
           description="Accounts currently assigned to this subcontractor."
           accounts={currentAccounts}
@@ -1151,7 +957,7 @@ export default function SubcontractorDetailPage() {
           showCancelledDate={false}
         />
 
-        <AccountsTable
+        <AccountsList
           title="Past / Cancelled Accounts"
           description="Accounts this subcontractor had before."
           accounts={pastAccounts}
@@ -1159,63 +965,41 @@ export default function SubcontractorDetailPage() {
           showCancelledDate
         />
 
-        <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-4">
-            <h2 className="text-lg font-bold">Recent Complaints</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
-              Complaints connected to this subcontractor’s current and past
-              accounts.
-            </p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b bg-slate-50 text-slate-700">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Account</th>
-                  <th className="px-4 py-3">Issue</th>
-                  <th className="px-4 py-3">Validity</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {relatedComplaints.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      className="px-4 py-6 text-center text-slate-500"
-                    >
-                      No complaints found for this subcontractor.
-                    </td>
-                  </tr>
-                ) : (
-                  relatedComplaints.slice(0, 25).map((complaint, index) => (
-                    <tr key={index} className="border-b">
-                      <td className="px-4 py-3">
-                        {safeDate(getComplaintDate(complaint))}
-                      </td>
-                      <td className="px-4 py-3 font-semibold">
-                        {getComplaintAccountName(complaint) || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {getComplaintIssue(complaint) || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {getComplaintValidity(complaint) || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {getComplaintStatus(complaint) || "Pending"}
-                      </td>
-                    </tr>
-                  ))
+        <Card title="Recent Complaints">
+          <p className="ui-card-text">Complaints connected to this subcontractor’s current and past accounts.</p>
+          <div style={{ marginTop: 12 }}>
+            {relatedComplaints.length === 0 ? (
+              <p className="ui-muted">No complaints found for this subcontractor.</p>
+            ) : (
+              <CardList
+                label="Recent complaints"
+                items={relatedComplaints.slice(0, 25).map((complaint, index) => ({ complaint, index }))}
+                getKey={({ index }) => String(index)}
+                renderCard={({ complaint }) => (
+                  <Card title={getComplaintAccountName(complaint) || "No account"}>
+                    <p className="ui-card-text">{niceDate(getComplaintDate(complaint)) || "No date"}</p>
+                    <p className="ui-card-text">{getComplaintIssue(complaint) || "No details"}</p>
+                    <p className="ui-card-text">
+                      Validity: {getComplaintValidity(complaint) || "Not set"} · Status: {getComplaintStatus(complaint) || "Pending"}
+                    </p>
+                  </Card>
                 )}
-              </tbody>
-            </table>
+                columns={[
+                  { header: "Date", cell: ({ complaint }) => niceDate(getComplaintDate(complaint)) || "No date" },
+                  { header: "Account", cell: ({ complaint }) => <span className="ui-strong">{getComplaintAccountName(complaint) || "No account"}</span> },
+                  { header: "Issue", cell: ({ complaint }) => getComplaintIssue(complaint) || "No details" },
+                  { header: "Validity", cell: ({ complaint }) => getComplaintValidity(complaint) || "Not set" },
+                  { header: "Status", cell: ({ complaint }) => getComplaintStatus(complaint) || "Pending" },
+                ]}
+              />
+            )}
           </div>
-        </section>
-      </div>
+        </Card>
+
+        {editing ? (
+          <EditSubcontractorSheet pageId={pageId} initial={form} onClose={() => setEditing(false)} onSaved={loadData} />
+        ) : null}
+      </Screen>
 
       {/* Scoped to this page only via the .sub-detail-print/.sub-detail-print-hide
           class names (see the matching additive exception in app/globals.css) —
@@ -1224,24 +1008,26 @@ export default function SubcontractorDetailPage() {
           Nothing here can affect Accounts, To-Do, or any other page's print output. */}
       <style jsx global>{`
         @media print {
-          /* min-h-screen on the root <main> reserves a full viewport of height
-             regardless of content — once everything outside .sub-detail-print
-             is hidden via visibility, that reserved height is still there,
-             producing a spurious blank page (same issue documented on
-             app/account-updates/[id]/page.tsx's print CSS). */
-          .sub-detail-print-page {
-            min-height: 0;
-          }
-
-          .sub-detail-print-hide {
+          .sub-detail-print-hide,
+          .sub-detail-print .ui-actionbar,
+          .sub-detail-print .ui-more,
+          .sub-detail-print .ui-screen-header a,
+          .sub-detail-print .ui-toast-region {
             display: none !important;
           }
 
-          /* overflow-x-auto would otherwise clip wide tables at the printed
-             page edge instead of wrapping/shrinking, since printed output
-             can't scroll. */
-          .sub-detail-print .overflow-x-auto {
-            overflow: visible !important;
+          .sub-detail-print .ui-screen-header {
+            position: static;
+          }
+
+          /* Paper is narrower than the width where tables appear on screen,
+             but tables are what should print: show them, hide the cards. */
+          .sub-detail-print .ui-cardlist-has-table {
+            display: none !important;
+          }
+
+          .sub-detail-print .ui-table-wrap {
+            display: block !important;
           }
 
           .sub-detail-print table {
@@ -1256,28 +1042,35 @@ export default function SubcontractorDetailPage() {
             word-break: break-word;
           }
 
+          .sub-detail-print .ui-screen,
+          .sub-detail-print .ui-card {
+            font-size: 12px;
+            box-shadow: none;
+          }
+
           /* Long field values (address, notes, areas serviced) must wrap
              instead of being cut off. */
-          .sub-detail-print p {
+          .sub-detail-print p,
+          .sub-detail-print dd {
             white-space: normal !important;
             word-break: break-word;
           }
         }
       `}</style>
-    </main>
+    </div>
   );
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+    <div className="ui-stat">
+      <p className="ui-stat-label">{label}</p>
+      <p className="ui-stat-value">{value}</p>
     </div>
   );
 }
 
-function AccountsTable({
+function AccountsList({
   title,
   description,
   accounts,
@@ -1300,129 +1093,100 @@ function AccountsTable({
     0
   );
 
+  const linkFor = (account: AnyRow) => {
+    const accountName = getAccountName(account);
+    return `/accounts/${encodeURIComponent(getAccountId(account) || createIdFromName(accountName))}`;
+  };
+  const schedule = (account: AnyRow) =>
+    [getFrequency(account), getCleaningDays(account)].filter(Boolean).join(" / ") || "Not set";
+  const status = (account: AnyRow) => {
+    const text = getAccountStatus(account) || "Active";
+    return <StatusPill kind={statusKind(text)}>{text}</StatusPill>;
+  };
+
+  type Column = { header: string; cell: (account: AnyRow) => React.ReactNode };
+  const columns: Column[] = [
+    {
+      header: "Account",
+      cell: (account) => (
+        <>
+          <Link href={linkFor(account)} className="ui-table-rowlink">
+            {getAccountName(account)}
+          </Link>
+          <p className="ui-muted">Manager: {getAccountManager(account) || "Not set"}</p>
+        </>
+      ),
+    },
+    {
+      header: showCancelledDate ? "Started / Cancelled" : "Start Date",
+      cell: (account) => (
+        <>
+          <p className="ui-muted ui-nowrap">{niceDate(getStartDate(account)) || "Not set"}</p>
+          {showCancelledDate ? <p className="ui-muted ui-nowrap">{niceDate(getCancelledDate(account)) || "Not set"}</p> : null}
+        </>
+      ),
+    },
+    { header: "Schedule", cell: schedule },
+    {
+      header: "Revenue / Sub Pay",
+      cell: (account) => (
+        <>
+          <p className="ui-muted ui-nowrap">{money(getMonthlyRevenue(account))}</p>
+          <p className="ui-muted ui-nowrap">{money(getMonthlySubPay(account))}</p>
+        </>
+      ),
+    },
+    {
+      header: "Margin / GM %",
+      cell: (account) => (
+        <>
+          <p className="ui-muted ui-nowrap">{money(getGrossMargin(account))}</p>
+          <p className="ui-muted ui-nowrap">{getGrossMarginPercent(account).toFixed(1)}%</p>
+        </>
+      ),
+    },
+    { header: "Health", cell: (account) => getAccountHealth(account) || "Not set" },
+    { header: "Status", cell: status },
+    ...(showCancelledDate ? [{ header: "Notes", cell: (account: AnyRow) => getAccountNotes(account) || "None" }] : []),
+  ];
+
   return (
-    <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-      <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 className="text-lg font-bold">{title}</h2>
-          <p className="text-sm leading-6 text-slate-600">{description}</p>
-        </div>
-
-        <div className="text-sm font-semibold text-slate-700">
-          Revenue: {money(revenueTotal)} | Sub Pay: {money(subPayTotal)} |
-          Margin: {money(revenueTotal - subPayTotal)}
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b bg-slate-50 text-slate-700">
-              {showCancelledDate && <th className="px-4 py-3">Cancelled</th>}
-              <th className="px-4 py-3">Start Date</th>
-              <th className="px-4 py-3">Account</th>
-              <th className="px-4 py-3">Manager</th>
-              <th className="px-4 py-3">Schedule</th>
-              <th className="px-4 py-3">Revenue</th>
-              <th className="px-4 py-3">Sub Pay</th>
-              <th className="px-4 py-3">Margin</th>
-              <th className="px-4 py-3">GM %</th>
-              <th className="px-4 py-3">Health</th>
-              <th className="px-4 py-3">Status</th>
-              {showCancelledDate && <th className="px-4 py-3">Notes</th>}
-            </tr>
-          </thead>
-
-          <tbody>
-            {accounts.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={showCancelledDate ? 12 : 10}
-                  className="px-4 py-6 text-center text-slate-500"
-                >
-                  {emptyText}
-                </td>
-              </tr>
-            ) : (
-              accounts.map((account, index) => {
-                const accountId = getAccountId(account);
-                const accountName = getAccountName(account);
-                const accountLinkId = accountId || createIdFromName(accountName);
-
-                return (
-                  <tr key={accountLinkId || index} className="border-b">
-                    {showCancelledDate && (
-                      <td className="px-4 py-3">
-                        {safeDate(getCancelledDate(account))}
-                      </td>
-                    )}
-
-                    <td className="px-4 py-3">
-                      {safeDate(getStartDate(account))}
-                    </td>
-
-                    <td className="px-4 py-3 font-semibold">
-                      <Link
-                        href={`/accounts/${encodeURIComponent(accountLinkId)}`}
-                        className="text-blue-700 no-underline hover:underline"
-                      >
-                        {accountName}
-                      </Link>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {getAccountManager(account) || "-"}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {[getFrequency(account), getCleaningDays(account)]
-                        .filter(Boolean)
-                        .join(" / ") || "-"}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {money(getMonthlyRevenue(account))}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {money(getMonthlySubPay(account))}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {money(getGrossMargin(account))}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {getGrossMarginPercent(account).toFixed(1)}%
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {getAccountHealth(account) || "-"}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusClass(
-                          getAccountStatus(account)
-                        )}`}
-                      >
-                        {getAccountStatus(account) || "Active"}
-                      </span>
-                    </td>
-
-                    {showCancelledDate && (
-                      <td className="px-4 py-3">
-                        {getAccountNotes(account) || "-"}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })
+    <Card title={title}>
+      <p className="ui-card-text">{description}</p>
+      <p className="ui-strong" style={{ marginTop: 8 }}>
+        Revenue: {money(revenueTotal)} | Sub Pay: {money(subPayTotal)} | Margin: {money(revenueTotal - subPayTotal)}
+      </p>
+      <div style={{ marginTop: 12 }}>
+        {accounts.length === 0 ? (
+          <p className="ui-muted">{emptyText}</p>
+        ) : (
+          <CardList
+            label={title}
+            items={accounts.map((account, index) => ({ account, index }))}
+            getKey={({ account, index }) => `${getAccountId(account) || createIdFromName(getAccountName(account))}-${index}`}
+            renderCard={({ account }) => (
+              <Card title={getAccountName(account)} right={status(account)} href={linkFor(account)}>
+                <p className="ui-card-text">Manager: {getAccountManager(account) || "Not set"}</p>
+                <p className="ui-card-text">
+                  Started {niceDate(getStartDate(account)) || "not set"}
+                  {showCancelledDate ? ` · Cancelled ${niceDate(getCancelledDate(account)) || "not set"}` : ""}
+                </p>
+                <p className="ui-card-text">Schedule: {schedule(account)}</p>
+                <p className="ui-card-text">
+                  Revenue {money(getMonthlyRevenue(account))} · Sub Pay {money(getMonthlySubPay(account))}
+                </p>
+                <p className="ui-card-text">
+                  Margin {money(getGrossMargin(account))} · GM {getGrossMarginPercent(account).toFixed(1)}%
+                </p>
+                <p className="ui-card-text">Health: {getAccountHealth(account) || "Not set"}</p>
+                {showCancelledDate ? <p className="ui-card-text">Notes: {getAccountNotes(account) || "None"}</p> : null}
+              </Card>
             )}
-          </tbody>
-        </table>
+            columns={columns.map((column) => ({ header: column.header, cell: ({ account }: { account: AnyRow }) => column.cell(account) }))}
+          />
+        )}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -1436,42 +1200,9 @@ function Detail({
   full?: boolean;
 }) {
   return (
-    <div className={full ? "md:col-span-2" : ""}>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="mt-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-800">
-        {value || "-"}
-      </p>
-    </div>
-  );
-}
-
-function Input({
-  label,
-  value,
-  onChange,
-  type = "text",
-  required = false,
-  full = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  required?: boolean;
-  full?: boolean;
-}) {
-  return (
-    <div className={full ? "md:col-span-2" : ""}>
-      <label className="text-sm font-semibold">{label}</label>
-      <input
-        type={type}
-        value={value}
-        required={required}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-      />
+    <div className={full ? "ui-detail ui-detail-full" : "ui-detail"}>
+      <dt>{label}</dt>
+      <dd>{value || "Not set"}</dd>
     </div>
   );
 }
