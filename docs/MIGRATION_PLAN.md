@@ -189,7 +189,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Phase 0, step 7: `scripts/migrate/parity.mts <area>` + `scripts/migrate/lib/diff.mjs`; each area lists its reads in `scripts/migrate/parity/<area>.mts`. Self-test: `npx tsx scripts/migrate/parity.mts --self-test`.
 - Part B: UI kit in `app/ui/` (`core.tsx`, `controls.tsx`, `toast.tsx`, `words.ts`, `index.ts`), `.ui-*` styles and `--ui-*` tokens appended to `app/globals.css`, preview at `/design-preview`. Checked at 375/768/1280px, keyboard-only pass, 640px (200% zoom). No existing screen uses the kit yet.
 
-**Next step:** Area 1 (Catalogs). Step 0 is blocked (no Sheets access): do Step 1 schema from the columns in `lib/googleSheets.ts`, write import/verify scripts untested, Step 4 `lib/data/catalogs.ts` + `lib/pg/catalogs.ts`, then Step 5 redesign of `app/documents` and `app/settings/extra-services`. Mark every part that could not be run against real data.
+**Next step:** Area 1 (Catalogs), Step 0. **First run `node scripts/migrate/check-harness.mjs`.** If the three Sheets lines pass, do Area 1 by the recipe. If they still fail, the session on 2026-10-07 paused here on purpose: every remaining step either reads Sheets or cannot be checked without real data, and unchecked data code was judged worse than waiting. Andres can say "write it anyway" to get schema + import + data-layer code written from the columns in `lib/googleSheets.ts`, clearly marked untested.
 
 **Deadline:** not set.
 
