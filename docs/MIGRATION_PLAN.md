@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b, 5 and 6 done; reports in `docs/migration-reports/`. Area 7 (Visits) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 5.6 h used of 163 h estimated; roughly 6–18 h of Claude work left.
+**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b, 5, 6 and 7 done; reports in `docs/migration-reports/`. Area 8 (Complaints) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 6.4 h used of 181 h estimated; roughly 5–16 h of Claude work left.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -249,8 +249,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 7, step 3: scripts/migrate/verify-visits.mjs → docs/migration-reports/visits-verify.md. Both tables match Sheets, every row field by field (611 × 14, 6 × 5).
 - Area 7, step 4: lib/pg/visits.ts + lib/data/visits.ts; app/api/visits wired (list and add visit on Postgres when DATA_SOURCE_VISITS=postgres), 2 more files switched. The Apps Script visit list rebuilt from Postgres: 611 of 611 rows identical to the live answer, same keys, same order (check-visits-apps-script.mts). Parity 19/19 direct reads; check-visits-writes.mts 23/23; the list route on Postgres is byte-identical to what the route returns for the live answer (268,430 bytes), 3 by-id routes byte-identical on both sources; add + edit + edit history over HTTP on Postgres, test rows removed.
 - Area 7, step 5: Visits list, Visit page and Add visit redesigned. List: search, one Filter and sort sheet (7 controls), 3 tiles, cards / 9-column table, 50 at a time with print-all. Visit page: 9 facts, edit form in a sheet, edit history. Add visit: same 9 boxes. Headless click-through 48 of 48 at 375 and 1280px; nothing saved. Protected files edited (standing approval): app/visits/page.tsx and app/visits/[id]/page.tsx, layout only.
+- Area 7 checkpoint report: docs/migration-reports/checkpoint-7-visits-2026-10-08.md.
 
-**Next step:** Area 7, step 5: redesign app/visits/page.tsx, app/visits/[id]/page.tsx (both protected, standing approval) and app/visits/new/page.tsx.
+**Next step:** Area 8 (Complaints), Step 0: discovery (Complaints tab, the complaints routes and screens, what Apps Script does on a new complaint: it texts and emails, so dry-run only).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -349,7 +350,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 4b Accounts secondary | done | 20 | 0.5 | 2026-10-08 | 2026-10-08 | No new tables; 8 screens redesigned; Keys and Account Health bugs reported, not fixed; Google coverage map not testable locally |
 | 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
 | 6 Scheduling | done | 20 | 0.8 | 2026-10-08 | 2026-10-08 | 298 schedules; 27 carry one email no sub has; sub portal and customer portal schedule views not opened (Areas 11, 13) |
-| 7 Visits | in progress | 14 |  | 2026-10-08 |  |  |
+| 7 Visits | done | 14 | 0.8 | 2026-10-08 | 2026-10-08 | 611 visits; Apps Script list rebuilt 611/611; 58 visits name an unknown account; customer-portal visit read is broken today (copied, reported) |
 | 8 Complaints | not started | 24 | | | | |
 | 9 To-Dos | not started | 20 | | | | |
 | 10 Sales/Reports | not started | 18 | | | | |
@@ -434,3 +435,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 3 | this commit | Visits verify: all match.
 - 2026-10-08T09:49 | 2026-10-08T09:49 | 7/step 4 | this commit | Visits data layer behind DATA_SOURCE_VISITS. tsc ok, build ok, lint at baseline.
 - 2026-10-08T10:01 | 2026-10-08T10:01 | 7/step 5 | this commit | Visits screens redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-08T10:01 | 2026-10-08T10:01 | 7/checkpoint | this commit | Report written; Area 7 done.
