@@ -7,6 +7,7 @@
 // labeled buttons, few words, nothing hidden behind menus.
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { Screen } from "@/app/ui";
 import { resizeImageForUpload } from "@/lib/imageResize";
 import type { EquipmentCategory, EquipmentItem } from "./types";
 
@@ -59,19 +60,14 @@ export function StatusChip({ status }: { status: SimpleStatus }) {
 
 // ─── Layout + buttons ────────────────────────────────────────────────────
 
+// The page frame is the app-wide one (app/ui Screen): same title, back arrow
+// and type as every other redesigned screen. What is inside the frame keeps
+// this area's own big-button look.
 export function EquipmentShell({ back, title, children }: { back?: { href: string; label: string }; title: string; children: ReactNode }) {
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6">
-      <div className="mx-auto max-w-5xl space-y-5">
-        {back ? (
-          <Link href={back.href} className="inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-white px-4 text-lg font-bold text-blue-800 shadow-sm hover:bg-gray-100">
-            <span aria-hidden="true">←</span> {back.label}
-          </Link>
-        ) : null}
-        <h1 className="text-3xl font-black text-gray-900">{title}</h1>
-        {children}
-      </div>
-    </main>
+    <Screen title={title} backHref={back?.href}>
+      {children}
+    </Screen>
   );
 }
 

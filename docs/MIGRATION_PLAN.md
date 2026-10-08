@@ -234,6 +234,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5, step 2: scripts/migrate/import-equipment.mjs. Dry run, run and re-run clean: 2 categories, 1 item, 1 checkout, 0 repairs, 0 parts, 0 issues.
 - Area 5, step 3: scripts/migrate/verify-equipment.mjs → docs/migration-reports/equipment-verify.md. All 5 tables match Sheets, every row field by field.
 - Area 5, step 4: lib/pg/equipment.ts + lib/data/equipment.ts; 18 files switched; staffHasEquipmentCheckoutHistory now follows DATA_SOURCE_EQUIPMENT. Parity 13/13 reads identical; check-equipment-writes.mts 40/40; 9 routes byte-identical over HTTP on both sources; add category over HTTP on Postgres. Not exercised over HTTP: checkout, return, repair, photo upload (covered at function level).
+- Area 5, step 5: Equipment screens put in the shared page frame (EquipmentShell → app/ui Screen); Check out / Return and Repair pop-ups are now kit sheets; small text in the tablet-report block raised to 16px. Headless measurement at 375 and 1280px on 8 screens + 2 sheets: 50 of 50, nothing saved. The tablet app and the sub portal equipment page were not opened.
 
 **Next step:** Area 5, step 5: redesign app/equipment (list, item page, new item, parts, vehicles, staff) and the equipment-check tablet page.
 
@@ -298,6 +299,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Account Map: the selected account card sits under the map, not on top of it | on a phone the floating box covered a third of the map | float it again
 - Area 5: on return, the Sheets code writes who signed the item IN into the Signed OUT by columns (L and M instead of N and O), so the original signer is lost and Signed in by stays empty. The Postgres version does exactly the same | parity first; fixing it changes stored data | approve the fix and both versions get it (two letters in Sheets, two column names in Postgres)
 - Area 5: values written on Postgres are kept as typed (purchase date 2026-05-04 stays 2026-05-04); Sheets may reformat what it is given (USER_ENTERED) | no way to copy the sheet locale exactly; imported rows keep the sheet text | none needed
+- Area 5: the Equipment screens keep the big-button look they got on 2026-09-24; only the page frame, the two old pop-ups and the small text were changed | they already pass the Part B rules (measured), and they were approved two weeks ago | proposal 3 in the Area 5 report rebuilds the inside with the shared kit
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -394,3 +396,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 2 | this commit | Equipment import.
 - 2026-10-08T08:44 | 2026-10-08T08:44 | 5/step 3 | this commit | Equipment verify: all match.
 - 2026-10-08T08:54 | 2026-10-08T08:54 | 5/step 4 | this commit | Equipment data layer behind DATA_SOURCE_EQUIPMENT. tsc ok, build ok, lint at baseline.
+- 2026-10-08T09:09 | 2026-10-08T09:09 | 5/step 5 | this commit | Equipment screens: shared frame, sheets. tsc ok, build ok, lint at baseline.

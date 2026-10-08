@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { EquipmentItem, EquipmentRepair } from "./types";
+import { BigButton, ErrorBox, Field, Sheet, TextAreaField } from "@/app/ui";
 
 type Props =
   | { mode: "create"; equipment: EquipmentItem; repair?: undefined; onClose: () => void; onDone: () => void }
@@ -73,90 +74,38 @@ export default function RepairModal({ mode, equipment, repair, onClose, onDone }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-        <h2 className="text-xl font-bold text-gray-900">
-          {mode === "create" ? "Send to Repair" : "Mark Repair Completed"}
-        </h2>
-        <p className="mt-1 text-sm text-gray-600">{equipment.name}</p>
-
-        {error ? (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="mt-4 grid gap-4">
-          {mode === "create" ? (
-            <div>
-              <label className="text-sm font-semibold text-gray-700">Description</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                placeholder="What's wrong / what needs fixing"
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-          ) : (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-              <p className="font-semibold text-gray-900">{repair.description}</p>
-              <p className="mt-1 text-xs text-gray-500">
-                Opened {repair.startedAt ? new Date(repair.startedAt).toLocaleString() : "—"}
-              </p>
-            </div>
-          )}
-
-          <div>
-            <label className="text-sm font-semibold text-gray-700">Repair Cost (optional)</label>
-            <input
-              type="number"
-              value={cost}
-              onChange={(e) => setCost(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-semibold text-gray-700">Vendor / Performed By (optional)</label>
-            <input
-              type="text"
-              value={performedBy}
-              onChange={(e) => setPerformedBy(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-semibold text-gray-700">Parts Used (optional)</label>
-            <input
-              type="text"
-              value={partsUsed}
-              onChange={(e) => setPartsUsed(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
+    <Sheet
+      open
+      title={mode === "create" ? "Send to Repair" : "Mark Repair Completed"}
+      text={equipment.name}
+      onClose={onClose}
+      busy={submitting}
+      actions={
+        <BigButton busy={submitting} busyLabel="Saving…" onClick={() => void handleSubmit()}>
+          {mode === "create" ? "Send to Repair" : "Mark Completed"}
+        </BigButton>
+      }
+    >
+      {mode === "create" ? (
+        <TextAreaField
+          label="Description"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="What's wrong / what needs fixing"
+        />
+      ) : (
+        <div className="ui-stat">
+          <p className="ui-strong">{repair.description}</p>
+          <p className="ui-muted">Opened {repair.startedAt ? new Date(repair.startedAt).toLocaleString() : "date not known"}</p>
         </div>
+      )}
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting}
-            className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? "Saving..." : mode === "create" ? "Send to Repair" : "Mark Completed"}
-          </button>
-        </div>
-      </div>
-    </div>
+      <Field label="Repair Cost" optional type="number" value={cost} onChange={(e) => setCost(e.target.value)} />
+      <Field label="Vendor / Performed By" optional value={performedBy} onChange={(e) => setPerformedBy(e.target.value)} />
+      <Field label="Parts Used" optional value={partsUsed} onChange={(e) => setPartsUsed(e.target.value)} />
+
+      {error ? <ErrorBox title="That did not work." text={error} /> : null}
+    </Sheet>
   );
 }

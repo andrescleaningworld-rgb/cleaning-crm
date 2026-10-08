@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { EquipmentItem, Staff } from "./types";
 import { getStoredEquipmentStaffId, setStoredEquipmentStaffId } from "./staffIdentity";
+import { BigButton, ErrorBox, Field, FilterChips, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
 
 // Raw shape returned by GET /api/subcontractors — the same source used by
 // the Subcontractor dropdown in app/accounts/new/page.tsx and
@@ -185,211 +186,111 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
-        <h2 className="text-xl font-bold text-gray-900">
-          {mode === "checkout" ? "Check Out Equipment" : "Return Equipment"}
-        </h2>
-        <p className="mt-1 text-sm text-gray-600">{equipment.name}</p>
+    <Sheet
+      open
+      title={mode === "checkout" ? "Check Out Equipment" : "Return Equipment"}
+      text={equipment.name}
+      onClose={onClose}
+      busy={submitting}
+      actions={
+        <BigButton busy={submitting} busyLabel="Saving…" disabled={loadingOptions} onClick={() => void handleSubmit()}>
+          {mode === "checkout" ? "Check Out" : "Return"}
+        </BigButton>
+      }
+    >
+      {loadingOptions ? (
+        <SkeletonList rows={2} />
+      ) : (
+        <>
+          {mode === "checkout" ? (
+            <>
+              <div>
+                <p className="ui-label">Holder Type</p>
+                <FilterChips
+                  label="Holder type"
+                  options={[
+                    { value: "InsideStaff", label: "Staff" },
+                    { value: "Sub", label: "Subcontractor" },
+                  ]}
+                  value={holderType}
+                  onChange={(type) => {
+                    setHolderType(type);
+                    setHolderId("");
+                  }}
+                />
+              </div>
 
-        {error ? (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        ) : null}
-
-        {loadingOptions ? (
-          <div className="mt-4 text-center text-sm text-gray-600">Loading...</div>
-        ) : (
-          <div className="mt-4 grid gap-4">
-            {mode === "checkout" ? (
-              <>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Holder Type</label>
-                  <div className="mt-1 flex gap-2">
-                    {(["InsideStaff", "Sub"] as const).map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => {
-                          setHolderType(type);
-                          setHolderId("");
-                        }}
-                        className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-                          holderType === type
-                            ? "border-blue-600 bg-blue-50 text-blue-800"
-                            : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                        }`}
-                      >
-                        {type === "InsideStaff" ? "Staff" : "Subcontractor"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">
-                    {holderType === "InsideStaff" ? "Staff member" : "Subcontractor"}
-                  </label>
-                  <select
-                    value={holderId}
-                    onChange={(e) => setHolderId(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                  >
-                    <option value="">Select...</option>
-                    {holderType === "InsideStaff"
-                      ? insideStaffOptions.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} ({s.role})
-                          </option>
-                        ))
-                      : subs.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.label}
-                          </option>
-                        ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Account (optional)</label>
-                  <input
-                    type="text"
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
-                    placeholder="Account ID or name"
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Expected Return Date (optional)</label>
-                  <input
-                    type="date"
-                    value={expectedReturnAt}
-                    onChange={(e) => setExpectedReturnAt(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Work Order # (Markate) (optional)</label>
-                  <input
-                    type="text"
-                    value={workOrderNumber}
-                    onChange={(e) => setWorkOrderNumber(e.target.value)}
-                    placeholder="e.g. WO-10234"
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label className="text-sm font-semibold text-gray-700">Condition on Return</label>
-                  <textarea
-                    value={conditionAtReturn}
-                    onChange={(e) => setConditionAtReturn(e.target.value)}
-                    rows={3}
-                    placeholder="e.g. Working fine, minor scuffs on housing"
-                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={damaged}
-                    onChange={(e) => setDamaged(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  Damaged — send to repair
-                </label>
-
-                {damaged ? (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-xs font-semibold text-amber-800">
-                      This will set the equipment to In Repair and open a repair record using the
-                      condition note above as its description. The details below are optional.
-                    </p>
-                    <div className="mt-3 grid gap-3">
-                      <div>
-                        <label className="text-xs font-semibold text-gray-700">Estimated Repair Cost</label>
-                        <input
-                          type="number"
-                          value={repairCost}
-                          onChange={(e) => setRepairCost(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-gray-700">Vendor / Performed By</label>
-                        <input
-                          type="text"
-                          value={repairPerformedBy}
-                          onChange={(e) => setRepairPerformedBy(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-gray-700">Parts Used</label>
-                        <input
-                          type="text"
-                          value={repairPartsUsed}
-                          onChange={(e) => setRepairPartsUsed(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            )}
-
-            <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Signed {mode === "checkout" ? "out" : "in"} by
-              </label>
-              <select
-                value={signingStaffId}
-                onChange={(e) => handleSigningStaffChange(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              >
+              <SelectField label={holderType === "InsideStaff" ? "Staff member" : "Subcontractor"} value={holderId} onChange={(e) => setHolderId(e.target.value)}>
                 <option value="">Select...</option>
-                {signingOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.role === "OfficeStaff" ? "Office Staff" : s.role})
-                  </option>
-                ))}
-              </select>
-              {signingOptions.length === 0 ? (
-                <p className="mt-1 text-xs text-amber-700">
-                  No Active Manager/Office Staff records found — add one in Settings first.
-                </p>
-              ) : null}
-            </div>
-          </div>
-        )}
+                {holderType === "InsideStaff"
+                  ? insideStaffOptions.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.role})
+                      </option>
+                    ))
+                  : subs.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+              </SelectField>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              <Field label="Account" optional value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="Account ID or name" />
+              <Field label="Expected Return Date" optional type="date" value={expectedReturnAt} onChange={(e) => setExpectedReturnAt(e.target.value)} />
+              <Field
+                label="Work Order # (Markate)"
+                optional
+                value={workOrderNumber}
+                onChange={(e) => setWorkOrderNumber(e.target.value)}
+                placeholder="e.g. WO-10234"
+              />
+            </>
+          ) : (
+            <>
+              <TextAreaField
+                label="Condition on Return"
+                rows={3}
+                value={conditionAtReturn}
+                onChange={(e) => setConditionAtReturn(e.target.value)}
+                placeholder="e.g. Working fine, minor scuffs on housing"
+              />
+
+              <label className="ui-check">
+                <input type="checkbox" checked={damaged} onChange={(e) => setDamaged(e.target.checked)} />
+                <span>Damaged — send to repair</span>
+              </label>
+
+              {damaged ? (
+                <>
+                  <p className="ui-hint">
+                    This will set the equipment to In Repair and open a repair record using the condition note above as its description. The
+                    details below are optional.
+                  </p>
+                  <Field label="Estimated Repair Cost" optional type="number" value={repairCost} onChange={(e) => setRepairCost(e.target.value)} />
+                  <Field label="Vendor / Performed By" optional value={repairPerformedBy} onChange={(e) => setRepairPerformedBy(e.target.value)} />
+                  <Field label="Parts Used" optional value={repairPartsUsed} onChange={(e) => setRepairPartsUsed(e.target.value)} />
+                </>
+              ) : null}
+            </>
+          )}
+
+          <SelectField
+            label={`Signed ${mode === "checkout" ? "out" : "in"} by`}
+            hint={signingOptions.length === 0 ? "No Active Manager/Office Staff records found — add one in Settings first." : undefined}
+            value={signingStaffId}
+            onChange={(e) => handleSigningStaffChange(e.target.value)}
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting || loadingOptions}
-            className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? "Saving..." : mode === "checkout" ? "Check Out" : "Return"}
-          </button>
-        </div>
-      </div>
-    </div>
+            <option value="">Select...</option>
+            {signingOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.role === "OfficeStaff" ? "Office Staff" : s.role})
+              </option>
+            ))}
+          </SelectField>
+        </>
+      )}
+
+      {error ? <ErrorBox title="That did not work." text={error} /> : null}
+    </Sheet>
   );
 }
