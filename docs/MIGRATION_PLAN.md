@@ -258,6 +258,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8, step 5: Complaints list, complaint page and Add complaint redesigned (filter sheet, details sheet, close sheet, edit sheet; the Add form keeps the browser's required checks). New .ui-print-view opt-in: Print now prints the content on the complaint page, the Visits list and Account Health (it printed blank pages). Headless click-through 50 of 50 at 375 and 1280px; nothing saved. Lint baseline is now 16 problems (10 errors, 6 warnings).
 - Area 8 checkpoint report: docs/migration-reports/checkpoint-8-complaints-2026-10-08.md.
 - Area 9, step 0: docs/migration-reports/todos-headers.md. To Do 127 rows, 16 columns (six of them have no header in the sheet: group, outcome, calendar event, sync to calendar, priority); SmsLog 44 rows. Everything already reads and writes the sheet directly (no Apps Script).
+- Area 9, step 1: db/migrations/011_todos.sql applied to dev (todos, todo_sms_log). Flags and priority are kept as the sheet text because the app's rules read the text.
 
 **Next step:** Area 9 (To-Dos), Step 0: discovery (To Do and SmsLog tabs; app/to-do screens; creating a to-do texts the manager and can sync Google Calendar: dry-run only).
 
@@ -457,3 +458,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:23 | 2026-10-08T10:23 | 8/step 5 | this commit | Complaints screens redesigned; print fixed on 3 screens. tsc ok, build ok, lint 16 (was 17).
 - 2026-10-08T10:23 | 2026-10-08T10:23 | 8/checkpoint | this commit | Report written; Area 8 done.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 0 | this commit | To-Dos headers.
+- 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 1 | this commit | To-Dos schema.
