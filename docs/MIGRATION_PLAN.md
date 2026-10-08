@@ -264,6 +264,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 9, step 4: lib/pg/todos.ts + lib/data/todos.ts; 4 route files switched. Parity 7/7 reads identical (127 to-dos, the text log, the quota); check-todos-writes.mts 29/29; /api/to-do (55,748 bytes) and /api/to-do/sms-quota byte-identical over HTTP on both sources. Over HTTP on Postgres with OUTBOUND_DRY_RUN=1: add one, add a batch, status, edit, outcome, unknown id; 2 texts, 2 push messages and 3 Calendar changes were logged, none sent; test rows, text-log lines and audit lines removed. Not called: the text status re-check (it asks the text provider).
 - Area 9, step 5: To-Do page restyled with the UI kit (title bar, kit buttons / inputs / cards / pills; same structure and handlers), VisitCompletionModal and the shared AccountMultiSelect resized. Headless click-through 30 of 30 at 375 and 1280px (details, edit mode, filters, bulk edit, new-to-do form, print chooser); nothing saved; the per-card text-status requests were answered locally (1,016 of them on one page load).
 - Area 9 checkpoint report: docs/migration-reports/checkpoint-9-todos-2026-10-08.md.
+- Area 10, step 0: docs/migration-reports/sales-headers.md. Sales & Commissions 2 rows, 20 columns (Q is an old duplicate of Amount Sold, R a dead duplicate of Commission). Reports has no data of its own: it reads accounts, visits, complaints and sales.
 
 **Next step:** Area 10 (Sales / Reports), Step 0: discovery (Sales & Commissions tab; app/sales and app/reports; what the dashboard and reports read).
 
@@ -373,7 +374,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 7 Visits | done | 14 | 0.8 | 2026-10-08 | 2026-10-08 | 611 visits; Apps Script list rebuilt 611/611; 58 visits name an unknown account; customer-portal visit read is broken today (copied, reported) |
 | 8 Complaints | done | 24 | 0.7 | 2026-10-08 | 2026-10-08 | 22 complaints; list byte-identical to Apps Script; Edit creates a duplicate complaint today (copied, reported, fix proposed) |
 | 9 To-Dos | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 127 to-dos, 44 text-log lines; text credit is at 0 (reported); page restyled in place, rearranging proposed |
-| 10 Sales/Reports | not started | 18 | | | | |
+| 10 Sales/Reports | in progress | 18 |  | 2026-10-08 |  |  |
 | 11 Customer portal | not started | 22 | | | | |
 | 12 Supplies | not started | 24 | | | | |
 | 13 Sub portal | not started | 28 | | | | |
@@ -470,3 +471,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:33 | 2026-10-08T10:33 | 9/step 4 | this commit | To-Dos data layer behind DATA_SOURCE_TODOS. tsc ok, build ok, lint 16.
 - 2026-10-08T10:43 | 2026-10-08T10:43 | 9/step 5 | this commit | To-Do page restyled. tsc ok, build ok, lint 16.
 - 2026-10-08T10:43 | 2026-10-08T10:43 | 9/checkpoint | this commit | Report written; Area 9 done.
+- 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 0 | this commit | Sales headers.
