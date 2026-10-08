@@ -201,8 +201,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 2, step 3: `scripts/migrate/verify-people.mjs` (+ shared `lib/verify-helpers.mjs`) → `docs/migration-reports/people-verify.md`. Both tables match, every row field by field.
 - Area 2, step 4: `lib/pg/people.ts` + `lib/data/people.ts`; 18 files switched with the new `scripts/migrate/switch-imports.mjs`. Protected files touched by one import line each: `lib/managerAccounts.ts`, `app/api/login/route.ts`, `app/api/login/setup-password/route.ts`. Parity 9/9; `check-people-writes.mts` 21/21; 7 routes byte-identical over HTTP on both sources; staff create/deactivate/delete over HTTP on Postgres. Not tested: a real password login.
 - Area 2, step 5: no screens in this area (Staff screen is `app/equipment/staff`, Area 5; Managers are on `app/settings/page.tsx`, Area 14).
+- Area 3, step 0: `docs/migration-reports/subs-headers.md`. Subcontractors 39 rows, 18 columns (A:R, not A:Z). Column A formula is `"SUB-" & (row - 1)`, so SUB-0NN is a row number too, not an id. Extra legacy columns at the far right: a second `ID` (5 rows), a second `Phone` (8 rows), a second `Insurance Expiration`. Activity log 385 rows, 9 action types, Jul 13 – Oct 6 2026.
 
-**Next step:** Area 3 (Subcontractors), Step 0: `node scripts/migrate/discover.mjs subs`. This is the first area with real identity problems (Leo SUB-004/SUB-037, Giovanna/Cesar, row-position ids) and Apps Script actions (`addSubcontractor`, `getSubcontractors`, sub-portal login, activity log write) whose source is not in the repo.
+**Next step:** Area 3, Step 1 (schema).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -243,7 +244,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | B Design system | done | 14 | 0.2 | 2026-10-07 | 2026-10-07 | Contrast not tool-measured; no real phone |
 | 1 Catalogs | done | 12 | 0.5 | 2026-10-07 | 2026-10-07 | 19 rows, 0 issues; real file upload/delete not clicked |
 | 2 People | done | 11 | 0.2 | 2026-10-07 | 2026-10-07 | 21 rows; 6 manager↔staff questions open; no screens in this area |
-| 3 Subs | not started | 24 | | | | |
+| 3 Subs | in progress | 24 |  | 2026-10-07 |  |  |
 | 4a Accounts core | not started | 34 | | | | |
 | 4b Accounts secondary | not started | 20 | | | | |
 | 5 Equipment | not started | 20 | | | | |
@@ -284,3 +285,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:02 | 2/step 3 | this commit | People verify: all match.
 - 2026-10-07T22:59 → 23:09 | 2/step 4 | this commit | People data layer behind DATA_SOURCE_PEOPLE. tsc ok, build ok, lint at baseline.
 - 2026-10-07T23:09 | 2/checkpoint | this commit | Area 2 report. Area total 0.2 h vs 11 h; running total 1.4 h vs 43 h. Estimate not rescaled until Area 3 is measured.
+- 2026-10-07T23:09 → 23:14 | 3/step 0 | this commit | Subs headers.
