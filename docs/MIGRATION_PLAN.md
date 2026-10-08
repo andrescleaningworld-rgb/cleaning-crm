@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b, 5, 6 and 7 done; reports in `docs/migration-reports/`. Area 8 (Complaints) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 6.4 h used of 181 h estimated; roughly 5–16 h of Claude work left.
+**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a, 4b, 5, 6, 7 and 8 done; reports in `docs/migration-reports/`. Area 9 (To-Dos) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 7.1 h used of 199 h estimated; roughly 5–14 h of Claude work left. Lint baseline: 16 problems (10 errors, 6 warnings).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -256,8 +256,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8, step 3: scripts/migrate/verify-complaints.mjs → docs/migration-reports/complaints-verify.md. The table matches Sheets, every row field by field (22 × 17).
 - Area 8, step 4: lib/pg/complaints.ts + lib/data/complaints.ts; app/api/complaints wired (list, add, close, resend on Postgres when DATA_SOURCE_COMPLAINTS=postgres). The Apps Script complaint list rebuilt from Postgres is byte-identical to the live answer (22 rows; check-complaints-apps-script.mts); the list route on Postgres is byte-identical to what the route returns for it (12,784 bytes). check-complaints-writes.mts 18/18. Over HTTP on Postgres with OUTBOUND_DRY_RUN=1: add (2 emails logged, none sent), close, resend, unknown complaint; test rows and audit lines removed.
 - Area 8, step 5: Complaints list, complaint page and Add complaint redesigned (filter sheet, details sheet, close sheet, edit sheet; the Add form keeps the browser's required checks). New .ui-print-view opt-in: Print now prints the content on the complaint page, the Visits list and Account Health (it printed blank pages). Headless click-through 50 of 50 at 375 and 1280px; nothing saved. Lint baseline is now 16 problems (10 errors, 6 warnings).
+- Area 8 checkpoint report: docs/migration-reports/checkpoint-8-complaints-2026-10-08.md.
 
-**Next step:** Area 8, step 5: redesign app/complaints (list, complaint page, new complaint). Never click Save changes on a complaint page in tests.
+**Next step:** Area 9 (To-Dos), Step 0: discovery (To Do and SmsLog tabs; app/to-do screens; creating a to-do texts the manager and can sync Google Calendar: dry-run only).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -362,7 +363,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
 | 6 Scheduling | done | 20 | 0.8 | 2026-10-08 | 2026-10-08 | 298 schedules; 27 carry one email no sub has; sub portal and customer portal schedule views not opened (Areas 11, 13) |
 | 7 Visits | done | 14 | 0.8 | 2026-10-08 | 2026-10-08 | 611 visits; Apps Script list rebuilt 611/611; 58 visits name an unknown account; customer-portal visit read is broken today (copied, reported) |
-| 8 Complaints | in progress | 24 |  | 2026-10-08 |  |  |
+| 8 Complaints | done | 24 | 0.7 | 2026-10-08 | 2026-10-08 | 22 complaints; list byte-identical to Apps Script; Edit creates a duplicate complaint today (copied, reported, fix proposed) |
 | 9 To-Dos | not started | 20 | | | | |
 | 10 Sales/Reports | not started | 18 | | | | |
 | 11 Customer portal | not started | 22 | | | | |
@@ -453,3 +454,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 3 | this commit | Complaints verify: all match.
 - 2026-10-08T10:11 | 2026-10-08T10:11 | 8/step 4 | this commit | Complaints data layer behind DATA_SOURCE_COMPLAINTS. tsc ok, build ok, lint at baseline.
 - 2026-10-08T10:23 | 2026-10-08T10:23 | 8/step 5 | this commit | Complaints screens redesigned; print fixed on 3 screens. tsc ok, build ok, lint 16 (was 17).
+- 2026-10-08T10:23 | 2026-10-08T10:23 | 8/checkpoint | this commit | Report written; Area 8 done.
