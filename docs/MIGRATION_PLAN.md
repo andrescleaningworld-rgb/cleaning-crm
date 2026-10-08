@@ -224,8 +224,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4a checkpoint report: docs/migration-reports/checkpoint-4a-accounts-2026-10-08.md.
 - Area 4b, step 0: discovery. No new tabs: account-updates reads/saves through Apps Script (kept, see 4a decision); account-health is a form with no data source at all; accounts-center, map and the Coverage tab read /api/accounts (already switched) plus /api/geocode (Catalogs, switched). Steps 1–4 have nothing to build; 4b is screen work.
 - Area 4b, step 5a: Accounts Center redesigned (tab bar, the three Recent lists, Keys tab, Crew Link queue tab). Same handlers. Headless check at 375 and 1280px passed; nothing saved.
+- Area 4b, step 5b: Account Updates list and update page redesigned. Add form and filters open in sheets; same request, same checks, same 5-latest rule; saves still go to Apps Script. Headless check passed at 375 and 1280px (54 checks across 5a and 5b); nothing saved.
 
-**Next step:** Area 4b, step 5b commit (Account Updates list + update page), then account-health, map, Coverage tab.
+**Next step:** Area 4b, step 5c: account-health, then map, then the Coverage tab and its map.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -282,6 +283,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Transfer proposals: status Sent shows amber (waiting) instead of blue | the UI kit has no blue status; sent means waiting on the sub | add a pill kind if blue is wanted
 - Keys tab: every Cleaner dropdown shows Unassigned even when the account has a cleaner (the dropdown compares the cleaner's name with the sub's ID; 383 of 395 would match by contact name). Same before the redesign and on Sheets | fixing it changes what the screen shows and saves, so it needs approval | say yes and it is a 3-line fix
 - Keys tab: Generate code and the Copy tick box are not stored anywhere (the Accounts sheet has no Key Code or Copy column; the save reports success and the value is gone after a reload). Left exactly as is on both sources | adding columns is a new feature | approve two new columns (Postgres only) or remove the two controls
+- Account update page: the Update ID box and its note to developers were removed | Part B rule 3 (no raw IDs); the ID is still in the address bar | one block to put back
+- Account Updates: the Add form opens in a sheet from the main button instead of sitting at the bottom of the page; after a save the sheet closes and the saved message shows on the page | one main action per screen | move it back into the page
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -368,3 +371,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:15 | 2026-10-08T08:15:01-04:00 accounts step 5e done (transfer builder)
 - 2026-10-08T08:16 | 2026-10-08T08:16 | 4a/checkpoint | this commit | Report written; 4a done.
 - 2026-10-08T08:30 | 2026-10-08T08:30 | 4b/step 0 + 5a | this commit | Discovery; Accounts Center redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-08T08:30 | 2026-10-08T08:30 | 4b/step 5b | this commit | Account Updates redesigned. tsc ok, build ok, lint at baseline.

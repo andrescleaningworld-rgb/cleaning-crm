@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { BigButton, Card, EmptyState, ErrorBox, LABELS, MoreMenu, Screen, SkeletonList } from "@/app/ui";
 
 type RawAccountUpdate = {
   id?: string;
@@ -154,64 +155,33 @@ export default function AccountUpdateDetailPage() {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <div className="mx-auto max-w-5xl">
-          <p className="text-gray-700">Loading account update details...</p>
-        </div>
-      </main>
+      <Screen title="Account Update" backHref="/account-updates">
+        <SkeletonList rows={2} />
+      </Screen>
     );
   }
 
   if (errorMessage) {
     return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <div className="mx-auto max-w-5xl">
-          <section className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-700">
-            {errorMessage}
-          </section>
-
-          <div className="mt-5">
-            <Link
-              href="/account-updates"
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
-              Back to Account Updates
-            </Link>
-          </div>
-        </div>
-      </main>
+      <Screen title="Account Update" backHref="/account-updates">
+        <ErrorBox title="The update did not load." text={errorMessage} />
+      </Screen>
     );
   }
 
   if (!update) {
     return (
-      <main className="min-h-screen bg-gray-50 p-6">
-        <div className="mx-auto max-w-5xl">
-          <section className="rounded-xl border border-yellow-200 bg-yellow-50 p-5">
-            <h1 className="text-2xl font-bold text-yellow-900">
-              Account Update Not Found
-            </h1>
-
-            <p className="mt-2 text-yellow-800">
-              This update could not be found. The update ID may have changed if
-              the sheet does not have a permanent Update ID column yet.
-            </p>
-
-            <p className="mt-2 text-sm text-yellow-700">
-              Requested Update ID: {updateId || "N/A"}
-            </p>
-          </section>
-
-          <div className="mt-5">
-            <Link
-              href="/account-updates"
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
+      <Screen title="Account Update" backHref="/account-updates">
+        <EmptyState
+          title="Account update not found"
+          text="This update could not be found. Its link may have changed if the sheet row has no permanent Update ID yet."
+          action={
+            <BigButton kind="second" href="/account-updates">
               Back to Account Updates
-            </Link>
-          </div>
-        </div>
-      </main>
+            </BigButton>
+          }
+        />
+      </Screen>
     );
   }
 
@@ -220,28 +190,20 @@ export default function AccountUpdateDetailPage() {
   }`;
 
   return (
-    <main className="account-update-print-page min-h-screen bg-gray-50 p-6">
+    <Screen
+      title={update.updateType}
+      subtitle={update.accountName}
+      backHref="/account-updates"
+      headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: () => window.print() }]} />}
+      action={<BigButton href={accountLink}>Go to account</BigButton>}
+    >
       <style jsx global>{`
         @media print {
-          /* min-h-screen forces this <main> to reserve a full viewport of
-             height regardless of content — once the print view below
-             escapes normal flow via position: absolute, that reserved
-             height is empty but still there, producing a spurious blank
-             second page. */
-          .account-update-print-page {
-            min-height: 0;
-          }
-
           /* Same opt-in contract as .account-packet-print-view in
              globals.css: that shared rule hides everything in <body> and
-             re-shows only a page's own "-print-view" container. This page
-             previously called window.print() with no opt-in at all, so the
-             shared rule hid its content too — correct page count, nothing
-             visible, exactly the reported bug. Reuses this page's existing
-             content directly as the print view (no separate duplicate DOM,
-             unlike the to-do page's Task Sheet/By Manager views) since it's
-             already a single simple summary card, not a layout that needs
-             a different shape for print. */
+             re-shows only a page's own "-print-view" container. The summary
+             card below is reused directly as the print view (no separate
+             duplicate DOM) since it is already a single simple card. */
           .account-update-print-view,
           .account-update-print-view * {
             visibility: visible;
@@ -257,126 +219,40 @@ export default function AccountUpdateDetailPage() {
         }
       `}</style>
 
-      <div className="account-update-print-view mx-auto max-w-5xl">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-purple-700">
-              Account Update Details
-            </p>
-
-            <h1 className="mt-1 text-3xl font-bold text-gray-900">
-              {update.updateType}
-            </h1>
-
-            <p className="mt-1 text-gray-600">{update.accountName}</p>
-          </div>
-
-          <div className="no-print flex flex-col gap-3 md:flex-row">
-            <Link
-              href="/account-updates"
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
-              Back to Updates
-            </Link>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-            >
-              Print
-            </button>
-
-            <Link
-              href={accountLink}
-              className="rounded-lg bg-purple-700 px-5 py-3 text-center font-semibold text-white shadow-sm hover:bg-purple-800"
-            >
-              View Account
-            </Link>
-          </div>
-        </div>
-
-        <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 p-5">
-            <h2 className="text-xl font-bold text-gray-900">
-              Update Summary
-            </h2>
-          </div>
-
-          <div className="grid gap-0 md:grid-cols-2">
-            <div className="border-b border-gray-200 p-5 md:border-r">
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Date
-              </p>
-              <p className="mt-1 text-lg font-semibold text-gray-900">
-                {update.date}
-              </p>
+      <div className="account-update-print-view">
+        <Card title="Update Summary">
+          <dl className="ui-details">
+            <div className="ui-detail">
+              <dt>Date</dt>
+              <dd>{update.date}</dd>
             </div>
-
-            <div className="border-b border-gray-200 p-5">
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Account
-              </p>
-              <Link
-                href={accountLink}
-                className="mt-1 block text-lg font-semibold text-purple-700 hover:underline"
-              >
-                {update.accountName}
-              </Link>
+            <div className="ui-detail">
+              <dt>Account</dt>
+              <dd>
+                <Link href={accountLink} className="ui-link">
+                  {update.accountName}
+                </Link>
+              </dd>
             </div>
-
-            <div className="border-b border-gray-200 p-5 md:border-r">
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Update Type
-              </p>
-              <p className="mt-1 text-lg font-semibold text-gray-900">
-                {update.updateType}
-              </p>
+            <div className="ui-detail">
+              <dt>Update Type</dt>
+              <dd>{update.updateType}</dd>
             </div>
-
-            <div className="border-b border-gray-200 p-5">
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Manager / Created By
-              </p>
-              <p className="mt-1 text-lg font-semibold text-gray-900">
-                {update.manager}
-              </p>
+            <div className="ui-detail">
+              <dt>Manager / Created By</dt>
+              <dd>{update.manager}</dd>
             </div>
-
-            <div className="border-b border-gray-200 p-5 md:col-span-2">
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Notify Email
-              </p>
-              <p className="mt-1 text-lg font-semibold text-gray-900">
-                {update.notifyEmail || "N/A"}
-              </p>
+            <div className="ui-detail ui-detail-full">
+              <dt>Notify Email</dt>
+              <dd>{update.notifyEmail || "None"}</dd>
             </div>
-
-            <div className="p-5 md:col-span-2">
-              <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                Full Notes
-              </p>
-
-              <div className="mt-3 whitespace-pre-wrap rounded-xl border border-gray-200 bg-gray-50 p-5 text-gray-900">
-                {update.notes}
-              </div>
+            <div className="ui-detail ui-detail-full">
+              <dt>Full Notes</dt>
+              <dd style={{ whiteSpace: "pre-wrap" }}>{update.notes}</dd>
             </div>
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-xl border border-purple-200 bg-purple-50 p-5">
-          <h2 className="text-lg font-bold text-purple-950">
-            Update ID
-          </h2>
-
-          <p className="mt-1 text-sm text-purple-800">{update.id}</p>
-
-          <p className="mt-3 text-sm text-purple-700">
-            Later, we should make sure Apps Script saves permanent update IDs so
-            these links never change.
-          </p>
-        </section>
+          </dl>
+        </Card>
       </div>
-    </main>
+    </Screen>
   );
 }
