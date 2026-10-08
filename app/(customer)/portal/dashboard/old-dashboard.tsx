@@ -57,7 +57,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── page ────────────────────────────────────────────────────────────────────
 
-export default async function PortalDashboardPage({ searchParams }: { searchParams: Promise<{ submitted?: string }> }) {
+export default async function OldPortalDashboard({ searchParams }: { searchParams: Promise<{ submitted?: string }> }) {
   const sent = SENT[(await searchParams).submitted ?? ""] ?? "";
   const cookieStore = await cookies();
 

@@ -5,7 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BigButton, ErrorBox, Field, Screen } from "@/app/ui";
 
-export default function PortalLoginPage() {
+export default function OldPortalLogin() {
   const router = useRouter();
   const [phone, setPhone] = useState("");
   const [portalCode, setPortalCode] = useState("");

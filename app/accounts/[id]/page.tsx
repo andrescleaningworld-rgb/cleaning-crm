@@ -293,6 +293,9 @@ export default function AccountDetailPage() {
   // always shows Details; ./team-hub-tab.tsx is kept, just not rendered.
   const activeTab = "details" as const;
   const [sendingPacket, setSendingPacket] = useState(false);
+  // Customer portal invite ("Set your password" email): what the server answered, shown in a sheet.
+  const [sendingPortalInvite, setSendingPortalInvite] = useState(false);
+  const [portalInvite, setPortalInvite] = useState<{ ok: boolean; message: string; devLink?: string } | null>(null);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
@@ -552,6 +555,28 @@ export default function AccountDetailPage() {
     matchedSubcontractor.companyName !== subcontractorContactDisplay
       ? matchedSubcontractor.companyName
       : "";
+
+  async function handleSendPortalInvite() {
+    if (sendingPortalInvite) return;
+    setSendingPortalInvite(true);
+    try {
+      const res = await fetch("/api/admin/portal-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: decodeURIComponent(accountIdForUrl) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string; error?: string; devLink?: string };
+      setPortalInvite({
+        ok: res.ok && data.success === true,
+        message: data.success ? data.message || "Invite sent." : data.error || "Failed to send the invite.",
+        devLink: data.devLink,
+      });
+    } catch {
+      setPortalInvite({ ok: false, message: "Failed to send the invite." });
+    } finally {
+      setSendingPortalInvite(false);
+    }
+  }
 
   async function handleSendNewAccountPacket() {
     if (!account) return;
@@ -1057,11 +1082,28 @@ export default function AccountDetailPage() {
                       label: sendingPacket ? "Sending packet…" : "Send new account packet",
                       onSelect: () => void handleSendNewAccountPacket(),
                     },
+                    {
+                      label: sendingPortalInvite ? "Sending portal invite…" : "Send portal invite",
+                      onSelect: () => void handleSendPortalInvite(),
+                    },
                     { label: "Onboarding checklist", onSelect: () => setShowOnboardingWizard(true) },
                     { label: "Add sale", icon: "plus", href: `/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}` },
                     { label: "Full account info", onSelect: () => setShowFullAccountInfo(true) },
                   ]}
                 />
+                <Sheet
+                  open={portalInvite !== null}
+                  title={portalInvite?.ok ? "Portal invite" : "Portal invite not sent"}
+                  text={portalInvite?.message}
+                  onClose={() => setPortalInvite(null)}
+                >
+                  {portalInvite?.devLink ? (
+                    <div className="ui-stack">
+                      <p>Test account: emails are not sent here. This is the link the email would carry.</p>
+                      <p className="ui-code">{portalInvite.devLink}</p>
+                    </div>
+                  ) : null}
+                </Sheet>
               </span>
             }
             action={

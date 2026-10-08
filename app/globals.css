@@ -1967,3 +1967,104 @@ button.ui-card:hover {
 .ui-on-dark .ui-label {
   color: inherit;
 }
+
+/* Customer portal home: big buttons, one tap each. One column on a phone, two when wide. */
+.ui-tiles {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 700px) {
+  .ui-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.ui-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 88px;
+  padding: 16px 20px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow);
+  color: var(--ui-ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-tile:hover,
+.ui-tile[aria-current="true"] {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+}
+
+.ui-tile:disabled {
+  opacity: 0.6;
+}
+
+.ui-tile-icon {
+  flex-shrink: 0;
+  font-size: 36px;
+  line-height: 1;
+}
+
+.ui-tile-words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-tile-label {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.ui-tile-detail {
+  font-size: 18px;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The screen after a request: one big "Sent". */
+.ui-sent {
+  padding: 32px 20px;
+  border: 2px solid var(--ui-good);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-good-soft);
+  text-align: center;
+}
+
+.ui-sent-title {
+  margin: 0;
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--ui-good);
+}
+
+.ui-sent-text {
+  margin: 12px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* A password box with its show / hide button beside it. */
+.ui-password {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ui-password > .ui-input {
+  flex: 1;
+  min-width: 0;
+}

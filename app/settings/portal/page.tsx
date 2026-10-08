@@ -1,6 +1,7 @@
 import { Screen } from "@/app/ui";
 import { getMergedPortalAccounts } from "@/lib/data/customer-portal";
 import PortalTable from "./portal-table";
+import PortalOpenSetting from "./portal-open-setting";
 
 // No cookies()/headers() call here (auth is enforced by proxy.ts, not read
 // in-page), so Next would otherwise statically freeze this page's account
@@ -17,6 +18,7 @@ export default async function PortalAccessPage() {
       subtitle="Every account is listed. Enable adds an account to the customer portal. Edit changes its phone number, next service, estimated billing and portal code."
       backHref="/settings"
     >
+      <PortalOpenSetting />
       <PortalTable initial={accounts} />
     </Screen>
   );
