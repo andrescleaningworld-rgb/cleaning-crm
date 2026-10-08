@@ -1467,6 +1467,19 @@ button.ui-card:hover {
   accent-color: var(--ui-brand);
 }
 
+/* A link inside text, still a full-size tap target. */
+.ui-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ui-tap);
+  min-width: var(--ui-tap);
+  color: var(--ui-brand-ink);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
 .ui-nowrap {
   white-space: nowrap;
 }

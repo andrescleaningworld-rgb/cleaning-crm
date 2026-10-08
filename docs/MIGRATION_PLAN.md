@@ -218,8 +218,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Safety: `SHEETS_READ_ONLY=1` (set in `.env.development.local` only) makes `getAuthClient` in `lib/googleSheets.ts` ask Google for a read-only token, so Google refuses every Sheets write from this machine (checked: a write with a read-only token gets 403). Unset in production = unchanged.
 - Area 4a, step 5a: `app/accounts/new/page.tsx` redesigned. Same 22 inputs in the same 5 sections, same request (`addAccount` with the same 26 fields), same extras (address autocomplete, nearest-sub suggestion, pay suggested at 70% of revenue, portal access row, back to the list after saving). Headless click-through at 375 and 1280px on Postgres: 10 of 13, the 3 misses were wrong expectations in the test (it expected 24 inputs; the old form has 22). Not exercised: Portal access = Yes (it writes to the real portal sheet) and the Google address suggestions (no Maps key here).
 - Area 4a, step 5b: `app/accounts/[id]/edit/page.tsx` redesigned. Same 24 inputs in the same 7 sections, 4 number tiles, same save request (`updateAccountFieldsDirect` with only the changed fields plus the always-sent ones), Crew Link switches, pay suggested at 70% while untouched. Headless click-through 14/14 at 375 and 1280px on Postgres; dev database re-imported afterwards and verified.
+- Area 4a, step 5c: `app/accounts/[id]/page.tsx` redesigned. Same content and actions: status + health pills, 5 tiles, Account Snapshot (10 facts), Notes, onboarding checklist, checklist editor, History, print packet view; main button Edit account; Add visit / Add complaint / Add update as a row; the other 7 actions in More (Change status, Portal access ON/OFF, Print PDF, Send new account packet, Onboarding checklist, Add sale, Full account info); the three pop-ups are now sheets. Headless click-through 18/18 at 375 and 1280px on Postgres. Not clicked: Portal access (writes to the portal sheet), Send packet and the PDF download.
 
-**Next step:** Area 4a, Step 5c: `app/accounts/[id]/page.tsx` (1,846 lines), then the list `app/accounts/page.tsx` (3,971; split into components). Then the 4a checkpoint report.
+**Next step:** Area 4a, Step 5d: the list `app/accounts/page.tsx` (3,971 lines; split into components under `app/accounts/_components/`). Then the 4a checkpoint report.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -269,6 +270,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - `lib/googleSheets.ts` got one additive change (the read-only switch above) although the plan says the Sheets code stays untouched | found while testing Add New Account: with Portal access = Yes the page asks the server to add a row to the real customer-portal sheet; rule 3 ("never click save locally") is now enforced by Google, not by care | delete the 5 lines; nothing else depends on them.
 - Edit Account: the "Change History" box used to say "will be added later … saves back to Google Sheets"; it now says the history is on the account page and links there | the old text was out of date (History exists on the account page) | reword in the page.
 - Edit Account: after a save the green "Account saved" message shows for 3 seconds; if "Checklist Needed" or the Crew Link switches failed, that part stays on screen in a box | Part B rule 4 | none needed.
+- Account page: the embedded onboarding checklist, checklist editor and History keep their old look for now | they are shared components (`app/components/*`) used by other screens too; they get the new look with the shell in Area 14 | none needed.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -350,3 +352,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T07:40 | safety | this commit | SHEETS_READ_ONLY switch. tsc ok, build ok, lint at baseline.
 - 2026-10-08T07:33 → 07:40 | 4a/step 5a | this commit | Add New Account page redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T07:40 → 07:46 | 4a/step 5b | this commit | Edit Account page redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-08T07:46 → 07:52 | 4a/step 5c | this commit | Account detail page redesigned. tsc ok, build ok, lint at baseline.

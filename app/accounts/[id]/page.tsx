@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import {
+  BigButton,
+  Card,
+  ErrorBox,
+  MoreMenu,
+  Screen,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  StatusPill,
+  TextAreaField,
+  type StatusKind,
+} from "@/app/ui";
 import { useParams, useSearchParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
 import { AccountPacketPrintView } from "./account-packet-print-view";
@@ -173,48 +185,25 @@ function formatCalculatedMoney(value: number) {
   });
 }
 
-function getStatusClass(status: string | undefined) {
+// Same rules, in the same order, as the old color classes.
+function accountStatusKind(status: string | undefined): StatusKind {
   const clean = String(status || "").toLowerCase();
 
-  if (
-    clean.includes("cancel") ||
-    clean.includes("inactive") ||
-    clean.includes("lost")
-  ) {
-    return "border-red-200 bg-red-50 text-red-800";
-  }
+  if (clean.includes("cancel") || clean.includes("inactive") || clean.includes("lost")) return "needs-you";
+  if (clean.includes("active")) return "done";
+  if (clean.includes("pause")) return "waiting";
 
-  if (clean.includes("active")) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  }
-
-  if (clean.includes("pause")) {
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return "off";
 }
 
-function getHealthClass(health: string | undefined) {
+function accountHealthKind(health: string | undefined): StatusKind {
   const clean = String(health || "").toLowerCase();
 
-  if (clean.includes("high risk")) {
-    return "border-red-200 bg-red-50 text-red-800";
-  }
+  if (clean.includes("high risk")) return "needs-you";
+  if (clean.includes("attention")) return "waiting";
+  if (clean.includes("stable") || clean.includes("good") || clean.includes("excellent")) return "done";
 
-  if (clean.includes("attention")) {
-    return "border-amber-200 bg-amber-50 text-amber-800";
-  }
-
-  if (
-    clean.includes("stable") ||
-    clean.includes("good") ||
-    clean.includes("excellent")
-  ) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
+  return "off";
 }
 
 function getAccountId(account: Account, fallback = "") {
@@ -998,30 +987,39 @@ export default function AccountDetailPage() {
 
   if (loading) {
     return (
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <p className="text-sm font-semibold text-slate-600">
-          Loading account...
-        </p>
-      </div>
+      <Screen title="Account" backHref="/accounts">
+        <SkeletonList rows={4} />
+      </Screen>
     );
   }
 
   if (error || !account) {
     return (
-      <div className="rounded-3xl bg-white p-6 shadow-sm">
-        <Link
-          href="/accounts"
-          className="text-sm font-bold text-blue-800 hover:underline"
-        >
-          ← Back to Accounts
-        </Link>
-
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-          {error || "Could not find this account."}
+      <Screen title="Account" backHref="/accounts">
+        <ErrorBox title="We could not open this account." text={error || "Could not find this account."} />
+        <div>
+          <BigButton kind="second" href="/accounts">
+            Back to accounts
+          </BigButton>
         </div>
-      </div>
+      </Screen>
     );
   }
+
+  const accountName = account.accountName || "Unnamed Account";
+  const grossMarginText = estimatedGrossMargin ? formatCalculatedMoney(estimatedGrossMargin) : account.grossMargin || "N/A";
+  const addressLink = accountAddress ? (
+    <a href={getGoogleMapsUrl(accountAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">
+      {accountAddress}
+    </a>
+  ) : (
+    "N/A"
+  );
+  const phoneLink = (
+    <a href={makeTelLink(contactPhone)} className="ui-link">
+      {contactPhone}
+    </a>
+  );
 
   return (
     <>
@@ -1039,809 +1037,291 @@ export default function AccountDetailPage() {
       />
 
       {activeTab === "details" && (
-      <div className="account-detail-print">
-      <div className="mb-4 account-detail-print-hide">
-        <Link
-          href="/accounts"
-          className="text-sm font-bold text-blue-800 hover:underline"
-        >
-          ← Back to Accounts
-        </Link>
-      </div>
-
-      <section className="overflow-hidden rounded-3xl bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-blue-950 via-blue-800 to-sky-600 p-6 text-white">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <p className="text-sm font-black uppercase tracking-[0.2em] text-blue-100">
-                Cleaning World Account
-              </p>
-
-              <h1 className="mt-2 text-4xl font-black tracking-tight">
-                {account.accountName || "Unnamed Account"}
-              </h1>
-
-              {accountAddress ? (
-                <a
-                  href={getGoogleMapsUrl(accountAddress)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 block max-w-3xl text-sm font-medium text-blue-100 hover:text-white hover:underline"
-                >
-                  {accountAddress}
-                </a>
-              ) : null}
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-black ${getStatusClass(
-                    account.status
-                  )}`}
-                >
-                  {account.status || "No Status"}
-                </span>
-
-                <span
-                  className={`rounded-full border px-3 py-1 text-xs font-black ${getHealthClass(
-                    account.accountHealth
-                  )}`}
-                >
-                  {account.accountHealth || "No Health Status"}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[420px] account-detail-print-hide">
-              <button
-                onClick={handleSendNewAccountPacket}
-                disabled={sendingPacket}
-                className="rounded-2xl bg-emerald-300 px-4 py-3 text-center text-sm font-black text-slate-950 shadow-sm hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {sendingPacket ? "Sending Packet..." : "Send New Account Packet"}
-              </button>
-
-              <Link
-                href={`/accounts/${accountIdForUrl}/edit`}
-                className="rounded-2xl bg-yellow-300 px-4 py-3 text-center text-sm font-black text-slate-950 shadow-sm hover:bg-yellow-200"
-              >
-                Edit Account
-              </Link>
-
-              <button
-                type="button"
-                onClick={openStatusModal}
-                className="rounded-2xl bg-purple-200 px-4 py-3 text-center text-sm font-black text-purple-950 shadow-sm hover:bg-purple-100"
-              >
-                Change Status
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowOnboardingWizard(true)}
-                className="rounded-2xl bg-indigo-200 px-4 py-3 text-center text-sm font-black text-indigo-950 shadow-sm hover:bg-indigo-100"
-              >
-                Onboarding Checklist
-              </button>
-
-              <button
-                type="button"
-                onClick={handleTogglePortalAccess}
-                disabled={togglingPortalAccess}
-                className={`rounded-2xl px-4 py-3 text-center text-sm font-black shadow-sm disabled:cursor-not-allowed disabled:opacity-60 ${
-                  portalAccess === "YES"
-                    ? "bg-emerald-200 text-emerald-950 hover:bg-emerald-100"
-                    : "bg-slate-200 text-slate-900 hover:bg-slate-100"
-                }`}
-              >
-                {togglingPortalAccess
-                  ? "Updating Portal Access..."
-                  : `Portal Access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
-              </button>
-
-              <button
-                type="button"
-                onClick={openPdfModal}
-                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-slate-50"
-              >
-                Print PDF
-              </button>
-
-              <Link
-                href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-                className="rounded-2xl bg-white px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-blue-50"
-              >
-                Add Sale
-              </Link>
-
-              <Link
-                href={`/visits?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-                className="rounded-2xl bg-blue-100 px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-white"
-              >
-                Add Visit
-              </Link>
-
-              <Link
-                href={accountComplaintLink}
-                className="rounded-2xl bg-red-100 px-4 py-3 text-center text-sm font-black text-red-900 shadow-sm hover:bg-white"
-              >
-                Add Complaint
-              </Link>
-
-              <Link
-                href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}
-                className="rounded-2xl bg-sky-100 px-4 py-3 text-center text-sm font-black text-blue-950 shadow-sm hover:bg-white"
-              >
-                Add Update
-              </Link>
-
-              <button
-                type="button"
-                onClick={() => setShowFullAccountInfo(true)}
-                className="rounded-2xl bg-slate-100 px-4 py-3 text-center text-sm font-black text-slate-900 shadow-sm hover:bg-white"
-              >
-                Full Account Info
-              </button>
-            </div>
-          </div>
-
-          {packetMessage ? (
-            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
-              {packetMessage}
-            </div>
-          ) : null}
-
-          {packetError ? (
-            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
-              {packetError}
-            </div>
-          ) : null}
-
-          {statusMessage ? (
-            <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800">
-              {statusMessage}
-            </div>
-          ) : null}
-
-          {portalAccessError ? (
-            <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-800">
-              {portalAccessError}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="grid gap-4 border-b border-blue-100 bg-blue-50/70 p-5 md:grid-cols-5">
-          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Manager
-            </p>
-            <p className="mt-2 text-xl font-black text-slate-950">
-              {account.manager || "Unassigned"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Subcontractor
-            </p>
-            <p className="mt-2 text-xl font-black text-slate-950">
-              {subcontractorContactDisplay}
-            </p>
-
-            {subcontractorCompanyDisplay ? (
-              <p className="mt-1 text-xs font-bold text-slate-500">
-                {subcontractorCompanyDisplay}
-              </p>
-            ) : null}
-          </div>
-
-          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Monthly Revenue
-            </p>
-            <p className="mt-2 text-xl font-black text-slate-950">
-              {formatMoney(account.monthlyRevenue)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Sub Pay
-            </p>
-            <p className="mt-2 text-xl font-black text-slate-950">
-              {formatMoney(subcontractorPay)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-blue-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-              Est. Gross Margin
-            </p>
-            <p className="mt-2 text-xl font-black text-slate-950">
-              {estimatedGrossMargin
-                ? formatCalculatedMoney(estimatedGrossMargin)
-                : account.grossMargin || "N/A"}
-            </p>
-
-            {account.grossMarginPercent ? (
-              <p className="mt-1 text-xs font-bold text-slate-500">
-                ({account.grossMarginPercent.replace(/%$/, "")}%)
-              </p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid gap-5 p-6 lg:grid-cols-3">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-            <div className="border-b border-slate-100 pb-4">
-              <h2 className="text-xl font-black text-slate-950">
-                Account Snapshot
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Main operational details for this account.
-              </p>
-            </div>
-
-            <div className="mt-5">
-              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-blue-700">
-                  Contact Info
-                </p>
-
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
-                  <div className="rounded-2xl bg-white p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                      Contact Person
-                    </p>
-                    <p className="mt-2 text-sm font-bold text-slate-900">
-                      {contactPerson}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl bg-white p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                      Phone
-                    </p>
-                    <a
-                      href={makeTelLink(contactPhone)}
-                      className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
-                    >
-                      {contactPhone}
-                    </a>
-                  </div>
-
-                  <div className="rounded-2xl bg-white p-4">
-                    <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                      Email
-                    </p>
-                    <p className="mt-2 break-words text-sm font-bold text-slate-900">
-                      {contactEmail}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Start Date
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
-                    {startDate}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Cleaning Days
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
-                    {cleaningDays}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Frequency
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
-                    {cleaningFrequency}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Subcontractor Pay
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
-                    {formatMoney(subcontractorPay)}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Has Key
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
-                    {account.hasKey || "N/A"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Alarm Info
-                  </p>
-                  <p className="mt-2 text-sm font-bold text-slate-900">
-                    {alarmInfo || "N/A"}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Address
-                  </p>
-                  <a
-                    href={getGoogleMapsUrl(accountAddress)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
-                  >
-                    {accountAddress || "N/A"}
-                  </a>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-slate-950">Notes</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Internal account notes.
-            </p>
-
-            <div className="mt-5 rounded-2xl bg-blue-50 p-4">
-              <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                {account.notes || "No notes added for this account yet."}
-              </p>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      {/* --------------------------------------------------------------- */}
-      {/* Onboarding section — persistent, always editable, revisitable    */}
-      {/* even for accounts created before this feature existed. Renders   */}
-      {/* the exact same OnboardingChecklist component the wizard modal    */}
-      {/* uses, just inline rather than in a modal.                        */}
-      {/* --------------------------------------------------------------- */}
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 account-detail-print-hide">
-        <OnboardingChecklist
-          accountId={getAccountId(account, rawAccountIdFromUrl)}
-          accountName={account.accountName || "Unnamed Account"}
-          manager={account.manager}
-          accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
-          onAllItemsComplete={applyOnboardingCompletionStable}
-          variant="section"
-          onOpenWizard={() => setShowOnboardingWizard(true)}
-        />
-      </section>
-
-      {/* --------------------------------------------------------------- */}
-      {/* Porter Checklist template editor — the component itself fetches  */}
-      {/* the account's live "Checklist Needed" flag and renders nothing   */}
-      {/* when it's off, so no gating is needed here.                      */}
-      {/* --------------------------------------------------------------- */}
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 account-detail-print-hide">
-        <ChecklistTemplateEditor
-          accountId={getAccountId(account, rawAccountIdFromUrl)}
-          accountName={account.accountName || "Unnamed Account"}
-        />
-      </section>
-
-      {/* Every save: who, when, and each field's old → new value. */}
-      <div className="mt-6 account-detail-print-hide">
-        <AccountHistory accountId={getAccountId(account, rawAccountIdFromUrl)} />
-      </div>
-
-      {showOnboardingWizard ? (
-        <OnboardingWizardModal
-          accountId={getAccountId(account, rawAccountIdFromUrl)}
-          accountName={account.accountName || "Unnamed Account"}
-          manager={account.manager}
-          accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
-          onAllItemsComplete={applyOnboardingCompletionStable}
-          onClose={() => setShowOnboardingWizard(false)}
-        />
-      ) : null}
-
-      {showFullAccountInfo ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
-                  Full Account Info
-                </p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">
-                  {account.accountName || "Unnamed Account"}
-                </h2>
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Complete account reference information.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowFullAccountInfo(false)}
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
-              >
-                X
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Account ID
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {account.accountId || account.id || account.rowNumber || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Status
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {account.status || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Address
-                </p>
-                <a
-                  href={getGoogleMapsUrl(accountAddress)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
-                >
-                  {accountAddress || "N/A"}
-                </a>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Contact Person
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {contactPerson}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Phone
-                </p>
-                <a
-                  href={makeTelLink(contactPhone)}
-                  className="mt-2 block text-sm font-bold text-slate-900 hover:text-blue-600 hover:underline"
-                >
-                  {contactPhone}
-                </a>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Email
-                </p>
-                <p className="mt-2 break-words text-sm font-bold text-slate-900">
-                  {contactEmail}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Manager
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {account.manager || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Subcontractor
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {subcontractorContactDisplay}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Start Date
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {startDate}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Cleaning Days
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {cleaningDays}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Frequency
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {cleaningFrequency}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Monthly Revenue
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {formatMoney(account.monthlyRevenue)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Subcontractor Pay
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {formatMoney(subcontractorPay)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Estimated Gross Margin
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {estimatedGrossMargin
-                    ? formatCalculatedMoney(estimatedGrossMargin)
-                    : account.grossMargin || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Has Key
-                </p>
-                <p className="mt-2 text-sm font-bold text-slate-900">
-                  {account.hasKey || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Alarm Info
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-900">
-                  {alarmInfo || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Scope / Special Instructions
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-900">
-                  {account.scope || "N/A"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2">
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Notes
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm font-bold text-slate-900">
-                  {account.notes || "N/A"}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showStatusModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
-          <div className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
-                  Quick Status Change
-                </p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">
-                  {account.accountName || "Unnamed Account"}
-                </h2>
-                <p className="mt-1 text-sm font-semibold text-slate-500">
-                  Current status:{" "}
-                  <span className="font-black text-slate-800">
-                    {account.status || "N/A"}
-                  </span>
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeStatusModal}
-                disabled={savingStatus}
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                X
-              </button>
-            </div>
-
-            <div className="mt-5 grid gap-4">
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  New Status
-                </label>
-                <select
-                  value={newStatus}
-                  onChange={(event) =>
-                    setNewStatus(event.target.value as QuickStatusOption)
-                  }
-                  disabled={savingStatus}
-                  className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
-                >
-                  {quickStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-black uppercase tracking-wide text-slate-500">
-                  Reason / History Note
-                </label>
-                <textarea
-                  value={statusReason}
-                  onChange={(event) => setStatusReason(event.target.value)}
-                  disabled={savingStatus}
-                  placeholder="Example: Customer requested cancellation effective July 1. / Paused due to remodeling. / Account needs review due to service concern."
-                  rows={5}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 sm:text-sm"
+        <div className="account-detail-print">
+          <Screen
+            title={accountName}
+            subtitle="Cleaning World Account"
+            backHref="/accounts"
+            headerRight={
+              <span className="account-detail-print-hide">
+                <MoreMenu
+                  items={[
+                    { label: "Change status", onSelect: openStatusModal },
+                    {
+                      label: togglingPortalAccess ? "Updating portal access…" : `Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`,
+                      icon: portalAccess === "YES" ? "check" : "off",
+                      onSelect: () => void handleTogglePortalAccess(),
+                    },
+                    { label: "Print PDF", onSelect: openPdfModal },
+                    {
+                      label: sendingPacket ? "Sending packet…" : "Send new account packet",
+                      onSelect: () => void handleSendNewAccountPacket(),
+                    },
+                    { label: "Onboarding checklist", onSelect: () => setShowOnboardingWizard(true) },
+                    { label: "Add sale", icon: "plus", href: `/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}` },
+                    { label: "Full account info", onSelect: () => setShowFullAccountInfo(true) },
+                  ]}
                 />
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                  This will also create an Account Update history note.
-                </p>
-              </div>
+              </span>
+            }
+            action={
+              <span className="account-detail-print-hide" style={{ display: "contents" }}>
+                <BigButton href={`/accounts/${accountIdForUrl}/edit`}>Edit account</BigButton>
+              </span>
+            }
+          >
+            {accountAddress ? <p className="ui-muted">{addressLink}</p> : null}
 
-              {statusError ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
-                  {statusError}
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={closeStatusModal}
-                  disabled={savingStatus}
-                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSaveStatusChange}
-                  disabled={savingStatus}
-                  className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {savingStatus ? "Saving..." : "Save Status Change"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showPdfModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 account-detail-print-hide">
-          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
-                  Print Account Packet
-                </p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">
-                  {account.accountName || "Unnamed Account"}
-                </h2>
-              </div>
-
-              <button
-                type="button"
-                onClick={closePdfModal}
-                disabled={printingVariant !== null}
-                className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                X
-              </button>
+            <div className="ui-actions-row">
+              <StatusPill kind={accountStatusKind(account.status)}>{account.status || "No Status"}</StatusPill>
+              <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "No Health Status"}</StatusPill>
             </div>
 
-            <p className="mt-4 text-sm font-semibold text-slate-500">
-              Choose which version to print.
-            </p>
-
-            <div className="mt-5 grid gap-3">
-              <button
-                type="button"
-                onClick={() => handlePrintPacket("teamLeader")}
-                disabled={printingVariant !== null}
-                className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <p className="text-sm font-black text-slate-950">
-                  {printingVariant === "teamLeader" ? "Preparing..." : "Team Leader PDF"}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Account details, access info, and scope of work. Safe to hand to a
-                  subcontractor.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handlePrintPacket("admin")}
-                disabled={printingVariant !== null}
-                className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-left shadow-sm hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <p className="text-sm font-black text-red-900">
-                  {printingVariant === "admin" ? "Preparing..." : "Admin PDF"}
-                </p>
-                <p className="mt-1 text-xs font-semibold text-red-700">
-                  Everything above, plus revenue, margin, subcontractor company, and
-                  internal notes. Internal use only — never share with a subcontractor.
-                </p>
-              </button>
+            <div className="ui-actions-row account-detail-print-hide">
+              <BigButton kind="second" icon="plus" href={`/visits?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                Add visit
+              </BigButton>
+              <BigButton kind="second" icon="plus" href={accountComplaintLink}>
+                Add complaint
+              </BigButton>
+              <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                Add update
+              </BigButton>
             </div>
 
-            {pdfError ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">
-                {pdfError}
+            {packetMessage ? (
+              <p className="ui-savestatus ui-savestatus-saved account-detail-print-hide" role="status">
+                {packetMessage}
+              </p>
+            ) : null}
+            {statusMessage ? (
+              <p className="ui-savestatus ui-savestatus-saved account-detail-print-hide" role="status">
+                {statusMessage}
+              </p>
+            ) : null}
+            {packetError ? (
+              <div className="account-detail-print-hide">
+                <ErrorBox title="The packet was not sent." text={packetError} onRetry={() => void handleSendNewAccountPacket()} />
               </div>
             ) : null}
-          </div>
-        </div>
-      ) : null}
+            {portalAccessError ? (
+              <div className="account-detail-print-hide">
+                <ErrorBox title="Portal access was not changed." text={portalAccessError} onRetry={() => void handleTogglePortalAccess()} />
+              </div>
+            ) : null}
 
-      {/* Off-screen (not display:none/zero-size, which can keep some
-          browsers' embedded PDF viewers from initializing) target for
-          handlePrintPacket's fetch-blob -> load -> print() flow. Never
-          shown to the user; exists purely so window.print() has a PDF
-          document to act on. */}
-      <iframe
-        ref={printIframeRef}
-        title="Account packet print preview"
-        className="account-detail-print-hide"
-        style={{
-          position: "fixed",
-          top: "-9999px",
-          left: "-9999px",
-          width: 1,
-          height: 1,
-          opacity: 0,
-          border: 0,
-          pointerEvents: "none",
-        }}
-      />
-    </div>
+            <div className="ui-stats">
+              <div className="ui-stat">
+                <p className="ui-stat-label">Manager</p>
+                <p className="ui-stat-value">{account.manager || "Unassigned"}</p>
+              </div>
+              <div className="ui-stat">
+                <p className="ui-stat-label">Subcontractor</p>
+                <p className="ui-stat-value">{subcontractorContactDisplay}</p>
+                {subcontractorCompanyDisplay ? <p className="ui-muted">{subcontractorCompanyDisplay}</p> : null}
+              </div>
+              <div className="ui-stat">
+                <p className="ui-stat-label">Monthly Revenue</p>
+                <p className="ui-stat-value">{formatMoney(account.monthlyRevenue)}</p>
+              </div>
+              <div className="ui-stat">
+                <p className="ui-stat-label">Sub Pay</p>
+                <p className="ui-stat-value">{formatMoney(subcontractorPay)}</p>
+              </div>
+              <div className="ui-stat">
+                <p className="ui-stat-label">Est. Gross Margin</p>
+                <p className="ui-stat-value">{grossMarginText}</p>
+                {account.grossMarginPercent ? <p className="ui-muted">({account.grossMarginPercent.replace(/%$/, "")}%)</p> : null}
+              </div>
+            </div>
+
+            <Card title="Account Snapshot">
+              <p className="ui-card-text">Main operational details for this account.</p>
+              <dl className="ui-details">
+                <Detail label="Contact Person" value={contactPerson} />
+                <Detail label="Phone" value={phoneLink} />
+                <Detail label="Email" value={contactEmail} />
+                <Detail label="Start Date" value={startDate} />
+                <Detail label="Cleaning Days" value={cleaningDays} />
+                <Detail label="Frequency" value={cleaningFrequency} />
+                <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
+                <Detail label="Has Key" value={account.hasKey || "N/A"} />
+                <Detail label="Alarm Info" value={alarmInfo || "N/A"} />
+                <Detail label="Address" value={addressLink} full />
+              </dl>
+            </Card>
+
+            <Card title="Notes">
+              <p className="ui-card-text">Internal account notes.</p>
+              <p style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>{account.notes || "No notes added for this account yet."}</p>
+            </Card>
+
+            {/* --------------------------------------------------------------- */}
+            {/* Onboarding section — persistent, always editable, revisitable    */}
+            {/* even for accounts created before this feature existed. Renders   */}
+            {/* the exact same OnboardingChecklist component the wizard modal    */}
+            {/* uses, just inline rather than in a modal.                        */}
+            {/* --------------------------------------------------------------- */}
+            <section className="ui-card account-detail-print-hide">
+              <OnboardingChecklist
+                accountId={getAccountId(account, rawAccountIdFromUrl)}
+                accountName={accountName}
+                manager={account.manager}
+                accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
+                onAllItemsComplete={applyOnboardingCompletionStable}
+                variant="section"
+                onOpenWizard={() => setShowOnboardingWizard(true)}
+              />
+            </section>
+
+            {/* --------------------------------------------------------------- */}
+            {/* Porter Checklist template editor — the component itself fetches  */}
+            {/* the account's live "Checklist Needed" flag and renders nothing   */}
+            {/* when it's off, so no gating is needed here.                      */}
+            {/* --------------------------------------------------------------- */}
+            <section className="account-detail-print-hide">
+              <ChecklistTemplateEditor accountId={getAccountId(account, rawAccountIdFromUrl)} accountName={accountName} />
+            </section>
+
+            {/* Every save: who, when, and each field's old → new value. */}
+            <div className="account-detail-print-hide">
+              <AccountHistory accountId={getAccountId(account, rawAccountIdFromUrl)} />
+            </div>
+
+            {showOnboardingWizard ? (
+              <OnboardingWizardModal
+                accountId={getAccountId(account, rawAccountIdFromUrl)}
+                accountName={accountName}
+                manager={account.manager}
+                accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
+                onAllItemsComplete={applyOnboardingCompletionStable}
+                onClose={() => setShowOnboardingWizard(false)}
+              />
+            ) : null}
+
+            <Sheet
+              open={showFullAccountInfo}
+              title="Full Account Info"
+              text={`Complete account reference information for ${accountName}.`}
+              onClose={() => setShowFullAccountInfo(false)}
+            >
+              <dl className="ui-details">
+                <Detail label="Account ID" value={String(account.accountId || account.id || account.rowNumber || "N/A")} />
+                <Detail label="Status" value={account.status || "N/A"} />
+                <Detail label="Address" value={addressLink} full />
+                <Detail label="Contact Person" value={contactPerson} />
+                <Detail label="Phone" value={phoneLink} />
+                <Detail label="Email" value={contactEmail} />
+                <Detail label="Manager" value={account.manager || "N/A"} />
+                <Detail label="Subcontractor" value={subcontractorContactDisplay} />
+                <Detail label="Start Date" value={startDate} />
+                <Detail label="Cleaning Days" value={cleaningDays} />
+                <Detail label="Frequency" value={cleaningFrequency} />
+                <Detail label="Monthly Revenue" value={formatMoney(account.monthlyRevenue)} />
+                <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
+                <Detail label="Estimated Gross Margin" value={grossMarginText} />
+                <Detail label="Has Key" value={account.hasKey || "N/A"} />
+                <Detail label="Alarm Info" value={alarmInfo || "N/A"} full />
+                <Detail label="Scope / Special Instructions" value={account.scope || "N/A"} full />
+                <Detail label="Notes" value={account.notes || "N/A"} full />
+              </dl>
+            </Sheet>
+
+            <Sheet
+              open={showStatusModal}
+              title="Change status"
+              text={`${accountName}. Current status: ${account.status || "N/A"}.`}
+              onClose={closeStatusModal}
+              busy={savingStatus}
+              actions={
+                <BigButton busy={savingStatus} busyLabel="Saving…" onClick={() => void handleSaveStatusChange()}>
+                  Save status change
+                </BigButton>
+              }
+            >
+              <SelectField
+                label="New status"
+                value={newStatus}
+                onChange={(event) => setNewStatus(event.target.value as QuickStatusOption)}
+                disabled={savingStatus}
+              >
+                {quickStatusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </SelectField>
+              <TextAreaField
+                label="Reason / history note"
+                hint="This will also create an Account Update history note."
+                optional
+                rows={5}
+                placeholder="Customer requested cancellation effective July 1. / Paused due to remodeling. / Account needs review due to service concern."
+                value={statusReason}
+                onChange={(event) => setStatusReason(event.target.value)}
+                disabled={savingStatus}
+              />
+              {statusError ? <ErrorBox title="The status was not changed." text={statusError} /> : null}
+            </Sheet>
+
+            <Sheet
+              open={showPdfModal}
+              title="Print account packet"
+              text={`${accountName}. Choose which version to print.`}
+              onClose={closePdfModal}
+              busy={printingVariant !== null}
+            >
+              <Card
+                title={printingVariant === "teamLeader" ? "Preparing…" : "Team Leader PDF"}
+                onClick={printingVariant === null ? () => void handlePrintPacket("teamLeader") : undefined}
+              >
+                <p className="ui-card-text">Account details, access info, and scope of work. Safe to hand to a subcontractor.</p>
+              </Card>
+              <Card
+                title={printingVariant === "admin" ? "Preparing…" : "Admin PDF"}
+                right={<StatusPill kind="needs-you">Internal only</StatusPill>}
+                onClick={printingVariant === null ? () => void handlePrintPacket("admin") : undefined}
+              >
+                <p className="ui-card-text">
+                  Everything above, plus revenue, margin, subcontractor company, and internal notes. Internal use only —
+                  never share with a subcontractor.
+                </p>
+              </Card>
+              {pdfError ? <ErrorBox title="The PDF could not be made." text={pdfError} /> : null}
+            </Sheet>
+
+            {/* Off-screen (not display:none/zero-size, which can keep some
+                browsers' embedded PDF viewers from initializing) target for
+                handlePrintPacket's fetch-blob -> load -> print() flow. Never
+                shown to the user; exists purely so window.print() has a PDF
+                document to act on. */}
+            <iframe
+              ref={printIframeRef}
+              title="Account packet print preview"
+              className="account-detail-print-hide"
+              style={{
+                position: "fixed",
+                top: "-9999px",
+                left: "-9999px",
+                width: 1,
+                height: 1,
+                opacity: 0,
+                border: 0,
+                pointerEvents: "none",
+              }}
+            />
+          </Screen>
+        </div>
       )}
     </>
+  );
+}
+
+function Detail({ label, value, full }: { label: string; value: React.ReactNode; full?: boolean }) {
+  return (
+    <div className={full ? "ui-detail ui-detail-full" : "ui-detail"}>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
   );
 }
