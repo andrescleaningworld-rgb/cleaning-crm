@@ -273,8 +273,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10 checkpoint report: docs/migration-reports/checkpoint-10-sales-2026-10-08.md.
 - Area 11, step 0: docs/migration-reports/customer-portal-headers.md. customer-portal 393 rows / 19 columns (mostly only Account Name, Phone, Portal Code, Portal Access are filled; Account ID is a formula); portal-complaints, portal-service-requests, portal-date-changes have 0 rows; there is no portal-billing-requests tab, so a billing request from /portal cannot be saved today. Both portals read the same access list: /portal (phone + code, session cookie, saves requests to the portal-* tabs) and /customer-portal (phone only, kept in the browser, requests/complaints/history go to Apps Script).
 - Area 11, step 1: db/migrations/013_customer_portal.sql applied to dev (portal_access; portal_requests with the tab name as the kind and three per-kind fields).
+- Area 11, step 2: scripts/migrate/import-customer-portal.mjs. Dry-run, run, re-run clean: portal_access 393 (391 linked to an account, 319 with access on), portal_requests 0. 25 open questions: 2 rows not linked, 2 repeated names, 1 repeated code, 19 phones shared by 49 rows with access. The portal code equals the Account ID on 392 of 393 rows. 2 rows have access on and no phone.
 
-**Next step:** Area 11, Step 2: import.
+**Next step:** Area 11, Step 3: verify.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
