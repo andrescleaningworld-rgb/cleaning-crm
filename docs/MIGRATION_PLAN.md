@@ -277,8 +277,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11, step 3: scripts/migrate/verify-customer-portal.mjs → docs/migration-reports/customer-portal-verify.md. portal_access matches, every row field by field (393 × 20); the three request tabs are empty on both sides.
 - Area 11, step 4: lib/pg/customer-portal.ts + lib/data/customer-portal.ts; 15 files switched (11 by switch-imports, the 4 request routes now call appendPortalRequest). Parity 13/13 identical (values fingerprinted, none printed); check-customer-portal-writes.mts 24/24; 4 routes byte-identical over HTTP on both sources; on Postgres, end to end with one made-up customer row: login (wrong code refused), dashboard, the four request kinds (emails logged as dry-run), staff list, status change. Not tested: a login on the Sheets source (needs a real customer's phone and code).
 - Area 11, step 5: redesigned with the kit: Portal Requests (cards + a detail sheet for status and notes), Settings → Portal (cards on a phone, table when wide, Edit in a sheet), /portal login, dashboard and the four request forms, and the older /customer-portal pages (restyled in place). Headless click-through 84/84 at 375 and 1280px on Postgres + dry-run with one made-up customer row (removed afterwards). Not clicked: a photo upload, a submit on the older portal (goes to Apps Script), Enable/Disable/Generate code on a real row. Screenshots not committed.
+- Area 12, step 0: docs/migration-reports/supplies-headers.md. MAIN has a Supplies tab (51 rows, 13 columns) and a Supply Orders tab (13 rows, 14 columns); the app reaches both only through Apps Script. Live read-only answers saved locally for comparison: getSupplyItemsAdmin (51), getSupplyItems (51), getSupplyOrders (13); getSupplies is not an action the script knows.
 
-**Next step:** Area 12 (Supplies), Step 0: discovery (Supplies and Supply Orders are Apps Script only; supply orders send email: dry-run).
+**Next step:** Area 12, Step 1: schema.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -367,6 +368,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 11: Settings → Portal 'Edit' now opens (as a sheet) | on the old page the panel could never open: the row was marked open by account name but checked by name-plus-row-number | none needed; it is the feature the page already described
 - Area 11: the /portal dashboard shows a 'was sent' line after a request | the forms already came back with ?submitted=… but nothing showed it | remove the SENT block in the dashboard page
 - Area 11: complaint photos on /portal use the kit photo picker with a limit of 20 photos (there was no limit) | shared component; 20 is far above normal use | change max on the PhotoPicker
+- Area 12: Supplies and Supply Orders get their own tables (sub_supplies, sub_supply_orders) and are NOT merged into supply_items / supply_orders / supply_order_lines | those three belong to Team Hub and Crew Link (rule 14), hold a different catalog (21 items vs 51, numeric ids, crews and sites), and matching the two lists by name would be an automatic merge | approve a name-by-name mapping and the two catalogs can be joined later
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
