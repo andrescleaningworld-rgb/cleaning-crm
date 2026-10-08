@@ -265,6 +265,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 9, step 5: To-Do page restyled with the UI kit (title bar, kit buttons / inputs / cards / pills; same structure and handlers), VisitCompletionModal and the shared AccountMultiSelect resized. Headless click-through 30 of 30 at 375 and 1280px (details, edit mode, filters, bulk edit, new-to-do form, print chooser); nothing saved; the per-card text-status requests were answered locally (1,016 of them on one page load).
 - Area 9 checkpoint report: docs/migration-reports/checkpoint-9-todos-2026-10-08.md.
 - Area 10, step 0: docs/migration-reports/sales-headers.md. Sales & Commissions 2 rows, 20 columns (Q is an old duplicate of Amount Sold, R a dead duplicate of Commission). Reports has no data of its own: it reads accounts, visits, complaints and sales.
+- Area 10, step 1: db/migrations/012_sales.sql applied to dev (sales).
 
 **Next step:** Area 10 (Sales / Reports), Step 0: discovery (Sales & Commissions tab; app/sales and app/reports; what the dashboard and reports read).
 
@@ -472,3 +473,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:43 | 2026-10-08T10:43 | 9/step 5 | this commit | To-Do page restyled. tsc ok, build ok, lint 16.
 - 2026-10-08T10:43 | 2026-10-08T10:43 | 9/checkpoint | this commit | Report written; Area 9 done.
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 0 | this commit | Sales headers.
+- 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 1 | this commit | Sales schema.
