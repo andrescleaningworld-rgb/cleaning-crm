@@ -198,8 +198,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 2, step 0: `docs/migration-reports/people-headers.md`. Staff 15 rows (ID, Name, Role, Active). Managers 6 rows (A–F as in Part A; G has no header and holds the calendar color). Email and Notes are empty for every manager.
 - Area 2, step 1: `db/migrations/003_people.sql` applied to dev (`staff`, `managers`). `managers.row_no` keeps the "sheetRow" number the app saves by; `managers.staff_id` is only set from an override.
 - Area 2, step 2: `scripts/migrate/import-people.mjs`. Dry-run, run, re-run clean: staff 15, managers 6. All staff ids used by `manager_accounts` (6), `equipment_staff_pins` (12) and `vehicles.driver_staff_id` (2) exist in Staff. 6 open questions in `migration_issues`: which Staff record each manager is (5 have one same-name match, 1 has none).
+- Area 2, step 3: `scripts/migrate/verify-people.mjs` (+ shared `lib/verify-helpers.mjs`) → `docs/migration-reports/people-verify.md`. Both tables match, every row field by field.
 
-**Next step:** Area 2, Step 3 (verify).
+**Next step:** Area 2, Step 4 (`lib/pg/people.ts`, `lib/data/people.ts`, switch callers incl. login files, parity, write tests).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -277,3 +278,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T22:59 → 23:02 | 2/step 0 | this commit | People headers.
 - 2026-10-07T23:02 | 2/step 1 | this commit | People schema.
 - 2026-10-07T23:02 | 2/step 2 | this commit | People import; 6 questions logged.
+- 2026-10-07T23:02 | 2/step 3 | this commit | People verify: all match.
