@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getIronSession } from "iron-session";
+import { cookies } from "next/headers";
+import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
+import { getAdminIdentity } from "@/lib/adminSession";
 import { appendSubSchedule, listPortalAccounts, updatePortalAccountFields } from "@/lib/googleSheets";
 
 const VALID_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"] as const;
@@ -38,6 +42,14 @@ function getEasternToday(): string {
 }
 
 export async function POST(request: NextRequest) {
+  // This address sits under /api/portal, which proxy.ts leaves open to
+  // everyone, and it saves schedule rows. Only a logged-in subcontractor
+  // (the sub portal's "Schedule Visit") or logged-in staff may use it.
+  const subSession = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());
+  if (!subSession.subcontractorEmail && !(await getAdminIdentity(request))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     let body: Record<string, unknown>;
     try {
