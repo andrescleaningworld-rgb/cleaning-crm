@@ -177,14 +177,15 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0 in progress, full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). No migration tables yet. **Sheets cannot be read from this machine** (see Blocked and skipped).
+**Status:** Phase 0 in progress, full auto (no checkpoints). Branch `migration/postgres` created and pushed. Neon dev branch `migration-dev` connected (32 existing tables, matches A.3). Shared migration tables applied to dev. **Sheets cannot be read from this machine** (see Blocked and skipped).
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
 - Phase 0, step 2: Andres created Neon branch `migration-dev`; its pooled URL is in `.env.development.local` (git-ignored) as `MIGRATION_DATABASE_URL` and `DATABASE_URL`. Dev host: `ep-small-credit-auvaagcl-pooler.c-10.us-east-1.aws.neon.tech`. Read-only connection test passed.
 - Phase 0, step 3: `scripts/migrate/lib/` (`env.mjs`, `guard.mjs`, `pg.mjs`, `sheets-readonly.mjs`, `report.mjs`) + `scripts/migrate/check-harness.mjs`. Guard refuses other Neon endpoints, non-Neon hosts, look-alike hosts, and a missing URL; accepts the dev branch. Sheets part of the self-test fails (no credentials).
+- Phase 0, step 4: `db/migrations/001_migration_core.sql` + `scripts/migrate/apply.mjs` (`--status` to list). Dev branch now has `schema_migrations`, `migration_runs`, `migration_issues`, `migration_overrides`. Re-run is a no-op; an edited applied file stops the run.
 
-**Next step:** Phase 0, step 4 (schema migrations runner + shared migration tables).
+**Next step:** Phase 0, step 5 (data-source flags: `lib/dataSource.ts`).
 
 **Deadline:** not set.
 
@@ -226,3 +227,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T20:37 → 20:38 | 0/step 2 | – | Push fixed (signed in as repo owner). Step 2 not done: Neon account has no projects; waiting on Andres.
 - 2026-10-07T20:44 → 20:45 | 0/step 2 | this commit | Dev branch URL written to `.env.development.local`, connection verified read-only.
 - 2026-10-07T20:45 → 20:47 | 0/step 3 | this commit | Guard + harness. Sheets self-test fails: credentials on this machine are placeholders.
+- 2026-10-07T20:48 → 20:49 | 0/step 4 | this commit | Migration runner + shared tables, applied to dev.

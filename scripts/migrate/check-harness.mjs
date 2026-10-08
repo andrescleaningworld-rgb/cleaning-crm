@@ -45,4 +45,5 @@ for (const sheet of ["MAIN", "PORTAL", "CUSTVISITS"]) {
   }
 }
 
-process.exit(failed ? 1 : 0);
+// Not process.exit(): on Windows it can abort while fetch sockets are closing.
+process.exitCode = failed ? 1 : 0;
