@@ -153,13 +153,13 @@ function OccurrencePicker({
   onChange: (next: Occurrence) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
-      <p className="text-sm font-bold text-slate-700">{label}</p>
+    <div className="ui-card">
+      <p className="ui-strong">{label}</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <select
           value={value.position}
           onChange={(e) => onChange({ ...value, position: e.target.value })}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600"
+          className="ui-input"
         >
           <option value="">Which week...</option>
           {POSITIONS.map((p) => (
@@ -169,7 +169,7 @@ function OccurrencePicker({
         <select
           value={value.weekday}
           onChange={(e) => onChange({ ...value, weekday: e.target.value })}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600"
+          className="ui-input"
         >
           <option value="">Weekday...</option>
           {DAYS.map((d) => (
@@ -189,8 +189,8 @@ function OccurrencePicker({
                 : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
             }`}
           >
-            <p className="text-sm font-black text-slate-900">{w.label}</p>
-            <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
+            <p className="ui-strong">{w.label}</p>
+            <p className="ui-muted">{w.hours}</p>
           </button>
         ))}
       </div>
@@ -349,13 +349,13 @@ function AccountScheduleForm({
   }
 
   return (
-    <div className="mt-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+    <div className="ui-stat">
       <div>
-        <p className="text-sm font-bold text-slate-700">How often do you service this account?</p>
+        <p className="ui-strong">How often do you service this account?</p>
         <select
           value={frequency}
           onChange={(e) => handleFrequencyChange(e.target.value)}
-          className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-600"
+          className="ui-input w-full"
         >
           <option value="">Select a frequency...</option>
           {FREQUENCIES.map((f) => (
@@ -367,7 +367,7 @@ function AccountScheduleForm({
       {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
         <>
           <div className="mt-4">
-            <p className="text-sm font-bold text-slate-700">
+            <p className="ui-strong">
               Which day(s) do you service this account?
             </p>
             <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-7">
@@ -376,7 +376,7 @@ function AccountScheduleForm({
                   key={day}
                   type="button"
                   onClick={() => toggleDay(day)}
-                  className={`rounded-2xl border px-2 py-3 text-center text-xs font-black transition ${
+                  className={`rounded-2xl border px-2 py-3 text-center text-base font-black transition ${
                     selectedDays.includes(day)
                       ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
                       : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
@@ -392,7 +392,7 @@ function AccountScheduleForm({
             <div className="mt-4 space-y-3">
               {selectedDays.map((day) => (
                 <div key={day}>
-                  <p className="text-sm font-bold text-slate-700">Time window for {day}</p>
+                  <p className="ui-strong">Time window for {day}</p>
                   <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {TIME_WINDOWS.map((w) => (
                       <button
@@ -405,8 +405,8 @@ function AccountScheduleForm({
                             : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
                         }`}
                       >
-                        <p className="text-sm font-black text-slate-900">{w.label}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
+                        <p className="ui-strong">{w.label}</p>
+                        <p className="ui-muted">{w.hours}</p>
                       </button>
                     ))}
                   </div>
@@ -431,13 +431,13 @@ function AccountScheduleForm({
       )}
 
       {frequency === "AS_NEEDED" && (
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
+        <div className="ui-card">
           No recurring days needed — the office will add visits for this account one at a time as they come up.
         </div>
       )}
 
       {error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {error}
         </div>
       ) : null}
@@ -447,7 +447,7 @@ function AccountScheduleForm({
           type="button"
           onClick={handleSubmit}
           disabled={!canSubmit}
-          className="mt-4 w-full rounded-2xl bg-indigo-700 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ui-btn ui-btn-second w-full"
         >
           {submitting ? "Saving..." : "Submit Schedule"}
         </button>
@@ -509,25 +509,25 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
   }
 
   return (
-    <section className="mt-5 rounded-3xl border border-indigo-200 bg-white p-5 shadow-sm">
-      <h2 className="text-xl font-black text-slate-900">My Schedule</h2>
-      <p className="mt-1 text-sm leading-5 text-slate-600">
+    <section className="ui-card">
+      <h2 className="ui-card-title">My Schedule</h2>
+      <p className="ui-muted">
         Set up the recurring service schedule for each account you&apos;re assigned to. Once
         submitted, contact the office if anything needs to change.
       </p>
 
       {loading ? (
-        <p className="mt-4 text-sm text-slate-500">Loading your schedules...</p>
+        <p className="ui-muted">Loading your schedules...</p>
       ) : null}
 
       {loadError ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {loadError}
         </div>
       ) : null}
 
       {!loading && !loadError && sortedAccounts.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">No assigned accounts found.</p>
+        <p className="ui-muted">No assigned accounts found.</p>
       ) : null}
 
       <div className="mt-4 space-y-3">
@@ -545,38 +545,38 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
           const isEditingExisting = expandedAccountId === accountId && isAdminCreated;
 
           return (
-            <div key={accountId || getAccountName(account)} className="rounded-2xl border border-slate-200 p-4">
+            <div key={accountId || getAccountName(account)} className="ui-stat">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-base font-black text-slate-900">{getAccountName(account)}</p>
+                  <p className="ui-strong">{getAccountName(account)}</p>
                   {getFullAddress(account) ? (
-                    <p className="text-sm text-slate-500">{getFullAddress(account)}</p>
+                    <p className="ui-muted">{getFullAddress(account)}</p>
                   ) : null}
                 </div>
 
                 {!hasSchedule ? (
-                  <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-black uppercase text-amber-800">
+                  <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-3 py-1 text-base font-black uppercase text-amber-800">
                     Not set
                   </span>
                 ) : isAdminCreated ? (
-                  <span className="inline-flex w-fit items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-black uppercase text-blue-800">
+                  <span className="inline-flex w-fit items-center rounded-full bg-blue-100 px-3 py-1 text-base font-black uppercase text-blue-800">
                     Set up by admin
                   </span>
                 ) : (
-                  <span className="inline-flex w-fit items-center rounded-full bg-green-100 px-3 py-1 text-xs font-black uppercase text-green-800">
+                  <span className="inline-flex w-fit items-center rounded-full bg-green-100 px-3 py-1 text-base font-black uppercase text-green-800">
                     Submitted
                   </span>
                 )}
               </div>
 
               {hasSchedule && !isEditingExisting ? (
-                <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                  <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                <div className="ui-stat">
+                  <p className="ui-muted">
                     {isAdminCreated ? "Set up by your admin" : "Submitted — contact admin for changes"}
                   </p>
                   <div className="mt-2 space-y-1">
                     {existing!.map((record, i) => (
-                      <p key={i} className="text-sm text-slate-700">
+                      <p key={i} className="ui-muted">
                         {describeScheduleRecord(record)}
                       </p>
                     ))}
@@ -585,7 +585,7 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                     <button
                       type="button"
                       onClick={() => setExpandedAccountId(accountId)}
-                      className="mt-3 w-full rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-black text-indigo-800 hover:border-indigo-400 hover:bg-indigo-100"
+                      className="ui-btn ui-btn-second w-full"
                     >
                       Update Schedule
                     </button>
@@ -600,7 +600,7 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                 />
               ) : isEditingExisting ? (
                 <>
-                  <p className="mt-3 text-xs font-semibold text-indigo-700">
+                  <p className="ui-strong">
                     Set up by your admin — update below if this isn&apos;t accurate. The office will be notified
                     when you make a change.
                   </p>
@@ -615,7 +615,7 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                 <button
                   type="button"
                   onClick={() => setExpandedAccountId(accountId)}
-                  className="mt-3 w-full rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-black text-indigo-800 hover:border-indigo-400 hover:bg-indigo-100"
+                  className="ui-btn ui-btn-second w-full"
                 >
                   Set Your Schedule
                 </button>

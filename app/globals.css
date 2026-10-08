@@ -1958,3 +1958,12 @@ button.ui-card:hover {
   margin-top: 0;
   gap: 12px;
 }
+
+/* Kit text placed on a dark banner takes the banner's own (light) text color. */
+.ui-on-dark .ui-muted,
+.ui-on-dark .ui-strong,
+.ui-on-dark .ui-screen-title,
+.ui-on-dark .ui-card-title,
+.ui-on-dark .ui-label {
+  color: inherit;
+}

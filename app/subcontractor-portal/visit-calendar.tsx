@@ -192,30 +192,30 @@ export default function VisitCalendar({
   }
 
   return (
-    <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="ui-card">
 
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-black text-slate-900">Visit Calendar</h2>
-          <p className="mt-1 text-sm leading-5 text-slate-600">
+          <h2 className="ui-card-title">Visit Calendar</h2>
+          <p className="ui-muted">
             Scheduled service dates and visit history for this account.
           </p>
         </div>
         {loadingVisits && (
-          <span className="mt-1 text-xs text-slate-400">Loading…</span>
+          <span className="ui-muted">Loading…</span>
         )}
       </div>
 
       {(frequency || cleaningDays) && (
-        <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-          <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+        <div className="ui-stat">
+          <p className="ui-strong">
             Schedule for {accountName}
           </p>
-          <p className="mt-1 text-sm font-semibold text-slate-800">
+          <p className="ui-strong">
             {[frequency, cleaningDays].filter(Boolean).join(" — ")}
           </p>
           {scheduledCount > 0 && (
-            <p className="mt-1 text-xs text-blue-600">
+            <p className="ui-muted">
               {scheduledCount} expected visit{scheduledCount !== 1 ? "s" : ""} shown this month
             </p>
           )}
@@ -226,17 +226,17 @@ export default function VisitCalendar({
         <button
           type="button"
           onClick={prevMonth}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 active:scale-95"
+          className="ui-btn ui-btn-second"
         >
           ‹ Prev
         </button>
-        <p className="text-base font-black text-slate-900">
+        <p className="ui-strong">
           {MONTH_NAMES[month]} {year}
         </p>
         <button
           type="button"
           onClick={nextMonth}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 active:scale-95"
+          className="ui-btn ui-btn-second"
         >
           Next ›
         </button>
@@ -247,7 +247,7 @@ export default function VisitCalendar({
           {DOW_NAMES.map((d) => (
             <div
               key={d}
-              className="py-1 text-center text-[10px] font-black uppercase tracking-wide text-slate-400"
+              className="py-1 text-center font-black uppercase tracking-wide text-slate-400"
             >
               {d}
             </div>
@@ -289,7 +289,7 @@ export default function VisitCalendar({
               <div
                 key={idx}
                 className={[
-                  "relative flex h-10 flex-col items-center justify-center rounded-xl text-sm font-bold",
+                  "relative flex h-10 flex-col items-center justify-center rounded-xl text-base font-bold",
                   bg,
                   textColor,
                   isToday ? "ring-2 ring-blue-500 ring-offset-1" : "",
@@ -307,7 +307,7 @@ export default function VisitCalendar({
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-4 text-xs font-semibold text-slate-500">
+      <div className="mt-4 flex flex-wrap gap-4 font-semibold text-slate-500">
         <span className="flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-full bg-green-500" /> Visited
         </span>
@@ -321,7 +321,7 @@ export default function VisitCalendar({
 
       {visits.length > 0 && (
         <div className="mt-5">
-          <p className="text-xs font-black uppercase tracking-wide text-slate-400">
+          <p className="ui-muted">
             Recent Visits
           </p>
           <div className="mt-2 space-y-2">
@@ -334,12 +334,12 @@ export default function VisitCalendar({
                   className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-slate-800">{v.visitDate}</p>
+                    <p className="ui-strong">{v.visitDate}</p>
                     {v.notes && (
-                      <p className="mt-0.5 truncate text-xs text-slate-500">{v.notes}</p>
+                      <p className="ui-muted">{v.notes}</p>
                     )}
                   </div>
-                  <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-700">
+                  <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-1 text-base font-bold text-green-700">
                     {v.arrivalTime || "Logged"}
                   </span>
                 </div>

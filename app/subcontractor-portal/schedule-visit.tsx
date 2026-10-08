@@ -207,45 +207,45 @@ export default function ScheduleVisit({
   const tomorrow = getTomorrow();
 
   return (
-    <section className="mt-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-xl font-black text-slate-900">Schedule Next Visit</h2>
-      <p className="mt-1 text-sm leading-5 text-slate-600">
+    <section className="ui-card">
+      <h2 className="ui-card-title">Schedule Next Visit</h2>
+      <p className="ui-muted">
         Pick a start date for{" "}
-        <span className="font-semibold">{accountName}</span>. The recurring
+        <span className="ui-strong">{accountName}</span>. The recurring
         schedule will be saved automatically based on the account frequency.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-5 space-y-5">
         <div>
-          <label className="text-sm font-bold text-slate-700">Start Date</label>
+          <label className="ui-label">Start Date</label>
           <input
             type="date"
             value={visitDate}
             min={tomorrow}
             onChange={(e) => setVisitDate(e.target.value)}
-            className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+            className="ui-input w-full"
             required
           />
         </div>
 
         {visitDate && recurring.label && (
-          <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-            <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+          <div className="ui-stat">
+            <p className="ui-strong">
               Recurring Schedule Preview
             </p>
-            <p className="mt-1 text-sm font-semibold text-slate-800">
+            <p className="ui-strong">
               {recurring.label}
             </p>
             {frequency && (
-              <p className="mt-1 text-xs text-blue-600">
-                Based on account frequency: <span className="font-bold">{frequency}</span>
+              <p className="ui-muted">
+                Based on account frequency: <span className="ui-strong">{frequency}</span>
               </p>
             )}
           </div>
         )}
 
         <div>
-          <label className="text-sm font-bold text-slate-700">Time Window</label>
+          <label className="ui-label">Time Window</label>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {TIME_WINDOWS.map((w) => (
               <button
@@ -258,21 +258,21 @@ export default function ScheduleVisit({
                     : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50"
                 }`}
               >
-                <p className="text-sm font-black text-slate-900">{w.label}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
+                <p className="ui-strong">{w.label}</p>
+                <p className="ui-muted">{w.hours}</p>
               </button>
             ))}
           </div>
         </div>
 
         {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          <div className="ui-field-error">
             {error}
           </div>
         ) : null}
 
         {success ? (
-          <div className="rounded-2xl border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-700">
+          <div className="ui-savestatus ui-savestatus-saved">
             {success}
           </div>
         ) : null}
@@ -280,7 +280,7 @@ export default function ScheduleVisit({
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ui-btn ui-btn-second w-full"
         >
           {submitting
             ? "Scheduling..."

@@ -142,21 +142,21 @@ export default function NotificationsPage() {
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+            <p className="ui-muted">
               {cleanText(issue.timestamp) || "No date"}
             </p>
 
-            <h2 className="mt-1 text-xl font-black text-slate-950">
+            <h2 className="ui-card-title">
               {cleanText(issue.accountName) || "Unknown Account"}
             </h2>
 
-            <p className="mt-1 text-sm font-bold text-slate-600">
+            <p className="ui-strong">
               {issueId}
             </p>
           </div>
 
           <span
-            className={`rounded-full px-3 py-1 text-xs font-black ${
+            className={`rounded-full px-3 py-1 text-base font-black ${
               isNew
                 ? "bg-red-600 text-white"
                 : "bg-slate-100 text-slate-700"
@@ -167,51 +167,51 @@ export default function NotificationsPage() {
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl bg-white p-4">
-            <p className="text-xs font-black uppercase text-slate-500">
+          <div className="ui-card">
+            <p className="ui-muted">
               Issue Type
             </p>
-            <p className="mt-1 font-bold text-slate-900">
+            <p className="ui-strong">
               {cleanText(issue.issueType) || "Not listed"}
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4">
-            <p className="text-xs font-black uppercase text-slate-500">
+          <div className="ui-card">
+            <p className="ui-muted">
               Urgency
             </p>
-            <p className="mt-1 font-bold text-slate-900">
+            <p className="ui-strong">
               {cleanText(issue.urgency) || "Normal"}
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4">
-            <p className="text-xs font-black uppercase text-slate-500">
+          <div className="ui-card">
+            <p className="ui-muted">
               Subcontractor
             </p>
-            <p className="mt-1 font-bold text-slate-900">
+            <p className="ui-strong">
               {cleanText(issue.subcontractorName) || "Not listed"}
             </p>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="ui-muted">
               {cleanText(issue.subcontractorEmail)}
             </p>
           </div>
 
-          <div className="rounded-2xl bg-white p-4">
-            <p className="text-xs font-black uppercase text-slate-500">
+          <div className="ui-card">
+            <p className="ui-muted">
               Photos
             </p>
-            <p className="mt-1 font-bold text-slate-900">
+            <p className="ui-strong">
               {cleanText(issue.photoCount) || "0"}
             </p>
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl bg-white p-4">
-          <p className="text-xs font-black uppercase text-slate-500">
+        <div className="ui-card">
+          <p className="ui-muted">
             Description
           </p>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+          <p className="ui-muted">
             {cleanText(issue.description) || "No description provided."}
           </p>
         </div>
@@ -221,7 +221,7 @@ export default function NotificationsPage() {
             type="button"
             onClick={() => markReviewed(issue)}
             disabled={updatingIssueId === issueId}
-            className="mt-4 w-full rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="ui-btn ui-btn-main w-full"
           >
             {updatingIssueId === issueId ? "Updating..." : "Mark Reviewed"}
           </button>
@@ -231,41 +231,41 @@ export default function NotificationsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900">
-      <div className="mx-auto max-w-6xl">
-        <section className="rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-6 text-white shadow-lg">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-100">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
+        <section className="ui-on-dark rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-6 text-white shadow-lg">
+          <p className="ui-strong">
             Cleaning World Admin
           </p>
-          <h1 className="mt-2 text-3xl font-black">Notifications</h1>
-          <p className="mt-2 text-sm leading-6 text-blue-50">
+          <h1 className="ui-screen-title">Notifications</h1>
+          <p className="ui-muted">
             Review new subcontractor portal issues and mark them reviewed.
           </p>
 
           <div className="mt-5 inline-flex rounded-2xl bg-white px-4 py-3 text-blue-950 shadow-sm">
-            <span className="font-black">🔔 New Notifications: {newCount}</span>
+            <span className="ui-strong">🔔 New Notifications: {newCount}</span>
           </div>
         </section>
 
         {error ? (
-          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+          <div className="ui-field-error">
             {error}
           </div>
         ) : null}
 
         {successMessage ? (
-          <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-700">
+          <div className="ui-savestatus ui-savestatus-saved">
             {successMessage}
           </div>
         ) : null}
 
-        <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="ui-card">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="text-xl font-black text-slate-950">
+              <h2 className="ui-card-title">
                 New Sub Portal Issues
               </h2>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="ui-muted">
                 These are waiting for admin review.
               </p>
             </div>
@@ -273,18 +273,18 @@ export default function NotificationsPage() {
             <button
               type="button"
               onClick={loadNotifications}
-              className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-800 hover:bg-blue-100"
+              className="ui-btn ui-btn-second"
             >
               Refresh
             </button>
           </div>
 
           {loading ? (
-            <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-600">
+            <p className="ui-strong">
               Loading notifications...
             </p>
           ) : newIssues.length === 0 ? (
-            <p className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-700">
+            <p className="ui-strong">
               No new issues right now.
             </p>
           ) : (
@@ -295,8 +295,8 @@ export default function NotificationsPage() {
         </section>
 
         {reviewedIssues.length > 0 ? (
-          <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-xl font-black text-slate-950">
+          <section className="ui-card">
+            <h2 className="ui-card-title">
               Reviewed / Older Issues
             </h2>
 
