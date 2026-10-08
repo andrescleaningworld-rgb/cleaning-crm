@@ -197,8 +197,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1, step 5b: `app/settings/extra-services/page.tsx` redesigned. Same features (add, change, picture upload, sort order, hide / show again). Headless click-through 12/12 at 375 and 1280px on Postgres + dry-run. Not clicked: a real picture upload (no Blob token here).
 - Area 2, step 0: `docs/migration-reports/people-headers.md`. Staff 15 rows (ID, Name, Role, Active). Managers 6 rows (A–F as in Part A; G has no header and holds the calendar color). Email and Notes are empty for every manager.
 - Area 2, step 1: `db/migrations/003_people.sql` applied to dev (`staff`, `managers`). `managers.row_no` keeps the "sheetRow" number the app saves by; `managers.staff_id` is only set from an override.
+- Area 2, step 2: `scripts/migrate/import-people.mjs`. Dry-run, run, re-run clean: staff 15, managers 6. All staff ids used by `manager_accounts` (6), `equipment_staff_pins` (12) and `vehicles.driver_staff_id` (2) exist in Staff. 6 open questions in `migration_issues`: which Staff record each manager is (5 have one same-name match, 1 has none).
 
-**Next step:** Area 2, Step 2 (import).
+**Next step:** Area 2, Step 3 (verify).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -220,6 +221,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Rename proposals (Complaints → Problems, etc.) are listed in `app/ui/words.ts` `PROPOSED_RENAMES` and not applied | rule 12 | approve them and they get applied per area.
 - Area 1: dates stored as Sheets text + typed column; screens get the text | exact parity with today | read the typed column later when screens format dates themselves.
 - Area 1: button words changed on Documents and Extra Services (Upload → Add document, View → Open, Edit → Change, Unhide → Show again, Image → Picture); no page or feature renamed | Part B rule 3 | listed in the Area 1 report for Andres to veto.
+- Area 2: no manager is linked to a Staff record (`managers.staff_id` stays empty) | the plan says never auto-set it; 5 of 6 have exactly one same-name Staff record, 1 has none | answer in `migration_overrides` (area people, kind manager_staff, legacy_key = Manager ID, resolved_id = Staff ID) and re-run the import.
+- Area 2: foreign keys from `manager_accounts`, `equipment_staff_pins` and `vehicles` to `staff` are NOT added yet, although every value matches today | while Staff is still saved in Sheets, a new staff member would not be in Postgres and the foreign key would block their login, PIN or vehicle in production | add them in the Area 15 wrap-up, after the People switch is on in production.
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -273,3 +276,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T22:59 | 1/checkpoint | this commit | Area 1 report. Area total 0.5 h vs 12 h; running total 1.2 h vs 32 h.
 - 2026-10-07T22:59 → 23:02 | 2/step 0 | this commit | People headers.
 - 2026-10-07T23:02 | 2/step 1 | this commit | People schema.
+- 2026-10-07T23:02 | 2/step 2 | this commit | People import; 6 questions logged.
