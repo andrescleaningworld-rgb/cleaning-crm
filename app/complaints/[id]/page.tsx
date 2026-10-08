@@ -1,8 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import {
+  BigButton,
+  Card,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  MoreMenu,
+  Screen,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  StatusPill,
+  TextAreaField,
+  type StatusKind,
+} from "@/app/ui";
 import { useParams } from "next/navigation";
 
 type Complaint = {
@@ -68,7 +83,7 @@ function clean(value: unknown): string {
 function formatDate(value: unknown): string {
   const text = clean(value);
 
-  if (!text) return "-";
+  if (!text) return "No date";
 
   const date = new Date(text);
 
@@ -96,62 +111,20 @@ function getComplaintDetailId(complaint: Complaint, index: number): string {
   );
 }
 
-function getStatusClass(status: unknown): string {
+function statusKind(status: unknown): StatusKind {
   const value = clean(status).toLowerCase();
-
-  if (value.includes("resolved") || value.includes("closed")) {
-    return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
-  }
-
-  if (value.includes("open")) {
-    return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
-  }
-
-  if (value.includes("progress") || value.includes("pending")) {
-    return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
-  }
-
-  return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
+  if (value.includes("resolved") || value.includes("closed")) return "done";
+  if (value.includes("open") || !value) return "needs-you";
+  if (value.includes("progress") || value.includes("pending") || value.includes("review")) return "waiting";
+  return "off";
 }
 
-function getSeverityClass(severity: unknown): string {
+function priorityKind(severity: unknown): StatusKind {
   const value = clean(severity).toLowerCase();
-
-  if (value.includes("high") || value.includes("urgent")) {
-    return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
-  }
-
-  if (value.includes("medium")) {
-    return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
-  }
-
-  if (value.includes("low")) {
-    return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
-  }
-
-  return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
-}
-
-function getValidityClass(validity: unknown): string {
-  const value = clean(validity).toLowerCase();
-
-  if (value === "valid") {
-    return "rounded-full bg-red-100 px-3 py-1 text-xs font-bold text-red-700";
-  }
-
-  if (value === "not valid") {
-    return "rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700";
-  }
-
-  if (value === "subjective") {
-    return "rounded-full bg-purple-100 px-3 py-1 text-xs font-bold text-purple-700";
-  }
-
-  if (value === "needs review") {
-    return "rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800";
-  }
-
-  return "rounded-full bg-gray-100 px-3 py-1 text-xs font-bold text-gray-700";
+  if (value.includes("high") || value.includes("urgent")) return "needs-you";
+  if (value.includes("medium")) return "waiting";
+  if (value.includes("low")) return "done";
+  return "off";
 }
 
 function splitPhotoText(value: unknown): string[] {
@@ -462,542 +435,168 @@ export default function ComplaintDetailPage() {
     }
   }
 
+  const set = (key: keyof typeof editForm) => (event: { target: { value: string } }) =>
+    setEditForm((current) => ({ ...current, [key]: event.target.value }));
+  const priority = complaint ? clean(complaint.severity || complaint.priority) : "";
+
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 md:p-6">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between print:hidden">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-            Cleaning World
-          </p>
-          <h1 className="mt-2 text-3xl font-bold">Complaint Details</h1>
-          <p className="mt-2 text-gray-500">
-            Review the full complaint information, photos, follow-up, validity,
-            and resolution notes.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Link
-            href="/complaints"
-            className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-center font-bold text-gray-700 hover:bg-gray-50"
-          >
-            Back to Complaints
-          </Link>
-
-          {complaint && !isEditing ? (
-            <button
-              type="button"
-              onClick={startEditing}
-              className="rounded-xl bg-yellow-500 px-4 py-3 font-bold text-white shadow-sm hover:bg-yellow-600"
-            >
-              Edit
-            </button>
-          ) : null}
-
-          {complaint ? (
-            <button
-              type="button"
-              onClick={resendSubcontractorEmail}
-              disabled={resending || saving}
-              className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
-            >
-              {resending ? "Resending..." : "Resend Subcontractor Email"}
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="rounded-xl bg-gray-900 px-4 py-3 font-bold text-white shadow-sm"
-          >
-            Print
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-6 hidden print:block">
-        <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-          Cleaning World
-        </p>
-        <h1 className="mt-2 text-2xl font-bold">Complaint Details</h1>
-      </div>
-
-      {error ? (
-        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5 font-bold text-red-700 print:hidden">
-          {error}
-        </div>
-      ) : null}
-
+    <Screen
+      title={complaint ? clean(complaint.accountName) || "No account" : "Complaint"}
+      subtitle={complaint ? `${formatDate(complaint.date)}${clean(complaint.complaintType) ? ` · ${clean(complaint.complaintType)}` : ""}` : undefined}
+      backHref="/complaints"
+      headerRight={
+        complaint ? (
+          <MoreMenu
+            items={[
+              { label: resending ? "Resending…" : "Resend subcontractor email", onSelect: () => void resendSubcontractorEmail() },
+              { label: LABELS.print, onSelect: () => window.print() },
+            ]}
+          />
+        ) : undefined
+      }
+      action={complaint ? <BigButton onClick={startEditing}>Edit complaint</BigButton> : undefined}
+    >
+      {error && complaint && !isEditing ? <ErrorBox title="That did not work." text={error} /> : null}
       {successMessage ? (
-        <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 p-5 font-bold text-green-700 print:hidden">
+        <p className="ui-savestatus ui-savestatus-saved" role="status">
           {successMessage}
-        </div>
+        </p>
       ) : null}
 
       {loading ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <p className="font-semibold text-gray-600">Loading complaint...</p>
-        </div>
+        <SkeletonList rows={3} />
       ) : error && !complaint ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 font-bold text-red-700">
-          {error}
-        </div>
+        <ErrorBox title="The complaint did not load." text={error} onRetry={() => void loadComplaints()} />
       ) : !complaint ? (
-        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5">
-          <h2 className="text-xl font-bold text-yellow-800">
-            Complaint not found
-          </h2>
-          <p className="mt-2 text-yellow-700">
-            This complaint may have been deleted or the complaint ID may not
-            match the current list.
-          </p>
-          <Link
-            href="/complaints"
-            className="mt-4 inline-block rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700"
-          >
-            Back to Complaints
-          </Link>
-        </div>
+        <EmptyState
+          title="Complaint not found"
+          text="This complaint may have been deleted, or the link may not match the current list."
+          action={
+            <BigButton kind="second" href="/complaints">
+              Back to Complaints
+            </BigButton>
+          }
+        />
       ) : (
-        <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm print:border-0 print:p-0 print:shadow-none">
-          <div className="mb-5 flex flex-col gap-3 border-b border-gray-200 pb-5 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-wide text-gray-500">
-                {formatDate(isEditing ? editForm.date : complaint.date)}
-              </p>
-              <h2 className="mt-2 text-2xl font-bold">
-                {clean(isEditing ? editForm.accountName : complaint.accountName) ||
-                  "No account"}
-              </h2>
-              <p className="mt-2 text-gray-600">
-                {clean(
-                  isEditing ? editForm.complaintType : complaint.complaintType
-                ) || "Complaint"}
-              </p>
+        <div className="ui-print-view ui-screen-body">
+          <Card title={clean(complaint.accountName) || "No account"}>
+            <div className="ui-actions-row" style={{ marginTop: 4 }}>
+              <StatusPill kind={statusKind(complaint.status)}>{clean(complaint.status) || "Open"}</StatusPill>
+              <StatusPill kind={priorityKind(priority)}>{priority ? `${priority} priority` : "No priority"}</StatusPill>
+              <StatusPill kind="off">{clean(complaint.complaintValidity) || "Needs Review"}</StatusPill>
             </div>
+            <dl className="ui-details">
+              <div className="ui-detail">
+                <dt>Date</dt>
+                <dd>{formatDate(complaint.date)}</dd>
+              </div>
+              <div className="ui-detail">
+                <dt>Complaint Type</dt>
+                <dd>{clean(complaint.complaintType) || "None"}</dd>
+              </div>
+              <div className="ui-detail">
+                <dt>Assigned To</dt>
+                <dd>{clean(complaint.manager) || clean(complaint.subcontractor) || "No one"}</dd>
+              </div>
+              <div className="ui-detail">
+                <dt>Reported By</dt>
+                <dd>{clean(complaint.reportedBy) || "Not recorded"}</dd>
+              </div>
+              <div className="ui-detail">
+                <dt>Follow-Up Date</dt>
+                <dd>{clean(complaint.followUpDate) ? formatDate(complaint.followUpDate) : "None"}</dd>
+              </div>
+              <div className="ui-detail ui-detail-full">
+                <dt>Description</dt>
+                <dd style={{ whiteSpace: "pre-wrap" }}>{clean(complaint.description) || "None"}</dd>
+              </div>
+              <div className="ui-detail ui-detail-full">
+                <dt>Notes</dt>
+                <dd style={{ whiteSpace: "pre-wrap" }}>{clean(complaint.notes) || "None"}</dd>
+              </div>
+              <div className="ui-detail ui-detail-full">
+                <dt>Resolution</dt>
+                <dd style={{ whiteSpace: "pre-wrap" }}>{clean(complaint.resolution) || "None"}</dd>
+              </div>
+            </dl>
+          </Card>
 
-            <div className="flex flex-wrap gap-2">
-              <span
-                className={getStatusClass(
-                  isEditing ? editForm.status : complaint.status
-                )}
-              >
-                {clean(isEditing ? editForm.status : complaint.status) || "Open"}
-              </span>
-
-              <span
-                className={getSeverityClass(
-                  isEditing
-                    ? editForm.severity || editForm.priority
-                    : complaint.severity || complaint.priority
-                )}
-              >
-                {clean(
-                  isEditing
-                    ? editForm.severity || editForm.priority
-                    : complaint.severity || complaint.priority
-                ) || "Priority"}
-              </span>
-
-              <span
-                className={getValidityClass(
-                  isEditing
-                    ? editForm.complaintValidity
-                    : complaint.complaintValidity
-                )}
-              >
-                {clean(
-                  isEditing
-                    ? editForm.complaintValidity
-                    : complaint.complaintValidity
-                ) || "Needs Review"}
-              </span>
-            </div>
-          </div>
-
-          {isEditing ? (
-            <div className="mb-5 rounded-2xl border border-yellow-200 bg-yellow-50 p-4 print:hidden">
-              <p className="font-bold text-yellow-800">Edit Mode</p>
-              <p className="mt-1 text-sm text-yellow-700">
-                Fix typos or update complaint details, then click Save Changes.
-              </p>
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Account
-              </p>
-              {isEditing ? (
-                <input
-                  value={editForm.accountName}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      accountName: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.accountName) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Date
-              </p>
-              {isEditing ? (
-                <input
-                  value={editForm.date}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      date: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 font-bold">{formatDate(complaint.date)}</p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Complaint Type
-              </p>
-              {isEditing ? (
-                <input
-                  value={editForm.complaintType}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      complaintType: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.complaintType) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Status
-              </p>
-              {isEditing ? (
-                <select
-                  value={editForm.status}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      status: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 print:hidden"
-                >
-                  <option value="">Select Status</option>
-                  <option value="Open">Open</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Pending">Pending</option>
-                  <option value="Needs Attention">Needs Attention</option>
-                  <option value="Closed">Closed</option>
-                  <option value="Resolved">Resolved</option>
-                </select>
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.status) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Priority
-              </p>
-              {isEditing ? (
-                <select
-                  value={editForm.priority || editForm.severity}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      priority: event.target.value,
-                      severity: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 print:hidden"
-                >
-                  <option value="">Select Priority</option>
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                  <option value="Urgent">Urgent</option>
-                </select>
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.severity || complaint.priority) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Validity
-              </p>
-              {isEditing ? (
-                <select
-                  value={editForm.complaintValidity}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      complaintValidity: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 bg-white px-4 py-3 print:hidden"
-                >
-                  <option value="">Select Validity</option>
-                  <option value="Needs Review">Needs Review</option>
-                  <option value="Valid">Valid</option>
-                  <option value="Not Valid">Not Valid</option>
-                  <option value="Subjective">Subjective</option>
-                </select>
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.complaintValidity) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Assigned To
-              </p>
-              {isEditing ? (
-                <input
-                  value={editForm.manager}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      manager: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.manager) ||
-                    clean(complaint.subcontractor) ||
-                    "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Follow-Up Date
-              </p>
-              {isEditing ? (
-                <input
-                  value={editForm.followUpDate}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      followUpDate: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 font-bold">
-                  {formatDate(complaint.followUpDate)}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Description
-              </p>
-              {isEditing ? (
-                <textarea
-                  value={editForm.description}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      description: event.target.value,
-                    }))
-                  }
-                  rows={5}
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 whitespace-pre-wrap text-gray-800">
-                  {clean(complaint.description) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Photos
-              </p>
-
-              {photoUrls.length === 0 ? (
-                <p className="mt-2 text-gray-700">No photos attached.</p>
-              ) : (
-                <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {photoUrls.map((url, index) => {
-                    const previewUrl = getGoogleDrivePreviewUrl(url);
-
-                    return (
-                      <div
-                        key={`${url}-${index}`}
-                        className="overflow-hidden rounded-2xl border border-gray-200 bg-white"
-                      >
-                        {isImageUrl(url) ? (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block"
-                          >
-                            <Image
-                              src={previewUrl}
-                              alt={`Complaint photo ${index + 1}`}
-                              width={400}
-                              height={224}
-                              unoptimized
-                              className="h-56 w-full object-cover"
-                            />
-                          </a>
-                        ) : null}
-
-                        <div className="p-3">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm font-bold text-blue-700 hover:underline"
-                          >
-                            Open Photo {index + 1}
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Notes
-              </p>
-              {isEditing ? (
-                <textarea
-                  value={editForm.notes}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      notes: event.target.value,
-                    }))
-                  }
-                  rows={4}
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 whitespace-pre-wrap text-gray-800">
-                  {clean(complaint.notes) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 md:col-span-2 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Resolution
-              </p>
-              {isEditing ? (
-                <textarea
-                  value={editForm.resolution}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      resolution: event.target.value,
-                    }))
-                  }
-                  rows={4}
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 whitespace-pre-wrap text-gray-800">
-                  {clean(complaint.resolution) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Reported By
-              </p>
-              {isEditing ? (
-                <input
-                  value={editForm.reportedBy}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      reportedBy: event.target.value,
-                    }))
-                  }
-                  className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-3 print:hidden"
-                />
-              ) : (
-                <p className="mt-2 font-bold">
-                  {clean(complaint.reportedBy) || "-"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-2xl bg-gray-50 p-4 print:border print:bg-white">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
-                Complaint ID
-              </p>
-              <p className="mt-2 font-bold">
-                {clean(complaint.id) || clean(complaint.rowNumber) || "-"}
-              </p>
-            </div>
-          </div>
-
-          {isEditing ? (
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end print:hidden">
-              <button
-                type="button"
-                onClick={cancelEditing}
-                disabled={saving}
-                className="rounded-xl border border-gray-300 bg-white px-4 py-3 font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={saveComplaintChanges}
-                disabled={saving}
-                className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {saving ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-          ) : null}
-        </section>
+          <Card title="Photos">
+            {photoUrls.length === 0 ? (
+              <p className="ui-card-text">No photos attached.</p>
+            ) : (
+              <div className="ui-three" style={{ marginTop: 12 }}>
+                {photoUrls.map((url, index) => {
+                  const previewUrl = getGoogleDrivePreviewUrl(url);
+                  return (
+                    <div key={`${url}-${index}`}>
+                      {isImageUrl(url) ? (
+                        <a href={url} target="_blank" rel="noopener noreferrer" className="ui-photo" style={{ display: "block", aspectRatio: "16 / 9" }}>
+                          <Image src={previewUrl} alt={`Complaint photo ${index + 1}`} width={400} height={224} unoptimized />
+                        </a>
+                      ) : null}
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="ui-btn ui-btn-quiet">
+                        Open photo {index + 1}
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
       )}
-    </main>
+
+      <Sheet
+        open={isEditing && complaint !== undefined}
+        title="Edit complaint"
+        text="Fix typos or update complaint details, then tap Save changes."
+        onClose={cancelEditing}
+        busy={saving}
+        actions={
+          <BigButton busy={saving} busyLabel="Saving…" onClick={() => void saveComplaintChanges()}>
+            Save changes
+          </BigButton>
+        }
+      >
+        <Field label="Account" value={editForm.accountName} onChange={set("accountName")} />
+        <Field label="Date" value={editForm.date} onChange={set("date")} />
+        <Field label="Complaint type" optional value={editForm.complaintType} onChange={set("complaintType")} />
+        <SelectField label="Status" value={editForm.status} onChange={set("status")}>
+          <option value="">Select Status</option>
+          <option value="Open">Open</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Pending">Pending</option>
+          <option value="Needs Attention">Needs Attention</option>
+          <option value="Closed">Closed</option>
+          <option value="Resolved">Resolved</option>
+        </SelectField>
+        <SelectField
+          label="Priority"
+          value={editForm.priority || editForm.severity}
+          onChange={(event) => setEditForm((current) => ({ ...current, priority: event.target.value, severity: event.target.value }))}
+        >
+          <option value="">Select Priority</option>
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+          <option value="Urgent">Urgent</option>
+        </SelectField>
+        <SelectField label="Validity" value={editForm.complaintValidity} onChange={set("complaintValidity")}>
+          <option value="">Select Validity</option>
+          <option value="Needs Review">Needs Review</option>
+          <option value="Valid">Valid</option>
+          <option value="Not Valid">Not Valid</option>
+          <option value="Subjective">Subjective</option>
+        </SelectField>
+        <Field label="Assigned to" optional value={editForm.manager} onChange={set("manager")} />
+        <Field label="Follow-up date" optional value={editForm.followUpDate} onChange={set("followUpDate")} />
+        <TextAreaField label="Description" rows={5} value={editForm.description} onChange={set("description")} />
+        <TextAreaField label="Notes" optional rows={4} value={editForm.notes} onChange={set("notes")} />
+        <TextAreaField label="Resolution" optional rows={4} value={editForm.resolution} onChange={set("resolution")} />
+        <Field label="Reported by" optional value={editForm.reportedBy} onChange={set("reportedBy")} />
+        {error ? <ErrorBox title="The changes were not saved." text={error} /> : null}
+      </Sheet>
+    </Screen>
   );
 }

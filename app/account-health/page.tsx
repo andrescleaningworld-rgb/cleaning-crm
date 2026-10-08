@@ -327,6 +327,7 @@ export default function AccountHealthPage() {
         </BigButton>
       }
     >
+      <div className="ui-print-view ui-screen-body">
       <div className="ui-stats">
         <div className="ui-stat">
           <p className="ui-stat-label">Tracked Items</p>
@@ -413,6 +414,8 @@ export default function AccountHealthPage() {
             dashboard. This will help identify problem accounts earlier using real data instead of only memory or customer complaints.
           </p>
         </Card>
+      </div>
+
       </div>
 
       <Sheet

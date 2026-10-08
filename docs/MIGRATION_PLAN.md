@@ -255,6 +255,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8, step 2: scripts/migrate/import-complaints.mjs. Dry run, run and re-run clean: 22 complaints, all 22 linked to an account, 0 open questions.
 - Area 8, step 3: scripts/migrate/verify-complaints.mjs → docs/migration-reports/complaints-verify.md. The table matches Sheets, every row field by field (22 × 17).
 - Area 8, step 4: lib/pg/complaints.ts + lib/data/complaints.ts; app/api/complaints wired (list, add, close, resend on Postgres when DATA_SOURCE_COMPLAINTS=postgres). The Apps Script complaint list rebuilt from Postgres is byte-identical to the live answer (22 rows; check-complaints-apps-script.mts); the list route on Postgres is byte-identical to what the route returns for it (12,784 bytes). check-complaints-writes.mts 18/18. Over HTTP on Postgres with OUTBOUND_DRY_RUN=1: add (2 emails logged, none sent), close, resend, unknown complaint; test rows and audit lines removed.
+- Area 8, step 5: Complaints list, complaint page and Add complaint redesigned (filter sheet, details sheet, close sheet, edit sheet; the Add form keeps the browser's required checks). New .ui-print-view opt-in: Print now prints the content on the complaint page, the Visits list and Account Health (it printed blank pages). Headless click-through 50 of 50 at 375 and 1280px; nothing saved. Lint baseline is now 16 problems (10 errors, 6 warnings).
 
 **Next step:** Area 8, step 5: redesign app/complaints (list, complaint page, new complaint). Never click Save changes on a complaint page in tests.
 
@@ -332,6 +333,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8: Resend subcontractor email on Postgres is sent by the app itself: the same New Complaint email it sends on creation, to the subcontractor named on the complaint's account | Apps Script looks the complaint up in the sheet and cannot see complaints that live in Postgres; its own wording is not in the repo | paste the Apps Script source and the wording gets copied
 - Area 8: closing a complaint on Postgres sends nothing | no sign that Apps Script emails on close | tell me if it does
 - Area 8: the Save changes bug on the complaint page (it creates a second complaint and re-sends the notifications instead of editing) is NOT fixed; the Postgres side behaves exactly the same | it changes behavior and needs your OK | approve and editing becomes a real edit on both sources
+- Print: the complaint page, the Visits list and Account Health now print their content | the app hides everything on paper unless a page opts in, and these pages never did, so Print gave a blank page | remove the ui-print-view wrapper on a page to get the blank page back
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -450,3 +452,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 2 | this commit | Complaints import.
 - 2026-10-08T10:04 | 2026-10-08T10:04 | 8/step 3 | this commit | Complaints verify: all match.
 - 2026-10-08T10:11 | 2026-10-08T10:11 | 8/step 4 | this commit | Complaints data layer behind DATA_SOURCE_COMPLAINTS. tsc ok, build ok, lint at baseline.
+- 2026-10-08T10:23 | 2026-10-08T10:23 | 8/step 5 | this commit | Complaints screens redesigned; print fixed on 3 screens. tsc ok, build ok, lint 16 (was 17).

@@ -251,7 +251,7 @@ export default function VisitsPage() {
       ) : error ? (
         <ErrorBox title="The visits did not load." text={error} />
       ) : (
-        <>
+        <div className="ui-print-view ui-screen-body">
           <SearchBar value={search} onChange={setSearch} label="Search visits" placeholder="Search by account, manager, type or notes" />
 
           <div className="ui-actions-row">
@@ -339,7 +339,7 @@ export default function VisitsPage() {
               ) : null}
             </>
           )}
-        </>
+        </div>
       )}
 
       <Sheet open={showFilters} title="Filter and sort" onClose={() => setShowFilters(false)} closeLabel="Done">

@@ -1527,6 +1527,31 @@ button.ui-card:hover {
   }
 }
 
+/* Printing. The app hides everything on paper (body * { visibility: hidden })
+   and each page opts its printable part back in. Wrap that part in
+   .ui-print-view; buttons inside it are left out. */
+@media print {
+  .ui-print-view,
+  .ui-print-view * {
+    visibility: visible;
+  }
+
+  .ui-print-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: #fff;
+  }
+
+  .ui-print-view .ui-btn,
+  .ui-print-view .ui-more,
+  .ui-print-view .ui-search,
+  .ui-print-view .no-print {
+    display: none !important;
+  }
+}
+
 /* Calendar pieces (Sub Schedules → Full Calendar). */
 .ui-wide-only {
   display: none;
