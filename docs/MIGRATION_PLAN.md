@@ -284,8 +284,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12, step 4: lib/pg/supplies.ts + lib/data/supplies.ts; app/api/supplies and app/api/supply-orders use Postgres when DATA_SOURCE_SUPPLIES=postgres (Apps Script is not called; unset = as before). The two Apps Script lists rebuilt from Postgres: 51/51 and 13/13 rows identical to the live answers (check-supplies-apps-script.mts); 3 routes byte-identical over HTTP on both sources; check-supplies-writes.mts 22/22; add, change, remove an item, create an order (office email logged as dry-run) and change its status over HTTP on Postgres. Test rows removed. Not wired yet: the order a sub sends from the sub portal (submitSupplyOrder goes through /api/subcontractor-portal: Area 13).
 - Area 12, step 5: app/supplies/page.tsx redesigned (cards / table, Add and Edit in a sheet, Remove asks in a sheet); app/supply-orders/page.tsx restyled in place (print view and PO PDF untouched). Headless click-through 42/42 at 375 and 1280px on Postgres + dry-run, on rows the test made (removed). Not pressed: Generate PO, Share, Download PDF. On Postgres an edit that sends no stock number keeps the stored one (write checks now 23/23).
 - Area 13, step 0: docs/migration-reports/sub-portal-headers.md. Sub Portal Issues 1 row / 12 columns, Photos 3 rows / 14 columns (both MAIN, Apps Script only). The sub portal login is the email alone (no password). Its six actions: load by email, load by session, resolve a complaint, report an issue, order supplies, write an activity line. Live read-only answers saved locally: getSubPortalIssues, getPhotos. The login answer was NOT fetched: it needs a real sub's email and it is not known whether Apps Script writes a line when it is called.
+- Area 13, step 1: db/migrations/015_sub_portal.sql applied to dev (sub_portal_issues, photos).
 
-**Next step:** Area 13, Step 1: schema.
+**Next step:** Area 13, Step 2: import.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
