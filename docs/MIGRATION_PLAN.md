@@ -245,6 +245,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6 checkpoint report: docs/migration-reports/checkpoint-6-scheduling-2026-10-08.md.
 - Area 7, step 0: docs/migration-reports/visits-headers.md. Visits 611 rows with data on 1,348 sheet rows (737 blank), 13 columns; column B (Account ID) is a formula (ACC- + row number in hex), column I is an empty duplicate of M. VisitEditLog 6 rows. The visit list and Add visit go through Apps Script (getVisits / addVisit); the Visit page reads and edits the tab directly. Live getVisits answer captured once (read-only) and matched to the sheet: 611 of 611 rows, same order, every field explained.
 - Area 7, step 1: db/migrations/009_visits.sql applied to dev (visits, visit_edit_log). The formula Account ID is kept as text and never used as a link; account_ref holds the real account found by exact name.
+- Area 7, step 2: scripts/migrate/import-visits.mjs. Dry run, run and re-run clean: 611 visits (553 linked to an account by exact name), 6 edit-log lines. 39 open questions: 36 account names (58 visits) that match no account or more than one, 1 visit without a date, 2 others.
 
 **Next step:** Area 7 (Visits), Step 0: discovery (Visits tab and anything else the visits screens read; app/visits/page.tsx and app/visits/[id]/page.tsx are protected files with standing approval).
 
@@ -314,6 +315,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6: on Postgres a deleted exception or sub visit is removed. In Sheets the cells are blanked, so a deleted row in the middle of the tab comes back as an all-empty entry | an empty entry is noise, not data | none needed
 - Local test login: the forged dev cookie lasts 12 hours; it expired mid-run on 2026-10-08 09:10 and one comparison silently fetched the login page instead of data. Caught by the answer sizes and re-run. From here the comparison script is only trusted when the answers are JSON | a redirect to /login returns status 200 | none needed
 - Full Calendar: on a phone the Month view is a day-by-day list of the same month instead of a 7-column grid | seven columns at 375px gave 45px cells with 10px text | show the grid on phones again (one CSS rule)
+- Area 7: 58 visits whose Account Name matches no account (or more than one) stay unlinked; the name text is kept and every screen keeps working from it | exact name match only, never guessed | rename in Sheets or give a visit_account override, then re-run the import
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -421,3 +423,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:32 | 2026-10-08T09:32 | 6/checkpoint | this commit | Report written; Area 6 done.
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 0 | this commit | Visits headers.
 - 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 1 | this commit | Visits schema.
+- 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 2 | this commit | Visits import; 39 questions.
