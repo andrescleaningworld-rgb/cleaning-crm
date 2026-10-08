@@ -238,6 +238,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5 checkpoint report: docs/migration-reports/checkpoint-5-equipment-2026-10-08.md.
 - Area 6, step 0: docs/migration-reports/scheduling-headers.md. SubSchedules 298 rows / 16 columns (all Active; SubID holds the sub's email; AccountID is the account ID), ScheduleExceptions 0 rows (the code reads 9 columns, the header row has 8: CreatedDate has no header), subcontractor-visits 1 row (PORTAL sheet).
 - Area 6, step 1: db/migrations/008_scheduling.sql applied to dev (sub_schedules, schedule_exceptions, subcontractor_visits). The app's own IDs are text, not keys; sheet_row is unique per table because every edit and delete addresses a row by its number.
+- Area 6, step 2: scripts/migrate/import-scheduling.mjs. Dry run, run and re-run clean: 298 schedules (298 linked to an account, 271 to a sub), 0 exceptions, 1 sub visit. 27 open questions, all the same one: 27 schedules carry one email that no current subcontractor has.
 
 **Next step:** Area 6 (Scheduling), Step 0: discovery (SubSchedules, ScheduleExceptions, subcontractor-visits; routes and screens that read them).
 
@@ -303,6 +304,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 5: on return, the Sheets code writes who signed the item IN into the Signed OUT by columns (L and M instead of N and O), so the original signer is lost and Signed in by stays empty. The Postgres version does exactly the same | parity first; fixing it changes stored data | approve the fix and both versions get it (two letters in Sheets, two column names in Postgres)
 - Area 5: values written on Postgres are kept as typed (purchase date 2026-05-04 stays 2026-05-04); Sheets may reformat what it is given (USER_ENTERED) | no way to copy the sheet locale exactly; imported rows keep the sheet text | none needed
 - Area 5: the Equipment screens keep the big-button look they got on 2026-09-24; only the page frame, the two old pop-ups and the small text were changed | they already pass the Part B rules (measured), and they were approved two weeks ago | proposal 3 in the Area 5 report rebuilds the inside with the shared kit
+- Area 6: 27 schedules whose SubID email matches no current subcontractor stay unlinked (the email text is kept and the screens keep working from it) | exact email match only | fix the email on the sub or give a schedule_sub override, then re-run the import
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -403,3 +405,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:09 | 2026-10-08T09:09 | 5/checkpoint | this commit | Report written; Area 5 done.
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 0 | this commit | Scheduling headers.
 - 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 1 | this commit | Scheduling schema.
+- 2026-10-08T09:12 | 2026-10-08T09:12 | 6/step 2 | this commit | Scheduling import; 27 questions (one email).
