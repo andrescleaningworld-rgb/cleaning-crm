@@ -3,8 +3,8 @@ import {
   appendDocumentSend,
   fetchDocumentSends,
   getDocumentById,
-  getAllSubcontractorsRaw,
-} from "@/lib/googleSheets";
+} from "@/lib/data/catalogs";
+import { getAllSubcontractorsRaw } from "@/lib/googleSheets";
 import { sendSubcontractorNotification } from "@/lib/email";
 
 // Matches the Phase 1 upload cap (app/api/documents/route.ts) — a document

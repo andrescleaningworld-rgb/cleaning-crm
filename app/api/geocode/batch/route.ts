@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGeocodeCacheEntry, appendGeocodeCacheEntry } from "@/lib/googleSheets";
+import { getGeocodeCacheEntry, appendGeocodeCacheEntry } from "@/lib/data/catalogs";
 import { geocodeAddress, redactSensitiveText } from "@/lib/geocoding";
 
 // Bulk geocoding (e.g. one-time backfill of Coverage towns) can process many

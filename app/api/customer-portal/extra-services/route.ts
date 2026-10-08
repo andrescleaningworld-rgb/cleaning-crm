@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchExtraServices } from "@/lib/googleSheets";
+import { fetchExtraServices } from "@/lib/data/catalogs";
 
 // Public, read-only, always active-only — unlike /api/extra-services (admin
 // CRUD, gated behind an admin session by proxy.ts), this route lives under

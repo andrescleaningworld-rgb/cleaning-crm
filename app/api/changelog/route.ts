@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRecentChangelogEntries } from "@/lib/googleSheets";
+import { getRecentChangelogEntries } from "@/lib/data/catalogs";
 
 // Backs the "What's new" modal opened from VersionCheckBanner. Same
 // resilience pattern as /api/portal/new-count: on any failure (missing

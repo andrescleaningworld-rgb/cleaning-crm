@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendExtraService, fetchExtraServices } from "@/lib/googleSheets";
+import { appendExtraService, fetchExtraServices } from "@/lib/data/catalogs";
 
 // ?activeOnly=true restricts the list to services with active=Yes — for the
 // customer-portal-facing picker (Phase 3), which should never show a

@@ -192,8 +192,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 1, step 1: `db/migrations/002_catalogs.sql` applied to dev (`changelog_entries`, `geocode_cache`, `extra_services`, `documents`, `document_sends`). Dates keep the Sheets text in `*_raw` next to a typed column.
 - Area 1, step 2: `scripts/migrate/import-catalogs.mjs` + `lib/import-helpers.mjs`. Dry-run, real run, and re-run all clean: 3 / 0 / 4 / 5 / 7 rows, 0 issues. GeocodeCache is empty in Sheets.
 - Area 1, step 3: `scripts/migrate/verify-catalogs.mjs` → `docs/migration-reports/catalogs-verify.md`. All 5 tables match Sheets: every row checked field by field, 0 missing, 0 extra, 0 mismatches. Parity run comes after step 4.
+- Area 1, step 4: `lib/pg/catalogs.ts` + `lib/data/catalogs.ts`; 8 routes (changelog, extra-services ×3, documents ×2, geocode ×2) now import from `@/lib/data/catalogs`. `DATA_SOURCE_CATALOGS` unset = Sheets, as before. Tested: parity 11/11 identical (`docs/migration-reports/catalogs-parity.md`); `check-catalogs-writes.mts` 17/17; over HTTP with the flag on `postgres` and dry-run: all reads, create/change/hide a service, send a document (email logged as `[dry-run]`, send row written to Postgres); with the flag on `sheets` the same reads returned byte-identical JSON. Sheets row counts unchanged after the tests. Test rows removed from dev.
 
-**Next step:** Area 1, Step 4 (`lib/pg/catalogs.ts`, `lib/data/catalogs.ts`, switch routes, parity).
+**Next step:** Area 1, Step 5 (redesign `app/documents/page.tsx`, then `app/settings/extra-services/page.tsx`, one page per commit).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -217,6 +218,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
 - (resolved 2026-10-07) Reading Google Sheets was blocked until Andres supplied a service-account key, both sheet ids and the Apps Script URL.
+- Not tested over HTTP in Area 1: uploading a document (needs a Vercel Blob token, not on this machine) and the geocode routes (need the real Google Maps key). Their Postgres functions are covered by `check-catalogs-writes.mts`.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -259,3 +261,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T22:34 → 22:35 | 1/step 0 | this commit | Discovery script + catalogs headers report.
 - 2026-10-07T22:36 → 22:39 | 1/steps 1–2 | this commit (schema file is in the commit before) | Schema applied, import run twice, 0 issues. Added `scripts/migrate/progress.mjs` to update this section.
 - 2026-10-07T22:39 | 1/step 3 | this commit | Verify: all tables match.
+- 2026-10-07T22:39 → 22:46 | 1/step 4 | this commit | Data layer behind DATA_SOURCE_CATALOGS. tsc ok, build ok, lint at baseline.
