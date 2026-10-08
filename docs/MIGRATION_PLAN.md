@@ -177,7 +177,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 
 ## PROGRESS
 
-**Status:** Phase 0, Part B, Areas 1 (Catalogs), 2 (People), 3 (Subcontractors) and 4a (Accounts core) done; reports in `docs/migration-reports/`. Area 4b (Accounts secondary) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 3.6 h used of 101 h estimated; roughly 9–25 h of Claude work left.
+**Status:** Phase 0, Part B, Areas 1, 2, 3, 4a and 4b done; reports in `docs/migration-reports/`. Area 5 (Equipment) next. Full auto (no checkpoints). No `DATA_SOURCE_*` flag is on anywhere; production still reads Sheets. About 4.1 h used of 121 h estimated; roughly 8–22 h of Claude work left.
 
 **Done:**
 - Phase 0, step 1: branch `migration/postgres` created from `main` (at `5ecae04`), plan committed as `docs/MIGRATION_PLAN.md`.
@@ -228,8 +228,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 4b, step 5c: Account Health redesigned (tiles, guide, search, log cards, add form in a sheet with the same 11 boxes). The page has no data source: it starts from 3 made-up examples, new items live only until the page is reloaded, and no menu links to it.
 - Area 4b, step 5d: Account Map redesigned. Same data, pins, pin limits, auto-location, selection and links; Manager and Sub filters moved into a Filter sheet; the selected account shows as a card under the map instead of floating over it; nearby accounts are cards with a Show on map button.
 - Area 4b, step 5e: Sub Center Coverage tab redesigned (By Sub / By Town / Map chips, search that highlights and dims, tag lists) and the coverage map panels restyled (class changes only; the Google map code is untouched). Headless check for 5c–5e at 375 and 1280px: all passed after 2 test fixes; nothing saved. Not tested: the Google map itself (the key does not work on localhost).
+- Area 4b checkpoint report: docs/migration-reports/checkpoint-4b-accounts-secondary-2026-10-08.md.
 
-**Next step:** Area 4b checkpoint report, then Area 5 (Equipment) Step 0 discovery.
+**Next step:** Area 5 (Equipment), Step 0: discovery (tabs, headers, row counts, routes and screens that read them).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -313,7 +314,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 2 People | done | 11 | 0.2 | 2026-10-07 | 2026-10-07 | 21 rows; 6 manager↔staff questions open; no screens in this area |
 | 3 Subs | done | 24 | 0.6 | 2026-10-07 | 2026-10-07 | 17 questions open (Leo twice, phones in the wrong column); Coverage tab moved to 4b |
 | 4a Accounts core | done | 34 | 1.6 | 2026-10-07 | 2026-10-08 | 25 questions open (Leo number missing, 9 managers, 3 subs); Account Updates, transfer proposals and the packet stay on Apps Script; transfer builder restyled |
-| 4b Accounts secondary | in progress | 20 |  | 2026-10-08 |  |  |
+| 4b Accounts secondary | done | 20 | 0.5 | 2026-10-08 | 2026-10-08 | No new tables; 8 screens redesigned; Keys and Account Health bugs reported, not fixed; Google coverage map not testable locally |
 | 5 Equipment | not started | 20 | | | | |
 | 6 Scheduling | not started | 20 | | | | |
 | 7 Visits | not started | 14 | | | | |
@@ -380,3 +381,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5c | this commit | Account Health redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5d | this commit | Account Map redesigned. tsc ok, build ok, lint at baseline (the map lint error is the old one).
 - 2026-10-08T08:39 | 2026-10-08T08:39 | 4b/step 5e | this commit | Coverage tab redesigned. tsc ok, build ok, lint at baseline.
+- 2026-10-08T08:40 | 2026-10-08T08:40 | 4b/checkpoint | this commit | Report written; 4b done.
