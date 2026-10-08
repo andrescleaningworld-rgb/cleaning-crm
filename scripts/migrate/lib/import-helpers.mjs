@@ -47,7 +47,13 @@ export async function startRun(area, { dryRun }) {
     count(table, counts) {
       tables[table] = { ...(tables[table] ?? {}), ...counts };
     },
-    /** A row the import could not resolve with certainty: a question for Andres. */
+    /**
+     * A row the import could not resolve with certainty: a question for Andres.
+     * @param {string} table
+     * @param {string} legacyKey
+     * @param {string} problem
+     * @param {{ rawValue?: string | null, candidates?: unknown[] }} [options]
+     */
     issue(table, legacyKey, problem, { rawValue = null, candidates = [] } = {}) {
       issues.push({ table, legacyKey: String(legacyKey), problem, rawValue, candidates });
     },

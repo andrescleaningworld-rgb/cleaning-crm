@@ -64,6 +64,11 @@ export async function listTabs(sheet) {
  * All values of a tab as strings, header row first. Rows keep their sheet
  * position: rows[i] is sheet row i + 1. Trailing empty cells are missing, as
  * the Sheets API returns them.
+ *
+ * @param {string} sheet
+ * @param {string} tab
+ * @param {{ range?: string, formulas?: boolean, unformatted?: boolean }} [options]
+ * @returns {Promise<string[][]>}
  */
 export async function readTab(sheet, tab, { range, formulas = false, unformatted = false } = {}) {
   const res = await api().spreadsheets.values.get({

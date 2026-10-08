@@ -262,6 +262,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Not tested over HTTP in Area 1: uploading a document (needs a Vercel Blob token, not on this machine) and the geocode routes (need the real Google Maps key). Their Postgres functions are covered by `check-catalogs-writes.mts`.
 - Sub-portal login and "log activity" still go through Apps Script (Area 13). A sub added while `DATA_SOURCE_SUBS=postgres` would not be able to log in to the portal until Area 13 is done, so SUBS must not be switched on in production before Area 13.
 - Noticed, not changed (existing behavior on both the old and new detail page): saving the edit form for a sub whose Status is blank writes "Active" into Status, because the form shows "Active" when blank. 27 of 39 subs have a blank Status today.
+- Slip on 2026-10-07 23:48: the three Area 4a commits `migration(accounts): step 1–3` were pushed while `npx tsc --noEmit` was failing (6 type errors in `scripts/migrate/import-accounts.mts`; the script itself ran correctly). Fixed in the next commit by typing two helpers. Cause: the commit command did not stop on the failed check. From here on the check result is read before the commit command is built.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -327,3 +328,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-07T23:48 | 4a/step 1 | this commit | Accounts schema.
 - 2026-10-07T23:48 | 4a/step 2 | this commit | Accounts import; 25 questions logged.
 - 2026-10-07T23:48 | 4a/step 3 | this commit | Accounts verify: all match.
+- 2026-10-07T23:49 | 4a/fix | this commit | tsc fixed after the step 1–3 commits went out with type errors in a migration script.
