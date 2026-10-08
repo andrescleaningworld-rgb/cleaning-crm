@@ -144,18 +144,18 @@ function LoginForm() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-8 text-slate-900">
-      <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-sm md:p-8">
+    <main className="ui-screen">
+      <div className="ui-card w-full">
         <div className="mb-6 text-center">
-          <p className="text-sm font-bold uppercase tracking-widest text-blue-700">
+          <p className="ui-strong">
             Cleaning World
           </p>
 
-          <h1 className="mt-2 text-3xl font-bold">
+          <h1 className="ui-screen-title">
             Operations & Quality App
           </h1>
 
-          <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-slate-600">
+          <p className="ui-muted">
             Choose the correct login below. Admins log in with their own name
             and password. Subcontractors and customers use their respective
             portals.
@@ -170,93 +170,93 @@ function LoginForm() {
                 setMode("admin-picker");
                 setError("");
               }}
-              className="rounded-2xl border border-blue-200 bg-blue-50 p-6 text-left shadow-sm transition hover:border-blue-500 hover:bg-blue-100"
+              className="ui-card ui-stack"
             >
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-700 text-xl font-black text-white">
                 A
               </div>
 
-              <h2 className="text-xl font-bold text-slate-950">
+              <h2 className="ui-card-title">
                 Admin Login
               </h2>
 
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="ui-muted">
                 For Cleaning World office/admin access, dashboard, accounts,
                 complaints, visits, reports, supply orders, and management tools.
               </p>
 
-              <div className="mt-5 rounded-xl bg-blue-700 px-4 py-3 text-center text-sm font-bold text-white">
+              <div className="mt-5 rounded-xl bg-blue-700 px-4 py-3 text-center font-bold text-white">
                 Continue as Admin
               </div>
             </button>
 
             <Link
               href="/subcontractor-portal"
-              className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-left shadow-sm transition hover:border-emerald-500 hover:bg-emerald-100"
+              className="ui-card ui-stack"
             >
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-xl font-black text-white">
                 S
               </div>
 
-              <h2 className="text-xl font-bold text-slate-950">
+              <h2 className="ui-card-title">
                 Subcontractor Login
               </h2>
 
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="ui-muted">
                 For subcontractors to view assigned accounts, submit supply
                 orders, and manage their Cleaning World portal access.
               </p>
 
-              <div className="mt-5 rounded-xl bg-emerald-700 px-4 py-3 text-center text-sm font-bold text-white">
+              <div className="mt-5 rounded-xl bg-emerald-700 px-4 py-3 text-center font-bold text-white">
                 Continue as Subcontractor
               </div>
             </Link>
 
             <Link
               href="/customer-portal/login"
-              className="rounded-2xl border border-purple-200 bg-purple-50 p-6 text-left shadow-sm transition hover:border-purple-500 hover:bg-purple-100"
+              className="ui-card ui-stack"
             >
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-700 text-xl font-black text-white">
                 C
               </div>
 
-              <h2 className="text-xl font-bold text-slate-950">
+              <h2 className="ui-card-title">
                 Customer Portal
               </h2>
 
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className="ui-muted">
                 For Cleaning World customers to view service details, request
                 specialty services, report complaints, or request changes.
               </p>
 
-              <div className="mt-5 rounded-xl bg-purple-700 px-4 py-3 text-center text-sm font-bold text-white">
+              <div className="mt-5 rounded-xl bg-purple-700 px-4 py-3 text-center font-bold text-white">
                 Enter Customer Portal
               </div>
             </Link>
           </div>
         ) : mode === "admin-picker" ? (
           <div className="mx-auto w-full max-w-md">
-            <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-center">
-              <h2 className="text-2xl font-bold text-slate-950">Admin Login</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+            <div className="ui-card">
+              <h2 className="ui-card-title">Admin Login</h2>
+              <p className="ui-muted">
                 Select your name to log in.
               </p>
             </div>
 
             <div className="space-y-2">
               {identities.length === 0 ? (
-                <p className="text-center text-sm text-slate-500">Loading managers...</p>
+                <p className="ui-muted">Loading managers...</p>
               ) : (
                 identities.map((identity) => (
                   <button
                     key={identity.staffId}
                     type="button"
                     onClick={() => handlePickIdentity(identity)}
-                    className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 hover:border-blue-500 hover:bg-blue-50"
+                    className="ui-btn ui-btn-second w-full"
                   >
                     {identity.name}
                     {identity.needsSetup ? (
-                      <span className="text-xs font-bold uppercase tracking-wide text-blue-600">
+                      <span className="ui-strong">
                         Set up password
                       </span>
                     ) : null}
@@ -268,23 +268,23 @@ function LoginForm() {
             <button
               type="button"
               onClick={() => setMode("choice")}
-              className="mt-4 min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50"
+              className="ui-btn ui-btn-second w-full"
             >
               Back to Login Options
             </button>
           </div>
         ) : mode === "admin-password" && selected ? (
           <div className="mx-auto w-full max-w-md">
-            <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-center">
-              <h2 className="text-2xl font-bold text-slate-950">Hi, {selected.name}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+            <div className="ui-card">
+              <h2 className="ui-card-title">Hi, {selected.name}</h2>
+              <p className="ui-muted">
                 Enter your password to access the Cleaning World admin dashboard.
               </p>
             </div>
 
             <form onSubmit={handlePasswordSubmit} className="space-y-4">
               <div>
-                <label htmlFor="password" className="mb-2 block text-sm font-semibold text-slate-700">
+                <label htmlFor="password" className="ui-label">
                   Password
                 </label>
 
@@ -297,7 +297,7 @@ function LoginForm() {
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete="current-password"
                     required
-                    className="min-h-[48px] w-full rounded-xl border border-slate-300 px-4 py-3 pr-12 text-base outline-none focus:border-blue-600"
+                    className="ui-input w-full"
                     placeholder="Enter your password"
                   />
 
@@ -306,7 +306,7 @@ function LoginForm() {
                     onClick={() => setShowPassword((current) => !current)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
                     aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-500 hover:text-slate-700"
+                    className="ui-btn ui-btn-quiet"
                   >
                     {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
@@ -314,7 +314,7 @@ function LoginForm() {
               </div>
 
               {error ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+                <div className="ui-field-error">
                   {error}
                 </div>
               ) : null}
@@ -322,7 +322,7 @@ function LoginForm() {
               <button
                 type="submit"
                 disabled={loading}
-                className="min-h-[48px] w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60"
+                className="ui-btn ui-btn-second w-full"
               >
                 {loading ? "Logging in..." : "Login to Admin Dashboard"}
               </button>
@@ -330,7 +330,7 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => setMode("admin-picker")}
-                className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50"
+                className="ui-btn ui-btn-second w-full"
               >
                 Not you? Choose a different name
               </button>
@@ -338,16 +338,16 @@ function LoginForm() {
           </div>
         ) : mode === "admin-setup" && selected ? (
           <div className="mx-auto w-full max-w-md">
-            <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50 p-5 text-center">
-              <h2 className="text-2xl font-bold text-slate-950">Hi, {selected.name}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+            <div className="ui-card">
+              <h2 className="ui-card-title">Hi, {selected.name}</h2>
+              <p className="ui-muted">
                 First time logging in — create your password.
               </p>
             </div>
 
             <form onSubmit={handleSetupSubmit} className="space-y-4">
               <div>
-                <label htmlFor="new-password" className="mb-2 block text-sm font-semibold text-slate-700">
+                <label htmlFor="new-password" className="ui-label">
                   New password
                 </label>
                 <input
@@ -358,13 +358,13 @@ function LoginForm() {
                   autoComplete="new-password"
                   required
                   minLength={8}
-                  className="min-h-[48px] w-full rounded-xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                  className="ui-input w-full"
                   placeholder="At least 8 characters"
                 />
               </div>
 
               <div>
-                <label htmlFor="confirm-password" className="mb-2 block text-sm font-semibold text-slate-700">
+                <label htmlFor="confirm-password" className="ui-label">
                   Confirm password
                 </label>
                 <input
@@ -375,13 +375,13 @@ function LoginForm() {
                   autoComplete="new-password"
                   required
                   minLength={8}
-                  className="min-h-[48px] w-full rounded-xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                  className="ui-input w-full"
                   placeholder="Re-enter password"
                 />
               </div>
 
               {error ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
+                <div className="ui-field-error">
                   {error}
                 </div>
               ) : null}
@@ -389,7 +389,7 @@ function LoginForm() {
               <button
                 type="submit"
                 disabled={loading}
-                className="min-h-[48px] w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60"
+                className="ui-btn ui-btn-second w-full"
               >
                 {loading ? "Setting up..." : "Create Password & Log In"}
               </button>
@@ -397,7 +397,7 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => setMode("admin-picker")}
-                className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50"
+                className="ui-btn ui-btn-second w-full"
               >
                 Not you? Choose a different name
               </button>
@@ -413,7 +413,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 text-slate-700">
+        <main className="ui-screen">
           Loading login...
         </main>
       }

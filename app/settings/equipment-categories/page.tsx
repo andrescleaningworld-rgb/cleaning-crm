@@ -116,10 +116,10 @@ function CategoriesSection() {
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <section className="ui-card">
       <div className="mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Equipment Categories</h2>
-        <p className="mt-1 text-sm text-gray-600">
+        <h2 className="ui-card-title">Equipment Categories</h2>
+        <p className="ui-muted">
           Deactivating a category never hides it from equipment that already uses it — it just stops
           showing up as an option for new/edited equipment.
         </p>
@@ -131,26 +131,26 @@ function CategoriesSection() {
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="Add category..."
-          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 md:max-w-xs"
+          className="ui-input w-full"
         />
         <button
           type="button"
           onClick={handleAdd}
           disabled={adding}
-          className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
+          className="ui-btn ui-btn-main"
         >
           {adding ? "Adding..." : "Add"}
         </button>
       </div>
 
-      {loadError ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{loadError}</div> : null}
-      {actionError ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{actionError}</div> : null}
+      {loadError ? <div className="ui-field-error">{loadError}</div> : null}
+      {actionError ? <div className="ui-field-error">{actionError}</div> : null}
 
       {loading ? (
         <div className="p-6 text-center text-gray-600">Loading categories...</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
+          <table className="ui-table w-full">
             <thead>
               <tr className="border-b bg-gray-50 text-gray-600">
                 <th className="px-4 py-3 font-semibold">Name</th>
@@ -168,12 +168,12 @@ function CategoriesSection() {
                       onChange={(e) => setRenameDrafts((cur) => ({ ...cur, [category.id]: e.target.value }))}
                       onBlur={() => saveRename(category)}
                       disabled={savingId === category.id}
-                      className="w-full min-w-[160px] rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                      className="ui-input w-full"
                     />
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                      className={`rounded-full border px-2 py-1 text-base font-semibold ${
                         category.active ? "border-green-200 bg-green-100 text-green-800" : "border-gray-200 bg-gray-100 text-gray-600"
                       }`}
                     >
@@ -185,7 +185,7 @@ function CategoriesSection() {
                       type="button"
                       onClick={() => toggleActive(category)}
                       disabled={savingId === category.id}
-                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                      className="ui-btn ui-btn-quiet"
                     >
                       {category.active ? "Deactivate" : "Activate"}
                     </button>
@@ -203,12 +203,12 @@ function CategoriesSection() {
 
 export default function EquipmentCategoriesSettingsPage() {
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
         <div className="mb-6">
-          <Link href="/settings" className="text-sm font-semibold text-blue-700 hover:underline">← Back to Settings</Link>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">Equipment Categories &amp; Staff</h1>
-          <p className="mt-1 text-gray-600">
+          <Link href="/settings" className="ui-link">← Back to Settings</Link>
+          <h1 className="ui-screen-title">Equipment Categories &amp; Staff</h1>
+          <p className="ui-muted">
             Manage the equipment categories and the Staff roster used for equipment checkout/return sign-off.
           </p>
         </div>

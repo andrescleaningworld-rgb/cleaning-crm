@@ -62,6 +62,8 @@ export default function CWHeader() {
   const [mounted, setMounted] = useState(false);
   const [newNotificationCount, setNewNotificationCount] = useState(0);
   const [portalCount, setPortalCount] = useState(0);
+  // On a phone the menu is folded behind one button; on a wide screen it is always open.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
@@ -171,7 +173,7 @@ export default function CWHeader() {
             <Link
               href="/help"
               title="Help / Tutorial"
-              className="absolute right-6 top-5 flex h-11 w-11 items-center justify-center rounded-full border border-white/35 bg-white/15 text-lg font-bold text-white shadow-md transition hover:bg-white/25"
+              className="absolute right-6 top-5 flex h-12 w-12 items-center justify-center rounded-full border border-white/35 bg-white/15 text-lg font-bold text-white shadow-md transition hover:bg-white/25"
             >
               ?
             </Link>
@@ -195,18 +197,35 @@ export default function CWHeader() {
                 <h1 className="text-3xl sm:text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">
                   Cleaning World
                 </h1>
-                <p className="mt-1 text-sm sm:text-xs font-semibold text-white">
+                <p className="mt-1 text-base font-semibold text-white">
                   Service Portal &amp; Operations
                 </p>
               </div>
             </div>
 
             {showNav && (
-              <nav className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-expanded={menuOpen}
+                aria-controls="cw-header-nav"
+                className="inline-flex min-h-[48px] items-center justify-center rounded-full border border-white/25 bg-white/15 px-5 py-2 text-base font-bold text-white shadow-sm transition hover:bg-white/25 sm:hidden"
+              >
+                {menuOpen ? "Close menu" : "Menu"}
+                {!menuOpen && newNotificationCount + portalCount > 0 && (
+                  <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-base font-extrabold text-white">
+                    {newNotificationCount + portalCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {showNav && (
+              <nav id="cw-header-nav" onClick={() => setMenuOpen(false)} className={`${menuOpen ? "flex" : "hidden"} flex-wrap items-center gap-3 sm:flex`}>
                 {role === "admin" && (
                   <Link
                     href="/notifications"
-                    className={`rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition ${
+                    className={`inline-flex min-h-[48px] items-center rounded-full border px-4 py-2 text-base font-bold shadow-sm transition ${
                       pathname === "/notifications"
                         ? "border-white bg-white text-blue-800"
                         : "border-white/25 bg-white/15 text-white hover:bg-white/25"
@@ -214,7 +233,7 @@ export default function CWHeader() {
                   >
                     🔔 Notifications
                     {newNotificationCount > 0 && (
-                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-xs font-extrabold text-white">
+                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-base font-extrabold text-white">
                         {newNotificationCount}
                       </span>
                     )}
@@ -224,7 +243,7 @@ export default function CWHeader() {
                 {role === "admin" && (
                   <Link
                     href="/portal-requests"
-                    className={`rounded-full border px-4 py-2 text-sm font-bold shadow-sm transition ${
+                    className={`inline-flex min-h-[48px] items-center rounded-full border px-4 py-2 text-base font-bold shadow-sm transition ${
                       pathname === "/portal-requests"
                         ? "border-white bg-white text-blue-800"
                         : "border-white/25 bg-white/15 text-white hover:bg-white/25"
@@ -232,7 +251,7 @@ export default function CWHeader() {
                   >
                     Portal
                     {portalCount > 0 && (
-                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-xs font-extrabold text-white">
+                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-base font-extrabold text-white">
                         {portalCount}
                       </span>
                     )}
@@ -250,7 +269,7 @@ export default function CWHeader() {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`rounded-full border px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-bold shadow-sm transition ${
+                      className={`inline-flex min-h-[48px] items-center rounded-full border px-4 py-2 text-base font-bold shadow-sm transition ${
                         isActive
                           ? "border-white bg-white text-blue-800"
                           : "border-white/25 bg-white/15 text-white hover:bg-white/25"

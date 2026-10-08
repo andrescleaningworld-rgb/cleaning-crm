@@ -574,14 +574,14 @@ function StatCard({
   href?: string;
 }) {
   const content = (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md">
-      <p className="text-xs font-bold uppercase tracking-wide text-gray-500">
+    <div className="ui-card">
+      <p className="ui-muted">
         {label}
       </p>
-      <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">
+      <h2 className="ui-card-title">
         {value}
       </h2>
-      {note ? <p className="mt-2 text-sm text-gray-500">{note}</p> : null}
+      {note ? <p className="ui-muted">{note}</p> : null}
     </div>
   );
 
@@ -606,11 +606,11 @@ function DashboardButton({
   return (
     <Link
       href={href}
-      className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-bold text-gray-900 shadow-sm hover:bg-gray-50"
+      className="ui-btn ui-btn-second"
     >
       <span>{label}</span>
       {badgeCount > 0 ? (
-        <span className="ml-2 inline-flex items-center rounded-full bg-red-600 px-2 py-1 text-xs font-bold text-white">
+        <span className="ml-2 inline-flex items-center rounded-full bg-red-600 px-2 py-1 text-base font-bold text-white">
           🔔 {badgeCount}
         </span>
       ) : null}
@@ -630,10 +630,10 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md"
+      className="ui-card ui-stack"
     >
-      <h3 className="font-bold text-gray-900">{title}</h3>
-      <p className="mt-2 text-sm text-gray-500">{note}</p>
+      <h3 className="ui-card-title">{title}</h3>
+      <p className="ui-muted">{note}</p>
     </Link>
   );
 }
@@ -784,16 +784,16 @@ export default function DashboardPage() {
   }, [data]);
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 text-gray-900 sm:px-6">
+    <main className="ui-screen">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
+          <p className="ui-strong">
             Cleaning World
           </p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">
+          <h1 className="ui-screen-title">
             Operations Command Center
           </h1>
-          <p className="mt-2 text-gray-500">
+          <p className="ui-muted">
             Faster daily view focused on urgent tasks, visits, complaints,
             supply orders, and accounts needing attention.
           </p>
@@ -820,7 +820,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => window.print()}
-            className="rounded-xl bg-gray-900 px-5 py-3 text-sm font-bold text-white"
+            className="ui-btn ui-btn-second"
           >
             Print
           </button>
@@ -828,7 +828,7 @@ export default function DashboardPage() {
       </div>
 
       {loading ? (
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="ui-card">
           Loading command center...
         </div>
       ) : (
@@ -870,54 +870,54 @@ export default function DashboardPage() {
             />
           </section>
 
-          <section className="mb-5 rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+          <section className="ui-stat">
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold">Today&apos;s Manager To-Dos</h2>
-                <p className="text-sm text-gray-600">
+                <h2 className="ui-card-title">Today&apos;s Manager To-Dos</h2>
+                <p className="ui-muted">
                   Open tasks sorted by due date. Use this first when assigning
                   or checking work.
                 </p>
               </div>
 
-              <Link className="font-bold text-blue-700" href="/to-do">
+              <Link className="ui-link" href="/to-do">
                 View all
               </Link>
             </div>
 
             {dashboard.recentTodos.length === 0 ? (
-              <p className="text-gray-500">No open to-dos found.</p>
+              <p className="ui-muted">No open to-dos found.</p>
             ) : (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {dashboard.recentTodos.map((todo, index) => (
                   <Link
                     key={`todo-${index}`}
                     href="/to-do"
-                    className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm hover:border-blue-300"
+                    className="ui-card ui-stack"
                   >
                     <div className="mb-2 flex flex-wrap gap-2">
-                      <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-bold text-blue-700">
+                      <span className="rounded-full bg-blue-100 px-2 py-1 text-base font-bold text-blue-700">
                         {getToDoTaskType(todo) || "Task"}
                       </span>
 
                       {isToDoOverdue(todo) ? (
-                        <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-bold text-red-700">
+                        <span className="rounded-full bg-red-100 px-2 py-1 text-base font-bold text-red-700">
                           Overdue
                         </span>
                       ) : null}
 
-                      <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-bold text-gray-700">
+                      <span className="rounded-full bg-gray-100 px-2 py-1 text-base font-bold text-gray-700">
                         {getToDoStatus(todo) || "Open"}
                       </span>
                     </div>
 
                     <strong>{getToDoAccount(todo) || "No account"}</strong>
 
-                    <p className="mt-1 text-sm text-gray-700">
+                    <p className="ui-muted">
                       {getToDoWhy(todo) || "No reason entered."}
                     </p>
 
-                    <p className="mt-2 text-xs text-gray-500">
+                    <p className="ui-muted">
                       Assigned to: {getToDoAssignedTo(todo) || "-"} · Due:{" "}
                       {getDisplayDueDate(todo)}
                     </p>
@@ -950,23 +950,23 @@ export default function DashboardPage() {
             />
           </section>
 
-          <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <section className="ui-card">
             <div className="mb-4 flex items-center justify-between gap-4">
-              <h2 className="text-xl font-bold">Accounts Needing Attention</h2>
-              <Link className="font-bold text-blue-600" href="/accounts">
+              <h2 className="ui-card-title">Accounts Needing Attention</h2>
+              <Link className="ui-link" href="/accounts">
                 View all
               </Link>
             </div>
 
             {dashboard.accountsNeedingAttention.length === 0 ? (
-              <p className="text-gray-500">
+              <p className="ui-muted">
                 No accounts marked as high risk or needing attention.
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-sm">
+                <table className="ui-table w-full">
                   <thead>
-                    <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr className="border-b bg-gray-50 text-left uppercase tracking-wide text-gray-500">
                       <th className="p-3">Account</th>
                       <th className="p-3">Status</th>
                       <th className="p-3">Health</th>
@@ -993,7 +993,7 @@ export default function DashboardPage() {
                           >
                             <td className="p-3">
                               <Link
-                                className="font-bold hover:text-blue-600"
+                                className="ui-link"
                                 href={href}
                               >
                                 {name}
@@ -1024,30 +1024,30 @@ export default function DashboardPage() {
           </section>
 
           <section className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="ui-card">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold">Recent Complaints</h2>
-                <Link className="font-bold text-blue-600" href="/complaints">
+                <h2 className="ui-card-title">Recent Complaints</h2>
+                <Link className="ui-link" href="/complaints">
                   View
                 </Link>
               </div>
 
               {dashboard.recentComplaints.length === 0 ? (
-                <p className="text-gray-500">No complaints found.</p>
+                <p className="ui-muted">No complaints found.</p>
               ) : (
                 <div className="space-y-3">
                   {dashboard.recentComplaints.map((complaint, index) => (
                     <div
                       key={`complaint-${index}`}
-                      className="rounded-xl border border-gray-100 bg-gray-50 p-4"
+                      className="ui-stat"
                     >
                       <strong>
                         {getRowAccountName(complaint) || "Unknown Account"}
                       </strong>
-                      <p className="mt-1 text-gray-700">
+                      <p className="ui-muted">
                         {getRowTitle(complaint) || "Complaint"}
                       </p>
-                      <p className="mt-1 text-sm text-gray-500">
+                      <p className="ui-muted">
                         {getComplaintStatus(complaint) || "Open"} ·{" "}
                         {getDisplayDate(complaint)}
                       </p>
@@ -1057,30 +1057,30 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="ui-card">
               <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-xl font-bold">Recent Supply Orders</h2>
-                <Link className="font-bold text-blue-600" href="/supply-orders">
+                <h2 className="ui-card-title">Recent Supply Orders</h2>
+                <Link className="ui-link" href="/supply-orders">
                   View
                 </Link>
               </div>
 
               {dashboard.recentSupplyOrders.length === 0 ? (
-                <p className="text-gray-500">No supply orders found.</p>
+                <p className="ui-muted">No supply orders found.</p>
               ) : (
                 <div className="space-y-3">
                   {dashboard.recentSupplyOrders.map((order, index) => (
                     <div
                       key={`supply-order-${index}`}
-                      className="rounded-xl border border-gray-100 bg-gray-50 p-4"
+                      className="ui-stat"
                     >
                       <strong>
                         {getRowAccountName(order) || "Unknown Account"}
                       </strong>
-                      <p className="mt-1 text-gray-700">
+                      <p className="ui-muted">
                         {getSupplyOrderTitle(order) || "Supply Order"}
                       </p>
-                      <p className="mt-1 text-sm text-gray-500">
+                      <p className="ui-muted">
                         {getSupplyOrderStatus(order) || "No status"} ·{" "}
                         {getDisplayDate(order)}
                       </p>
@@ -1091,10 +1091,10 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <section className="ui-card">
             <div className="mb-4">
-              <h2 className="text-xl font-bold">Quick Links</h2>
-              <p className="text-sm text-gray-500">
+              <h2 className="ui-card-title">Quick Links</h2>
+              <p className="ui-muted">
                 Heavier pages only load when you click them.
               </p>
             </div>

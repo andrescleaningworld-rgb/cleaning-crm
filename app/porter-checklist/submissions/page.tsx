@@ -202,16 +202,16 @@ export default function PorterChecklistSubmissionsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5 py-6">
+    <div className="ui-screen">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={36} height={36} className="h-9 w-9 object-contain" />
-          <h1 className="text-2xl font-black text-slate-950">Crew Link — Checklist Submissions</h1>
+          <h1 className="ui-screen-title">Crew Link — Checklist Submissions</h1>
         </div>
         <select
           value={accountFilter}
           onChange={(event) => setAccountFilter(event.target.value)}
-          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold outline-none focus:border-blue-500"
+          className="ui-input"
         >
           <option value="">All accounts</option>
           {flaggedAccounts.map((a) => (
@@ -222,15 +222,15 @@ export default function PorterChecklistSubmissionsPage() {
         </select>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-        <span className="text-xs font-black uppercase tracking-wide text-slate-500">Report Range</span>
+      <div className="ui-card">
+        <span className="ui-muted">Report Range</span>
         <div className="flex gap-1">
           {(["7", "30", "custom"] as const).map((preset) => (
             <button
               key={preset}
               type="button"
               onClick={() => setRangePreset(preset)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-black ${
+              className={`min-h-[48px] rounded-lg px-3 py-1.5 text-base font-black ${
                 rangePreset === preset ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600"
               }`}
             >
@@ -244,14 +244,14 @@ export default function PorterChecklistSubmissionsPage() {
               type="date"
               value={customStart}
               onChange={(event) => setCustomStart(event.target.value)}
-              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none focus:border-blue-500"
+              className="ui-input"
             />
-            <span className="text-xs text-slate-400">to</span>
+            <span className="ui-muted">to</span>
             <input
               type="date"
               value={customEnd}
               onChange={(event) => setCustomEnd(event.target.value)}
-              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold outline-none focus:border-blue-500"
+              className="ui-input"
             />
           </div>
         ) : null}
@@ -261,7 +261,7 @@ export default function PorterChecklistSubmissionsPage() {
             onClick={handleShareReport}
             disabled={!accountFilter || reportPending}
             title={!accountFilter ? "Choose a specific account to share a report" : undefined}
-            className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="ui-btn ui-btn-second"
           >
             {reportPending ? "Preparing…" : "Share Report"}
           </button>
@@ -271,49 +271,49 @@ export default function PorterChecklistSubmissionsPage() {
             onClick={handleDownloadReport}
             disabled={!accountFilter || reportPending}
             title={!accountFilter ? "Choose a specific account to download a report" : undefined}
-            className="ml-auto rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="ui-btn ui-btn-second"
           >
             {reportPending ? "Generating…" : "Download Report"}
           </button>
         )}
       </div>
       {!accountFilter ? (
-        <p className="text-xs text-slate-400">Choose a specific account above to share or download its report.</p>
+        <p className="ui-muted">Choose a specific account above to share or download its report.</p>
       ) : null}
       {reportError ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+        <p className="ui-field-error">
           {reportError}
         </p>
       ) : null}
 
       {listError ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+        <p className="ui-field-error">
           {listError}
         </p>
       ) : null}
 
-      {loading ? <p className="text-sm text-slate-500">Loading submissions…</p> : null}
+      {loading ? <p className="ui-muted">Loading submissions…</p> : null}
 
       {!loading && submissions.length === 0 ? (
-        <p className="text-sm text-slate-500">No submissions yet.</p>
+        <p className="ui-muted">No submissions yet.</p>
       ) : null}
 
       <div className="space-y-3">
         {submissions.map((submission) => (
-          <div key={submission.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div key={submission.id} className="ui-card">
             <button
               type="button"
               onClick={() => handleExpand(submission.id)}
-              className="flex w-full items-center justify-between gap-4 p-4 text-left"
+              className="ui-pick"
             >
               <div>
-                <p className="text-sm font-black text-slate-900">
+                <p className="ui-strong">
                   {submission.accountName} — {submission.locationName}
                   {submission.tabName ? (
-                    <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-black text-blue-700">{submission.tabName}</span>
+                    <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-base font-black text-blue-700">{submission.tabName}</span>
                   ) : null}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="ui-muted">
                   {(() => {
                     // New submissions: automatic Started / Finished. Old ones: typed Week Of + times.
                     const times = describeWorkTimes(submission);
@@ -329,7 +329,7 @@ export default function PorterChecklistSubmissionsPage() {
                 </p>
               </div>
               <span
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${
+                className={`shrink-0 rounded-full px-3 py-1 text-base font-black ${
                   submission.completedCount === submission.totalCount
                     ? "bg-green-100 text-green-800"
                     : "bg-amber-100 text-amber-800"
@@ -341,41 +341,41 @@ export default function PorterChecklistSubmissionsPage() {
 
             {expandedId === submission.id ? (
               <div className="border-t border-slate-100 p-4">
-                {detailLoading ? <p className="text-sm text-slate-500">Loading detail…</p> : null}
+                {detailLoading ? <p className="ui-muted">Loading detail…</p> : null}
                 {detail && detail.id === submission.id ? (
                   <div className="space-y-4">
                     <a
                       href={`/crew-link/print/submission/${detail.id}`}
                       target="_blank"
                       rel="noopener"
-                      className="inline-block rounded-xl border border-slate-300 px-4 py-2 text-xs font-black text-slate-700 hover:bg-slate-50"
+                      className="ui-btn ui-btn-second"
                     >
                       🖨️ Print
                     </a>
-                    <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
+                    <div className="grid gap-2 text-slate-600 sm:grid-cols-2">
                       {(() => {
                         const times = describeWorkTimes(detail);
                         return (
                           <>
-                            <p><span className="font-black text-slate-700">{times.startLabel}:</span> {times.start}</p>
-                            <p><span className="font-black text-slate-700">{times.endLabel}:</span> {times.end}</p>
+                            <p><span className="ui-strong">{times.startLabel}:</span> {times.start}</p>
+                            <p><span className="ui-strong">{times.endLabel}:</span> {times.end}</p>
                           </>
                         );
                       })()}
                     </div>
                     {detail.generalNotes ? (
-                      <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">{detail.generalNotes}</p>
+                      <p className="ui-muted">{detail.generalNotes}</p>
                     ) : null}
                     {detail.sections.map((section) => (
                       <div key={section.key}>
-                        <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">{section.title}</h3>
+                        <h3 className="ui-card-title">{section.title}</h3>
                         <div className="mt-2 space-y-2">
                           {section.items.map((item) => (
-                            <div key={item.key} className="flex items-start gap-2 rounded-lg border border-slate-100 p-2 text-sm">
+                            <div key={item.key} className="flex items-start gap-2 rounded-lg border border-slate-100 p-2">
                               <span className={item.checked ? "text-green-600" : "text-slate-300"}>{item.checked ? "✓" : "○"}</span>
                               <div>
-                                <p className="font-semibold text-slate-800">{item.label}</p>
-                                {item.note ? <p className="text-xs text-slate-500">{item.note}</p> : null}
+                                <p className="ui-strong">{item.label}</p>
+                                {item.note ? <p className="ui-muted">{item.note}</p> : null}
                               </div>
                             </div>
                           ))}
