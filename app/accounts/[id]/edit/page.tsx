@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, showToast, SkeletonList, TextAreaField } from "@/app/ui";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
@@ -453,7 +453,7 @@ export default function EditAccountPage() {
     try {
       setSaving(true);
       setSaveError("");
-      setSavedMessage("Saving changes...");
+      setSavedMessage("");
 
       const original = originalDataRef.current;
 
@@ -536,7 +536,10 @@ export default function EditAccountPage() {
         }
       }
 
-      setSavedMessage((data.checklistFlagWarning || "Account updated successfully.") + crewLinkWarning);
+      // Green message for the save itself; if "Checklist Needed" or the Crew
+      // Link switches did not save, that part stays on screen in a box.
+      showToast("Account saved");
+      setSavedMessage(((data.checklistFlagWarning || "") + crewLinkWarning).trim());
       setSaveError("");
     } catch (err) {
       setSavedMessage("");
@@ -552,616 +555,335 @@ export default function EditAccountPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-100 p-6">
-        <div className="mx-auto max-w-5xl">
-          <div className="rounded-xl bg-white p-6 shadow">
-            <p className="text-sm font-semibold text-gray-600">
-              Loading account...
-            </p>
-          </div>
-        </div>
-      </main>
+      <Screen title="Edit Account" backHref="/accounts">
+        <SkeletonList rows={4} />
+      </Screen>
     );
   }
 
   if (error || !formData) {
     return (
-      <main className="min-h-screen bg-gray-100 p-6">
-        <div className="mx-auto max-w-5xl">
-          <Link
-            href="/accounts"
-            className="mb-4 inline-block text-sm font-medium text-blue-600 hover:underline"
-          >
-            ← Back to Accounts
-          </Link>
-
-          <div className="rounded-xl bg-white p-6 shadow">
-            <h1 className="text-2xl font-bold text-gray-900">
-              Account Not Found
-            </h1>
-
-            <p className="mt-2 text-gray-600">
-              {error ||
-                "This account does not exist or the account link is incorrect."}
-            </p>
-
-            <p className="mt-4 text-sm text-gray-500">
-              Account ID received: {decodedAccountIdFromUrl}
-            </p>
-          </div>
-        </div>
-      </main>
+      <Screen title="Account Not Found" backHref="/accounts">
+        <EmptyState
+          title="We could not find this account"
+          text={error || "This account does not exist or the account link is incorrect."}
+          action={
+            <BigButton kind="second" href="/accounts">
+              Back to accounts
+            </BigButton>
+          }
+        />
+      </Screen>
     );
   }
 
+  const sectionStyle = { display: "flex", flexDirection: "column", gap: 16, marginTop: 12 } as const;
+
   return (
-    <main className="min-h-screen bg-gray-100 p-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <Link
-              href={`/accounts/${accountIdForUrl}`}
-              className="text-sm font-medium text-blue-600 hover:underline"
-            >
-              ← Back to Account Detail
-            </Link>
+    <Screen
+      title="Edit Account"
+      subtitle={formData.accountName || "this account"}
+      backHref={`/accounts/${accountIdForUrl}`}
+      action={
+        <BigButton type="submit" form="edit-account-form" busy={saving} busyLabel="Saving…">
+          Save changes
+        </BigButton>
+      }
+      secondaryAction={
+        <BigButton kind="quiet" href={`/accounts/${accountIdForUrl}`} disabled={saving}>
+          Cancel
+        </BigButton>
+      }
+    >
+      {saveError ? <ErrorBox title="Your changes were not saved." text={saveError} /> : null}
+      {savedMessage ? <ErrorBox title="Saved, but one part did not save." text={savedMessage} /> : null}
 
-            <h1 className="mt-3 text-3xl font-bold text-gray-900">
-              Edit Account
-            </h1>
-
-            <p className="mt-1 text-gray-600">
-              Update account information for{" "}
-              {formData.accountName || "this account"}.
-            </p>
-          </div>
-
-          <Link
-            href={`/accounts/${accountIdForUrl}`}
-            className="w-fit rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-700"
-          >
-            View Account Detail
-          </Link>
+      <div className="ui-stats">
+        <div className="ui-stat">
+          <p className="ui-stat-label">Cleaning World Gets Paid</p>
+          <p className="ui-stat-value">{formatCurrency(formData.monthlyRevenue)}</p>
         </div>
-
-        {savedMessage ? (
-          <section className="rounded-xl border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800">
-            {savedMessage}
-          </section>
-        ) : null}
-
-        {saveError ? (
-          <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800">
-            {saveError}
-          </section>
-        ) : null}
-
-        <section className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Cleaning World Gets Paid</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {formatCurrency(formData.monthlyRevenue)}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Subcontractor Pay</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {formatCurrency(
-                formData.subcontractorPay || formData.monthlySubcontractorPay
-              )}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Gross Margin</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {formatCurrency(String(grossMargin))}
-            </p>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Gross Margin %</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
-              {grossMarginPercent.toFixed(1)}%
-            </p>
-          </div>
-        </section>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">
-              Basic Account Information
-            </h2>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Account Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.accountName || ""}
-                  onChange={(event) =>
-                    updateField("accountName", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Status
-                </label>
-                <select
-                  value={formData.status || ""}
-                  onChange={(event) =>
-                    updateField("status", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">Select Status</option>
-                  <option value="Active">Active</option>
-                  <option value="Cancelled">Cancelled</option>
-                  <option value="Paused">Paused</option>
-                  <option value="Over 90 Days">Over 90 Days</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Start Date
-                </label>
-                <input
-                  type="text"
-                  value={
-                    formData.accountStartDate ||
-                    formData.startDate ||
-                    formData.serviceStartDate ||
-                    ""
-                  }
-                  onChange={(event) => {
-                    // Written to all three aliases (the read side already
-                    // falls back between them, meaning existing data can
-                    // land under any one name) so a manual edit can't end up
-                    // saved under a field the load path isn't preferring —
-                    // same fix as Subcontractor Pay below, which hits the
-                    // same class of bug: without this, accountStartDate
-                    // (read first) stays at its stale loaded value and masks
-                    // every keystroke on the next render, so the field looks
-                    // impossible to edit.
-                    const value = event.target.value;
-                    setFormData((current) =>
-                      current
-                        ? {
-                            ...current,
-                            accountStartDate: value,
-                            startDate: value,
-                            serviceStartDate: value,
-                          }
-                        : current
-                    );
-                    setSavedMessage("");
-                    setSaveError("");
-                  }}
-                  placeholder="Example: 6/10/2026"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Cancelled Date
-                </label>
-                <input
-                  type="text"
-                  value={formData.cancelledDate || ""}
-                  onChange={(event) =>
-                    updateField("cancelledDate", event.target.value)
-                  }
-                  placeholder="Example: 6/10/2026"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Account Health
-                </label>
-                <select
-                  value={formData.accountHealth || ""}
-                  onChange={(event) =>
-                    updateField("accountHealth", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">Select Account Health</option>
-                  <option value="Stable">Stable</option>
-                  <option value="Needs Attention">Needs Attention</option>
-                  <option value="High Risk">High Risk</option>
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Address
-                </label>
-                <GoogleAddressAutocompleteInput
-                  value={formData.address || ""}
-                  onChange={(value) => updateField("address", value)}
-                  onPlaceSelected={handlePlaceSelected}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-                <p className="mt-2 text-xs font-semibold text-gray-500">
-                  Start typing and pick a suggestion. City, state, and zip are
-                  filled in automatically and do not need to be entered
-                  separately.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">
-              Service & Assignment
-            </h2>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Manager
-                </label>
-                <input
-                  type="text"
-                  value={formData.manager || ""}
-                  onChange={(event) =>
-                    updateField("manager", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Assigned Subcontractor
-                </label>
-                <select
-                  value={formData.subcontractor || ""}
-                  onChange={(event) =>
-                    updateField("subcontractor", event.target.value)
-                  }
-                  disabled={loadingSubcontractors}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
-                >
-                  <option value="">
-                    {loadingSubcontractors
-                      ? "Loading subcontractors..."
-                      : "Select subcontractor"}
-                  </option>
-
-                  {subcontractorOptions.map((subcontractor) => (
-                    <option
-                      key={subcontractor.value}
-                      value={subcontractor.value}
-                    >
-                      {subcontractor.label}
-                    </option>
-                  ))}
-                </select>
-
-                {!loadingSubcontractors && subcontractorOptions.length === 0 ? (
-                  <p className="mt-2 text-xs font-semibold text-red-600">
-                    No subcontractors were found. Add the subcontractor first
-                    from the Subcontractors page.
-                  </p>
-                ) : (
-                  <p className="mt-2 text-xs font-semibold text-gray-500">
-                    Subcontractor must come from the existing subcontractor
-                    list.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Service Type
-                </label>
-                <input
-                  type="text"
-                  value={formData.serviceType || ""}
-                  onChange={(event) =>
-                    updateField("serviceType", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Frequency
-                </label>
-                <input
-                  type="text"
-                  value={formData.frequency || ""}
-                  onChange={(event) =>
-                    updateField("frequency", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Cleaning Days
-                </label>
-                <input
-                  type="text"
-                  value={formData.cleaningDays || ""}
-                  onChange={(event) =>
-                    updateField("cleaningDays", event.target.value)
-                  }
-                  placeholder="Example: Mon, Wed, Fri"
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">Billing & Pay</h2>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Cleaning World Gets Paid
-                </label>
-                <input
-                  type="text"
-                  value={formData.monthlyRevenue || ""}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setFormData((current) => {
-                      if (!current) return current;
-                      const suggestedPay = subcontractorPayTouched
-                        ? undefined
-                        : computeSuggestedSubcontractorPay(value);
-                      return {
-                        ...current,
-                        monthlyRevenue: value,
-                        ...(suggestedPay !== undefined
-                          ? { subcontractorPay: suggestedPay, monthlySubcontractorPay: suggestedPay }
-                          : {}),
-                      };
-                    });
-                    setSavedMessage("");
-                    setSaveError("");
-                  }}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Subcontractor Pay
-                </label>
-                <input
-                  type="text"
-                  value={
-                    formData.subcontractorPay ||
-                    formData.monthlySubcontractorPay ||
-                    ""
-                  }
-                  onChange={(event) => {
-                    // Marks this touched so a later Cleaning World Gets Paid
-                    // edit stops overwriting it — this is now the user's
-                    // deliberate value, not a suggestion. Written to both
-                    // subcontractorPay and monthlySubcontractorPay (the read
-                    // side already falls back between the two, meaning
-                    // existing data can land under either name) so a manual
-                    // edit can't end up saved under the field the load path
-                    // isn't preferring, which would look like the edit
-                    // silently didn't take.
-                    const value = event.target.value;
-                    setSubcontractorPayTouched(true);
-                    setFormData((current) =>
-                      current
-                        ? { ...current, subcontractorPay: value, monthlySubcontractorPay: value }
-                        : current
-                    );
-                    setSavedMessage("");
-                    setSaveError("");
-                  }}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">
-              Customer Contact
-            </h2>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Contact Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.contactName || ""}
-                  onChange={(event) =>
-                    updateField("contactName", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Phone
-                </label>
-                <input
-                  type="text"
-                  value={formData.phone || ""}
-                  onChange={(event) => updateField("phone", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Email
-                </label>
-                <input
-                  type="text"
-                  value={formData.email || ""}
-                  onChange={(event) => updateField("email", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">
-              Access Information
-            </h2>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Has Key?
-                </label>
-                <select
-                  value={formData.hasKey || ""}
-                  onChange={(event) => updateField("hasKey", event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="">Select</option>
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
-                  <option value="N/A">N/A</option>
-                </select>
-              </div>
-
-              <div>
-                <span className="text-sm font-medium text-gray-700">
-                  Crew Link
-                </span>
-                <div className="mt-1 space-y-1 rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-800">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={formData.checklistNeeded === "Yes"}
-                      onChange={(event) => updateField("checklistNeeded", event.target.checked ? "Yes" : "No")}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    Checklist
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={crewLinkModules.supplyOrders}
-                      onChange={(event) => setCrewLinkModules((m) => ({ ...m, supplyOrders: event.target.checked }))}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    Supply orders
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={crewLinkModules.problemReports}
-                      onChange={(event) => setCrewLinkModules((m) => ({ ...m, problemReports: event.target.checked }))}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                    Problem reports
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700">
-                  Alarm Code / Instructions
-                </label>
-                <input
-                  type="text"
-                  value={formData.alarmCode || ""}
-                  onChange={(event) =>
-                    updateField("alarmCode", event.target.value)
-                  }
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Key / Alarm / Access Info
-                </label>
-                <textarea
-                  value={formData.keyAlarmAccessInfo || ""}
-                  onChange={(event) =>
-                    updateField("keyAlarmAccessInfo", event.target.value)
-                  }
-                  rows={3}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">Scope of Work</h2>
-
-            <textarea
-              value={formData.scopeOfWork || ""}
-              onChange={(event) =>
-                updateField("scopeOfWork", event.target.value)
-              }
-              rows={6}
-              className="mt-4 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">Notes</h2>
-
-            <textarea
-              value={formData.notes || ""}
-              onChange={(event) => updateField("notes", event.target.value)}
-              rows={5}
-              className="mt-4 w-full rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-          </section>
-
-          <section className="rounded-xl bg-white p-6 shadow">
-            <h2 className="text-xl font-bold text-gray-900">Change History</h2>
-
-            <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-              Change history will be added later. For now, this page loads live
-              account data and saves account edits back to Google Sheets.
-            </div>
-          </section>
-
-          <section className="flex flex-wrap gap-3 pb-8">
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
-
-            <Link
-              href={`/accounts/${accountIdForUrl}`}
-              className="rounded-lg bg-gray-200 px-5 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-300"
-            >
-              Cancel
-            </Link>
-          </section>
-        </form>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Subcontractor Pay</p>
+          <p className="ui-stat-value">{formatCurrency(formData.subcontractorPay || formData.monthlySubcontractorPay)}</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Gross Margin</p>
+          <p className="ui-stat-value">{formatCurrency(String(grossMargin))}</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Gross Margin %</p>
+          <p className="ui-stat-value">{grossMarginPercent.toFixed(1)}%</p>
+        </div>
       </div>
-    </main>
+
+      <form id="edit-account-form" onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Card title="Basic Account Information">
+          <div style={sectionStyle}>
+            <Field label="Account name" optional value={formData.accountName || ""} onChange={(event) => updateField("accountName", event.target.value)} />
+
+            <SelectField label="Status" optional value={formData.status || ""} onChange={(event) => updateField("status", event.target.value)}>
+              <option value="">Select Status</option>
+              <option value="Active">Active</option>
+              <option value="Cancelled">Cancelled</option>
+              <option value="Paused">Paused</option>
+              <option value="Over 90 Days">Over 90 Days</option>
+              <option value="Inactive">Inactive</option>
+            </SelectField>
+
+            <Field
+              label="Start date"
+              optional
+              placeholder="6/10/2026"
+              value={formData.accountStartDate || formData.startDate || formData.serviceStartDate || ""}
+              onChange={(event) => {
+                // Written to all three aliases (the read side already
+                // falls back between them, meaning existing data can
+                // land under any one name) so a manual edit can't end up
+                // saved under a field the load path isn't preferring —
+                // same fix as Subcontractor Pay below, which hits the
+                // same class of bug: without this, accountStartDate
+                // (read first) stays at its stale loaded value and masks
+                // every keystroke on the next render, so the field looks
+                // impossible to edit.
+                const value = event.target.value;
+                setFormData((current) =>
+                  current
+                    ? {
+                        ...current,
+                        accountStartDate: value,
+                        startDate: value,
+                        serviceStartDate: value,
+                      }
+                    : current
+                );
+                setSavedMessage("");
+                setSaveError("");
+              }}
+            />
+
+            <Field
+              label="Cancelled date"
+              optional
+              placeholder="6/10/2026"
+              value={formData.cancelledDate || ""}
+              onChange={(event) => updateField("cancelledDate", event.target.value)}
+            />
+
+            <SelectField label="Account health" optional value={formData.accountHealth || ""} onChange={(event) => updateField("accountHealth", event.target.value)}>
+              <option value="">Select Account Health</option>
+              <option value="Stable">Stable</option>
+              <option value="Needs Attention">Needs Attention</option>
+              <option value="High Risk">High Risk</option>
+            </SelectField>
+
+            <label className="ui-field">
+              <span className="ui-label">
+                Address <span className="ui-optional">(optional)</span>
+              </span>
+              <span className="ui-hint">
+                Start typing and pick a suggestion. City, state, and zip are filled in automatically and do not need to be
+                entered separately.
+              </span>
+              <GoogleAddressAutocompleteInput
+                value={formData.address || ""}
+                onChange={(value) => updateField("address", value)}
+                onPlaceSelected={handlePlaceSelected}
+                className="ui-input"
+              />
+            </label>
+          </div>
+        </Card>
+
+        <Card title="Service & Assignment">
+          <div style={sectionStyle}>
+            <Field label="Manager" optional value={formData.manager || ""} onChange={(event) => updateField("manager", event.target.value)} />
+
+            <SelectField
+              label="Assigned subcontractor"
+              optional
+              hint={
+                !loadingSubcontractors && subcontractorOptions.length === 0
+                  ? undefined
+                  : "Subcontractor must come from the existing subcontractor list."
+              }
+              error={
+                !loadingSubcontractors && subcontractorOptions.length === 0
+                  ? "No subcontractors were found. Add the subcontractor first from the Subcontractors page."
+                  : undefined
+              }
+              value={formData.subcontractor || ""}
+              onChange={(event) => updateField("subcontractor", event.target.value)}
+              disabled={loadingSubcontractors}
+            >
+              <option value="">{loadingSubcontractors ? "Loading subcontractors…" : "Select subcontractor"}</option>
+              {subcontractorOptions.map((subcontractor) => (
+                <option key={subcontractor.value} value={subcontractor.value}>
+                  {subcontractor.label}
+                </option>
+              ))}
+            </SelectField>
+
+            <Field label="Service type" optional value={formData.serviceType || ""} onChange={(event) => updateField("serviceType", event.target.value)} />
+            <Field label="Frequency" optional value={formData.frequency || ""} onChange={(event) => updateField("frequency", event.target.value)} />
+            <Field
+              label="Cleaning days"
+              optional
+              placeholder="Mon, Wed, Fri"
+              value={formData.cleaningDays || ""}
+              onChange={(event) => updateField("cleaningDays", event.target.value)}
+            />
+          </div>
+        </Card>
+
+        <Card title="Billing & Pay">
+          <div style={sectionStyle}>
+            <Field
+              label="Cleaning World gets paid"
+              optional
+              inputMode="decimal"
+              value={formData.monthlyRevenue || ""}
+              onChange={(event) => {
+                const value = event.target.value;
+                setFormData((current) => {
+                  if (!current) return current;
+                  const suggestedPay = subcontractorPayTouched
+                    ? undefined
+                    : computeSuggestedSubcontractorPay(value);
+                  return {
+                    ...current,
+                    monthlyRevenue: value,
+                    ...(suggestedPay !== undefined
+                      ? { subcontractorPay: suggestedPay, monthlySubcontractorPay: suggestedPay }
+                      : {}),
+                  };
+                });
+                setSavedMessage("");
+                setSaveError("");
+              }}
+            />
+
+            <Field
+              label="Subcontractor pay"
+              optional
+              hint="Changes to 70% of the amount above when you edit that, until you type your own number here."
+              inputMode="decimal"
+              value={formData.subcontractorPay || formData.monthlySubcontractorPay || ""}
+              onChange={(event) => {
+                // Marks this touched so a later Cleaning World Gets Paid
+                // edit stops overwriting it — this is now the user's
+                // deliberate value, not a suggestion. Written to both
+                // subcontractorPay and monthlySubcontractorPay (the read
+                // side already falls back between the two, meaning
+                // existing data can land under either name) so a manual
+                // edit can't end up saved under the field the load path
+                // isn't preferring, which would look like the edit
+                // silently didn't take.
+                const value = event.target.value;
+                setSubcontractorPayTouched(true);
+                setFormData((current) =>
+                  current
+                    ? { ...current, subcontractorPay: value, monthlySubcontractorPay: value }
+                    : current
+                );
+                setSavedMessage("");
+                setSaveError("");
+              }}
+            />
+          </div>
+        </Card>
+
+        <Card title="Customer Contact">
+          <div style={sectionStyle}>
+            <Field label="Contact name" optional value={formData.contactName || ""} onChange={(event) => updateField("contactName", event.target.value)} />
+            <Field label="Phone" optional inputMode="tel" value={formData.phone || ""} onChange={(event) => updateField("phone", event.target.value)} />
+            <Field label="Email" optional inputMode="email" value={formData.email || ""} onChange={(event) => updateField("email", event.target.value)} />
+          </div>
+        </Card>
+
+        <Card title="Access Information">
+          <div style={sectionStyle}>
+            <SelectField label="Has key?" optional value={formData.hasKey || ""} onChange={(event) => updateField("hasKey", event.target.value)}>
+              <option value="">Select</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+              <option value="N/A">N/A</option>
+            </SelectField>
+
+            <fieldset className="ui-checks">
+              <legend className="ui-label">Crew Link</legend>
+              <label className="ui-check">
+                <input
+                  type="checkbox"
+                  checked={formData.checklistNeeded === "Yes"}
+                  onChange={(event) => updateField("checklistNeeded", event.target.checked ? "Yes" : "No")}
+                />
+                <span>Checklist</span>
+              </label>
+              <label className="ui-check">
+                <input
+                  type="checkbox"
+                  checked={crewLinkModules.supplyOrders}
+                  onChange={(event) => setCrewLinkModules((m) => ({ ...m, supplyOrders: event.target.checked }))}
+                />
+                <span>Supply orders</span>
+              </label>
+              <label className="ui-check">
+                <input
+                  type="checkbox"
+                  checked={crewLinkModules.problemReports}
+                  onChange={(event) => setCrewLinkModules((m) => ({ ...m, problemReports: event.target.checked }))}
+                />
+                <span>Problem reports</span>
+              </label>
+            </fieldset>
+
+            <Field
+              label="Alarm code / instructions"
+              optional
+              value={formData.alarmCode || ""}
+              onChange={(event) => updateField("alarmCode", event.target.value)}
+            />
+
+            <TextAreaField
+              label="Key / Alarm / Access Info"
+              optional
+              rows={3}
+              value={formData.keyAlarmAccessInfo || ""}
+              onChange={(event) => updateField("keyAlarmAccessInfo", event.target.value)}
+            />
+          </div>
+        </Card>
+
+        <Card title="Scope of Work">
+          <div style={sectionStyle}>
+            <TextAreaField
+              label="Scope of work"
+              optional
+              rows={6}
+              value={formData.scopeOfWork || ""}
+              onChange={(event) => updateField("scopeOfWork", event.target.value)}
+            />
+          </div>
+        </Card>
+
+        <Card title="Notes">
+          <div style={sectionStyle}>
+            <TextAreaField label="Notes" optional rows={5} value={formData.notes || ""} onChange={(event) => updateField("notes", event.target.value)} />
+          </div>
+        </Card>
+
+        <Card title="Change History">
+          <p className="ui-card-text">
+            Every saved change is listed under History on the account page.
+          </p>
+          <div style={{ marginTop: 12 }}>
+            <BigButton kind="second" href={`/accounts/${accountIdForUrl}`}>
+              Open the account page
+            </BigButton>
+          </div>
+        </Card>
+      </form>
+    </Screen>
   );
 }

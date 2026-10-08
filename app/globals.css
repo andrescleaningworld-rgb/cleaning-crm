@@ -1433,6 +1433,40 @@ button.ui-card:hover {
   white-space: pre-wrap;
 }
 
+/* A group of tick boxes: each row is one 48px tap target. */
+.ui-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.ui-checks legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.ui-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--ui-tap);
+  padding: 4px 12px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  cursor: pointer;
+}
+
+.ui-check input {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  accent-color: var(--ui-brand);
+}
+
 .ui-nowrap {
   white-space: nowrap;
 }
