@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { closeComplaint } from "@/lib/data/complaints";
+import { createSupplyOrder } from "@/lib/data/supplies";
+import {
+  getSubPortalByEmail,
+  logSubcontractorActivity,
+  submitSubPortalIssue,
+  subPortalOnPostgres,
+} from "@/lib/data/sub-portal";
+import { sendInternalNotification } from "@/lib/email";
+import { emailNewSupplyOrder } from "@/lib/supplyOrderEmail";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -98,9 +108,113 @@ function getSubIdentity(sub: NonNullable<ScriptResponse["subcontractor"]>) {
   return { id, email, name };
 }
 
+type SessionIdentity = { subcontractorId: string; subcontractorEmail: string; subcontractorName: string };
+
+// DATA_SOURCE_SUB_PORTAL=postgres: the same six actions, answered from
+// Postgres. Apps Script is not called. The answers keep the keys the portal
+// screen reads (subcontractor, accounts, complaints, supplyItems, orderId,
+// rowNumber, status).
+async function handleOnPostgres(
+  request: NextRequest,
+  body: Record<string, unknown>,
+  action: string,
+  sessionIdentity: SessionIdentity | null
+): Promise<NextResponse> {
+  const answer = (extra: {
+    message?: string;
+    subcontractor?: unknown;
+    accounts?: unknown[];
+    complaints?: unknown[];
+    supplyItems?: unknown[];
+    orderId?: string | null;
+    rowNumber?: string | number;
+    status?: string;
+  }) => ({
+    success: true,
+    message: extra.message || "Request completed successfully.",
+    subcontractor: extra.subcontractor ?? null,
+    accounts: stripFinancialFields(extra.accounts ?? []),
+    complaints: extra.complaints ?? [],
+    supplyItems: extra.supplyItems ?? [],
+    orderId: extra.orderId ?? null,
+    rowNumber: extra.rowNumber ?? "",
+    status: extra.status ?? "",
+  });
+  const refuse = (error: string, status: number) => NextResponse.json({ success: false, error }, { status });
+
+  const isLogin = action === "getSubcontractorPortalByEmail";
+  if (isLogin || action === "getSubcontractorPortalBySession") {
+    const email = isLogin ? String(body.email ?? "").trim() : sessionIdentity?.subcontractorEmail ?? "";
+    const portal = await getSubPortalByEmail(email);
+    if (!portal) return refuse("We could not find that email on file.", isLogin ? 404 : 401);
+    if (isInactiveSub(portal.subcontractor)) {
+      return refuse("Your account is currently inactive. Please contact your manager.", 401);
+    }
+    const response = NextResponse.json(answer({ ...portal, message: "Subcontractor portal loaded." }));
+    if (isLogin) {
+      const identity = getSubIdentity(portal.subcontractor);
+      const session = await getIronSession<SubSessionData>(request, response, subSessionOptions());
+      session.subcontractorId = identity.id;
+      session.subcontractorEmail = identity.email || email;
+      session.subcontractorName = identity.name;
+      await session.save();
+    }
+    return response;
+  }
+
+  // Everything below needs a logged-in subcontractor (checked by the caller).
+  const email = sessionIdentity?.subcontractorEmail ?? "";
+  const name = sessionIdentity?.subcontractorName ?? "";
+
+  if (action === "logSubcontractorActivity") {
+    await logSubcontractorActivity({ email, name, actionType: String(body.actionType ?? ""), details: String(body.details ?? "") });
+    return NextResponse.json(answer({ message: "Activity logged." }));
+  }
+
+  if (action === "submitSubPortalIssue") {
+    const issue = await submitSubPortalIssue({ ...((body.issue as Record<string, unknown>) || {}), subcontractorEmail: email, subcontractorName: name });
+    // The office hears about a new issue by email as well as under Notifications.
+    await sendInternalNotification(`Sub portal issue: ${issue.issueType || "Issue"} (${issue.urgency})`, [
+      `Issue ID: ${issue.issueId}`,
+      `Subcontractor: ${issue.subcontractorName || issue.subcontractorEmail}`,
+      `Account: ${issue.accountName || "Not given"}`,
+      `Type: ${issue.issueType || "Not given"}`,
+      `Urgency: ${issue.urgency}`,
+      `Description: ${issue.description}`,
+      `Photos: ${issue.photoCount || "0"}`,
+    ]).catch(() => false);
+    return NextResponse.json({
+      ...answer({ message: "Issue submitted.", rowNumber: issue.rowNumber, status: issue.status }),
+      // The screen ties the issue's photos to this id.
+      issueId: issue.issueId,
+      data: { issueId: issue.issueId },
+    });
+  }
+
+  if (action === "submitSupplyOrder") {
+    const order = await createSupplyOrder({ ...body, subcontractor: name, subcontractorName: name, subcontractorEmail: email });
+    await emailNewSupplyOrder(order);
+    return NextResponse.json(answer({ message: "Supply order submitted.", orderId: order.orderId, rowNumber: order.rowNumber, status: order.status }));
+  }
+
+  if (action === "resolveComplaintBySubcontractor") {
+    const complaint = (body.complaint as Record<string, unknown>) || {};
+    const resolution = String(complaint.resolution || complaint.resolutionNotes || complaint.notes || "");
+    const closed = await closeComplaint({
+      rowNumber: complaint.rowNumber as string | number | undefined,
+      id: String(complaint.id ?? "").trim(),
+      status: "Resolved by Sub",
+      resolution: name ? `Resolved by ${name}: ${resolution}` : resolution,
+    });
+    return NextResponse.json(answer({ message: "Complaint resolved.", rowNumber: closed.rowNumber, status: closed.status }));
+  }
+
+  return refuse(`Unknown subcontractor portal action: ${action}`, 400);
+}
+
 export async function POST(request: NextRequest) {
   try {
-    if (!SCRIPT_URL) {
+    if (!SCRIPT_URL && !subPortalOnPostgres()) {
       return NextResponse.json(
         {
           success: false,
@@ -132,11 +246,7 @@ export async function POST(request: NextRequest) {
     // subcontractor. Identity is taken from the session, never trusted from
     // the request body, so a sub can no longer act as (or view) another sub
     // by passing a different email/name in the payload.
-    let sessionIdentity: {
-      subcontractorId: string;
-      subcontractorEmail: string;
-      subcontractorName: string;
-    } | null = null;
+    let sessionIdentity: SessionIdentity | null = null;
 
     if (!isLoginAction) {
       const readResponse = NextResponse.json({});
@@ -158,6 +268,14 @@ export async function POST(request: NextRequest) {
         subcontractorEmail: session.subcontractorEmail,
         subcontractorName: session.subcontractorName ?? "",
       };
+    }
+
+    if (subPortalOnPostgres()) {
+      return await handleOnPostgres(request, body, String(action ?? ""), sessionIdentity);
+    }
+
+    if (!SCRIPT_URL) {
+      throw new Error("Missing GOOGLE_SCRIPT_URL or NEXT_PUBLIC_GOOGLE_SCRIPT_URL in .env.local");
     }
 
     const finalBody =

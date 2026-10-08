@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { getSubPortalIssuesShape, subPortalOnPostgres, updateSubPortalIssueStatus } from "@/lib/data/sub-portal";
 import { getOrFetch } from "@/lib/serverCache";
 
 const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
@@ -31,6 +32,12 @@ type NotificationsPayload = {
 };
 
 async function fetchNotificationsFromAppsScript(): Promise<NotificationsPayload> {
+  // DATA_SOURCE_SUB_PORTAL=postgres: the same answer, without Apps Script.
+  if (subPortalOnPostgres()) {
+    const { issues, newCount, message } = await getSubPortalIssuesShape();
+    return { success: true, message, issues, newCount };
+  }
+
   // Read-only action — safe to retry after a throw (timeout/network
   // failure), unlike the write actions in POST below.
   const response = await fetchAppsScript(
@@ -143,6 +150,30 @@ export async function POST(request: NextRequest) {
   }
 
   const action = body.action || "updateSubPortalIssueStatus";
+
+  // DATA_SOURCE_SUB_PORTAL=postgres: save here, Apps Script is not called.
+  if (subPortalOnPostgres()) {
+    if (action !== "updateSubPortalIssueStatus") {
+      return NextResponse.json({ success: false, message: `Unknown notifications action: ${action}` }, { status: 400 });
+    }
+    try {
+      const sent = (body.issue || body) as Record<string, unknown>;
+      const updated = await updateSubPortalIssueStatus(sent);
+      return NextResponse.json({
+        success: true,
+        message: "Issue updated.",
+        issueId: updated.issueId,
+        rowNumber: sent.rowNumber || "",
+        status: updated.status,
+        data: { success: true, ...updated },
+      });
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, message: error instanceof Error ? error.message : "Unknown error updating notification." },
+        { status: 500 }
+      );
+    }
+  }
 
   let response: Response;
   try {

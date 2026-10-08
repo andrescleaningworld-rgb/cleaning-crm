@@ -2,14 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
-import { sendInternalNotification } from "@/lib/email";
-import {
-  createSupplyOrder,
-  getSupplyOrdersShape,
-  markSupplyOrderEmail,
-  suppliesOnPostgres,
-  updateSupplyOrderStatus,
-} from "@/lib/data/supplies";
+import { createSupplyOrder, getSupplyOrdersShape, suppliesOnPostgres, updateSupplyOrderStatus } from "@/lib/data/supplies";
+import { emailNewSupplyOrder } from "@/lib/supplyOrderEmail";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -128,23 +122,6 @@ async function readScriptJson(response: Response) {
       isJson: false,
     };
   }
-}
-
-// DATA_SOURCE_SUPPLIES=postgres: the office email Apps Script used to send
-// for a new order, sent from here to the same office addresses.
-async function emailNewSupplyOrder(order: Awaited<ReturnType<typeof createSupplyOrder>>) {
-  const sent = await sendInternalNotification(`New supply order: ${order.supplyItem}`, [
-    `Order ID: ${order.orderId}`,
-    `Subcontractor: ${order.subcontractor || "Not given"}`,
-    `Subcontractor email: ${order.subcontractorEmail || "Not given"}`,
-    `Account: ${order.accountName || "Not given"}`,
-    `Item: ${order.supplyItem}`,
-    `Quantity: ${[order.quantity, order.unit].filter(Boolean).join(" ") || "Not given"}`,
-    `Delivery: ${order.deliveryMode || "Not given"}`,
-    `Notes: ${order.notes || "None"}`,
-    `Status: ${order.status}`,
-  ]).catch(() => false);
-  await markSupplyOrderEmail(order.rowNumber, "info@cleaningworldinc.com, crm@cleaningworldinc.com", sent ? "Sent" : "Not sent").catch(() => undefined);
 }
 
 export async function GET() {

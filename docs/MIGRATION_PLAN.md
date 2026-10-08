@@ -287,8 +287,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 13, step 1: db/migrations/015_sub_portal.sql applied to dev (sub_portal_issues, photos).
 - Area 13, step 2: scripts/migrate/import-sub-portal.mjs. Dry-run, run, re-run clean: 1 issue (linked to a sub and an account), 3 photos (all belong to a complaint that exists), 0 open questions.
 - Area 13, step 3: scripts/migrate/verify-sub-portal.mjs → docs/migration-reports/sub-portal-verify.md. Both tables match, every row field by field.
+- Area 13, step 4: lib/pg/sub-portal.ts + lib/data/sub-portal.ts; app/api/subcontractor-portal and app/api/notifications use Postgres when DATA_SOURCE_SUB_PORTAL=postgres (Apps Script is not called; unset = as before). The issue list is identical to the live Apps Script answer; check-sub-portal-writes.mts 22/22 (the login answer's rules on real rows with counts only, activity lines, issues, status changes); over HTTP with one made-up sub, two made-up accounts and a made-up complaint: unknown email refused, login, session read, activity line, issue (office email dry-run), supply order (office email dry-run), resolve complaint, logout; the sub's identity always comes from the session, never from what the page sends. Revenue and margin are still stripped from the accounts a sub gets. The supply order email helper moved to lib/supplyOrderEmail.ts. Not compared: the login answer against a live Apps Script login.
 
-**Next step:** Area 13, Step 4: Postgres data layer behind DATA_SOURCE_SUB_PORTAL.
+**Next step:** Area 13, Step 5: redesign the sub portal page (protected, approved) and Notifications.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -382,6 +383,11 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 12: on Postgres the new-order email goes through the app's own office notification (info@ and crm@, 9 plain lines) | every existing order row says the Apps Script email went to those office addresses; its wording is not known | change emailNewSupplyOrder in app/api/supply-orders/route.ts
 - Area 13: the sub portal's login answer is rebuilt from the three lists already proven identical to Apps Script (subcontractors, accounts, complaints) plus the supply list, and is NOT compared with a live answer | fetching the live one means sending a real sub's email to the login action, which the rules forbid, and it may write a log line in the live sheet | Andres logs in on a preview with the switch on and compares the screen (click-through in the report)
 - Area 13: photos stay on Apps Script (upload and list); the 3 rows are copied to a photos table for the record only | Apps Script owns the Drive folders the photos go into; the app's own Drive upload uses a different folder and its production settings are not known here | moves in the wrap-up once the Drive folder is settled
+- Area 13: on Postgres a sub's portal lists the accounts tied to that sub that are not cancelled, and the complaints on those accounts | whether Apps Script shows a sub their cancelled accounts is not known; 75 cancelled accounts are tied to a sub, and showing less is the safer mistake | change CANCELLED in lib/pg/sub-portal.ts
+- Area 13: on Postgres a new sub portal issue also sends the office an email (info@ and crm@) | it is not known whether Apps Script emails anyone; an extra office email is the safer mistake than a missed access or alarm issue | remove the sendInternalNotification call in app/api/subcontractor-portal/route.ts
+- Area 13: on Postgres the answer to 'report an issue' carries the issue's id | today the route drops it, so the page invents an id and the issue's photos are filed under an id no issue has | none needed
+- Area 13: on Postgres 'resolve complaint' sets the status to Resolved by Sub and keeps the sub's note (as 'Resolved by <sub>: …') in the complaint's resolution note, the same way a staff close does | what Apps Script writes for it is not known (the complaint sheet has no resolution column) | adjust handleOnPostgres in the route
+- Area 13: /api/subcontractor-issues is left on Apps Script | no screen calls it | delete it or wire it when wanted
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
