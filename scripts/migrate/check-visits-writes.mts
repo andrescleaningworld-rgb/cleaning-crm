@@ -28,7 +28,8 @@ const throwsWith = async (run: () => Promise<unknown>, text: string) => {
 };
 
 const NAME = "ZZ Migration Write Test";
-const count = async (table: string) => ((await sql.query(`SELECT count(*)::int AS n FROM ${table}`)) as { n: number }[])[0].n;
+// Rows of a test account (negative row numbers) are not in any staff list, so they are not counted here.
+const count = async (table: string) => ((await sql.query(`SELECT count(*)::int AS n FROM ${table}${table === "visits" ? " WHERE sheet_row > 0" : ""}`)) as { n: number }[])[0].n;
 const before = { visits: await count("visits"), log: await count("visit_edit_log") };
 const lastRow = ((await sql.query(`SELECT max(sheet_row)::int AS n FROM visits`)) as { n: number }[])[0].n;
 const made: string[] = [];

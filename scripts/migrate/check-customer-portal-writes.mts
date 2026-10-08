@@ -35,7 +35,7 @@ const hashBefore = await untouched();
 try {
   // ----- Settings → Portal
   const code = await data.enablePortalAccount(NAME, PHONE, "ZZ-TEST-ID");
-  check("enablePortalAccount: the code is the account ID that was sent", code === "ZZ-TEST-ID");
+  check("enablePortalAccount: the code is random (CW-xxxxx), not the account ID that was sent", /^CW-[A-HJ-NP-Z2-9]{5}$/.test(code) && code !== "ZZ-TEST-ID");
   const row = await one<{ sheet_row: number; portal_access: string; account_ref: string | null; phone: string; source_sheet: string | null }>(`SELECT sheet_row, portal_access, account_ref, phone, source_sheet FROM portal_access WHERE account_name = $1`, [NAME]);
   check("the new row is last, access YES, not linked (unknown ID and name), marked as created here", row.sheet_row === lastRow + 1 && row.portal_access === "YES" && row.account_ref === null && row.phone === PHONE && row.source_sheet === null);
 
@@ -52,17 +52,17 @@ try {
   // ----- login lookups (made-up phone)
   const byPhone = await data.getCustomerByPhone("555 010 9999");
   const byPhone11 = await data.getCustomerByPhone("+1 (555) 010-9999");
-  const byCode = await data.getCustomerByPortalCode(" zz-test-id ");
+  const byCode = await data.getCustomerByPortalCode(` ${code.toLowerCase()} `);
   check("getCustomerByPhone finds it however the phone is typed", byPhone?.accountName === NAME && byPhone11?.accountName === NAME);
   check("getCustomerByPortalCode ignores case and spaces", byCode?.accountName === NAME && byCode.accountId === "ZZ-TEST-ID");
   check("the customer answer has the 18 fields and no Monthly Revenue", byCode !== null && Object.keys(byCode).length === 18 && !("monthlyRevenue" in byCode));
   check("text with no digits matches nobody (the Sheets version returns an account here)", (await data.getCustomerByPhone("abc")) === null && (await data.getCustomerByPhone("   ")) === null);
 
   await data.updatePortalAccountFields(row.sheet_row, { portalAccess: "NO" });
-  check("access turned off: the phone no longer finds the account, the code still does (the login then refuses it)", (await data.getCustomerByPhone(PHONE)) === null && (await data.getCustomerByPortalCode("ZZ-TEST-ID"))?.portalAccess === "NO");
+  check("access turned off: the phone no longer finds the account, the code still does (the login then refuses it)", (await data.getCustomerByPhone(PHONE)) === null && (await data.getCustomerByPortalCode(code))?.portalAccess === "NO");
   await data.updatePortalAccountFields(row.sheet_row, { portalAccess: "YES", portalCode: "CW-TEST9", phone: "5550109998", nextScheduledService: "November 3 - Morning", estimatedMonthlyTotal: "$123.45" });
   const after = await data.getCustomerByPortalCode("CW-TEST9");
-  check("updatePortalAccountFields saves all five fields", after?.phone === "5550109998" && after.nextScheduledService === "November 3 - Morning" && after.estimatedMonthlyTotal === "$123.45" && after.portalAccess === "YES" && (await data.getCustomerByPortalCode("ZZ-TEST-ID")) === null);
+  check("updatePortalAccountFields saves all five fields", after?.phone === "5550109998" && after.nextScheduledService === "November 3 - Morning" && after.estimatedMonthlyTotal === "$123.45" && after.portalAccess === "YES" && (await data.getCustomerByPortalCode(code)) === null);
   await data.updatePortalAccountFields(row.sheet_row, {});
   await data.updatePortalAccountFields(999999, { portalAccess: "NO" });
   check("no fields = no change; an unknown row number changes nothing", (await data.getCustomerByPortalCode("CW-TEST9"))?.portalAccess === "YES" && (await accessCount()) === beforeAccess + 3);

@@ -47,3 +47,6 @@ next-env.d.ts
 # permission allowlist entries (e.g. a curl command with an API key baked
 # in); never meant to be shared/committed
 .claude/settings.local.json
+
+# Lists with customer names made for Andres (never committed).
+docs/migration-reports/private/

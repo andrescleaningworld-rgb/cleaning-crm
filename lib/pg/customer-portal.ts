@@ -138,8 +138,9 @@ function generatePortalCode(): string {
 }
 
 export async function enablePortalAccount(accountName: string, phone: string, accountId: string): Promise<string> {
-  // Portal code defaults to the account ID, as in the Sheets version.
-  const code = accountId || generatePortalCode();
+  // A random code, never the Account ID (the Sheets version uses the ID,
+  // which is printed on every form and is no secret).
+  const code = generatePortalCode();
   const sql = getSql();
   await sql.query(
     `WITH next AS (SELECT COALESCE(MAX(sheet_row), 1) + 1 AS n FROM portal_access)

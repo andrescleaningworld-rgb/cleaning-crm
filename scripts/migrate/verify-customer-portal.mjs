@@ -24,6 +24,8 @@ const requestTab = (tab, range, photos) => ({
 // portal_requests holds three tabs; each spec must only see its own rows.
 const { getSql } = await import("./lib/pg.mjs");
 const perTab = await getSql().query("SELECT tab, count(*)::int AS n FROM portal_requests WHERE source_sheet IS NOT NULL GROUP BY 1");
+// Codes replaced by random ones on purpose (randomize-portal-codes.mjs): not compared with the sheet.
+const randomized = new Map((await getSql().query("SELECT legacy_key, portal_code FROM portal_access WHERE portal_code_randomized_at IS NOT NULL")).map((r) => [r.legacy_key, r.portal_code]));
 const requestSpecs = perTab.length === 0 ? [requestTab("portal-complaints", "A:I", true)] : null;
 
 await runVerify("customer-portal", [
@@ -52,10 +54,11 @@ await runVerify("customer-portal", [
         last_invoice_date_raw: 14,
         monthly_revenue_raw: 15,
         estimated_monthly_total_raw: 16,
-        portal_code: 17,
+        // portal_code is compared below (some were replaced by random ones on purpose)
         portal_access: 18,
       }),
       sheet_row: (_r, sourceRow) => String(sourceRow),
+      portal_code: (r, sourceRow) => randomized.get(`row-${sourceRow}`) ?? cell(r, 17),
     },
     statusColumn: "upper(btrim(portal_access))",
   },
@@ -67,6 +70,8 @@ await runVerify("customer-portal", [
   extraSections: [
     "",
     "## Request tabs",
+    "",
+    `Portal codes: ${randomized.size} were replaced by random ones in Postgres on purpose (they used to equal the Account ID) and are not compared with the sheet.`,
     "",
     "portal-complaints, portal-service-requests and portal-date-changes each have 0 rows in Sheets and 0 imported rows in Postgres (the import prints the three counts). The sheet has no portal-billing-requests tab.",
   ],

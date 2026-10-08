@@ -115,6 +115,11 @@ try {
     run.issue("portal_access", `row-${list[0]}`, `Rows ${list.join(", ")} have portal access and the same phone. A login with that phone always looks at row ${list[0]} first, so the others cannot log in to /portal.`);
   }
 
+  // A code that was replaced by a random one (randomize-portal-codes.mjs) is
+  // kept: the sheet still has the old code and must not bring it back.
+  const randomized = new Map((await sql.query("SELECT legacy_key, portal_code FROM portal_access WHERE portal_code_randomized_at IS NOT NULL")).map((r) => [r.legacy_key, r.portal_code]));
+  for (const record of access) if (randomized.has(record.legacy_key)) record.portal_code = randomized.get(record.legacy_key);
+
   const before = await existingKeys(sql, "portal_access");
   const diff = compareKeys(run, "portal_access", access.map((r) => r.legacy_key), before);
   if (!dryRun) await upsertRows(sql, "portal_access", access);
@@ -133,6 +138,7 @@ try {
     noCode,
     codeSameAsAccountId: codeIsAccountId,
     rowsSharingAPhoneWithAccess: sharedPhoneRows,
+    randomCodesKept: randomized.size,
   });
 
   // ----- the request tabs (portal-billing-requests has no tab in the sheet).

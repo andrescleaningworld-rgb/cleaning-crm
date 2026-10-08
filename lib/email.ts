@@ -139,6 +139,12 @@ export async function sendInternalNotification(
   );
 }
 
+// One email to one customer (the portal's "Set your password" link). Plain
+// text, through the same provider and the same dry-run switch as the rest.
+export async function sendCustomerEmail(to: string, subject: string, lines: string[]): Promise<boolean> {
+  return sendPlainTextEmail([to], subject, lines);
+}
+
 // Subcontractor-facing notification — replaces the old Apps Script
 // addComplaint's sendComplaintNotificationToSubcontractor. Caller is
 // responsible for resolving `to` (see findSubcontractorEmailByName in

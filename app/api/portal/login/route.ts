@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
+import { newPortalOn, sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { getCustomerByPortalCode, getCustomerByPhone, normalizePhone } from "@/lib/data/customer-portal";
 
 // A new answer every time: one shared Response can only be sent once, so
@@ -9,6 +9,12 @@ import { getCustomerByPortalCode, getCustomerByPhone, normalizePhone } from "@/l
 const invalid = () => NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
 
 export async function POST(request: NextRequest) {
+  // Where the new portal runs, customers log in with email and password
+  // (app/api/portal/auth/login). The phone + code login must not be a way around it.
+  if (newPortalOn()) {
+    return NextResponse.json({ error: "This login has moved. Please use your email and password." }, { status: 410 });
+  }
+
   let body: { phone?: unknown; portalCode?: unknown };
   try {
     body = await request.json();

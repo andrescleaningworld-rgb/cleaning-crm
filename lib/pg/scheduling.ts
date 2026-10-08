@@ -77,7 +77,7 @@ const rowToVisit = (r: VisitRow): SubcontractorVisitWithRow => ({
 
 async function allVisits(): Promise<SubcontractorVisitWithRow[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM subcontractor_visits ORDER BY sheet_row`)) as VisitRow[];
+  const rows = (await sql.query(`SELECT * FROM subcontractor_visits WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as VisitRow[];
   return rows.map(rowToVisit);
 }
 
@@ -173,7 +173,7 @@ type ScheduleRow = {
 
 export async function fetchSubSchedules(): Promise<SubSchedule[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM sub_schedules ORDER BY sheet_row`)) as ScheduleRow[];
+  const rows = (await sql.query(`SELECT * FROM sub_schedules WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ScheduleRow[];
   return rows.map((r) => ({
     sheetRow: r.sheet_row,
     scheduleId: r.schedule_id,
@@ -391,7 +391,7 @@ type ExceptionRow = {
 
 export async function fetchScheduleExceptions(): Promise<ScheduleException[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM schedule_exceptions ORDER BY sheet_row`)) as ExceptionRow[];
+  const rows = (await sql.query(`SELECT * FROM schedule_exceptions WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ExceptionRow[];
   return rows.map((r) => ({
     sheetRow: r.sheet_row,
     exceptionId: r.exception_id,

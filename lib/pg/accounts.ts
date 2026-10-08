@@ -109,7 +109,7 @@ const text = (row: AccountRow, column: string) => String(row[column] ?? "");
 
 export async function fetchAccountRows(): Promise<AccountRow[]> {
   const sql = getSql();
-  return (await sql.query(`SELECT * FROM accounts ORDER BY ${SHEET_ORDER}`)) as AccountRow[];
+  return (await sql.query(`SELECT * FROM accounts WHERE NOT is_test ORDER BY ${SHEET_ORDER}`)) as AccountRow[];
 }
 
 /* ---------- typed values kept next to the text ---------- */
