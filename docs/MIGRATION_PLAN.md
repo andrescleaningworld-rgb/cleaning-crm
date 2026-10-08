@@ -243,6 +243,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 6, step 4: lib/pg/scheduling.ts + lib/data/scheduling.ts; 9 files switched. Parity 7/7 reads identical (298 schedules); check-scheduling-writes.mts 25/25 (add, edit, pattern change, supersede, exceptions, sub visits); 3 admin routes byte-identical over HTTP on both sources. Not compared over HTTP: the sub-portal and customer-portal schedule routes (they need a portal login; same functions underneath).
 - Area 6, step 5: Sub Schedules redesigned: list page (cards / 9-column table, chips for the three views, main button per view, confirm sheet before removing an exception), Add / Edit / Exception forms as sheets, Full Calendar (filter sheets, month grid on wide screens and a day list on phones, week, agenda), and the shared AutocompleteField restyled for every screen that uses it. Headless click-through 58 of 58 at 375 and 1280px; nothing saved.
 - Area 6 checkpoint report: docs/migration-reports/checkpoint-6-scheduling-2026-10-08.md.
+- Area 7, step 0: docs/migration-reports/visits-headers.md. Visits 611 rows with data on 1,348 sheet rows (737 blank), 13 columns; column B (Account ID) is a formula (ACC- + row number in hex), column I is an empty duplicate of M. VisitEditLog 6 rows. The visit list and Add visit go through Apps Script (getVisits / addVisit); the Visit page reads and edits the tab directly. Live getVisits answer captured once (read-only) and matched to the sheet: 611 of 611 rows, same order, every field explained.
 
 **Next step:** Area 7 (Visits), Step 0: discovery (Visits tab and anything else the visits screens read; app/visits/page.tsx and app/visits/[id]/page.tsx are protected files with standing approval).
 
@@ -338,7 +339,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 | 4b Accounts secondary | done | 20 | 0.5 | 2026-10-08 | 2026-10-08 | No new tables; 8 screens redesigned; Keys and Account Health bugs reported, not fixed; Google coverage map not testable locally |
 | 5 Equipment | done | 20 | 0.7 | 2026-10-08 | 2026-10-08 | 5 tables, tiny data (1 item); return bug copied and reported; screens kept their Sept 24 look inside the shared frame |
 | 6 Scheduling | done | 20 | 0.8 | 2026-10-08 | 2026-10-08 | 298 schedules; 27 carry one email no sub has; sub portal and customer portal schedule views not opened (Areas 11, 13) |
-| 7 Visits | not started | 14 | | | | |
+| 7 Visits | in progress | 14 |  | 2026-10-08 |  |  |
 | 8 Complaints | not started | 24 | | | | |
 | 9 To-Dos | not started | 20 | | | | |
 | 10 Sales/Reports | not started | 18 | | | | |
@@ -417,3 +418,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T09:20 | 2026-10-08T09:20 | 6/step 4 | this commit | Scheduling data layer behind DATA_SOURCE_SCHEDULING. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:32 | 2026-10-08T09:32 | 6/step 5 | this commit | Sub Schedules screens redesigned. tsc ok, build ok, lint at baseline.
 - 2026-10-08T09:32 | 2026-10-08T09:32 | 6/checkpoint | this commit | Report written; Area 6 done.
+- 2026-10-08T09:38 | 2026-10-08T09:38 | 7/step 0 | this commit | Visits headers.
