@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { StatusPill, type StatusKind } from "@/app/ui";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -206,26 +207,12 @@ function mapRawSale(raw: RawSale): Sale {
   };
 }
 
-function getStatusClass(status: string) {
+function saleStatusKind(status: string): StatusKind {
   const cleanStatus = status.toLowerCase();
-
-  if (cleanStatus.includes("paid")) {
-    return "bg-green-100 text-green-800 border-green-200";
-  }
-
-  if (cleanStatus.includes("approved")) {
-    return "bg-blue-100 text-blue-800 border-blue-200";
-  }
-
-  if (cleanStatus.includes("pending")) {
-    return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  }
-
-  if (cleanStatus.includes("cancel")) {
-    return "bg-red-100 text-red-800 border-red-200";
-  }
-
-  return "bg-gray-100 text-gray-800 border-gray-200";
+  if (cleanStatus.includes("paid")) return "done";
+  if (cleanStatus.includes("approved") || cleanStatus.includes("pending")) return "waiting";
+  if (cleanStatus.includes("cancel")) return "needs-you";
+  return "off";
 }
 
 function SalesPageContent() {
@@ -691,22 +678,22 @@ function SalesPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6 print:bg-white print:p-0">
+    <main className="ui-screen print:bg-white print:p-0">
       <div className="mx-auto max-w-7xl print:max-w-none">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between print:mb-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="ui-screen-title">
               {openedFromAccountDetail ? "Add Sale" : "Sales & Commissions"}
             </h1>
 
-            <p className="mt-1 text-gray-600">
+            <p className="ui-muted">
               {openedFromAccountDetail
                 ? "Add a sale for the selected account."
                 : "Quarterly commission sheet for extra services, work orders, estimates, and sales status."}
             </p>
 
             {!openedFromAccountDetail && (
-              <p className="mt-2 text-sm font-semibold text-blue-700">
+              <p className="ui-strong">
                 Showing {selectedQuarter} {selectedYear}
                 {selectedSalesperson !== "All"
                   ? ` for ${selectedSalesperson}`
@@ -720,7 +707,7 @@ function SalesPageContent() {
               <button
                 type="button"
                 onClick={handlePrint}
-                className="rounded-lg bg-gray-900 px-5 py-3 text-center font-semibold text-white shadow-sm hover:bg-black"
+                className="ui-btn ui-btn-second"
               >
                 Print Quarterly Report
               </button>
@@ -731,7 +718,7 @@ function SalesPageContent() {
                 href={`/accounts/${
                   selectedAccountId || createIdFromName(selectedAccountName)
                 }`}
-                className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+                className="ui-btn ui-btn-second"
               >
                 Back to Account
               </Link>
@@ -740,28 +727,28 @@ function SalesPageContent() {
         </div>
 
         {errorMessage && (
-          <section className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          <section className="ui-field-error">
             {errorMessage}
           </section>
         )}
 
         {!openedFromAccountDetail && (
           <>
-            <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:hidden">
-              <h2 className="text-xl font-bold text-gray-900">
+            <section className="ui-card print:hidden">
+              <h2 className="ui-card-title">
                 Quarterly Commission Filter
               </h2>
 
               <div className="mt-4 grid gap-4 md:grid-cols-4">
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">
+                  <label className="ui-label">
                     Year
                   </label>
 
                   <select
                     value={selectedYear}
                     onChange={(event) => setSelectedYear(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input w-full"
                   >
                     {availableYears.map((year) => (
                       <option key={year} value={year}>
@@ -772,14 +759,14 @@ function SalesPageContent() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">
+                  <label className="ui-label">
                     Quarter
                   </label>
 
                   <select
                     value={selectedQuarter}
                     onChange={(event) => setSelectedQuarter(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input w-full"
                   >
                     <option value="Q1">Q1 - Jan to Mar</option>
                     <option value="Q2">Q2 - Apr to Jun</option>
@@ -789,7 +776,7 @@ function SalesPageContent() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">
+                  <label className="ui-label">
                     Salesperson
                   </label>
 
@@ -798,7 +785,7 @@ function SalesPageContent() {
                     onChange={(event) =>
                       setSelectedSalesperson(event.target.value)
                     }
-                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input w-full"
                   >
                     {availableSalespeople.map((person) => (
                       <option key={person} value={person}>
@@ -811,7 +798,7 @@ function SalesPageContent() {
                 <div>
                   <label
                     htmlFor="sales-search"
-                    className="text-sm font-semibold text-gray-700"
+                    className="ui-label"
                   >
                     Search Inside Filter
                   </label>
@@ -822,64 +809,64 @@ function SalesPageContent() {
                     value={searchText}
                     onChange={(event) => setSearchText(event.target.value)}
                     placeholder="Search account, service, status..."
-                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input w-full"
                   />
                 </div>
               </div>
             </section>
 
             <div className="mb-6 grid gap-4 md:grid-cols-4 print:grid-cols-4 print:gap-3">
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:p-3 print:shadow-none">
-                <p className="text-sm text-gray-500">Sales Showing</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Sales Showing</p>
+                <p className="ui-stat-value">
                   {filteredSales.length}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="ui-muted">
                   {selectedQuarter} {selectedYear}
                 </p>
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:p-3 print:shadow-none">
-                <p className="text-sm text-gray-500">Sales Total</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Sales Total</p>
+                <p className="ui-stat-value">
                   {formatMoney(totalSalesAmount)}
                 </p>
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:p-3 print:shadow-none">
-                <p className="text-sm text-gray-500">Commission Due</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Commission Due</p>
+                <p className="ui-stat-value">
                   {formatMoney(totalCommissionAmount)}
                 </p>
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:p-3 print:shadow-none">
-                <p className="text-sm text-gray-500">Payment Status</p>
-                <p className="mt-2 text-2xl font-bold text-gray-900">
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Payment Status</p>
+                <p className="ui-stat-value">
                   {pendingSales} Pending
                 </p>
-                <p className="mt-1 text-xs text-gray-500">{paidSales} paid</p>
+                <p className="ui-muted">{paidSales} paid</p>
               </div>
             </div>
 
-            <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:shadow-none">
+            <section className="ui-card print:shadow-none">
               <div className="mb-4">
-                <h2 className="text-xl font-bold text-gray-900">
+                <h2 className="ui-card-title">
                   Commission Summary by Salesperson
                 </h2>
-                <p className="mt-1 text-sm text-gray-600 print:hidden">
+                <p className="ui-muted print:hidden">
                   This section updates based on the selected year, quarter, and
                   salesperson filter.
                 </p>
               </div>
 
               {salesByPerson.length === 0 ? (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                <div className="ui-stat">
                   No commissions found for this filter.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm print:text-xs">
+                  <table className="ui-table w-full print:text-xs">
                     <thead>
                       <tr className="border-b bg-gray-50 text-gray-600">
                         <th className="px-4 py-3 font-semibold">Salesperson</th>
@@ -914,11 +901,11 @@ function SalesPageContent() {
               )}
             </section>
 
-            <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:shadow-none">
+            <section className="ui-card print:shadow-none">
               <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900">Pay Period Total</h2>
-                  <p className="mt-1 text-sm text-gray-600 print:hidden">
+                  <h2 className="ui-card-title">Pay Period Total</h2>
+                  <p className="ui-muted print:hidden">
                     Per salesperson: one-time commissions landing in this month, plus recurring
                     commissions whose date range covers it (prorated for partial months).
                     Independent of the year/quarter filter above.
@@ -929,7 +916,7 @@ function SalesPageContent() {
                   <select
                     value={payPeriodMonth}
                     onChange={(event) => setPayPeriodMonth(Number(event.target.value))}
-                    className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input"
                   >
                     {MONTH_NAMES.map((name, index) => (
                       <option key={name} value={index + 1}>
@@ -941,7 +928,7 @@ function SalesPageContent() {
                   <select
                     value={payPeriodYear}
                     onChange={(event) => setPayPeriodYear(Number(event.target.value))}
-                    className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input"
                   >
                     {availableYears.map((year) => (
                       <option key={year} value={year}>
@@ -953,12 +940,12 @@ function SalesPageContent() {
               </div>
 
               {payPeriodTotals.length === 0 ? (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                <div className="ui-stat">
                   No commissions land in {MONTH_NAMES[payPeriodMonth - 1]} {payPeriodYear}.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm print:text-xs">
+                  <table className="ui-table w-full print:text-xs">
                     <thead>
                       <tr className="border-b bg-gray-50 text-gray-600">
                         <th className="px-4 py-3 font-semibold">Salesperson</th>
@@ -985,23 +972,23 @@ function SalesPageContent() {
           </>
         )}
 
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm print:hidden">
-          <h2 className="text-xl font-bold text-gray-900">Add Sale</h2>
+        <section className="ui-card print:hidden">
+          <h2 className="ui-card-title">Add Sale</h2>
 
           {openedFromAccountDetail && (
-            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-5 text-center">
-              <p className="text-sm font-semibold uppercase tracking-wide text-blue-700">
+            <div className="ui-stat">
+              <p className="ui-strong">
                 Sale For
               </p>
-              <p className="mt-1 text-2xl font-bold text-blue-950">
+              <p className="ui-stat-value">
                 {selectedAccountName || accountNameFromUrl || accountIdFromUrl}
               </p>
             </div>
           )}
 
           {!openedFromAccountDetail && (
-            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-5">
-              <label className="text-sm font-semibold text-gray-700">
+            <div className="ui-stat">
+              <label className="ui-label">
                 Search Account
               </label>
 
@@ -1019,7 +1006,7 @@ function SalesPageContent() {
                     ? "Loading accounts..."
                     : "Start typing account name..."
                 }
-                className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                className="ui-input w-full"
               />
 
               {accountSearchText && filteredAccountOptions.length > 0 && (
@@ -1029,12 +1016,12 @@ function SalesPageContent() {
                       key={account.id}
                       type="button"
                       onClick={() => handleAccountSelect(account)}
-                      className="block w-full border-b border-gray-100 px-4 py-3 text-left hover:bg-blue-50"
+                      className="ui-btn ui-btn-second w-full"
                     >
-                      <span className="block font-semibold text-gray-900">
+                      <span className="ui-strong">
                         {account.name}
                       </span>
-                      <span className="block text-xs text-gray-500">
+                      <span className="ui-muted block">
                         Manager: {account.manager} | Sub:{" "}
                         {account.subcontractor}
                       </span>
@@ -1044,8 +1031,8 @@ function SalesPageContent() {
               )}
 
               {selectedAccountName && (
-                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3">
-                  <p className="text-sm font-semibold text-green-800">
+                <div className="ui-savestatus ui-savestatus-saved">
+                  <p className="ui-strong">
                     Selected Account: {selectedAccountName}
                   </p>
                 </div>
@@ -1056,7 +1043,7 @@ function SalesPageContent() {
           <form onSubmit={handleAddSale} className="mt-4 grid gap-4">
             <div className="grid gap-4 md:grid-cols-4">
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Sale Date
                 </label>
 
@@ -1064,19 +1051,19 @@ function SalesPageContent() {
                   type="date"
                   value={saleDate}
                   onChange={(event) => setSaleDate(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 />
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Service Type
                 </label>
 
                 <select
                   value={serviceType}
                   onChange={(event) => setServiceType(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 >
                   <option value="Extra Service">Extra Service</option>
                   <option value="Floor Work">Floor Work</option>
@@ -1090,14 +1077,14 @@ function SalesPageContent() {
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Sold By
                 </label>
 
                 <select
                   value={soldBy}
                   onChange={(event) => setSoldBy(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 >
                   <option value="">Select person</option>
                   <option value="Andrés">Andrés</option>
@@ -1107,14 +1094,14 @@ function SalesPageContent() {
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Status
                 </label>
 
                 <select
                   value={status}
                   onChange={(event) => setStatus(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 >
                   <option value="Pending">Pending</option>
                   <option value="Approved">Approved</option>
@@ -1125,7 +1112,7 @@ function SalesPageContent() {
             </div>
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
+              <label className="ui-label">
                 Service Sold
               </label>
 
@@ -1134,13 +1121,13 @@ function SalesPageContent() {
                 value={serviceSold}
                 onChange={(event) => setServiceSold(event.target.value)}
                 placeholder="Example: Strip and wax, carpet cleaning, one-time deep clean..."
-                className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                className="ui-input w-full"
               />
             </div>
 
             <div className="grid gap-4 md:grid-cols-4">
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Amount
                 </label>
 
@@ -1149,12 +1136,12 @@ function SalesPageContent() {
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
                   placeholder="0.00"
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 />
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Commission %
                 </label>
 
@@ -1165,26 +1152,26 @@ function SalesPageContent() {
                     setCommissionPercent(event.target.value)
                   }
                   placeholder="5"
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 />
 
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="ui-muted">
                   4% = Recurring &middot; 10% = One-Time
                 </p>
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Commission Amount
                 </label>
 
-                <div className="mt-2 rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 font-semibold text-gray-900">
+                <div className="ui-stat">
                   {formatMoney(calculatedCommissionAmount)}
                 </div>
               </div>
 
               <div>
-                <label className="text-sm font-semibold text-gray-700">
+                <label className="ui-label">
                   Work Order / Estimate #
                 </label>
 
@@ -1195,15 +1182,15 @@ function SalesPageContent() {
                     setWorkOrderEstimateNumber(event.target.value)
                   }
                   placeholder="WO-123 / EST-123"
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                  className="ui-input w-full"
                 />
               </div>
             </div>
 
             {isRecurringCommission && (
-              <div className="grid gap-4 rounded-xl border border-blue-200 bg-blue-50 p-4 md:grid-cols-2">
+              <div className="ui-stat">
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">
+                  <label className="ui-label">
                     Recurring Start Date
                   </label>
 
@@ -1211,12 +1198,12 @@ function SalesPageContent() {
                     type="date"
                     value={recurringStartDate}
                     onChange={(event) => setRecurringStartDate(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input w-full"
                   />
                 </div>
 
                 <div>
-                  <label className="text-sm font-semibold text-gray-700">
+                  <label className="ui-label">
                     Recurring End Date
                   </label>
 
@@ -1224,11 +1211,11 @@ function SalesPageContent() {
                     type="date"
                     value={recurringEndDate}
                     onChange={(event) => setRecurringEndDate(event.target.value)}
-                    className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                    className="ui-input w-full"
                   />
                 </div>
 
-                <p className="md:col-span-2 text-xs font-semibold text-blue-800">
+                <p className="ui-strong md:col-span-2">
                   Required for a 4% (Recurring) commission — the commission applies to every pay
                   period within this range, prorated for partial first/last months.
                 </p>
@@ -1236,7 +1223,7 @@ function SalesPageContent() {
             )}
 
             <div>
-              <label className="text-sm font-semibold text-gray-700">
+              <label className="ui-label">
                 Notes
               </label>
 
@@ -1245,12 +1232,12 @@ function SalesPageContent() {
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="Optional notes about the sale, approval, invoice, or commission..."
                 rows={3}
-                className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+                className="ui-input w-full"
               />
             </div>
 
             {saveMessage && (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm font-semibold text-gray-800">
+              <div className="ui-stat">
                 {saveMessage}
               </div>
             )}
@@ -1259,7 +1246,7 @@ function SalesPageContent() {
               <button
                 type="submit"
                 disabled={isSaving}
-                className="rounded-lg bg-green-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-green-800 disabled:bg-green-300"
+                className="ui-btn ui-btn-main"
               >
                 {isSaving ? "Saving..." : "Save Sale"}
               </button>
@@ -1269,7 +1256,7 @@ function SalesPageContent() {
                   href={`/accounts/${
                     selectedAccountId || createIdFromName(selectedAccountName)
                   }`}
-                  className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
+                  className="ui-btn ui-btn-second"
                 >
                   Cancel / Back to Account
                 </Link>
@@ -1279,13 +1266,13 @@ function SalesPageContent() {
         </section>
 
         {!openedFromAccountDetail && (
-          <section className="rounded-xl border border-gray-200 bg-white shadow-sm print:rounded-none print:border print:shadow-none">
+          <section className="ui-card print:rounded-none print:border print:shadow-none">
             <div className="border-b border-gray-200 p-5 print:p-3">
-              <h2 className="text-xl font-bold text-gray-900">
+              <h2 className="ui-card-title">
                 Quarterly Sales Detail
               </h2>
 
-              <p className="mt-1 text-sm text-gray-600 print:hidden">
+              <p className="ui-muted print:hidden">
                 {isLoadingSales
                   ? "Loading sales from Google Sheets..."
                   : "Detailed sales included in this quarter's commission sheet."}
@@ -1293,7 +1280,7 @@ function SalesPageContent() {
             </div>
 
             <div className="overflow-x-auto print:overflow-visible">
-              <table className="w-full border-collapse text-left text-sm print:text-xs">
+              <table className="ui-table w-full print:text-xs">
                 <thead>
                   <tr className="border-b bg-gray-50 text-gray-600">
                     <th className="px-4 py-3 font-semibold">Date</th>
@@ -1321,7 +1308,7 @@ function SalesPageContent() {
                       <td className="px-4 py-3">
                         <Link
                           href={`/accounts/${sale.accountId}`}
-                          className="font-semibold text-blue-700 hover:underline print:text-gray-900"
+                          className="ui-link print:text-gray-900"
                         >
                           {sale.accountName}
                         </Link>
@@ -1343,25 +1330,19 @@ function SalesPageContent() {
 
                       <td className="px-4 py-3 text-gray-700">
                         {formatMoney(sale.commissionAmount)}
-                        <span className="block text-xs text-gray-500">
+                        <span className="ui-muted block">
                           {sale.commissionPercent}%
                           {sale.commissionType !== "Other" ? ` · ${sale.commissionType === "Recurring" ? "Recurring" : "One-Time"}` : ""}
                         </span>
                         {sale.commissionType === "Recurring" && sale.recurringStartDate && sale.recurringEndDate ? (
-                          <span className="block text-xs text-gray-400">
+                          <span className="ui-muted block">
                             {sale.recurringStartDate} – {sale.recurringEndDate}
                           </span>
                         ) : null}
                       </td>
 
                       <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full border px-2 py-1 text-xs font-semibold ${getStatusClass(
-                            sale.status
-                          )}`}
-                        >
-                          {sale.status}
-                        </span>
+                        <StatusPill kind={saleStatusKind(sale.status)}>{sale.status || "No status"}</StatusPill>
                       </td>
 
                       <td className="px-4 py-3 text-gray-700">
@@ -1395,7 +1376,7 @@ export default function SalesPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-gray-50 p-6">
+        <main className="ui-screen">
           Loading sales...
         </main>
       }

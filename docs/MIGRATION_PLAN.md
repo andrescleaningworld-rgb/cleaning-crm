@@ -269,6 +269,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10, step 2: scripts/migrate/import-sales.mjs. Dry run, run and re-run clean: 2 sales, both linked to an account. 1 open question: one sale has no Amount Sold (column H) but has a value in the old Amount column (Q), so the screens that read H show it as 0.
 - Area 10, step 3: scripts/migrate/verify-sales.mjs → docs/migration-reports/sales-verify.md. The table matches Sheets, every row field by field (2 × 21).
 - Area 10, step 4: lib/pg/sales.ts + lib/data/sales.ts; app/api/sales switched. Parity 1/1; check-sales-writes.mts 8/8; /api/sales byte-identical over HTTP on both sources.
+- Area 10, step 5: Sales and Reports restyled with the UI kit in place (scripted class mapping + hand pass; structure and handlers unchanged). Kit fix: children of a screen can no longer be wider than the screen (a wide table was pushing content off the right edge on phones, clipped). The measuring script now also checks for clipped content. Measured at 375 and 1280px: Sales, Reports and To-Do pass; nothing saved.
 
 **Next step:** Area 10 (Sales / Reports), Step 0: discovery (Sales & Commissions tab; app/sales and app/reports; what the dashboard and reports read).
 
@@ -348,6 +349,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 8: the Save changes bug on the complaint page (it creates a second complaint and re-sends the notifications instead of editing) is NOT fixed; the Postgres side behaves exactly the same | it changes behavior and needs your OK | approve and editing becomes a real edit on both sources
 - Print: the complaint page, the Visits list and Account Health now print their content | the app hides everything on paper unless a page opts in, and these pages never did, so Print gave a blank page | remove the ui-print-view wrapper on a page to get the blank page back
 - Area 9: the To-Do page was restyled in place, not rearranged into sheets | it is the page managers use most and has the most intricate modes (bulk edit, visit completion, print layouts, deep-link highlight); changing where things are without Andres seeing it first is the riskier choice | proposal 3 in the Area 9 report moves the form and filters into sheets
+- Area 10: Sales and Reports were restyled in place, not rearranged; tables stay tables and scroll inside their own box on a phone | both are long table-and-print pages; a full rebuild into cards and sheets changes how they are used | proposals 1 and 2 in the Area 10 report
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -359,6 +361,7 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Apps Script `getAllAccounts` (the list most staff screens load) answered "Page Not Found" 4 times out of 6 on 2026-10-08 between 07:10 and 07:25 (once after 134 s), while `getAccounts` answered in 3 s. Not caused by any write (none were made). The rebuilt `getAllAccounts` is therefore checked against the live answer only for the fields it shares with `getAccounts`; its one extra field, `cancelledDate`, is checked by format only. Andres: check that the live Accounts screen loads. Apps Script reads are now cached and spaced 20 s apart (`check-accounts-apps-script.mts`).
 - Other code still reads the Accounts tab straight from Sheets inside `lib/googleSheets.ts`: the performance score (`getSubcontractorPerformanceMap`), the customer-portal account merge (`getMergedPortalAccounts`, `getCustomerByPhone` …), To-Do, Complaints and Visits lookups. They move with Areas 6–11. Until then `DATA_SOURCE_ACCOUNTS` must not be turned on in production (the plan already says not before Areas 11 and 13).
 - Slip 2026-10-08, about 09:45: the first visits parity run asked the Sheets API for the whole Visits tab 611 times in a row (one read listed every visit by id; the Sheets function re-reads the tab on each call). Google answered Quota exceeded for about a minute. Read-only, nothing was written, but if the live app shares that quota it may have been slowed for that minute. That read is removed; parity lists now stay under 20 Sheets reads.
+- Slip 2026-10-08: my screen checks up to Area 9 tested 'the page does not scroll sideways' but not 'nothing is cut off at the right edge'. On the Sales page a wide table clipped the whole screen at 375px and the check still passed; I saw it in a screenshot. Fixed in the kit for every screen and the check was added. The earlier screens used CardList (cards on phones), which does not have this problem, and To-Do was re-measured; the others were not re-measured one by one.
 
 **Open issues:** `.env.local` has no `DATABASE_URL` (A.1 is wrong about that); production host unknown locally, so the guard is an allow-list; Apps Script source not in repo; two customer portals; CUSTVISITS possibly dead; preview deployments may use prod DB.
 
@@ -480,3 +483,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 2 | this commit | Sales import; 1 question.
 - 2026-10-08T10:47 | 2026-10-08T10:47 | 10/step 3 | this commit | Sales verify: all match.
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 4 | this commit | Sales data layer behind DATA_SOURCE_SALES. tsc ok, build ok, lint 16.
+- 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 5 | this commit | Sales and Reports restyled; kit overflow fix. tsc ok, build ok, lint 16.

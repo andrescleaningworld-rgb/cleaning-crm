@@ -1527,6 +1527,14 @@ button.ui-card:hover {
   }
 }
 
+/* Nothing inside a screen may push it wider than the phone: wide things
+   (tables) scroll inside their own box instead. */
+.ui-screen > *,
+.ui-screen-body > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* To-Do page: tick boxes big enough to hit, and the status buttons in a row that wraps. */
 .todo-page-content input[type="checkbox"],
 .todo-visit-modal input[type="checkbox"] {

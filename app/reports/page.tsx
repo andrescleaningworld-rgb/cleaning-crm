@@ -840,7 +840,7 @@ export default function ReportsPage() {
   const showSales = reportType === "Sales & Commissions";
 
   return (
-    <main className="min-h-screen bg-gray-100 p-4 text-gray-900 print:bg-white print:p-0 sm:p-6">
+    <main className="ui-screen print:bg-white print:p-0">
       <style>{`
         @media print {
           @page {
@@ -903,8 +903,8 @@ export default function ReportsPage() {
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-            <p className="text-sm leading-6 text-gray-600 sm:text-base">
+            <h1 className="ui-screen-title">Reports</h1>
+            <p className="ui-muted">
               Select one report, preview it, then print or save as PDF.
             </p>
           </div>
@@ -913,7 +913,7 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={loadAllReportsData}
-              className="rounded-lg border border-gray-300 bg-white px-5 py-3 font-semibold text-gray-700 hover:bg-gray-50"
+              className="ui-btn ui-btn-second"
             >
               Refresh
             </button>
@@ -921,7 +921,7 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800"
+              className="ui-btn ui-btn-main"
             >
               Print Selected Report
             </button>
@@ -942,32 +942,32 @@ export default function ReportsPage() {
             </div>
 
             <div className="text-right">
-              <h1 className="text-2xl font-bold">Cleaning World</h1>
-              <p className="text-lg font-semibold">
+              <h1 className="ui-screen-title">Cleaning World</h1>
+              <p className="ui-strong">
                 Operations & Quality Report
               </p>
-              <p className="text-sm text-gray-600">{reportType}</p>
-              <p className="text-sm text-gray-600">
+              <p className="ui-muted">{reportType}</p>
+              <p className="ui-muted">
                 Date Range: {safeDate(dateRange.start)} -{" "}
                 {safeDate(dateRange.end)}
               </p>
-              <p className="text-sm text-gray-600">
+              <p className="ui-muted">
                 Printed on {new Date().toLocaleDateString()}
               </p>
             </div>
           </div>
         </section>
 
-        <section className="rounded-xl bg-white p-5 shadow print:hidden">
+        <section className="ui-card print:hidden">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Report Type
               </label>
               <select
                 value={reportType}
                 onChange={(event) => setReportType(event.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               >
                 <option>Overview</option>
                 <option>YTD Started Accounts</option>
@@ -979,13 +979,13 @@ export default function ReportsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Date Range
               </label>
               <select
                 value={datePreset}
                 onChange={(event) => setDatePreset(event.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               >
                 <option>YTD</option>
                 <option>This Month</option>
@@ -995,7 +995,7 @@ export default function ReportsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Start Date
               </label>
               <input
@@ -1005,12 +1005,12 @@ export default function ReportsPage() {
                   setDatePreset("Custom");
                   setCustomStartDate(event.target.value);
                 }}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 End Date
               </label>
               <input
@@ -1020,30 +1020,30 @@ export default function ReportsPage() {
                   setDatePreset("Custom");
                   setCustomEndDate(event.target.value);
                 }}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Search
               </label>
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search reports..."
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Manager
               </label>
               <select
                 value={managerFilter}
                 onChange={(event) => setManagerFilter(event.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               >
                 {managers.map((manager) => (
                   <option key={manager} value={manager}>
@@ -1054,13 +1054,13 @@ export default function ReportsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Subcontractor
               </label>
               <select
                 value={subcontractorFilter}
                 onChange={(event) => setSubcontractorFilter(event.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               >
                 {subcontractors.map((subcontractor) => (
                   <option key={subcontractor} value={subcontractor}>
@@ -1071,13 +1071,13 @@ export default function ReportsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Account Status
               </label>
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               >
                 {statuses.map((status) => (
                   <option key={status} value={status}>
@@ -1088,13 +1088,13 @@ export default function ReportsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Salesperson
               </label>
               <select
                 value={salespersonFilter}
                 onChange={(event) => setSalespersonFilter(event.target.value)}
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               >
                 {salespeople.map((person) => (
                   <option key={person} value={person}>
@@ -1105,7 +1105,7 @@ export default function ReportsPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Min Revenue
               </label>
               <input
@@ -1114,12 +1114,12 @@ export default function ReportsPage() {
                 inputMode="decimal"
                 placeholder="$500"
                 aria-label="Minimum monthly revenue"
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               />
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Max Revenue
               </label>
               <input
@@ -1128,25 +1128,25 @@ export default function ReportsPage() {
                 inputMode="decimal"
                 placeholder="$2000"
                 aria-label="Maximum monthly revenue"
-                className="min-h-[48px] w-full rounded-lg border border-gray-300 px-3 py-2"
+                className="ui-input w-full"
               />
             </div>
           </div>
         </section>
 
         {loading ? (
-          <section className="rounded-xl bg-white p-6 shadow">
+          <section className="ui-card">
             Loading report data...
           </section>
         ) : (
           <>
-            <section className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900 print:hidden">
+            <section className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-900 print:hidden">
               Loaded records: {accounts.length} accounts, {visits.length}{" "}
               visits, {complaints.length} complaints, {sales.length} sales.
             </section>
 
             {loadError && (
-              <section className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 print:hidden">
+              <section className="ui-field-error print:hidden">
                 {loadError}
               </section>
             )}
@@ -1154,10 +1154,10 @@ export default function ReportsPage() {
             {showOverview && (
               <section className="print-section">
                 <div className="mb-3">
-                  <h2 className="text-xl font-bold text-gray-900">
+                  <h2 className="ui-card-title">
                     Report Overview
                   </h2>
-                  <p className="text-sm text-gray-600">
+                  <p className="ui-muted">
                     {safeDate(dateRange.start)} - {safeDate(dateRange.end)}
                   </p>
                 </div>
@@ -1215,13 +1215,13 @@ export default function ReportsPage() {
             )}
 
             {showManagerSummary && (
-              <section className="print-section rounded-xl bg-white p-5 shadow print-card">
+              <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-                  <h2 className="text-xl font-bold text-gray-900">
+                  <h2 className="ui-card-title">
                     Manager Summary
                   </h2>
 
-                  <div className="text-sm font-semibold text-gray-700">
+                  <div className="font-semibold text-gray-700">
                     Count: {managerSummary.length} managers
                   </div>
                 </div>
@@ -1286,19 +1286,19 @@ export default function ReportsPage() {
             )}
 
             {showStarted && (
-              <section className="print-section rounded-xl bg-white p-5 shadow print-card">
+              <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">
+                    <h2 className="ui-card-title">
                       YTD / Filtered Started Accounts
                     </h2>
-                    <p className="text-sm text-gray-600">
+                    <p className="ui-muted">
                       Accounts with Start Date between{" "}
                       {safeDate(dateRange.start)} and {safeDate(dateRange.end)}.
                     </p>
                   </div>
 
-                  <div className="text-sm font-semibold text-gray-700">
+                  <div className="font-semibold text-gray-700">
                     Count: {startedAccounts.length} | Revenue Added:{" "}
                     {money(totals.revenueAdded)}
                   </div>
@@ -1370,19 +1370,19 @@ export default function ReportsPage() {
             )}
 
             {showCancelled && (
-              <section className="print-section rounded-xl bg-white p-5 shadow print-card">
+              <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">
+                    <h2 className="ui-card-title">
                       YTD / Filtered Cancelled Accounts
                     </h2>
-                    <p className="text-sm text-gray-600">
+                    <p className="ui-muted">
                       Accounts with Cancelled Date between{" "}
                       {safeDate(dateRange.start)} and {safeDate(dateRange.end)}.
                     </p>
                   </div>
 
-                  <div className="text-sm font-semibold text-gray-700">
+                  <div className="font-semibold text-gray-700">
                     Count: {cancelledAccounts.length} | Revenue Lost:{" "}
                     {money(totals.revenueLost)}
                   </div>
@@ -1461,13 +1461,13 @@ export default function ReportsPage() {
             )}
 
             {showComplaints && (
-              <section className="print-section rounded-xl bg-white p-5 shadow print-card">
+              <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-                  <h2 className="text-xl font-bold text-gray-900">
+                  <h2 className="ui-card-title">
                     Complaints Report
                   </h2>
 
-                  <div className="text-sm font-semibold text-gray-700">
+                  <div className="font-semibold text-gray-700">
                     Count: {filteredComplaints.length} | Open / Pending:{" "}
                     {totals.openComplaints}
                   </div>
@@ -1555,18 +1555,18 @@ export default function ReportsPage() {
             )}
 
             {showSales && (
-              <section className="print-section rounded-xl bg-white p-5 shadow print-card">
+              <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">
+                    <h2 className="ui-card-title">
                       Sales & Commission Report
                     </h2>
-                    <p className="text-sm text-gray-600">
+                    <p className="ui-muted">
                       Printable sales commission summary.
                     </p>
                   </div>
 
-                  <div className="text-sm font-semibold text-gray-700">
+                  <div className="font-semibold text-gray-700">
                     Count: {filteredSales.length} | Sales:{" "}
                     {money(totals.salesTotal)} | Commission:{" "}
                     {money(totals.commissionTotal)}
@@ -1690,10 +1690,10 @@ function SummaryCard({
   note: string;
 }) {
   return (
-    <div className="print-avoid-break rounded-xl bg-white p-5 shadow print-card">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-sm text-gray-600">{note}</p>
+    <div className="ui-card">
+      <p className="ui-muted">{label}</p>
+      <p className="ui-stat-value">{value}</p>
+      <p className="ui-muted">{note}</p>
     </div>
   );
 }
@@ -1701,7 +1701,7 @@ function SummaryCard({
 function ReportTable({ children }: { children: React.ReactNode }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left text-sm">
+      <table className="ui-table w-full">
         {children}
       </table>
     </div>
