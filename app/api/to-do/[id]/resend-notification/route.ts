@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchSmsLogForToDo, fetchToDos } from "@/lib/googleSheets";
+import { fetchSmsLogForToDo, fetchToDos } from "@/lib/data/todos";
 import type { ToDoCalendarInput } from "@/lib/googleCalendar";
 import { notifyManagerOfNewToDo } from "@/app/api/to-do/route";
 

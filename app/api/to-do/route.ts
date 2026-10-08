@@ -11,7 +11,7 @@ import {
   updateToDoOutcome,
   updateToDosBatch,
   updateToDoStatus,
-} from "@/lib/googleSheets";
+} from "@/lib/data/todos";
 import {
   fetchManagers,
 } from "@/lib/data/people";

@@ -261,8 +261,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 9, step 1: db/migrations/011_todos.sql applied to dev (todos, todo_sms_log). Flags and priority are kept as the sheet text because the app's rules read the text.
 - Area 9, step 2: scripts/migrate/import-todos.mjs. Dry run, run and re-run clean: 127 to-dos (124 linked to an account), 44 text-log lines. 3 open questions: 1 account name that matches no account, 2 assignee names that are not in the Managers list.
 - Area 9, step 3: scripts/migrate/verify-todos.mjs → docs/migration-reports/todos-verify.md. Both tables match Sheets, every row field by field (127 × 17, 44 × 8).
+- Area 9, step 4: lib/pg/todos.ts + lib/data/todos.ts; 4 route files switched. Parity 7/7 reads identical (127 to-dos, the text log, the quota); check-todos-writes.mts 29/29; /api/to-do (55,748 bytes) and /api/to-do/sms-quota byte-identical over HTTP on both sources. Over HTTP on Postgres with OUTBOUND_DRY_RUN=1: add one, add a batch, status, edit, outcome, unknown id; 2 texts, 2 push messages and 3 Calendar changes were logged, none sent; test rows, text-log lines and audit lines removed. Not called: the text status re-check (it asks the text provider).
 
-**Next step:** Area 9, step 4: lib/pg/todos.ts + lib/data/todos.ts, switch imports, parity, write checks, HTTP checks (texts and Calendar in dry-run).
+**Next step:** Area 9, step 5: redesign app/to-do/page.tsx, VisitCompletionModal and the print page.
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -463,3 +464,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 1 | this commit | To-Dos schema.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 2 | this commit | To-Dos import; 3 questions.
 - 2026-10-08T10:25 | 2026-10-08T10:25 | 9/step 3 | this commit | To-Dos verify: all match.
+- 2026-10-08T10:33 | 2026-10-08T10:33 | 9/step 4 | this commit | To-Dos data layer behind DATA_SOURCE_TODOS. tsc ok, build ok, lint 16.

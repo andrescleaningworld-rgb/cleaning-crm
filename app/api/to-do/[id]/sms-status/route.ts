@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchSmsLogForToDo, updateSmsLogStatus, type SmsLogEntry } from "@/lib/googleSheets";
+import { fetchSmsLogForToDo, updateSmsLogStatus, type SmsLogEntry } from "@/lib/data/todos";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
