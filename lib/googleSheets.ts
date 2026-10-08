@@ -82,7 +82,17 @@ function getAuthClient() {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    // SHEETS_READ_ONLY=1 (set only in .env.development.local, never in
+    // production) asks Google for a read-only token, so Google itself
+    // refuses every write made through this client. It is the mechanical
+    // backstop for the migration rule "never write to Sheets from a local
+    // test": a route that still saves to Sheets fails loudly instead of
+    // changing the live sheet.
+    scopes: [
+      process.env.SHEETS_READ_ONLY === "1"
+        ? "https://www.googleapis.com/auth/spreadsheets.readonly"
+        : "https://www.googleapis.com/auth/spreadsheets",
+    ],
   });
 }
 
