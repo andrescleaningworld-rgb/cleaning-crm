@@ -271,8 +271,9 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Area 10, step 4: lib/pg/sales.ts + lib/data/sales.ts; app/api/sales switched. Parity 1/1; check-sales-writes.mts 8/8; /api/sales byte-identical over HTTP on both sources.
 - Area 10, step 5: Sales and Reports restyled with the UI kit in place (scripted class mapping + hand pass; structure and handlers unchanged). Kit fix: children of a screen can no longer be wider than the screen (a wide table was pushing content off the right edge on phones, clipped). The measuring script now also checks for clipped content. Measured at 375 and 1280px: Sales, Reports and To-Do pass; nothing saved.
 - Area 10 checkpoint report: docs/migration-reports/checkpoint-10-sales-2026-10-08.md.
+- Area 11, step 0: docs/migration-reports/customer-portal-headers.md. customer-portal 393 rows / 19 columns (mostly only Account Name, Phone, Portal Code, Portal Access are filled; Account ID is a formula); portal-complaints, portal-service-requests, portal-date-changes have 0 rows; there is no portal-billing-requests tab, so a billing request from /portal cannot be saved today. Both portals read the same access list: /portal (phone + code, session cookie, saves requests to the portal-* tabs) and /customer-portal (phone only, kept in the browser, requests/complaints/history go to Apps Script).
 
-**Next step:** Area 11 (Customer portal), Step 0: discovery (PORTAL sheet: customer-portal, portal-complaints, portal-service-requests, portal-date-changes; app/(customer) screens; the customer login is a real login: never enter real credentials).
+**Next step:** Area 11 (Customer portal), Step 1: schema (portal_access, portal_requests with kind).
 
 **Facts found (differ from Part A):**
 - MAIN = `10MDGl…` "Cleaning World All Accounts" (37 tabs). PORTAL = `15tFKX…` "Customer-Portal" (7 tabs). Confirmed by tab names, not by production env.
@@ -351,6 +352,8 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - Print: the complaint page, the Visits list and Account Health now print their content | the app hides everything on paper unless a page opts in, and these pages never did, so Print gave a blank page | remove the ui-print-view wrapper on a page to get the blank page back
 - Area 9: the To-Do page was restyled in place, not rearranged into sheets | it is the page managers use most and has the most intricate modes (bulk edit, visit completion, print layouts, deep-link highlight); changing where things are without Andres seeing it first is the riskier choice | proposal 3 in the Area 9 report moves the form and filters into sheets
 - Area 10: Sales and Reports were restyled in place, not rearranged; tables stay tables and scroll inside their own box on a phone | both are long table-and-print pages; a full rebuild into cards and sheets changes how they are used | proposals 1 and 2 in the Area 10 report
+- Area 11: which customer portal is live was not asked; both are treated as live | the staff menu and the login page link to /customer-portal, Settings → Portal hands out the codes only /portal uses, and both read the same access list, so moving the data covers both | say which one to retire and it gets removed in the wrap-up
+- Area 11: the requests, complaints and history of /customer-portal stay on Apps Script | the Apps Script source is not in the repo and reading them needs a real customer phone | moves when the Apps Script source is available (Area 15 list)
 
 **Blocked and skipped:**
 - **Claude in Chrome was not connected**, so page checks use headless Edge from a scratch folder instead (screenshots + measurements). Not retried.
@@ -486,3 +489,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 4 | this commit | Sales data layer behind DATA_SOURCE_SALES. tsc ok, build ok, lint 16.
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/step 5 | this commit | Sales and Reports restyled; kit overflow fix. tsc ok, build ok, lint 16.
 - 2026-10-08T10:57 | 2026-10-08T10:57 | 10/checkpoint | this commit | Report written; Area 10 done.
+- 2026-10-08T11:01 | Area 11 step 0 done
