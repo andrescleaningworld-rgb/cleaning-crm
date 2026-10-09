@@ -87,6 +87,12 @@ const PUBLIC_PATHS = [
   // /api/subcontractor-portal already uses), not the admin session cookie.
   // Phase 6: app/api/cron/team-hub-checklist-alerts/route.ts.
   "/api/cron",
+  // Office TV mode of the Pin Board: opened with its own secret TV link (made
+  // and turned off in Settings -> Pin Board), not a login. The page and its
+  // API check the link themselves. Exact-or-subpath match, so "/board" and
+  // "/api/board" stay behind the staff login.
+  "/board/tv",
+  "/api/board/tv",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action
