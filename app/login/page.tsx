@@ -30,6 +30,8 @@ function LoginForm() {
   const nextPath = searchParams.get("next") || "/";
   const [mode, setMode] = useState<"choice" | "admin-picker" | "admin-password" | "admin-setup">("choice");
   const [identities, setIdentities] = useState<Identity[]>([]);
+  // "loading" until the manager list answers; "failed" when it could not be loaded.
+  const [rosterState, setRosterState] = useState<"loading" | "ready" | "failed">("loading");
   const [selected, setSelected] = useState<Identity | null>(null);
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -38,15 +40,22 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  function loadRoster() {
+    setRosterState("loading");
     fetch("/api/login/identities", { cache: "no-store" })
       .then((response) => response.json())
       .then((data: { success?: boolean; identities?: Identity[] }) => {
         setIdentities((data.identities ?? []).sort((a, b) => a.name.localeCompare(b.name)));
+        setRosterState(data.success === false ? "failed" : "ready");
       })
       .catch((err) => {
         console.error("Failed to load managers:", err);
+        setRosterState("failed");
       });
+  }
+
+  useEffect(() => {
+    loadRoster();
   }, []);
 
   // Auto-tags this device for push notification routing right after a
@@ -244,8 +253,17 @@ function LoginForm() {
             </div>
 
             <div className="space-y-2">
-              {identities.length === 0 ? (
+              {rosterState === "failed" ? (
+                <div className="ui-stack" role="alert">
+                  <p className="ui-field-error">The list of managers could not be loaded. Nothing is wrong with your login.</p>
+                  <button type="button" onClick={loadRoster} className="ui-btn ui-btn-second w-full">
+                    Try again
+                  </button>
+                </div>
+              ) : rosterState === "loading" ? (
                 <p className="ui-muted">Loading managers...</p>
+              ) : identities.length === 0 ? (
+                <p className="ui-muted">No managers are set up yet.</p>
               ) : (
                 identities.map((identity) => (
                   <button

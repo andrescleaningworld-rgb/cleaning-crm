@@ -24,6 +24,11 @@ let _sql: NeonQueryFunction<false, false> | null = null;
  *                   no MIGRATION_DATABASE_URL refuses to run.
  *   Local dev       MIGRATION_DATABASE_URL when set, else DATABASE_URL.
  */
+/** A full Postgres connection string (postgres:// or postgresql://, with a host), not a name or a blank. */
+export function looksLikePostgresUrl(value: string): boolean {
+  return /^postgres(ql)?:\/\/[^\s/]+\/\S+/.test(value.trim());
+}
+
 export function databaseUrl(): string {
   const vercelEnv = process.env.VERCEL_ENV;
   const practice = process.env.MIGRATION_DATABASE_URL?.trim();
@@ -35,6 +40,9 @@ export function databaseUrl(): string {
   if (vercelEnv === "preview") {
     if (!practice) {
       throw new Error("MIGRATION_DATABASE_URL is not set for this Vercel Preview. A preview must use the practice database and refuses to fall back to DATABASE_URL (production).");
+    }
+    if (!looksLikePostgresUrl(practice)) {
+      throw new Error("MIGRATION_DATABASE_URL for this Vercel Preview is not a database address. It must be the full connection string that starts with postgresql://, not the branch name.");
     }
     return practice;
   }

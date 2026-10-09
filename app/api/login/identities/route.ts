@@ -10,6 +10,7 @@ export async function GET() {
     const identities = await getIdentityRoster();
     return NextResponse.json({ success: true, identities });
   } catch (error) {
+    console.error("[login/identities] could not load the manager list:", error instanceof Error ? error.message : error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Could not load managers." },
       { status: 500 }

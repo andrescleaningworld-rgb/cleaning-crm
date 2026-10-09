@@ -181,15 +181,17 @@ export default function CWHeader() {
 
           <div className="flex flex-col gap-5">
             <div className="flex items-center gap-5 pr-16">
-              <div className="flex h-20 w-36 sm:h-14 sm:w-24 items-center justify-center rounded-2xl bg-white p-3 shadow-md">
+              {/* cw-emblem.png is the emblem with no empty margin (276x180). The
+                  box never shrinks, and the image keeps its own proportions. */}
+              <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-2xl bg-white p-2 shadow-md">
                 <Image
-                  src="/logo-CW-single-phone-optimized.png"
+                  src="/cw-emblem.png"
                   alt="Cleaning World"
-                  width={130}
-                  height={70}
+                  width={276}
+                  height={180}
                   priority
                   unoptimized
-                  className="max-h-full w-auto object-contain"
+                  className="h-full w-full object-contain"
                 />
               </div>
 

@@ -30,6 +30,14 @@ const PUBLIC_PATHS = [
   // fetchable on every logged-out page (customer portal, subcontractor
   // portal, the no-login porter link), not just admin-authenticated ones.
   "/logo-CW-single-phone-optimized.png",
+  "/cw-emblem.png",
+  // Browser-tab and home-screen icons: the browser and the phone fetch these
+  // without the login cookie, so behind the login they came back as a
+  // redirect and the icon was missing.
+  "/icon-192.png",
+  "/icon-512.png",
+  "/maskable-icon-512.png",
+  "/apple-touch-icon.png",
   "/sw.js",
   "/manifest.json",
   "/manifest.webmanifest",
@@ -187,5 +195,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|cw-logo.jpg|logo-CW-single-phone-optimized.png).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|cw-logo.jpg|logo-CW-single-phone-optimized.png|cw-emblem.png|icon-192.png|icon-512.png|maskable-icon-512.png|apple-touch-icon.png).*)"],
 };

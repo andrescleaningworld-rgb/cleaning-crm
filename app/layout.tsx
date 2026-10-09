@@ -16,9 +16,14 @@ export const metadata: Metadata = {
     title: "Cleaning World",
     statusBarStyle: "default",
   },
+  // Square icons. (The wide "CLEANING WORLD INC." wordmark was used here
+  // before and came out squeezed into the tab's square.)
   icons: {
-    icon: "/cw-logo.jpg",
-    apple: "/cw-logo.jpg",
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
 };
 
