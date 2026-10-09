@@ -1191,7 +1191,10 @@ export default function AccountsPage() {
     const sliced = filteredAccounts.slice(0, visibleCount);
     return sliced.map((account) => {
       const revNum = account._monthlyRevenueNum ?? 0;
-      const pct = filteredRevenue > 0 ? Math.round((revNum / filteredRevenue) * 100) : 0;
+      // This account's share of the revenue of the accounts shown. One decimal:
+      // most accounts are well under 1% of the total, and a whole number
+      // printed "(0%)" on nearly every row.
+      const pct = filteredRevenue > 0 ? Math.round((revNum / filteredRevenue) * 1000) / 10 : 0;
       return {
         ...account,
         _revenuePercent: pct,
@@ -3162,7 +3165,10 @@ function AccountMoneyBlock({ account }: { account: Account }) {
   return (
     <div>
       <p className="ui-strong ui-nowrap">
-        {formatMoney(account.monthlyRevenue)} <span className="ui-muted">({account._revenuePercent ?? 0}%)</span>
+        {formatMoney(account.monthlyRevenue)}{" "}
+        <span className="ui-muted">
+          ({(account._monthlyRevenueNum ?? 0) > 0 && (account._revenuePercent ?? 0) < 0.1 ? "under 0.1" : account._revenuePercent ?? 0}% of total)
+        </span>
       </p>
       <p className="ui-muted ui-nowrap">Sub pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}</p>
       <p className="ui-muted ui-nowrap">
