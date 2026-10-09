@@ -27,7 +27,8 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const nextPath = searchParams.get("next") || "/";
+  // Managers and office staff land on the Pin Board (the old dashboard is "Overview" in the menu).
+  const nextPath = searchParams.get("next") || "/board";
   const [mode, setMode] = useState<"choice" | "admin-picker" | "admin-password" | "admin-setup">("choice");
   const [identities, setIdentities] = useState<Identity[]>([]);
   // "loading" until the manager list answers; "failed" when it could not be loaded.

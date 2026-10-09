@@ -6,7 +6,9 @@
 //   cleaned        that day has a Crew Link checklist, a visit the sub logged
 //                  or a sub's "after" photo, or a manager tapped "Cleaned"
 //   missed         a manager tapped "Missed", or the account has the Crew
-//                  Link checklist turned on and nothing was sent that day
+//                  Link checklist turned on and nothing was sent that day.
+//                  The second rule only counts from MISSED_COUNTS_FROM on:
+//                  earlier days with no proof stay gray, not red
 //   not confirmed  any other scheduled day in the past (gray, like scheduled)
 //   scheduled      today or later, nothing in yet
 // A manager's own visit (Routine Visit, Quality Check) is shown as "visited";
@@ -64,6 +66,12 @@ export const PROOF_LABEL: Record<CleaningProof, string> = {
 };
 
 export const OFFICE_TIME_ZONE = "America/New_York";
+
+/**
+ * The first day a cleaning can turn red by itself (Andres, Oct 9 2026: the
+ * day the calendar went live). Before it nobody was asked to send proof.
+ */
+export const MISSED_COUNTS_FROM = "2026-10-09";
 
 /** The calendar day in office time for an instant: YYYY-MM-DD. */
 export function officeDay(value: Date | string = new Date()): string {

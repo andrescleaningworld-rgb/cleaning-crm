@@ -12,6 +12,7 @@ const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
 function facts(job: ExtraJob): string[] {
   return [
     `Job number: ${job.jobNumber}`,
+    ...(job.woNumber ? [`WO / Estimate #: ${job.woNumber}`] : []),
     `Account: ${job.accountName}`,
     `Job: ${job.description}`,
     `Date: ${dayLabel(job.jobDate)}`,
@@ -41,6 +42,7 @@ export async function sendExtraJobCancelled(job: ExtraJob, origin: string): Prom
     "This extra job was cancelled. Do not invoice it. Its Sale is cancelled too.",
     "",
     `Job number: ${job.jobNumber}`,
+    ...(job.woNumber ? [`WO / Estimate #: ${job.woNumber}`] : []),
     `Account: ${job.accountName}`,
     `Job: ${job.description}`,
     `Date: ${dayLabel(job.jobDate)}`,

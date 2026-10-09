@@ -4,7 +4,7 @@
 // The rules for cleaned / missed are in lib/cleanings.ts.
 
 import { getSql } from "@/lib/db";
-import { addDays, dayToDate, officeDay, OFFICE_TIME_ZONE, type CalendarData, type Cleaning, type CleaningProof } from "@/lib/cleanings";
+import { addDays, dayToDate, MISSED_COUNTS_FROM, officeDay, OFFICE_TIME_ZONE, type CalendarData, type Cleaning, type CleaningProof } from "@/lib/cleanings";
 import { generateScheduleDates } from "@/lib/scheduleRecurrence";
 
 type AccountRow = { id: string; account_name: string; checklist_needed: string; manager: string; sub: string; sub_id: string };
@@ -165,7 +165,8 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
     } else if (found) {
       status = "cleaned";
     } else if (day < today) {
-      status = account.checklist_needed.trim().toLowerCase() === "yes" ? "missed" : "unconfirmed";
+      // Red by itself only from the day the calendar went live; earlier days with no proof stay gray.
+      status = day >= MISSED_COUNTS_FROM && account.checklist_needed.trim().toLowerCase() === "yes" ? "missed" : "unconfirmed";
     } else {
       status = "scheduled";
     }

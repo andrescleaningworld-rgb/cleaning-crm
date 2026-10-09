@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
         subName: clean(body.subName),
         subPay: Math.round(Number(body.subPay) * 100) / 100,
         soldBy: clean(body.soldBy),
+        woNumber: clean(body.woNumber),
       };
       const problem = checkNewExtraJob(input);
       if (problem) return refuse(problem);

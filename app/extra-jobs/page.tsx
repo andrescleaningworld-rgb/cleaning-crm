@@ -7,8 +7,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BigButton, EmptyState, ErrorBox, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
-import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
+import { BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
+import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
 import styles from "./extra-jobs.module.css";
 
 type Tab = "setup" | "done" | "cancelled" | "all";
@@ -18,6 +18,7 @@ export default function ExtraJobsPage() {
   const [state, setState] = useState<State>("loading");
   const [jobs, setJobs] = useState<ExtraJob[]>([]);
   const [tab, setTab] = useState<Tab>("setup");
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -44,7 +45,9 @@ export default function ExtraJobsPage() {
     }),
     [jobs]
   );
-  const shown = tab === "all" ? jobs : jobs.filter((job) => job.status === tab);
+  // Searching looks in every tab at once: someone with a WO number in hand should not have to guess the tab.
+  const searching = search.trim() !== "";
+  const shown = searching ? jobs.filter((job) => jobMatches(job, search)) : tab === "all" ? jobs : jobs.filter((job) => job.status === tab);
 
   return (
     <Screen title="Extra Jobs">
@@ -67,6 +70,19 @@ export default function ExtraJobsPage() {
         <ErrorBox title="The extra jobs did not load." onRetry={() => void load()} />
       ) : (
         <>
+          <Field
+            label="Find an extra job"
+            hint="Job number, WO / Estimate #, account, the job or the sub."
+            type="search"
+            autoComplete="off"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          {searching ? (
+            <p className="ui-muted" role="status">
+              {shown.length === 1 ? "1 extra job found" : `${shown.length} extra jobs found`}, in every tab.
+            </p>
+          ) : null}
           <Tabs
             tabs={[
               { value: "setup", label: `Set up (${counts.setup})` },
@@ -81,9 +97,11 @@ export default function ExtraJobsPage() {
 
           {shown.length === 0 ? (
             <EmptyState
-              title={tab === "setup" ? "No extra jobs waiting" : tab === "done" ? "Nothing ready to invoice" : tab === "cancelled" ? "No cancelled jobs" : "No extra jobs yet"}
+              title={searching ? "No extra job matches" : tab === "setup" ? "No extra jobs waiting" : tab === "done" ? "Nothing ready to invoice" : tab === "cancelled" ? "No cancelled jobs" : "No extra jobs yet"}
               text={
-                tab === "done"
+                searching
+                  ? "Check the number or the name, or clear the search."
+                  : tab === "done"
                   ? "A job shows here when its manager marks it Done with an after photo."
                   : tab === "cancelled"
                     ? "A cancelled job shows here, with who cancelled it and why."
@@ -97,7 +115,10 @@ export default function ExtraJobsPage() {
                 <li key={job.id}>
                   <Link href={`/extra-jobs/${job.id}`} className={`${styles.job} ${job.status === "done" ? styles.jobDone : job.status === "cancelled" ? styles.jobCancelled : ""}`}>
                     <span className={styles.jobTop}>
-                      <span className={styles.number}>{job.jobNumber}</span>
+                      <span className={styles.number}>
+                        {job.jobNumber}
+                        {job.woNumber ? <span className={styles.wo}> · WO / Est. {job.woNumber}</span> : null}
+                      </span>
                       <StatusPill kind={job.status === "done" ? "done" : job.status === "cancelled" ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>
                     </span>
                     <span className={styles.jobName}>{job.accountName}</span>

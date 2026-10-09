@@ -11,5 +11,5 @@ export const metadata: Metadata = {
 };
 
 export default function BoardTvLayout({ children }: { children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[100] overflow-hidden bg-[#0c447c]">{children}</div>;
+  return <div className="fixed inset-0 z-[100] overflow-hidden bg-[var(--ui-navy,#0c447c)]">{children}</div>;
 }

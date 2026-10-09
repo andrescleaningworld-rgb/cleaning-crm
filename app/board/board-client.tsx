@@ -44,7 +44,7 @@ export function useBoardTabs(current: BoardTab, onLocal?: (tab: "board" | "mine"
     if (tab === "calendar") router.push("/board/calendar");
     else if (tab === "tv") router.push("/board/tv");
     else if (onLocal) onLocal(tab);
-    else router.push(tab === "mine" ? "/board?tab=mine" : "/board");
+    else router.push(tab === "mine" ? "/board?tab=mine" : "/board?tab=board");
   };
 }
 
@@ -57,7 +57,7 @@ export async function postBoard(body: Record<string, unknown>): Promise<Record<s
   return data;
 }
 
-export default function BoardClient({ startTab }: { startTab: "board" | "mine" }) {
+export default function BoardClient({ startTab, phoneOpensMine = false }: { startTab: "board" | "mine"; phoneOpensMine?: boolean }) {
   const [state, setState] = useState<State>("loading");
   const [data, setData] = useState<BoardData | null>(null);
   const [tab, setTab] = useState<"board" | "mine">(startTab);
@@ -83,6 +83,11 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
       setState((current) => (current === "ready" ? current : "failed"));
     }
   }, []);
+
+  // "Board" in the menu: on a phone it opens My square (a list), not the whole cork board.
+  useEffect(() => {
+    if (phoneOpensMine && window.matchMedia("(max-width: 640px)").matches) setTab("mine");
+  }, [phoneOpensMine]);
 
   // New papers pin themselves, so the board looks again every minute.
   useEffect(() => {
@@ -144,7 +149,7 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
               Pin something
             </BigButton>
             {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
-            <BigButton icon="plus" href="/extra-jobs/new">
+            <BigButton icon="plus" href="/extra-jobs/new?from=board">
               Extra job
             </BigButton>
           </div>

@@ -812,7 +812,7 @@ export default function DashboardPage() {
   const countTone = (tone: "good" | "bad" | "info", ...keys: SectionKey[]) => (failed(...keys) || pending(...keys) ? "off" : tone);
 
   return (
-    <Screen title="Dashboard">
+    <Screen title="Overview">
       <Tips
         id="dashboard"
         ready={!pending(...SECTION_KEYS)}

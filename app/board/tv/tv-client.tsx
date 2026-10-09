@@ -8,6 +8,7 @@
 // mouse. A TV opened with its secret link never shows it: there is nothing
 // behind it for that TV to go back to.
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MOTTO } from "@/app/ui";
@@ -143,9 +144,15 @@ export default function TvClient({ token }: { token: string }) {
     <div className={styles.tv} aria-live="off">
       <ExitButton token={token} />
       <header className={styles.top}>
-        <div>
-          <p className={styles.brand}>Cleaning World</p>
-          <p className={styles.motto}>{MOTTO.en}</p>
+        <div className={styles.brandBox}>
+          {/* The same logo, on the same white tile, as the app's own top bar. */}
+          <span className={styles.logo}>
+            <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
+          </span>
+          <div>
+            <p className={styles.brand}>Cleaning World</p>
+            <p className={styles.motto}>{MOTTO.en}</p>
+          </div>
         </div>
         <div className={styles.counters}>
           <div className={styles.counter}>

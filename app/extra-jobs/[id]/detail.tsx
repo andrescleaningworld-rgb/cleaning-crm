@@ -147,6 +147,12 @@ export default function ExtraJobDetail({ id }: { id: string }) {
                 <dt>Date</dt>
                 <dd>{dayLabel(job.jobDate)}</dd>
               </div>
+              {job.woNumber ? (
+                <div>
+                  <dt>WO / Estimate #</dt>
+                  <dd>{job.woNumber}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Customer price</dt>
                 <dd>{money(job.customerPrice)}</dd>
