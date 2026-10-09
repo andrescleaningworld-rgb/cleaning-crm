@@ -3,6 +3,9 @@
 // One quick form, under a minute: account, how it came in, what the job is,
 // date, customer price, sub, sub pay, who sold it. Saving it also creates a
 // one-time Sale (10% commission) and tells the office by email.
+//
+// The same form changes a job that is still on "Set up" (`editId`): every
+// field can be changed, and the job's Sale is changed to match.
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -10,12 +13,13 @@ import { AccountPicker, BigButton, CHEER, EmptyState, ErrorBox, Field, Screen, S
 import { EXTRA_JOBS_RULE, SOURCES, checkNewExtraJob, todayDay, type ExtraJob, type ExtraJobSource, type FormChoices } from "@/lib/extraJobs";
 import styles from "../extra-jobs.module.css";
 
-type State = "loading" | "off" | "failed" | "ready";
+type State = "loading" | "off" | "missing" | "locked" | "failed" | "ready";
 
-export default function NewExtraJobForm({ accountId: startAccountId }: { accountId: string }) {
+export default function ExtraJobForm({ accountId: startAccountId = "", editId = "" }: { accountId?: string; editId?: string }) {
   const router = useRouter();
   const [state, setState] = useState<State>("loading");
   const [choices, setChoices] = useState<FormChoices | null>(null);
+  const [jobNumber, setJobNumber] = useState("");
   const [accountId, setAccountId] = useState(startAccountId);
   const [source, setSource] = useState<ExtraJobSource>("call");
   const [description, setDescription] = useState("");
@@ -28,25 +32,49 @@ export default function NewExtraJobForm({ accountId: startAccountId }: { account
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/extra-jobs?view=form", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((body: { success?: boolean; ready?: boolean } & Partial<FormChoices>) => {
-        if (body.success !== true) throw new Error("failed");
-        if (body.ready !== true) return setState("off");
-        const loaded: FormChoices = { accounts: body.accounts ?? [], subs: body.subs ?? [], sellers: body.sellers ?? [], me: body.me ?? "" };
-        setChoices(loaded);
+    const load = async () => {
+      const response = await fetch("/api/extra-jobs?view=form", { cache: "no-store" });
+      const body = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<FormChoices>;
+      if (body.success !== true) throw new Error("failed");
+      if (body.ready !== true) return setState("off");
+      const loaded: FormChoices = { accounts: body.accounts ?? [], subs: body.subs ?? [], sellers: body.sellers ?? [], me: body.me ?? "" };
+
+      if (editId) {
+        const jobResponse = await fetch(`/api/extra-jobs?id=${encodeURIComponent(editId)}`, { cache: "no-store" });
+        if (jobResponse.status === 404) return setState("missing");
+        const jobBody = (await jobResponse.json()) as { success?: boolean; job?: ExtraJob };
+        const job = jobBody.job;
+        if (!jobResponse.ok || jobBody.success !== true || !job) throw new Error("failed");
+        if (job.status !== "setup") return setState("locked");
+        // Whoever and whatever the job already names stays pickable, even if it is no longer on the lists.
+        if (job.accountId && !loaded.accounts.some((option) => option.id === job.accountId)) loaded.accounts.unshift({ id: job.accountId, name: job.accountName, subId: job.subId, manager: "" });
+        if (job.subId && !loaded.subs.some((option) => option.id === job.subId)) loaded.subs.unshift({ id: job.subId, name: job.subName });
+        if (job.soldBy && !loaded.sellers.includes(job.soldBy)) loaded.sellers.unshift(job.soldBy);
+        setJobNumber(job.jobNumber);
+        setAccountId(job.accountId);
+        setSource(job.source);
+        setDescription(job.description);
+        setJobDate(job.jobDate);
+        setPrice(String(job.customerPrice));
+        setSubId(job.subId);
+        setSubPay(String(job.subPay));
+        setSoldBy(job.soldBy);
+      } else {
         // The person filling it in is usually the one who sold it.
         if (loaded.sellers.includes(loaded.me)) setSoldBy(loaded.me);
         // Coming from an account page: its usual sub is picked already.
         const start = loaded.accounts.find((option) => option.id === startAccountId);
         if (start && loaded.subs.some((sub) => sub.id === start.subId)) setSubId(start.subId);
-        setState("ready");
-      })
-      .catch(() => setState("failed"));
-  }, [startAccountId]);
+      }
+      setChoices(loaded);
+      setState("ready");
+    };
+    load().catch(() => setState("failed"));
+  }, [startAccountId, editId]);
 
   const account = choices?.accounts.find((option) => option.id === accountId) ?? null;
   const sub = choices?.subs.find((option) => option.id === subId) ?? null;
+  const backHref = editId ? `/extra-jobs/${encodeURIComponent(editId)}` : startAccountId ? `/accounts/${encodeURIComponent(startAccountId)}` : "/extra-jobs";
 
   function pickAccount(id: string) {
     setAccountId(id);
@@ -74,7 +102,11 @@ export default function NewExtraJobForm({ accountId: startAccountId }: { account
     setError("");
     setSaving(true);
     try {
-      const response = await fetch("/api/extra-jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "create", ...input }) });
+      const response = await fetch("/api/extra-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editId ? { action: "update", id: editId, ...input } : { action: "create", ...input }),
+      });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; job?: ExtraJob; emailed?: boolean };
       if (!response.ok || body.success !== true || !body.job) throw new Error(body.error ?? "That did not save. Try again.");
       showToast(body.emailed === false ? "Saved. The email to the office did not go out." : CHEER.logged, body.emailed === false ? "bad" : "good");
@@ -87,13 +119,13 @@ export default function NewExtraJobForm({ accountId: startAccountId }: { account
 
   return (
     <Screen
-      title="Extra job"
-      subtitle="Set it up here so it gets paid."
-      backHref={startAccountId ? `/accounts/${encodeURIComponent(startAccountId)}` : "/extra-jobs"}
+      title={editId ? `Change extra job${jobNumber ? ` ${jobNumber}` : ""}` : "Extra job"}
+      subtitle={editId ? "Its Sale is changed to match." : "Set it up here so it gets paid."}
+      backHref={backHref}
       action={
         state === "ready" ? (
           <BigButton busy={saving} busyLabel="Saving…" onClick={() => void save()}>
-            Save extra job
+            {editId ? "Save changes" : "Save extra job"}
           </BigButton>
         ) : undefined
       }
@@ -102,11 +134,23 @@ export default function NewExtraJobForm({ accountId: startAccountId }: { account
         <SkeletonList rows={4} />
       ) : state === "off" ? (
         <EmptyState title="Not set up here yet" text="Extra Jobs works once this database has its tables." />
+      ) : state === "missing" ? (
+        <EmptyState title="That extra job was not found" text="It may have been opened from an old link." />
+      ) : state === "locked" ? (
+        <EmptyState
+          title="This job cannot be changed any more"
+          text="A job can be changed only while it is on Set up. This one is done or cancelled."
+          action={
+            <BigButton kind="second" href={backHref}>
+              Back to the job
+            </BigButton>
+          }
+        />
       ) : state === "failed" || !choices ? (
         <ErrorBox title="The form did not load." onRetry={() => window.location.reload()} />
       ) : (
         <div className="ui-stack">
-          <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>
+          {editId ? null : <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>}
 
           {account ? (
             <div className={styles.picked}>

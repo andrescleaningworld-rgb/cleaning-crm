@@ -2,7 +2,8 @@
 
 // Extra Jobs: every one-time job a customer asked for, from "Set up" to
 // "Ready to invoice". The office's "New" list is the Set up tab; its
-// "Ready to invoice" list is the second tab. Staff only.
+// "Ready to invoice" list is the second tab. Cancelled jobs keep their own
+// tab, with why. Staff only.
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -10,7 +11,7 @@ import { BigButton, EmptyState, ErrorBox, Screen, SkeletonList, StatusPill, Tabs
 import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 import styles from "./extra-jobs.module.css";
 
-type Tab = "setup" | "done" | "all";
+type Tab = "setup" | "done" | "cancelled" | "all";
 type State = "loading" | "off" | "failed" | "ready";
 
 export default function ExtraJobsPage() {
@@ -35,7 +36,14 @@ export default function ExtraJobsPage() {
     void load();
   }, [load]);
 
-  const counts = useMemo(() => ({ setup: jobs.filter((job) => job.status === "setup").length, done: jobs.filter((job) => job.status === "done").length }), [jobs]);
+  const counts = useMemo(
+    () => ({
+      setup: jobs.filter((job) => job.status === "setup").length,
+      done: jobs.filter((job) => job.status === "done").length,
+      cancelled: jobs.filter((job) => job.status === "cancelled").length,
+    }),
+    [jobs]
+  );
   const shown = tab === "all" ? jobs : jobs.filter((job) => job.status === tab);
 
   return (
@@ -63,6 +71,7 @@ export default function ExtraJobsPage() {
             tabs={[
               { value: "setup", label: `Set up (${counts.setup})` },
               { value: "done", label: `Ready to invoice (${counts.done})` },
+              { value: "cancelled", label: `Cancelled (${counts.cancelled})` },
               { value: "all", label: `All (${jobs.length})` },
             ]}
             value={tab}
@@ -72,18 +81,24 @@ export default function ExtraJobsPage() {
 
           {shown.length === 0 ? (
             <EmptyState
-              title={tab === "setup" ? "No extra jobs waiting" : tab === "done" ? "Nothing ready to invoice" : "No extra jobs yet"}
-              text={tab === "done" ? "A job shows here when its manager marks it Done with an after photo." : "Tap Extra job to set one up. It takes under a minute."}
+              title={tab === "setup" ? "No extra jobs waiting" : tab === "done" ? "Nothing ready to invoice" : tab === "cancelled" ? "No cancelled jobs" : "No extra jobs yet"}
+              text={
+                tab === "done"
+                  ? "A job shows here when its manager marks it Done with an after photo."
+                  : tab === "cancelled"
+                    ? "A cancelled job shows here, with who cancelled it and why."
+                    : "Tap Extra job to set one up. It takes under a minute."
+              }
               icon={tab === "setup" ? "check" : "inbox"}
             />
           ) : (
             <ul className={styles.list}>
               {shown.map((job) => (
                 <li key={job.id}>
-                  <Link href={`/extra-jobs/${job.id}`} className={`${styles.job} ${job.status === "done" ? styles.jobDone : ""}`}>
+                  <Link href={`/extra-jobs/${job.id}`} className={`${styles.job} ${job.status === "done" ? styles.jobDone : job.status === "cancelled" ? styles.jobCancelled : ""}`}>
                     <span className={styles.jobTop}>
                       <span className={styles.number}>{job.jobNumber}</span>
-                      <StatusPill kind={job.status === "done" ? "done" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>
+                      <StatusPill kind={job.status === "done" ? "done" : job.status === "cancelled" ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>
                     </span>
                     <span className={styles.jobName}>{job.accountName}</span>
                     <span className={styles.jobWhat}>{job.description}</span>

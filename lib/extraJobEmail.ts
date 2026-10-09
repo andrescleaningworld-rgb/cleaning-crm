@@ -1,4 +1,4 @@
-// The two emails the office gets about an extra job. Sent through the same
+// The emails the office gets about an extra job: set up, done, cancelled. Sent through the same
 // sender as complaints (lib/email.ts sendInternalNotification: the office
 // addresses, the provider picked by EMAIL_PROVIDER, the dry-run switch).
 // Server only.
@@ -30,6 +30,22 @@ export async function sendExtraJobSetUp(job: ExtraJob, origin: string): Promise<
     "A manager set up a new extra job.",
     "",
     ...facts(job),
+    "",
+    `Open it: ${origin}/extra-jobs/${job.id}`,
+  ]);
+}
+
+/** "Extra job cancelled": a short note, sent when a manager cancels one. */
+export async function sendExtraJobCancelled(job: ExtraJob, origin: string): Promise<boolean> {
+  return sendInternalNotification(`Extra job cancelled: ${job.accountName} (${job.jobNumber})`, [
+    "This extra job was cancelled. Do not invoice it. Its Sale is cancelled too.",
+    "",
+    `Job number: ${job.jobNumber}`,
+    `Account: ${job.accountName}`,
+    `Job: ${job.description}`,
+    `Date: ${dayLabel(job.jobDate)}`,
+    `Cancelled by: ${job.cancelledBy}`,
+    `Reason: ${job.cancelReason}`,
     "",
     `Open it: ${origin}/extra-jobs/${job.id}`,
   ]);

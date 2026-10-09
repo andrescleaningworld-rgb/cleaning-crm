@@ -4,18 +4,30 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { sendExtraJobDone, sendExtraJobSetUp } from "@/lib/extraJobEmail";
+import { sendExtraJobCancelled, sendExtraJobDone, sendExtraJobSetUp } from "@/lib/extraJobEmail";
 import { SOURCES, checkNewExtraJob, isDay, type ExtraJob, type ExtraJobSource, type NewExtraJob } from "@/lib/extraJobs";
-import { createExtraJob, extraJobsReady, finishExtraJob, getExtraJob, getFormChoices, getJobAccount, getPayReport, listExtraJobs, stampEmailed } from "@/lib/pg/extra-jobs";
+import {
+  cancelExtraJob,
+  createExtraJob,
+  extraJobsReady,
+  finishExtraJob,
+  getExtraJob,
+  getFormChoices,
+  getJobAccount,
+  getPayReport,
+  listExtraJobs,
+  stampEmailed,
+  updateExtraJob,
+} from "@/lib/pg/extra-jobs";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
 const noStore = { headers: { "Cache-Control": "no-store" } };
 
 /** Tells the office. A failed email never undoes the save; the screen says the email did not go out. */
-async function tellOffice(job: ExtraJob, which: "setup" | "done", origin: string): Promise<boolean> {
+async function tellOffice(job: ExtraJob, which: "setup" | "done" | "cancel", origin: string): Promise<boolean> {
   try {
-    const sent = which === "setup" ? await sendExtraJobSetUp(job, origin) : await sendExtraJobDone(job, origin);
+    const sent = which === "setup" ? await sendExtraJobSetUp(job, origin) : which === "done" ? await sendExtraJobDone(job, origin) : await sendExtraJobCancelled(job, origin);
     if (sent) await stampEmailed(job.id, which);
     return sent;
   } catch (error) {
@@ -67,7 +79,8 @@ export async function POST(request: NextRequest) {
     const origin = request.nextUrl.origin;
 
     // Step 2: the manager sets it up. Also creates the one-time Sale, then tells the office (step 3).
-    if (action === "create") {
+    // "update" is the same form again, for a job that is still on Set up.
+    if (action === "create" || action === "update") {
       const source = clean(body.source) as ExtraJobSource;
       if (!SOURCES.some((option) => option.value === source)) return refuse("Pick how it came in.");
       const input: NewExtraJob = {
@@ -84,6 +97,12 @@ export async function POST(request: NextRequest) {
       };
       const problem = checkNewExtraJob(input);
       if (problem) return refuse(problem);
+      if (action === "update") {
+        const changed = await updateExtraJob(clean(body.id), input, by);
+        if (changed === "not-found") return refuse("That extra job was not found.", 404);
+        if (changed === "locked") return refuse("This job is done or cancelled, so it cannot be changed.", 409);
+        return NextResponse.json({ success: true, job: changed });
+      }
       const job = await createExtraJob(input, by);
       const emailed = await tellOffice(job, "setup", origin);
       return NextResponse.json({ success: true, job: { ...job, setupEmailed: emailed }, emailed });
@@ -95,15 +114,27 @@ export async function POST(request: NextRequest) {
       if (result === "not-found") return refuse("That extra job was not found.", 404);
       if (result === "no-photo") return refuse("Add at least one after photo first.");
       if (result === "already") return refuse("This job was already marked done.", 409);
+      if (result === "cancelled") return refuse("This job was cancelled.", 409);
       const emailed = await tellOffice(result, "done", origin);
       return NextResponse.json({ success: true, job: { ...result, doneEmailed: emailed }, emailed });
+    }
+
+    // Cancel: only while it is on Set up, and only with a reason. The Sale is cancelled with it and the office is told.
+    if (action === "cancel") {
+      const reason = clean(body.reason);
+      if (!reason) return refuse("Write why it is cancelled.");
+      const result = await cancelExtraJob(clean(body.id), by, reason);
+      if (result === "not-found") return refuse("That extra job was not found.", 404);
+      if (result === "locked") return refuse("This job is done or already cancelled, so it cannot be cancelled here.", 409);
+      const emailed = await tellOffice(result, "cancel", origin);
+      return NextResponse.json({ success: true, job: { ...result, cancelEmailed: emailed }, emailed });
     }
 
     // An email that did not go out can be sent again from the job's page.
     if (action === "resendEmail") {
       const job = await getExtraJob(clean(body.id));
       if (!job) return refuse("That extra job was not found.", 404);
-      const emailed = await tellOffice(job, job.status === "done" ? "done" : "setup", origin);
+      const emailed = await tellOffice(job, job.status === "done" ? "done" : job.status === "cancelled" ? "cancel" : "setup", origin);
       if (!emailed) return refuse("The email did not go out. Tell the office yourself for now.", 502);
       return NextResponse.json({ success: true, emailed });
     }

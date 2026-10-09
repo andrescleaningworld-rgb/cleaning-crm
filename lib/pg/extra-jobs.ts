@@ -31,7 +31,10 @@ export async function extraJobsReady(): Promise<boolean> {
   if (ready === true) return true;
   try {
     const sql = getSql();
-    const rows = (await sql`SELECT to_regclass('public.extra_jobs') IS NOT NULL AS ok`) as { ok: boolean }[];
+    // Ready means both migrations are in: the tables (021) and the cancel columns (022).
+    const rows = (await sql`
+      SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'extra_jobs' AND column_name = 'cancel_reason') AS ok
+    `) as { ok: boolean }[];
     ready = rows[0]?.ok === true;
   } catch {
     ready = false;
@@ -64,6 +67,12 @@ type JobRow = {
   done_at: string | Date | null;
   done_note: string;
   done_emailed_at: string | Date | null;
+  cancelled_by: string;
+  cancelled_at: string | Date | null;
+  cancel_reason: string;
+  cancel_emailed_at: string | Date | null;
+  edited_by: string;
+  edited_at: string | Date | null;
   photos: { id: number; url: string; file_name: string; uploaded_by: string; uploaded_at: string }[] | null;
 };
 
@@ -96,8 +105,14 @@ function toJob(row: JobRow): ExtraJob {
     doneBy: row.done_by,
     doneAt: iso(row.done_at),
     doneNote: row.done_note,
+    cancelledBy: row.cancelled_by,
+    cancelledAt: iso(row.cancelled_at),
+    cancelReason: row.cancel_reason,
+    editedBy: row.edited_by,
+    editedAt: iso(row.edited_at),
     setupEmailed: Boolean(row.setup_emailed_at),
     doneEmailed: Boolean(row.done_emailed_at),
+    cancelEmailed: Boolean(row.cancel_emailed_at),
     photos,
   };
 }
@@ -106,17 +121,18 @@ const SELECT_JOB = `
   SELECT j.id::text, j.job_number, j.account_id, j.account_name, j.source, j.description, j.job_date::text AS job_day,
          j.customer_price::text, j.sub_id, j.sub_name, j.sub_pay::text, j.sold_by, j.manager, j.status, j.sale_id,
          j.created_by, j.created_at, j.setup_emailed_at, j.done_by, j.done_at, j.done_note, j.done_emailed_at,
+         j.cancelled_by, j.cancelled_at, j.cancel_reason, j.cancel_emailed_at, j.edited_by, j.edited_at,
          COALESCE((
            SELECT jsonb_agg(jsonb_build_object('id', p.id, 'url', p.url, 'file_name', p.file_name, 'uploaded_by', p.uploaded_by, 'uploaded_at', p.uploaded_at) ORDER BY p.uploaded_at, p.id)
            FROM extra_job_photos p WHERE p.job_id = j.id AND p.moment = 'after'
          ), '[]'::jsonb) AS photos
   FROM extra_jobs j`;
 
-/** Every extra job: the ones still to do first (soonest date first), then the done ones (newest first). */
+/** Every extra job: the ones still to do first (soonest date first), then the done and the cancelled ones (newest first). */
 export async function listExtraJobs(): Promise<ExtraJob[]> {
   const sql = getSql();
   const rows = (await sql.query(
-    `${SELECT_JOB} ORDER BY (j.status = 'done'), CASE WHEN j.status = 'setup' THEN j.job_date END ASC, j.done_at DESC NULLS LAST, j.id DESC LIMIT 1000`
+    `${SELECT_JOB} ORDER BY (j.status <> 'setup'), CASE WHEN j.status = 'setup' THEN j.job_date END ASC, COALESCE(j.done_at, j.cancelled_at) DESC NULLS LAST, j.id DESC LIMIT 1000`
   )) as JobRow[];
   return rows.map(toJob);
 }
@@ -230,12 +246,13 @@ export async function addJobPhoto(jobId: string, url: string, fileName: string, 
 
 /**
  * Marks a job Done (ready to invoice). Needs at least one after photo.
- * Returns "no-photo", "not-found", "already" (someone marked it first) or the job.
+ * Returns "no-photo", "not-found", "already" (someone marked it first), "cancelled" or the job.
  */
-export async function finishExtraJob(id: string, by: string, note: string): Promise<ExtraJob | "no-photo" | "not-found" | "already"> {
+export async function finishExtraJob(id: string, by: string, note: string): Promise<ExtraJob | "no-photo" | "not-found" | "already" | "cancelled"> {
   const job = await getExtraJob(id);
   if (!job) return "not-found";
   if (job.status === "done") return "already";
+  if (job.status === "cancelled") return "cancelled";
   if (job.photos.length === 0) return "no-photo";
   const sql = getSql();
   const rows = (await sql`
@@ -248,10 +265,89 @@ export async function finishExtraJob(id: string, by: string, note: string): Prom
 }
 
 /** Remembers that the office was told. */
-export async function stampEmailed(id: string, which: "setup" | "done"): Promise<void> {
+export async function stampEmailed(id: string, which: "setup" | "done" | "cancel"): Promise<void> {
   const sql = getSql();
   if (which === "setup") await sql`UPDATE extra_jobs SET setup_emailed_at = now() WHERE id = ${id}::bigint`;
-  else await sql`UPDATE extra_jobs SET done_emailed_at = now() WHERE id = ${id}::bigint`;
+  else if (which === "done") await sql`UPDATE extra_jobs SET done_emailed_at = now() WHERE id = ${id}::bigint`;
+  else await sql`UPDATE extra_jobs SET cancel_emailed_at = now() WHERE id = ${id}::bigint`;
+}
+
+/**
+ * Changes a job that is still on "Set up": any field of the quick form. Its
+ * Sale is changed to match (account, what was sold, who sold it, the amount
+ * and so the 10% commission). Returns "not-found", "locked" (the job is
+ * already done or cancelled) or the job.
+ */
+export async function updateExtraJob(id: string, input: NewExtraJob, by: string): Promise<ExtraJob | "not-found" | "locked"> {
+  const job = await getExtraJob(id);
+  if (!job) return "not-found";
+  if (job.status !== "setup") return "locked";
+  const sql = getSql();
+  const rows = (await sql`
+    UPDATE extra_jobs SET
+      account_id = ${input.accountId}, account_name = ${input.accountName.trim()}, source = ${input.source},
+      description = ${input.description.trim().slice(0, 2000)}, job_date = ${input.jobDate}::date, customer_price = ${input.customerPrice},
+      sub_id = ${input.subId}, sub_name = ${input.subName.trim()}, sub_pay = ${input.subPay}, sold_by = ${input.soldBy.trim()},
+      edited_by = ${by}, edited_at = now()
+    WHERE id = ${id}::bigint AND status = 'setup'
+    RETURNING id
+  `) as unknown[];
+  if (rows.length === 0) return "locked";
+
+  if (job.saleId) {
+    const commission = Math.round(input.customerPrice * EXTRA_JOB_COMMISSION_PERCENT) / 100;
+    const now = new Date().toISOString();
+    // Only the Sale this job created (its work order number is the job number).
+    await sql`
+      UPDATE sales s SET
+        account_id_raw = ${input.accountId}, account_name = ${input.accountName.trim()},
+        account_ref = (SELECT a.id FROM accounts a WHERE a.id = ${input.accountId} LIMIT 1),
+        service_sold = ${input.description.trim().slice(0, 300)}, sold_by = ${input.soldBy.trim()},
+        amount_sold_raw = ${String(input.customerPrice)}, amount_sold = ${input.customerPrice}, amount_raw = ${String(input.customerPrice)},
+        commission_percent_raw = ${String(EXTRA_JOB_COMMISSION_PERCENT)}, commission_percent = ${EXTRA_JOB_COMMISSION_PERCENT},
+        commission_amount_raw = ${String(commission)}, commission_amount = ${commission},
+        notes = ${`Extra job ${job.jobNumber}, for ${input.jobDate}. Created by the Extra Jobs page.`},
+        manager = COALESCE((
+          SELECT COALESCE(NULLIF(btrim(m.name), ''), btrim(a.manager_raw), '') FROM accounts a LEFT JOIN managers m ON m.id = a.manager_id WHERE a.id = ${input.accountId} LIMIT 1
+        ), s.manager),
+        updated_at_raw = ${now}, sale_updated_at = ${now}::timestamptz, updated_at = now()
+      WHERE s.sale_id = ${job.saleId} AND s.work_order_estimate_number = ${job.jobNumber}
+    `;
+  }
+  return (await getExtraJob(id)) as ExtraJob;
+}
+
+/**
+ * Cancels a job that is still on "Set up". The reason is required. Its Sale
+ * is cancelled too: Status "Cancelled" and commission 0, so nobody is paid
+ * commission for a job that did not happen (the amount stays, for the
+ * record). Returns "not-found", "locked" or the job.
+ */
+export async function cancelExtraJob(id: string, by: string, reason: string): Promise<ExtraJob | "not-found" | "locked"> {
+  const job = await getExtraJob(id);
+  if (!job) return "not-found";
+  if (job.status !== "setup") return "locked";
+  const why = reason.trim().slice(0, 1000);
+  const sql = getSql();
+  const rows = (await sql`
+    UPDATE extra_jobs SET status = 'cancelled', cancelled_by = ${by}, cancelled_at = now(), cancel_reason = ${why}
+    WHERE id = ${id}::bigint AND status = 'setup'
+    RETURNING id
+  `) as unknown[];
+  if (rows.length === 0) return "locked";
+
+  if (job.saleId) {
+    const now = new Date().toISOString();
+    await sql`
+      UPDATE sales s SET
+        status = 'Cancelled',
+        commission_percent_raw = '0', commission_percent = 0, commission_amount_raw = '0', commission_amount = 0,
+        notes = ${`Extra job ${job.jobNumber} was cancelled by ${by}: ${why}`},
+        updated_at_raw = ${now}, sale_updated_at = ${now}::timestamptz, updated_at = now()
+      WHERE s.sale_id = ${job.saleId} AND s.work_order_estimate_number = ${job.jobNumber}
+    `;
+  }
+  return (await getExtraJob(id)) as ExtraJob;
 }
 
 /**

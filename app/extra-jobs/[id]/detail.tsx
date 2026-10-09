@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
+import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, Sheet, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
 import { EXTRA_JOB_COMMISSION_PERCENT, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 import styles from "../extra-jobs.module.css";
 
@@ -15,6 +15,9 @@ export default function ExtraJobDetail({ id }: { id: string }) {
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -80,6 +83,23 @@ export default function ExtraJobDetail({ id }: { id: string }) {
     }
   }
 
+  async function cancelJob() {
+    if (!job) return;
+    if (!reason.trim()) return setReasonError("Write why it is cancelled.");
+    setReasonError("");
+    setBusy(true);
+    try {
+      const data = await post({ action: "cancel", id: job.id, reason });
+      if (data.job) setJob(data.job);
+      setCancelling(false);
+      showToast(data.emailed === false ? "Cancelled. The email to the office did not go out." : "Cancelled. The office was told.", data.emailed === false ? "bad" : "good");
+    } catch (err) {
+      setReasonError(err instanceof Error ? err.message : "That did not save. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function resend() {
     if (!job) return;
     setError("");
@@ -96,7 +116,9 @@ export default function ExtraJobDetail({ id }: { id: string }) {
   }
 
   const done = job?.status === "done";
-  const emailMissing = job ? (done ? !job.doneEmailed : !job.setupEmailed) : false;
+  const cancelled = job?.status === "cancelled";
+  const setUp = job?.status === "setup";
+  const emailMissing = job ? (done ? !job.doneEmailed : cancelled ? !job.cancelEmailed : !job.setupEmailed) : false;
 
   return (
     <Screen title={job ? `Extra job ${job.jobNumber}` : "Extra job"} backHref="/extra-jobs">
@@ -110,7 +132,12 @@ export default function ExtraJobDetail({ id }: { id: string }) {
         <ErrorBox title="The extra job did not load." onRetry={() => void load()} />
       ) : (
         <>
-          <Card title={job.accountName} right={<StatusPill kind={done ? "done" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>}>
+          <Card title={job.accountName} right={<StatusPill kind={done ? "done" : cancelled ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>}>
+            {cancelled ? (
+              <p className={styles.cancelled} style={{ margin: "0 0 14px" }}>
+                Cancelled by {job.cancelledBy}, {friendlyDate(job.cancelledAt)}. Reason: {job.cancelReason}
+              </p>
+            ) : null}
             <dl className={styles.facts}>
               <div className={styles.wide}>
                 <dt>The job</dt>
@@ -163,12 +190,35 @@ export default function ExtraJobDetail({ id }: { id: string }) {
                 </div>
               ) : null}
             </dl>
+            {job.editedAt ? (
+              <p className="ui-muted" style={{ marginTop: 12 }}>
+                Last changed by {job.editedBy}, {friendlyDate(job.editedAt)}.
+              </p>
+            ) : null}
             {job.accountId ? (
               <p style={{ marginTop: 12 }}>
                 <Link className="ui-link" href={`/accounts/${encodeURIComponent(job.accountId)}`}>
                   Open the account
                 </Link>
               </p>
+            ) : null}
+            {setUp ? (
+              <div className={styles.buttonRow} style={{ marginTop: 14 }}>
+                <BigButton kind="second" href={`/extra-jobs/${job.id}/edit`}>
+                  Change
+                </BigButton>
+                <BigButton
+                  kind="danger"
+                  disabled={busy || uploading}
+                  onClick={() => {
+                    setReason("");
+                    setReasonError("");
+                    setCancelling(true);
+                  }}
+                >
+                  Cancel job
+                </BigButton>
+              </div>
             ) : null}
           </Card>
 
@@ -193,6 +243,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
             </div>
           </Card>
 
+          {cancelled ? null : (
           <Card title={done ? "After photos" : "When the job is done"}>
             {done ? null : <p className="ui-card-text">Add at least one after photo, then tap Done. The office is told it is ready to invoice.</p>}
             {job.photos.length > 0 ? (
@@ -229,10 +280,27 @@ export default function ExtraJobDetail({ id }: { id: string }) {
               )}
             </div>
           </Card>
+          )}
 
           {error ? <ErrorBox title="Not saved yet." text={error} /> : null}
         </>
       )}
+
+      <Sheet
+        open={cancelling}
+        title="Cancel this job?"
+        text="The job moves to Cancelled, its Sale is cancelled too, and the office is told. This cannot be undone."
+        onClose={() => setCancelling(false)}
+        closeLabel="Keep the job"
+        busy={busy}
+        actions={
+          <BigButton kind="danger" busy={busy} busyLabel="Cancelling…" onClick={() => void cancelJob()}>
+            Cancel job
+          </BigButton>
+        }
+      >
+        <TextAreaField label="Why is it cancelled?" rows={3} maxLength={1000} value={reason} error={reasonError || undefined} disabled={busy} onChange={(event) => setReason(event.target.value)} />
+      </Sheet>
     </Screen>
   );
 }

@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
     const file = formData?.get("file");
     const job = await getExtraJob(jobId);
     if (!job) return refuse("That extra job was not found.", 404);
+    if (job.status === "cancelled") return refuse("This job was cancelled, so it takes no photos.", 409);
     if (job.photos.length >= MAX_PHOTOS_PER_JOB) return refuse(`A job can have up to ${MAX_PHOTOS_PER_JOB} photos.`);
     if (!(file instanceof File)) return refuse("Choose a photo.");
     if (file.size > MAX_FILE_SIZE_BYTES) return refuse("The photo must be 10MB or smaller.");

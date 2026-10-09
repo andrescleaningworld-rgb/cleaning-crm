@@ -18,9 +18,9 @@ export const SOURCES: { value: ExtraJobSource; label: string }[] = [
 
 export const SOURCE_LABEL: Record<ExtraJobSource, string> = { call: "Call", text: "Text", email: "Email", portal: "Portal" };
 
-export type ExtraJobStatus = "setup" | "done";
+export type ExtraJobStatus = "setup" | "done" | "cancelled";
 
-export const STATUS_LABEL: Record<ExtraJobStatus, string> = { setup: "Set up", done: "Ready to invoice" };
+export const STATUS_LABEL: Record<ExtraJobStatus, string> = { setup: "Set up", done: "Ready to invoice", cancelled: "Cancelled" };
 
 export type ExtraJobPhoto = { id: string; url: string; fileName: string; uploadedBy: string; uploadedAt: string };
 
@@ -46,9 +46,16 @@ export type ExtraJob = {
   doneBy: string;
   doneAt: string;
   doneNote: string;
+  cancelledBy: string;
+  cancelledAt: string;
+  cancelReason: string;
+  /** The last change made while the job was on "Set up". */
+  editedBy: string;
+  editedAt: string;
   /** False when the email to the office did not go out, so the screen can say so. */
   setupEmailed: boolean;
   doneEmailed: boolean;
+  cancelEmailed: boolean;
   photos: ExtraJobPhoto[];
 };
 
