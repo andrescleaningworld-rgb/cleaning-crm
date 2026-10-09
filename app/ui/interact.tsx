@@ -404,6 +404,8 @@ export type CountItem = {
   /** ...or a filter of the list on this screen. */
   onClick?: () => void;
   pressed?: boolean;
+  /** One small red line under the number, e.g. "3 overdue". Only for a problem. */
+  problemNote?: string;
 };
 
 /**
@@ -418,6 +420,7 @@ export function Counts({ items, label = "At a glance", ...rest }: { items: Count
         const inner = (
           <>
             <span className="ui-count-number">{item.value}</span>
+            {item.problemNote ? <span className="ui-count-note">{item.problemNote}</span> : null}
             <span className="ui-count-label">{item.label}</span>
           </>
         );

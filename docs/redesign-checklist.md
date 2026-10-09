@@ -136,7 +136,7 @@ Rules added in step 2, used on every screen below:
 | Old | Now |
 | --- | --- |
 | "Operations Command Center" title and paragraph | Removed. The bar says Dashboard. |
-| Stat: Overdue To-Dos → To-Do | Big count → To-Do filtered to overdue |
+| Stat: Overdue To-Dos → To-Do | Two big counts. "To-dos pending": every open to-do, with a small red "N overdue" line under the number when any are overdue → To-Do on pending. "To-dos done": done this week → To-Do on done this week. |
 | Stat: Visits This Month → Visits | Big count → Visits |
 | Stat: Open Complaints → Complaints | Big count → Complaints filtered to open |
 | Stat: Accounts Needing Attention → Accounts | Big count "Accounts need you" → Accounts Center on "Need you". It now counts by the same rule as Accounts Center (High Risk, or an open crew problem), so the number and the list agree. It used to also count "needs attention" health. |
@@ -156,7 +156,7 @@ Added: tips (3), pull down to refresh, an empty state for no open to-dos.
 
 | Old | Now |
 | --- | --- |
-| Stat cards: Open, Overdue, Done | Big counts at the top. Tap = filter. Overdue is new as a filter. |
+| Stat cards: Open, Overdue, Done | Two big counts, the same as on the Dashboard: "To-dos pending" (with the red "N overdue" line) and "To-dos done" (this week). Tap = filter. Under them, when anything is overdue: "Show only the N overdue". Every Done to-do, not just this week, is under Filters and more → Status → Done. |
 | "New To-Do" form always open | Behind the green "+ Add to-do" button. Same fields. |
 | Search box | "Find a to-do", always showing |
 | Filters: Assigned, Status, Type, Priority, Sort | "Filters and more" |
@@ -166,7 +166,9 @@ Added: tips (3), pull down to refresh, an empty state for no open to-dos.
 | SMS quota banner | Same |
 | "Could not update to-do." pop-up box | A red message at the bottom of the screen |
 
-Added: tips (3), pull down to refresh, "To-do saved ✓" / "Done ✓", a 5-second Undo before a to-do is cancelled, links `?filter=overdue`, `?add=1` (and the existing `?id=`).
+Added: tips (3), pull down to refresh, "To-do saved ✓" / "Done ✓", a 5-second Undo before a to-do is cancelled, links `?filter=pending`, `?filter=done-week`, `?filter=overdue`, `?add=1` (and the existing `?id=`).
+
+"Done this week" (`lib/toDoWeek.ts`): a to-do does not record the day it was marked Done, so it means status Done with a due date in this week (Monday to Sunday), or, with no due date, created this week.
 
 ### Complaints (`app/complaints/page.tsx`)
 

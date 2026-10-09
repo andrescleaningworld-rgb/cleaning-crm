@@ -2943,3 +2943,14 @@ a.ui-stat {
 .ui-tile-detail {
   color: var(--ui-green-ink);
 }
+
+/* One small red line under a count's number ("3 overdue"). */
+.ui-count-note {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+}

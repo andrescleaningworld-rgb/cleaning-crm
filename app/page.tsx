@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
 import { BigButton, Counts, EmptyState, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
@@ -667,6 +668,14 @@ export default function DashboardPage() {
 
     const openTodos = data.todos.filter(isToDoOpen);
     const overdueTodos = data.todos.filter(isToDoOverdue);
+    // Done, with a due date (or, with none, a created date) in this week: see lib/toDoWeek.ts.
+    const doneThisWeekTodos = data.todos.filter((todo) =>
+      isToDoDoneThisWeek({
+        status: getToDoStatus(todo),
+        dueDate: cleanText(getValue(todo, ["Due Date", "dueDate"])),
+        createdDate: cleanText(getValue(todo, ["Created Date", "createdDate"])),
+      })
+    );
 
     // The same rule as "Need you" on Accounts Center, so the number here and
     // the list it opens agree: not cancelled, and either High Risk or an open
@@ -715,6 +724,7 @@ export default function DashboardPage() {
       newSupplyOrders,
       openTodos,
       overdueTodos,
+      doneThisWeekTodos,
       recentTodos,
       accountsNeedingAttention,
       recentComplaints,
@@ -774,7 +784,14 @@ export default function DashboardPage() {
           <Counts
             data-tip="counts"
             items={[
-              { label: "Overdue to-dos", value: formatNumber(overdue), tone: overdue > 0 ? "bad" : "good", href: "/to-do?filter=overdue" },
+              {
+                label: "To-dos pending",
+                value: formatNumber(dashboard.openTodos.length),
+                tone: "info",
+                problemNote: overdue > 0 ? `${formatNumber(overdue)} overdue` : undefined,
+                href: "/to-do?filter=pending",
+              },
+              { label: "To-dos done", value: formatNumber(dashboard.doneThisWeekTodos.length), tone: "good", href: "/to-do?filter=done-week" },
               { label: "Open complaints", value: formatNumber(openComplaints), tone: openComplaints > 0 ? "bad" : "good", href: "/complaints?status=open" },
               { label: "Accounts need you", value: formatNumber(needYou), tone: needYou > 0 ? "bad" : "good", href: "/accounts-center?show=need-you" },
               { label: "Visits this month", value: formatNumber(dashboard.visitsThisMonth.length), tone: "info", href: "/visits" },
