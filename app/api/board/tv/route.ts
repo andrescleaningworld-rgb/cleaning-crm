@@ -23,6 +23,7 @@ function forTv(paper: Paper): Paper {
   return {
     kind: paper.kind,
     itemId: shortId(paper),
+    label: paper.label,
     title: "",
     accountId: "",
     accountName: paper.accountName,

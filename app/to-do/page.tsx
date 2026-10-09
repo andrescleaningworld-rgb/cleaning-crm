@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { PinButton, PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../components/pin-to-board";
+import type { PinInfo } from "@/lib/boardPins";
 import { CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
@@ -225,6 +227,8 @@ export type ToDoEditFields = {
 
 type ToDoCardProps = {
   todo: ToDo;
+  /** "Pin to board" (Settings -> Pin Board). null = not offered here. */
+  pinInfo: PinInfo | null;
   recurringCount: number;
   managers: string[];
   onUpdateStatus: (toDoId: string, status: string, notes: string) => Promise<void>;
@@ -313,6 +317,7 @@ function ToDoCard({
   onToggleBulkSelected,
   highlighted,
   onboardingAccountHref,
+  pinInfo,
 }: ToDoCardProps) {
   const cardRef = useRef<HTMLElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -504,6 +509,17 @@ function ToDoCard({
           <h3 className="ui-card-title">
             {todo.accountName || `${todo.taskType || "Reminder"} (no account)`}
           </h3>
+
+          {todo.status === "Done" || todo.status === "Cancelled" ? null : (
+            <div className="no-print">
+              <PinButton
+                info={pinInfo}
+                type="todo"
+                record={{ recordId: todo.id, title: [todo.why || todo.taskType, todo.accountName].filter(Boolean).join(" · "), accountName: todo.accountName }}
+                managerName={todo.assignedTo}
+              />
+            </div>
+          )}
 
           {todo.taskType === "New Account Onboarding" ? (
             onboardingAccountHref ? (
@@ -796,6 +812,10 @@ export default function ToDoPage() {
   const [managers, setManagers] = useState<string[]>([]);
   const [loadingManagers, setLoadingManagers] = useState(true);
   const [form, setForm] = useState<ToDoForm>(emptyForm);
+  // "Pin to board" on the New To-Do form: starts as Settings says, in the square of whoever it is assigned to.
+  const { info: pinInfo, reload: reloadPins } = usePinInfo();
+  const [pinPicked, setPinPicked] = useState<PinChoice | null>(null);
+  const pinChoice = pinPicked ?? startingPin(pinInfo, "todo", form.assignedTo);
   const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1092,7 +1112,7 @@ export default function ToDoPage() {
   // still reporting success to its own caller. Routing every submission
   // (one account or many) through the same bulk endpoint keeps this as one
   // code path instead of two.
-  async function submitToDos(accountNames: string[], groupId?: string) {
+  async function submitToDos(accountNames: string[], groupId?: string): Promise<string[]> {
     // Resolved in parallel with accountNames (same index = same to-do) —
     // lets a "New Account Onboarding" to-do's card link straight to that
     // account's onboarding checklist instead of guessing from its name.
@@ -1122,6 +1142,8 @@ export default function ToDoPage() {
     if (!data.success) {
       throw new Error(data.message || "Could not add to-do(s).");
     }
+    // One id per account name, in the same order.
+    return Array.isArray(data.ids) ? (data.ids as string[]) : [];
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1157,7 +1179,13 @@ export default function ToDoPage() {
     const accountNames = selectedAccounts.length > 0 ? selectedAccounts : [""];
 
     try {
-      await submitToDos(accountNames, groupId);
+      const newIds = await submitToDos(accountNames, groupId);
+      for (const [index, id] of newIds.entries()) {
+        const name = accountNames[index] ?? "";
+        await pinAfterSave(pinInfo, "todo", pinChoice, { recordId: id, title: [form.why || form.taskType, name].filter(Boolean).join(" · "), accountName: name });
+      }
+      setPinPicked(null);
+      void reloadPins();
       await loadTodos();
       setForm(emptyForm);
       setShowForm(false);
@@ -1927,6 +1955,10 @@ export default function ToDoPage() {
             </div>
 
             <div className="md:col-span-2">
+              <PinSwitch info={pinInfo} type="todo" value={pinChoice} onChange={setPinPicked} disabled={saving} />
+            </div>
+
+            <div className="md:col-span-2">
               <button
                 type="submit"
                 disabled={saving}
@@ -2052,6 +2084,7 @@ export default function ToDoPage() {
               <ToDoCard
                 key={todo.id}
                 todo={todo}
+                pinInfo={pinInfo}
                 recurringCount={todo.groupId ? groupCounts.get(todo.groupId) ?? 0 : 0}
                 managers={managers}
                 onUpdateStatus={updateStatus}

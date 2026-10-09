@@ -7,7 +7,7 @@
 
 import { Caveat } from "next/font/google";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { KIND_LABEL, SHARED_SQUARES, daysLabel, daysPinned, isOld, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, isOld, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import styles from "./board.module.css";
 
 const handwriting = Caveat({ subsets: ["latin"], weight: ["700"], display: "swap" });
@@ -17,6 +17,8 @@ const paperKey = (paper: Pick<Paper, "kind" | "itemId">) => `${paper.kind}:${pap
 /** The papers one square would take: a manager's square takes anything, a shared square only its own kind. */
 function canDrop(paper: Paper, square: string): boolean {
   if (square.startsWith("mgr:")) return paper.square !== square.slice(4);
+  // The Office square takes to-dos and pinned records back from a manager's square.
+  if (square === "shared:note") return paper.kind === "note" && paper.square !== "";
   return paper.kind !== "note" && square === `shared:${paper.kind}` && paper.square !== "";
 }
 
@@ -30,7 +32,7 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
     <>
       <span className={`${styles.pin} ${taken ? styles.pinGreen : styles.pinRed}`} aria-hidden="true" />
       {old ? <span className={styles.daysTag}>{daysLabel(days)}</span> : null}
-      <span className={styles.kind}>{KIND_LABEL[paper.kind]}</span>
+      <span className={styles.kind}>{paperLabel(paper)}</span>
       {title ? <span className={`${styles.title} ${paper.kind === "note" && !tv ? handwriting.className : ""}`}>{title}</span> : null}
       {!tv && paper.badge ? <span className={styles.badge}>{paper.badge}</span> : null}
       {!tv && paper.progress ? (
@@ -220,8 +222,8 @@ export default function BoardCanvas({
       <div className={styles.cork}>
         <div className={styles.row}>
           {SHARED_SQUARES.map((square) => renderSquare(`shared:${square.kind}`, square.label, papersIn(papers, { shared: square.kind })))}
-          {/* Only when a to-do lost its square (its manager is no longer on the board), so it is never out of sight. */}
-          {papersIn(papers, { shared: "note" }).length > 0 ? renderSquare("shared:note", "To-dos", papersIn(papers, { shared: "note" })) : null}
+          {/* The Office square: records pinned for the office ("Pin to board"), and a to-do whose manager is no longer on the board. Shown only when something is in it. */}
+          {papersIn(papers, { shared: "note" }).length > 0 ? renderSquare("shared:note", "Office", papersIn(papers, { shared: "note" })) : null}
         </div>
         <div className={styles.row}>
           {managers.map((manager) => renderSquare(`mgr:${manager.id}`, manager.name, papersIn(papers, { manager: manager.id }), manager.id === mySquare))}

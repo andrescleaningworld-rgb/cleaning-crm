@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import { parseISO } from "@/lib/dateUtils";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
 
@@ -136,6 +137,8 @@ function getLoadedAccounts(data: AccountsApiResponse): Account[] {
 export default function VisitDetailPage() {
   const params = useParams();
   const visitId = clean(Array.isArray(params.id) ? params.id[0] : params.id);
+  // "Pin to board" (Settings -> Pin Board).
+  const { info: pinInfo } = usePinInfo();
 
   const [visit, setVisit] = useState<Visit | null>(null);
   const [editHistory, setEditHistory] = useState<EditLogEntry[]>([]);
@@ -314,6 +317,14 @@ export default function VisitDetailPage() {
         <BigButton onClick={startEditing}>
           Edit visit
         </BigButton>
+      }
+      secondaryAction={
+        <PinButton
+          info={pinInfo}
+          type="visit"
+          record={{ recordId: visitId, title: [clean(visit.visitType) || "Visit", clean(visit.accountName)].filter(Boolean).join(" · "), accountName: clean(visit.accountName) }}
+          managerName={clean(visit.completedBy)}
+        />
       }
     >
       <Card title="Visit Details">

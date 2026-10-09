@@ -20,7 +20,7 @@ import {
   friendlyDate,
   showToast,
 } from "@/app/ui";
-import { KIND_LABEL, daysLabel, daysPinned, isOld, type BoardData, type Paper } from "@/lib/board";
+import { KIND_LABEL, daysLabel, daysPinned, isOld, paperLabel, type BoardData, type Paper } from "@/lib/board";
 import BoardCanvas from "./board-canvas";
 import styles from "./board.module.css";
 
@@ -124,7 +124,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   }
 
   const move = (paper: Paper, square: string) =>
-    void act({ action: "move", kind: paper.kind, itemId: paper.itemId, square }, square ? `Handed to ${managerName(square)}` : "Back in the shared square");
+    void act({ action: "move", kind: paper.kind, itemId: paper.itemId, square }, square ? `Handed to ${managerName(square)}` : paper.kind === "note" ? "Moved to Office" : "Back in the shared square");
   const take = (paper: Paper, on: boolean) => act({ action: "take", kind: paper.kind, itemId: paper.itemId, on }, on ? "Got it. The pin is green." : "Given back. The pin is red.");
   const finish = async (paper: Paper, on: boolean) => {
     const ok = await act({ action: "done", kind: paper.kind, itemId: paper.itemId, on }, on ? "Done. It is in the Done tray." : "Pinned back on the board.");
@@ -193,7 +193,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
           <div className="ui-stack">
             <p className={styles.sheetLine}>
               <strong>
-                {KIND_LABEL[open.kind]}
+                {paperLabel(open)}
                 {open.badge ? `, ${open.badge}` : ""}
               </strong>
               {open.accountName && open.accountName !== open.title ? ` for ${open.accountName}` : ""}
@@ -212,7 +212,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
             <div className={styles.sheetButtons}>
               {open.href ? (
-                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "supply" ? "Open order" : isExtraJob(open) ? "Open job" : "Open account"}</BigButton>
+                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "supply" ? "Open order" : isExtraJob(open) ? "Open job" : open.label === "Visit" ? "Open visit" : open.label === "To-do" && open.href === "/to-do" ? "Open to-dos" : "Open account"}</BigButton>
               ) : null}
               {open.takenAt ? (
                 <BigButton kind="second" disabled={busy} onClick={() => void take(open, false)}>
@@ -240,9 +240,9 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                     {manager.name}
                   </BigButton>
                 ))}
-              {open.square && open.kind !== "note" ? (
+              {open.square ? (
                 <BigButton kind="quiet" disabled={busy} onClick={() => move(open, "")}>
-                  Shared square
+                  {open.kind === "note" ? "Office" : "Shared square"}
                 </BigButton>
               ) : null}
             </div>
@@ -315,7 +315,7 @@ function MySquare({
           <article key={`${paper.kind}:${paper.itemId}`} className={`${styles.mineCard} ${styles[paper.kind]}`}>
             <div className="ui-actions-row">
               <span className={styles.mineTag}>
-                {KIND_LABEL[paper.kind]}
+                {paperLabel(paper)}
                 {paper.badge ? `, ${paper.badge}` : ""}
               </span>
               {isOld(paper, data.settings) ? <span className={styles.mineTagOld}>{daysLabel(days)}</span> : <span className="ui-muted">{days === 0 ? "Today" : daysLabel(days)}</span>}

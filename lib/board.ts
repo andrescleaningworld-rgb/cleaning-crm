@@ -26,6 +26,8 @@ export const KIND_LABEL: Record<PaperKind, string> = {
 export type Paper = {
   kind: PaperKind;
   itemId: string;
+  /** What kind of thing it is, when that is more exact than its kind: "Visit" on a pinned visit. "" = the kind's own name. */
+  label: string;
   /** The big line on the paper: the account name, or the note itself. */
   title: string;
   accountId: string;
@@ -47,6 +49,9 @@ export type Paper = {
   /** The real record this paper opens. "" = the paper is all there is (a note). */
   href: string;
 };
+
+/** The few words printed on a paper: its own label when it has one, else its kind's. */
+export const paperLabel = (paper: Pick<Paper, "kind" | "label">) => paper.label || KIND_LABEL[paper.kind];
 
 export type BoardManager = { id: string; name: string };
 

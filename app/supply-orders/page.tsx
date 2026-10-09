@@ -5,6 +5,7 @@ import { CHEER, StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
 import OrderSteps from "./order-steps";
+import { PinButton, usePinInfo } from "../components/pin-to-board";
 
 type Account = {
   accountId?: string;
@@ -398,6 +399,8 @@ function statusKind(statusValue?: string): StatusKind {
 
 export default function SupplyOrdersPage() {
   const [orders, setOrders] = useState<SupplyOrder[]>([]);
+  // "Pin to board" (Settings -> Pin Board).
+  const { info: pinInfo } = usePinInfo();
   const [loading, setLoading] = useState(true);
   // ?order= from My work on the Dashboard: that order's step card is brought into view.
   const [focusOrderId, setFocusOrderId] = useState("");
@@ -1119,6 +1122,11 @@ export default function SupplyOrdersPage() {
                           {order.orderId ? (
                             <div className="ui-muted">
                               {order.orderId}
+                            </div>
+                          ) : null}
+                          {order.orderId ? (
+                            <div className="no-print" style={{ marginTop: 6 }} onClick={(event) => event.stopPropagation()}>
+                              <PinButton info={pinInfo} type="supply" record={{ recordId: order.orderId, title: order.accountName || "Supply order", accountName: order.accountName || "" }} />
                             </div>
                           ) : null}
                         </td>

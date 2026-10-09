@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, CHEER, Card, ConfirmSheet, EmptyState, ErrorBox, Field, Screen, SkeletonList, friendlyDate, showToast } from "@/app/ui";
 import type { BoardSettings, TvLink } from "@/lib/board";
+import { DEFAULT_PIN_TYPES, NOT_AVAILABLE_YET, PIN_TYPES, readPinTypes, type PinType, type PinTypes } from "@/lib/boardPins";
 import { postBoard } from "../../board/board-client";
 
 type State = "loading" | "off" | "denied" | "failed" | "ready";
@@ -11,6 +12,9 @@ export default function BoardSettingsClient() {
   const [state, setState] = useState<State>("loading");
   const [days, setDays] = useState("3");
   const [links, setLinks] = useState<TvLink[]>([]);
+  const [pinTypes, setPinTypes] = useState<PinTypes>(DEFAULT_PIN_TYPES);
+  /** False until this database has the column the switches are saved in. */
+  const [pinReady, setPinReady] = useState(false);
   const [label, setLabel] = useState("Office TV");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -22,11 +26,13 @@ export default function BoardSettingsClient() {
     try {
       const response = await fetch("/api/board?view=settings", { cache: "no-store" });
       if (response.status === 403) return setState("denied");
-      const body = (await response.json()) as { success?: boolean; ready?: boolean; settings?: BoardSettings; links?: TvLink[] };
+      const body = (await response.json()) as { success?: boolean; ready?: boolean; settings?: BoardSettings; links?: TvLink[]; pinTypes?: PinTypes; pinReady?: boolean };
       if (!response.ok || body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
       setDays(String(body.settings?.oldAfterDays ?? 3));
       setLinks(body.links ?? []);
+      setPinTypes(readPinTypes(body.pinTypes));
+      setPinReady(body.pinReady === true);
       setState("ready");
     } catch {
       setState("failed");
@@ -54,6 +60,21 @@ export default function BoardSettingsClient() {
       const value = Math.round(Number(days));
       if (!Number.isFinite(value) || value < 1 || value > 60) throw new Error("Days must be a number from 1 to 60.");
       await postBoard({ action: "saveSettings", oldAfterDays: value });
+      showToast(CHEER.logged);
+    });
+
+  const setPin = (type: PinType, change: Partial<PinTypes[PinType]>) =>
+    setPinTypes((current) => {
+      const next = { ...current[type], ...change };
+      // "Pinned by default" means nothing while "Show Pin to board" is off.
+      if (!next.show) next.pinned = false;
+      return { ...current, [type]: next };
+    });
+
+  const savePins = () =>
+    run(async () => {
+      const data = await postBoard({ action: "savePinTypes", pinTypes });
+      setPinTypes(readPinTypes(data.pinTypes));
       showToast(CHEER.logged);
     });
 
@@ -109,6 +130,47 @@ export default function BoardSettingsClient() {
               <BigButton busy={busy} busyLabel="Saving…" onClick={() => void saveDays()}>
                 Save days
               </BigButton>
+            </div>
+          </Card>
+
+          <Card title="Pin to board">
+            <p className="ui-card-text">
+              Which kinds of record offer Pin to board. When it is on, the form gets a Pin to board switch and each record gets a Pin to board button. Pinning never changes the record itself.
+            </p>
+            <div className="ui-stack" style={{ marginTop: 12 }}>
+              {PIN_TYPES.map((entry) => {
+                const value = pinTypes[entry.type];
+                return (
+                  <div key={entry.type} className="ui-card-row" data-pin-type={entry.type} style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                    <p className="ui-strong" style={{ minWidth: 180 }}>
+                      {entry.label}
+                    </p>
+                    {entry.available ? (
+                      <div className="ui-checks">
+                        <label className="ui-check">
+                          <input type="checkbox" checked={value.show} disabled={busy || !pinReady} onChange={(event) => setPin(entry.type, { show: event.target.checked })} />
+                          <span>Show Pin to board</span>
+                        </label>
+                        <label className="ui-check">
+                          <input type="checkbox" checked={value.pinned} disabled={busy || !pinReady || !value.show} onChange={(event) => setPin(entry.type, { pinned: event.target.checked })} />
+                          <span>Pinned by default</span>
+                        </label>
+                      </div>
+                    ) : (
+                      <p className="ui-muted">{NOT_AVAILABLE_YET}</p>
+                    )}
+                  </div>
+                );
+              })}
+              {pinReady ? (
+                <div>
+                  <BigButton busy={busy} busyLabel="Saving…" onClick={() => void savePins()}>
+                    Save Pin to board
+                  </BigButton>
+                </div>
+              ) : (
+                <p className="ui-savestatus">These switches can be changed once this database has had its update. Until then: To-dos on, everything else off.</p>
+              )}
             </div>
           </Card>
 
