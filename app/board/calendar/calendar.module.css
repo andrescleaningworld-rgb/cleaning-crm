@@ -1,0 +1,286 @@
+/* The Cleaning calendar: green = cleaned, gray = scheduled or not confirmed,
+   red = missed, blue = extra job. Every item also says its status in words. */
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.filters {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 16px;
+  color: var(--ui-muted, #52627a);
+}
+
+.swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  border-radius: 5px;
+  border: 2px solid transparent;
+}
+
+/* ---------- the status colours ---------- */
+
+.cleaned {
+  background: #eaf3de;
+  border-color: #3b6d11;
+}
+.scheduled,
+.unconfirmed {
+  background: #eceff3;
+  border-color: #9aa9bd;
+}
+.missed {
+  background: #fce7e5;
+  border-color: #c62828;
+}
+.extra {
+  background: #e6f1fb;
+  border-color: #1f6fd0;
+}
+
+/* ---------- one cleaning ---------- */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todayList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border-left-width: 10px;
+  border-left-style: solid;
+}
+
+.name {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #10233f;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: rgba(16, 35, 63, 0.35);
+  text-underline-offset: 3px;
+  /* A real touch target, even though it reads as a line of text. */
+  padding: 4px 0;
+}
+
+.sub {
+  font-size: 16px;
+  color: #3d4f69;
+}
+
+.status {
+  font-size: 15px;
+  font-weight: 800;
+  color: #3d4f69;
+}
+
+.cleaned .status {
+  color: #27500a;
+}
+.missed .status {
+  color: #b3261e;
+}
+.extra .status {
+  color: #0c447c;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
+}
+
+.itemButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.small {
+  min-height: 44px;
+  padding: 4px 14px;
+  font-size: 16px;
+}
+
+.onBoard {
+  align-self: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: #27500a;
+}
+
+/* ---------- Week: Monday to Saturday ---------- */
+
+.week {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  align-items: start;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 2px solid var(--ui-line-soft, #e3ebf4);
+  border-radius: 14px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.columnToday {
+  border-color: var(--ui-green, #3b6d11);
+  background: #f7fbf1;
+  box-shadow: 0 0 0 3px rgba(59, 109, 17, 0.18);
+}
+
+.columnHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.columnHead span {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-muted, #52627a);
+}
+
+.columnHead .todayTag {
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: var(--ui-green, #3b6d11);
+  color: #ffffff;
+  font-size: 14px;
+}
+
+/* ---------- Month ---------- */
+
+.month {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.monthHead {
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--ui-muted, #52627a);
+}
+
+.monthBlank {
+  min-height: 76px;
+}
+
+.monthCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 76px;
+  padding: 6px;
+  border: 2px solid var(--ui-line-soft, #e3ebf4);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #10233f;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.monthCell:hover {
+  border-color: var(--ui-brand, #0c447c);
+}
+
+.monthToday {
+  border-color: var(--ui-green, #3b6d11);
+  background: #f7fbf1;
+  box-shadow: 0 0 0 3px rgba(59, 109, 17, 0.18);
+}
+
+.monthDay {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.monthTotal {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.monthDots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.dot {
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border-width: 2px;
+  border-style: solid;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .monthCell,
+  .monthBlank {
+    min-height: 62px;
+  }
+  .monthCell {
+    padding: 4px;
+  }
+  .monthTotal {
+    font-size: 18px;
+  }
+}
