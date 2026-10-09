@@ -554,3 +554,4 @@ After each checkpoint: total actual hours (gaps >30 min don't count), update the
 - 2026-10-08T13:07 | Area 15 done; plan complete
 - 2026-10-08T18:06 | Portal redesign done
 - 2026-10-08T20:31 | Accounts Center: revenue share now shows one decimal and reads '% of total' (was a whole number, so most rows read 0%). Production-mode run (no DATA_SOURCE switches, Sheets read-only, dry run): 38 of 38 checks pass on the built app; manager list loads 7 names. The local dev server alone fails /portal-requests and /settings/portal on a cold load (Next dev 'failed to pipe response'); the built app does not.
+- 2026-10-08T20:49 | Visits: 'Add visit' button moved from the bottom bar to the top of the page (protected file app/visits/page.tsx). Account page: 'Add visit' now opens /visits/new with that account chosen (it opened the visits list).

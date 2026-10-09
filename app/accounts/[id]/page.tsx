@@ -1179,7 +1179,7 @@ export default function AccountDetailPage() {
             </div>
 
             <div className="ui-actions-row account-detail-print-hide">
-              <BigButton kind="second" icon="plus" href={`/visits?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+              <BigButton kind="second" icon="plus" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
                 Add visit
               </BigButton>
               <BigButton kind="second" icon="plus" href={accountComplaintLink}>
