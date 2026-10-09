@@ -2,7 +2,13 @@
 
 // Office TV mode: the board and "Today's cleanings", taking turns every 30
 // seconds. Nothing here can be tapped. It asks for fresh data every minute.
+//
+// The one exception: staff who opened TV mode from the board's tabs (logged
+// in, no TV link) get a small "Exit TV mode" button when they move the
+// mouse. A TV opened with its secret link never shows it: there is nothing
+// behind it for that TV to go back to.
 
+import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MOTTO } from "@/app/ui";
 import type { BoardManager, BoardSettings, Paper } from "@/lib/board";
@@ -45,6 +51,33 @@ function FitToScreen({ children, watch }: { children: React.ReactNode; watch: un
         {children}
       </div>
     </div>
+  );
+}
+
+const EXIT_SHOWN_MS = 3_000;
+
+/** "Exit TV mode": shows when the mouse moves, hides again after 3 seconds. Never for a TV link. */
+function ExitButton({ token }: { token: string }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (token) return;
+    let timer = 0;
+    const show = () => {
+      setShown(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setShown(false), EXIT_SHOWN_MS);
+    };
+    window.addEventListener("mousemove", show);
+    return () => {
+      window.removeEventListener("mousemove", show);
+      window.clearTimeout(timer);
+    };
+  }, [token]);
+  if (token || !shown) return null;
+  return (
+    <Link href="/board" className={styles.exit}>
+      Exit TV mode
+    </Link>
   );
 }
 
@@ -93,6 +126,7 @@ export default function TvClient({ token }: { token: string }) {
   if (!data) {
     return (
       <div className={styles.message}>
+        <ExitButton token={token} />
         <p className={styles.messageTitle}>
           {problem === "denied" ? "This TV link is off" : problem === "off" ? "The Pin Board is not turned on here yet" : problem === "failed" ? "The board did not load" : "Loading the board"}
         </p>
@@ -107,6 +141,7 @@ export default function TvClient({ token }: { token: string }) {
 
   return (
     <div className={styles.tv} aria-live="off">
+      <ExitButton token={token} />
       <header className={styles.top}>
         <div>
           <p className={styles.brand}>Cleaning World</p>
