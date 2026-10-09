@@ -16,8 +16,12 @@ import {
   SelectField,
   Sheet,
   SkeletonList,
+  StatusPill,
   TextAreaField,
+  showToast,
 } from "@/app/ui";
+import { useHandoffs } from "../components/handoffs";
+import ToProcess, { handoffForUpdate, processedLine } from "./to-process";
 
 type RawAccount = {
   id?: string;
@@ -197,6 +201,9 @@ function AccountUpdatesPageContent() {
   // Layout only: the add form and the filters each open in a sheet.
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  // Handoffs: which updates the office still has to process, and who processed the rest.
+  const handoffs = useHandoffs();
+  const focusProcessId = searchParams.get("process") ?? "";
   const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
@@ -489,6 +496,10 @@ function AccountUpdatesPageContent() {
       setUpdates((currentUpdates) => [newUpdate, ...currentUpdates]);
 
       setSavedMessage("Account update saved successfully.");
+      if (handoffs.state === "ready") {
+        showToast("Done ✓ — sent to Office");
+        void handoffs.reload();
+      }
       setShowForm(false);
 
       setUpdateDate(todayDate());
@@ -513,6 +524,20 @@ function AccountUpdatesPageContent() {
   }
 
   const accountHref = `/accounts/${selectedAccountId || createIdFromName(selectedAccountName)}`;
+
+  // "To process" or "Processed ✓ by ..., day" on an update the office tracks.
+  // Updates from before this feature have nothing to show.
+  const processStatus = (update: AccountUpdate) => {
+    const item = handoffForUpdate(handoffs.items, update);
+    if (!item) return null;
+    return item.doneAt ? (
+      <p className="ui-guide ui-guide-done">{processedLine(item)}</p>
+    ) : (
+      <div style={{ marginTop: 8 }}>
+        <StatusPill kind="waiting">To process</StatusPill>
+      </div>
+    );
+  };
   const filtersOn =
     (typeFilter !== "All Types" ? 1 : 0) + (managerFilter !== "All Managers" ? 1 : 0) + (sortOption !== "Newest First" ? 1 : 0);
 
@@ -544,7 +569,11 @@ function AccountUpdatesPageContent() {
         </p>
       ) : null}
 
-      <SearchBar value={searchText} onChange={setSearchText} label="Search updates" placeholder="Search updates" />
+      {/* To process: only when not looking at one account's history. */}
+      {!openedFromAccountDetail ? <ToProcess handoffs={handoffs} focusId={focusProcessId} /> : null}
+
+      <h2 className="ui-section-title">All updates</h2>
+      <SearchBar value={searchText} onChange={setSearchText} label="Find an update" placeholder="Find an update" />
 
       <div className="ui-actions-row">
         <BigButton kind="second" onClick={() => setShowFilters(true)}>
@@ -583,6 +612,7 @@ function AccountUpdatesPageContent() {
               </p>
               <p className="ui-card-text ui-clamp">{update.notes}</p>
               {update.notifyEmail ? <p className="ui-card-text">Notified: {update.notifyEmail}</p> : null}
+              {processStatus(update)}
               <div className="ui-actions-row" style={{ marginTop: 12 }}>
                 <BigButton kind="second" href={`/account-updates/${encodeURIComponent(update.id)}`}>
                   {LABELS.open}
@@ -607,6 +637,7 @@ function AccountUpdatesPageContent() {
             { header: "Manager", cell: (update) => update.manager },
             { header: "Notes", cell: (update) => <span className="ui-clamp">{update.notes}</span> },
             { header: "Notify Email", cell: (update) => update.notifyEmail || "None" },
+            { header: "Office", cell: (update) => processStatus(update) ?? "" },
             {
               header: "Action",
               cell: (update) => (

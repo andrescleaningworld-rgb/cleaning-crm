@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
+import MyWork from "./components/my-work";
 import { BigButton, Counts, EmptyState, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
@@ -799,10 +800,13 @@ export default function DashboardPage() {
             ]}
           />
 
-          {/* The one main list: what to do next. */}
+          {/* What is waiting on me: new accounts, account updates, supply orders. */}
+          <MyWork orders={data.supplyOrders} />
+
+          {/* Then the to-dos, soonest first. */}
           <section className="ui-screen-body" aria-label="To-dos to do next">
             <div className="ui-card-row">
-              <h2 className="ui-section-title">Do next</h2>
+              <h2 className="ui-section-title">To-dos next</h2>
               <Link className="ui-btn ui-btn-second" href="/to-do">
                 All to-dos
               </Link>

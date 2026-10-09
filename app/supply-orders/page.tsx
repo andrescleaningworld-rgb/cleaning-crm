@@ -4,6 +4,7 @@ import Link from "next/link";
 import { StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
+import OrderSteps from "./order-steps";
 
 type Account = {
   accountId?: string;
@@ -398,6 +399,11 @@ function statusKind(statusValue?: string): StatusKind {
 export default function SupplyOrdersPage() {
   const [orders, setOrders] = useState<SupplyOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  // ?order= from My work on the Dashboard: that order's step card is brought into view.
+  const [focusOrderId, setFocusOrderId] = useState("");
+  useEffect(() => {
+    setFocusOrderId(new URLSearchParams(window.location.search).get("order") ?? "");
+  }, []);
   const [updatingOrderKey, setUpdatingOrderKey] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
@@ -804,6 +810,20 @@ export default function SupplyOrdersPage() {
       `}</style>
 
       <div className="supply-orders-page-content ui-screen-body">
+        {/* Ordered -> Approved -> Bought -> Delivered, with who has each order now. */}
+        <OrderSteps
+          orders={orders}
+          loading={loading}
+          focusId={focusOrderId}
+          onLocalStatus={(changed, status) =>
+            setOrders((current) =>
+              current.map((order) =>
+                (changed.orderId && order.orderId === changed.orderId) || (!changed.orderId && order.rowNumber === changed.rowNumber) ? { ...order, status } : order
+              )
+            )
+          }
+        />
+
         <section className="ui-card">
           <div className="ui-stack">
             <div>

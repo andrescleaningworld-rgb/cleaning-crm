@@ -3195,3 +3195,55 @@ a.ui-stat {
     transition: none;
   }
 }
+
+/* ---------- Handoffs: what to do now, who is next ---------- */
+
+.ui-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--ui-r-control);
+  background: var(--ui-sky-soft);
+  color: var(--ui-ink);
+}
+
+.ui-guide p {
+  margin: 0;
+}
+
+.ui-guide-done {
+  margin: 8px 0 0;
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font-weight: 700;
+}
+
+.ui-acct .ui-stepper {
+  margin: 2px 0;
+}
+
+/* Settings -> Team: one checklist section per row (stacked on a phone). */
+.ui-team-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--ui-line-soft);
+}
+
+@media (min-width: 800px) {
+  .ui-team-row {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
+    align-items: end;
+  }
+}
+
+/* Help -> How it works: the picture of a flow. */
+.ui-flow {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  margin: 4px auto;
+}

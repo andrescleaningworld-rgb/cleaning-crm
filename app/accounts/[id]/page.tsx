@@ -27,6 +27,9 @@ import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
+import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
+import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
+import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 
 type Account = {
   id?: string;
@@ -321,6 +324,8 @@ export default function AccountDetailPage() {
   const [showMore, setShowMore] = useState(false);
   const [showToDo, setShowToDo] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
+  // New accounts board: this account's place on it, if it is on it.
+  const handoffs = useHandoffs();
 
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
@@ -518,6 +523,13 @@ export default function AccountDetailPage() {
     account?.contactPhone ||
     account?.customerPhone ||
     "N/A";
+
+  useEffect(() => {
+    if (searchParams.get("onboarding") === "1") {
+      setShowMore(true);
+      setShowOnboardingWizard(true);
+    }
+  }, [searchParams]);
 
   const hasContactPhone = contactPhone !== "N/A" && /[0-9]/.test(contactPhone);
 
@@ -1095,6 +1107,30 @@ export default function AccountDetailPage() {
   }
 
   const accountName = account.accountName || "Unnamed Account";
+
+  // This account on the New accounts board (null when it is not on it).
+  const thisAccountId = getAccountId(account, rawAccountIdFromUrl);
+  const onboardingHandoff = handoffs.items.find((item) => item.kind === "account" && item.itemId === thisAccountId) ?? null;
+  const onboardingRulesNow = onboardingRules(handoffs.settings);
+  const sectionGuide = onboardingHandoff
+    ? Object.fromEntries(
+        ONBOARDING_CHECKLIST_SECTIONS.map((section) => {
+          const rule = onboardingRulesNow[section.key];
+          const current = onboardingHandoff.step === section.key;
+          const left = accountDaysLeft({ ...onboardingHandoff, step: section.key }, handoffs.settings);
+          const accepted = onboardingHandoff.data.acceptedOn ? new Date(`${onboardingHandoff.data.acceptedOn}T00:00:00`) : null;
+          const due = accepted && !Number.isNaN(accepted.getTime()) ? new Date(accepted.getTime() + rule.days * 86400000).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+          return [section.key, { owner: ownerLabel(rule.owner, onboardingHandoff), due, late: current && left !== null && left < 0, current }];
+        })
+      )
+    : undefined;
+  // After a checklist save: when the account moved to another section, say who has it now.
+  const handleOnboardingHandoff = (step: string) => {
+    if (onboardingHandoff && step !== onboardingHandoff.step) {
+      showToast(step === ACCOUNT_DONE_STEP ? "Done ✓ — onboarding finished" : sentToText(onboardingHandoff, step, handoffs.settings));
+      void handoffs.reload();
+    }
+  };
   const grossMarginText = estimatedGrossMargin ? formatCalculatedMoney(estimatedGrossMargin) : account.grossMargin || "N/A";
   const addressLink = accountAddress ? (
     <a href={getGoogleMapsUrl(accountAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">
@@ -1152,6 +1188,14 @@ export default function AccountDetailPage() {
               subCompany={subcontractorCompanyDisplay}
               manager={account.manager || ""}
             />
+
+            {onboardingHandoff && !onboardingHandoff.doneAt ? (
+              <div className="account-detail-print-hide">
+                <HandoffCard item={{ ...onboardingHandoff, title: "New account" }} settings={handoffs.settings} data-tip="new-account">
+                  <BigButton onClick={() => setShowOnboardingWizard(true)}>Open checklist</BigButton>
+                </HandoffCard>
+              </div>
+            ) : null}
 
             <div className="ui-actions-row">
               <StatusPill kind={accountStatusKind(account.status)}>{account.status || "No Status"}</StatusPill>
@@ -1361,6 +1405,18 @@ export default function AccountDetailPage() {
             {/* the exact same OnboardingChecklist component the wizard modal    */}
             {/* uses, just inline rather than in a modal.                        */}
             {/* --------------------------------------------------------------- */}
+            {handoffs.state === "ready" && !onboardingHandoff?.doneAt ? (
+              <section className="ui-card ui-stack account-detail-print-hide">
+                <h2 className="ui-card-title">New account</h2>
+                <p className="ui-card-text">
+                  {onboardingHandoff
+                    ? `Accepted ${onboardingHandoff.data.acceptedOn || "(no date)"}. This account is on the New accounts board.`
+                    : "Is this a new account? Add the accepted estimate and it goes on the New accounts board, with each step, its owner and its due date."}
+                </p>
+                <AcceptedEstimate accountId={thisAccountId} accountName={accountName} manager={account.manager || ""} current={onboardingHandoff} onSaved={() => void handoffs.reload()} />
+              </section>
+            ) : null}
+
             <section className="ui-card account-detail-print-hide">
               <OnboardingChecklist
                 accountId={getAccountId(account, rawAccountIdFromUrl)}
@@ -1368,6 +1424,8 @@ export default function AccountDetailPage() {
                 manager={account.manager}
                 accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
                 onAllItemsComplete={applyOnboardingCompletionStable}
+                sectionGuide={sectionGuide}
+                onHandoff={handleOnboardingHandoff}
                 variant="section"
                 onOpenWizard={() => setShowOnboardingWizard(true)}
               />
@@ -1396,6 +1454,8 @@ export default function AccountDetailPage() {
                 manager={account.manager}
                 accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
                 onAllItemsComplete={applyOnboardingCompletionStable}
+                sectionGuide={sectionGuide}
+                onHandoff={handleOnboardingHandoff}
                 onClose={() => setShowOnboardingWizard(false)}
               />
             ) : null}

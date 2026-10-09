@@ -290,3 +290,89 @@ moved.
 Sales, Reports, Documents, Map, Supply Orders, Sub Schedules, Notifications,
 Portal Requests, Help, and the add / edit forms keep their layout. They have
 the navy bar with a back arrow, the green buttons and the 18px text.
+
+## Handoffs: new accounts, account updates, supply orders
+
+Upgrades to existing features so the handoffs between the office and the
+account managers live in the app. Nothing that existed was removed.
+
+How it is built: three small tables in Postgres (`db/migrations/018_handoffs.sql`)
+hold, for each tracked thing, the step it is on, since when, and every move
+(who, when, note). The checklist items, the account updates and the supply
+orders themselves stay where they were. A database without these tables
+(production, until migration 018 is applied there) simply does not show the
+new parts. The rules are in `lib/handoffs.ts`.
+
+Every handoff card says, in plain words, what happens now and who is next
+("Now: The office enters the account." / "Next: Greg — Access and Safety
+Information"), shows a progress bar ("Step 3 of 7"), and turns red when late.
+After a tap: "Done ✓ — sent to [next owner]" with Undo for 5 seconds.
+
+### New accounts (Onboarding Checklist)
+
+| Old | Now |
+| --- | --- |
+| Onboarding checklist: 7 sections, 24 boxes, notes, autosave, wizard view, auto "Stable" at the end | Same |
+| (new) | Account page → More → "Add accepted estimate": a photo or a PDF (same Blob storage as Documents, under `estimates/`) and the day it was accepted. "Start without the file" if there is no file. Then "See the accepted estimate" / "Replace the estimate". |
+| (new) | Each checklist section shows its owner (Office or the account's manager) and its due date, counted from the acceptance day. The current section says "Now". |
+| (new) | Account page, top: a "New account" card with the step, the owner, the days left, and "Open checklist" |
+| (new) | Accounts Center → "New accounts" tab: one card per new account; counts In progress / Late / Waiting on me |
+| Ticking a box only saved the box | Ticking the last box of a section also moves the account to the next section's owner, who sees it in My work |
+
+### Account Updates
+
+| Old | Now |
+| --- | --- |
+| Add update (form, fields, Notify Email) | Same. After saving: "Done ✓ — sent to Office". |
+| List of updates: search, filter and sort, Open, Go to account | Same, under the heading "All updates" |
+| (new) | "To process" list on top: oldest first, red after the days set in Settings → Team; counts To process / Late |
+| (new) | Big green "Mark processed" with an optional note; saves who and when |
+| (new) | On each update: "To process" or "Processed ✓ by [name], [day]" (and the note) |
+
+Only updates saved from now on are tracked; older ones show nothing.
+
+### Supply Orders
+
+| Old | Now |
+| --- | --- |
+| Table of orders, Status dropdown (New, Needs Review, Approved, Pending / In Progress, Completed, Denied, Cancelled), filters, Generate PO, print | Same |
+| (new) | "Orders in progress" on top: Ordered → Approved (manager) → Bought (office) → Delivered, with who has each order, counts In progress / Late / Waiting on me, and that step's one button (Approve order, Mark bought, Mark delivered) |
+| Status changed only with the dropdown | The step buttons move the same Status (Approved, Pending / In Progress, Completed). A Status changed with the dropdown is picked up by the steps on the next load. Denied or Cancelled takes the order out of the steps. |
+
+### Dashboard: My work
+
+| Old | Now |
+| --- | --- |
+| "Do next": the 6 soonest to-dos | Still there, named "To-dos next", under My work |
+| (new) | "My work": only what is waiting on the logged-in person across new accounts, account updates and supply orders; red first, then oldest; one tap opens the item. "Everyone's" shows all of it. |
+
+### Settings → Team (`/settings/team`)
+
+New page, with a tile in Settings. Pick the people who own the Office steps
+(from the active managers), the days before an update or an order turns red
+(default 2), and for new accounts each section's owner and due day. Everyone
+on staff can read it; only the owner can change it. While nobody is picked as
+Office, Office work goes to the owner.
+
+Default owners and due days for a new account: Sale Confirmed (manager, day
+1), Account Created in CRM (office, day 2), Access and Safety (manager, day
+4), Subcontractor Notified (manager, day 5), Supplies and Equipment (office,
+day 7), Customer Contact (office, day 7), First Visit and Follow-Up (manager,
+day 21).
+
+### Help → How it works (`/help/how-it-works`)
+
+New page, linked at the top of Help and from the New accounts board: the idea
+in four lines and one picture per flow, drawn from the same step lists the
+screens use.
+
+### Emails
+
+| Email | Now |
+| --- | --- |
+| New supply order (to the office), when supplies run on Postgres | Says what is waiting and links straight to the order |
+| Account update | Unchanged. It is sent by the Google Apps Script, which this work does not edit. |
+| New account / onboarding | There was none, and none was added |
+
+First-time tips were added on: My work, the New accounts board, the To
+process list, Orders in progress, Settings → Team.

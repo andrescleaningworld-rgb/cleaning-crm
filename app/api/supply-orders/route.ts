@@ -248,7 +248,7 @@ export async function POST(request: NextRequest) {
           result = { success: true, message: "Supply order updated.", ...(await updateSupplyOrderStatus(body)) };
         } else {
           const order = await createSupplyOrder(body);
-          await emailNewSupplyOrder(order);
+          await emailNewSupplyOrder(order, new URL(request.url).origin);
           result = { success: true, message: "Supply order created.", orderId: order.orderId, id: order.orderId, rowNumber: order.rowNumber };
         }
       } catch (error) {

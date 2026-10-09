@@ -193,7 +193,7 @@ async function handleOnPostgres(
 
   if (action === "submitSupplyOrder") {
     const order = await createSupplyOrder({ ...body, subcontractor: name, subcontractorName: name, subcontractorEmail: email });
-    await emailNewSupplyOrder(order);
+    await emailNewSupplyOrder(order, new URL(request.url).origin);
     return NextResponse.json(answer({ message: "Supply order submitted.", orderId: order.orderId, rowNumber: order.rowNumber, status: order.status }));
   }
 
