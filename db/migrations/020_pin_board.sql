@@ -2,13 +2,14 @@
 -- cork board. Postgres only. Nothing here is imported from or written to
 -- Google Sheets.
 --
--- A paper is a handoff_items row (migration 018), so a new account, a supply
--- order or an extra job is the same row on the board and in the handoff
--- lists. Two more kinds are board-only:
+-- A paper is a handoff_items row (migration 018), so a new account or an
+-- extra job is the same row on the board and in the handoff lists. Three more kinds are board-only:
 --   'complaint'  an open complaint (item_id = the Complaint ID)
+--   'supply'     one whole supply order, however many items it has (the
+--                handoff kind 'order' tracks each item line on its own)
 --   'note'       a sticky note / to-do someone pinned by hand
 ALTER TABLE handoff_items DROP CONSTRAINT IF EXISTS handoff_items_kind_check;
-ALTER TABLE handoff_items ADD CONSTRAINT handoff_items_kind_check CHECK (kind IN ('account', 'update', 'order', 'issue', 'extra', 'complaint', 'note'));
+ALTER TABLE handoff_items ADD CONSTRAINT handoff_items_kind_check CHECK (kind IN ('account', 'update', 'order', 'issue', 'extra', 'complaint', 'supply', 'note'));
 
 -- Where the paper hangs and who has it:
 --   board_square     '' = the shared square for its kind; otherwise the Staff

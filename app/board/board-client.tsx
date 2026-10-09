@@ -185,7 +185,10 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
         {open && data ? (
           <div className="ui-stack">
             <p className={styles.sheetLine}>
-              <strong>{KIND_LABEL[open.kind]}</strong>
+              <strong>
+                {KIND_LABEL[open.kind]}
+                {open.badge ? `, ${open.badge}` : ""}
+              </strong>
               {open.accountName && open.accountName !== open.title ? ` for ${open.accountName}` : ""}
             </p>
             {open.detail ? <p className={styles.sheetLine}>{open.detail}</p> : null}
@@ -202,7 +205,7 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
 
             <div className={styles.sheetButtons}>
               {open.href ? (
-                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "order" ? "Open order" : "Open account"}</BigButton>
+                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "supply" ? "Open order" : "Open account"}</BigButton>
               ) : null}
               {open.takenAt ? (
                 <BigButton kind="second" disabled={busy} onClick={() => void take(open, false)}>
@@ -301,7 +304,10 @@ function MySquare({
         return (
           <article key={`${paper.kind}:${paper.itemId}`} className={`${styles.mineCard} ${styles[paper.kind]}`}>
             <div className="ui-actions-row">
-              <span className={styles.mineTag}>{KIND_LABEL[paper.kind]}</span>
+              <span className={styles.mineTag}>
+                {KIND_LABEL[paper.kind]}
+                {paper.badge ? `, ${paper.badge}` : ""}
+              </span>
               {isOld(paper, data.settings) ? <span className={styles.mineTagOld}>{daysLabel(days)}</span> : <span className="ui-muted">{days === 0 ? "Today" : daysLabel(days)}</span>}
             </div>
             <h2 className={styles.mineTitle}>{paper.title || KIND_LABEL[paper.kind]}</h2>

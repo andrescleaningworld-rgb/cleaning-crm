@@ -179,7 +179,7 @@ button.paper:hover {
 .complaint {
   background: #ffd9e6;
 }
-.order {
+.supply {
   background: #d9f2cf;
 }
 .note {
@@ -234,6 +234,17 @@ button.paper:hover {
   line-height: 1.1;
 }
 
+.badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: rgba(16, 35, 63, 0.86);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
 .who {
   display: block;
   margin-top: 6px;
@@ -268,7 +279,7 @@ button.paper:hover {
 
 /* Stuck too long: yellowed, a curled corner and a red tag. */
 .old {
-  background-image: linear-gradient(160deg, rgba(214, 170, 60, 0.38), rgba(190, 140, 40, 0.5));
+  background-image: linear-gradient(160deg, rgba(214, 170, 60, 0.16), rgba(190, 140, 40, 0.34));
   border-bottom-right-radius: 26px 22px;
 }
 
@@ -366,7 +377,7 @@ button.paper:hover {
   border-left-color: #e2557f;
   background: #ffffff;
 }
-.mineCard.order {
+.mineCard.supply {
   border-left-color: #4c9a2a;
   background: #ffffff;
 }

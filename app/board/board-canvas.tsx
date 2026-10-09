@@ -32,6 +32,7 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
       {old ? <span className={styles.daysTag}>{daysLabel(days)}</span> : null}
       <span className={styles.kind}>{KIND_LABEL[paper.kind]}</span>
       {title ? <span className={`${styles.title} ${paper.kind === "note" && !tv ? handwriting.className : ""}`}>{title}</span> : null}
+      {!tv && paper.badge ? <span className={styles.badge}>{paper.badge}</span> : null}
       {!tv && paper.progress ? (
         <>
           <span className={styles.bar} aria-hidden="true">

@@ -3,7 +3,8 @@
 //
 // A paper is a handoff_items row with board_pinned_at set. Papers pin
 // themselves: every time the board is read, syncBoard() looks at the open
-// complaints, the supply orders still on their way and the new accounts
+// complaints, the supply orders still on their way (one paper per order,
+// however many items it has) and the new accounts
 // whose Onboarding Checklist is not finished, pins the ones that are not on
 // the board yet, and takes down the ones that were closed where they live.
 //
@@ -22,7 +23,7 @@ import {
   type PaperKind,
   type TvLink,
 } from "@/lib/board";
-import { ACCOUNT_DONE_STEP, EXTRA_STEPS, currentOnboardingSection, orderStepFromStatus } from "@/lib/handoffs";
+import { ACCOUNT_DONE_STEP, EXTRA_STEPS, currentOnboardingSection } from "@/lib/handoffs";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 
 let ready: boolean | null = null;
@@ -74,7 +75,6 @@ export async function listBoardManagers(): Promise<BoardManager[]> {
 /* ---------- papers pin themselves ---------- */
 
 type ChecklistRow = { account_id: string; account_name: string; items: unknown; started_at: string | Date | null; manager: string | null };
-type OrderRow = { item_id: string; status: string; account_id: string; account_name: string; manager: string | null; items: string; subcontractor: string; since: string | Date | null };
 
 function checklistItems(value: unknown): OnboardingChecklistItems {
   const items = createEmptyChecklistItems();
@@ -152,7 +152,7 @@ async function runSync(): Promise<void> {
   //    from Accounts, an extra job a sub asked for) go up on the board too.
   await sql`
     UPDATE handoff_items SET board_pinned_at = created_at
-    WHERE board_pinned_at IS NULL AND done_at IS NULL AND kind IN ('account', 'order', 'extra')
+    WHERE board_pinned_at IS NULL AND done_at IS NULL AND kind IN ('account', 'extra')
   `;
 
   // 2. New accounts: an Onboarding Checklist that is started and not finished.
@@ -197,69 +197,52 @@ async function runSync(): Promise<void> {
     ON CONFLICT (kind, item_id) DO NOTHING
   `;
 
-  // 4. Supply orders a sub placed in the portal, still on their way.
-  const subOrders = (await sql`
-    SELECT COALESCE(NULLIF(btrim(o.order_id), ''), o.sheet_row::text) AS item_id, o.status,
-           COALESCE(o.account_ref, btrim(o.account_id_raw)) AS account_id, o.account_name,
-           COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw) AS manager,
-           btrim(concat_ws(' ', NULLIF(btrim(o.quantity_raw), ''), NULLIF(btrim(o.unit), ''), NULLIF(btrim(o.supply_item), ''))) AS items,
-           o.subcontractor, COALESCE(o.ordered_on::timestamptz, o.created_at) AS since
-    FROM sub_supply_orders o
-    LEFT JOIN accounts a ON a.id = o.account_ref
-    LEFT JOIN managers m ON m.id = a.manager_id
-    WHERE NOT EXISTS (
-      SELECT 1 FROM handoff_items h WHERE h.kind = 'order' AND h.item_id = COALESCE(NULLIF(btrim(o.order_id), ''), o.sheet_row::text)
-    )
-  `) as OrderRow[];
-  for (const row of subOrders) {
-    const step = orderStepFromStatus(row.status);
-    if (!step || step === "delivered") continue;
-    await insertPaper({
-      kind: "order",
-      itemId: row.item_id,
-      title: row.account_name || "Supply order",
-      accountId: clean(row.account_id),
-      accountName: row.account_name,
-      manager: clean(row.manager),
-      step,
-      since: row.since,
-      data: { items: row.items, subcontractor: row.subcontractor },
-      createdBy: row.subcontractor,
-    });
-  }
+  // 4. Supply orders a sub placed in the portal: one paper per order (the
+  //    lines that share an Order Group ID), up while any line is on its way.
+  await sql.query(`
+    INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
+    SELECT 'supply', g.item_id, COALESCE(NULLIF(g.account_name, ''), 'Supply order'), g.account_id, g.account_name, g.manager, 'open', g.since,
+           jsonb_build_object('items', left(g.items, 600), 'count', g.lines::text, 'subcontractor', g.subcontractor, 'orderId', g.order_id),
+           g.subcontractor, g.since
+    FROM (${SUB_ORDER_GROUPS}) g
+    WHERE g.open
+    ON CONFLICT (kind, item_id) DO NOTHING
+  `);
+
+  //    An order that got more lines shows the new count; one the board took
+  //    down by itself goes back up if a line is open again.
+  await sql.query(`
+    UPDATE handoff_items h SET
+      data = h.data || jsonb_build_object('items', left(g.items, 600), 'count', g.lines::text),
+      board_done_at = CASE WHEN h.board_done_by = 'Closed in Supply Orders' THEN NULL ELSE h.board_done_at END,
+      board_done_by = CASE WHEN h.board_done_by = 'Closed in Supply Orders' THEN '' ELSE h.board_done_by END
+    FROM (${SUB_ORDER_GROUPS}) g
+    WHERE h.kind = 'supply' AND h.item_id = g.item_id AND g.open
+      AND (h.data->>'count' IS DISTINCT FROM g.lines::text OR h.board_done_by = 'Closed in Supply Orders')
+  `);
 
   // 5. Supply orders a crew placed from the Crew Link or the Team Hub.
-  const crewOrders = (await sql`
-    SELECT 'crew-' || o.id::text AS item_id, o.status,
-           COALESCE(o.crew_link_account_id, s.account_id, '') AS account_id,
-           COALESCE(NULLIF(btrim(a.account_name), ''), '') AS account_name,
-           COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw) AS manager,
-           COALESCE((
-             SELECT string_agg(l.qty::text || ' ' || i.name, ', ' ORDER BY i.name)
-             FROM supply_order_lines l JOIN supply_items i ON i.id = l.item_id WHERE l.order_id = o.id
-           ), '') AS items,
-           COALESCE(o.reporter_name, '') AS subcontractor, o.created_at AS since
+  await sql`
+    INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
+    SELECT 'supply', 'crew-' || o.id::text, COALESCE(NULLIF(btrim(a.account_name), ''), 'Supply order'),
+           COALESCE(o.crew_link_account_id, s.account_id, ''), COALESCE(btrim(a.account_name), ''),
+           COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw, ''), 'open', o.created_at,
+           jsonb_build_object(
+             'items', left(COALESCE(l.items, ''), 600), 'count', COALESCE(l.lines, 0)::text,
+             'subcontractor', COALESCE(o.reporter_name, ''), 'source', 'crew'
+           ),
+           COALESCE(o.reporter_name, ''), o.created_at
     FROM supply_orders o
     LEFT JOIN hub_sites s ON s.id = o.site_id
     LEFT JOIN accounts a ON a.id = COALESCE(o.crew_link_account_id, s.account_id)
     LEFT JOIN managers m ON m.id = a.manager_id
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS lines, string_agg(sl.qty::text || ' ' || si.name, ', ' ORDER BY si.name) AS items
+      FROM supply_order_lines sl JOIN supply_items si ON si.id = sl.item_id WHERE sl.order_id = o.id
+    ) l ON true
     WHERE o.status IN ('new', 'ordered')
-      AND NOT EXISTS (SELECT 1 FROM handoff_items h WHERE h.kind = 'order' AND h.item_id = 'crew-' || o.id::text)
-  `) as OrderRow[];
-  for (const row of crewOrders) {
-    await insertPaper({
-      kind: "order",
-      itemId: row.item_id,
-      title: row.account_name || "Supply order",
-      accountId: clean(row.account_id),
-      accountName: row.account_name,
-      manager: clean(row.manager),
-      step: row.status === "ordered" ? "approved" : "ordered",
-      since: row.since,
-      data: { items: row.items, subcontractor: row.subcontractor, source: "crew" },
-      createdBy: row.subcontractor,
-    });
-  }
+    ON CONFLICT (kind, item_id) DO NOTHING
+  `;
 
   // 6. Take down what was finished where it lives. "Closed there" is who.
   await sql`
@@ -276,24 +259,53 @@ async function runSync(): Promise<void> {
           AND lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%'
       )
   `;
-  await sql`
+  await sql.query(`
     UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Closed in Supply Orders'
-    WHERE h.kind = 'order' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
+    WHERE h.kind = 'supply' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
       AND (
-        h.done_at IS NOT NULL
-        OR EXISTS (
-          SELECT 1 FROM sub_supply_orders o
-          WHERE COALESCE(NULLIF(btrim(o.order_id), ''), o.sheet_row::text) = h.item_id
-            AND (lower(o.status) LIKE '%complete%' OR lower(o.status) LIKE '%deliver%' OR lower(o.status) LIKE '%denied%' OR lower(o.status) LIKE '%cancel%')
-        )
-        OR EXISTS (SELECT 1 FROM supply_orders o WHERE 'crew-' || o.id::text = h.item_id AND o.status IN ('delivered', 'cancelled'))
+        (h.item_id LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM supply_orders o WHERE 'crew-' || o.id::text = h.item_id AND o.status IN ('new', 'ordered')))
+        OR (h.item_id NOT LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM (${SUB_ORDER_GROUPS}) g WHERE g.item_id = h.item_id AND g.open))
       )
-  `;
+  `);
   await sql`
     UPDATE handoff_items h SET board_done_at = COALESCE(h.done_at, now()), board_done_by = 'Done in Extra jobs'
     WHERE h.kind = 'extra' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL AND h.done_at IS NOT NULL
   `;
 }
+
+// A line is still on its way while its Status is one of the open ones; the
+// same reading as orderStepFromStatus in lib/handoffs.ts (New / Needs Review,
+// Approved, Pending / In Progress). Completed, Delivered, Denied and
+// Cancelled are not.
+const LINE_OPEN = `(
+  btrim(o.status) = '' OR lower(btrim(o.status)) = 'new' OR lower(o.status) LIKE '%review%'
+  OR lower(o.status) LIKE '%approved%' OR lower(o.status) LIKE '%progress%' OR lower(o.status) LIKE '%pending%'
+)`;
+
+// The sub portal's supply orders, one row per order instead of one per line.
+// One order = the lines that share an Order Group ID. The lines saved so far
+// have none, so without it one order = what one sub ordered for one account
+// on one day.
+const SUB_ORDER_GROUPS = `
+  SELECT 'sub-' || COALESCE(
+           NULLIF(btrim(o.order_group_id), ''),
+           md5(o.ordered_on::text || '|' || lower(btrim(COALESCE(NULLIF(btrim(o.subcontractor_email), ''), o.subcontractor))) || '|' || lower(btrim(o.account_name))),
+           NULLIF(btrim(o.order_id), ''),
+           o.sheet_row::text
+         ) AS item_id,
+         COALESCE(max(btrim(o.account_name)), '') AS account_name,
+         COALESCE(max(o.account_ref), max(NULLIF(btrim(o.account_id_raw), '')), '') AS account_id,
+         COALESCE(max(NULLIF(btrim(m.name), '')), max(NULLIF(btrim(a.manager_raw), '')), '') AS manager,
+         count(*) AS lines,
+         string_agg(btrim(concat_ws(' ', NULLIF(btrim(o.quantity_raw), ''), NULLIF(btrim(o.unit), ''), NULLIF(btrim(o.supply_item), ''))), ', ' ORDER BY o.sheet_row) AS items,
+         COALESCE(max(btrim(o.subcontractor)), '') AS subcontractor,
+         COALESCE(min(NULLIF(btrim(o.order_id), '')), '') AS order_id,
+         min(COALESCE(o.ordered_on::timestamptz, o.created_at)) AS since,
+         bool_or(${LINE_OPEN}) AS open
+  FROM sub_supply_orders o
+  LEFT JOIN accounts a ON a.id = o.account_ref
+  LEFT JOIN managers m ON m.id = a.manager_id
+  GROUP BY 1`;
 
 /* ---------- reading the board ---------- */
 
@@ -318,17 +330,25 @@ function paperHref(row: PaperRow): string {
   const accountId = clean(row.account_id);
   if (row.kind === "account") return `/accounts/${encodeURIComponent(row.item_id)}?onboarding=1`;
   if (row.kind === "complaint") return "/complaints";
-  if (row.kind === "order") return clean(row.data?.source) === "crew" ? "/supply-orders" : `/supply-orders?order=${encodeURIComponent(row.item_id)}`;
+  if (row.kind === "supply") return clean(row.data?.orderId) ? `/supply-orders?order=${encodeURIComponent(clean(row.data?.orderId))}` : "/supply-orders";
   return accountId ? `/accounts/${encodeURIComponent(accountId)}` : "";
 }
 
 function paperDetail(row: PaperRow): string {
   const data = row.data ?? {};
-  if (row.kind === "order") return [clean(data.items), clean(data.subcontractor) ? `for ${clean(data.subcontractor)}` : ""].filter(Boolean).join(" ");
+  if (row.kind === "supply") return [clean(data.items), clean(data.subcontractor) ? `Ordered by ${clean(data.subcontractor)}` : ""].filter(Boolean).join(". ");
   if (row.kind === "complaint") return clean(data.issue);
   if (row.kind === "extra") return clean(data.notes);
   if (row.kind === "note") return clean(data.notes);
   return "";
+}
+
+/** "3 items" on a supply order: how big the order is, at a glance. */
+function paperBadge(row: PaperRow): string {
+  if (row.kind !== "supply") return "";
+  const count = Number(clean(row.data?.count));
+  if (!Number.isFinite(count) || count < 1) return "";
+  return count === 1 ? "1 item" : `${count} items`;
 }
 
 function toPaper(row: PaperRow): Paper {
@@ -339,6 +359,7 @@ function toPaper(row: PaperRow): Paper {
     accountId: clean(row.account_id),
     accountName: clean(row.account_name),
     detail: paperDetail(row),
+    badge: paperBadge(row),
     square: row.board_square ?? "",
     pinnedAt: iso(row.board_pinned_at),
     pinnedBy: clean(row.created_by),

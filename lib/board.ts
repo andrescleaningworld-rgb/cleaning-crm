@@ -2,16 +2,16 @@
 // /board/calendar. Plain TS with no server imports, so client components can
 // use it directly. The database side is lib/pg/board.ts.
 
-export type PaperKind = "account" | "extra" | "complaint" | "order" | "note";
+export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note";
 
-export const PAPER_KINDS: PaperKind[] = ["account", "extra", "complaint", "order", "note"];
+export const PAPER_KINDS: PaperKind[] = ["account", "extra", "complaint", "supply", "note"];
 
 /** The four shared squares on the top row, left to right. A note has no shared square: it always hangs in a person's square. */
 export const SHARED_SQUARES: { kind: Exclude<PaperKind, "note">; label: string }[] = [
   { kind: "account", label: "New accepted" },
   { kind: "extra", label: "Extra jobs" },
   { kind: "complaint", label: "Complaints" },
-  { kind: "order", label: "Supply orders" },
+  { kind: "supply", label: "Supply orders" },
 ];
 
 /** The few words printed on a paper, and the only thing besides the account name that TV mode shows. */
@@ -19,7 +19,7 @@ export const KIND_LABEL: Record<PaperKind, string> = {
   account: "New account",
   extra: "Extra job",
   complaint: "Complaint",
-  order: "Supply order",
+  supply: "Supply order",
   note: "To-do",
 };
 
@@ -32,6 +32,8 @@ export type Paper = {
   accountName: string;
   /** One more short line: what was ordered, what the complaint is about. */
   detail: string;
+  /** A few words printed on the paper itself: "3 items" on a supply order. */
+  badge: string;
   /** "" = the shared square for its kind; otherwise the Staff ID of the manager who has it. */
   square: string;
   pinnedAt: string;
