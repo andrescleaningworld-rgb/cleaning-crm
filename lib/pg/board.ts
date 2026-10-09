@@ -4,7 +4,8 @@
 // A paper is a handoff_items row with board_pinned_at set. Papers pin
 // themselves: every time the board is read, syncBoard() looks at the open
 // complaints, the supply orders still on their way (one paper per order,
-// however many items it has) and the new accounts
+// however many items it has), the extra jobs that are set up and not done
+// yet (the real ones, from the Extra Jobs page) and the new accounts
 // whose Onboarding Checklist is not finished, pins the ones that are not on
 // the board yet, and takes down the ones that were closed where they live.
 //
@@ -23,7 +24,8 @@ import {
   type PaperKind,
   type TvLink,
 } from "@/lib/board";
-import { ACCOUNT_DONE_STEP, EXTRA_STEPS, currentOnboardingSection } from "@/lib/handoffs";
+import { ACCOUNT_DONE_STEP, currentOnboardingSection } from "@/lib/handoffs";
+import { extraJobsReady } from "@/lib/pg/extra-jobs";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 
 let ready: boolean | null = null;
@@ -148,11 +150,11 @@ export async function syncBoard(force = false): Promise<void> {
 async function runSync(): Promise<void> {
   const sql = getSql();
 
-  // 1. Things the handoff lists already track (an accepted estimate added
-  //    from Accounts, an extra job a sub asked for) go up on the board too.
+  // 1. An accepted estimate the handoff lists already track (added from
+  //    Accounts) goes up on the board too.
   await sql`
     UPDATE handoff_items SET board_pinned_at = created_at
-    WHERE board_pinned_at IS NULL AND done_at IS NULL AND kind IN ('account', 'extra')
+    WHERE board_pinned_at IS NULL AND done_at IS NULL AND kind = 'account'
   `;
 
   // 2. New accounts: an Onboarding Checklist that is started and not finished.
@@ -267,10 +269,48 @@ async function runSync(): Promise<void> {
         OR (h.item_id NOT LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM (${SUB_ORDER_GROUPS}) g WHERE g.item_id = h.item_id AND g.open))
       )
   `);
+  await syncExtraJobs();
+}
+
+/**
+ * The blue papers are the real extra jobs (the Extra Jobs page, table
+ * extra_jobs): one paper per job, item_id "job-<id>".
+ *   Set up     pinned, in the Extra jobs square until someone hands it off
+ *   Done       taken down (it is in the office's "Ready to invoice" list)
+ *   Cancelled  taken down
+ * A job changed on its own page shows the change here. Nothing is pinned by
+ * hand any more: "+ Extra job" on the board opens the Extra Jobs form.
+ */
+async function syncExtraJobs(): Promise<void> {
+  if (!(await extraJobsReady())) return;
+  const sql = getSql();
+  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', j.sub_name)`;
+  await sql.query(`
+    INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
+    SELECT 'extra', 'job-' || j.id::text, j.account_name, j.account_id, j.account_name, j.manager, 'setup', j.created_at, ${facts}, j.created_by, j.created_at
+    FROM extra_jobs j
+    WHERE j.status = 'setup'
+    ON CONFLICT (kind, item_id) DO NOTHING
+  `);
+  await sql.query(`
+    UPDATE handoff_items h SET title = j.account_name, account_id = j.account_id, account_name = j.account_name, data = h.data || ${facts}
+    FROM extra_jobs j
+    WHERE h.kind = 'extra' AND h.item_id = 'job-' || j.id::text AND j.status = 'setup'
+      AND (h.account_name IS DISTINCT FROM j.account_name OR h.account_id IS DISTINCT FROM j.account_id OR NOT (h.data @> ${facts}))
+  `);
   await sql`
-    UPDATE handoff_items h SET board_done_at = COALESCE(h.done_at, now()), board_done_by = 'Done in Extra jobs'
-    WHERE h.kind = 'extra' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL AND h.done_at IS NOT NULL
+    UPDATE handoff_items h SET
+      board_done_at = COALESCE(j.done_at, j.cancelled_at, now()),
+      board_done_by = CASE WHEN j.status = 'done' THEN j.done_by || ' (ready to invoice)' ELSE j.cancelled_by || ' (job cancelled)' END
+    FROM extra_jobs j
+    WHERE h.kind = 'extra' AND h.item_id = 'job-' || j.id::text AND j.status <> 'setup'
+      AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
   `;
+}
+
+/** True for a blue paper that mirrors a real extra job: it is finished on the job's page (with an after photo), not on the board. */
+export function isExtraJobPaper(kind: string, itemId: string): boolean {
+  return kind === "extra" && itemId.startsWith("job-");
 }
 
 // A line is still on its way while its Status is one of the open ones; the
@@ -331,6 +371,7 @@ function paperHref(row: PaperRow): string {
   if (row.kind === "account") return `/accounts/${encodeURIComponent(row.item_id)}?onboarding=1`;
   if (row.kind === "complaint") return "/complaints";
   if (row.kind === "supply") return clean(row.data?.orderId) ? `/supply-orders?order=${encodeURIComponent(clean(row.data?.orderId))}` : "/supply-orders";
+  if (row.kind === "extra" && clean(row.data?.jobId)) return `/extra-jobs/${encodeURIComponent(clean(row.data?.jobId))}`;
   return accountId ? `/accounts/${encodeURIComponent(accountId)}` : "";
 }
 
@@ -338,13 +379,14 @@ function paperDetail(row: PaperRow): string {
   const data = row.data ?? {};
   if (row.kind === "supply") return [clean(data.items), clean(data.subcontractor) ? `Ordered by ${clean(data.subcontractor)}` : ""].filter(Boolean).join(". ");
   if (row.kind === "complaint") return clean(data.issue);
-  if (row.kind === "extra") return [clean(data.notes), clean(data.date) ? `For ${clean(data.date)}` : ""].filter(Boolean).join(". ");
+  if (row.kind === "extra") return [clean(data.notes), clean(data.date) ? `For ${clean(data.date)}` : "", clean(data.sub) ? `Sub: ${clean(data.sub)}` : ""].filter(Boolean).join(". ");
   if (row.kind === "note") return clean(data.notes);
   return "";
 }
 
-/** "3 items" on a supply order: how big the order is, at a glance. */
+/** "3 items" on a supply order (how big it is, at a glance); the job number on an extra job. */
 function paperBadge(row: PaperRow): string {
+  if (row.kind === "extra") return clean(row.data?.jobNumber);
   if (row.kind !== "supply") return "";
   const count = Number(clean(row.data?.count));
   if (!Number.isFinite(count) || count < 1) return "";
@@ -393,25 +435,17 @@ export async function listPapers(): Promise<{ papers: Paper[]; done: Paper[] }> 
 
 const isBoardKind = (kind: string): kind is PaperKind => (PAPER_KINDS as string[]).includes(kind);
 
-/** "+ Pin something" and "+ Extra job": a paper someone writes by hand. */
-export async function pinPaper(input: { kind: "note" | "extra"; text: string; accountId?: string; accountName?: string; square?: string; date?: string; by: string }): Promise<string> {
-  const text = input.text.trim().slice(0, 500);
-  const accountName = clean(input.accountName);
+/** "+ Pin something": a to-do someone writes by hand. (An extra job is set up on the Extra Jobs form, not here.) */
+export async function pinPaper(input: { text: string; accountId?: string; accountName?: string; square: string; by: string }): Promise<string> {
   const itemId = `board-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
   await insertPaper({
-    kind: input.kind,
+    kind: "note",
     itemId,
-    // An extra job is named after its account, like every other paper; a note is its own words.
-    title: input.kind === "extra" ? accountName || text : text,
+    title: input.text.trim().slice(0, 500),
     accountId: clean(input.accountId),
-    accountName,
-    step: input.kind === "extra" ? EXTRA_STEPS[0].key : "pinned",
-    data: {
-      notes: input.kind === "extra" && accountName ? text : "",
-      updateType: input.kind === "extra" ? "Extra job" : "",
-      // The day the extra job is for (YYYY-MM-DD): it shows in blue on the Cleaning calendar.
-      date: input.kind === "extra" && /^d{4}-d{2}-d{2}$/.test(input.date ?? "") ? (input.date as string) : "",
-    },
+    accountName: clean(input.accountName),
+    step: "pinned",
+    data: { notes: "" },
     createdBy: input.by,
     square: clean(input.square),
   });

@@ -1244,6 +1244,7 @@ export default function AccountDetailPage() {
               <Tile icon="todo" label="Add to-do" onClick={() => setShowToDo(true)} />
               <Tile icon="problem" label="Log problem" href={accountComplaintLink} />
               <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}`} />
+              <Tile icon="money" label="+ Extra job" href={`/extra-jobs/new?accountId=${accountIdForUrl}`} />
               <Tile icon="key" label="Keys and alarm" onClick={() => setShowKeys(true)} />
               <Tile
                 icon="more"

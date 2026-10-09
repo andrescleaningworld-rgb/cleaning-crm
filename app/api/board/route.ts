@@ -12,6 +12,7 @@ import {
   createTvLink,
   finishPaper,
   getBoardSettings,
+  isExtraJobPaper,
   listBoardManagers,
   listPapers,
   listTvLinks,
@@ -78,16 +79,15 @@ export async function POST(request: NextRequest) {
     const kind = clean(body.kind);
     const itemId = clean(body.itemId);
 
+    // "+ Pin something": a to-do. Extra jobs are not pinned by hand: they are set up on the Extra Jobs form and pin themselves.
     if (action === "pin") {
-      const paperKind = kind === "extra" ? "extra" : "note";
+      if (kind === "extra") return refuse("Set the extra job up with the Extra job button. It pins itself.");
       const text = clean(body.text);
-      const accountId = clean(body.accountId);
-      const accountName = clean(body.accountName);
       const square = clean(body.square);
-      if (!text && !(paperKind === "extra" && accountName)) return refuse("Write a few words first.");
-      if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
-      if (paperKind === "note" && !square) return refuse("Pick whose square it goes in.");
-      const id = await pinPaper({ kind: paperKind, text, accountId, accountName, square, date: clean(body.date), by });
+      if (!text) return refuse("Write a few words first.");
+      if (!square) return refuse("Pick whose square it goes in.");
+      if (!(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      const id = await pinPaper({ text, accountId: clean(body.accountId), accountName: clean(body.accountName), square, by });
       return NextResponse.json({ success: true, itemId: id });
     }
 
@@ -108,6 +108,8 @@ export async function POST(request: NextRequest) {
 
     if (action === "done") {
       if (!kind || !itemId) return refuse("kind and itemId are required.");
+      // An extra job is done on its own page, where the after photo goes; the paper then comes down by itself.
+      if (isExtraJobPaper(kind, itemId) && body.on !== false) return refuse("Mark this job Done on its own page. It needs an after photo.");
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
       return NextResponse.json({ success: true });
     }
