@@ -2954,3 +2954,244 @@ a.ui-stat {
   font-weight: 800;
   line-height: 1.3;
 }
+
+/* ==========================================================================
+   Left sidebar (replaces the bar's buttons and its Menu panel).
+   Wide screens: always there, navy, every section as icon + name; a button
+   shrinks it to icons only. Phones: slides in from the left over a dark
+   backdrop when Menu is tapped.
+   ========================================================================== */
+
+.cw-side {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(86vw, 300px);
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  box-shadow: 4px 0 24px rgba(9, 53, 96, 0.35);
+  /* Closed on a phone: off screen, and out of reach of the keyboard and screen readers. */
+  transform: translateX(-104%);
+  visibility: hidden;
+  transition: transform 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.cw-side-open {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.18s ease;
+}
+
+.cw-side-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(16, 35, 63, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.cw-side-backdrop-on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cw-side-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 64px;
+  padding: 8px 8px 8px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.cw-side-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.cw-side-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.cw-side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+
+.cw-side-group + .cw-side-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.cw-side-heading {
+  margin: 0;
+  padding: 6px 12px 2px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.cw-side-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.06s ease;
+}
+
+.cw-side-link:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.cw-side-link:active {
+  transform: scale(0.98);
+}
+
+.cw-side-link:focus-visible,
+.cw-side-close:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: -3px;
+}
+
+.cw-side-link-on,
+.cw-side-link-on:hover {
+  background: #ffffff;
+  color: var(--ui-navy);
+}
+
+.cw-side-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+}
+
+.cw-side-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-side-foot {
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* "Icons only" is a wide-screen control. */
+.cw-side-collapse {
+  display: none;
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-side,
+  .cw-side-open,
+  .cw-side-backdrop {
+    transition: none;
+  }
+}
+
+@media screen and (min-width: 900px) {
+  .cw-side {
+    width: 248px;
+    transform: none;
+    visibility: visible;
+    box-shadow: none;
+    transition: width 0.16s ease;
+  }
+
+  .cw-side-backdrop,
+  .cw-side-close,
+  .cw-topbar-menu {
+    display: none;
+  }
+
+  .cw-side-collapse {
+    display: flex;
+  }
+
+  /* The page (bar and content) sits to the right of the sidebar and uses all the width that is left. */
+  .cw-app-container:has(.cw-side) {
+    max-width: none;
+    padding-left: 248px;
+    transition: padding-left 0.16s ease;
+  }
+
+  .cw-app-container:has(.cw-side-mini) {
+    padding-left: 72px;
+  }
+
+  /* Icons only. Each link keeps its name for screen readers and as a hover title. */
+  .cw-side-mini {
+    width: 72px;
+  }
+
+  .cw-side-mini .cw-side-label,
+  .cw-side-mini .cw-side-heading,
+  .cw-side-mini .cw-side-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .cw-side-mini .cw-side-top {
+    padding: 8px;
+  }
+
+  .cw-side-mini .cw-side-link {
+    position: relative;
+    justify-content: center;
+    padding: 8px 0;
+  }
+
+  .cw-side-mini .cw-side-badge {
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    min-width: 20px;
+    height: 20px;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-app-container:has(.cw-side) {
+    transition: none;
+  }
+}

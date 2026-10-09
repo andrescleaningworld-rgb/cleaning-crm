@@ -120,7 +120,7 @@ Rules added in step 2, used on every screen below:
 - At a glance: big tappable counts first (`Counts` in `app/ui/`), status as color + icon + word, short labels. Details are one tap deeper.
 - Every card goes where you expect. Counts are links or filters.
 - Every page has a back arrow in the navy bar except home (Dashboard for staff, the portal home for a sub or a customer). A screen says where its arrow goes; otherwise it goes one level up.
-- Navy bar, wide screen: Dashboard, Accounts center, To-Do, Sub Center, then "?" and Menu. Phone: "?" and Menu only. Menu holds every destination.
+- Navigation is a left sidebar (see "Left sidebar" below). The navy bar keeps the logo, the page name, the back arrow and "?", plus the Menu button on a phone.
 - Toasts ("Saved ✓", Undo) now come from one place for every page (`app/layout.tsx`).
 
 ### Top bar (changed again in step 2)
@@ -130,6 +130,26 @@ Rules added in step 2, used on every screen below:
 | Every menu item always showing on a wide screen | Wide: four buttons (Dashboard, Accounts center, To-Do, Sub Center); everything else behind Menu |
 | To-Do reached from the Dashboard | Also in the bar (wide) and in Menu |
 | Back arrow only on screens that set one | On every page except home |
+
+### Left sidebar (replaces the bar buttons and the Menu panel)
+
+`app/components/CWHeader.tsx`. Wide screens: a navy sidebar that is always there, every section as icon + name, the current page highlighted in white. Phones: the Menu button slides the same sidebar in from the left over a dark backdrop; a tap on a link, the backdrop or the X closes it.
+
+| Old | Now |
+| --- | --- |
+| Bar buttons: Dashboard, Accounts center, To-Do, Sub Center | Sidebar → Daily |
+| Dashboard tiles only: Complaints, Visits, Supplies, Supply Orders, Crew Link | Also in the sidebar → Work |
+| Menu: Sales, Reports, Documents, Equipment, Map | Sidebar → Office |
+| Menu: Portal (with its red count) | Sidebar → Office → Portal Requests (with its red count) |
+| Menu: Notifications (with its red count) | Sidebar → Office → Notifications (with its red count) |
+| Menu: Settings, Help, Logout | Bottom of the sidebar |
+| Menu button (wide) | Gone: the sidebar is always there |
+| Menu button (phone), with the red total | Same button, now opens the sidebar |
+| (new) | "Icons only" at the bottom of the sidebar (wide screens): shrinks it to icons, remembered on the device |
+| Bar: logo, page name, back arrow, "?" | Same |
+| Page content up to 1400px wide, centered | Uses all the width to the right of the sidebar |
+| Sub portal menu: Home, Equipment | Same two, in the sidebar |
+| Old customer portal menu: My Account, Requests, Complaints, History | Same four, in the sidebar |
 
 ### Dashboard (`app/page.tsx`)
 
