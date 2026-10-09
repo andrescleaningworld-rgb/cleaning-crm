@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useId } from "react";
 
 export type SearchOption = { id: string; label: string; manager?: string };
 
@@ -133,50 +133,51 @@ export function AutocompleteField({
   className,
 }: AutocompleteFieldProps) {
   const [focused, setFocused] = useState(false);
+  const inputId = useId();
   const showDropdown = focused && !selected && query.trim().length >= 2;
 
   return (
-    <div className={`relative ${className ?? ""}`}>
-      <label className="text-xs font-bold uppercase text-slate-500">{label}</label>
+    <div className={`ui-field ${className ?? ""}`} style={{ position: "relative" }}>
+      <label className="ui-label" htmlFor={inputId}>
+        {label}
+      </label>
       {selected ? (
-        <div className="mt-1 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900 sm:w-64">
-          <span className="truncate">{selected.label}</span>
-          <button
-            type="button"
-            onClick={onClear}
-            className="ml-2 shrink-0 text-blue-700 hover:text-blue-900"
-            aria-label={`Clear ${label}`}
-          >
+        <div className="ui-picker-option" style={{ cursor: "default" }}>
+          <span className="ui-strong" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+            {selected.label}
+          </span>
+          <button type="button" onClick={onClear} className="ui-btn ui-btn-quiet ui-btn-icon" aria-label={`Clear ${label}`}>
             ×
           </button>
         </div>
       ) : (
         <input
+          id={inputId}
           type="text"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={placeholder}
-          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600 sm:w-64"
+          autoComplete="off"
+          className="ui-input"
         />
       )}
 
       {showDropdown && (
-        <div className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg sm:w-64">
+        <div className="ui-picker-list ui-autocomplete-list">
           {loading ? (
-            <p className="px-3 py-2 text-sm text-slate-500">Searching...</p>
+            <p className="ui-muted" style={{ padding: "10px 14px", margin: 0 }}>
+              Searching…
+            </p>
           ) : options.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-slate-500">No matches.</p>
+            <p className="ui-muted" style={{ padding: "10px 14px", margin: 0 }}>
+              No matches.
+            </p>
           ) : (
             options.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onMouseDown={() => onSelect(option)}
-                className="block w-full truncate px-3 py-2 text-left text-sm text-slate-800 hover:bg-blue-50"
-              >
-                {option.label}
+              <button key={option.id} type="button" onMouseDown={() => onSelect(option)} className="ui-picker-option">
+                <span style={{ minWidth: 0, textAlign: "left", overflowWrap: "anywhere" }}>{option.label}</span>
               </button>
             ))
           )}

@@ -3,7 +3,8 @@ import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { appendSubSchedule, listPortalAccounts, updatePortalAccountFields } from "@/lib/googleSheets";
+import { listPortalAccounts, updatePortalAccountFields } from "@/lib/data/customer-portal";
+import { appendSubSchedule } from "@/lib/data/scheduling";
 
 const VALID_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"] as const;
 

@@ -932,49 +932,49 @@ export default function HelpPage() {
         : "Back to Dashboard";
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-      <section className="rounded-3xl bg-white p-5 shadow-sm sm:p-7">
+    <main className="ui-screen">
+      <section className="ui-card">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
+            <p className="ui-strong">
               {selectedContent.eyebrow}
             </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+            <h1 className="ui-screen-title">
               {selectedContent.title}
             </h1>
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-500">
+            <p className="ui-muted">
               {selectedContent.subtitle}
             </p>
           </div>
 
           <Link
             href={backHref}
-            className="rounded-2xl bg-slate-950 px-5 py-3 text-center text-sm font-black text-white no-underline shadow-sm hover:bg-blue-950"
+            className="ui-btn ui-btn-second"
           >
             {backLabel}
           </Link>
         </div>
 
-        <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-5">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">
+        <div className="ui-card">
+          <p className="ui-strong">
             {selectedContent.aboutTitle}
           </p>
 
-          <p className="mt-3 text-sm font-semibold leading-6 text-slate-600">
+          <p className="ui-strong">
             {selectedContent.aboutDescription}
           </p>
 
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             {role ? (
-              <div className="rounded-2xl border border-blue-100 bg-white p-4">
-                <h2 className="text-base font-black text-slate-950">
+              <div className="ui-stat">
+                <h2 className="ui-card-title">
                   {role === "admin"
                     ? selectedContent.aboutAdminTitle
                     : role === "customer"
                       ? selectedContent.aboutCustomerTitle
                       : selectedContent.aboutSubTitle}
                 </h2>
-                <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+                <p className="ui-strong">
                   {role === "admin"
                     ? selectedContent.aboutAdminText
                     : role === "customer"
@@ -984,11 +984,11 @@ export default function HelpPage() {
               </div>
             ) : null}
 
-            <div className="rounded-2xl border border-amber-100 bg-white p-4">
-              <h2 className="text-base font-black text-slate-950">
+            <div className="ui-stat">
+              <h2 className="ui-card-title">
                 {selectedContent.aboutImportantTitle}
               </h2>
-              <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              <p className="ui-strong">
                 {selectedContent.aboutImportantText}
               </p>
             </div>
@@ -1001,7 +1001,7 @@ export default function HelpPage() {
               key={button.value}
               type="button"
               onClick={() => setLanguage(button.value)}
-              className={`rounded-2xl px-4 py-2 text-sm font-black shadow-sm ${
+              className={`min-h-[48px] rounded-2xl px-4 py-2 text-base font-black shadow-sm ${
                 language === button.value
                   ? "bg-blue-700 text-white"
                   : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
@@ -1013,17 +1013,17 @@ export default function HelpPage() {
         </div>
 
         {role === "admin" ? (
-          <div className="mt-6 rounded-3xl border border-blue-100 bg-blue-50 p-5">
-            <h2 className="text-xl font-black text-slate-950">
+          <div className="ui-card">
+            <h2 className="ui-card-title">
               {selectedContent.quickStartTitle}
             </h2>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               {selectedContent.quickStartItems.map((item, index) => (
                 <div
                   key={`${language}-quick-${index}`}
-                  className="rounded-2xl border border-blue-100 bg-white p-4 text-sm font-bold leading-6 text-slate-700"
+                  className="ui-stat"
                 >
-                  <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-700 text-xs font-black text-white">
+                  <span className="ui-strong">
                     {index + 1}
                   </span>
                   {item}
@@ -1055,14 +1055,14 @@ export default function HelpPage() {
         ) : null}
 
         {!role && roleChecked ? (
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm font-semibold text-slate-600">
+          <div className="ui-stat">
             We couldn&apos;t detect an active session for your account type. Please log in
             through the correct portal — Admin, Subcontractor, or Customer — to see
             instructions for your account.
           </div>
         ) : null}
 
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-bold leading-6 text-slate-600">
+        <div className="ui-stat">
           {selectedContent.footerNote}
         </div>
       </section>
@@ -1079,18 +1079,18 @@ function HelpGroup({
 }) {
   return (
     <section className="mt-8">
-      <h2 className="text-2xl font-black text-slate-950">{title}</h2>
+      <h2 className="ui-card-title">{title}</h2>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {sections.map((section) => (
           <article
             key={section.title}
-            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+            className="ui-card"
           >
-            <h3 className="text-lg font-black text-slate-950">
+            <h3 className="ui-card-title">
               {section.title}
             </h3>
-            <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">
+            <p className="ui-muted">
               {section.description}
             </p>
 
@@ -1098,7 +1098,7 @@ function HelpGroup({
               {section.items.map((item) => (
                 <li
                   key={item}
-                  className="flex gap-2 text-sm font-bold leading-6 text-slate-700"
+                  className="flex gap-2 font-bold leading-6 text-slate-700"
                 >
                   <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-blue-700" />
                   <span>{item}</span>

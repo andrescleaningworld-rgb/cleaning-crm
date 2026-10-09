@@ -11,13 +11,6 @@ type ExceptionEntry = {
   reason: string;
 };
 
-const BADGE_COLOR: Record<string, string> = {
-  Morning: "bg-yellow-100 text-yellow-800",
-  Midday: "bg-green-100 text-green-800",
-  Afternoon: "bg-orange-100 text-orange-800",
-  Evening: "bg-purple-100 text-purple-800",
-};
-
 const DAY_ORDER = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function formatDateLabel(iso: string): string {
@@ -79,59 +72,44 @@ export default function ServiceScheduleSection() {
   );
 
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-        Your Service Schedule
-      </p>
+    <section className="ui-card ui-stack">
+      <h2 className="ui-card-title">Your Service Schedule</h2>
 
       {loading ? (
-        <p className="mt-3 text-sm text-slate-500">Loading your schedule...</p>
+        <p className="ui-muted">Loading your schedule...</p>
       ) : error ? (
-        <p className="mt-3 text-sm text-slate-500">{error}</p>
+        <p className="ui-muted">{error}</p>
       ) : sortedSchedules.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">
-          No schedule on file yet — contact our office and we&apos;ll get you set up.
+        <p className="ui-muted">
+          No schedule on file yet. Contact our office and we&apos;ll get you set up.
         </p>
       ) : (
-        <div className="mt-3 space-y-2">
+        <ul className="ui-list-plain">
           {sortedSchedules.map((s, i) => (
-            <div
-              key={i}
-              className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-4 py-3"
-            >
-              <div>
-                <p className="text-sm font-semibold text-slate-800">{s.dayOfWeek}</p>
-                <p className="text-xs text-slate-500">{s.recurring === "Y" ? "Every week" : "One-time"}</p>
-              </div>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  BADGE_COLOR[s.timeWindow] ?? "bg-slate-100 text-slate-700"
-                }`}
-              >
-                {s.timeWindow}
+            <li key={i} className="ui-card-row">
+              <span>
+                <span className="ui-strong">{s.dayOfWeek}</span>
+                <span className="ui-muted block">{s.recurring === "Y" ? "Every week" : "One-time"}</span>
               </span>
-            </div>
+              <span className="ui-tag">{s.timeWindow}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {!loading && !error && exceptions.length > 0 ? (
-        <div className="mt-4 border-t border-slate-100 pt-4">
-          <p className="text-xs font-semibold text-slate-600">Upcoming Changes</p>
-          <div className="mt-2 space-y-1.5">
-            {exceptions.map((ex, i) => (
-              <p key={i} className="text-sm text-slate-700">
-                {describeException(ex)}
-              </p>
-            ))}
-          </div>
+        <div className="ui-stack">
+          <p className="ui-strong">Upcoming Changes</p>
+          {exceptions.map((ex, i) => (
+            <p key={i}>{describeException(ex)}</p>
+          ))}
         </div>
       ) : null}
 
-      <p className="mt-4 text-xs leading-relaxed text-slate-400">
+      <p className="ui-muted">
         Schedule reflects your current recurring service. Recent changes may take a moment to
-        appear here — call our office with any questions.
+        appear here. Call our office with any questions.
       </p>
-    </div>
+    </section>
   );
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendStaff, fetchStaff, type StaffRole } from "@/lib/googleSheets";
+import { appendStaff, fetchStaff, type StaffRole } from "@/lib/data/people";
 
 const VALID_ROLES: StaffRole[] = ["Manager", "OfficeStaff", "InsideStaff"];
 

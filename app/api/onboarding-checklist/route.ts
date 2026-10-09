@@ -3,7 +3,7 @@ import {
   fetchOnboardingChecklist,
   markOnboardingAutoStableApplied,
   setOnboardingChecklistItem,
-} from "@/lib/googleSheets";
+} from "@/lib/data/accounts";
 import { createEmptyChecklistItems, isChecklistComplete } from "@/lib/onboardingChecklist";
 import { syncOnboardingFieldWrite } from "@/lib/onboardingFieldSync";
 

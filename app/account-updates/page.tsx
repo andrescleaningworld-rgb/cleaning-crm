@@ -3,6 +3,21 @@
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import {
+  BigButton,
+  Card,
+  CardList,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  Screen,
+  SearchBar,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  TextAreaField,
+} from "@/app/ui";
 
 type RawAccount = {
   id?: string;
@@ -179,6 +194,10 @@ function AccountUpdatesPageContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  // Layout only: the add form and the filters each open in a sheet.
+  const [showForm, setShowForm] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [savedMessage, setSavedMessage] = useState("");
 
   useEffect(() => {
     async function loadAccounts() {
@@ -394,8 +413,8 @@ function AccountUpdatesPageContent() {
     setSortOption("Newest First");
   }
 
-  async function handleAddUpdate(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleAddUpdate(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
 
     if (isSaving) return;
 
@@ -411,6 +430,7 @@ function AccountUpdatesPageContent() {
 
     setIsSaving(true);
     setSaveMessage("");
+    setSavedMessage("");
 
     const finalAccountId =
       selectedAccountId || createIdFromName(selectedAccountName);
@@ -468,7 +488,8 @@ function AccountUpdatesPageContent() {
 
       setUpdates((currentUpdates) => [newUpdate, ...currentUpdates]);
 
-      setSaveMessage("Account update saved successfully.");
+      setSavedMessage("Account update saved successfully.");
+      setShowForm(false);
 
       setUpdateDate(todayDate());
       setUpdateType("General Update");
@@ -491,398 +512,228 @@ function AccountUpdatesPageContent() {
     }
   }
 
+  const accountHref = `/accounts/${selectedAccountId || createIdFromName(selectedAccountName)}`;
+  const filtersOn =
+    (typeFilter !== "All Types" ? 1 : 0) + (managerFilter !== "All Managers" ? 1 : 0) + (sortOption !== "Newest First" ? 1 : 0);
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Account Updates
-            </h1>
-
-            <p className="mt-1 text-gray-600">
-              {openedFromAccountDetail
-                ? "Review the latest updates first, then add a new update for this account below."
-                : "Track account notes, service changes, missed cleanings, price changes, and important updates."}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 md:flex-row">
-            <a
-              href="#add-update"
-              className="rounded-lg bg-purple-700 px-5 py-3 text-center font-semibold text-white shadow-sm hover:bg-purple-800"
-            >
-              Add Update
-            </a>
-
-            {openedFromAccountDetail ? (
-              <Link
-                href={`/accounts/${
-                  selectedAccountId || createIdFromName(selectedAccountName)
-                }`}
-                className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-              >
-                Back to Account
-              </Link>
-            ) : (
-              <Link
-                href="/accounts"
-                className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-              >
-                Back to Accounts
-              </Link>
-            )}
-          </div>
-        </div>
-
-        {errorMessage ? (
-          <section className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-            {errorMessage}
-          </section>
-        ) : null}
-
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-200 p-5">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    {openedFromAccountDetail
-                      ? `Latest Updates${
-                          selectedAccountName ? ` - ${selectedAccountName}` : ""
-                        }`
-                      : "Latest Account Updates"}
-                  </h2>
-
-                  <p className="mt-1 text-sm text-gray-600">
-                    {isLoadingUpdates
-                      ? "Loading account updates from Google Sheets..."
-                      : `${visibleUpdates.length} of ${filteredUpdates.length} update${
-                          filteredUpdates.length === 1 ? "" : "s"
-                        } showing`}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-                >
-                  Clear Filters
-                </button>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <input
-                  type="text"
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search updates..."
-                  className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100 xl:col-span-2"
-                />
-
-                <select
-                  value={typeFilter}
-                  onChange={(event) => setTypeFilter(event.target.value)}
-                  className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                >
-                  {updateTypeOptions.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={managerFilter}
-                  onChange={(event) => setManagerFilter(event.target.value)}
-                  className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                >
-                  {managerOptions.map((managerName) => (
-                    <option key={managerName} value={managerName}>
-                      {managerName}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  value={sortOption}
-                  onChange={(event) => setSortOption(event.target.value)}
-                  className="rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                >
-                  <option value="Newest First">Newest First</option>
-                  <option value="Oldest First">Oldest First</option>
-                  <option value="Account A-Z">Account A-Z</option>
-                  <option value="Account Z-A">Account Z-A</option>
-                  <option value="Type A-Z">Type A-Z</option>
-                  <option value="Manager A-Z">Manager A-Z</option>
-                </select>
-              </div>
-
-              <p className="text-xs font-medium text-gray-500">
-                Showing only the latest 5 results. Use search or filters to narrow
-                the list.
-              </p>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50 text-gray-600">
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-4 py-3 font-semibold">Account</th>
-                  <th className="px-4 py-3 font-semibold">Type</th>
-                  <th className="px-4 py-3 font-semibold">Manager</th>
-                  <th className="px-4 py-3 font-semibold">Notes</th>
-                  <th className="px-4 py-3 font-semibold">Notify Email</th>
-                  <th className="px-4 py-3 font-semibold">Action</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {visibleUpdates.map((update) => (
-                  <tr key={update.id} className="border-b hover:bg-purple-50">
-                    <td className="px-4 py-3 text-gray-700">{update.date}</td>
-
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/accounts/${
-                          update.accountId ||
-                          createIdFromName(update.accountName)
-                        }`}
-                        className="font-semibold text-purple-700 hover:underline"
-                      >
-                        {update.accountName}
-                      </Link>
-                    </td>
-
-                    <td className="px-4 py-3 text-gray-700">
-                      <Link
-                        href={`/account-updates/${encodeURIComponent(update.id)}`}
-                        className="font-semibold text-gray-900 hover:text-purple-700 hover:underline"
-                      >
-                        {update.updateType}
-                      </Link>
-                    </td>
-
-                    <td className="px-4 py-3 text-gray-700">
-                      {update.manager}
-                    </td>
-
-                    <td className="max-w-lg px-4 py-3 text-gray-700">
-                      <Link
-                        href={`/account-updates/${encodeURIComponent(update.id)}`}
-                        className="block hover:text-purple-700 hover:underline"
-                      >
-                        <span className="line-clamp-2">{update.notes}</span>
-                      </Link>
-                    </td>
-
-                    <td className="px-4 py-3 text-gray-700">
-                      {update.notifyEmail || "N/A"}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/account-updates/${encodeURIComponent(update.id)}`}
-                        className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-purple-800"
-                      >
-                        View Details
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {!isLoadingUpdates && filteredUpdates.length === 0 ? (
-            <div className="p-6 text-center text-gray-600">
-              No account updates found.
-            </div>
-          ) : null}
-        </section>
-
-        <section
-          id="add-update"
-          className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+    <Screen
+      title="Account Updates"
+      subtitle={
+        openedFromAccountDetail
+          ? "Review the latest updates first, then add a new update for this account."
+          : "Track account notes, service changes, missed cleanings, price changes, and important updates."
+      }
+      backHref={openedFromAccountDetail ? accountHref : "/accounts"}
+      action={
+        <BigButton
+          icon="plus"
+          onClick={() => {
+            setSaveMessage("");
+            setShowForm(true);
+          }}
         >
-          <h2 className="text-xl font-bold text-gray-900">Add New Update</h2>
+          Add update
+        </BigButton>
+      }
+    >
+      {errorMessage ? <ErrorBox title="Something did not load." text={errorMessage} /> : null}
+      {savedMessage ? (
+        <p className="ui-savestatus ui-savestatus-saved" role="status">
+          {savedMessage}
+        </p>
+      ) : null}
 
-          {openedFromAccountDetail ? (
-            <div className="mt-4 rounded-xl border border-purple-200 bg-purple-50 p-5 text-center">
-              <p className="text-sm font-semibold uppercase tracking-wide text-purple-700">
-                Update For
+      <SearchBar value={searchText} onChange={setSearchText} label="Search updates" placeholder="Search updates" />
+
+      <div className="ui-actions-row">
+        <BigButton kind="second" onClick={() => setShowFilters(true)}>
+          {filtersOn ? `Filter and sort (${filtersOn} on)` : "Filter and sort"}
+        </BigButton>
+        <BigButton kind="quiet" onClick={clearFilters}>
+          Clear filters
+        </BigButton>
+      </div>
+
+      <div role="status">
+        <p className="ui-strong">
+          {openedFromAccountDetail ? `Latest Updates${selectedAccountName ? ` - ${selectedAccountName}` : ""}` : "Latest Account Updates"}
+        </p>
+        {isLoadingUpdates ? null : (
+          <p className="ui-muted">
+            {visibleUpdates.length} of {filteredUpdates.length} update{filteredUpdates.length === 1 ? "" : "s"} showing. Only the latest 5
+            results are shown; use search or filters to narrow the list.
+          </p>
+        )}
+      </div>
+
+      {isLoadingUpdates ? (
+        <SkeletonList rows={3} />
+      ) : filteredUpdates.length === 0 ? (
+        <EmptyState title="No account updates found" text="Try a different search, or clear the filters." />
+      ) : (
+        <CardList
+          label="Account updates"
+          items={visibleUpdates}
+          getKey={(update) => update.id}
+          renderCard={(update) => (
+            <Card title={update.accountName}>
+              <p className="ui-card-text">
+                {update.date} · {update.updateType} · {update.manager}
               </p>
-              <p className="mt-1 text-2xl font-bold text-purple-950">
-                {selectedAccountName || accountNameFromUrl || accountIdFromUrl}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-5">
-              <label className="text-sm font-semibold text-gray-700">
-                Search Account
-              </label>
+              <p className="ui-card-text ui-clamp">{update.notes}</p>
+              {update.notifyEmail ? <p className="ui-card-text">Notified: {update.notifyEmail}</p> : null}
+              <div className="ui-actions-row" style={{ marginTop: 12 }}>
+                <BigButton kind="second" href={`/account-updates/${encodeURIComponent(update.id)}`}>
+                  {LABELS.open}
+                </BigButton>
+                <BigButton kind="quiet" href={`/accounts/${update.accountId || createIdFromName(update.accountName)}`}>
+                  Go to account
+                </BigButton>
+              </div>
+            </Card>
+          )}
+          columns={[
+            { header: "Date", cell: (update) => <span className="ui-nowrap">{update.date}</span> },
+            {
+              header: "Account",
+              cell: (update) => (
+                <Link href={`/accounts/${update.accountId || createIdFromName(update.accountName)}`} className="ui-table-rowlink">
+                  {update.accountName}
+                </Link>
+              ),
+            },
+            { header: "Type", cell: (update) => update.updateType },
+            { header: "Manager", cell: (update) => update.manager },
+            { header: "Notes", cell: (update) => <span className="ui-clamp">{update.notes}</span> },
+            { header: "Notify Email", cell: (update) => update.notifyEmail || "None" },
+            {
+              header: "Action",
+              cell: (update) => (
+                <BigButton kind="second" href={`/account-updates/${encodeURIComponent(update.id)}`}>
+                  {LABELS.open}
+                </BigButton>
+              ),
+            },
+          ]}
+        />
+      )}
 
-              <input
-                type="text"
-                value={accountSearchText}
-                onChange={(event) => {
-                  setAccountSearchText(event.target.value);
-                  setSelectedAccountId("");
-                  setSelectedAccountName("");
-                  setSelectedManager("");
-                  setManager("");
-                }}
-                placeholder={
-                  isLoadingAccounts
-                    ? "Loading accounts..."
-                    : "Start typing account name..."
-                }
-                className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-              />
+      <Sheet open={showFilters} title="Filter and sort" onClose={() => setShowFilters(false)} closeLabel="Done">
+        <SelectField label="Type" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+          {updateTypeOptions.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Manager" value={managerFilter} onChange={(event) => setManagerFilter(event.target.value)}>
+          {managerOptions.map((managerName) => (
+            <option key={managerName} value={managerName}>
+              {managerName}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Sort" value={sortOption} onChange={(event) => setSortOption(event.target.value)}>
+          <option value="Newest First">Newest First</option>
+          <option value="Oldest First">Oldest First</option>
+          <option value="Account A-Z">Account A-Z</option>
+          <option value="Account Z-A">Account Z-A</option>
+          <option value="Type A-Z">Type A-Z</option>
+          <option value="Manager A-Z">Manager A-Z</option>
+        </SelectField>
+        <div>
+          <BigButton kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </BigButton>
+        </div>
+      </Sheet>
 
-              {accountSearchText && filteredAccountOptions.length > 0 ? (
-                <div className="mt-3 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-                  {filteredAccountOptions.map((account) => (
-                    <button
-                      key={account.id}
-                      type="button"
-                      onClick={() => handleAccountSelect(account)}
-                      className="block w-full border-b border-gray-100 px-4 py-3 text-left hover:bg-purple-50"
-                    >
-                      <span className="block font-semibold text-gray-900">
+      <Sheet
+        open={showForm}
+        title="Add update"
+        text={openedFromAccountDetail ? `Update for ${selectedAccountName || accountNameFromUrl || accountIdFromUrl}` : undefined}
+        onClose={() => setShowForm(false)}
+        busy={isSaving}
+        actions={
+          <BigButton busy={isSaving} busyLabel="Saving…" onClick={() => void handleAddUpdate()}>
+            Save update
+          </BigButton>
+        }
+      >
+        {openedFromAccountDetail ? null : (
+          <>
+            <Field
+              label="Account"
+              hint="Start typing the account name, then tap it in the list."
+              value={accountSearchText}
+              onChange={(event) => {
+                setAccountSearchText(event.target.value);
+                setSelectedAccountId("");
+                setSelectedAccountName("");
+                setSelectedManager("");
+                setManager("");
+              }}
+              placeholder={isLoadingAccounts ? "Loading accounts…" : "Start typing account name"}
+            />
+
+            {accountSearchText && !selectedAccountName && filteredAccountOptions.length > 0 ? (
+              <div className="ui-picker-list">
+                {filteredAccountOptions.map((account) => (
+                  <button key={account.id} type="button" onClick={() => handleAccountSelect(account)} className="ui-picker-option">
+                    <span style={{ minWidth: 0, textAlign: "left" }}>
+                      <span className="ui-strong" style={{ display: "block" }}>
                         {account.name}
                       </span>
-                      <span className="block text-xs text-gray-500">
+                      <span className="ui-muted" style={{ display: "block" }}>
                         Manager: {account.manager} | Sub: {account.subcontractor}
                       </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
-              {selectedAccountName ? (
-                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3">
-                  <p className="text-sm font-semibold text-green-800">
-                    Selected Account: {selectedAccountName}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          )}
-
-          <form onSubmit={handleAddUpdate} className="mt-4 grid gap-4">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <label className="text-sm font-semibold text-gray-700">
-                  Update Date
-                </label>
-
-                <input
-                  type="date"
-                  value={updateDate}
-                  onChange={(event) => setUpdateDate(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold text-gray-700">
-                  Update Type
-                </label>
-
-                <select
-                  value={updateType}
-                  onChange={(event) => setUpdateType(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                >
-                  <option value="General Update">General Update</option>
-                  <option value="Service Change">Service Change</option>
-                  <option value="Price Change">Price Change</option>
-                  <option value="Missed Cleaning">Missed Cleaning</option>
-                  <option value="Schedule Change">Schedule Change</option>
-                  <option value="Key / Alarm Update">Key / Alarm Update</option>
-                  <option value="Subcontractor Update">Subcontractor Update</option>
-                  <option value="Customer Note">Customer Note</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold text-gray-700">
-                  Manager
-                </label>
-
-                <input
-                  type="text"
-                  value={manager}
-                  onChange={(event) => setManager(event.target.value)}
-                  placeholder="Andrés, Greg, Drew..."
-                  className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Notes
-              </label>
-
-              <textarea
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Write the account update here..."
-                rows={4}
-                className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-semibold text-gray-700">
-                Notify Email
-              </label>
-
-              <input
-                type="email"
-                value={notifyEmail}
-                onChange={(event) => setNotifyEmail(event.target.value)}
-                placeholder="Optional email notification"
-                className="mt-2 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
-              />
-            </div>
-
-            {saveMessage ? (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm font-semibold text-gray-800">
-                {saveMessage}
+                    </span>
+                  </button>
+                ))}
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-3 md:flex-row md:items-center">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="rounded-lg bg-purple-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-purple-800 disabled:bg-purple-300"
-              >
-                {isSaving ? "Saving..." : "Save Update"}
-              </button>
+            {selectedAccountName ? (
+              <p className="ui-savestatus ui-savestatus-saved" role="status">
+                Selected account: {selectedAccountName}
+              </p>
+            ) : null}
+          </>
+        )}
 
-              {openedFromAccountDetail ? (
-                <Link
-                  href={`/accounts/${
-                    selectedAccountId || createIdFromName(selectedAccountName)
-                  }`}
-                  className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-center font-semibold text-gray-800 shadow-sm hover:bg-gray-50"
-                >
-                  Cancel / Back to Account
-                </Link>
-              ) : null}
-            </div>
-          </form>
-        </section>
-      </div>
-    </main>
+        <Field label="Update date" type="date" value={updateDate} onChange={(event) => setUpdateDate(event.target.value)} />
+        <SelectField label="Update type" value={updateType} onChange={(event) => setUpdateType(event.target.value)}>
+          <option value="General Update">General Update</option>
+          <option value="Service Change">Service Change</option>
+          <option value="Price Change">Price Change</option>
+          <option value="Missed Cleaning">Missed Cleaning</option>
+          <option value="Schedule Change">Schedule Change</option>
+          <option value="Key / Alarm Update">Key / Alarm Update</option>
+          <option value="Subcontractor Update">Subcontractor Update</option>
+          <option value="Customer Note">Customer Note</option>
+          <option value="Other">Other</option>
+        </SelectField>
+        <Field label="Manager" value={manager} onChange={(event) => setManager(event.target.value)} placeholder="Andrés, Greg, Drew..." />
+        <TextAreaField
+          label="Notes"
+          rows={4}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Write the account update here..."
+        />
+        <Field
+          label="Notify email"
+          optional
+          type="email"
+          value={notifyEmail}
+          onChange={(event) => setNotifyEmail(event.target.value)}
+          placeholder="Optional email notification"
+        />
+
+        {saveMessage ? <ErrorBox title="The update was not saved." text={saveMessage} /> : null}
+      </Sheet>
+    </Screen>
   );
 }
 
@@ -890,9 +741,9 @@ export default function AccountUpdatesPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-gray-50 p-6">
-          Loading account updates...
-        </main>
+        <div className="ui-screen">
+          <SkeletonList rows={3} />
+        </div>
       }
     >
       <AccountUpdatesPageContent />

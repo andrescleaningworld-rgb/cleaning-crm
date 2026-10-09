@@ -8,7 +8,7 @@
 // something to send.
 import { NextRequest, NextResponse } from "next/server";
 import { sendInternalNotification } from "@/lib/email";
-import { fetchStaff } from "@/lib/googleSheets";
+import { fetchStaff } from "@/lib/data/people";
 import { buildVehicleDigest } from "@/lib/vehicleDigest";
 import { claimVehicleDigestWeek } from "@/lib/vehiclesDb";
 import { TEAM_HUB_TIMEZONE, getDateStringInTimeZone, startOfWeekInTimeZone } from "@/lib/teamHubTimezone";

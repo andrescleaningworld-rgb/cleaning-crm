@@ -85,20 +85,20 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
   }
 
   return (
-    <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-xl font-black text-slate-950">Checklists</h2>
-      <p className="mt-1 text-sm font-semibold text-slate-500">Crew checklists from the last 60 days. Read-only.</p>
+    <section className="ui-card">
+      <h2 className="ui-card-title">Checklists</h2>
+      <p className="ui-muted">Crew checklists from the last 60 days. Read-only.</p>
 
       {state.kind === "loading" ? (
-        <p className="mt-4 text-base text-slate-500">Loading…</p>
+        <p className="ui-muted">Loading…</p>
       ) : state.kind === "unavailable" ? (
-        <p className="mt-4 rounded-2xl bg-slate-50 p-4 text-base font-semibold text-slate-600">Checklists are not available for this account yet.</p>
+        <p className="ui-strong">Checklists are not available for this account yet.</p>
       ) : state.kind === "error" ? (
-        <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-base font-semibold text-amber-800">Could not load checklists. Try again later.</p>
+        <p className="ui-strong">Could not load checklists. Try again later.</p>
       ) : (
         <>
           {state.checklists.length === 0 ? (
-            <p className="mt-4 text-base text-slate-500">No checklists in the last 60 days.</p>
+            <p className="ui-muted">No checklists in the last 60 days.</p>
           ) : (
             <ul className="mt-4 space-y-2">
               {state.checklists.map((row) => {
@@ -108,17 +108,17 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
                     <button
                       type="button"
                       onClick={() => openChecklist(row)}
-                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 p-4 text-left hover:border-blue-300 hover:bg-blue-50"
+                      className="ui-btn ui-btn-second w-full"
                     >
                       <span>
-                        <span className="block text-base font-black text-slate-950">{formatCrewDateTime(row.submittedAt)}</span>
-                        <span className="block text-sm font-semibold text-slate-600">
+                        <span className="ui-strong">{formatCrewDateTime(row.submittedAt)}</span>
+                        <span className="ui-strong">
                           {row.name}
                           {row.label ? ` · ${row.label}` : ""}
                         </span>
                       </span>
                       <span
-                        className={`shrink-0 rounded-full px-3 py-1 text-sm font-black ${
+                        className={`shrink-0 rounded-full px-3 py-1 text-base font-black ${
                           complete ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"
                         }`}
                       >
@@ -131,24 +131,24 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
             </ul>
           )}
 
-          <h3 className="mt-6 text-lg font-black text-slate-950">Problem reports</h3>
+          <h3 className="ui-card-title">Problem reports</h3>
           {state.problems.length === 0 ? (
-            <p className="mt-2 text-base text-slate-500">No problem reports.</p>
+            <p className="ui-muted">No problem reports.</p>
           ) : (
             <ul className="mt-2 space-y-2">
               {state.problems.map((problem) => (
-                <li key={problem.id} className="rounded-2xl border border-slate-200 p-4">
+                <li key={problem.id} className="ui-stat">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-base font-black text-slate-950">{CATEGORY_LABEL[problem.category] ?? problem.category}</span>
+                    <span className="ui-strong">{CATEGORY_LABEL[problem.category] ?? problem.category}</span>
                     <span
-                      className={`rounded-full px-3 py-1 text-sm font-black ${
+                      className={`rounded-full px-3 py-1 text-base font-black ${
                         problem.status === "open" ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"
                       }`}
                     >
                       {problem.status === "open" ? "Open" : "Resolved"}
                     </span>
                   </div>
-                  <p className="text-sm font-semibold text-slate-500">
+                  <p className="ui-muted">
                     {problem.reportedBy} · {formatCrewDateTime(problem.createdAt)}
                   </p>
                   {problem.note ? (
@@ -166,11 +166,11 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true">
-          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl sm:rounded-3xl">
+          <div className="ui-card">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xl font-black text-slate-950">{formatCrewDateTime(open.submittedAt)}</p>
-                <p className="text-base font-semibold text-slate-600">
+                <p className="ui-strong">{formatCrewDateTime(open.submittedAt)}</p>
+                <p className="ui-strong">
                   {open.name}
                   {open.label ? ` · ${open.label}` : ""} · {open.doneCount} of {open.totalCount} done
                 </p>
@@ -178,26 +178,26 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
               <button
                 type="button"
                 onClick={() => setOpen(null)}
-                className="rounded-2xl border border-slate-300 px-4 py-2 text-base font-black text-slate-700 hover:bg-slate-50"
+                className="ui-btn ui-btn-second"
               >
                 Close
               </button>
             </div>
 
             {detailError ? (
-              <p className="mt-4 rounded-2xl bg-amber-50 p-4 text-base font-semibold text-amber-800">{detailError}</p>
+              <p className="ui-strong">{detailError}</p>
             ) : !detail ? (
-              <p className="mt-4 text-base text-slate-500">Loading…</p>
+              <p className="ui-muted">Loading…</p>
             ) : (
               <div className="mt-4 space-y-4">
                 {detail.startedAt ? (
-                  <p className="text-sm font-semibold text-slate-500">
+                  <p className="ui-muted">
                     Started {formatCrewDateTime(detail.startedAt)} · Finished {formatCrewDateTime(detail.submittedAt)}
                   </p>
                 ) : null}
                 {detail.notes ? (
-                  <div className="rounded-2xl bg-blue-50 p-4">
-                    <p className="text-sm font-black text-blue-800">Note</p>
+                  <div className="ui-stat">
+                    <p className="ui-strong">Note</p>
                     <p className="text-base text-slate-800">
                       <TranslatedText original={detail.notes} english={detail.notesEnglish} language={detail.notesLang} />
                     </p>
@@ -205,7 +205,7 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
                 ) : null}
                 {detail.sections.map((section, index) => (
                   <div key={`${section.title}-${index}`}>
-                    {section.title ? <p className="mb-2 text-base font-black text-slate-700">{section.title}</p> : null}
+                    {section.title ? <p className="ui-strong">{section.title}</p> : null}
                     <ul className="space-y-1">
                       {section.items.map((item, itemIndex) => (
                         <li key={itemIndex} className={`rounded-xl px-3 py-2 ${item.checked ? "bg-green-50" : "bg-slate-50"}`}>
@@ -214,10 +214,10 @@ export default function CrewChecklists({ accountId }: { accountId: string }) {
                               {item.checked ? "✓" : item.status === "problem" ? "⚠" : "○"}
                             </span>
                             <div className="flex-1">
-                              <p className="text-base font-semibold text-slate-900">{item.label}</p>
-                              {item.subNote ? <p className="text-sm text-slate-500">{item.subNote}</p> : null}
-                              {!item.checked ? <p className="text-sm font-bold text-slate-500">{item.status === "problem" ? "Problem" : "Not done"}</p> : null}
-                              {item.note ? <p className="text-sm text-slate-700">{item.note}</p> : null}
+                              <p className="ui-strong">{item.label}</p>
+                              {item.subNote ? <p className="ui-muted">{item.subNote}</p> : null}
+                              {!item.checked ? <p className="ui-muted">{item.status === "problem" ? "Problem" : "Not done"}</p> : null}
+                              {item.note ? <p className="ui-muted">{item.note}</p> : null}
                               <Photos urls={item.photos} />
                             </div>
                           </div>

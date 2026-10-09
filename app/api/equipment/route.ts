@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendEquipmentItem, fetchEquipmentList } from "@/lib/googleSheets";
+import { appendEquipmentItem, fetchEquipmentList } from "@/lib/data/equipment";
 
 // Reads only the Equipment tab (fetchEquipmentList) — status, holder, and
 // overdue state all live on the Equipment row itself.

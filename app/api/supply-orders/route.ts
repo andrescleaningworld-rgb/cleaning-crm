@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
+import { createSupplyOrder, getSupplyOrdersShape, suppliesOnPostgres, updateSupplyOrderStatus } from "@/lib/data/supplies";
+import { emailNewSupplyOrder } from "@/lib/supplyOrderEmail";
 
 const SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_URL;
@@ -124,6 +126,14 @@ async function readScriptJson(response: Response) {
 
 export async function GET() {
   try {
+    if (suppliesOnPostgres()) {
+      const supplyOrders = await getSupplyOrdersShape();
+      return NextResponse.json(
+        { success: true, count: supplyOrders.length, supplyOrders, orders: supplyOrders },
+        { headers: { "Cache-Control": "public, max-age=30, stale-while-revalidate=60" } }
+      );
+    }
+
     const scriptUrl = getScriptUrl();
     const url = `${scriptUrl}?action=getSupplyOrders`;
 
@@ -227,8 +237,49 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const scriptUrl = getScriptUrl();
     const body = (await request.json()) as SupplyOrderPostBody;
+
+    // DATA_SOURCE_SUPPLIES=postgres: save here, Apps Script is not called.
+    if (suppliesOnPostgres()) {
+      const pgAction = body.action || "createSupplyOrder";
+      let result: { orderId: string } & Record<string, unknown>;
+      try {
+        if (pgAction === "updateSupplyOrderStatus") {
+          result = { success: true, message: "Supply order updated.", ...(await updateSupplyOrderStatus(body)) };
+        } else {
+          const order = await createSupplyOrder(body);
+          await emailNewSupplyOrder(order);
+          result = { success: true, message: "Supply order created.", orderId: order.orderId, id: order.orderId, rowNumber: order.rowNumber };
+        }
+      } catch (error) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : pgAction === "updateSupplyOrderStatus"
+                  ? "Failed to update supply order."
+                  : "Failed to create supply order.",
+          },
+          { status: 500 }
+        );
+      }
+      const pgActor = await getAdminIdentity(request);
+      if (pgActor?.accountId) {
+        await logActivity({
+          actorAccountId: pgActor.accountId,
+          actorRole: pgActor.role ?? "manager",
+          actorName: pgActor.name || "",
+          action: pgAction === "updateSupplyOrderStatus" ? "update" : "create",
+          entityType: "supply_order",
+          entityId: result.orderId || null,
+        });
+      }
+      return NextResponse.json(result, { status: 200 });
+    }
+
+    const scriptUrl = getScriptUrl();
 
     /*
       Important:

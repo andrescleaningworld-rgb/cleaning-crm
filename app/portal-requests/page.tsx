@@ -1,4 +1,5 @@
-import { listPortalSubmissions } from "@/lib/googleSheets";
+import { listPortalSubmissions } from "@/lib/data/customer-portal";
+import { Screen, StatusPill } from "@/app/ui";
 import SubmissionsView from "./submissions-view";
 
 // No cookies()/headers() call here (auth is enforced by proxy.ts, not read
@@ -12,25 +13,12 @@ export default async function PortalRequestsPage() {
   const newCount = submissions.filter((s) => s.status === "New").length;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold text-gray-900">Portal Requests</h1>
-            {newCount > 0 && (
-              <span className="rounded-full bg-yellow-400 px-3 py-1 text-sm font-bold text-yellow-900">
-                {newCount} New
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-gray-600">
-            Customer submissions from the portal — complaints, service requests, date changes, and billing inquiries.
-          </p>
-        </div>
-
-        <SubmissionsView initial={submissions} />
-      </div>
-    </main>
+    <Screen
+      title="Portal Requests"
+      subtitle="What customers sent from the portal: complaints, service requests, date changes and billing questions."
+      headerRight={newCount > 0 ? <StatusPill kind="needs-you">{newCount} New</StatusPill> : undefined}
+    >
+      <SubmissionsView initial={submissions} />
+    </Screen>
   );
 }

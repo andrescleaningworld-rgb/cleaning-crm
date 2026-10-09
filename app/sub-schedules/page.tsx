@@ -14,6 +14,20 @@ import {
   useDebounce,
   type SearchOption,
 } from "./autocomplete";
+import {
+  BigButton,
+  Card,
+  CardList,
+  ConfirmSheet,
+  EmptyState,
+  ErrorBox,
+  Field,
+  FilterChips,
+  LABELS,
+  Screen,
+  SkeletonList,
+  StatusPill,
+} from "@/app/ui";
 
 type AdminTab = "schedules" | "exceptions" | "calendar";
 
@@ -77,7 +91,13 @@ function describeDayOrOccurrence(schedule: SubSchedule): string {
 
 export default function SubSchedulesPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-gray-50 px-4 py-8 text-slate-500">Loading...</main>}>
+    <Suspense
+      fallback={
+        <div className="ui-screen">
+          <SkeletonList rows={3} />
+        </div>
+      }
+    >
       <SubSchedulesPageInner />
     </Suspense>
   );
@@ -118,6 +138,9 @@ function SubSchedulesPageInner() {
   const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
   const [addScheduleModalOpen, setAddScheduleModalOpen] = useState(false);
+  // Layout only: the "are you sure?" step before deleting an exception is a sheet now.
+  const [exceptionToDelete, setExceptionToDelete] = useState<ScheduleException | null>(null);
+  const [deletingException, setDeletingException] = useState(false);
 
   // Deep-link support for the Subs list page's "Add Schedule" action
   // (/sub-schedules?subId=<email>&addSchedule=1) — resolved against the
@@ -349,7 +372,7 @@ function SubSchedulesPageInner() {
   }
 
   async function deleteException(exception: ScheduleException) {
-    if (!window.confirm(`Delete exception ${exception.exceptionId}?`)) return;
+    setDeletingException(true);
     try {
       const res = await fetch("/api/admin/schedule-exceptions", {
         method: "DELETE",
@@ -364,294 +387,224 @@ function SubSchedulesPageInner() {
       loadExceptions();
     } catch {
       setError("Network error. Please try again.");
+    } finally {
+      setDeletingException(false);
+      setExceptionToDelete(null);
     }
   }
 
+  const scheduleActions = (s: SubSchedule) => (
+    <div className="ui-actions-row">
+      <BigButton kind="second" onClick={() => setScheduleModal(s)} aria-label={`Edit the schedule for ${resolveAccountName(s.accountId)}`}>
+        {LABELS.edit}
+      </BigButton>
+      <BigButton kind="quiet" onClick={() => void toggleScheduleStatus(s)}>
+        {isScheduleEffectivelyActive(s, today) ? "Deactivate" : "Reactivate"}
+      </BigButton>
+    </div>
+  );
+  const scheduleStatus = (s: SubSchedule) => (
+    <StatusPill kind={isScheduleEffectivelyActive(s, today) ? "done" : "off"}>{s.status || "No status"}</StatusPill>
+  );
+  const effectiveText = (s: SubSchedule) => `${s.effectiveStart || "No start date"}${s.effectiveEnd ? ` to ${s.effectiveEnd}` : ""}`;
+  const submittedText = (s: SubSchedule) =>
+    `${s.submittedBy || "Not known"}${s.submittedVia === "Admin" ? " (Admin)" : ""}${s.submittedDate ? `, ${s.submittedDate}` : ""}`;
+  const exceptionActions = (ex: ScheduleException) => (
+    <div className="ui-actions-row">
+      <BigButton kind="second" onClick={() => setExceptionModal(ex)}>
+        {LABELS.edit}
+      </BigButton>
+      <BigButton kind="quiet" onClick={() => setExceptionToDelete(ex)}>
+        {LABELS.remove}
+      </BigButton>
+    </div>
+  );
+
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
-            Cleaning World
-          </p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
-            Sub Schedules
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-            Manage recurring subcontractor schedules and one-off schedule exceptions.
-          </p>
-        </div>
+    <Screen
+      title="Sub Schedules"
+      subtitle="Manage recurring subcontractor schedules and one-off schedule exceptions."
+      action={
+        adminTab === "schedules" ? (
+          <BigButton icon="plus" onClick={() => setAddScheduleModalOpen(true)}>
+            Add schedule
+          </BigButton>
+        ) : adminTab === "exceptions" ? (
+          <BigButton icon="plus" onClick={() => setExceptionModal("new")}>
+            New exception
+          </BigButton>
+        ) : undefined
+      }
+    >
+      <Field
+        label="Your name (for edits)"
+        hint="Used when editing a schedule or creating a schedule exception."
+        value={adminName}
+        onChange={(e) => handleAdminNameChange(e.target.value)}
+        placeholder="Enter your name"
+      />
 
-        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <label className="text-xs font-bold uppercase text-slate-500">Your Name (for edits)</label>
-          <input
-            type="text"
-            value={adminName}
-            onChange={(e) => handleAdminNameChange(e.target.value)}
-            placeholder="Enter your name"
-            className="mt-1 w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-          />
-          <p className="mt-1 text-xs text-slate-500">
-            Used when editing an existing schedule or creating a schedule exception. New schedules can
-            only be submitted by subcontractors from their own portal.
-          </p>
-        </div>
+      <FilterChips
+        label="Show"
+        options={[
+          { value: "schedules", label: "Sub Schedules" },
+          { value: "exceptions", label: "Schedule Exceptions" },
+          { value: "calendar", label: "Full Calendar" },
+        ]}
+        value={adminTab}
+        onChange={setAdminTab}
+      />
 
-        <div className="flex gap-2">
-          {([
-            { id: "schedules" as const, label: "Sub Schedules" },
-            { id: "exceptions" as const, label: "Schedule Exceptions" },
-            { id: "calendar" as const, label: "Full Calendar" },
-          ]).map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setAdminTab(id)}
-              className={`rounded-full px-5 py-2 text-sm font-black transition ${
-                adminTab === id ? "bg-blue-700 text-white shadow-sm" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      {error ? <ErrorBox title="That did not work." text={error} /> : null}
 
-        {error ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        ) : null}
+      {adminTab === "calendar" ? (
+        <FullCalendar
+          accountOptions={allAccountOptions}
+          resolveAccountName={resolveAccountName}
+          teamLeaderNamesById={teamLeaderNamesById}
+          resolveTeamLeaderName={resolveTeamLeaderName}
+          onJumpToAccount={(accountId, accountLabel) => {
+            customer.select({ id: accountId, label: accountLabel });
+            setSelectedTeamLeader(null);
+            setTeamLeaderQuery("");
+            setAdminTab("schedules");
+          }}
+        />
+      ) : (
+        <>
+          <div className="ui-two">
+            <AutocompleteField
+              label="Customer"
+              placeholder="Search customer name"
+              query={customer.query}
+              onQueryChange={customer.setQuery}
+              options={customer.options}
+              loading={customer.loading}
+              selected={customer.selected}
+              onSelect={customer.select}
+              onClear={customer.clear}
+            />
 
-        {adminTab === "calendar" ? (
-          <FullCalendar
-            accountOptions={allAccountOptions}
-            resolveAccountName={resolveAccountName}
-            teamLeaderNamesById={teamLeaderNamesById}
-            resolveTeamLeaderName={resolveTeamLeaderName}
-            onJumpToAccount={(accountId, accountLabel) => {
-              customer.select({ id: accountId, label: accountLabel });
-              setSelectedTeamLeader(null);
-              setTeamLeaderQuery("");
-              setAdminTab("schedules");
-            }}
-          />
-        ) : (
-        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex flex-1 flex-col gap-3 sm:flex-row">
+            <div>
               <AutocompleteField
-                label="Customer"
-                placeholder="Search customer name..."
-                query={customer.query}
-                onQueryChange={customer.setQuery}
-                options={customer.options}
-                loading={customer.loading}
-                selected={customer.selected}
-                onSelect={customer.select}
-                onClear={customer.clear}
+                label="Subcontractor"
+                placeholder="Search subcontractor name"
+                query={teamLeaderQuery}
+                onQueryChange={(value) => {
+                  setTeamLeaderQuery(value);
+                  if (selectedTeamLeader) setSelectedTeamLeader(null);
+                }}
+                options={teamLeaderOptions}
+                loading={teamLeaderLoading && !selectedTeamLeader}
+                selected={selectedTeamLeader}
+                onSelect={(option) => {
+                  setSelectedTeamLeader(option);
+                  setTeamLeaderQuery(option.label);
+                }}
+                onClear={() => {
+                  setSelectedTeamLeader(null);
+                  setTeamLeaderQuery("");
+                }}
               />
-
-              <div>
-                <AutocompleteField
-                  label="Subcontractor"
-                  placeholder="Search subcontractor name..."
-                  query={teamLeaderQuery}
-                  onQueryChange={(value) => {
-                    setTeamLeaderQuery(value);
-                    if (selectedTeamLeader) setSelectedTeamLeader(null);
-                  }}
-                  options={teamLeaderOptions}
-                  loading={teamLeaderLoading && !selectedTeamLeader}
-                  selected={selectedTeamLeader}
-                  onSelect={(option) => {
-                    setSelectedTeamLeader(option);
-                    setTeamLeaderQuery(option.label);
-                  }}
-                  onClear={() => {
-                    setSelectedTeamLeader(null);
-                    setTeamLeaderQuery("");
-                  }}
+              {teamLeaderLoadFailed && (
+                <ErrorBox
+                  title="The subcontractors did not load."
+                  text="The backend may be slow right now."
+                  onRetry={() => setTeamLeaderReloadToken((n) => n + 1)}
                 />
-                {teamLeaderLoadFailed && (
-                  <p className="mt-1 text-xs font-semibold text-red-600">
-                    Couldn&apos;t load Subcontractors — the backend may be slow right now.{" "}
-                    <button
-                      type="button"
-                      onClick={() => setTeamLeaderReloadToken((n) => n + 1)}
-                      className="underline hover:text-red-800"
-                    >
-                      Retry
-                    </button>
-                  </p>
-                )}
-              </div>
+              )}
             </div>
-
-            {adminTab === "schedules" && (
-              <button
-                type="button"
-                onClick={() => setAddScheduleModalOpen(true)}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-              >
-                + Add Schedule
-              </button>
-            )}
-
-            {adminTab === "exceptions" && (
-              <button
-                type="button"
-                onClick={() => setExceptionModal("new")}
-                className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
-              >
-                + New Exception
-              </button>
-            )}
           </div>
 
-          <div className="mt-5 overflow-x-auto">
-            {!hasSearch ? (
-              <p className="text-sm text-slate-600">
-                Search by customer name or Subcontractor name above to see results.
-              </p>
-            ) : loading ? (
-              <p className="text-sm text-slate-600">Loading...</p>
-            ) : adminTab === "schedules" ? (
-              filteredSchedules.length === 0 ? (
-                <p className="text-sm text-slate-600">No sub schedules found.</p>
-              ) : (
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b bg-slate-50 text-slate-700">
-                      <th className="px-4 py-3 font-semibold">Customer</th>
-                      <th className="px-4 py-3 font-semibold">Subcontractor</th>
-                      <th className="px-4 py-3 font-semibold">Day / Occurrence</th>
-                      <th className="px-4 py-3 font-semibold">Window</th>
-                      <th className="px-4 py-3 font-semibold">Frequency</th>
-                      <th className="px-4 py-3 font-semibold">Effective</th>
-                      <th className="px-4 py-3 font-semibold">Status</th>
-                      <th className="px-4 py-3 font-semibold">Submitted</th>
-                      <th className="px-4 py-3 font-semibold">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSchedules.map((s) => (
-                      <tr key={s.sheetRow} className="border-b last:border-0 hover:bg-slate-50">
-                        <td className="px-4 py-3">{resolveAccountName(s.accountId)}</td>
-                        <td className="px-4 py-3">{resolveTeamLeaderName(s.subId)}</td>
-                        <td className="px-4 py-3">{describeDayOrOccurrence(s)}</td>
-                        <td className="px-4 py-3">{s.timeWindow || "—"}</td>
-                        <td className="px-4 py-3">{describeFrequency(s)}</td>
-                        <td className="px-4 py-3">
-                          {s.effectiveStart || "—"}
-                          {s.effectiveEnd ? ` to ${s.effectiveEnd}` : ""}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              isScheduleEffectivelyActive(s, today)
-                                ? "bg-green-100 text-green-800"
-                                : "bg-slate-100 text-slate-700"
-                            }`}
-                          >
-                            {s.status || "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-700">{s.submittedBy || "—"}</span>
-                            {s.submittedVia === "Admin" ? (
-                              <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-black uppercase text-blue-800">
-                                Admin
-                              </span>
-                            ) : null}
-                          </div>
-                          {s.submittedDate && (
-                            <div className="text-[11px] text-slate-400">{s.submittedDate}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-3">
-                            <button
-                              type="button"
-                              onClick={() => setScheduleModal(s)}
-                              className="text-xs font-semibold text-blue-700 hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => toggleScheduleStatus(s)}
-                              className={`text-xs font-semibold hover:underline ${
-                                isScheduleEffectivelyActive(s, today) ? "text-red-600" : "text-green-700"
-                              }`}
-                            >
-                              {isScheduleEffectivelyActive(s, today) ? "Deactivate" : "Reactivate"}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            ) : filteredExceptions.length === 0 ? (
-              <p className="text-sm text-slate-600">No schedule exceptions found.</p>
+          {!hasSearch ? (
+            <EmptyState icon="search" title="Search to see results" text="Search by customer name or subcontractor name above." />
+          ) : loading ? (
+            <SkeletonList rows={3} />
+          ) : adminTab === "schedules" ? (
+            filteredSchedules.length === 0 ? (
+              <EmptyState title="No sub schedules found" text="Nothing is scheduled for this search yet." />
             ) : (
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b bg-slate-50 text-slate-700">
-                    <th className="px-4 py-3 font-semibold">Customer</th>
-                    <th className="px-4 py-3 font-semibold">Original Date</th>
-                    <th className="px-4 py-3 font-semibold">Type</th>
-                    <th className="px-4 py-3 font-semibold">New Date</th>
-                    <th className="px-4 py-3 font-semibold">New Window</th>
-                    <th className="px-4 py-3 font-semibold">Reason</th>
-                    <th className="px-4 py-3 font-semibold">Created</th>
-                    <th className="px-4 py-3 font-semibold">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredExceptions.map((ex) => (
-                    <tr key={ex.sheetRow} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="px-4 py-3">{resolveAccountName(ex.accountId)}</td>
-                      <td className="px-4 py-3">{ex.originalDate}</td>
-                      <td className="px-4 py-3">{ex.type}</td>
-                      <td className="px-4 py-3">{ex.newDate || "—"}</td>
-                      <td className="px-4 py-3">{ex.newTimeWindow || "—"}</td>
-                      <td className="px-4 py-3">{ex.reason}</td>
-                      <td className="px-4 py-3">
-                        <div className="text-xs font-semibold text-slate-700">{ex.createdBy || "—"}</div>
-                        {ex.createdDate && (
-                          <div className="text-[11px] text-slate-400">{ex.createdDate}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setExceptionModal(ex)}
-                            className="text-xs font-semibold text-blue-700 hover:underline"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteException(ex)}
-                            className="text-xs font-semibold text-red-600 hover:underline"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-        )}
-      </div>
+              <CardList
+                label="Sub schedules"
+                items={filteredSchedules}
+                getKey={(s) => String(s.sheetRow)}
+                renderCard={(s) => (
+                  <Card title={resolveAccountName(s.accountId)} right={scheduleStatus(s)}>
+                    <p className="ui-card-text">{resolveTeamLeaderName(s.subId)}</p>
+                    <p className="ui-card-text">
+                      {describeFrequency(s)} · {describeDayOrOccurrence(s)} · {s.timeWindow || "No time window"}
+                    </p>
+                    <p className="ui-card-text">{effectiveText(s)}</p>
+                    <p className="ui-card-text">Submitted by {submittedText(s)}</p>
+                    <div style={{ marginTop: 12 }}>{scheduleActions(s)}</div>
+                  </Card>
+                )}
+                columns={[
+                  { header: "Customer", cell: (s) => <span className="ui-strong">{resolveAccountName(s.accountId)}</span> },
+                  { header: "Subcontractor", cell: (s) => resolveTeamLeaderName(s.subId) },
+                  { header: "Day / Occurrence", cell: (s) => describeDayOrOccurrence(s) },
+                  { header: "Window", cell: (s) => s.timeWindow || "None" },
+                  { header: "Frequency", cell: (s) => describeFrequency(s) },
+                  { header: "Effective", cell: (s) => effectiveText(s) },
+                  { header: "Status", cell: (s) => scheduleStatus(s) },
+                  { header: "Submitted", cell: (s) => submittedText(s) },
+                  { header: "Actions", cell: (s) => scheduleActions(s) },
+                ]}
+              />
+            )
+          ) : filteredExceptions.length === 0 ? (
+            <EmptyState title="No schedule exceptions found" text="Nothing was skipped or moved for this search." />
+          ) : (
+            <CardList
+              label="Schedule exceptions"
+              items={filteredExceptions}
+              getKey={(ex) => String(ex.sheetRow)}
+              renderCard={(ex) => (
+                <Card title={resolveAccountName(ex.accountId)} right={<StatusPill kind="waiting">{ex.type || "No type"}</StatusPill>}>
+                  <p className="ui-card-text">
+                    {ex.originalDate}
+                    {ex.newDate ? ` → ${ex.newDate}` : ""}
+                    {ex.newTimeWindow ? ` (${ex.newTimeWindow})` : ""}
+                  </p>
+                  {ex.reason ? <p className="ui-card-text">{ex.reason}</p> : null}
+                  <p className="ui-card-text">
+                    Created by {ex.createdBy || "Not known"}
+                    {ex.createdDate ? `, ${ex.createdDate}` : ""}
+                  </p>
+                  <div style={{ marginTop: 12 }}>{exceptionActions(ex)}</div>
+                </Card>
+              )}
+              columns={[
+                { header: "Customer", cell: (ex) => <span className="ui-strong">{resolveAccountName(ex.accountId)}</span> },
+                { header: "Original Date", cell: (ex) => <span className="ui-nowrap">{ex.originalDate}</span> },
+                { header: "Type", cell: (ex) => ex.type },
+                { header: "New Date", cell: (ex) => ex.newDate || "None" },
+                { header: "New Window", cell: (ex) => ex.newTimeWindow || "None" },
+                { header: "Reason", cell: (ex) => ex.reason },
+                { header: "Created", cell: (ex) => `${ex.createdBy || "Not known"}${ex.createdDate ? `, ${ex.createdDate}` : ""}` },
+                { header: "Actions", cell: (ex) => exceptionActions(ex) },
+              ]}
+            />
+          )}
+        </>
+      )}
+
+      <ConfirmSheet
+        open={exceptionToDelete !== null}
+        title="Remove this exception?"
+        text={
+          exceptionToDelete
+            ? `${resolveAccountName(exceptionToDelete.accountId)}, ${exceptionToDelete.originalDate}. The regular schedule applies again on that day.`
+            : ""
+        }
+        confirmLabel="Remove exception"
+        busy={deletingException}
+        busyLabel="Removing…"
+        onConfirm={() => {
+          if (exceptionToDelete) void deleteException(exceptionToDelete);
+        }}
+        onCancel={() => setExceptionToDelete(null)}
+      />
 
       {scheduleModal ? (
         <ScheduleModal
@@ -691,6 +644,6 @@ function SubSchedulesPageInner() {
           }}
         />
       ) : null}
-    </main>
+    </Screen>
   );
 }

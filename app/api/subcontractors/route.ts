@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { getOrFetch, invalidateCached } from "@/lib/serverCache";
-import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
+import {
+  getAllAccountsForSubEnrichment,
+} from "@/lib/data/accounts";
 import {
   updateSubcontractor,
-  getSubcontractorPerformanceMap,
-  buildSubcontractorPerformanceKey,
   getAllSubcontractorsRaw,
-  getAllAccountsForSubEnrichment,
-} from "@/lib/googleSheets";
+  addSubcontractor,
+  getSubcontractorsAppsScriptShape,
+  getSubcontractorPerformanceMap,
+  subsOnPostgres,
+} from "@/lib/data/subs";
 import {
   resolveAssignedSubKey,
   resolveAssignedSubKeyWithCandidateCount,
@@ -289,13 +294,18 @@ async function resolveSubcontractorByName(
   callerLabel: string
 ): Promise<SheetRow | null> {
   const trimmedName = name.trim();
-  if (!trimmedName || !SCRIPT_URL) return null;
+  if (!trimmedName) return null;
+  // With DATA_SOURCE_SUBS=postgres the same list comes from Postgres (no
+  // Apps Script URL needed); otherwise from Apps Script, as before.
+  if (!subsOnPostgres() && !SCRIPT_URL) return null;
 
-  let data: GoogleScriptResponse;
+  let data: GoogleScriptResponse | SheetRow[];
   try {
-    data = await getOrFetch("subcontractors:getSubcontractors", () =>
-      fetchGoogleScriptData("getSubcontractors")
-    );
+    data = subsOnPostgres()
+      ? await getSubcontractorsAppsScriptShape()
+      : await getOrFetch("subcontractors:getSubcontractors", () =>
+          fetchGoogleScriptData("getSubcontractors")
+        );
   } catch {
     return null;
   }
@@ -528,6 +538,25 @@ export async function POST(request: Request) {
       }
     }
 
+    // With DATA_SOURCE_SUBS=postgres, adding a subcontractor is saved in
+    // Postgres instead of being forwarded to Apps Script (see
+    // addSubcontractor in lib/pg/subs.ts). Every other action, and every
+    // action when the switch is off, still goes to Apps Script below.
+    if (body.action === "addSubcontractor" && subsOnPostgres()) {
+      try {
+        const { action: _action, ...fields } = body as { action?: unknown; [key: string]: unknown };
+        void _action;
+        const created = await addSubcontractor(fields);
+        await invalidateCached("subcontractors:getSubcontractors");
+        return NextResponse.json({ success: true, id: created.id });
+      } catch (error) {
+        return NextResponse.json(
+          { success: false, error: error instanceof Error ? error.message : "Failed to save subcontractor." },
+          { status: 500 }
+        );
+      }
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -538,7 +567,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const response = await fetch(SCRIPT_URL, {
+    const response = await fetchAppsScriptDirect(SCRIPT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "text/plain;charset=utf-8",

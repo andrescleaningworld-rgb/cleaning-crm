@@ -107,10 +107,10 @@ function SettingsSection({
   placeholder: string;
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <section className="ui-card">
       <div className="mb-4">
-        <h2 className="text-xl font-bold text-gray-900">{title}</h2>
-        <p className="mt-1 text-sm text-gray-600">{description}</p>
+        <h2 className="ui-card-title">{title}</h2>
+        <p className="ui-muted">{description}</p>
       </div>
 
       <div className="mb-4 flex flex-col gap-3 md:flex-row">
@@ -119,20 +119,20 @@ function SettingsSection({
           value={inputValue}
           onChange={(event) => onInputChange(event.target.value)}
           placeholder={placeholder}
-          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+          className="ui-input w-full"
         />
 
         <button
           type="button"
           onClick={onAdd}
-          className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-blue-800 md:w-40"
+          className="ui-btn ui-btn-main"
         >
           Add
         </button>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left text-sm">
+        <table className="ui-table w-full">
           <thead>
             <tr className="border-b bg-gray-50 text-gray-600">
               <th className="px-4 py-3 font-semibold">Name</th>
@@ -150,7 +150,7 @@ function SettingsSection({
 
                 <td className="px-4 py-3">
                   <span
-                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${getStatusClass(
+                    className={`rounded-full border px-2 py-1 text-base font-semibold ${getStatusClass(
                       item.status
                     )}`}
                   >
@@ -162,7 +162,7 @@ function SettingsSection({
                   <button
                     type="button"
                     onClick={() => onToggleStatus(item.id)}
-                    className="font-semibold text-blue-700 hover:underline"
+                    className="ui-btn ui-btn-quiet"
                   >
                     {item.status === "Active" ? "Deactivate" : "Activate"}
                   </button>
@@ -352,10 +352,10 @@ function ManagersSettingsSection({
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <section className="ui-card">
       <div className="mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Managers</h2>
-        <p className="mt-1 text-sm text-gray-600">
+        <h2 className="ui-card-title">Managers</h2>
+        <p className="ui-muted">
           People responsible for visits, complaints, follow-ups, and account
           management.
         </p>
@@ -367,7 +367,7 @@ function ManagersSettingsSection({
           value={newManagerName}
           onChange={(event) => setNewManagerName(event.target.value)}
           placeholder="Manager name..."
-          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 md:max-w-xs"
+          className="ui-input w-full"
         />
 
         <input
@@ -375,27 +375,27 @@ function ManagersSettingsSection({
           value={newManagerPhone}
           onChange={(event) => setNewManagerPhone(event.target.value)}
           placeholder="Phone number..."
-          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 md:max-w-xs"
+          className="ui-input w-full"
         />
 
         <button
           type="button"
           onClick={handleAdd}
           disabled={adding}
-          className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60 md:w-40"
+          className="ui-btn ui-btn-main"
         >
           {adding ? "Adding..." : "Add"}
         </button>
       </div>
 
       {loadError ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {loadError}
         </div>
       ) : null}
 
       {actionError ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {actionError}
         </div>
       ) : null}
@@ -406,7 +406,7 @@ function ManagersSettingsSection({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
+          <table className="ui-table w-full">
             <thead>
               <tr className="border-b bg-gray-50 text-gray-600">
                 <th className="px-4 py-3 font-semibold">Name</th>
@@ -437,7 +437,7 @@ function ManagersSettingsSection({
                       onBlur={() => savePhone(manager)}
                       disabled={savingRow === manager.sheetRow}
                       placeholder="Add phone..."
-                      className="w-full min-w-[160px] rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                      className="ui-input w-full"
                     />
                   </td>
 
@@ -454,7 +454,7 @@ function ManagersSettingsSection({
                         value={manager.calendarColorId}
                         onChange={(event) => saveColor(manager, event.target.value)}
                         disabled={savingRow === manager.sheetRow}
-                        className="rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                        className="ui-input"
                       >
                         <option value="">None</option>
                         {CALENDAR_COLORS.map((color) => (
@@ -468,7 +468,7 @@ function ManagersSettingsSection({
 
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${getStatusClass(
+                      className={`rounded-full border px-2 py-1 text-base font-semibold ${getStatusClass(
                         manager.status
                       )}`}
                     >
@@ -481,7 +481,7 @@ function ManagersSettingsSection({
                       type="button"
                       onClick={() => toggleStatus(manager)}
                       disabled={savingRow === manager.sheetRow}
-                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                      className="ui-btn ui-btn-quiet"
                     >
                       {manager.status === "Active" ? "Deactivate" : "Activate"}
                     </button>
@@ -587,10 +587,10 @@ function ManagerLoginAccountsSection() {
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+    <section className="ui-card">
       <div className="mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Manager Login Accounts</h2>
-        <p className="mt-1 text-sm text-gray-600">
+        <h2 className="ui-card-title">Manager Login Accounts</h2>
+        <p className="ui-muted">
           Individual admin-login passwords for Active, Manager-role Staff (Equipment
           Categories &amp; Staff page). Office/Inside Staff never appear here and can&apos;t
           log in as a manager.
@@ -598,13 +598,13 @@ function ManagerLoginAccountsSection() {
       </div>
 
       {loadError ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {loadError}
         </div>
       ) : null}
 
       {actionError ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {actionError}
         </div>
       ) : null}
@@ -613,7 +613,7 @@ function ManagerLoginAccountsSection() {
         <div className="p-6 text-center text-gray-600">Loading...</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-sm">
+          <table className="ui-table w-full">
             <thead>
               <tr className="border-b bg-gray-50 text-gray-600">
                 <th className="px-4 py-3 font-semibold">Name</th>
@@ -628,7 +628,7 @@ function ManagerLoginAccountsSection() {
                   <td className="px-4 py-3 font-semibold text-gray-900">{account.name}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                      className={`rounded-full border px-2 py-1 text-base font-semibold ${
                         account.needsSetup
                           ? "border-amber-200 bg-amber-100 text-amber-800"
                           : "border-green-200 bg-green-100 text-green-800"
@@ -642,12 +642,12 @@ function ManagerLoginAccountsSection() {
                       type="button"
                       onClick={() => resetPassword(account)}
                       disabled={savingId === account.staffId || account.needsSetup}
-                      className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                      className="ui-btn ui-btn-quiet"
                     >
                       Reset Password
                     </button>
                     {resetNotice === account.staffId ? (
-                      <p className="mt-1 text-xs font-semibold text-green-700">Password cleared.</p>
+                      <p className="ui-strong">Password cleared.</p>
                     ) : null}
                   </td>
                 </tr>
@@ -671,15 +671,15 @@ function SupplySettingsSection() {
     <section className="rounded-xl border border-green-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-sm font-bold uppercase tracking-wide text-green-700">
+          <p className="ui-strong">
             Supply Settings
           </p>
 
-          <h2 className="mt-1 text-xl font-bold text-gray-900">
+          <h2 className="ui-card-title">
             Supply Items and Categories
           </h2>
 
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">
+          <p className="ui-muted">
             Manage the supply categories, item names, descriptions, units,
             stock levels, and active/inactive status used by subcontractors when
             placing supply orders.
@@ -689,14 +689,14 @@ function SupplySettingsSection() {
         <div className="flex flex-col gap-3 sm:flex-row lg:min-w-[360px]">
           <Link
             href="/supplies"
-            className="rounded-lg bg-green-700 px-5 py-3 text-center text-sm font-bold text-white shadow-sm hover:bg-green-800"
+            className="ui-btn ui-btn-main"
           >
             Manage Supply Items
           </Link>
 
           <Link
             href="/supply-orders"
-            className="rounded-lg border border-green-300 bg-green-50 px-5 py-3 text-center text-sm font-bold text-green-800 shadow-sm hover:bg-green-100"
+            className="ui-btn ui-btn-second"
           >
             View Supply Orders
           </Link>
@@ -704,25 +704,25 @@ function SupplySettingsSection() {
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-green-100 bg-green-50 p-4">
-          <p className="text-sm font-bold text-green-900">Categories</p>
-          <p className="mt-1 text-sm leading-6 text-green-800">
+        <div className="ui-stat">
+          <p className="ui-strong">Categories</p>
+          <p className="ui-muted">
             Categories come from the supply items list, such as Chemicals,
             Trash Bags, Paper Products, Floor Care, Tools, and Other.
           </p>
         </div>
 
-        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-          <p className="text-sm font-bold text-blue-900">Item Descriptions</p>
-          <p className="mt-1 text-sm leading-6 text-blue-800">
+        <div className="ui-stat">
+          <p className="ui-strong">Item Descriptions</p>
+          <p className="ui-muted">
             Descriptions are shown to subcontractors so they know exactly what
             they are requesting.
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-bold text-slate-900">Order Log</p>
-          <p className="mt-1 text-sm leading-6 text-slate-700">
+        <div className="ui-stat">
+          <p className="ui-strong">Order Log</p>
+          <p className="ui-muted">
             Submitted orders are tracked in the Supply Orders page for review,
             approval, denial, and completion.
           </p>
@@ -855,12 +855,12 @@ export default function SettingsPage() {
   ).length;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-7xl">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+          <h1 className="ui-screen-title">Settings</h1>
 
-          <p className="mt-1 text-gray-600">
+          <p className="ui-muted">
             Manage the dropdown options used throughout the app. Subcontractors
             are managed on their own dedicated Subcontractors page.
           </p>
@@ -869,11 +869,11 @@ export default function SettingsPage() {
         {/* Portal Access shortcut */}
         <Link
           href="/settings/portal"
-          className="mb-6 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm transition hover:bg-blue-100"
+          className="ui-card ui-stack"
         >
           <div>
-            <p className="font-bold text-blue-900">Customer Portal Access</p>
-            <p className="mt-0.5 text-sm text-blue-700">
+            <p className="ui-strong">Customer Portal Access</p>
+            <p className="ui-muted">
               Enable / disable portal access and manage portal codes for each customer account.
             </p>
           </div>
@@ -883,11 +883,11 @@ export default function SettingsPage() {
         {/* Extra/Specialty Services shortcut */}
         <Link
           href="/settings/extra-services"
-          className="mb-6 flex items-center justify-between rounded-xl border border-purple-200 bg-purple-50 px-5 py-4 shadow-sm transition hover:bg-purple-100"
+          className="ui-card ui-stack"
         >
           <div>
-            <p className="font-bold text-purple-900">Extra / Specialty Services</p>
-            <p className="mt-0.5 text-sm text-purple-700">
+            <p className="ui-strong">Extra / Specialty Services</p>
+            <p className="ui-muted">
               Manage the specialty services customers can request from the portal — name,
               description, photo, and display order.
             </p>
@@ -900,11 +900,11 @@ export default function SettingsPage() {
         {/* Equipment Categories & Staff shortcut */}
         <Link
           href="/settings/equipment-categories"
-          className="mb-6 flex items-center justify-between rounded-xl border border-teal-200 bg-teal-50 px-5 py-4 shadow-sm transition hover:bg-teal-100"
+          className="ui-card ui-stack"
         >
           <div>
-            <p className="font-bold text-teal-900">Equipment Categories &amp; Staff</p>
-            <p className="mt-0.5 text-sm text-teal-700">
+            <p className="ui-strong">Equipment Categories &amp; Staff</p>
+            <p className="ui-muted">
               Manage equipment categories and the Staff roster used for checkout/return sign-off. Full
               equipment inventory lives on its own Equipment page.
             </p>
@@ -916,11 +916,11 @@ export default function SettingsPage() {
         {isOwner ? (
           <Link
             href="/settings/activity-log"
-            className="mb-6 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 shadow-sm transition hover:bg-amber-100"
+            className="ui-card ui-stack"
           >
             <div>
-              <p className="font-bold text-amber-900">Activity Log</p>
-              <p className="mt-0.5 text-sm text-amber-700">
+              <p className="ui-strong">Activity Log</p>
+              <p className="ui-muted">
                 Audit trail of who created, edited, or deleted records across the app, plus logins/logouts.
               </p>
             </div>
@@ -931,45 +931,45 @@ export default function SettingsPage() {
         {/* Logs shortcut */}
         <Link
           href="/settings/logs"
-          className="mb-6 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 shadow-sm transition hover:bg-slate-100"
+          className="ui-card ui-stack"
         >
           <div>
-            <p className="font-bold text-slate-900">Logs</p>
-            <p className="mt-0.5 text-sm text-slate-700">
+            <p className="ui-strong">Logs</p>
+            <p className="ui-muted">
               Browse the account update history log across every account — Change Status notes,
               onboarding-checklist completion summaries, and manual updates.
             </p>
           </div>
-          <span className="ml-4 shrink-0 text-slate-500">→</span>
+          <span className="ui-muted shrink-0">→</span>
         </Link>
 
         <div className="mb-6 grid gap-4 md:grid-cols-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Active Managers</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
+          <div className="ui-card">
+            <p className="ui-muted">Active Managers</p>
+            <p className="ui-stat-value">
               {activeManagers}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Active Visit Types</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
+          <div className="ui-card">
+            <p className="ui-muted">Active Visit Types</p>
+            <p className="ui-stat-value">
               {activeVisitTypes}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">Active Update Types</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
+          <div className="ui-card">
+            <p className="ui-muted">Active Update Types</p>
+            <p className="ui-stat-value">
               {activeUpdateTypes}
             </p>
           </div>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-gray-500">
+          <div className="ui-card">
+            <p className="ui-muted">
               Complaint Validity Options
             </p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
+            <p className="ui-stat-value">
               {activeComplaintValidityOptions}
             </p>
           </div>

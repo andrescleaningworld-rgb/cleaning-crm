@@ -1,10 +1,17 @@
 import { describeAccountChanges } from "@/lib/accountChanges";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
-import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
-import { setAccountChecklistNeeded, updateAccountFieldsDirect } from "@/lib/googleSheets";
+import {
+  setAccountChecklistNeeded,
+  updateAccountFieldsDirect,
+  accountsOnPostgres,
+  addAccount,
+  getAccountsAppsScriptShape,
+  updateAccountFromPayload,
+} from "@/lib/data/accounts";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 
@@ -44,6 +51,11 @@ export class AccountsFetchError extends Error {
 // action is only fetched from Apps Script once per 60s, no matter how many
 // different "q" searches hit this route in that window.
 export async function fetchAccountsForAction(action: string): Promise<unknown[]> {
+  // With DATA_SOURCE_ACCOUNTS=postgres the same list is built from Postgres
+  // (see getAccountsAppsScriptShape in lib/pg/accounts.ts): same rows, same
+  // fields, same text. Every caller of this function switches with it.
+  if (accountsOnPostgres()) return getAccountsAppsScriptShape(action);
+
   let response: Response;
   try {
     response = await fetchAppsScript(`${SCRIPT_URL}?action=${encodeURIComponent(action)}`, {
@@ -87,7 +99,7 @@ export async function fetchAccountsForAction(action: string): Promise<unknown[]>
 
 export async function GET(request: NextRequest) {
   try {
-    if (!SCRIPT_URL) {
+    if (!SCRIPT_URL && !accountsOnPostgres()) {
       return NextResponse.json(
         { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
         { status: 500 }
@@ -166,7 +178,12 @@ export async function POST(request: NextRequest) {
     // updateAccountFieldsDirect's comment for why the other
     // action:"updateAccountFields" callers (Key Code/Copy toggle,
     // onboarding field sync) aren't switched over yet.
-    if (action === "updateAccountFieldsDirect") {
+    // With DATA_SOURCE_ACCOUNTS=postgres, action:"updateAccountFields" (the
+    // partial save used by the accounts list, the account page, the Keys tab
+    // and the onboarding field sync) takes this same path: it already merges
+    // onto the fresh record and writes only the fields that were sent, which
+    // is what the Apps Script round trip below exists to do.
+    if (action === "updateAccountFieldsDirect" || (action === "updateAccountFields" && accountsOnPostgres())) {
       const accountId = String(body.accountId ?? "").trim();
       const fields =
         body.fields && typeof body.fields === "object" ? body.fields : {};
@@ -182,6 +199,11 @@ export async function POST(request: NextRequest) {
       try {
         result = await updateAccountFieldsDirect(accountId, fields);
       } catch (err) {
+        // The Apps Script path answers a missing account with 404 "Account
+        // not found."; keep that for the partial save when it runs here.
+        if (action === "updateAccountFields" && err instanceof Error && /not found/i.test(err.message)) {
+          return NextResponse.json({ success: false, error: "Account not found." }, { status: 404 });
+        }
         return NextResponse.json(
           {
             success: false,
@@ -288,7 +310,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (!SCRIPT_URL) {
+    // The new-account packet email is composed by Apps Script, so it needs
+    // the URL on either source; add/update only need it on Sheets.
+    if (!SCRIPT_URL && (!accountsOnPostgres() || action === "sendNewAccountPacket" || body.action === "sendNewAccountPacket")) {
       return NextResponse.json(
         { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
         { status: 500 }
@@ -349,7 +373,7 @@ export async function POST(request: NextRequest) {
 
     // === NEW: Handle Send New Account Packet ===
     if (action === "sendNewAccountPacket") {
-      const response = await fetch(SCRIPT_URL, {
+      const response = await fetchAppsScriptDirect(SCRIPT_URL!, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(body),
@@ -393,7 +417,7 @@ export async function POST(request: NextRequest) {
         manager:                String(body.manager                ?? ""),
       });
 
-      const response = await fetch(`${SCRIPT_URL}?${params.toString()}`, {
+      const response = await fetchAppsScriptDirect(`${SCRIPT_URL}?${params.toString()}`, {
         method: "GET",
         cache: "no-store",
       });
@@ -467,44 +491,64 @@ export async function POST(request: NextRequest) {
     // retry-on-timeout as a duplicate-account risk and fail fast instead. A
     // confirmed 5xx is safe to retry either way, since the server explicitly
     // rejected the request and nothing was written.
-    const response = await fetchAppsScript(
-      SCRIPT_URL,
-      {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify({
-          action: resolvedAction,
-          account: accountPayload,
-        }),
-        cache: "no-store",
-      },
-      undefined,
-      { retryOn5xx: true, retryOnThrow: resolvedAction === "updateAccount" }
-    );
+    let data: { success?: boolean; error?: string; message?: string; account?: unknown; accountId?: unknown; id?: unknown };
 
-    const text = await response.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
+    if (accountsOnPostgres()) {
+      // Saved in Postgres instead of being sent to Apps Script (see
+      // addAccount / updateAccountFromPayload in lib/pg/accounts.ts). The
+      // rest of this function (cache, Checklist Needed, the text to a newly
+      // assigned sub, the activity log) runs the same either way.
+      try {
+        const saved =
+          resolvedAction === "addAccount"
+            ? await addAccount(accountPayload as Record<string, unknown>)
+            : await updateAccountFromPayload(accountIdForSmsCheck, accountPayload as Record<string, unknown>);
+        data = { success: true, accountId: saved.accountId };
+      } catch (err) {
+        return NextResponse.json(
+          { success: false, error: err instanceof Error ? err.message : "Failed to save account." },
+          { status: 500 }
+        );
+      }
+    } else {
+      const response = await fetchAppsScript(
+        SCRIPT_URL!,
         {
-          success: false,
-          error: "Google Script did not return valid JSON while saving account.",
-          rawResponse: text,
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({
+            action: resolvedAction,
+            account: accountPayload,
+          }),
+          cache: "no-store",
         },
-        { status: 500 }
+        undefined,
+        { retryOn5xx: true, retryOnThrow: resolvedAction === "updateAccount" }
       );
-    }
 
-    if (!response.ok || data.success === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.error || data.message || "Failed to save account.",
-        },
-        { status: 500 }
-      );
+      const text = await response.text();
+      try {
+        data = JSON.parse(text);
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Google Script did not return valid JSON while saving account.",
+            rawResponse: text,
+          },
+          { status: 500 }
+        );
+      }
+
+      if (!response.ok || data.success === false) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: data.error || data.message || "Failed to save account.",
+          },
+          { status: 500 }
+        );
+      }
     }
 
     // A successful add/update means every cached GET action key is now

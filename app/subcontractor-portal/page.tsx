@@ -541,7 +541,7 @@ export default function SubcontractorPortalPage() {
         : "border border-teal-200 bg-teal-50 text-teal-800 hover:border-teal-400 hover:bg-teal-100",
     };
 
-    return `rounded-2xl px-3 py-3 text-center text-sm font-black shadow-sm transition ${colorClasses[view]}`;
+    return `rounded-2xl px-3 py-3 text-center text-base font-black shadow-sm transition ${colorClasses[view]}`;
   }
 
   function getFilteredSuppliesForLine(line: OrderLineItem) {
@@ -1289,26 +1289,26 @@ export default function SubcontractorPortalPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900">
-      <div className="mx-auto max-w-5xl">
-        <section className="rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-5 text-white shadow-lg">
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-100">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
+        <section className="ui-on-dark rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-5 text-white shadow-lg">
+          <p className="ui-strong">
             Cleaning World
           </p>
-          <h1 className="mt-2 text-2xl font-black sm:text-3xl">
+          <h1 className="ui-screen-title">
             Subcontractor Portal
           </h1>
-          <p className="mt-2 text-sm leading-6 text-blue-50">
+          <p className="ui-muted">
             Enter the email Cleaning World has on file. After your email is
             verified, you will only see your assigned accounts, complaints, issue
             reporting, and supply order options.
           </p>
         </section>
 
-        <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+        <section className="ui-card">
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
-              <label className="text-sm font-bold text-slate-700">
+              <label className="ui-label">
                 Subcontractor Email
               </label>
               <input
@@ -1316,7 +1316,7 @@ export default function SubcontractorPortalPage() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="Enter your email on file"
-                className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                className="ui-input w-full"
                 required
               />
             </div>
@@ -1324,7 +1324,7 @@ export default function SubcontractorPortalPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full rounded-2xl bg-blue-700 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="ui-btn ui-btn-main w-full"
             >
               {loading ? "Loading Portal..." : "Access Portal"}
             </button>
@@ -1332,13 +1332,13 @@ export default function SubcontractorPortalPage() {
         </section>
 
         {error ? (
-          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          <div className="ui-field-error">
             {error}
           </div>
         ) : null}
 
         {successMessage ? (
-          <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+          <div className="ui-savestatus ui-savestatus-saved">
             {successMessage}
           </div>
         ) : null}
@@ -1349,40 +1349,40 @@ export default function SubcontractorPortalPage() {
                 block pinned to the very top of the viewport, so both stay
                 reachable without scrolling once the sub is logged in. */}
             <div className="sticky top-0 z-30 -mx-4 mt-4 bg-slate-100/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white/95 sm:px-3 sm:shadow-sm">
-              <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <div className="ui-card">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  <p className="ui-muted">
                     Logged in as
                   </p>
-                  <p className="text-base font-black leading-tight text-slate-900">
+                  <p className="ui-strong">
                     {getSubcontractorDisplayName(subcontractor)}
                   </p>
-                  <p className="text-xs text-slate-600">
+                  <p className="ui-muted">
                     {subcontractor.email}
                   </p>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="mt-1 text-xs font-bold text-red-600 hover:underline"
+                    className="ui-btn ui-btn-quiet"
                   >
                     Logout
                   </button>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-base font-black text-blue-700">
                     {activeAccounts.length} Accounts
                   </span>
-                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">
+                  <span className="rounded-full bg-orange-50 px-3 py-1 text-base font-black text-orange-700">
                     {openComplaints.length} Complaints
                   </span>
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-base font-black text-emerald-700">
                     {formatMoney(totalSubPay)}
                   </span>
-                  <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-black text-purple-700">
+                  <span className="rounded-full bg-purple-50 px-3 py-1 text-base font-black text-purple-700">
                     Score {subcontractorScore}
                   </span>
-                  <span className="rounded-full bg-green-50 px-3 py-1 text-xs font-black text-green-700">
+                  <span className="rounded-full bg-green-50 px-3 py-1 text-base font-black text-green-700">
                     {cleanText(subcontractor.status) || "Active"}
                   </span>
                 </div>
@@ -1404,7 +1404,7 @@ export default function SubcontractorPortalPage() {
                 >
                   Complaints
                   {openComplaints.length > 0 && (
-                    <span className="absolute -right-1.5 -top-1.5 rounded-full bg-orange-500 px-1.5 py-0.5 text-xs font-black leading-none text-white">
+                    <span className="absolute -right-1.5 -top-1.5 rounded-full bg-orange-500 px-1.5 py-0.5 text-base font-black leading-none text-white">
                       {openComplaints.length}
                     </span>
                   )}
@@ -1452,17 +1452,17 @@ export default function SubcontractorPortalPage() {
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h2 className="text-xl font-black text-slate-900">
+                  <h2 className="ui-card-title">
                     My Assigned Accounts
                   </h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                  <p className="ui-muted">
                     Tap an account to view job details. Selecting an account also
                     fills it into Report Issue and Supply Order.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-black text-slate-700">
+                  <span className="rounded-full bg-slate-100 px-4 py-2 text-base font-black text-slate-700">
                     {activeAccounts.length} active
                   </span>
 
@@ -1473,7 +1473,7 @@ export default function SubcontractorPortalPage() {
                         current === "asc" ? "desc" : "asc"
                       )
                     }
-                    className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+                    className="ui-btn ui-btn-second"
                   >
                     Name {accountSortOrder === "asc" ? "A→Z" : "Z→A"}
                   </button>
@@ -1481,7 +1481,7 @@ export default function SubcontractorPortalPage() {
               </div>
 
               {activeAccounts.length === 0 ? (
-                <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-700">
+                <p className="ui-strong">
                   No active assigned accounts were found for this email.
                 </p>
               ) : (
@@ -1504,10 +1504,10 @@ export default function SubcontractorPortalPage() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <h3 className="font-black text-slate-950">
+                            <h3 className="ui-card-title">
                               {accountName}
                             </h3>
-                            <p className="mt-1 text-sm leading-5 text-slate-600">
+                            <p className="ui-muted">
                               <span
                                 role="link"
                                 tabIndex={0}
@@ -1533,7 +1533,7 @@ export default function SubcontractorPortalPage() {
                           </div>
 
                           <span
-                            className={`rounded-full px-3 py-1 text-xs font-black ${
+                            className={`rounded-full px-3 py-1 text-base font-black ${
                               isSelected
                                 ? "bg-blue-700 text-white"
                                 : "bg-slate-100 text-slate-700"
@@ -1549,12 +1549,12 @@ export default function SubcontractorPortalPage() {
               )}
 
               {selectedAccount ? (
-                <div className="mt-5 rounded-3xl border border-blue-100 bg-blue-50 p-5">
-                  <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+                <div className="ui-card">
+                  <p className="ui-strong">
                     Selected Account Details
                   </p>
 
-                  <h3 className="mt-2 text-2xl font-black text-slate-950">
+                  <h3 className="ui-card-title">
                     {getAccountName(selectedAccount)}
                   </h3>
 
@@ -1562,80 +1562,80 @@ export default function SubcontractorPortalPage() {
                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(getFullAddress(selectedAccount) || "")}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-2 block text-sm leading-6 text-slate-700 hover:text-blue-600 hover:underline"
+                    className="ui-link"
                   >
                     {getFullAddress(selectedAccount) || "Address not listed"}
                   </a>
 
                   <div className="mt-5 grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card">
+                      <p className="ui-muted">
                         Service Type
                       </p>
-                      <p className="mt-1 font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(selectedAccount.serviceType)}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card">
+                      <p className="ui-muted">
                         Frequency
                       </p>
-                      <p className="mt-1 font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(selectedAccount.frequency)}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card">
+                      <p className="ui-muted">
                         Schedule
                       </p>
-                      <p className="mt-1 font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(selectedAccount.cleaningDays)}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card">
+                      <p className="ui-muted">
                         Account Health
                       </p>
-                      <p className="mt-1 font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(selectedAccount.accountHealth)}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card">
+                      <p className="ui-muted">
                         Sub Pay
                       </p>
-                      <p className="mt-1 font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(getSubPay(selectedAccount))}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card">
+                      <p className="ui-muted">
                         Key
                       </p>
-                      <p className="mt-1 font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(getKeyInfo(selectedAccount))}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm md:col-span-2">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card md:col-span-2">
+                      <p className="ui-muted">
                         Alarm
                       </p>
-                      <p className="mt-1 whitespace-pre-wrap font-bold text-slate-900">
+                      <p className="ui-strong">
                         {displayValue(getAlarmInfo(selectedAccount))}
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white p-4 shadow-sm md:col-span-2">
-                      <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                    <div className="ui-card md:col-span-2">
+                      <p className="ui-muted">
                         Scope of Work
                       </p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                      <p className="ui-muted">
                         {displayValue(selectedAccount.scopeOfWork)}
                       </p>
                     </div>
@@ -1645,7 +1645,7 @@ export default function SubcontractorPortalPage() {
                     <button
                       type="button"
                       onClick={() => handleTabChange("issue")}
-                      className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white hover:bg-red-700"
+                      className="ui-btn ui-btn-second"
                     >
                       Report Issue for This Account
                     </button>
@@ -1653,13 +1653,13 @@ export default function SubcontractorPortalPage() {
                     <button
                       type="button"
                       onClick={() => handleTabChange("supplies")}
-                      className="rounded-2xl bg-green-700 px-4 py-3 text-sm font-black text-white hover:bg-green-800"
+                      className="ui-btn ui-btn-second"
                     >
                       Order Supplies for This Account
                     </button>
                   </div>
 
-                  <p className="mt-4 text-xs font-semibold text-slate-500">
+                  <p className="ui-muted">
                     Internal Cleaning World notes, revenue, gross margin, and
                     private customer information are hidden from this portal.
                   </p>
@@ -1710,17 +1710,17 @@ export default function SubcontractorPortalPage() {
             >
 
 
-              <h2 className="text-xl font-black text-slate-900">
+              <h2 className="ui-card-title">
                 My Open Complaints
               </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
+              <p className="ui-muted">
                 Review complaints connected to your assigned accounts. Mark them
                 as resolved after the issue has been corrected. Cleaning World
                 will review and officially close the complaint.
               </p>
 
               {openComplaints.length === 0 ? (
-                <p className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+                <p className="ui-strong">
                   No open complaints are currently assigned to your accounts.
                 </p>
               ) : (
@@ -1734,51 +1734,51 @@ export default function SubcontractorPortalPage() {
                     return (
                       <div
                         key={complaintKey}
-                        className="rounded-3xl border border-orange-200 bg-orange-50 p-4"
+                        className="ui-stat"
                       >
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
-                            <p className="text-xs font-black uppercase tracking-wide text-orange-700">
+                            <p className="ui-strong">
                               {getComplaintPriority(complaint)} Priority
                             </p>
-                            <h3 className="mt-1 text-lg font-black text-slate-900">
+                            <h3 className="ui-card-title">
                               {complaint.accountName || "Account"}
                             </h3>
-                            <p className="mt-1 text-sm font-semibold text-slate-700">
+                            <p className="ui-strong">
                               {getComplaintType(complaint)} •{" "}
                               {getComplaintDate(complaint)}
                             </p>
                           </div>
 
-                          <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-orange-700">
+                          <span className="rounded-full bg-white px-3 py-1 text-base font-black text-orange-700">
                             {status}
                           </span>
                         </div>
 
-                        <div className="mt-4 rounded-2xl border border-orange-100 bg-white p-4">
-                          <p className="text-xs font-black uppercase tracking-wide text-slate-500">
+                        <div className="ui-stat">
+                          <p className="ui-muted">
                             Description
                           </p>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                          <p className="ui-muted">
                             {getComplaintDescription(complaint)}
                           </p>
                         </div>
 
                         {getComplaintFollowUp(complaint) ? (
-                          <p className="mt-3 text-sm text-slate-700">
+                          <p className="ui-muted">
                             <strong>Follow-up date:</strong>{" "}
                             {getComplaintFollowUp(complaint)}
                           </p>
                         ) : null}
 
                         {isResolvedBySub ? (
-                          <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-semibold text-green-700">
+                          <div className="ui-savestatus ui-savestatus-saved">
                             This complaint has been marked Resolved by Sub and
                             is waiting for Cleaning World review.
                           </div>
                         ) : (
                           <div className="mt-4">
-                            <label className="text-sm font-bold text-slate-700">
+                            <label className="ui-label">
                               Resolution Note
                             </label>
                             <textarea
@@ -1791,14 +1791,14 @@ export default function SubcontractorPortalPage() {
                               }
                               rows={3}
                               placeholder="Explain what was corrected, when, and any follow-up needed."
-                              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-orange-600"
+                              className="ui-input w-full"
                             />
 
                             <button
                               type="button"
                               onClick={() => handleResolveComplaint(complaint)}
                               disabled={resolvingComplaintId === complaintKey}
-                              className="mt-3 w-full rounded-2xl bg-orange-600 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="ui-btn ui-btn-second w-full"
                             >
                               {resolvingComplaintId === complaintKey
                                 ? "Saving Resolution..."
@@ -1818,21 +1818,21 @@ export default function SubcontractorPortalPage() {
                 activePortalView === "issue" ? "block" : "hidden"
               } mt-4 rounded-3xl border border-red-200 bg-white p-5 shadow-sm`}
             >
-              <div className="rounded-3xl bg-red-50 p-5">
-                <p className="text-xs font-black uppercase tracking-wide text-red-700">
+              <div className="ui-card">
+                <p className="ui-field-error">
                   Report an Issue
                 </p>
 
-                <h2 className="mt-1 text-xl font-black text-slate-900">
+                <h2 className="ui-card-title">
                   See an Issue at an Account?
                 </h2>
 
-                <p className="mt-2 text-sm leading-6 text-slate-700">
+                <p className="ui-muted">
                   Use this only when there is a real issue Cleaning World needs
                   to know about. Photos are optional but helpful.
                 </p>
 
-                <p className="mt-3 rounded-2xl border border-red-200 bg-white p-4 text-sm font-black leading-6 text-red-700">
+                <p className="ui-field-error">
                   Please do not overdo photos. Up to 5 clear photos is enough to
                   prove the point. Only upload photos that clearly show the
                   issue.
@@ -1841,14 +1841,14 @@ export default function SubcontractorPortalPage() {
 
               <form onSubmit={handleSubmitSubIssue} className="mt-5 space-y-5">
                 <div>
-                  <label className="text-sm font-bold text-slate-700">
+                  <label className="ui-label">
                     Account
                   </label>
 
                   <select
                     value={issueAccountName}
                     onChange={(event) => setIssueAccountName(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-red-600"
+                    className="ui-input w-full"
                     required
                   >
                     <option value="">Select account</option>
@@ -1867,14 +1867,14 @@ export default function SubcontractorPortalPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="text-sm font-bold text-slate-700">
+                    <label className="ui-label">
                       Issue Type
                     </label>
 
                     <select
                       value={issueType}
                       onChange={(event) => setIssueType(event.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-red-600"
+                      className="ui-input w-full"
                       required
                     >
                       <option value="">Select issue type</option>
@@ -1887,14 +1887,14 @@ export default function SubcontractorPortalPage() {
                   </div>
 
                   <div>
-                    <label className="text-sm font-bold text-slate-700">
+                    <label className="ui-label">
                       Urgency
                     </label>
 
                     <select
                       value={issueUrgency}
                       onChange={(event) => setIssueUrgency(event.target.value)}
-                      className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-red-600"
+                      className="ui-input w-full"
                     >
                       {issueUrgencies.map((urgency) => (
                         <option key={urgency} value={urgency}>
@@ -1906,7 +1906,7 @@ export default function SubcontractorPortalPage() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-bold text-slate-700">
+                  <label className="ui-label">
                     Describe the Issue
                   </label>
 
@@ -1915,41 +1915,41 @@ export default function SubcontractorPortalPage() {
                     onChange={(event) => setIssueDescription(event.target.value)}
                     rows={4}
                     placeholder="Explain what happened, where it is, and what Cleaning World should know."
-                    className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-red-600"
+                    className="ui-input w-full"
                     required
                   />
                 </div>
 
-                <div className="rounded-3xl border-2 border-dashed border-red-300 bg-red-50 p-5">
+                <div className="ui-card">
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <label className="block text-base font-extrabold text-slate-900">
+                      <label className="ui-label">
                         Issue Photos
                       </label>
 
-                      <p className="mt-1 text-sm font-black text-red-700">
+                      <p className="ui-field-error">
                         Do not overdo photos — up to {MAX_SUB_ISSUE_PHOTOS}{" "}
                         clear photos is enough.
                       </p>
 
-                      <p className="mt-1 text-xs font-semibold text-slate-600">
+                      <p className="ui-strong">
                         Max {MAX_SUB_ISSUE_PHOTO_SIZE_MB} MB each
                       </p>
                     </div>
 
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-extrabold text-red-700 shadow-sm">
+                    <span className="rounded-full bg-white px-3 py-1 text-base font-extrabold text-red-700 shadow-sm">
                       {issuePhotos.length}/{MAX_SUB_ISSUE_PHOTOS} selected
                     </span>
                   </div>
 
-                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-6 text-center shadow-sm hover:border-red-500 hover:bg-red-50">
+                  <label className="ui-label">
                     <span className="text-3xl">📷</span>
 
-                    <span className="mt-2 text-sm font-extrabold text-red-700">
+                    <span className="ui-field-error">
                       Choose Issue Photos
                     </span>
 
-                    <span className="mt-1 text-xs font-semibold text-slate-500">
+                    <span className="ui-muted">
                       Add only photos that clearly show the issue
                     </span>
 
@@ -1964,7 +1964,7 @@ export default function SubcontractorPortalPage() {
                   </label>
 
                   {issuePhotos.length >= MAX_SUB_ISSUE_PHOTOS ? (
-                    <p className="mt-3 rounded-xl bg-yellow-50 px-3 py-2 text-xs font-bold text-yellow-800">
+                    <p className="ui-strong">
                       Maximum photo limit reached. 5 photos should be enough to
                       prove the point.
                     </p>
@@ -1975,7 +1975,7 @@ export default function SubcontractorPortalPage() {
                       {issuePhotos.map((photo, index) => (
                         <div
                           key={`${photo.file.name}-${index}`}
-                          className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
+                          className="ui-card"
                         >
                           <Image
                             src={photo.previewUrl}
@@ -1987,18 +1987,18 @@ export default function SubcontractorPortalPage() {
                           />
 
                           <div className="p-2">
-                            <p className="truncate text-xs font-bold text-gray-700">
+                            <p className="ui-strong">
                               Photo {index + 1}
                             </p>
 
-                            <p className="truncate text-[11px] text-gray-500">
+                            <p className="ui-muted">
                               {photo.file.name}
                             </p>
 
                             <button
                               type="button"
                               onClick={() => removeIssuePhoto(index)}
-                              className="mt-2 w-full rounded-lg bg-red-50 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-100"
+                              className="ui-btn ui-btn-second w-full"
                             >
                               Remove
                             </button>
@@ -2012,7 +2012,7 @@ export default function SubcontractorPortalPage() {
                 <button
                   type="submit"
                   disabled={submittingIssue}
-                  className="w-full rounded-2xl bg-red-600 px-5 py-4 text-base font-black text-white shadow-sm hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ui-btn ui-btn-second w-full"
                 >
                   {submittingIssue
                     ? "Submitting Issue..."
@@ -2026,28 +2026,28 @@ export default function SubcontractorPortalPage() {
                 activePortalView === "supplies" ? "block" : "hidden"
               } mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm`}
             >
-              <h2 className="text-xl font-black text-slate-900">
+              <h2 className="ui-card-title">
                 Submit Supply Order
               </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
+              <p className="ui-muted">
                 Select one of your assigned accounts and add one or more supply
                 items.
               </p>
 
               {activeSupplyItems.length === 0 ? (
-                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+                <div className="ui-field-error">
                   Supply items did not load. Please contact Cleaning World
                   before submitting a supply order.
                 </div>
               ) : (
-                <div className="mt-4 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-700">
+                <div className="ui-savestatus ui-savestatus-saved">
                   {activeSupplyItems.length} supply item(s) loaded.
                 </div>
               )}
 
               <form onSubmit={handleSubmitOrder} className="mt-5 space-y-5">
                 <div>
-                  <label className="text-sm font-bold text-slate-700">
+                  <label className="ui-label">
                     Account
                   </label>
                   <select
@@ -2055,7 +2055,7 @@ export default function SubcontractorPortalPage() {
                     onChange={(event) =>
                       setSelectedAccountName(event.target.value)
                     }
-                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                    className="ui-input w-full"
                     required
                   >
                     <option value="">Select account</option>
@@ -2072,13 +2072,13 @@ export default function SubcontractorPortalPage() {
                   </select>
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <div className="ui-stat">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h3 className="text-base font-black text-slate-900">
+                      <h3 className="ui-card-title">
                         Supply Items
                       </h3>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                      <p className="ui-muted">
                         Add one or multiple items for this account.
                       </p>
                     </div>
@@ -2086,7 +2086,7 @@ export default function SubcontractorPortalPage() {
                     <button
                       type="button"
                       onClick={addLineItem}
-                      className="rounded-2xl bg-blue-700 px-4 py-2 text-sm font-black text-white hover:bg-blue-800"
+                      className="ui-btn ui-btn-second"
                     >
                       + Add Another Item
                     </button>
@@ -2109,7 +2109,7 @@ export default function SubcontractorPortalPage() {
                       return (
                         <div
                           key={lineItem.id}
-                          className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
+                          className="ui-card"
                         >
                           <div className="mb-4 flex items-center justify-between gap-3">
                             <h4 className="font-black text-slate-900">
@@ -2120,7 +2120,7 @@ export default function SubcontractorPortalPage() {
                               <button
                                 type="button"
                                 onClick={() => removeLineItem(lineItem.id)}
-                                className="rounded-xl border border-red-200 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-50"
+                                className="ui-btn ui-btn-second"
                               >
                                 Remove
                               </button>
@@ -2129,7 +2129,7 @@ export default function SubcontractorPortalPage() {
 
                           <div className="space-y-4">
                             <div>
-                              <label className="text-sm font-bold text-slate-700">
+                              <label className="ui-label">
                                 Category
                               </label>
                               <select
@@ -2141,7 +2141,7 @@ export default function SubcontractorPortalPage() {
                                     event.target.value
                                   )
                                 }
-                                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                                className="ui-input w-full"
                               >
                                 <option value="">All categories</option>
                                 {supplyCategories.map((category) => (
@@ -2156,7 +2156,7 @@ export default function SubcontractorPortalPage() {
                             </div>
 
                             <div>
-                              <label className="text-sm font-bold text-slate-700">
+                              <label className="ui-label">
                                 Supply Item
                               </label>
                               <select
@@ -2168,7 +2168,7 @@ export default function SubcontractorPortalPage() {
                                     event.target.value
                                   )
                                 }
-                                className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                                className="ui-input w-full"
                                 required
                               >
                                 <option value="">Select supply item</option>
@@ -2191,7 +2191,7 @@ export default function SubcontractorPortalPage() {
 
                             {isOther ? (
                               <div>
-                                <label className="text-sm font-bold text-slate-700">
+                                <label className="ui-label">
                                   Requested Item Name
                                 </label>
                                 <input
@@ -2204,24 +2204,24 @@ export default function SubcontractorPortalPage() {
                                     )
                                   }
                                   placeholder="Example: wax, stripper, tool, equipment..."
-                                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                                  className="ui-input w-full"
                                   required
                                 />
                               </div>
                             ) : null}
 
                             {selectedSupply && !isOther ? (
-                              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-                                <p className="text-xs font-black uppercase tracking-wide text-blue-700">
+                              <div className="ui-stat">
+                                <p className="ui-strong">
                                   Item Description
                                 </p>
 
                                 {selectedDescription ? (
-                                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                                  <p className="ui-muted">
                                     {selectedDescription}
                                   </p>
                                 ) : (
-                                  <p className="mt-2 text-sm leading-6 text-slate-500">
+                                  <p className="ui-muted">
                                     No description is currently listed for this
                                     item.
                                   </p>
@@ -2231,7 +2231,7 @@ export default function SubcontractorPortalPage() {
 
                             {isOther ? (
                               <div>
-                                <label className="text-sm font-bold text-slate-700">
+                                <label className="ui-label">
                                   Describe Requested Item
                                 </label>
                                 <textarea
@@ -2245,7 +2245,7 @@ export default function SubcontractorPortalPage() {
                                   }
                                   rows={3}
                                   placeholder="Describe exactly what is needed."
-                                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                                  className="ui-input w-full"
                                   required
                                 />
                               </div>
@@ -2253,7 +2253,7 @@ export default function SubcontractorPortalPage() {
 
                             <div className="grid gap-4 sm:grid-cols-2">
                               <div>
-                                <label className="text-sm font-bold text-slate-700">
+                                <label className="ui-label">
                                   Quantity
                                 </label>
                                 <input
@@ -2266,13 +2266,13 @@ export default function SubcontractorPortalPage() {
                                     )
                                   }
                                   placeholder="Example: 2"
-                                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                                  className="ui-input w-full"
                                   required
                                 />
                               </div>
 
                               <div>
-                                <label className="text-sm font-bold text-slate-700">
+                                <label className="ui-label">
                                   Unit
                                 </label>
                                 <input
@@ -2283,7 +2283,7 @@ export default function SubcontractorPortalPage() {
                                       ? "Office will review"
                                       : "Auto-filled"
                                   }
-                                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-base text-slate-600"
+                                  className="ui-input w-full"
                                 />
                               </div>
                             </div>
@@ -2295,13 +2295,13 @@ export default function SubcontractorPortalPage() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-bold text-slate-700">
+                  <label className="ui-label">
                     Delivery Mode
                   </label>
                   <select
                     value={deliveryMode}
                     onChange={(event) => setDeliveryMode(event.target.value)}
-                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base outline-none focus:border-blue-600"
+                    className="ui-input w-full"
                     required
                   >
                     <option value="">Select delivery mode</option>
@@ -2313,7 +2313,7 @@ export default function SubcontractorPortalPage() {
                 </div>
 
                 <div>
-                  <label className="text-sm font-bold text-slate-700">
+                  <label className="ui-label">
                     Supply Order Notes
                   </label>
                   <textarea
@@ -2321,14 +2321,14 @@ export default function SubcontractorPortalPage() {
                     onChange={(event) => setNotes(event.target.value)}
                     placeholder="Add supply order instructions only, if needed"
                     rows={4}
-                    className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600"
+                    className="ui-input w-full"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={submittingOrder}
-                  className="w-full rounded-2xl bg-blue-700 px-5 py-4 text-base font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="ui-btn ui-btn-second w-full"
                 >
                   {submittingOrder
                     ? "Submitting Order..."

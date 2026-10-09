@@ -32,7 +32,7 @@
 
 import bcrypt from "bcryptjs";
 import { getSql } from "@/lib/db";
-import { fetchStaff } from "@/lib/googleSheets";
+import { fetchStaff } from "@/lib/data/people";
 
 const BCRYPT_ROUNDS = 10;
 

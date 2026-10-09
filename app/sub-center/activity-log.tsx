@@ -1,6 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import {
+  BigButton,
+  Card,
+  CardList,
+  EmptyState,
+  ErrorBox,
+  Field,
+  Screen,
+  SelectField,
+  Sheet,
+  SkeletonList,
+} from "@/app/ui";
+
+// The list shows this many lines at a time; "Show more" adds another batch.
+const PAGE_SIZE = 100;
 
 type ActivityLogEntry = {
   timestamp?: string;
@@ -74,15 +89,18 @@ function getActionCategory(actionType: unknown): ActionCategory {
 
 function formatDateTime(value: unknown): string {
   const text = clean(value);
-  if (!text) return "-";
+  if (!text) return "No time";
 
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text;
 
+  // "Tue, Oct 6, 6:28 PM" (with the year when it is not this year).
+  const sameYear = date.getFullYear() === new Date().getFullYear();
   return date.toLocaleString("en-US", {
+    weekday: "short",
     month: "short",
     day: "numeric",
-    year: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
     hour: "numeric",
     minute: "2-digit",
   });
@@ -147,6 +165,9 @@ export default function SubCenterActivityLog() {
   const [actionFilter, setActionFilter] = useState<ActionCategory>("All");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [shownCount, setShownCount] = useState(PAGE_SIZE);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     async function loadLogs() {
@@ -204,7 +225,8 @@ export default function SubCenterActivityLog() {
 
     void loadLogs();
     void loadSubcontractors();
-  }, []);
+    // `attempt` changes when "Try again" is tapped.
+  }, [attempt]);
 
   const filteredLogs = useMemo(() => {
     return logs
@@ -241,169 +263,108 @@ export default function SubCenterActivityLog() {
     setDateTo("");
   }
 
+  const filtersOn = [subcontractorFilter !== "All", actionFilter !== "All", Boolean(dateFrom), Boolean(dateTo)].filter(Boolean).length;
+  const shownLogs = filteredLogs.slice(0, shownCount);
+
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 md:p-6">
-      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-            Cleaning World
-          </p>
-          <h1 className="mt-2 text-3xl font-bold">Activity Log</h1>
-          <p className="mt-2 text-gray-500">
-            Subcontractor portal logins, tab views, and submissions — most recent first.
-          </p>
-        </div>
-      </div>
-
-      {error ? (
-        <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-5 font-bold text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <section className="mb-5 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <select
-            value={subcontractorFilter}
-            onChange={(e) => setSubcontractorFilter(e.target.value)}
-            className="rounded-xl border border-gray-300 px-4 py-3 text-sm"
-          >
-            <option value="All">Subcontractor: All</option>
-            {subcontractorNames.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value as ActionCategory)}
-            className="rounded-xl border border-gray-300 px-4 py-3 text-sm"
-          >
-            {ACTION_CATEGORY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-50"
-          >
-            Clear Filters
-          </button>
-        </div>
-
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm font-semibold text-gray-600">
-            From
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="flex items-center gap-2 text-sm font-semibold text-gray-600">
-            To
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm"
-            />
-          </label>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
-        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-xl font-bold">Activity</h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Every login, tab view, and submission recorded from the subcontractor portal.
-            </p>
-          </div>
-          <span className="font-bold text-gray-500">
+    <Screen
+      title="Activity Log"
+      subtitle="Subcontractor portal logins, tab views, and submissions, most recent first"
+    >
+      <div className="ui-actions-row">
+        <BigButton kind="second" onClick={() => setShowFilters(true)}>
+          {filtersOn ? `Filter (${filtersOn} on)` : "Filter"}
+        </BigButton>
+        {filtersOn ? (
+          <BigButton kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </BigButton>
+        ) : null}
+        {!loading && !error ? (
+          <span className="ui-muted" role="status">
             {filteredLogs.length} of {logs.length}
           </span>
-        </div>
+        ) : null}
+      </div>
 
-        {loading ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center font-bold text-slate-500">
-            Loading activity log...
-          </div>
-        ) : filteredLogs.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
-            <p className="font-bold text-slate-700">No activity found.</p>
-          </div>
+      {loading ? (
+        <SkeletonList rows={4} />
+      ) : error ? (
+        <ErrorBox title="We could not load the activity log." text={error} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : filteredLogs.length === 0 ? (
+        logs.length === 0 ? (
+          <EmptyState title="No activity yet" text="Logins and views from the subcontractor portal show up here." />
         ) : (
-          <>
-            <div className="space-y-3 md:hidden">
-              {filteredLogs.map((entry, index) => (
-                <div
-                  key={`${entry.timestamp || "entry"}-${index}`}
-                  className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="font-bold">
-                      {clean(entry.subcontractorName) || "Unknown"}
-                    </p>
-                    <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
-                      {clean(entry.actionType) || "-"}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs font-bold uppercase tracking-wide text-gray-500">
-                    {formatDateTime(entry.timestamp)}
-                  </p>
-                  {clean(entry.details) ? (
-                    <p className="mt-2 text-sm text-gray-600">{clean(entry.details)}</p>
-                  ) : null}
-                </div>
-              ))}
+          <EmptyState
+            title="No activity matches"
+            text="Try other dates, or clear the filters."
+            action={
+              <BigButton kind="second" onClick={clearFilters}>
+                Clear filters
+              </BigButton>
+            }
+          />
+        )
+      ) : (
+        <>
+          <CardList
+            label="Activity"
+            items={shownLogs.map((entry, index) => ({ entry, index }))}
+            getKey={({ entry, index }) => `${entry.timestamp || "entry"}-${index}`}
+            renderCard={({ entry }) => (
+              <Card title={clean(entry.subcontractorName) || "Unknown"}>
+                <p className="ui-card-text">
+                  <span className="ui-strong">{clean(entry.actionType) || "No action"}</span> · {formatDateTime(entry.timestamp)}
+                </p>
+                {clean(entry.details) ? <p className="ui-card-text">{clean(entry.details)}</p> : null}
+              </Card>
+            )}
+            columns={[
+              { header: "Timestamp", cell: ({ entry }) => <span className="ui-nowrap">{formatDateTime(entry.timestamp)}</span> },
+              { header: "Subcontractor Name", cell: ({ entry }) => <span className="ui-strong">{clean(entry.subcontractorName) || "Unknown"}</span> },
+              { header: "Action Type", cell: ({ entry }) => clean(entry.actionType) || "No action" },
+              { header: "Details", cell: ({ entry }) => clean(entry.details) || "None" },
+            ]}
+          />
+          {filteredLogs.length > shownCount ? (
+            <div>
+              <BigButton kind="second" onClick={() => setShownCount((n) => n + PAGE_SIZE)}>
+                Show {Math.min(PAGE_SIZE, filteredLogs.length - shownCount)} more
+              </BigButton>
             </div>
+          ) : null}
+        </>
+      )}
 
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full border-collapse text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                    <th className="p-3">Timestamp</th>
-                    <th className="p-3">Subcontractor Name</th>
-                    <th className="p-3">Action Type</th>
-                    <th className="p-3">Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLogs.map((entry, index) => (
-                    <tr
-                      key={`${entry.timestamp || "entry"}-${index}`}
-                      className="border-b last:border-b-0 hover:bg-blue-50"
-                    >
-                      <td className="whitespace-nowrap p-3">
-                        {formatDateTime(entry.timestamp)}
-                      </td>
-                      <td className="p-3 font-semibold">
-                        {clean(entry.subcontractorName) || "Unknown"}
-                      </td>
-                      <td className="p-3">
-                        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-700">
-                          {clean(entry.actionType) || "-"}
-                        </span>
-                      </td>
-                      <td className="p-3 text-gray-600">
-                        {clean(entry.details) || "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </section>
-    </main>
+      <Sheet open={showFilters} title="Filter" onClose={() => setShowFilters(false)} closeLabel="Done">
+        <SelectField label="Subcontractor" value={subcontractorFilter} onChange={(e) => setSubcontractorFilter(e.target.value)}>
+          <option value="All">All</option>
+          {subcontractorNames.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </SelectField>
+        <SelectField label="Action" value={actionFilter} onChange={(e) => setActionFilter(e.target.value as ActionCategory)}>
+          {ACTION_CATEGORY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label.replace(/^Action: /, "")}
+            </option>
+          ))}
+        </SelectField>
+        <Field label="From" type="date" optional value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+        <Field label="To" type="date" optional value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <p className="ui-muted" role="status">
+          {filteredLogs.length} of {logs.length}
+        </p>
+        {filtersOn ? (
+          <div>
+            <BigButton kind="quiet" onClick={clearFilters}>
+              Clear filters
+            </BigButton>
+          </div>
+        ) : null}
+      </Sheet>
+    </Screen>
   );
 }

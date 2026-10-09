@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   appendEquipmentCheckout,
-  getActiveSigningStaffById,
-  getAllSubcontractorsRaw,
   getEquipmentById,
-  getStaffById,
   updateEquipmentFields,
   type EquipmentHolderType,
-} from "@/lib/googleSheets";
+} from "@/lib/data/equipment";
+import {
+  getAllSubcontractorsRaw,
+} from "@/lib/data/subs";
+import {
+  getActiveSigningStaffById,
+  getStaffById,
+} from "@/lib/data/people";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

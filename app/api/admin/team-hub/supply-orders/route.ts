@@ -15,7 +15,7 @@ import {
   setTeamHubSupplyOrderStatus,
   type TeamHubSupplyOrderStatus,
 } from "@/lib/teamHubDb";
-import { adjustEquipmentPartStock } from "@/lib/googleSheets";
+import { adjustEquipmentPartStock } from "@/lib/data/equipment";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";

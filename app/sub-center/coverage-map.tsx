@@ -549,11 +549,11 @@ function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGe
   }, [placesLibrary]);
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <label htmlFor="coverage-map-address-search" className="text-sm font-bold text-gray-900">
+    <div className="ui-card">
+      <label htmlFor="coverage-map-address-search" className="ui-label">
         Find closest subcontractors
       </label>
-      <div className="mt-1 flex gap-2">
+      <div className="ui-searchrow">
         <input
           id="coverage-map-address-search"
           ref={inputRef}
@@ -562,7 +562,7 @@ function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGe
           placeholder={placesLibrary ? "Enter an address..." : "Loading address search..."}
           disabled={!placesLibrary}
           autoComplete="off"
-          className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+          className="ui-input"
         />
 
         {searchPoint ? (
@@ -573,17 +573,17 @@ function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGe
               setErrorMessage("");
               onSearchPointChange(null);
             }}
-            className="shrink-0 rounded-xl border border-gray-300 px-3 py-2 text-xs font-bold text-gray-600 hover:bg-gray-50"
+            className="ui-btn ui-btn-second"
           >
             Clear
           </button>
         ) : null}
       </div>
 
-      {errorMessage ? <p className="mt-2 text-xs font-bold text-red-700">{errorMessage}</p> : null}
+      {errorMessage ? <p className="ui-field-error">{errorMessage}</p> : null}
 
       {searchPoint && isGeocodingAccounts ? (
-        <p className="mt-2 text-xs font-bold text-blue-700">
+        <p className="ui-muted">
           Still geocoding account locations in the background — results below may be incomplete until that finishes.
         </p>
       ) : null}
@@ -591,32 +591,32 @@ function SubDistanceFinder({ searchPoint, onSearchPointChange, closestSubs, isGe
       {searchPoint ? (
         closestSubs.length > 0 ? (
           <>
-            <ul className="mt-3 space-y-1.5">
+            <ul className="ui-list-plain" style={{ marginTop: 12, gap: 6 }}>
               {closestSubs.map((sub) => (
-                <li key={sub.subcontractor} className="flex items-center justify-between gap-3 text-sm">
+                <li key={sub.subcontractor} className="ui-card-row">
                   <span className="flex min-w-0 items-center gap-2">
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ backgroundColor: proximityColor(sub.distanceMiles) }}
                       aria-hidden
                     />
-                    <span className="truncate font-semibold text-gray-900">{sub.subcontractor}</span>
-                    <span className="shrink-0 text-xs font-medium text-gray-500">
+                    <span className="ui-strong">{sub.subcontractor}</span>
+                    <span className="ui-muted ui-nowrap">
                       ({sub.nearbyAccountCount} nearby)
                     </span>
                   </span>
-                  <span className="shrink-0 whitespace-nowrap text-xs font-bold text-gray-600">
+                  <span className="ui-strong ui-nowrap">
                     {sub.distanceMiles.toFixed(1)} mi
                   </span>
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-[11px] font-semibold leading-relaxed text-gray-400">
+            <p className="ui-muted">
               Ranked by each sub&apos;s nearest existing account to the searched address.
             </p>
           </>
         ) : (
-          <p className="mt-2 text-xs font-bold text-gray-500">
+          <p className="ui-muted">
             No subcontractors with a validly-geocoded assigned account were found nearby.
           </p>
         )
@@ -767,19 +767,23 @@ export default function CoverageMap() {
 
   if (!GOOGLE_MAPS_API_KEY) {
     return (
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm font-bold text-amber-800">
+      <div className="ui-card ui-strong">
         Google Maps API key is not configured, so the map view is unavailable. Use By Sub or By Town instead.
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="ui-screen-body">
+      <div className="ui-field">
+        <label htmlFor="coverage-map-sub-filter" className="ui-label">
+          Subcontractor
+        </label>
         <select
+          id="coverage-map-sub-filter"
           value={subFilter}
           onChange={(event) => setSubFilter(event.target.value)}
-          className="min-h-[44px] rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+          className="ui-input"
         >
           {subOptions.map((sub) => (
             <option key={sub} value={sub}>
@@ -788,7 +792,7 @@ export default function CoverageMap() {
           ))}
         </select>
 
-        <span className="text-xs font-bold text-gray-500">
+        <span className="ui-muted" role="status">
           {isLoading
             ? "Loading accounts..."
             : `${townClusters.length} town${townClusters.length === 1 ? "" : "s"} / ${plottedAccounts.length} account${
@@ -798,28 +802,30 @@ export default function CoverageMap() {
       </div>
 
       {errorMessage ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">{errorMessage}</div>
+        <p className="ui-field-error" role="alert">
+          {errorMessage}
+        </p>
       ) : null}
 
       {!isLoading && geocodingProgress !== null ? (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-bold text-blue-800">
+        <div className="ui-muted">
           Auto-geocoding addresses: {geocodingProgress.done} / {geocodingProgress.total} done — the map updates as each address
           resolves. Results are cached so this only runs once per address.
         </div>
       ) : !isLoading && missingPinCount > 0 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
+        <div className="ui-field-error">
           {missingPinCount} account{missingPinCount === 1 ? "" : "s"} could not be geocoded and are excluded from the map.
         </div>
       ) : null}
 
       {!isLoading && outOfServiceAreaAccounts.length > 0 ? (
-        <details className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-xs font-bold text-orange-800">
-          <summary className="cursor-pointer select-none">
+        <details className="ui-card">
+          <summary className="ui-strong" style={{ cursor: "pointer", minHeight: 48 }}>
             {outOfServiceAreaAccounts.length} account{outOfServiceAreaAccounts.length === 1 ? "" : "s"} have coordinates outside
             the expected NJ / NYC service area and are excluded from the map. Their address likely needs correcting — click
             to view.
           </summary>
-          <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold">
+          <ul className="ui-list-plain" style={{ marginTop: 8, gap: 4 }}>
             {outOfServiceAreaAccounts.map((account) => (
               <li key={account.id}>
                 {account.name} — {account.fullAddress}
@@ -837,9 +843,9 @@ export default function CoverageMap() {
           isGeocodingAccounts={geocodingProgress !== null}
         />
 
-        <div className="h-[68vh] min-h-[460px] w-full overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+        <div style={{ height: "68vh", minHeight: 460, width: "100%", overflow: "hidden", borderRadius: 16, border: "2px solid var(--ui-line)" }}>
           {isLoading ? (
-            <div className="flex h-full items-center justify-center text-center text-gray-600">Loading account locations for the map...</div>
+            <div className="ui-skeleton" style={{ height: "100%" }} role="status" aria-label="Loading account locations for the map" />
           ) : (
             <GoogleMap
               defaultCenter={DEFAULT_CENTER}

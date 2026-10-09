@@ -2,6 +2,8 @@
 // wrapped so a Textbelt outage or missing key never breaks the caller's
 // request — same "never throws" convention as lib/googleCalendar.ts.
 
+import { isOutboundDryRun, logDryRun } from "./outbound";
+
 const SMS_MAX_BYTES = 140;
 
 // Textbelt bills by segment past 140 bytes, and non-ASCII punctuation (curly
@@ -52,6 +54,11 @@ export async function sendSms(
   routeContext: string = "unknown"
 ): Promise<{ success: boolean; quotaRemaining?: number; textId?: string | number }> {
   const last4 = phone.slice(-4);
+
+  if (isOutboundDryRun()) {
+    logDryRun("sms", `(${routeContext}) to ***${last4}: ${message}`);
+    return { success: true, textId: "dry-run" };
+  }
 
   if (message.length > SMS_SEGMENT_WARN_LENGTH) {
     console.warn(

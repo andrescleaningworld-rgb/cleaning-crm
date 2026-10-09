@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { BigButton, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 
 type Account = {
   id?: string;
@@ -133,8 +133,8 @@ function NewVisitPageContent() {
     setSubcontractor(clean(selectedAccount.subcontractor));
   }, [selectedAccount]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handleSubmit(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
 
     setSaving(true);
     setMessage("");
@@ -195,208 +195,85 @@ function NewVisitPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-            Cleaning World
-          </p>
-          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Add Visit</h1>
-          <p className="mt-2 text-sm leading-6 text-gray-500 sm:text-base">
-            Save an account visit, condition score, notes, and follow-up
-            information.
-          </p>
-        </div>
+    <Screen
+      title="Add visit"
+      subtitle="Save an account visit, condition score, notes, and follow-up information."
+      backHref="/visits"
+      action={
+        <BigButton busy={saving} busyLabel="Saving…" onClick={() => void handleSubmit()}>
+          Save visit
+        </BigButton>
+      }
+    >
+      {message ? (
+        <p className="ui-savestatus ui-savestatus-saved" role="status">
+          {message}
+        </p>
+      ) : null}
+      {error ? <ErrorBox title="That did not work." text={error} /> : null}
 
-        <Link
-          href="/visits"
-          className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-center font-bold text-gray-900 shadow-sm no-underline"
-        >
-          Back to Visits
-        </Link>
-      </div>
+      <form onSubmit={handleSubmit} className="ui-screen-body" noValidate>
+        <Field label="Visit date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
 
-      <form
-        onSubmit={handleSubmit}
-        className="max-w-4xl rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6"
-      >
-        {message ? (
-          <div className="mb-5 rounded-xl border border-green-200 bg-green-50 p-4 font-bold text-green-700">
-            {message}
-          </div>
-        ) : null}
+        <Field
+          label="Account"
+          hint="Type a few letters, then pick the account from the list."
+          list="account-list"
+          value={accountName}
+          onChange={(event) => setAccountName(event.target.value)}
+          placeholder={loadingAccounts ? "Loading accounts…" : "Search or type account name"}
+        />
+        <datalist id="account-list">
+          {accounts.map((account, index) => (
+            <option key={`${account.id || account.accountName || "account"}-${index}`} value={clean(account.accountName)} />
+          ))}
+        </datalist>
 
-        {error ? (
-          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 font-bold text-red-700">
-            {error}
-          </div>
-        ) : null}
+        <Field label="Manager / visited by" optional value={manager} onChange={(event) => setManager(event.target.value)} placeholder="Manager" />
+        <Field label="Subcontractor" optional value={subcontractor} onChange={(event) => setSubcontractor(event.target.value)} placeholder="Subcontractor" />
 
-        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Visit Date
-            </span>
-            <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
-              required
-            />
-          </label>
+        <SelectField label="Visit type" value={visitType} onChange={(event) => setVisitType(event.target.value)}>
+          <option>Routine Visit</option>
+          <option>Complaint Follow-Up</option>
+          <option>Quality Check</option>
+          <option>Onboarding New Account</option>
+          <option>Customer Request</option>
+          <option>Subcontractor Review</option>
+          <option>Other</option>
+        </SelectField>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Account
-            </span>
+        <SelectField label="Condition score 0-10" value={condition} onChange={(event) => setCondition(event.target.value)}>
+          <option value="">Not Scored</option>
+          <option value="10">10 - Excellent</option>
+          <option value="9">9 - Very Good</option>
+          <option value="8">8 - Good</option>
+          <option value="7">7 - Needs Attention</option>
+          <option value="6">6 - Problem</option>
+          <option value="5">5 - High Risk</option>
+          <option value="4">4</option>
+          <option value="3">3</option>
+          <option value="2">2</option>
+          <option value="1">1</option>
+          <option value="0">0</option>
+        </SelectField>
 
-            <input
-              list="account-list"
-              value={accountName}
-              onChange={(event) => setAccountName(event.target.value)}
-              placeholder={
-                loadingAccounts ? "Loading accounts..." : "Search or type account name"
-              }
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
-              required
-            />
+        <SelectField label="Follow-up needed" value={followUpNeeded} onChange={(event) => setFollowUpNeeded(event.target.value)}>
+          <option>No</option>
+          <option>Yes</option>
+        </SelectField>
 
-            <datalist id="account-list">
-              {accounts.map((account, index) => (
-                <option
-                  key={`${account.id || account.accountName || "account"}-${index}`}
-                  value={clean(account.accountName)}
-                />
-              ))}
-            </datalist>
-          </label>
+        <Field label="Follow-up date" optional type="date" value={followUpDate} onChange={(event) => setFollowUpDate(event.target.value)} />
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Manager / Visited By
-            </span>
-            <input
-              value={manager}
-              onChange={(event) => setManager(event.target.value)}
-              placeholder="Manager"
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Subcontractor
-            </span>
-            <input
-              value={subcontractor}
-              onChange={(event) => setSubcontractor(event.target.value)}
-              placeholder="Subcontractor"
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Visit Type
-            </span>
-            <select
-              value={visitType}
-              onChange={(event) => setVisitType(event.target.value)}
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-base"
-            >
-              <option>Routine Visit</option>
-              <option>Complaint Follow-Up</option>
-              <option>Quality Check</option>
-              <option>Onboarding New Account</option>
-              <option>Customer Request</option>
-              <option>Subcontractor Review</option>
-              <option>Other</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Condition Score 0-10
-            </span>
-            <select
-              value={condition}
-              onChange={(event) => setCondition(event.target.value)}
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-base"
-            >
-              <option value="">Not Scored</option>
-              <option value="10">10 - Excellent</option>
-              <option value="9">9 - Very Good</option>
-              <option value="8">8 - Good</option>
-              <option value="7">7 - Needs Attention</option>
-              <option value="6">6 - Problem</option>
-              <option value="5">5 - High Risk</option>
-              <option value="4">4</option>
-              <option value="3">3</option>
-              <option value="2">2</option>
-              <option value="1">1</option>
-              <option value="0">0</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Follow-Up Needed
-            </span>
-            <select
-              value={followUpNeeded}
-              onChange={(event) => setFollowUpNeeded(event.target.value)}
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-base"
-            >
-              <option>No</option>
-              <option>Yes</option>
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold text-gray-700">
-              Follow-Up Date
-            </span>
-            <input
-              type="date"
-              value={followUpDate}
-              onChange={(event) => setFollowUpDate(event.target.value)}
-              className="min-h-[48px] w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
-            />
-          </label>
-        </div>
-
-        <label className="mt-5 block">
-          <span className="mb-2 block text-sm font-bold text-gray-700">
-            Notes
-          </span>
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            placeholder="Write visit notes, issues found, customer feedback, or follow-up details..."
-            rows={6}
-            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-base"
-          />
-        </label>
-
-        <div className="mt-6 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-xl bg-blue-600 px-5 py-3.5 font-bold text-white disabled:opacity-60"
-          >
-            {saving ? "Saving..." : "Save Visit"}
-          </button>
-
-          <Link
-            href="/visits"
-            className="rounded-xl border border-gray-300 bg-white px-5 py-3.5 text-center font-bold text-gray-900 no-underline"
-          >
-            Cancel
-          </Link>
-        </div>
+        <TextAreaField
+          label="Notes"
+          optional
+          rows={6}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="Write visit notes, issues found, customer feedback, or follow-up details..."
+        />
       </form>
-    </main>
+    </Screen>
   );
 }
 
@@ -404,11 +281,9 @@ export default function NewVisitPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-            Loading visit form...
-          </div>
-        </main>
+        <div className="ui-screen">
+          <SkeletonList rows={3} />
+        </div>
       }
     >
       <NewVisitPageContent />

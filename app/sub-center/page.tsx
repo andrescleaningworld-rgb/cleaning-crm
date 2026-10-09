@@ -6,17 +6,18 @@ import SubcontractorsPage from "../subcontractors/page";
 import SubSchedulesPage from "../sub-schedules/page";
 import SubCenterCoverage from "./coverage";
 import SubCenterActivityLog from "./activity-log";
+import { Tabs } from "@/app/ui";
 // Team Hub tab hidden 2026-09-24 (Crew Link replaces it); ./team-hub.tsx kept.
 
 type CenterTab = "subs" | "schedules" | "coverage" | "activity";
 
 const TAB_STORAGE_KEY = "cwSubCenterTab";
 
-const TABS: { id: CenterTab; label: string }[] = [
-  { id: "subs", label: "Subs" },
-  { id: "schedules", label: "Sub Schedules" },
-  { id: "coverage", label: "Coverage" },
-  { id: "activity", label: "Activity Log" },
+const TABS: { value: CenterTab; label: string }[] = [
+  { value: "subs", label: "Subs" },
+  { value: "schedules", label: "Sub Schedules" },
+  { value: "coverage", label: "Coverage" },
+  { value: "activity", label: "Activity Log" },
 ];
 
 function isCenterTab(value: string | null): value is CenterTab {
@@ -52,25 +53,10 @@ function SubCenterPageContent() {
   }
 
   return (
-    <div>
-      <div className="border-b border-slate-200 bg-white px-4 pt-4 sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-wrap gap-2">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => handleTabChange(id)}
-              className={`rounded-t-lg px-5 py-2.5 text-sm font-black transition ${
-                activeTab === id
-                  ? "bg-blue-700 text-white shadow-sm"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+    // .ui-screen here only sets the type and focus styles for the tab bar;
+    // each tab below brings its own Screen (title, back, main action).
+    <div className="ui-screen">
+      <Tabs label="Sub Center sections" tabs={TABS} value={activeTab} onChange={handleTabChange} />
 
       {activeTab === "subs" && <SubcontractorsPage />}
       {activeTab === "schedules" && <SubSchedulesPage />}

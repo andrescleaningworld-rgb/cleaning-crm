@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -45,19 +46,15 @@ type CustomerRequest = {
 
 function StatusBadge({ status }: { status: string }) {
   const clean = status.toLowerCase();
-  const cls = clean.includes("active")
-    ? "bg-emerald-100 text-emerald-700"
+  const kind: StatusKind = clean.includes("active")
+    ? "done"
     : clean.includes("cancel") || clean.includes("lost")
-    ? "bg-red-100 text-red-700"
+    ? "needs-you"
     : clean.includes("pause") || clean.includes("hold")
-    ? "bg-amber-100 text-amber-700"
-    : "bg-slate-100 text-slate-600";
+    ? "waiting"
+    : "off";
 
-  return (
-    <span className={`rounded-full px-3 py-1 text-xs font-black ${cls}`}>
-      {status}
-    </span>
-  );
+  return <StatusPill kind={kind}>{status}</StatusPill>;
 }
 
 export default function CustomerPortalPage() {
@@ -159,9 +156,9 @@ export default function CustomerPortalPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-4xl px-2 py-6">
-        <div className="rounded-3xl bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold text-slate-500">
+      <div className="ui-screen">
+        <div className="ui-card ui-stack">
+          <p className="ui-muted">
             Loading your account...
           </p>
         </div>
@@ -170,24 +167,24 @@ export default function CustomerPortalPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-2 py-4 sm:py-6">
+    <div className="ui-screen">
       {/* Page header */}
-      <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="ui-card-row">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-purple-700">
+          <p className="ui-strong">
             Cleaning World
           </p>
-          <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+          <h1 className="ui-screen-title">
             {customerName || account?.accountName || "My Account"}
           </h1>
           {account?.address && (
-            <p className="mt-1 text-sm text-slate-500">{account.address}</p>
+            <p className="ui-muted">{account.address}</p>
           )}
         </div>
         <button
           type="button"
           onClick={handleSignOut}
-          className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-600 shadow-sm hover:bg-slate-50"
+          className="ui-btn ui-btn-second shrink-0"
         >
           Sign Out
         </button>
@@ -195,44 +192,44 @@ export default function CustomerPortalPage() {
 
       {/* Status row */}
       {account && (
-        <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div className="rounded-2xl border border-purple-100 bg-purple-50 p-4">
-            <p className="text-[11px] font-black uppercase tracking-wide text-purple-700">
+        <div className="ui-stats">
+          <div className="ui-stat">
+            <p className="ui-strong">
               Status
             </p>
-            <div className="mt-2">
+            <div>
               <StatusBadge status={account.status} />
             </div>
           </div>
 
           {account.serviceFrequency ? (
-            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-              <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">
+            <div className="ui-stat">
+              <p className="ui-muted">
                 Service Frequency
               </p>
-              <p className="mt-2 text-sm font-black text-slate-950">
+              <p className="ui-strong">
                 {account.serviceFrequency}
               </p>
             </div>
           ) : null}
 
           {openComplaints.length > 0 ? (
-            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-              <p className="text-[11px] font-black uppercase tracking-wide text-amber-700">
+            <div className="ui-stat">
+              <p className="ui-strong">
                 Open Issues
               </p>
-              <p className="mt-2 text-2xl font-black text-slate-950">
+              <p className="ui-stat-value">
                 {openComplaints.length}
               </p>
             </div>
           ) : null}
 
           {pendingRequests.length > 0 ? (
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
-              <p className="text-[11px] font-black uppercase tracking-wide text-blue-700">
+            <div className="ui-stat">
+              <p className="ui-strong">
                 Pending Requests
               </p>
-              <p className="mt-2 text-2xl font-black text-slate-950">
+              <p className="ui-stat-value">
                 {pendingRequests.length}
               </p>
             </div>
@@ -241,16 +238,16 @@ export default function CustomerPortalPage() {
       )}
 
       {/* Quick actions */}
-      <div className="mb-5 grid gap-3 sm:grid-cols-2">
+      <div className="ui-two">
         <Link
           href="/customer-portal/complaints"
-          className="group rounded-3xl border border-red-100 bg-white p-5 shadow-sm transition hover:border-red-300 hover:shadow-md"
+          className="ui-card ui-stack"
         >
-          <span className="text-2xl">⚠️</span>
-          <h3 className="mt-2 text-base font-black text-slate-950 group-hover:text-red-700">
+          <span aria-hidden="true">⚠️</span>
+          <h3 className="ui-card-title">
             Report an Issue
           </h3>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="ui-muted">
             Something wasn&apos;t cleaned right? Let us know and we&apos;ll
             follow up quickly.
           </p>
@@ -258,96 +255,94 @@ export default function CustomerPortalPage() {
 
         <Link
           href="/customer-portal/requests"
-          className="group rounded-3xl border border-purple-100 bg-white p-5 shadow-sm transition hover:border-purple-300 hover:shadow-md"
+          className="ui-card ui-stack"
         >
-          <span className="text-2xl">📋</span>
-          <h3 className="mt-2 text-base font-black text-slate-950 group-hover:text-purple-700">
+          <span>📋</span>
+          <h3 className="ui-card-title">
             Submit a Request
           </h3>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="ui-muted">
             Deep clean, schedule change, frequency adjustment, or anything else.
           </p>
         </Link>
       </div>
 
       {/* Recent visits */}
-      <div className="mb-4 rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-slate-950">
+      <div className="ui-card ui-stack">
+        <div className="ui-card-row">
+          <h2 className="ui-card-title">
             Recent Service Visits
           </h2>
           <Link
             href="/customer-portal/history"
-            className="text-xs font-bold text-purple-700 hover:underline"
+            className="ui-link"
           >
             View full history →
           </Link>
         </div>
 
         {recentVisits.length > 0 ? (
-          <div className="space-y-3">
+          <div className="ui-stack">
             {recentVisits.map((visit, i) => (
               <div
                 key={i}
-                className="flex items-start justify-between rounded-2xl border border-slate-100 p-3"
+                className="ui-stat ui-card-row"
               >
                 <div>
-                  <p className="text-sm font-bold text-slate-900">
+                  <p className="ui-strong">
                     {visit.type || "Service Visit"}
                   </p>
                   {visit.date && (
-                    <p className="mt-0.5 text-xs text-slate-500">{visit.date}</p>
+                    <p className="ui-muted">{visit.date}</p>
                   )}
                   {visit.notes && (
-                    <p className="mt-1 text-xs text-slate-600">{visit.notes}</p>
+                    <p className="ui-muted">{visit.notes}</p>
                   )}
                 </div>
-                <span className="ml-3 shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
-                  {visit.status || "Completed"}
-                </span>
+                <StatusPill kind="done">{visit.status || "Completed"}</StatusPill>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-slate-400">No service visits on record yet.</p>
+          <p className="ui-muted">No service visits on record yet.</p>
         )}
       </div>
 
       {/* Financials & Contact */}
-      <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-lg font-black text-slate-950">
+      <div className="ui-two">
+        <div className="ui-card ui-stack">
+          <h2 className="ui-card-title">
             Financials
           </h2>
-          <p className="text-2xl font-black text-slate-950">
+          <p className="ui-stat-value">
             {formatCurrency(account?.estimatedMonthlyTotal || "")}
-            <span className="ml-1 text-sm font-semibold text-slate-500">
+            <span className="ui-muted">
               / month
             </span>
           </p>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="ui-muted">
             Includes 6.625% NJ Sales Tax
           </p>
           {account?.lastInvoiceDate ? (
-            <p className="mt-3 text-sm text-slate-600">
-              <span className="font-bold text-slate-900">Last Invoice:</span>{" "}
+            <p className="ui-muted">
+              <span className="ui-strong">Last Invoice:</span>{" "}
               {account.lastInvoiceDate}
             </p>
           ) : null}
         </div>
 
-        <div className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-lg font-black text-slate-950">Contact</h2>
+        <div className="ui-card ui-stack">
+          <h2 className="ui-card-title">Contact</h2>
 
           {account?.managerName ? (
-            <div className="mb-3">
-              <p className="text-sm font-bold text-slate-900">
+            <div>
+              <p className="ui-strong">
                 {account.managerName}
               </p>
               {account.managerPhone ? (
                 <a
                   href={`tel:${account.managerPhone}`}
-                  className="text-sm text-purple-700 hover:underline"
+                  className="ui-link"
                 >
                   {account.managerPhone}
                 </a>
@@ -355,25 +350,25 @@ export default function CustomerPortalPage() {
             </div>
           ) : null}
 
-          <div className="space-y-1 text-sm">
-            <p className="text-slate-600">
-              <span className="font-bold text-slate-900">
+          <div className="ui-stack">
+            <p className="ui-muted">
+              <span className="ui-strong">
                 General Inquiries:
               </span>{" "}
               <a
                 href="mailto:info@cleaningworldinc.com"
-                className="text-purple-700 hover:underline"
+                className="ui-link"
               >
                 info@cleaningworldinc.com
               </a>
             </p>
-            <p className="text-slate-600">
-              <span className="font-bold text-slate-900">
+            <p className="ui-muted">
+              <span className="ui-strong">
                 Account Services:
               </span>{" "}
               <a
                 href="mailto:crm@cleaningworldinc.com"
-                className="text-purple-700 hover:underline"
+                className="ui-link"
               >
                 crm@cleaningworldinc.com
               </a>
@@ -384,25 +379,25 @@ export default function CustomerPortalPage() {
 
       {/* Open complaints */}
       {openComplaints.length > 0 && (
-        <div className="mb-4 rounded-3xl border border-amber-100 bg-amber-50 p-5">
-          <h2 className="mb-3 text-base font-black text-amber-900">
+        <div className="ui-card ui-stack">
+          <h2 className="ui-card-title">
             Open Issues
           </h2>
-          <div className="space-y-2">
+          <div className="ui-stack">
             {openComplaints.map((c, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-amber-200 bg-white p-3"
+                className="ui-stat"
               >
-                <p className="text-sm font-bold text-slate-900">
+                <p className="ui-strong">
                   {String(c.issue || "Issue reported").slice(0, 100)}
                 </p>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-xs font-semibold text-amber-700">
+                <div className="ui-actions-row">
+                  <span className="ui-strong">
                     {c.status || "Open"}
                   </span>
                   {c.date && (
-                    <span className="text-xs text-slate-400">· {c.date}</span>
+                    <span className="ui-muted">· {c.date}</span>
                   )}
                 </div>
               </div>
@@ -413,30 +408,30 @@ export default function CustomerPortalPage() {
 
       {/* Pending requests */}
       {pendingRequests.length > 0 && (
-        <div className="mb-4 rounded-3xl border border-blue-100 bg-blue-50 p-5">
-          <h2 className="mb-3 text-base font-black text-blue-900">
+        <div className="ui-card ui-stack">
+          <h2 className="ui-card-title">
             Pending Requests
           </h2>
-          <div className="space-y-2">
+          <div className="ui-stack">
             {pendingRequests.map((r, i) => (
               <div
                 key={i}
-                className="rounded-2xl border border-blue-200 bg-white p-3"
+                className="ui-stat"
               >
-                <p className="text-sm font-bold text-slate-900">
+                <p className="ui-strong">
                   {r.type || "Request"}
                 </p>
                 {r.details && (
-                  <p className="mt-0.5 text-xs text-slate-600">
+                  <p className="ui-muted">
                     {String(r.details).slice(0, 100)}
                   </p>
                 )}
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-xs font-semibold text-blue-700">
+                <div className="ui-actions-row">
+                  <span className="ui-strong">
                     {r.status || "Pending"}
                   </span>
                   {r.date && (
-                    <span className="text-xs text-slate-400">· {r.date}</span>
+                    <span className="ui-muted">· {r.date}</span>
                   )}
                 </div>
               </div>

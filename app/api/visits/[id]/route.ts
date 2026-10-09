@@ -6,7 +6,7 @@ import {
   appendVisitEditLog,
   type ManagerVisit,
   type ManagerVisitUpdateInput,
-} from "@/lib/googleSheets";
+} from "@/lib/data/visits";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

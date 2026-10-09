@@ -13,7 +13,7 @@
 // Sheets touch: fetchSubSchedules (read-only, cached). Everything else is
 // Postgres.
 import { getSql } from "@/lib/db";
-import { fetchSubSchedules } from "@/lib/googleSheets";
+import { fetchSubSchedules } from "@/lib/data/scheduling";
 import type { ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 
 export const SUB_PORTAL_CHECKLIST_DAYS = 60;

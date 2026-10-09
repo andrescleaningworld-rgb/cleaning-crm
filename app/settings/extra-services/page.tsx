@@ -1,7 +1,22 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  BigButton,
+  Card,
+  CardList,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  SaveStatus,
+  Screen,
+  Sheet,
+  SkeletonList,
+  StatusPill,
+  TextAreaField,
+  useSaveAction,
+} from "@/app/ui";
 
 type ExtraService = {
   sheetRow: number;
@@ -35,60 +50,70 @@ function draftToNumber(sortOrder: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-// Shared by the "Add New Service" form and each row's inline edit form —
-// uploads immediately on file selection and hands the resulting Blob URL
-// back to the caller, rather than deferring the upload to form submit.
-async function uploadServiceImage(
-  file: File,
-  onUploading: (uploading: boolean) => void,
-  onError: (message: string) => void
-): Promise<string | null> {
-  onError("");
-
-  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-    onError("Only JPEG, PNG, WebP, or GIF images are allowed.");
-    return null;
-  }
-
-  if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
-    onError(`Image must be ${MAX_IMAGE_SIZE_MB}MB or smaller.`);
-    return null;
-  }
-
-  onUploading(true);
+/** Calls an API route and throws a plain-words Error when it did not work. */
+async function api<T extends { success?: boolean; error?: string }>(
+  url: string,
+  init: RequestInit | undefined,
+  failText: string
+): Promise<T> {
+  let response: Response;
   try {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch("/api/extra-services/upload", {
-      method: "POST",
-      body: formData,
-    });
-    const data = (await response.json()) as { success?: boolean; url?: string; error?: string };
-
-    if (!data.success || !data.url) {
-      onError(data.error || "Image upload failed.");
-      return null;
-    }
-
-    return data.url;
+    response = await fetch(url, init);
   } catch {
-    onError("Network error uploading image.");
-    return null;
-  } finally {
-    onUploading(false);
+    throw new Error("The internet dropped. Check your connection and try again.");
   }
+  const data = (await response.json().catch(() => ({}))) as T;
+  if (!data.success) throw new Error(data.error || failText);
+  return data;
+}
+
+// Shared by the add and change forms — uploads as soon as a file is picked
+// and hands the resulting Blob URL back to the caller, rather than deferring
+// the upload to the form's save.
+async function uploadServiceImage(file: File): Promise<string> {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    throw new Error("Pick a JPEG, PNG, WebP or GIF picture.");
+  }
+  if (file.size > MAX_IMAGE_SIZE_MB * 1024 * 1024) {
+    throw new Error(`That picture is too big. Pick one that is ${MAX_IMAGE_SIZE_MB} MB or smaller.`);
+  }
+  const formData = new FormData();
+  formData.append("file", file);
+  const data = await api<{ success?: boolean; url?: string; error?: string }>(
+    "/api/extra-services/upload",
+    { method: "POST", body: formData },
+    "The picture did not upload."
+  );
+  if (!data.url) throw new Error("The picture did not upload.");
+  return data.url;
+}
+
+function ServiceThumb({ imageUrl, size }: { imageUrl: string; size: number }) {
+  const style = { width: size, height: size, flex: "0 0 auto" } as const;
+  return imageUrl ? (
+    <div className="ui-photo" style={style}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- external Blob URL, not a local asset */}
+      <img src={imageUrl} alt="" />
+    </div>
+  ) : (
+    <div className="ui-photo ui-thumb-empty" style={style}>
+      <span className="ui-hint">No picture</span>
+    </div>
+  );
 }
 
 function ServiceImagePicker({
   imageUrl,
   onImageUrlChange,
+  onUploadingChange,
   disabled,
 }: {
   imageUrl: string;
   onImageUrlChange: (url: string) => void;
+  onUploadingChange: (uploading: boolean) => void;
   disabled?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
 
@@ -97,396 +122,177 @@ function ServiceImagePicker({
     event.target.value = "";
     if (!file) return;
 
-    const url = await uploadServiceImage(file, setUploading, setUploadError);
-    if (url) onImageUrlChange(url);
+    setUploadError("");
+    setUploading(true);
+    onUploadingChange(true);
+    try {
+      onImageUrlChange(await uploadServiceImage(file));
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "The picture did not upload.");
+    } finally {
+      setUploading(false);
+      onUploadingChange(false);
+    }
   }
 
   return (
-    <div className="flex items-start gap-3">
-      {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- external Blob URL, not a local asset (see ServiceImagePicker)
-        <img
-          src={imageUrl}
-          alt=""
-          className="h-16 w-16 shrink-0 rounded-lg border border-gray-200 object-cover"
-        />
-      ) : (
-        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-[10px] text-gray-400">
-          No image
-        </div>
-      )}
-
-      <div className="min-w-0 flex-1">
-        <input
-          type="file"
-          accept="image/*"
-          onChange={handleFileChange}
-          disabled={disabled || uploading}
-          className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-60"
-        />
-        {uploading ? (
-          <p className="mt-1 text-xs font-semibold text-blue-700">Uploading...</p>
-        ) : null}
-        {uploadError ? (
-          <p className="mt-1 text-xs font-semibold text-red-700">{uploadError}</p>
-        ) : null}
+    <div className="ui-field" role="group" aria-label="Picture">
+      <span className="ui-label">
+        Picture <span className="ui-optional">(optional)</span>
+      </span>
+      <div className="ui-actions-row">
+        <ServiceThumb imageUrl={imageUrl} size={88} />
+        <BigButton
+          kind="second"
+          icon="camera"
+          busy={uploading}
+          busyLabel="Uploading…"
+          disabled={disabled}
+          onClick={() => inputRef.current?.click()}
+        >
+          {imageUrl ? "Change picture" : "Add picture"}
+        </BigButton>
         {imageUrl && !uploading ? (
-          <button
-            type="button"
-            onClick={() => onImageUrlChange("")}
-            className="mt-1 text-xs font-semibold text-gray-500 hover:text-red-700 hover:underline"
-          >
-            Remove image
-          </button>
+          <BigButton kind="quiet" disabled={disabled} onClick={() => onImageUrlChange("")}>
+            Remove picture
+          </BigButton>
         ) : null}
       </div>
+      <input ref={inputRef} type="file" accept="image/*" hidden onChange={handleFileChange} />
+      {uploadError ? (
+        <span className="ui-field-error" role="alert">
+          {uploadError}
+        </span>
+      ) : null}
     </div>
   );
 }
 
-function AddServiceForm({ onAdded }: { onAdded: () => Promise<void> }) {
-  const [draft, setDraft] = useState<ServiceDraft>(emptyDraft);
-  const [adding, setAdding] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleAdd() {
-    const name = draft.name.trim();
-    if (!name) {
-      setError("Name is required.");
-      return;
-    }
-
-    setAdding(true);
-    setError("");
-    try {
-      const response = await fetch("/api/extra-services", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          description: draft.description.trim(),
-          imageUrl: draft.imageUrl,
-          active: true,
-          sortOrder: draftToNumber(draft.sortOrder),
-        }),
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-
-      if (!data.success) {
-        setError(data.error || "Failed to add service.");
-        return;
-      }
-
-      setDraft(emptyDraft);
-      await onAdded();
-    } catch {
-      setError("Network error adding service.");
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Add New Service</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          New services are added as active and appear at the end of the list —
-          adjust Sort Order below or after adding to control display position.
-        </p>
-      </div>
-
-      {error ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Name</label>
-          <input
-            type="text"
-            value={draft.name}
-            onChange={(event) => setDraft((d) => ({ ...d, name: event.target.value }))}
-            placeholder="e.g. Window Cleaning"
-            className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Sort Order</label>
-          <input
-            type="number"
-            value={draft.sortOrder}
-            onChange={(event) => setDraft((d) => ({ ...d, sortOrder: event.target.value }))}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="text-sm font-semibold text-gray-700">Description</label>
-          <textarea
-            value={draft.description}
-            onChange={(event) => setDraft((d) => ({ ...d, description: event.target.value }))}
-            rows={3}
-            placeholder="Shown to customers when requesting this service"
-            className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="text-sm font-semibold text-gray-700">Image</label>
-          <div className="mt-1">
-            <ServiceImagePicker
-              imageUrl={draft.imageUrl}
-              onImageUrlChange={(imageUrl) => setDraft((d) => ({ ...d, imageUrl }))}
-            />
-          </div>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={handleAdd}
-        disabled={adding}
-        className="mt-4 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {adding ? "Adding..." : "Add Service"}
-      </button>
-    </section>
-  );
-}
-
-function ServiceRow({
+// One form for both adding (service = null) and changing a service.
+function ServiceForm({
   service,
-  onChanged,
+  onClose,
+  onSaved,
 }: {
-  service: ExtraService;
-  onChanged: () => Promise<void>;
+  service: ExtraService | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<ServiceDraft>({
-    name: service.name,
-    description: service.description,
-    imageUrl: service.imageUrl,
-    sortOrder: String(service.sortOrder),
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const [draft, setDraft] = useState<ServiceDraft>(
+    service
+      ? {
+          name: service.name,
+          description: service.description,
+          imageUrl: service.imageUrl,
+          sortOrder: String(service.sortOrder),
+        }
+      : emptyDraft
+  );
+  const [nameError, setNameError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
-  function startEdit() {
-    setDraft({
-      name: service.name,
-      description: service.description,
-      imageUrl: service.imageUrl,
-      sortOrder: String(service.sortOrder),
-    });
-    setError("");
-    setEditing(true);
-  }
-
-  async function saveEdit() {
-    const name = draft.name.trim();
-    if (!name) {
-      setError("Name is required.");
-      return;
-    }
-
-    setSaving(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/extra-services/${service.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          description: draft.description.trim(),
-          imageUrl: draft.imageUrl,
-          sortOrder: draftToNumber(draft.sortOrder),
-        }),
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-
-      if (!data.success) {
-        setError(data.error || "Failed to save changes.");
-        return;
-      }
-
-      setEditing(false);
-      await onChanged();
-    } catch {
-      setError("Network error saving changes.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Deactivate goes through DELETE (soft-delete, sets active=No — see
-  // app/api/extra-services/[id]/route.ts); reactivating a hidden service
-  // is a plain field update, not an "undelete", so it goes through PATCH.
-  async function toggleActive() {
-    setSaving(true);
-    setError("");
-    try {
-      const response = service.active
-        ? await fetch(`/api/extra-services/${service.id}`, { method: "DELETE" })
-        : await fetch(`/api/extra-services/${service.id}`, {
+  const save = useSaveAction(
+    async (name: string, current: ServiceDraft) => {
+      if (service) {
+        await api(
+          `/api/extra-services/${service.id}`,
+          {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ active: true }),
-          });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-
-      if (!data.success) {
-        setError(data.error || "Failed to update status.");
-        return;
+            body: JSON.stringify({
+              name,
+              description: current.description.trim(),
+              imageUrl: current.imageUrl,
+              sortOrder: draftToNumber(current.sortOrder),
+            }),
+          },
+          "Your changes were not saved."
+        );
+      } else {
+        await api(
+          "/api/extra-services",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name,
+              description: current.description.trim(),
+              imageUrl: current.imageUrl,
+              active: true,
+              sortOrder: draftToNumber(current.sortOrder),
+            }),
+          },
+          "The service was not added."
+        );
       }
+      await onSaved();
+    },
+    { savedMessage: service ? "Saved" : "Service added", onSaved: onClose }
+  );
 
-      await onChanged();
-    } catch {
-      setError("Network error updating status.");
-    } finally {
-      setSaving(false);
+  function handleSave() {
+    const name = draft.name.trim();
+    if (!name) {
+      setNameError("Type a name for this service.");
+      return;
     }
+    setNameError("");
+    void save.run(name, draft);
   }
 
-  if (editing) {
-    return (
-      <tr className="border-b bg-blue-50/40">
-        <td colSpan={5} className="px-4 py-4">
-          {error ? (
-            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Name</label>
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(event) => setDraft((d) => ({ ...d, name: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-gray-500">Sort Order</label>
-              <input
-                type="number"
-                value={draft.sortOrder}
-                onChange={(event) => setDraft((d) => ({ ...d, sortOrder: event.target.value }))}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-xs font-semibold text-gray-500">Description</label>
-              <textarea
-                value={draft.description}
-                onChange={(event) => setDraft((d) => ({ ...d, description: event.target.value }))}
-                rows={2}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-xs font-semibold text-gray-500">Image</label>
-              <div className="mt-1">
-                <ServiceImagePicker
-                  imageUrl={draft.imageUrl}
-                  onImageUrlChange={(imageUrl) => setDraft((d) => ({ ...d, imageUrl }))}
-                  disabled={saving}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={saveEdit}
-              disabled={saving}
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              disabled={saving}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-            >
-              Cancel
-            </button>
-          </div>
-        </td>
-      </tr>
-    );
-  }
+  const busy = save.saving || uploading;
 
   return (
-    <tr className={`border-b ${service.active ? "" : "bg-gray-50"}`}>
-      <td className="px-4 py-3">
-        {service.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element -- see ServiceImagePicker
-          <img
-            src={service.imageUrl}
-            alt=""
-            className="h-12 w-12 rounded-lg border border-gray-200 object-cover"
-          />
-        ) : (
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-dashed border-gray-300 text-[9px] text-gray-400">
-            No image
-          </div>
-        )}
-      </td>
-
-      <td className="px-4 py-3">
-        <p className="font-semibold text-gray-900">{service.name}</p>
-        {service.description ? (
-          <p className="mt-0.5 max-w-md truncate text-xs text-gray-500">{service.description}</p>
-        ) : null}
-        {error ? <p className="mt-1 text-xs font-semibold text-red-700">{error}</p> : null}
-      </td>
-
-      <td className="px-4 py-3 text-gray-700">{service.sortOrder}</td>
-
-      <td className="px-4 py-3">
-        <span
-          className={`rounded-full border px-2 py-1 text-xs font-semibold ${
-            service.active
-              ? "border-green-200 bg-green-100 text-green-800"
-              : "border-gray-200 bg-gray-100 text-gray-600"
-          }`}
-        >
-          {service.active ? "Active" : "Hidden"}
-        </span>
-      </td>
-
-      <td className="px-4 py-3">
-        <div className="flex gap-3">
-          <button
-            type="button"
-            onClick={startEdit}
-            disabled={saving}
-            className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={toggleActive}
-            disabled={saving}
-            className="font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving ? "..." : service.active ? "Hide" : "Unhide"}
-          </button>
-        </div>
-      </td>
-    </tr>
+    <Sheet
+      open
+      title={service ? `Change “${service.name}”` : "Add a service"}
+      text={service ? undefined : "Customers see it in the portal right away. You can hide it later."}
+      onClose={onClose}
+      busy={busy}
+      actions={
+        <BigButton busy={save.saving} busyLabel="Saving…" disabled={uploading} onClick={handleSave}>
+          {service ? LABELS.save : "Add service"}
+        </BigButton>
+      }
+    >
+      <Field
+        label="Name"
+        value={draft.name}
+        onChange={(event) => {
+          setDraft((d) => ({ ...d, name: event.target.value }));
+          setNameError("");
+        }}
+        placeholder="Window Cleaning"
+        disabled={save.saving}
+        error={nameError}
+      />
+      <TextAreaField
+        label="Description"
+        hint="Customers read this when they ask for the service."
+        optional
+        value={draft.description}
+        onChange={(event) => setDraft((d) => ({ ...d, description: event.target.value }))}
+        rows={3}
+        disabled={save.saving}
+      />
+      <ServiceImagePicker
+        imageUrl={draft.imageUrl}
+        onImageUrlChange={(imageUrl) => setDraft((d) => ({ ...d, imageUrl }))}
+        onUploadingChange={setUploading}
+        disabled={save.saving}
+      />
+      <Field
+        label="Sort order"
+        hint="Lowest number shows first. Two services can share a number."
+        type="number"
+        inputMode="numeric"
+        optional
+        value={draft.sortOrder}
+        onChange={(event) => setDraft((d) => ({ ...d, sortOrder: event.target.value }))}
+        disabled={save.saving}
+      />
+      {save.state === "error" ? <SaveStatus action={save} /> : null}
+    </Sheet>
   );
 }
 
@@ -494,100 +300,168 @@ export default function ExtraServicesSettingsPage() {
   const [services, setServices] = useState<ExtraService[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  // "new" = add form open; a service = change form open for it.
+  const [formFor, setFormFor] = useState<ExtraService | "new" | null>(null);
+  const [togglingId, setTogglingId] = useState("");
 
-  async function loadServices() {
-    setLoadError("");
+  const loadServices = useCallback(async () => {
     try {
-      const response = await fetch("/api/extra-services", { cache: "no-store" });
-      const data = (await response.json()) as { success?: boolean; services?: ExtraService[]; error?: string };
-
-      if (!data.success || !Array.isArray(data.services)) {
-        setLoadError(data.error || "Failed to load services.");
-        return;
-      }
-
-      setServices(data.services);
-    } catch {
-      setLoadError("Network error loading services.");
+      const data = await api<{ success?: boolean; services?: ExtraService[]; error?: string }>(
+        "/api/extra-services",
+        { cache: "no-store" },
+        "We could not load the services."
+      );
+      setLoadError("");
+      setServices(Array.isArray(data.services) ? data.services : []);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "We could not load the services.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadServices();
-  }, []);
+    void loadServices();
+  }, [loadServices]);
+
+  // Hiding goes through DELETE (soft-delete, sets active=No — see
+  // app/api/extra-services/[id]/route.ts); showing a hidden service again is
+  // a plain field update, not an "undelete", so it goes through PATCH.
+  // No "are you sure": hiding deletes nothing and one tap brings it back.
+  const toggle = useSaveAction(async (service: ExtraService) => {
+    setTogglingId(service.id);
+    try {
+      if (service.active) {
+        await api(`/api/extra-services/${service.id}`, { method: "DELETE" }, "The service was not hidden.");
+      } else {
+        await api(
+          `/api/extra-services/${service.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ active: true }),
+          },
+          "The service was not shown again."
+        );
+      }
+      await loadServices();
+    } finally {
+      setTogglingId("");
+    }
+  });
 
   const activeCount = services.filter((s) => s.active).length;
 
+  const status = (service: ExtraService) =>
+    service.active ? <StatusPill kind="done">Active</StatusPill> : <StatusPill kind="off">Hidden</StatusPill>;
+
+  const actions = (service: ExtraService) => (
+    <div className="ui-actions-row">
+      <BigButton kind="second" disabled={toggle.saving} onClick={() => setFormFor(service)}>
+        {LABELS.edit}
+      </BigButton>
+      <BigButton
+        kind="second"
+        busy={togglingId === service.id}
+        busyLabel="Saving…"
+        disabled={toggle.saving}
+        onClick={() => void toggle.run(service)}
+      >
+        {service.active ? "Hide" : "Show again"}
+      </BigButton>
+    </div>
+  );
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <Link href="/settings" className="text-sm font-semibold text-blue-700 hover:underline">
-              ← Back to Settings
-            </Link>
-            <h1 className="mt-2 text-3xl font-bold text-gray-900">Extra / Specialty Services</h1>
-            <p className="mt-1 text-gray-600">
-              Manage the specialty services customers can request from the portal. Hiding a
-              service keeps its details for later instead of deleting them.
-            </p>
-          </div>
+    <Screen
+      title="Extra / Specialty Services"
+      subtitle={
+        loading
+          ? "Services customers can ask for in the portal"
+          : `Services customers can ask for in the portal · ${activeCount} active`
+      }
+      backHref="/settings"
+      action={
+        <BigButton icon="plus" onClick={() => setFormFor("new")}>
+          Add service
+        </BigButton>
+      }
+    >
+      <p className="ui-muted">
+        Customers see active services, lowest sort order first. Hiding a service keeps its details so you can show it
+        again later.
+      </p>
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 text-center shadow-sm">
-            <p className="text-sm text-gray-500">Active Services</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">{activeCount}</p>
-          </div>
-        </div>
+      {toggle.state === "error" ? <SaveStatus action={toggle} /> : null}
 
-        <div className="grid gap-6">
-          <AddServiceForm onAdded={loadServices} />
-
-          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-4">
-              <h2 className="text-xl font-bold text-gray-900">All Services</h2>
-              <p className="mt-1 text-sm text-gray-600">
-                Sorted by Sort Order, lowest first — matches the order customers will see them in.
-              </p>
-            </div>
-
-            {loadError ? (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-                {loadError}
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : loadError ? (
+        <ErrorBox
+          title="We could not load the services."
+          text={loadError}
+          onRetry={() => {
+            setLoading(true);
+            void loadServices();
+          }}
+        />
+      ) : services.length === 0 ? (
+        <EmptyState
+          title="No services yet"
+          text="Add the first specialty service customers can ask for."
+          action={
+            <BigButton kind="second" icon="plus" onClick={() => setFormFor("new")}>
+              Add service
+            </BigButton>
+          }
+        />
+      ) : (
+        <CardList
+          label="Services"
+          items={services}
+          getKey={(service) => service.id}
+          renderCard={(service) => (
+            <Card>
+              <div className="ui-actions-row" style={{ alignItems: "flex-start", flexWrap: "nowrap" }}>
+                <ServiceThumb imageUrl={service.imageUrl} size={72} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <h2 className="ui-card-title">{service.name}</h2>
+                  {service.description ? <p className="ui-card-text ui-clamp">{service.description}</p> : null}
+                  <p className="ui-card-text">Sort order {service.sortOrder}</p>
+                </div>
               </div>
-            ) : null}
-
-            {loading ? (
-              <div className="p-6 text-center text-gray-600">Loading services...</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b bg-gray-50 text-gray-600">
-                      <th className="px-4 py-3 font-semibold">Image</th>
-                      <th className="px-4 py-3 font-semibold">Name</th>
-                      <th className="px-4 py-3 font-semibold">Sort Order</th>
-                      <th className="px-4 py-3 font-semibold">Status</th>
-                      <th className="px-4 py-3 font-semibold">Action</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {services.map((service) => (
-                      <ServiceRow key={service.id} service={service} onChanged={loadServices} />
-                    ))}
-                  </tbody>
-                </table>
-
-                {services.length === 0 && (
-                  <div className="p-6 text-center text-gray-600">No services yet — add one above.</div>
-                )}
+              <div className="ui-actions-row" style={{ marginTop: 12, justifyContent: "space-between" }}>
+                {status(service)}
+                {actions(service)}
               </div>
-            )}
-          </section>
-        </div>
-      </div>
-    </main>
+            </Card>
+          )}
+          columns={[
+            { header: "Picture", cell: (service) => <ServiceThumb imageUrl={service.imageUrl} size={56} /> },
+            {
+              header: "Name",
+              cell: (service) => (
+                <>
+                  <p className="ui-strong">{service.name}</p>
+                  {service.description ? <p className="ui-muted ui-clamp">{service.description}</p> : null}
+                </>
+              ),
+            },
+            { header: "Sort order", cell: (service) => service.sortOrder },
+            { header: "Status", cell: status },
+            { header: "Action", cell: actions },
+          ]}
+        />
+      )}
+
+      {formFor ? (
+        <ServiceForm
+          key={formFor === "new" ? "new" : formFor.id}
+          service={formFor === "new" ? null : formFor}
+          onClose={() => setFormFor(null)}
+          onSaved={loadServices}
+        />
+      ) : null}
+    </Screen>
   );
 }

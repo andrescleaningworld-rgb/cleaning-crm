@@ -37,33 +37,33 @@ export default function MyEquipmentPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-3xl">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">My Equipment</h1>
-          <p className="mt-1 text-gray-600">Equipment currently checked out to you.</p>
+          <h1 className="ui-screen-title">My Equipment</h1>
+          <p className="ui-muted">Equipment currently checked out to you.</p>
         </div>
 
         {loadError ? (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{loadError}</div>
+          <div className="ui-field-error">{loadError}</div>
         ) : null}
 
         {loading ? (
           <div className="p-6 text-center text-gray-600">Loading...</div>
         ) : equipment.length === 0 ? (
-          <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-600 shadow-sm">
+          <div className="ui-card">
             No equipment is currently checked out to you.
           </div>
         ) : (
           <div className="grid gap-4">
             {equipment.map((item) => (
-              <div key={item.id} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div key={item.id} className="ui-card">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="font-bold text-gray-900">{item.name}</p>
-                    {item.serialNumber ? <p className="text-sm text-gray-500">SN: {item.serialNumber}</p> : null}
+                    <p className="ui-strong">{item.name}</p>
+                    {item.serialNumber ? <p className="ui-muted">SN: {item.serialNumber}</p> : null}
                     {item.expectedReturnAt ? (
-                      <p className={`mt-1 text-sm font-semibold ${item.overdue ? "text-red-700" : "text-gray-600"}`}>
+                      <p className={`mt-1 text-base font-semibold ${item.overdue ? "text-red-700" : "text-gray-600"}`}>
                         {item.overdue ? "Overdue — " : "Expected return: "}
                         {item.expectedReturnAt}
                       </p>
@@ -72,7 +72,7 @@ export default function MyEquipmentPage() {
                   <button
                     type="button"
                     onClick={() => setReturningItem(item)}
-                    className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+                    className="ui-btn ui-btn-second"
                   >
                     Return
                   </button>

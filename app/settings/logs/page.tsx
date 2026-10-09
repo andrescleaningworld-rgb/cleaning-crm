@@ -88,13 +88,13 @@ function LogNotes({ notes }: { notes: string }) {
   const shown = expanded || !isLong ? notes : `${notes.slice(0, NOTES_PREVIEW_LENGTH)}…`;
 
   return (
-    <div className="max-w-md whitespace-pre-wrap text-sm text-gray-700">
+    <div className="max-w-md whitespace-pre-wrap text-gray-700">
       {shown}
       {isLong ? (
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
-          className="ml-1 font-semibold text-blue-700 hover:underline"
+          className="ui-btn ui-btn-quiet"
         >
           {expanded ? "Show less" : "Show more"}
         </button>
@@ -198,34 +198,34 @@ export default function LogsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-6xl">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
         <div className="mb-6">
-          <Link href="/settings" className="text-sm font-semibold text-blue-700 hover:underline">
+          <Link href="/settings" className="ui-link">
             ← Back to Settings
           </Link>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">Logs</h1>
-          <p className="mt-1 max-w-3xl text-gray-600">
+          <h1 className="ui-screen-title">Logs</h1>
+          <p className="ui-muted">
             The account update history log — every &ldquo;Change Status&rdquo; note, onboarding-checklist
             completion summary, and manually added update, browsable across every account
             instead of one account at a time.
           </p>
         </div>
 
-        <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <section className="ui-card">
           <div className="grid gap-3 md:grid-cols-4">
             <input
               type="text"
               value={accountSearch}
               onChange={(event) => setAccountSearch(event.target.value)}
               placeholder="Filter by account name..."
-              className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+              className="ui-input"
             />
 
             <select
               value={typeFilter}
               onChange={(event) => setTypeFilter(event.target.value)}
-              className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+              className="ui-input"
             >
               {typeOptions.map((type) => (
                 <option key={type} value={type}>
@@ -239,7 +239,7 @@ export default function LogsPage() {
               value={startDate}
               onChange={(event) => setStartDate(event.target.value)}
               aria-label="From date"
-              className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+              className="ui-input"
             />
 
             <input
@@ -247,7 +247,7 @@ export default function LogsPage() {
               value={endDate}
               onChange={(event) => setEndDate(event.target.value)}
               aria-label="To date"
-              className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+              className="ui-input"
             />
           </div>
 
@@ -255,33 +255,33 @@ export default function LogsPage() {
             <select
               value={sortOrder}
               onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest")}
-              className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
+              className="ui-input"
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
             </select>
 
-            <button type="button" onClick={clearFilters} className="text-sm font-semibold text-blue-700 hover:underline">
+            <button type="button" onClick={clearFilters} className="ui-btn ui-btn-quiet">
               Clear Filters
             </button>
           </div>
         </section>
 
         {error ? (
-          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 font-semibold text-red-700">{error}</div>
+          <div className="ui-field-error">{error}</div>
         ) : null}
 
-        <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <section className="ui-card">
           {loading ? (
-            <p className="p-6 text-sm text-gray-600">Loading log entries...</p>
+            <p className="ui-muted">Loading log entries...</p>
           ) : filteredEntries.length === 0 ? (
-            <p className="p-6 text-sm text-gray-600">No log entries match these filters.</p>
+            <p className="ui-muted">No log entries match these filters.</p>
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-sm">
+                <table className="ui-table w-full">
                   <thead>
-                    <tr className="border-b bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                    <tr className="border-b bg-gray-50 uppercase tracking-wide text-gray-500">
                       <th className="p-3">Date</th>
                       <th className="p-3">Account</th>
                       <th className="p-3">Type</th>
@@ -298,16 +298,16 @@ export default function LogsPage() {
                           {entry.accountId ? (
                             <Link
                               href={`/accounts/${encodeURIComponent(entry.accountId)}`}
-                              className="font-semibold text-blue-700 hover:underline"
+                              className="ui-link"
                             >
                               {entry.accountName}
                             </Link>
                           ) : (
-                            <span className="font-semibold text-gray-900">{entry.accountName}</span>
+                            <span className="ui-strong">{entry.accountName}</span>
                           )}
                         </td>
                         <td className="p-3">
-                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
+                          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-base font-semibold text-gray-700">
                             {entry.updateType}
                           </span>
                         </td>
@@ -322,7 +322,7 @@ export default function LogsPage() {
                 </table>
               </div>
 
-              <div className="flex items-center justify-between border-t p-4 text-sm text-gray-500">
+              <div className="flex items-center justify-between border-t p-4 text-gray-500">
                 <span>
                   Showing {visibleEntries.length} of {filteredEntries.length} entries
                   {filteredEntries.length !== entries.length ? ` (${entries.length} total)` : ""}
@@ -331,7 +331,7 @@ export default function LogsPage() {
                   <button
                     type="button"
                     onClick={() => setVisibleCount((count) => count + LOAD_MORE_COUNT)}
-                    className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"
+                    className="ui-btn ui-btn-second"
                   >
                     Load More
                   </button>
@@ -341,7 +341,7 @@ export default function LogsPage() {
           )}
         </section>
 
-        <p className="mt-4 text-xs text-gray-400">
+        <p className="ui-muted">
           Other logs exist in this system (e.g. SMS delivery attempts, subcontractor activity) but
           aren&apos;t browsable here yet — this page covers the account update history log only.
         </p>

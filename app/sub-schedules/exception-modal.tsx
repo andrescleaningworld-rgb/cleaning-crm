@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { AutocompleteField, useCustomerSearch } from "./autocomplete";
+import { BigButton, ErrorBox, Field, SelectField, Sheet, TextAreaField } from "@/app/ui";
 
 export type ScheduleException = {
   sheetRow: number;
@@ -40,8 +41,8 @@ export default function ExceptionModal({ target, adminName, accountName, onClose
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
+    e?.preventDefault();
 
     const accountId = isNew ? customer.selected?.id ?? "" : target.accountId;
     if (!accountId || !originalDate || !reason.trim()) {
@@ -111,134 +112,62 @@ export default function ExceptionModal({ target, adminName, accountName, onClose
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Sheet
+      open
+      title={isNew ? "New schedule exception" : "Edit exception"}
+      text={isNew ? undefined : accountName || target.accountId}
+      onClose={onClose}
+      busy={submitting}
+      actions={
+        <BigButton busy={submitting} busyLabel="Saving…" onClick={() => void handleSubmit()}>
+          Save
+        </BigButton>
+      }
     >
-      <div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
-        <h2 className="text-lg font-black text-slate-900">
-          {isNew ? "New Schedule Exception" : `Edit Exception ${target.exceptionId}`}
-        </h2>
+      {isNew ? (
+        <AutocompleteField
+          label="Customer"
+          placeholder="Search customer name"
+          query={customer.query}
+          onQueryChange={customer.setQuery}
+          options={customer.options}
+          loading={customer.loading}
+          selected={customer.selected}
+          onSelect={customer.select}
+          onClear={customer.clear}
+        />
+      ) : null}
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {isNew ? (
-              <AutocompleteField
-                label="Customer"
-                placeholder="Search customer name..."
-                query={customer.query}
-                onQueryChange={customer.setQuery}
-                options={customer.options}
-                loading={customer.loading}
-                selected={customer.selected}
-                onSelect={customer.select}
-                onClear={customer.clear}
-                className="sm:w-full"
-              />
-            ) : (
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Customer</label>
-                <p className="mt-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
-                  {accountName || target.accountId}
-                </p>
-              </div>
-            )}
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500">Original Date</label>
-              <input
-                type="date"
-                value={originalDate}
-                onChange={(e) => setOriginalDate(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                required
-              />
-            </div>
-          </div>
+      <Field label="Original date" type="date" value={originalDate} onChange={(e) => setOriginalDate(e.target.value)} />
 
-          <div>
-            <label className="text-xs font-bold uppercase text-slate-500">Type</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-            >
-              <option value="Skip">Skip this date</option>
-              <option value="Reschedule">Reschedule this date</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
+      <SelectField label="Type" value={type} onChange={(e) => setType(e.target.value)}>
+        <option value="Skip">Skip this date</option>
+        <option value="Reschedule">Reschedule this date</option>
+        <option value="Other">Other</option>
+      </SelectField>
 
-          {type === "Reschedule" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">New Date</label>
-                <input
-                  type="date"
-                  value={newDate}
-                  onChange={(e) => setNewDate(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                  required
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">New Time Window</label>
-                <select
-                  value={newTimeWindow}
-                  onChange={(e) => setNewTimeWindow(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                >
-                  {TIME_WINDOWS.map((w) => (
-                    <option key={w} value={w}>{w || "Unspecified"}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
+      {type === "Reschedule" && (
+        <>
+          <Field label="New date" type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} />
+          <SelectField label="New time window" value={newTimeWindow} onChange={(e) => setNewTimeWindow(e.target.value)}>
+            {TIME_WINDOWS.map((w) => (
+              <option key={w} value={w}>
+                {w || "Unspecified"}
+              </option>
+            ))}
+          </SelectField>
+        </>
+      )}
 
-          <div>
-            <label className="text-xs font-bold uppercase text-slate-500">Reason</label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-              required
-            />
-          </div>
+      <TextAreaField label="Reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
 
-          {!isNew && (
-            <p className="text-xs text-slate-500">
-              Created by {target.createdBy || "—"} on {target.createdDate || "—"}
-            </p>
-          )}
+      {!isNew && (
+        <p className="ui-muted">
+          Created by {target.createdBy || "someone not recorded"} on {target.createdDate || "a date not recorded"}
+        </p>
+      )}
 
-          {error ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? "Saving..." : "Save"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      {error ? <ErrorBox title="The exception was not saved." text={error} /> : null}
+    </Sheet>
   );
 }

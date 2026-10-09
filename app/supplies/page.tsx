@@ -1,7 +1,24 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  BigButton,
+  Card,
+  CardList,
+  ConfirmSheet,
+  EmptyState,
+  ErrorBox,
+  Field,
+  Screen,
+  SearchBar,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  StatusPill,
+  TextAreaField,
+  showToast,
+  type StatusKind,
+} from "@/app/ui";
 
 type SupplyItem = {
   id?: string;
@@ -243,22 +260,12 @@ function isLowStock(item: SupplyItem) {
   return current <= minimum;
 }
 
-function getStatusClass(statusValue: string) {
+function statusKind(statusValue: string): StatusKind {
   const status = cleanLower(statusValue);
 
-  if (status === "active") {
-    return "rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800";
-  }
-
-  if (status === "office only" || status === "needs review") {
-    return "rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800";
-  }
-
-  if (status === "inactive" || status === "discontinued") {
-    return "rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700";
-  }
-
-  return "rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800";
+  if (status === "active") return "done";
+  if (status === "office only" || status === "needs review") return "waiting";
+  return "off";
 }
 
 export default function SuppliesPage() {
@@ -271,6 +278,7 @@ export default function SuppliesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<SupplyForm>(emptyForm);
+  const [removing, setRemoving] = useState<SupplyItem | null>(null);
 
   async function loadSupplies() {
     try {
@@ -368,11 +376,15 @@ export default function SuppliesPage() {
     setShowForm(true);
     setSuccessMessage("");
     setError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent<HTMLFormElement>) {
+    e?.preventDefault();
+
+    if (!form.supplyItem.trim()) {
+      setError("Type the supply item's name.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -400,11 +412,11 @@ export default function SuppliesPage() {
         throw new Error(data.error || "Failed to save supply item.");
       }
 
-      setSuccessMessage(
-        editing
-          ? "Supply item updated successfully."
-          : "Supply item added successfully."
-      );
+      const message = editing
+        ? "Supply item updated successfully."
+        : "Supply item added successfully.";
+      setSuccessMessage(message);
+      showToast(message);
 
       resetForm();
       await loadSupplies();
@@ -417,11 +429,6 @@ export default function SuppliesPage() {
 
   async function handleDeactivate(item: SupplyItem) {
     const supplyName = getSupplyName(item);
-    const confirmed = window.confirm(
-      `Remove ${supplyName} from the active supply list? This will deactivate it, not delete history.`
-    );
-
-    if (!confirmed) return;
 
     try {
       setSaving(true);
@@ -466,341 +473,224 @@ export default function SuppliesPage() {
   // For now, the button is ready but will not show a badge unless this number is above 0.
   const newSupplyOrdersCount = 0;
 
+  const formError = showForm ? error : "";
+
+  const stock = (item: SupplyItem) => (
+    <>
+      {getCurrentStock(item) || "-"}
+      {isLowStock(item) ? <> <StatusPill kind="needs-you">Low</StatusPill></> : null}
+    </>
+  );
+
+  const actions = (item: SupplyItem) => (
+    <div className="ui-actions-row">
+      <BigButton kind="second" onClick={() => startEdit(item)}>
+        Edit
+      </BigButton>
+      {isActiveSupply(item) ? (
+        <BigButton kind="danger" disabled={saving} onClick={() => setRemoving(item)}>
+          Remove
+        </BigButton>
+      ) : null}
+    </div>
+  );
+
   return (
-    <main className="min-h-screen bg-gray-100 px-4 py-6 text-slate-900 sm:px-6 sm:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold sm:text-3xl">Supplies</h1>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Manage the supply list used by the subcontractor portal.
-              </p>
-            </div>
+    <Screen
+      title="Supplies"
+      subtitle="Manage the supply list used by the subcontractor portal."
+      headerRight={
+        <BigButton kind="second" href="/supply-orders">
+          {newSupplyOrdersCount > 0 ? `Supply Orders (${newSupplyOrdersCount})` : "Supply Orders"}
+        </BigButton>
+      }
+      action={
+        <BigButton icon="plus" onClick={startAdd}>
+          Add Supply
+        </BigButton>
+      }
+    >
+      <div className="ui-stats">
+        <div className="ui-stat">
+          <p className="ui-stat-label">Active Supplies</p>
+          <p className="ui-stat-value">{activeCount}</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Inactive Supplies</p>
+          <p className="ui-stat-value">{inactiveCount}</p>
+        </div>
+        <div className="ui-stat">
+          <p className="ui-stat-label">Low Stock</p>
+          <p className="ui-stat-value">{lowStockCount}</p>
+        </div>
+      </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link
-                href="/supply-orders"
-                className="relative rounded-lg border border-blue-200 bg-white px-4 py-3 text-center text-sm font-semibold text-blue-800 hover:bg-blue-50"
-              >
-                {newSupplyOrdersCount > 0 ? <span className="mr-2">🔔</span> : null}
-                Supply Orders
+      <SearchBar
+        value={search}
+        onChange={setSearch}
+        label="Search supplies"
+        placeholder="Search by item, category, description, status"
+      />
 
-                {newSupplyOrdersCount > 0 ? (
-                  <span className="absolute -right-2 -top-2 rounded-full bg-red-600 px-2 py-1 text-xs font-black text-white">
-                    {newSupplyOrdersCount}
-                  </span>
-                ) : null}
-              </Link>
+      {successMessage ? (
+        <p className="ui-savestatus ui-savestatus-saved" role="status">
+          {successMessage}
+        </p>
+      ) : null}
 
-              <button
-                type="button"
-                onClick={showForm ? resetForm : startAdd}
-                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
-              >
-                {showForm ? "Cancel" : "Add Supply"}
-              </button>
-            </div>
-          </div>
+      {error && !showForm ? <ErrorBox title={error} onRetry={supplies.length === 0 ? loadSupplies : undefined} /> : null}
 
-          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Active Supplies
-              </p>
-              <p className="mt-1 text-2xl font-bold">{activeCount}</p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Inactive Supplies
-              </p>
-              <p className="mt-1 text-2xl font-bold">{inactiveCount}</p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase text-slate-500">
-                Low Stock
-              </p>
-              <p className="mt-1 text-2xl font-bold">{lowStockCount}</p>
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search supplies by item, category, description, status..."
-              className="min-h-[48px] w-full rounded-lg border border-slate-300 px-4 py-3 text-base outline-none focus:border-blue-600 sm:text-sm"
-            />
-          </div>
-
-          {successMessage && (
-            <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              {successMessage}
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-              {error}
-            </div>
-          )}
+      <section className="ui-stack">
+        <div className="ui-card-row">
+          <h2 className="ui-card-title">Supply List</h2>
+          <p className="ui-muted">{filteredSupplies.length} shown</p>
         </div>
 
-        {showForm && (
-          <form
-            onSubmit={handleSubmit}
-            className="rounded-2xl bg-white p-5 shadow-sm sm:p-6"
-          >
-            <h2 className="text-lg font-bold">
-              {editing ? "Edit Supply" : "Add Supply"}
-            </h2>
-
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <label className="text-sm font-semibold">Supply Item</label>
-                <input
-                  value={form.supplyItem}
-                  onChange={(e) => updateForm("supplyItem", e.target.value)}
-                  required
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold">Category</label>
-                <select
-                  value={form.category}
-                  onChange={(e) => updateForm("category", e.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base sm:text-sm"
-                >
-                  <option value="">Select category</option>
-                  {supplyCategories.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-semibold">Description</label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => updateForm("description", e.target.value)}
-                  rows={3}
-                  placeholder="Short description so the office and subcontractors know exactly what this item is."
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold">Unit</label>
-                <input
-                  value={form.unit}
-                  onChange={(e) => updateForm("unit", e.target.value)}
-                  placeholder="Case, box, gallon, each..."
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold">Status</label>
-                <select
-                  value={form.status}
-                  onChange={(e) => {
-                    const status = e.target.value;
-                    updateForm("status", status);
-                    updateForm(
-                      "active",
-                      cleanLower(status) === "active" ? "yes" : "no"
-                    );
-                  }}
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base sm:text-sm"
-                >
-                  {supplyStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  Active shows in the subcontractor portal. Office Only and Needs Review can be used internally.
-                </p>
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold">Current Stock</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.currentStock}
-                  onChange={(e) => updateForm("currentStock", e.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-semibold">Minimum Stock</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.minimumStock}
-                  onChange={(e) => updateForm("minimumStock", e.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="text-sm font-semibold">Notes</label>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => updateForm("notes", e.target.value)}
-                  rows={4}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-3 text-base sm:text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:flex sm:flex-wrap">
-              <button
-                type="submit"
-                disabled={saving}
-                className="rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
-              >
-                {saving
-                  ? "Saving..."
-                  : editing
-                    ? "Update Supply"
-                    : "Save Supply"}
-              </button>
-
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
+        {loading ? (
+          <SkeletonList rows={4} />
+        ) : filteredSupplies.length === 0 ? (
+          <EmptyState icon="search" title="No supplies found." />
+        ) : (
+          <CardList
+            label="Supplies"
+            items={filteredSupplies.map((item, index) => ({ item, key: getSupplyId(item) || `${getSupplyName(item)}-${index}` }))}
+            getKey={(entry) => entry.key}
+            renderCard={({ item }) => (
+              <Card title={getSupplyName(item)} right={<StatusPill kind={statusKind(getAvailabilityStatus(item))}>{getAvailabilityStatus(item)}</StatusPill>}>
+                {getDescription(item) ? <p>{getDescription(item)}</p> : null}
+                {getNotes(item) ? <p className="ui-muted">Notes: {getNotes(item)}</p> : null}
+                <dl className="ui-details">
+                  <div className="ui-detail">
+                    <dt>Category</dt>
+                    <dd>{getCategory(item) || "-"}</dd>
+                  </div>
+                  <div className="ui-detail">
+                    <dt>Unit</dt>
+                    <dd>{getUnit(item) || "-"}</dd>
+                  </div>
+                  <div className="ui-detail">
+                    <dt>Stock</dt>
+                    <dd>{stock(item)}</dd>
+                  </div>
+                  <div className="ui-detail">
+                    <dt>Minimum</dt>
+                    <dd>{getMinimumStock(item) || "-"}</dd>
+                  </div>
+                  <div className="ui-detail">
+                    <dt>Last Updated</dt>
+                    <dd>{getLastUpdated(item) || "-"}</dd>
+                  </div>
+                </dl>
+                {actions(item)}
+              </Card>
+            )}
+            columns={[
+              {
+                header: "Supply",
+                cell: ({ item }) => (
+                  <>
+                    <span className="ui-strong">{getSupplyName(item)}</span>
+                    {getDescription(item) ? <span className="ui-muted block ui-clamp">{getDescription(item)}</span> : null}
+                    {getNotes(item) ? <span className="ui-muted block ui-clamp">Notes: {getNotes(item)}</span> : null}
+                  </>
+                ),
+              },
+              { header: "Category", cell: ({ item }) => getCategory(item) || "-" },
+              { header: "Unit", cell: ({ item }) => getUnit(item) || "-" },
+              { header: "Stock", cell: ({ item }) => stock(item) },
+              { header: "Minimum", cell: ({ item }) => getMinimumStock(item) || "-" },
+              { header: "Status", cell: ({ item }) => <StatusPill kind={statusKind(getAvailabilityStatus(item))}>{getAvailabilityStatus(item)}</StatusPill> },
+              { header: "Last Updated", cell: ({ item }) => getLastUpdated(item) || "-" },
+              { header: "Actions", cell: ({ item }) => actions(item) },
+            ]}
+          />
         )}
+      </section>
 
-        <section className="rounded-2xl bg-white p-5 shadow-sm sm:p-6">
-          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-lg font-bold">Supply List</h2>
-            <p className="text-sm text-slate-600">
-              {filteredSupplies.length} shown
-            </p>
+      <Sheet
+        open={showForm}
+        title={editing ? "Edit Supply" : "Add Supply"}
+        onClose={resetForm}
+        busy={saving}
+        actions={
+          <BigButton busy={saving} busyLabel="Saving..." onClick={() => handleSubmit()}>
+            {editing ? "Update Supply" : "Save Supply"}
+          </BigButton>
+        }
+      >
+        <div className="ui-stack">
+          <Field label="Supply Item" value={form.supplyItem} onChange={(e) => updateForm("supplyItem", e.target.value)} />
+
+          <SelectField label="Category" optional value={form.category} onChange={(e) => updateForm("category", e.target.value)}>
+            <option value="">Select category</option>
+            {/* A category typed by hand in the sheet stays selectable. */}
+            {form.category && !supplyCategories.includes(form.category) ? <option value={form.category}>{form.category}</option> : null}
+            {supplyCategories.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
+          </SelectField>
+
+          <TextAreaField
+            label="Description"
+            optional
+            value={form.description}
+            onChange={(e) => updateForm("description", e.target.value)}
+            rows={3}
+            placeholder="Short description so the office and subcontractors know exactly what this item is."
+          />
+
+          <Field
+            label="Unit"
+            optional
+            value={form.unit}
+            onChange={(e) => updateForm("unit", e.target.value)}
+            placeholder="Case, box, gallon, each..."
+          />
+
+          <SelectField
+            label="Status"
+            hint="Active shows in the subcontractor portal. Office Only and Needs Review can be used internally."
+            value={form.status}
+            onChange={(e) => {
+              const status = e.target.value;
+              updateForm("status", status);
+              updateForm("active", cleanLower(status) === "active" ? "yes" : "no");
+            }}
+          >
+            {!supplyStatuses.includes(form.status) && form.status ? <option value={form.status}>{form.status}</option> : null}
+            {supplyStatuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </SelectField>
+
+          <div className="ui-two">
+            <Field label="Current Stock" optional type="number" min="0" value={form.currentStock} onChange={(e) => updateForm("currentStock", e.target.value)} />
+            <Field label="Minimum Stock" optional type="number" min="0" value={form.minimumStock} onChange={(e) => updateForm("minimumStock", e.target.value)} />
           </div>
 
-          {loading ? (
-            <p className="text-sm text-slate-600">Loading supplies...</p>
-          ) : filteredSupplies.length === 0 ? (
-            <p className="text-sm text-slate-600">No supplies found.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b bg-slate-50 text-slate-700">
-                    <th className="px-4 py-3 font-semibold">Supply</th>
-                    <th className="px-4 py-3 font-semibold">Category</th>
-                    <th className="px-4 py-3 font-semibold">Unit</th>
-                    <th className="px-4 py-3 font-semibold">Stock</th>
-                    <th className="px-4 py-3 font-semibold">Minimum</th>
-                    <th className="px-4 py-3 font-semibold">Status</th>
-                    <th className="px-4 py-3 font-semibold">Last Updated</th>
-                    <th className="px-4 py-3 font-semibold">Actions</th>
-                  </tr>
-                </thead>
+          <TextAreaField label="Notes" optional value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} rows={4} />
 
-                <tbody>
-                  {filteredSupplies.map((item, index) => {
-                    const id = getSupplyId(item);
-                    const availabilityStatus = getAvailabilityStatus(item);
-                    const lowStock = isLowStock(item);
-                    const description = getDescription(item);
-                    const notes = getNotes(item);
+          {formError ? <ErrorBox title={formError} /> : null}
+        </div>
+      </Sheet>
 
-                    return (
-                      <tr
-                        key={id || `${getSupplyName(item)}-${index}`}
-                        className="border-b last:border-b-0 hover:bg-slate-50"
-                      >
-                        <td className="min-w-[280px] px-4 py-3 font-semibold">
-                          <div>{getSupplyName(item)}</div>
-                          {description ? (
-                            <div className="mt-1 text-xs font-normal leading-5 text-slate-600">
-                              {description}
-                            </div>
-                          ) : null}
-                          {notes ? (
-                            <div className="mt-1 text-xs font-normal leading-5 text-slate-500">
-                              Notes: {notes}
-                            </div>
-                          ) : null}
-                        </td>
-
-                        <td className="px-4 py-3">{getCategory(item) || "-"}</td>
-                        <td className="px-4 py-3">{getUnit(item) || "-"}</td>
-
-                        <td className="px-4 py-3">
-                          <span className={lowStock ? "font-bold text-red-700" : ""}>
-                            {getCurrentStock(item) || "-"}
-                          </span>
-                          {lowStock ? (
-                            <span className="ml-2 rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-700">
-                              Low
-                            </span>
-                          ) : null}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {getMinimumStock(item) || "-"}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <span className={getStatusClass(availabilityStatus)}>
-                            {availabilityStatus}
-                          </span>
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {getLastUpdated(item) || "-"}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-2 sm:flex-row">
-                            <button
-                              type="button"
-                              onClick={() => startEdit(item)}
-                              className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800"
-                            >
-                              Edit
-                            </button>
-
-                            {isActiveSupply(item) ? (
-                              <button
-                                type="button"
-                                disabled={saving}
-                                onClick={() => handleDeactivate(item)}
-                                className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                              >
-                                Remove
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+      <ConfirmSheet
+        open={removing !== null}
+        title={removing ? `Remove ${getSupplyName(removing)}?` : ""}
+        text="This takes it off the active supply list. It will deactivate it, not delete history."
+        confirmLabel="Remove"
+        busy={saving}
+        busyLabel="Removing..."
+        onConfirm={async () => {
+          if (removing) await handleDeactivate(removing);
+          setRemoving(null);
+        }}
+        onCancel={() => setRemoving(null)}
+      />
+    </Screen>
   );
 }

@@ -3,7 +3,7 @@ import {
   getExtraServiceById,
   updateExtraService,
   type ExtraServiceUpdateInput,
-} from "@/lib/googleSheets";
+} from "@/lib/data/catalogs";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

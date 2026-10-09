@@ -4,7 +4,7 @@
 // public and can't reach any of these actions.
 import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
-import { getMainAccountById } from "@/lib/googleSheets";
+import { getMainAccountById } from "@/lib/data/accounts";
 import {
   addTab,
   deleteTab,

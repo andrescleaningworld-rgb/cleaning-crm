@@ -76,20 +76,20 @@ export default function CustomerComplaintsPage() {
 
   if (submitted) {
     return (
-      <div className="mx-auto max-w-md px-4 py-12 text-center">
-        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 text-4xl">
+      <div className="ui-screen">
+        <div className="ui-portal-mark">
           ✅
         </div>
-        <h1 className="text-2xl font-black text-slate-950">
+        <h1 className="ui-screen-title">
           Thank you for letting us know
         </h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="ui-muted">
           Your report has been received. A Cleaning World manager will follow up
           with you shortly.
         </p>
         <Link
           href="/customer-portal"
-          className="mt-6 inline-block rounded-xl bg-purple-700 px-6 py-3 text-sm font-bold text-white hover:bg-purple-800"
+          className="ui-btn ui-btn-second"
         >
           Back to My Account
         </Link>
@@ -98,33 +98,33 @@ export default function CustomerComplaintsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-2 py-4 sm:py-6">
+    <div className="ui-screen">
       <Link
         href="/customer-portal"
-        className="text-sm font-semibold text-purple-700 hover:underline"
+        className="ui-link"
       >
         ← Back to My Account
       </Link>
 
-      <h1 className="mt-4 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
+      <h1 className="ui-screen-title">
         Report an Issue
       </h1>
-      <p className="mt-2 text-sm leading-6 text-slate-500">
+      <p className="ui-muted">
         We take every concern seriously. Describe what happened and we&apos;ll
         follow up as quickly as possible.
       </p>
 
       {openComplaints.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-bold text-amber-900">
+        <div className="ui-stat">
+          <p className="ui-strong">
             You have {openComplaints.length} open{" "}
             {openComplaints.length === 1 ? "issue" : "issues"}:
           </p>
-          <ul className="mt-2 space-y-1">
+          <ul className="ui-stack">
             {openComplaints.map((c, i) => (
-              <li key={i} className="text-xs text-amber-800">
+              <li key={i}>
                 · {String(c.issue || "Issue").slice(0, 60)} —{" "}
-                <span className="font-semibold">{c.status || "Open"}</span>
+                <span className="ui-strong">{c.status || "Open"}</span>
               </li>
             ))}
           </ul>
@@ -133,42 +133,42 @@ export default function CustomerComplaintsPage() {
 
       <form
         onSubmit={handleSubmit}
-        className="mt-6 space-y-5 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm"
+        className="ui-card ui-stack"
       >
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             What happened? *
           </label>
           <textarea
             required
             value={form.issue}
             onChange={(e) => setForm({ ...form, issue: e.target.value })}
-            className="mt-2 min-h-[120px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+            className="ui-input w-full"
             placeholder="e.g. Restrooms were not cleaned, missed areas in the lobby..."
           />
         </div>
 
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             Specific area or location
           </label>
           <input
             type="text"
             value={form.location}
             onChange={(e) => setForm({ ...form, location: e.target.value })}
-            className="mt-2 min-h-[48px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+            className="ui-input w-full"
             placeholder="e.g. 2nd floor restrooms, main lobby"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             How urgent is this?
           </label>
           <select
             value={form.urgency}
             onChange={(e) => setForm({ ...form, urgency: e.target.value })}
-            className="mt-2 min-h-[48px] w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-purple-500"
+            className="ui-input w-full"
           >
             <option value="Low">Low — can wait for next service</option>
             <option value="Normal">Normal — please address soon</option>
@@ -178,7 +178,7 @@ export default function CustomerComplaintsPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-black text-slate-700">
+          <label className="ui-label">
             Attach a photo (optional)
           </label>
           <input
@@ -188,19 +188,19 @@ export default function CustomerComplaintsPage() {
             onChange={(e) =>
               setForm({ ...form, photo: e.target.files?.[0] || null })
             }
-            className="hidden"
+            className="ui-input hidden"
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="mt-2 min-h-[48px] w-full rounded-xl border-2 border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-600 hover:border-purple-500 hover:text-purple-700"
+            className="ui-btn ui-btn-second w-full"
           >
             {form.photo ? `Selected: ${form.photo.name} — tap to change` : "Tap to attach a photo"}
           </button>
         </div>
 
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-800">
+          <div className="ui-field-error">
             {error}
           </div>
         )}
@@ -208,7 +208,7 @@ export default function CustomerComplaintsPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="min-h-[48px] w-full rounded-xl bg-purple-700 py-3 text-sm font-bold text-white hover:bg-purple-800 disabled:opacity-60"
+          className="ui-btn ui-btn-main w-full"
         >
           {submitting ? "Submitting..." : "Submit Report"}
         </button>

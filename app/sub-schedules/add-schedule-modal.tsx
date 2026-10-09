@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { todayISO } from "@/lib/scheduleRecurrence";
 import { AutocompleteField, useDebounce, type SearchOption } from "./autocomplete";
+import { BigButton, ErrorBox, SelectField, Sheet } from "@/app/ui";
 
 type TeamLeaderRecord = { id: string; companyName: string; contactName: string };
 
@@ -185,168 +186,109 @@ export default function AddScheduleModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-black text-slate-950">Add Schedule</h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close">
-            ×
-          </button>
-        </div>
-        <p className="mt-1 text-sm text-slate-500">
-          Creates a recurring schedule on behalf of a subcontractor. They&apos;ll be emailed and can update it
-          from their own portal later.
-        </p>
+    <Sheet
+      open
+      title="Add schedule"
+      text="Creates a recurring schedule on behalf of a subcontractor. They'll be emailed and can update it from their own portal later."
+      onClose={onClose}
+      busy={submitting}
+      actions={
+        <BigButton busy={submitting} busyLabel="Saving…" disabled={!canSubmit} onClick={() => void handleSubmit()}>
+          Create schedule
+        </BigButton>
+      }
+    >
+      <AutocompleteField
+        label="Customer"
+        placeholder="Search customer name"
+        query={accountQuery}
+        onQueryChange={setAccountQuery}
+        options={accountOptions}
+        loading={false}
+        selected={accountSelected}
+        onSelect={(o) => {
+          setAccountSelected(o);
+          setAccountQuery(o.label);
+        }}
+        onClear={() => {
+          setAccountSelected(null);
+          setAccountQuery("");
+        }}
+      />
+      <AutocompleteField
+        label="Subcontractor"
+        placeholder="Search subcontractor name"
+        query={subQuery}
+        onQueryChange={setSubQuery}
+        options={subOptions}
+        loading={false}
+        selected={subSelected}
+        onSelect={(o) => {
+          setSubSelected(o);
+          setSubQuery(o.label);
+        }}
+        onClear={() => {
+          setSubSelected(null);
+          setSubQuery("");
+        }}
+      />
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <AutocompleteField
-            label="Customer"
-            placeholder="Search customer name..."
-            query={accountQuery}
-            onQueryChange={setAccountQuery}
-            options={accountOptions}
-            loading={false}
-            selected={accountSelected}
-            onSelect={(o) => {
-              setAccountSelected(o);
-              setAccountQuery(o.label);
-            }}
-            onClear={() => {
-              setAccountSelected(null);
-              setAccountQuery("");
-            }}
-            className="sm:w-full"
-          />
-          <AutocompleteField
-            label="Subcontractor"
-            placeholder="Search subcontractor name..."
-            query={subQuery}
-            onQueryChange={setSubQuery}
-            options={subOptions}
-            loading={false}
-            selected={subSelected}
-            onSelect={(o) => {
-              setSubSelected(o);
-              setSubQuery(o.label);
-            }}
-            onClear={() => {
-              setSubSelected(null);
-              setSubQuery("");
-            }}
-            className="sm:w-full"
-          />
-        </div>
+      <SelectField label="How often does this sub service this account?" value={frequency} onChange={(e) => handleFrequencyChange(e.target.value)}>
+        <option value="">Select a frequency...</option>
+        {FREQUENCIES.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.label}
+          </option>
+        ))}
+      </SelectField>
 
-        <div className="mt-4">
-          <p className="text-sm font-bold text-slate-700">How often does this sub service this account?</p>
-          <select
-            value={frequency}
-            onChange={(e) => handleFrequencyChange(e.target.value)}
-            className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-600"
-          >
-            <option value="">Select a frequency...</option>
-            {FREQUENCIES.map((f) => (
-              <option key={f.id} value={f.id}>{f.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
-          <>
-            <div className="mt-4">
-              <p className="text-sm font-bold text-slate-700">Which day(s)?</p>
-              <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-7">
-                {DAYS.map((day) => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => toggleDay(day)}
-                    className={`rounded-2xl border px-2 py-3 text-center text-xs font-black transition ${
-                      selectedDays.includes(day)
-                        ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
-                    }`}
-                  >
-                    {day.slice(0, 3)}
-                  </button>
-                ))}
-              </div>
+      {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
+        <>
+          <div>
+            <p className="ui-label">Which day(s)?</p>
+            <div className="ui-chips" role="group" aria-label="Days of the week">
+              {DAYS.map((day) => (
+                <button key={day} type="button" onClick={() => toggleDay(day)} className="ui-chip" aria-pressed={selectedDays.includes(day)} aria-label={day}>
+                  {day.slice(0, 3)}
+                </button>
+              ))}
             </div>
-
-            {selectedDays.length > 0 && (
-              <div className="mt-4 space-y-3">
-                {selectedDays.map((day) => (
-                  <div key={day}>
-                    <p className="text-sm font-bold text-slate-700">Time window for {day}</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {TIME_WINDOWS.map((w) => (
-                        <button
-                          key={w.id}
-                          type="button"
-                          onClick={() => setWindowForDay(day, w.id)}
-                          className={`rounded-2xl border px-3 py-2 text-left transition ${
-                            dayWindows[day] === w.id
-                              ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
-                              : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
-                          }`}
-                        >
-                          <p className="text-sm font-black text-slate-900">{w.label}</p>
-                          <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {(frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") && (
-          <div className="mt-4 space-y-3">
-            <OccurrencePicker label={frequency === "MONTHLY_2X" ? "First visit" : "Which week and day?"} value={occurrence1} onChange={setOccurrence1} />
-            {frequency === "MONTHLY_2X" && (
-              <OccurrencePicker label="Second visit" value={occurrence2} onChange={setOccurrence2} />
-            )}
           </div>
-        )}
 
-        {frequency === "AS_NEEDED" && (
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
-            No recurring days needed — visits will be added one at a time as they come up.
-          </div>
-        )}
+          {selectedDays.map((day) => (
+            <div key={day}>
+              <p className="ui-label">Time window for {day}</p>
+              <TimeWindowChips label={`Time window for ${day}`} value={dayWindows[day] ?? ""} onChange={(id) => setWindowForDay(day, id)} />
+            </div>
+          ))}
+        </>
+      )}
 
-        {!adminName.trim() ? (
-          <p className="mt-4 text-xs font-semibold text-red-600">
-            Enter your name at the top of the page before creating a schedule.
-          </p>
-        ) : null}
+      {(frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") && (
+        <>
+          <OccurrencePicker label={frequency === "MONTHLY_2X" ? "First visit" : "Which week and day?"} value={occurrence1} onChange={setOccurrence1} />
+          {frequency === "MONTHLY_2X" && <OccurrencePicker label="Second visit" value={occurrence2} onChange={setOccurrence2} />}
+        </>
+      )}
 
-        {error ? (
-          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        ) : null}
+      {frequency === "AS_NEEDED" && <p className="ui-hint">No recurring days needed. Visits will be added one at a time as they come up.</p>}
 
-        <div className="mt-5 flex gap-3">
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className="flex-1 rounded-2xl bg-indigo-700 px-5 py-3 text-base font-black text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? "Saving..." : "Create Schedule"}
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-2xl border border-slate-300 px-5 py-3 text-sm font-black text-slate-700 hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
+      {!adminName.trim() ? <p className="ui-field-error">Enter your name at the top of the page before creating a schedule.</p> : null}
+
+      {error ? <ErrorBox title="The schedule was not created." text={error} /> : null}
+    </Sheet>
+  );
+}
+
+// The four time windows as big chips; each shows its hours.
+function TimeWindowChips({ label, value, onChange }: { label: string; value: string; onChange: (id: string) => void }) {
+  return (
+    <div className="ui-chips" role="group" aria-label={label}>
+      {TIME_WINDOWS.map((w) => (
+        <button key={w.id} type="button" onClick={() => onChange(w.id)} className="ui-chip" aria-pressed={value === w.id}>
+          {w.label} <span style={{ fontWeight: 500 }}>({w.hours})</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -361,47 +303,25 @@ function OccurrencePicker({
   onChange: (next: Occurrence) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
-      <p className="text-sm font-bold text-slate-700">{label}</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <select
-          value={value.position}
-          onChange={(e) => onChange({ ...value, position: e.target.value })}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600"
-        >
-          <option value="">Which week...</option>
-          {POSITIONS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <select
-          value={value.weekday}
-          onChange={(e) => onChange({ ...value, weekday: e.target.value })}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-600"
-        >
-          <option value="">Weekday...</option>
-          {DAYS.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {TIME_WINDOWS.map((w) => (
-          <button
-            key={w.id}
-            type="button"
-            onClick={() => onChange({ ...value, timeWindow: w.id })}
-            className={`rounded-2xl border px-3 py-2 text-left transition ${
-              value.timeWindow === w.id
-                ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
-                : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
-            }`}
-          >
-            <p className="text-sm font-black text-slate-900">{w.label}</p>
-            <p className="mt-0.5 text-xs text-slate-500">{w.hours}</p>
-          </button>
+    <fieldset className="ui-checks" style={{ gap: 12 }}>
+      <legend className="ui-label">{label}</legend>
+      <SelectField label="Which week" value={value.position} onChange={(e) => onChange({ ...value, position: e.target.value })}>
+        <option value="">Which week...</option>
+        {POSITIONS.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
         ))}
-      </div>
-    </div>
+      </SelectField>
+      <SelectField label="Weekday" value={value.weekday} onChange={(e) => onChange({ ...value, weekday: e.target.value })}>
+        <option value="">Weekday...</option>
+        {DAYS.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </SelectField>
+      <TimeWindowChips label={`Time window, ${label}`} value={value.timeWindow} onChange={(id) => onChange({ ...value, timeWindow: id })} />
+    </fieldset>
   );
 }

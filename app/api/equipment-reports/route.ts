@@ -2,7 +2,8 @@
 // history, ?staffId= for one person's. Names are resolved from the Sheets
 // Staff/Equipment tabs at read time (the table stores ids only).
 import { NextRequest, NextResponse } from "next/server";
-import { fetchStaff, fetchEquipmentList } from "@/lib/googleSheets";
+import { fetchEquipmentList } from "@/lib/data/equipment";
+import { fetchStaff } from "@/lib/data/people";
 import { listEquipmentReportsForEquipment, listEquipmentReportsForStaff } from "@/lib/equipmentCheckDb";
 import { listVehicles } from "@/lib/vehiclesDb";
 

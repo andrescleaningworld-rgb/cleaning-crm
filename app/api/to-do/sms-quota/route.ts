@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchLatestSmsQuota } from "@/lib/googleSheets";
+import { fetchLatestSmsQuota } from "@/lib/data/todos";
 import { SMS_LOW_QUOTA_THRESHOLD } from "@/lib/sms";
 
 // Backs the /to-do low-quota banner. Reads the most recent SmsLog row that

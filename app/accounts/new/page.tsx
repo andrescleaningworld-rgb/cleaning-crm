@@ -1,7 +1,7 @@
 "use client";
 
+import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, StatusPill, TextAreaField } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
@@ -261,7 +261,6 @@ export default function NewAccountPage() {
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [proximityAccounts, setProximityAccounts] = useState<ProximityAccount[]>([]);
 
@@ -463,7 +462,6 @@ export default function NewAccountPage() {
 
     try {
       setSaving(true);
-      setMessage("");
       setError("");
 
       if (!form.accountName.trim()) {
@@ -516,7 +514,8 @@ export default function NewAccountPage() {
         }
       }
 
-      setMessage(data.checklistFlagWarning || "Account saved successfully.");
+      // A "Checklist Needed" warning is not a failure: the account is saved.
+      showToast(data.checklistFlagWarning || "Account saved", data.checklistFlagWarning ? "bad" : "good");
 
       setTimeout(() => {
         router.push("/accounts");
@@ -532,471 +531,217 @@ export default function NewAccountPage() {
     }
   }
 
+  const sectionStyle = { display: "flex", flexDirection: "column", gap: 16, marginTop: 12 } as const;
+
   return (
-    <div>
-      <section className="rounded-3xl bg-white p-4 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700 sm:text-sm">
-              Cleaning World
-            </p>
+    <Screen
+      title="Add New Account"
+      subtitle="Use the full address in one field."
+      backHref="/accounts"
+      action={
+        <BigButton type="submit" form="new-account-form" busy={saving} busyLabel="Saving…">
+          Save account
+        </BigButton>
+      }
+      secondaryAction={
+        <BigButton kind="quiet" href="/accounts" disabled={saving}>
+          Cancel
+        </BigButton>
+      }
+    >
+      {error ? <ErrorBox title="The account was not saved." text={error} /> : null}
 
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
-              Add New Account
-            </h1>
+      <form id="new-account-form" onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Card title="Account Information">
+          <div style={sectionStyle}>
+            <Field
+              label="Account name"
+              value={form.accountName}
+              onChange={(event) => updateField("accountName", event.target.value)}
+              required
+            />
 
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-              Add a new account to the Cleaning World Operations & Quality
-              Management System. Use the full address in one field.
-            </p>
-          </div>
+            <SelectField label="Status" value={form.status} onChange={(event) => updateField("status", event.target.value)}>
+              <option>Active</option>
+              <option>Paused</option>
+              <option>Over 90 Days</option>
+              <option>Cancelled</option>
+            </SelectField>
 
-          <Link
-            href="/accounts"
-            className="rounded-2xl bg-slate-950 px-5 py-3 text-center text-sm font-black text-white shadow-sm no-underline hover:bg-blue-950"
-          >
-            Back to Accounts
-          </Link>
-        </div>
+            <Field
+              label="Account start date"
+              type="date"
+              optional
+              value={form.accountStartDate}
+              onChange={(event) => updateField("accountStartDate", event.target.value)}
+            />
 
-        {message ? (
-          <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-black text-emerald-700">
-            {message}
-          </div>
-        ) : null}
+            <SelectField label="Account health" value={form.accountHealth} onChange={(event) => updateField("accountHealth", event.target.value)}>
+              <option>Stable</option>
+              <option>Needs Attention</option>
+              <option>High Risk</option>
+            </SelectField>
 
-        {error ? (
-          <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-700">
-            {error}
-          </div>
-        ) : null}
-
-        <form onSubmit={handleSubmit} className="mt-6 space-y-6">
-          <div className="rounded-3xl border border-slate-200 p-5">
-            <h2 className="text-lg font-black text-slate-950">
-              Account Information
-            </h2>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Account Name *
-                </span>
-                <input
-                  value={form.accountName}
-                  onChange={(event) =>
-                    updateField("accountName", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                  required
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Status
-                </span>
-                <select
-                  value={form.status}
-                  onChange={(event) => updateField("status", event.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                >
-                  <option>Active</option>
-                  <option>Paused</option>
-                  <option>Over 90 Days</option>
-                  <option>Cancelled</option>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Account Start Date
-                </span>
-                <input
-                  type="date"
-                  value={form.accountStartDate}
-                  onChange={(event) =>
-                    updateField("accountStartDate", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Account Health
-                </span>
-                <select
-                  value={form.accountHealth}
-                  onChange={(event) =>
-                    updateField("accountHealth", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                >
-                  <option>Stable</option>
-                  <option>Needs Attention</option>
-                  <option>High Risk</option>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Portal Access
-                </span>
-                <select
-                  value={portalAccess}
-                  onChange={(event) =>
-                    setPortalAccess(event.target.value as "Yes" | "No")
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                >
-                  <option>Yes</option>
-                  <option>No</option>
-                </select>
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="text-sm font-black text-slate-700">
-                  Full Address
-                </span>
-                <GoogleAddressAutocompleteInput
-                  value={form.address}
-                  onChange={(value) => updateField("address", value)}
-                  onPlaceSelected={handlePlaceSelected}
-                  placeholder="Example: 1010 Kendal Way, Tarrytown, NY 10591, USA"
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-                <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                  Start typing and pick a suggestion, or paste the full address
-                  from Google Maps. City, state, and zip do not need to be
-                  entered separately.
-                </p>
-              </label>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 p-5">
-            <h2 className="text-lg font-black text-slate-950">
-              Assignment & Pricing
-            </h2>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Manager
-                </span>
-                <select
-                  value={form.manager}
-                  onChange={(event) =>
-                    updateField("manager", event.target.value)
-                  }
-                  disabled={loadingManagers}
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
-                >
-                  <option value="">
-                    {loadingManagers ? "Loading managers..." : "Select manager"}
-                  </option>
-
-                  {managerOptions.map((name) => (
-                    <option key={name} value={name}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Subcontractor
-                </span>
-                <select
-                  value={form.subcontractor}
-                  onChange={(event) =>
-                    updateField("subcontractor", event.target.value)
-                  }
-                  disabled={loadingSubcontractors}
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:text-sm"
-                >
-                  <option value="">
-                    {loadingSubcontractors
-                      ? "Loading subcontractors..."
-                      : "Select subcontractor"}
-                  </option>
-
-                  {subcontractorOptions.map((subcontractor) => (
-                    <option
-                      key={subcontractor.value}
-                      value={subcontractor.value}
-                    >
-                      {subcontractor.label}
-                    </option>
-                  ))}
-                </select>
-
-                {!loadingSubcontractors && subcontractorOptions.length === 0 ? (
-                  <p className="mt-2 text-xs font-semibold leading-5 text-red-500">
-                    No subcontractors were found. Add the subcontractor first
-                    from the Subcontractors page.
-                  </p>
-                ) : (
-                  <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
-                    Subcontractor must come from the existing subcontractor
-                    list.
-                  </p>
-                )}
-
-                {suggestedSubcontractor ? (
-                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-semibold leading-5 text-slate-500">
-                    <span>
-                      Suggested: {suggestedSubcontractor.name} —{" "}
-                      {suggestedSubcontractor.distanceLabel}, score{" "}
-                      {suggestedSubcontractor.scoreLabel}
-                    </span>
-                    {suggestedSubcontractor.isAtRisk ? (
-                      <span
-                        title="Below target score."
-                        className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-800"
-                      >
-                        ⚠ Below target
-                      </span>
-                    ) : null}
-                  </p>
-                ) : null}
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Monthly Revenue
-                </span>
-                <input
-                  value={form.monthlyRevenue}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setForm((current) => ({
-                      ...current,
-                      monthlyRevenue: value,
-                      monthlySubcontractorPay: subcontractorPayTouched
-                        ? current.monthlySubcontractorPay
-                        : computeSuggestedSubcontractorPay(value),
-                    }));
-                  }}
-                  placeholder="Example: 2500"
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Monthly Subcontractor Pay
-                </span>
-                <input
-                  value={form.monthlySubcontractorPay}
-                  onChange={(event) => {
-                    setSubcontractorPayTouched(true);
-                    updateField("monthlySubcontractorPay", event.target.value);
-                  }}
-                  placeholder="Example: 1800"
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 p-5">
-            <h2 className="text-lg font-black text-slate-950">
-              Customer Contact
-            </h2>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Contact Name
-                </span>
-                <input
-                  value={form.contactName}
-                  onChange={(event) =>
-                    updateField("contactName", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">Phone</span>
-                <input
-                  value={form.phone}
-                  onChange={(event) => updateField("phone", event.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">Email</span>
-                <input
-                  value={form.email}
-                  onChange={(event) => updateField("email", event.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 p-5">
-            <h2 className="text-lg font-black text-slate-950">
-              Service Details
-            </h2>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Service Type
-                </span>
-                <input
-                  value={form.serviceType}
-                  onChange={(event) =>
-                    updateField("serviceType", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Frequency
-                </span>
-                <input
-                  value={form.frequency}
-                  onChange={(event) =>
-                    updateField("frequency", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Cleaning Days
-                </span>
-                <input
-                  value={form.cleaningDays}
-                  onChange={(event) =>
-                    updateField("cleaningDays", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 p-5">
-            <h2 className="text-lg font-black text-slate-950">
-              Access, Scope & Notes
-            </h2>
-
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Has Key?
-                </span>
-                <select
-                  value={form.hasKey}
-                  onChange={(event) => updateField("hasKey", event.target.value)}
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                >
-                  <option value="">Select</option>
-                  <option>Yes</option>
-                  <option>No</option>
-                  <option>N/A</option>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Checklist Needed?
-                </span>
-                <select
-                  value={form.checklistNeeded}
-                  onChange={(event) =>
-                    updateField("checklistNeeded", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                >
-                  <option>No</option>
-                  <option>Yes</option>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="text-sm font-black text-slate-700">
-                  Alarm Code
-                </span>
-                <input
-                  value={form.alarmCode}
-                  onChange={(event) =>
-                    updateField("alarmCode", event.target.value)
-                  }
-                  className="mt-1 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="text-sm font-black text-slate-700">
-                  Key / Alarm / Access Info
-                </span>
-                <textarea
-                  value={form.keyAlarmAccessInfo}
-                  onChange={(event) =>
-                    updateField("keyAlarmAccessInfo", event.target.value)
-                  }
-                  rows={3}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="text-sm font-black text-slate-700">
-                  Scope of Work
-                </span>
-                <textarea
-                  value={form.scopeOfWork}
-                  onChange={(event) =>
-                    updateField("scopeOfWork", event.target.value)
-                  }
-                  rows={4}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="text-sm font-black text-slate-700">Notes</span>
-                <textarea
-                  value={form.notes}
-                  onChange={(event) => updateField("notes", event.target.value)}
-                  rows={4}
-                  className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold outline-none focus:border-blue-500 sm:text-sm"
-                />
-              </label>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Link
-              href="/accounts"
-              className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-center text-sm font-black text-slate-700 no-underline hover:bg-slate-50"
+            <SelectField
+              label="Portal access"
+              hint="Yes lets this customer use the customer portal."
+              value={portalAccess}
+              onChange={(event) => setPortalAccess(event.target.value as "Yes" | "No")}
             >
-              Cancel
-            </Link>
+              <option>Yes</option>
+              <option>No</option>
+            </SelectField>
 
-            <button
-              type="submit"
-              disabled={saving}
-              className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? "Saving..." : "Save Account"}
-            </button>
+            <label className="ui-field">
+              <span className="ui-label">
+                Full address <span className="ui-optional">(optional)</span>
+              </span>
+              <span className="ui-hint">
+                Start typing and pick a suggestion, or paste the full address from Google Maps. City, state, and zip do
+                not need to be entered separately.
+              </span>
+              <GoogleAddressAutocompleteInput
+                value={form.address}
+                onChange={(value) => updateField("address", value)}
+                onPlaceSelected={handlePlaceSelected}
+                placeholder="1010 Kendal Way, Tarrytown, NY 10591, USA"
+                className="ui-input"
+              />
+            </label>
           </div>
-        </form>
-      </section>
-    </div>
+        </Card>
+
+        <Card title="Assignment & Pricing">
+          <div style={sectionStyle}>
+            <SelectField
+              label="Manager"
+              optional
+              value={form.manager}
+              onChange={(event) => updateField("manager", event.target.value)}
+              disabled={loadingManagers}
+            >
+              <option value="">{loadingManagers ? "Loading managers…" : "Select manager"}</option>
+              {managerOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </SelectField>
+
+            <SelectField
+              label="Subcontractor"
+              optional
+              hint={
+                !loadingSubcontractors && subcontractorOptions.length === 0
+                  ? undefined
+                  : "Subcontractor must come from the existing subcontractor list."
+              }
+              error={
+                !loadingSubcontractors && subcontractorOptions.length === 0
+                  ? "No subcontractors were found. Add the subcontractor first from the Subcontractors page."
+                  : undefined
+              }
+              value={form.subcontractor}
+              onChange={(event) => updateField("subcontractor", event.target.value)}
+              disabled={loadingSubcontractors}
+            >
+              <option value="">{loadingSubcontractors ? "Loading subcontractors…" : "Select subcontractor"}</option>
+              {subcontractorOptions.map((subcontractor) => (
+                <option key={subcontractor.value} value={subcontractor.value}>
+                  {subcontractor.label}
+                </option>
+              ))}
+            </SelectField>
+
+            {suggestedSubcontractor ? (
+              <div className="ui-actions-row">
+                <span className="ui-muted">
+                  Suggested: {suggestedSubcontractor.name} — {suggestedSubcontractor.distanceLabel}, score{" "}
+                  {suggestedSubcontractor.scoreLabel}
+                </span>
+                {suggestedSubcontractor.isAtRisk ? <StatusPill kind="waiting">Below target score</StatusPill> : null}
+              </div>
+            ) : null}
+
+            <Field
+              label="Monthly revenue"
+              optional
+              inputMode="decimal"
+              placeholder="2500"
+              value={form.monthlyRevenue}
+              onChange={(event) => {
+                const value = event.target.value;
+                setForm((current) => ({
+                  ...current,
+                  monthlyRevenue: value,
+                  monthlySubcontractorPay: subcontractorPayTouched
+                    ? current.monthlySubcontractorPay
+                    : computeSuggestedSubcontractorPay(value),
+                }));
+              }}
+            />
+
+            <Field
+              label="Monthly subcontractor pay"
+              optional
+              hint="Filled in at 70% of the revenue until you type your own number."
+              inputMode="decimal"
+              placeholder="1800"
+              value={form.monthlySubcontractorPay}
+              onChange={(event) => {
+                setSubcontractorPayTouched(true);
+                updateField("monthlySubcontractorPay", event.target.value);
+              }}
+            />
+          </div>
+        </Card>
+
+        <Card title="Customer Contact">
+          <div style={sectionStyle}>
+            <Field label="Contact name" optional value={form.contactName} onChange={(event) => updateField("contactName", event.target.value)} />
+            <Field label="Phone" optional inputMode="tel" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
+            <Field label="Email" optional inputMode="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} />
+          </div>
+        </Card>
+
+        <Card title="Service Details">
+          <div style={sectionStyle}>
+            <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
+            <Field label="Frequency" optional value={form.frequency} onChange={(event) => updateField("frequency", event.target.value)} />
+            <Field label="Cleaning days" optional value={form.cleaningDays} onChange={(event) => updateField("cleaningDays", event.target.value)} />
+          </div>
+        </Card>
+
+        <Card title="Access, Scope & Notes">
+          <div style={sectionStyle}>
+            <SelectField label="Has key?" optional value={form.hasKey} onChange={(event) => updateField("hasKey", event.target.value)}>
+              <option value="">Select</option>
+              <option>Yes</option>
+              <option>No</option>
+              <option>N/A</option>
+            </SelectField>
+
+            <SelectField label="Checklist needed?" value={form.checklistNeeded} onChange={(event) => updateField("checklistNeeded", event.target.value)}>
+              <option>No</option>
+              <option>Yes</option>
+            </SelectField>
+
+            <Field label="Alarm code" optional value={form.alarmCode} onChange={(event) => updateField("alarmCode", event.target.value)} />
+
+            <TextAreaField
+              label="Key / Alarm / Access Info"
+              optional
+              rows={3}
+              value={form.keyAlarmAccessInfo}
+              onChange={(event) => updateField("keyAlarmAccessInfo", event.target.value)}
+            />
+
+            <TextAreaField label="Scope of work" optional rows={4} value={form.scopeOfWork} onChange={(event) => updateField("scopeOfWork", event.target.value)} />
+
+            <TextAreaField label="Notes" optional rows={4} value={form.notes} onChange={(event) => updateField("notes", event.target.value)} />
+          </div>
+        </Card>
+      </form>
+    </Screen>
   );
 }

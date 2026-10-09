@@ -271,11 +271,11 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
   const weekLabel = `${formatDateLabel(toISO(weekDates[0]))} – ${formatDateLabel(toISO(weekDates[6]))}`;
 
   return (
-    <section className="mt-5 rounded-3xl border border-indigo-200 bg-white p-5 shadow-sm">
+    <section className="ui-card">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-black text-slate-900">My Calendar</h2>
-          <p className="mt-1 text-sm leading-5 text-slate-600">
+          <h2 className="ui-card-title">My Calendar</h2>
+          <p className="ui-muted">
             Read-only view of your accounts by day. Contact the office for any changes.
           </p>
         </div>
@@ -283,33 +283,33 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
           <button
             type="button"
             onClick={() => setWeekOffset((w) => w - 1)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+            className="ui-btn ui-btn-second"
           >
             ← Prev
           </button>
           <button
             type="button"
             onClick={() => setWeekOffset(0)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black uppercase text-slate-500 hover:bg-slate-50"
+            className="ui-btn ui-btn-second"
           >
             This Week
           </button>
           <button
             type="button"
             onClick={() => setWeekOffset((w) => w + 1)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 hover:bg-slate-50"
+            className="ui-btn ui-btn-second"
           >
             Next →
           </button>
         </div>
       </div>
 
-      <p className="mt-3 text-sm font-bold text-slate-700">Week of {weekLabel}</p>
+      <p className="ui-strong">Week of {weekLabel}</p>
 
       {loading ? (
-        <p className="mt-4 text-sm text-slate-500">Loading your calendar...</p>
+        <p className="ui-muted">Loading your calendar...</p>
       ) : error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <div className="ui-field-error">
           {error}
         </div>
       ) : (
@@ -327,24 +327,24 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
                   isToday ? "border-indigo-400 bg-indigo-50/40" : "border-slate-200 bg-white"
                 }`}
               >
-                <p className="text-xs font-black uppercase tracking-wide text-slate-500">{dayName(d)}</p>
-                <p className="text-sm font-bold text-slate-800">{formatDateLabel(dateKey)}</p>
+                <p className="ui-muted">{dayName(d)}</p>
+                <p className="ui-strong">{formatDateLabel(dateKey)}</p>
 
                 <div className="mt-2 space-y-1.5">
                   {occurrences.length === 0 ? (
-                    <p className="text-xs text-slate-400">No accounts</p>
+                    <p className="ui-muted">No accounts</p>
                   ) : (
                     occurrences.map((occ, i) => (
                       <div key={i} className={`rounded-xl border px-2 py-1.5 ${KIND_STYLE[occ.kind]}`}>
-                        <p className="text-xs font-black">{nameFor(occ.accountId)}</p>
-                        <p className="text-[11px] font-semibold">{occ.timeWindow}</p>
+                        <p className="ui-strong">{nameFor(occ.accountId)}</p>
+                        <p className="ui-strong">{occ.timeWindow}</p>
                         {occ.kind === "oneoff" && (
-                          <p className="mt-0.5 text-[10px] font-bold uppercase text-amber-700">
+                          <p className="ui-strong">
                             One-off, unconfirmed — check with admin
                           </p>
                         )}
                         {occ.kind === "rescheduled-in" && (
-                          <p className="mt-0.5 text-[10px] font-bold uppercase text-purple-700">
+                          <p className="ui-strong">
                             Rescheduled {occ.note}
                           </p>
                         )}
@@ -356,7 +356,7 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
                 {notes.length > 0 && (
                   <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
                     {notes.map((note, i) => (
-                      <p key={i} className="text-[11px] text-slate-500">
+                      <p key={i} className="ui-muted">
                         {note}
                       </p>
                     ))}

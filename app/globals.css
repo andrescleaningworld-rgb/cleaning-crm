@@ -486,3 +486,1585 @@ img {
     text-align: right;
   }
 }
+/* ==========================================================================
+   UI kit (app/ui/*) — migration redesign, Part B of docs/MIGRATION_PLAN.md.
+   Additive: every token is --ui-* and every class is .ui-*, so pages that
+   have not been redesigned yet look exactly as before.
+   Rules: one main action per screen, 18px body, 48px tap targets (56px for
+   the main button), status = color + word + icon, phone first.
+   ========================================================================== */
+
+:root {
+  --ui-paper: #f6fafe;
+  --ui-surface: #ffffff;
+  --ui-surface-2: #eef4fb;
+  --ui-ink: #10233f;
+  --ui-muted: #52627a;
+  --ui-line: #c9d6e4;
+  --ui-line-soft: #e3ebf4;
+
+  --ui-brand: #0059b3;
+  --ui-brand-ink: #003b7a;
+  --ui-brand-soft: #e8f2ff;
+
+  --ui-good: #147a52;
+  --ui-good-soft: #e3f6ed;
+  --ui-warn: #8a5300;
+  --ui-warn-soft: #fdf0dc;
+  --ui-bad: #b3261e;
+  --ui-bad-soft: #fce7e5;
+  --ui-off: #52627a;
+  --ui-off-soft: #eceff3;
+
+  --ui-shadow: 0 1px 2px rgba(16, 35, 63, 0.05), 0 8px 24px rgba(16, 35, 63, 0.07);
+  --ui-r-control: 12px;
+  --ui-r-panel: 18px;
+  --ui-r-pill: 999px;
+
+  --ui-tap: 48px;
+  --ui-tap-main: 56px;
+  --ui-gap: 16px;
+  --ui-font: ui-rounded, "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+}
+
+.ui-screen {
+  font-family: var(--ui-font);
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ui-ink);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-gap);
+  min-width: 0;
+}
+
+.ui-screen *:focus-visible {
+  outline: 3px solid var(--ui-brand);
+  outline-offset: 2px;
+}
+
+.ui-screen-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  background: var(--ui-surface);
+  border-bottom: 1px solid var(--ui-line-soft);
+}
+
+.ui-screen-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-screen-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.ui-screen-subtitle {
+  margin: 2px 0 0;
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+.ui-screen-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-gap);
+  min-width: 0;
+}
+
+/* The one main action: full width at the bottom on a phone, bottom-right on desktop. */
+.ui-actionbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0, var(--ui-surface) 14px);
+}
+
+.ui-actionbar .ui-btn {
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .ui-screen-title {
+    font-size: 28px;
+  }
+  .ui-actionbar {
+    flex-direction: row-reverse;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .ui-actionbar .ui-btn {
+    width: auto;
+    min-width: 180px;
+  }
+}
+
+/* Buttons */
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--ui-tap);
+  padding: 8px 20px;
+  border-radius: var(--ui-r-control);
+  border: 2px solid transparent;
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.12s ease, transform 0.06s ease;
+}
+
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.ui-btn:disabled,
+.ui-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ui-btn-main {
+  min-height: var(--ui-tap-main);
+  background: var(--ui-brand);
+  color: #ffffff;
+  font-size: 20px;
+}
+
+.ui-btn-main:hover:not(:disabled) {
+  background: var(--ui-brand-ink);
+}
+
+.ui-btn-second {
+  background: var(--ui-surface);
+  color: var(--ui-brand-ink);
+  border-color: var(--ui-brand);
+}
+
+.ui-btn-second:hover:not(:disabled) {
+  background: var(--ui-brand-soft);
+}
+
+.ui-btn-danger {
+  min-height: var(--ui-tap-main);
+  background: var(--ui-bad);
+  color: #ffffff;
+}
+
+.ui-btn-quiet {
+  background: transparent;
+  color: var(--ui-brand-ink);
+}
+
+.ui-btn-quiet:hover:not(:disabled) {
+  background: var(--ui-surface-2);
+}
+
+.ui-btn-icon {
+  width: var(--ui-tap);
+  min-width: var(--ui-tap);
+  padding: 0;
+}
+
+.ui-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+}
+
+/* Fields */
+.ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ui-label {
+  font-weight: 700;
+}
+
+.ui-optional {
+  font-weight: 400;
+  color: var(--ui-muted);
+}
+
+.ui-hint {
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+.ui-input {
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 10px 14px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+}
+
+textarea.ui-input {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.ui-input[aria-invalid="true"] {
+  border-color: var(--ui-bad);
+  background: var(--ui-bad-soft);
+}
+
+.ui-field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-bad);
+}
+
+/* Cards and lists */
+.ui-card {
+  display: block;
+  width: 100%;
+  padding: 16px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  min-width: 0;
+}
+
+a.ui-card,
+button.ui-card {
+  cursor: pointer;
+  min-height: var(--ui-tap);
+}
+
+a.ui-card:hover,
+button.ui-card:hover {
+  border-color: var(--ui-brand);
+}
+
+.ui-card-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ui-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ui-card-text {
+  margin: 4px 0 0;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
+.ui-cardlist {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* CardList with columns: cards on a phone, a table from 900px up. */
+.ui-table-wrap {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .ui-cardlist-has-table {
+    display: none;
+  }
+  .ui-table-wrap {
+    display: block;
+    border: 1px solid var(--ui-line);
+    border-radius: var(--ui-r-panel);
+    background: var(--ui-surface);
+    /* Not overflow: hidden — a More menu in the last row must be able to hang out of the table. */
+  }
+  .ui-table thead th:first-child {
+    border-top-left-radius: calc(var(--ui-r-panel) - 1px);
+  }
+  .ui-table thead th:last-child {
+    border-top-right-radius: calc(var(--ui-r-panel) - 1px);
+  }
+}
+
+.ui-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ui-table th,
+.ui-table td {
+  padding: 8px 16px;
+  text-align: left;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--ui-line-soft);
+}
+
+.ui-table th {
+  font-size: 16px;
+  color: var(--ui-muted);
+  background: var(--ui-surface-2);
+}
+
+.ui-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ui-table-rowlink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ui-tap);
+  min-width: var(--ui-tap);
+  color: var(--ui-brand-ink);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.ui-table-rowlink:hover {
+  text-decoration: underline;
+}
+
+/* Status = color + word + icon */
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 8px;
+  border-radius: var(--ui-r-pill);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.ui-pill .ui-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.ui-pill-done {
+  background: var(--ui-good-soft);
+  color: var(--ui-good);
+}
+
+.ui-pill-waiting {
+  background: var(--ui-warn-soft);
+  color: var(--ui-warn);
+}
+
+.ui-pill-needs-you {
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+}
+
+.ui-pill-off {
+  background: var(--ui-off-soft);
+  color: var(--ui-off);
+}
+
+/* Search and filter chips */
+.ui-search {
+  position: relative;
+}
+
+.ui-search .ui-input {
+  padding-left: 46px;
+  padding-right: 52px;
+}
+
+/* The kit has its own clear button; hide the browser's second one. */
+.ui-search .ui-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+
+.ui-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ui-muted);
+  pointer-events: none;
+}
+
+.ui-search-clear {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+}
+
+.ui-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ui-chip {
+  min-height: var(--ui-tap);
+  padding: 8px 18px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ui-chip[aria-pressed="true"] {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand);
+  color: #ffffff;
+}
+
+/* Tabs */
+.ui-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  border-bottom: 2px solid var(--ui-line-soft);
+}
+
+.ui-tab {
+  min-height: var(--ui-tap);
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 4px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  color: var(--ui-muted);
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-tab[aria-selected="true"] {
+  color: var(--ui-brand-ink);
+  border-bottom-color: var(--ui-brand);
+}
+
+/* Save status, toast, error box */
+.ui-savestatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-weight: 700;
+}
+
+.ui-savestatus-saving {
+  color: var(--ui-muted);
+}
+
+.ui-savestatus-saved {
+  color: var(--ui-good);
+}
+
+.ui-errorbox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 2px solid var(--ui-bad);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-bad-soft);
+  color: var(--ui-ink);
+}
+
+.ui-errorbox-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-weight: 800;
+  color: var(--ui-bad);
+}
+
+.ui-errorbox p {
+  margin: 0;
+}
+
+.ui-toast-region {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 88px;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.ui-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 14px 20px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-good);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: var(--ui-shadow);
+}
+
+.ui-toast-bad {
+  background: var(--ui-bad);
+}
+
+.ui-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ui-spin 0.8s linear infinite;
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Empty state */
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 16px;
+  border: 2px dashed var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  text-align: center;
+}
+
+.ui-empty-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--ui-muted);
+}
+
+.ui-empty-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.ui-empty-text {
+  margin: 0;
+  color: var(--ui-muted);
+}
+
+/* Skeleton */
+.ui-skeleton {
+  display: block;
+  border-radius: var(--ui-r-control);
+  background: linear-gradient(90deg, var(--ui-surface-2) 25%, var(--ui-line-soft) 37%, var(--ui-surface-2) 63%);
+  background-size: 400% 100%;
+  animation: ui-shimmer 1.4s ease infinite;
+}
+
+@keyframes ui-shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+/* Confirm sheet: bottom sheet on a phone, centered box on desktop */
+.ui-sheet {
+  width: 100%;
+  max-width: 100%;
+  margin: auto 0 0;
+  padding: 24px 16px;
+  border: 0;
+  border-radius: var(--ui-r-panel) var(--ui-r-panel) 0 0;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font-family: var(--ui-font);
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.ui-sheet::backdrop {
+  background: rgba(16, 35, 63, 0.55);
+}
+
+.ui-sheet-title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ui-sheet-text {
+  margin: 0 0 20px;
+}
+
+.ui-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ui-sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-gap);
+  margin-bottom: 20px;
+  min-width: 0;
+}
+
+.ui-sheet-form {
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+
+.ui-list-plain {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-list-plain > li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--ui-line-soft);
+}
+
+.ui-list-plain > li:last-child {
+  border-bottom: 0;
+}
+
+.ui-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-strong {
+  margin: 0;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.ui-muted {
+  margin: 0;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
+.ui-sheet *:focus-visible {
+  outline: 3px solid var(--ui-brand);
+  outline-offset: 2px;
+}
+
+@media (min-width: 640px) {
+  .ui-sheet-form {
+    width: 560px !important;
+  }
+  .ui-sheet {
+    width: 480px;
+    margin: auto;
+    padding: 28px;
+    border-radius: var(--ui-r-panel);
+  }
+  .ui-sheet-actions {
+    flex-direction: row-reverse;
+  }
+}
+
+/* Stepper */
+.ui-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ui-stepper-count {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-muted);
+}
+
+.ui-stepper-bar {
+  display: flex;
+  gap: 6px;
+}
+
+.ui-stepper-dot {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-line-soft);
+}
+
+.ui-stepper-dot-done {
+  background: var(--ui-good);
+}
+
+.ui-stepper-dot-now {
+  background: var(--ui-brand);
+}
+
+/* More menu */
+.ui-more {
+  position: relative;
+}
+
+.ui-more-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  min-width: 240px;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow);
+}
+
+.ui-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--ui-r-control);
+  background: transparent;
+  color: var(--ui-ink);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-more-item:hover {
+  background: var(--ui-surface-2);
+}
+
+.ui-more-item-danger {
+  color: var(--ui-bad);
+}
+
+/* Pickers and photos */
+.ui-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.ui-picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 10px 14px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-picker-option[aria-pressed="true"] {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+  font-weight: 800;
+}
+
+.ui-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.ui-photo {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--ui-r-control);
+  overflow: hidden;
+  background: var(--ui-surface-2);
+}
+
+.ui-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ui-photo-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: rgba(16, 35, 63, 0.72);
+  color: #ffffff;
+  border-radius: 0 0 0 var(--ui-r-control);
+}
+
+.ui-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--ui-line);
+  background: transparent;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.ui-thumb-empty .ui-hint {
+  font-size: 13px;
+}
+
+/* Number tiles: 2 across on a phone, 4 across on a wide screen. */
+.ui-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 900px) {
+  .ui-stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.ui-stat {
+  padding: 14px 16px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  min-width: 0;
+}
+
+.ui-stat-label {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+.ui-stat-value {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+/* Label / value pairs: one column on a phone, two on a wide screen. */
+.ui-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 24px;
+  margin: 12px 0;
+}
+
+@media (min-width: 640px) {
+  .ui-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ui-detail-full {
+    grid-column: 1 / -1;
+  }
+}
+
+.ui-detail dt {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-muted);
+}
+
+.ui-detail dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* A group of tick boxes: each row is one 48px tap target. */
+.ui-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.ui-checks legend {
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.ui-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--ui-tap);
+  padding: 4px 12px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  cursor: pointer;
+}
+
+.ui-check input {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  accent-color: var(--ui-brand);
+}
+
+/* A link inside text, still a full-size tap target. */
+.ui-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ui-tap);
+  min-width: var(--ui-tap);
+  color: var(--ui-brand-ink);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+/* Search box with its Search button: stacked on a phone, side by side when wide. */
+.ui-searchrow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .ui-searchrow {
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .ui-searchrow > .ui-search {
+    flex: 1;
+  }
+}
+
+/* A stack of things inside a card. */
+.ui-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-gap);
+  margin-top: 12px;
+  min-width: 0;
+}
+
+/* Two panels: one above the other on a phone, side by side when wide. */
+.ui-two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ui-gap);
+  align-items: start;
+}
+
+@media (min-width: 1100px) {
+  .ui-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Nothing inside a screen may push it wider than the phone: wide things
+   (tables) scroll inside their own box instead. */
+.ui-screen > *,
+.ui-screen-body > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* To-Do page: tick boxes big enough to hit, and the status buttons in a row that wraps. */
+.todo-page-content input[type="checkbox"],
+.todo-visit-modal input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  accent-color: var(--ui-brand);
+}
+
+/* Printing. The app hides everything on paper (body * { visibility: hidden })
+   and each page opts its printable part back in. Wrap that part in
+   .ui-print-view; buttons inside it are left out. */
+@media print {
+  .ui-print-view,
+  .ui-print-view * {
+    visibility: visible;
+  }
+
+  .ui-print-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    background: #fff;
+  }
+
+  .ui-print-view .ui-btn,
+  .ui-print-view .ui-more,
+  .ui-print-view .ui-search,
+  .ui-print-view .no-print {
+    display: none !important;
+  }
+}
+
+/* Calendar pieces (Sub Schedules → Full Calendar). */
+.ui-wide-only {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .ui-wide-only {
+    display: block;
+  }
+
+  .ui-narrow-only {
+    display: none;
+  }
+}
+
+.ui-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.ui-cal-dow {
+  padding: 4px 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ui-muted);
+}
+
+.ui-cal-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 96px;
+  padding: 6px;
+  border: 2px solid var(--ui-line-soft);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+}
+
+.ui-cal-cell > p {
+  margin: 0;
+}
+
+.ui-cal-cell-today {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+}
+
+/* One scheduled visit: a button that jumps to that account's schedules. */
+.ui-visit {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-tap);
+  padding: 6px 10px;
+  border: 2px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-visit:hover {
+  border-color: var(--ui-brand);
+}
+
+.ui-visit > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-week {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 1100px) {
+  .ui-week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+  }
+}
+
+/* The list that drops under a search-and-pick field. */
+.ui-autocomplete-list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  margin-top: 4px;
+  background: var(--ui-surface);
+  border-radius: var(--ui-r-control);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+/* Small read-only tags (towns, zip codes). Not buttons. */
+.ui-taglist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-tag {
+  padding: 4px 12px;
+  border: 2px solid var(--ui-line-soft);
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-surface);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* A tag or name that matches the search: darker border, bold, and an underline (not color alone). */
+.ui-tag-match {
+  border-color: var(--ui-brand);
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+.ui-match {
+  color: var(--ui-brand-ink);
+  text-decoration: underline;
+}
+
+/* Three panels: stacked on a phone, side by side when wide. */
+.ui-three {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ui-gap);
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .ui-three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* A long list kept to a fixed height with its own scroll. */
+.ui-scrollbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ui-scrollbox > * {
+  flex-shrink: 0;
+}
+
+/* Two tiles side by side inside a narrow panel. */
+.ui-stats-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ui-nowrap {
+  white-space: nowrap;
+}
+
+/* Two lines at most, for long text in table cells. */
+.ui-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 44ch;
+}
+
+.ui-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-skeleton,
+  .ui-spinner {
+    animation: none;
+  }
+  .ui-btn {
+    transition: none;
+  }
+}
+
+/* A code a person copies or reads out (portal code): its own font, never cut. */
+.ui-code-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ui-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+/* Customer portal: logo line on the login screen. */
+.ui-portal-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ui-portal-brand img {
+  border-radius: var(--ui-r-control);
+}
+
+/* Customer portal: one month at a glance. Seven columns that always fit a phone. */
+.ui-mini-cal {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.ui-mini-cal-dow {
+  padding: 4px 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ui-muted);
+  overflow: hidden;
+}
+
+.ui-mini-cal-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-radius: var(--ui-r-control);
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+/* A day with a visit: tinted, bold and a dot (not color alone). */
+.ui-mini-cal-visit {
+  background: var(--ui-brand-soft);
+  color: var(--ui-brand-ink);
+  font-weight: 800;
+}
+
+.ui-mini-cal-today {
+  outline: 2px solid var(--ui-brand);
+  outline-offset: -2px;
+}
+
+.ui-mini-cal-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-brand);
+}
+
+.ui-mini-cal-day > .ui-mini-cal-dot {
+  position: absolute;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+}
+
+.ui-mini-cal-dot-morning {
+  background: #b7791f;
+}
+
+.ui-mini-cal-dot-midday {
+  background: var(--ui-good);
+}
+
+.ui-mini-cal-dot-afternoon {
+  background: #c05621;
+}
+
+.ui-mini-cal-dot-evening {
+  background: #6b46c1;
+}
+
+.ui-mini-cal-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+
+/* Older customer portal: the round mark above a title (logo letters, a tick). */
+.ui-portal-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-brand-soft);
+  color: var(--ui-brand-ink);
+  font-size: 28px;
+}
+
+/* A choice with a picture that can be switched on and off (specialty services). */
+.ui-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 12px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-pick-on {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+}
+
+.ui-pick-img {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--ui-r-control);
+  object-fit: cover;
+}
+
+.ui-pick-img-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ui-off-soft);
+}
+
+/* The tick of a choice: an empty ring when off, a filled one with a tick when on. */
+.ui-pick-mark {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-pill);
+  color: transparent;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.ui-pick-on .ui-pick-mark {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand);
+  color: #fff;
+}
+
+/* A card whose contents are spaced out: the card itself keeps the list spacing. */
+.ui-card.ui-stack {
+  margin-top: 0;
+  gap: 12px;
+}
+
+/* Kit text placed on a dark banner takes the banner's own (light) text color. */
+.ui-on-dark .ui-muted,
+.ui-on-dark .ui-strong,
+.ui-on-dark .ui-screen-title,
+.ui-on-dark .ui-card-title,
+.ui-on-dark .ui-label {
+  color: inherit;
+}
+
+/* Customer portal home: big buttons, one tap each. One column on a phone, two when wide. */
+.ui-tiles {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (min-width: 700px) {
+  .ui-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.ui-tile {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 88px;
+  padding: 16px 20px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-shadow);
+  color: var(--ui-ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-tile:hover,
+.ui-tile[aria-current="true"] {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand-soft);
+}
+
+.ui-tile:disabled {
+  opacity: 0.6;
+}
+
+.ui-tile-icon {
+  flex-shrink: 0;
+  font-size: 36px;
+  line-height: 1;
+}
+
+.ui-tile-words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-tile-label {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.ui-tile-detail {
+  font-size: 18px;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The screen after a request: one big "Sent". */
+.ui-sent {
+  padding: 32px 20px;
+  border: 2px solid var(--ui-good);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-good-soft);
+  text-align: center;
+}
+
+.ui-sent-title {
+  margin: 0;
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--ui-good);
+}
+
+.ui-sent-text {
+  margin: 12px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+/* A password box with its show / hide button beside it. */
+.ui-password {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ui-password > .ui-input {
+  flex: 1;
+  min-width: 0;
+}

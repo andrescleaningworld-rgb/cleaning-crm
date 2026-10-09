@@ -18,7 +18,7 @@ export const EQUIPMENT_REPORT_CAUTION =
 
 export function EquipmentReportCaution() {
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-base font-semibold text-amber-900">
       ⚠️ {EQUIPMENT_REPORT_CAUTION}
     </div>
   );
@@ -55,7 +55,7 @@ type ReportRow = {
 
 function ConditionBadge({ condition }: { condition: Condition }) {
   return (
-    <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${CONDITION_BADGE[condition]}`}>
+    <span className={`rounded-full border px-2 py-1 text-base font-semibold ${CONDITION_BADGE[condition]}`}>
       {CONDITION_LABEL[condition]}
     </span>
   );
@@ -92,7 +92,7 @@ function ReportList({ reports, show }: { reports: ReportRow[]; show: "staff" | "
     <ul className="divide-y divide-gray-100">
       {reports.map((r) => (
         <li key={r.id} className="py-3">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-base">
             <ConditionBadge condition={r.condition} />
             <span className="font-semibold text-gray-900">
               {show === "staff" ? r.staffName : `${r.equipmentName}${r.equipmentTag ? ` (${r.equipmentTag})` : ""}`}
@@ -100,7 +100,7 @@ function ReportList({ reports, show }: { reports: ReportRow[]; show: "staff" | "
             <span className="text-gray-500">{new Date(r.createdAt).toLocaleString()}</span>
           </div>
           {r.notesOriginal && (
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-base text-gray-700">
               <TranslatedText original={r.notesOriginal} english={r.notesEnglish} language={r.notesLang} />
             </p>
           )}
@@ -129,14 +129,14 @@ export function EquipmentItemReports({ equipmentId }: { equipmentId: string }) {
     <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
       <h2 className="mb-3 text-xl font-bold text-gray-900">Tablet Reports</h2>
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</div>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-base font-semibold text-red-700">{error}</div>
       ) : reports === null ? (
         <div className="p-4 text-center text-gray-600">Loading...</div>
       ) : reports.length === 0 ? (
         <div className="p-4 text-center text-gray-600">No tablet reports yet.</div>
       ) : (
         <>
-          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-base">
             <span className="text-gray-500">Last reported by</span>
             <span className="font-semibold text-gray-900">{last!.staffName}</span>
             <ConditionBadge condition={last!.condition} />
@@ -153,9 +153,9 @@ export function EquipmentItemReports({ equipmentId }: { equipmentId: string }) {
 // §7 — one staff member's report history (expanded under their Staff row).
 export function StaffEquipmentReports({ staffId }: { staffId: string }) {
   const { reports, error } = useEquipmentReports({ staffId });
-  if (error) return <div className="text-sm font-semibold text-red-700">{error}</div>;
-  if (reports === null) return <div className="text-sm text-gray-600">Loading...</div>;
-  if (reports.length === 0) return <div className="text-sm text-gray-600">No tablet reports from this person yet.</div>;
+  if (error) return <div className="text-base font-semibold text-red-700">{error}</div>;
+  if (reports === null) return <div className="text-base text-gray-600">Loading...</div>;
+  if (reports.length === 0) return <div className="text-base text-gray-600">No tablet reports from this person yet.</div>;
   return (
     <div className="space-y-2">
       <EquipmentReportCaution />
@@ -227,7 +227,7 @@ export function SetUpTabletButton({ big = false }: { big?: boolean } = {}) {
         className={
           big
             ? "flex min-h-[64px] items-center justify-center gap-3 rounded-2xl bg-blue-700 px-5 text-xl font-bold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
-            : "rounded-lg bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
+            : "rounded-lg bg-blue-700 px-5 py-3 text-base font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60"
         }
       >
         {big ? (
@@ -237,17 +237,17 @@ export function SetUpTabletButton({ big = false }: { big?: boolean } = {}) {
         ) : null}
         Set up a tablet
       </button>
-      {error && <span className="text-xs font-semibold text-red-700">{error}</span>}
+      {error && <span className="text-base font-semibold text-red-700">{error}</span>}
 
       {open && linkUrl && (
         <SharePanel title="Set up a tablet" url={linkUrl} onClose={() => setOpen(false)}>
-          <a href={mailto} className="mt-3 inline-block rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+          <a href={mailto} className="mt-3 inline-block rounded-lg border border-gray-300 min-h-[48px] px-4 py-2 text-base font-semibold text-gray-700 hover:bg-gray-50">
             Email link
           </a>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             {(["en", "es"] as const).map((lang) => (
-              <div key={lang} className="rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
+              <div key={lang} className="rounded-lg bg-gray-50 p-3 text-base text-gray-800">
                 <p className="mb-1 font-semibold">{INSTALL_STEPS[lang].title}</p>
                 {INSTALL_STEPS[lang].all.map((step) => (
                   <p key={step}>{step}</p>
@@ -257,7 +257,7 @@ export function SetUpTabletButton({ big = false }: { big?: boolean } = {}) {
           </div>
 
           <div className="mt-5 border-t border-gray-100 pt-3 text-right">
-            <button type="button" onClick={newLink} className="text-xs font-semibold text-gray-500 hover:underline">
+            <button type="button" onClick={newLink} className="text-base font-semibold text-gray-500 hover:underline">
               Make a new link (old one stops working)
             </button>
           </div>
@@ -387,8 +387,8 @@ export function StaffPinControls({
 
   const linkClass = big
     ? "self-start min-h-[48px] rounded-xl border-2 border-gray-300 bg-white px-4 text-lg font-bold text-blue-700 hover:bg-gray-50 disabled:opacity-60"
-    : "self-start text-xs font-semibold text-blue-700 hover:underline disabled:opacity-60";
-  const textSize = big ? "text-lg" : "text-xs";
+    : "self-start text-base font-semibold text-blue-700 hover:underline disabled:opacity-60";
+  const textSize = big ? "text-lg" : "text-base";
 
   const linkUrl = linkPath && typeof window !== "undefined" ? `${window.location.origin}${linkPath}` : "";
   const reportsButton = (
@@ -441,7 +441,7 @@ export function StaffPinControls({
           className={
             big
               ? "self-start min-h-[56px] rounded-xl bg-blue-700 px-5 text-lg font-bold text-white hover:bg-blue-800 disabled:opacity-60"
-              : "self-start rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
+              : "self-start rounded-lg bg-blue-700 px-3 py-1.5 text-base font-semibold text-white hover:bg-blue-800 disabled:opacity-60"
           }
         >
           {saving ? "Allowing…" : "Allow PIN setup"}

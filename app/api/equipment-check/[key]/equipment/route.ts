@@ -4,7 +4,7 @@
 // active vehicle (Postgres) as id "vehicle:<n>", tag = plate, kind
 // "vehicle" and its last mileage (the tablet asks for mileage first).
 import { NextRequest, NextResponse } from "next/server";
-import { fetchEquipmentList } from "@/lib/googleSheets";
+import { fetchEquipmentList } from "@/lib/data/equipment";
 import { listVehicles } from "@/lib/vehiclesDb";
 import { requireEquipmentCheckSession, startEquipmentCheckSession } from "@/lib/equipmentCheckSession";
 

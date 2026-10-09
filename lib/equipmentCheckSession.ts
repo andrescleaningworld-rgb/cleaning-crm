@@ -12,7 +12,7 @@
 import { getIronSession, type SessionOptions } from "iron-session";
 import { NextResponse, type NextRequest } from "next/server";
 import { checkEquipmentCheckLinkKey } from "@/lib/equipmentCheckDb";
-import { getStaffById } from "@/lib/googleSheets";
+import { getStaffById } from "@/lib/data/people";
 import type { Staff } from "@/app/equipment/types";
 
 export interface EquipmentCheckSessionData {

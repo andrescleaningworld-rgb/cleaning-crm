@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIronSession } from "iron-session";
-import { cookies } from "next/headers";
-import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { appendToSheet } from "@/lib/googleSheets";
+import { requirePortalAccount } from "@/lib/portalAuth";
+import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
-  const session = await getIronSession<PortalSessionData>(await cookies(), sessionOptions());
-  if (!session.accountId) {
+  const session = await requirePortalAccount();
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -28,7 +26,7 @@ export async function POST(request: NextRequest) {
   const today = new Date().toLocaleDateString("en-US");
 
   try {
-    await appendToSheet("portal-date-changes", [
+    await appendPortalRequest("portal-date-changes", [
       session.accountId,
       session.accountName ?? "",
       today,

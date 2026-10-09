@@ -4,7 +4,7 @@ import {
   logSubcontractorVisit,
   updateSubcontractorVisit,
   deleteSubcontractorVisit,
-} from "@/lib/googleSheets";
+} from "@/lib/data/scheduling";
 
 export async function GET() {
   try {

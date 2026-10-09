@@ -1,6 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  BigButton,
+  Card,
+  CardList,
+  ConfirmSheet,
+  EmptyState,
+  ErrorBox,
+  Field,
+  LABELS,
+  MoreMenu,
+  PersonPicker,
+  SaveStatus,
+  Screen,
+  SearchBar,
+  SelectField,
+  Sheet,
+  SkeletonList,
+  Tabs,
+  TextAreaField,
+  useSaveAction,
+  useUiWords,
+} from "@/app/ui";
 
 type CwDocument = {
   sheetRow: number;
@@ -44,289 +66,222 @@ type DocumentSend = {
 };
 
 const CATEGORIES = ["Contract", "Handbook", "Policy", "Other"] as const;
+type Category = (typeof CATEGORIES)[number];
 const MAX_FILE_SIZE_MB = 10;
 
 // Same self-declared identity used by app/sub-schedules/page.tsx
-// ("cwAdminName") — there's no per-manager login in this app, so admin
-// actions are attributed to whatever name staff last typed in, shared via
-// localStorage across pages.
+// ("cwAdminName") — admin actions are attributed to whatever name staff last
+// typed in, shared via localStorage across pages.
 function getStoredAdminName(): string {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem("cwAdminName") ?? "";
 }
 
 function formatFileSize(bytes: number): string {
-  if (!bytes) return "—";
+  if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// "Tue, Oct 7" (with the year when it is not this year).
 function formatDate(iso: string): string {
-  if (!iso) return "—";
+  if (!iso) return "";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
 }
 
-function categoryBadgeClass(category: string): string {
-  switch (category) {
-    case "Contract":
-      return "border-blue-200 bg-blue-100 text-blue-800";
-    case "Handbook":
-      return "border-purple-200 bg-purple-100 text-purple-800";
-    case "Policy":
-      return "border-amber-200 bg-amber-100 text-amber-800";
-    default:
-      return "border-gray-200 bg-gray-100 text-gray-700";
+function formatDateTime(iso: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${formatDate(iso)}, ${date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function subcontractorLabel(sub: RawSubcontractor): string {
+  return sub.contactName?.trim() || sub.companyName?.trim() || sub.email?.trim() || "Unnamed subcontractor";
+}
+
+/** Calls an API route and throws a plain-words Error when it did not work. */
+async function api<T extends { success?: boolean; error?: string }>(
+  url: string,
+  init: RequestInit | undefined,
+  failText: string
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch {
+    throw new Error("The internet dropped. Check your connection and try again.");
   }
+  const data = (await response.json().catch(() => ({}))) as T;
+  if (!data.success) throw new Error(data.error || failText);
+  return data;
 }
 
-function UploadForm({ onUploaded }: { onUploaded: () => Promise<void> }) {
+function AddDocumentSheet({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => Promise<void> }) {
+  return (
+    <AddDocumentForm key={open ? "open" : "closed"} open={open} onClose={onClose} onAdded={onAdded} />
+  );
+}
+
+function AddDocumentForm({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => Promise<void> }) {
+  const words = useUiWords();
   const [name, setName] = useState("");
-  const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("Contract");
+  const [category, setCategory] = useState<Category>("Contract");
   const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
+  const [nameError, setNameError] = useState("");
+  const [fileError, setFileError] = useState("");
+
+  const save = useSaveAction(
+    async (docName: string, docCategory: Category, docFile: File) => {
+      const formData = new FormData();
+      formData.append("file", docFile);
+      formData.append("name", docName);
+      formData.append("category", docCategory);
+      await api("/api/documents", { method: "POST", body: formData }, "The document was not added.");
+      await onAdded();
+    },
+    { savedMessage: "Document added", onSaved: onClose }
+  );
 
   function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0] ?? null;
-    setError("");
-
+    setFileError("");
     if (selected && selected.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-      setError(`File must be ${MAX_FILE_SIZE_MB}MB or smaller.`);
+      setFileError(`That file is too big. Pick one that is ${MAX_FILE_SIZE_MB} MB or smaller.`);
       event.target.value = "";
       setFile(null);
       return;
     }
-
     setFile(selected);
   }
 
-  async function handleUpload() {
+  function handleAdd() {
     const trimmedName = name.trim();
-    if (!trimmedName) {
-      setError("Name is required.");
-      return;
-    }
-    if (!file) {
-      setError("Choose a file to upload.");
-      return;
-    }
-
-    setUploading(true);
-    setError("");
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("name", trimmedName);
-      formData.append("category", category);
-
-      const response = await fetch("/api/documents", { method: "POST", body: formData });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-
-      if (!data.success) {
-        setError(data.error || "Failed to upload document.");
-        return;
-      }
-
-      setName("");
-      setFile(null);
-      const fileInput = document.getElementById("document-file-input") as HTMLInputElement | null;
-      if (fileInput) fileInput.value = "";
-
-      await onUploaded();
-    } catch {
-      setError("Network error uploading document.");
-    } finally {
-      setUploading(false);
-    }
+    setNameError(trimmedName ? "" : "Type a name for this document.");
+    setFileError(file ? "" : "Pick a file to add.");
+    if (!trimmedName || !file) return;
+    void save.run(trimmedName, category, file);
   }
 
   return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <div className="mb-4">
-        <h2 className="text-xl font-bold text-gray-900">Upload Document</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Store subcontractor contracts, handbooks, and policies for staff reference.
-        </p>
-      </div>
-
-      {error ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. 2026 Subcontractor Agreement"
-            disabled={uploading}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold text-gray-700">Category</label>
-          <select
-            value={category}
-            onChange={(event) => setCategory(event.target.value as (typeof CATEGORIES)[number])}
-            disabled={uploading}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="text-sm font-semibold text-gray-700">File</label>
-          <input
-            id="document-file-input"
-            type="file"
-            onChange={handleFileChange}
-            disabled={uploading}
-            className="mt-1 block w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-60"
-          />
-          <p className="mt-1 text-xs text-gray-500">Max {MAX_FILE_SIZE_MB}MB.</p>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick={handleUpload}
-        disabled={uploading}
-        className="mt-4 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
+    <Sheet
+      open={open}
+      title="Add a document"
+      text="Keep subcontractor contracts, handbooks and policies here for the team."
+      onClose={onClose}
+      busy={save.saving}
+      actions={
+        <BigButton busy={save.saving} busyLabel="Adding…" onClick={handleAdd}>
+          Add document
+        </BigButton>
+      }
+    >
+      <Field
+        label="Name"
+        value={name}
+        onChange={(event) => {
+          setName(event.target.value);
+          setNameError("");
+        }}
+        placeholder="2026 Subcontractor Agreement"
+        disabled={save.saving}
+        error={nameError}
+      />
+      <SelectField
+        label="Category"
+        value={category}
+        onChange={(event) => setCategory(event.target.value as Category)}
+        disabled={save.saving}
       >
-        {uploading ? "Uploading..." : "Upload Document"}
-      </button>
-    </section>
+        {CATEGORIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </SelectField>
+      <Field
+        label="File"
+        type="file"
+        hint={`${MAX_FILE_SIZE_MB} MB or smaller.`}
+        onChange={handleFileChange}
+        disabled={save.saving}
+        error={fileError}
+      />
+      {save.state === "error" ? <SaveStatus action={save} /> : null}
+      <span className="ui-visually-hidden" aria-live="polite">
+        {save.saving ? words.saving : ""}
+      </span>
+    </Sheet>
   );
 }
 
-function DocumentRow({
-  document,
-  onDeleted,
-  onSend,
-  onHistory,
-}: {
-  document: CwDocument;
-  onDeleted: () => Promise<void>;
-  onSend: (document: CwDocument) => void;
-  onHistory: (document: CwDocument) => void;
-}) {
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleDelete() {
-    if (!window.confirm(`Delete "${document.name}"? This cannot be undone.`)) return;
-
-    setDeleting(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/documents?id=${encodeURIComponent(document.id)}`, {
-        method: "DELETE",
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-
-      if (!data.success) {
-        setError(data.error || "Failed to delete document.");
-        setDeleting(false);
-        return;
-      }
-
-      await onDeleted();
-    } catch {
-      setError("Network error deleting document.");
-      setDeleting(false);
-    }
-  }
-
-  return (
-    <tr className="border-b">
-      <td className="px-4 py-3">
-        <p className="font-semibold text-gray-900">{document.name}</p>
-        <p className="mt-0.5 truncate text-xs text-gray-500">{document.fileName}</p>
-        {error ? <p className="mt-1 text-xs font-semibold text-red-700">{error}</p> : null}
-      </td>
-
-      <td className="px-4 py-3">
-        <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${categoryBadgeClass(document.category)}`}>
-          {document.category}
-        </span>
-      </td>
-
-      <td className="px-4 py-3 text-gray-700">{formatFileSize(document.fileSize)}</td>
-
-      <td className="px-4 py-3 text-gray-700">{formatDate(document.uploadedAt)}</td>
-
-      <td className="px-4 py-3">
-        <div className="flex gap-3">
-          <a
-            href={document.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-semibold text-blue-700 hover:underline"
-          >
-            View
-          </a>
-          <button
-            type="button"
-            onClick={() => onSend(document)}
-            className="font-semibold text-blue-700 hover:underline"
-          >
-            Send to Sub
-          </button>
-          <button
-            type="button"
-            onClick={() => onHistory(document)}
-            className="font-semibold text-gray-700 hover:underline"
-          >
-            History
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={deleting}
-            className="font-semibold text-red-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {deleting ? "..." : "Delete"}
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function SendDocumentModal({
+function SendDocumentSheet({
   document,
   subcontractors,
   loadingSubcontractors,
   onClose,
 }: {
-  document: CwDocument;
+  document: CwDocument | null;
+  subcontractors: SubcontractorOption[];
+  loadingSubcontractors: boolean;
+  onClose: () => void;
+}) {
+  // Keyed by document so every opening starts with empty choices.
+  return (
+    <SendDocumentForm
+      key={document?.id ?? "closed"}
+      document={document}
+      subcontractors={subcontractors}
+      loadingSubcontractors={loadingSubcontractors}
+      onClose={onClose}
+    />
+  );
+}
+
+function SendDocumentForm({
+  document,
+  subcontractors,
+  loadingSubcontractors,
+  onClose,
+}: {
+  document: CwDocument | null;
   subcontractors: SubcontractorOption[];
   loadingSubcontractors: boolean;
   onClose: () => void;
 }) {
   const [subcontractorId, setSubcontractorId] = useState("");
   const [note, setNote] = useState("");
-  const [sentByName, setSentByName] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+  const [sentByName, setSentByName] = useState(getStoredAdminName);
+  const [pickError, setPickError] = useState("");
 
-  useEffect(() => {
-    setSentByName(getStoredAdminName());
-  }, []);
+  const send = useSaveAction(
+    async (documentId: string, subId: string, noteText: string, sentBy: string) => {
+      await api(
+        "/api/documents/send",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            documentId,
+            subcontractorId: subId,
+            note: noteText || undefined,
+            sentBy: sentBy || undefined,
+          }),
+        },
+        "The document was not sent."
+      );
+    },
+    { savedMessage: "Document sent", onSaved: onClose }
+  );
 
   function handleSentByChange(value: string) {
     setSentByName(value);
@@ -335,296 +290,181 @@ function SendDocumentModal({
     }
   }
 
-  async function handleSend() {
+  function handleSend() {
+    if (!document) return;
     if (!subcontractorId) {
-      setError("Choose a subcontractor.");
+      setPickError("Pick who gets this document.");
       return;
     }
-
-    setSending(true);
-    setError("");
-    try {
-      const response = await fetch("/api/documents/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          documentId: document.id,
-          subcontractorId,
-          note: note.trim() || undefined,
-          sentBy: sentByName.trim() || undefined,
-        }),
-      });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-
-      if (!data.success) {
-        setError(data.error || "Failed to send document.");
-        return;
-      }
-
-      setSuccess(true);
-    } catch {
-      setError("Network error sending document.");
-    } finally {
-      setSending(false);
-    }
+    setPickError("");
+    void send.run(document.id, subcontractorId, note.trim(), sentByName.trim());
   }
 
+  const options = useMemo(
+    () =>
+      subcontractors.map((s) => ({
+        id: s.id,
+        name: s.label,
+        detail: s.email ? undefined : "no email on file",
+      })),
+    [subcontractors]
+  );
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
+    <Sheet
+      open={document !== null}
+      title={document ? `Send “${document.name}”` : "Send"}
+      text="Emails the file to the subcontractor you pick."
+      onClose={onClose}
+      busy={send.saving}
+      actions={
+        <BigButton busy={send.saving} busyLabel="Sending…" onClick={handleSend}>
+          {LABELS.send}
+        </BigButton>
+      }
     >
-      <div
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h3 className="text-lg font-bold text-gray-900">Send &quot;{document.name}&quot;</h3>
-        <p className="mt-1 text-sm text-gray-600">
-          Emails the file as an attachment to the selected subcontractor.
-        </p>
-
-        {success ? (
-          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-800">
-            Document sent.
-          </div>
-        ) : (
-          <>
-            {error ? (
-              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-                {error}
-              </div>
-            ) : null}
-
-            <div className="mt-4">
-              <label className="text-sm font-semibold text-gray-700">Your Name</label>
-              <input
-                type="text"
-                value={sentByName}
-                onChange={(event) => handleSentByChange(event.target.value)}
-                placeholder="Enter your name"
-                disabled={sending}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-              />
-              <p className="mt-1 text-xs text-gray-500">Recorded in this document&apos;s send history.</p>
-            </div>
-
-            <div className="mt-3">
-              <label className="text-sm font-semibold text-gray-700">Subcontractor</label>
-              <select
-                value={subcontractorId}
-                onChange={(event) => setSubcontractorId(event.target.value)}
-                disabled={sending || loadingSubcontractors}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-              >
-                <option value="">
-                  {loadingSubcontractors ? "Loading subcontractors..." : "Select subcontractor"}
-                </option>
-                {subcontractors.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                    {!s.email ? " (no email on file)" : ""}
-                  </option>
-                ))}
-              </select>
-              {!loadingSubcontractors && subcontractors.length === 0 ? (
-                <p className="mt-1 text-xs text-gray-500">No subcontractors found.</p>
-              ) : null}
-            </div>
-
-            <div className="mt-3">
-              <label className="text-sm font-semibold text-gray-700">Note (optional)</label>
-              <textarea
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                rows={3}
-                disabled={sending}
-                placeholder="Add a short message..."
-                className="mt-1 w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
-              />
-            </div>
-          </>
-        )}
-
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            {success ? "Close" : "Cancel"}
-          </button>
-          {!success ? (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={sending}
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {sending ? "Sending..." : "Send"}
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </div>
+      <Field
+        label="Your name"
+        hint="Saved in this document’s send history."
+        value={sentByName}
+        onChange={(event) => handleSentByChange(event.target.value)}
+        disabled={send.saving}
+        optional
+      />
+      {loadingSubcontractors ? (
+        <SkeletonList rows={2} />
+      ) : (
+        <PersonPicker
+          label="Subcontractor"
+          searchLabel="Search subcontractors"
+          emptyText="No subcontractors found."
+          options={options}
+          value={subcontractorId}
+          onChange={(id) => {
+            setSubcontractorId(id);
+            setPickError("");
+          }}
+        />
+      )}
+      {pickError ? <ErrorBox title={pickError} /> : null}
+      <TextAreaField
+        label="Note"
+        optional
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        rows={3}
+        disabled={send.saving}
+        placeholder="Add a short message"
+      />
+      {send.state === "error" ? <SaveStatus action={send} /> : null}
+    </Sheet>
   );
 }
 
-function formatDateTime(iso: string): string {
-  if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function SendHistorySheet({ document, onClose }: { document: CwDocument | null; onClose: () => void }) {
+  return (
+    <Sheet open={document !== null} title={document ? `Who got “${document.name}”` : "Send history"} onClose={onClose}>
+      {document ? <SendHistoryList documentId={document.id} /> : null}
+    </Sheet>
+  );
 }
 
-function SendHistoryModal({
-  document,
-  onClose,
-}: {
-  document: CwDocument;
-  onClose: () => void;
-}) {
-  const [sends, setSends] = useState<DocumentSend[]>([]);
-  const [loading, setLoading] = useState(true);
+function SendHistoryList({ documentId }: { documentId: string }) {
+  const [sends, setSends] = useState<DocumentSend[] | null>(null);
   const [error, setError] = useState("");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-
-    async function loadSends() {
-      setLoading(true);
-      setError("");
-      try {
-        const response = await fetch(
-          `/api/documents/send?documentId=${encodeURIComponent(document.id)}`,
-          { cache: "no-store" }
-        );
-        const data = (await response.json()) as { success?: boolean; sends?: DocumentSend[]; error?: string };
-
+    api<{ success?: boolean; sends?: DocumentSend[]; error?: string }>(
+      `/api/documents/send?documentId=${encodeURIComponent(documentId)}`,
+      { cache: "no-store" },
+      "We could not load the send history."
+    )
+      .then((data) => {
         if (cancelled) return;
-        if (!data.success || !Array.isArray(data.sends)) {
-          setError(data.error || "Failed to load send history.");
-          return;
-        }
-        setSends(data.sends);
-      } catch {
-        if (!cancelled) setError("Network error loading send history.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    loadSends();
+        setError("");
+        setSends(Array.isArray(data.sends) ? data.sends : []);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "We could not load the send history.");
+      });
     return () => {
       cancelled = true;
     };
-  }, [document.id]);
+  }, [documentId, attempt]);
 
+  if (error) {
+    return (
+      <ErrorBox
+        title="We could not load the send history."
+        text={error}
+        onRetry={() => {
+          setError("");
+          setSends(null);
+          setAttempt((n) => n + 1);
+        }}
+      />
+    );
+  }
+  if (sends === null) return <SkeletonList rows={2} />;
+  if (sends.length === 0) {
+    return <EmptyState title="Not sent yet" text="This document has not been sent to a subcontractor." />;
+  }
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h3 className="text-lg font-bold text-gray-900">Send History — &quot;{document.name}&quot;</h3>
-
-        {error ? (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-            {error}
-          </div>
-        ) : null}
-
-        {loading ? (
-          <div className="mt-4 p-6 text-center text-sm text-gray-600">Loading...</div>
-        ) : (
-          <div className="mt-4 max-h-96 overflow-y-auto">
-            {sends.length === 0 ? (
-              <p className="p-4 text-center text-sm text-gray-600">
-                This document hasn&apos;t been sent to a subcontractor yet.
-              </p>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {sends.map((send) => (
-                  <li key={send.id} className="py-3 text-sm">
-                    <p className="font-semibold text-gray-900">{send.subcontractorName}</p>
-                    <p className="mt-0.5 text-gray-600">
-                      {formatDateTime(send.sentAt)}
-                      {send.sentBy ? ` — sent by ${send.sentBy}` : ""}
-                    </p>
-                    {send.note ? (
-                      <p className="mt-1 text-gray-500 italic">&quot;{send.note}&quot;</p>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+    <ul className="ui-list-plain" aria-label="Send history">
+      {sends.map((send) => (
+        <li key={send.id}>
+          <p className="ui-strong">{send.subcontractorName}</p>
+          <p className="ui-muted">
+            {formatDateTime(send.sentAt)}
+            {send.sentBy ? ` · sent by ${send.sentBy}` : ""}
+          </p>
+          {send.note ? <p className="ui-muted">“{send.note}”</p> : null}
+        </li>
+      ))}
+    </ul>
   );
-}
-
-function subcontractorLabel(sub: RawSubcontractor): string {
-  return sub.contactName?.trim() || sub.companyName?.trim() || sub.email?.trim() || "Unnamed subcontractor";
 }
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<CwDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [filter, setFilter] = useState<"All" | (typeof CATEGORIES)[number]>("All");
+  const [filter, setFilter] = useState<"All" | Category>("All");
+  const [query, setQuery] = useState("");
 
   const [subcontractors, setSubcontractors] = useState<SubcontractorOption[]>([]);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
+  const [adding, setAdding] = useState(false);
   const [sendingDocument, setSendingDocument] = useState<CwDocument | null>(null);
   const [historyDocument, setHistoryDocument] = useState<CwDocument | null>(null);
+  const [deletingDocument, setDeletingDocument] = useState<CwDocument | null>(null);
 
-  async function loadDocuments() {
-    setLoadError("");
+  const loadDocuments = useCallback(async () => {
     try {
-      const response = await fetch("/api/documents", { cache: "no-store" });
-      const data = (await response.json()) as { success?: boolean; documents?: CwDocument[]; error?: string };
-
-      if (!data.success || !Array.isArray(data.documents)) {
-        setLoadError(data.error || "Failed to load documents.");
-        return;
-      }
-
-      setDocuments(data.documents);
-    } catch {
-      setLoadError("Network error loading documents.");
+      const data = await api<{ success?: boolean; documents?: CwDocument[]; error?: string }>(
+        "/api/documents",
+        { cache: "no-store" },
+        "We could not load the documents."
+      );
+      setLoadError("");
+      setDocuments(Array.isArray(data.documents) ? data.documents : []);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "We could not load the documents.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    loadDocuments();
-  }, []);
+    void loadDocuments();
+  }, [loadDocuments]);
 
   useEffect(() => {
     // Same source as the Subcontractor dropdown in app/accounts/new/page.tsx
     // and Sub Center — GET /api/subcontractors. Failing to load shouldn't
-    // block the document list itself, only the send modal.
+    // block the document list itself, only the send sheet.
     async function loadSubcontractors() {
       try {
         const response = await fetch("/api/subcontractors", { cache: "no-store" });
@@ -645,119 +485,176 @@ export default function DocumentsPage() {
 
         setSubcontractors(options);
       } catch {
-        // Silent — the send modal shows "No subcontractors found" instead.
+        // Silent — the send sheet shows "No subcontractors found" instead.
       } finally {
         setLoadingSubcontractors(false);
       }
     }
 
-    loadSubcontractors();
+    void loadSubcontractors();
   }, []);
 
-  const filteredDocuments = useMemo(
-    () => (filter === "All" ? documents : documents.filter((d) => d.category === filter)),
-    [documents, filter]
+  const remove = useSaveAction(
+    async (id: string) => {
+      await api(`/api/documents?id=${encodeURIComponent(id)}`, { method: "DELETE" }, "The document was not deleted.");
+      await loadDocuments();
+    },
+    { savedMessage: "Document deleted", onSaved: () => setDeletingDocument(null) }
   );
 
+  const shownDocuments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return documents.filter(
+      (d) =>
+        (filter === "All" || d.category === filter) &&
+        (!q || `${d.name} ${d.fileName}`.toLowerCase().includes(q))
+    );
+  }, [documents, filter, query]);
+
+  const details = (document: CwDocument) =>
+    [document.category, formatFileSize(document.fileSize), document.uploadedAt ? `Added ${formatDate(document.uploadedAt)}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+
+  const actions = (document: CwDocument) => (
+    <div className="ui-actions-row">
+      <a href={document.fileUrl} target="_blank" rel="noopener noreferrer" className="ui-btn ui-btn-second">
+        {LABELS.open}
+      </a>
+      <BigButton kind="second" onClick={() => setSendingDocument(document)}>
+        Send to sub
+      </BigButton>
+      <MoreMenu
+        items={[
+          { label: "Send history", icon: "clock", onSelect: () => setHistoryDocument(document) },
+          { label: LABELS.delete, icon: "close", danger: true, onSelect: () => setDeletingDocument(document) },
+        ]}
+      />
+    </div>
+  );
+
+  const countText = loading ? "" : `${documents.length} ${documents.length === 1 ? "document" : "documents"}`;
+
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Documents</h1>
-            <p className="mt-1 text-gray-600">
-              Company documents — subcontractor contracts, handbooks, and policies.
-            </p>
-          </div>
+    <Screen
+      title="Documents"
+      subtitle={["Contracts, handbooks and policies", countText].filter(Boolean).join(" · ")}
+      action={
+        <BigButton icon="plus" onClick={() => setAdding(true)}>
+          Add document
+        </BigButton>
+      }
+    >
+      <SearchBar value={query} onChange={setQuery} label="Search documents" />
+      <Tabs
+        label="Category"
+        value={filter}
+        onChange={setFilter}
+        tabs={(["All", ...CATEGORIES] as const).map((c) => ({ value: c, label: c }))}
+      />
 
-          <div className="rounded-xl border border-gray-200 bg-white p-5 text-center shadow-sm">
-            <p className="text-sm text-gray-500">Total Documents</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">{documents.length}</p>
-          </div>
-        </div>
+      {remove.state === "error" ? <SaveStatus action={remove} /> : null}
 
-        <div className="grid gap-6">
-          <UploadForm onUploaded={loadDocuments} />
-
-          <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-xl font-bold text-gray-900">All Documents</h2>
-
-              <div className="flex flex-wrap gap-2">
-                {(["All", ...CATEGORIES] as const).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setFilter(c)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      filter === c
-                        ? "border-blue-700 bg-blue-700 text-white"
-                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {loadError ? (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-                {loadError}
-              </div>
-            ) : null}
-
-            {loading ? (
-              <div className="p-6 text-center text-gray-600">Loading documents...</div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b bg-gray-50 text-gray-600">
-                      <th className="px-4 py-3 font-semibold">Name</th>
-                      <th className="px-4 py-3 font-semibold">Category</th>
-                      <th className="px-4 py-3 font-semibold">Size</th>
-                      <th className="px-4 py-3 font-semibold">Uploaded</th>
-                      <th className="px-4 py-3 font-semibold">Action</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {filteredDocuments.map((document) => (
-                      <DocumentRow
-                        key={document.id}
-                        document={document}
-                        onDeleted={loadDocuments}
-                        onSend={setSendingDocument}
-                        onHistory={setHistoryDocument}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-
-                {filteredDocuments.length === 0 && (
-                  <div className="p-6 text-center text-gray-600">
-                    {documents.length === 0 ? "No documents yet — upload one above." : "No documents in this category."}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
-
-      {sendingDocument ? (
-        <SendDocumentModal
-          document={sendingDocument}
-          subcontractors={subcontractors}
-          loadingSubcontractors={loadingSubcontractors}
-          onClose={() => setSendingDocument(null)}
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : loadError ? (
+        <ErrorBox
+          title="We could not load the documents."
+          text={loadError}
+          onRetry={() => {
+            setLoading(true);
+            void loadDocuments();
+          }}
         />
-      ) : null}
+      ) : shownDocuments.length === 0 ? (
+        documents.length === 0 ? (
+          <EmptyState
+            title="No documents yet"
+            text="Add your first contract, handbook or policy."
+            action={
+              <BigButton kind="second" icon="plus" onClick={() => setAdding(true)}>
+                Add document
+              </BigButton>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No documents match"
+            text="Try a shorter search, or show all categories."
+            action={
+              <BigButton
+                kind="second"
+                onClick={() => {
+                  setQuery("");
+                  setFilter("All");
+                }}
+              >
+                Show all
+              </BigButton>
+            }
+          />
+        )
+      ) : (
+        <CardList
+          label="Documents"
+          items={shownDocuments}
+          getKey={(document) => document.id}
+          renderCard={(document) => (
+            <Card title={document.name}>
+              <p className="ui-card-text">{document.fileName}</p>
+              <p className="ui-card-text">{details(document)}</p>
+              <div style={{ marginTop: 12 }}>{actions(document)}</div>
+            </Card>
+          )}
+          columns={[
+            {
+              header: "Name",
+              cell: (document) => (
+                <>
+                  <p className="ui-strong">{document.name}</p>
+                  <p className="ui-muted">{document.fileName}</p>
+                </>
+              ),
+            },
+            { header: "Category", cell: (document) => document.category },
+            { header: "Size", cell: (document) => formatFileSize(document.fileSize) || "Not known" },
+            { header: "Added", cell: (document) => formatDate(document.uploadedAt) || "Not known" },
+            { header: "Action", cell: actions },
+          ]}
+        />
+      )}
 
-      {historyDocument ? (
-        <SendHistoryModal document={historyDocument} onClose={() => setHistoryDocument(null)} />
-      ) : null}
-    </main>
+      <AddDocumentSheet open={adding} onClose={() => setAdding(false)} onAdded={loadDocuments} />
+
+      <SendDocumentSheet
+        document={sendingDocument}
+        subcontractors={subcontractors}
+        loadingSubcontractors={loadingSubcontractors}
+        onClose={() => setSendingDocument(null)}
+      />
+
+      <SendHistorySheet document={historyDocument} onClose={() => setHistoryDocument(null)} />
+
+      <ConfirmSheet
+        open={deletingDocument !== null}
+        title={deletingDocument ? `Delete “${deletingDocument.name}”?` : "Delete?"}
+        text="This deletes the file for everyone. It cannot be brought back. The list of who it was sent to stays."
+        confirmLabel="Delete document"
+        busy={remove.saving}
+        busyLabel="Deleting…"
+        onConfirm={() => {
+          // On failure the sheet closes so the red box with "Try again" shows on the page.
+          if (deletingDocument) {
+            void remove.run(deletingDocument.id).then((ok) => {
+              if (!ok) setDeletingDocument(null);
+            });
+          }
+        }}
+        onCancel={() => {
+          setDeletingDocument(null);
+          remove.reset();
+        }}
+      />
+    </Screen>
   );
 }

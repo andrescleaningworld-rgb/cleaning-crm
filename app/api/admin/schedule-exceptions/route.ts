@@ -4,7 +4,7 @@ import {
   deleteScheduleException,
   fetchScheduleExceptions,
   updateScheduleException,
-} from "@/lib/googleSheets";
+} from "@/lib/data/scheduling";
 
 export async function GET() {
   try {

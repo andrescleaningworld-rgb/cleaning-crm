@@ -125,22 +125,22 @@ export default function VisitCompletionModal({
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-bold">Log this as a Visit?</h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <h2 className="ui-card-title">Log this as a Visit?</h2>
+        <p className="ui-muted">
           This to-do is a Visit. Save a matching row on the Visits page so it
           doesn&apos;t need to be entered twice, or skip and just complete the
           to-do.
         </p>
 
         {error ? (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+          <div className="ui-field-error">
             {error}
           </div>
         ) : null}
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-date">
+            <label className="ui-label" htmlFor="visit-modal-date">
               Visit Date
             </label>
             <input
@@ -148,12 +148,12 @@ export default function VisitCompletionModal({
               type="date"
               value={date}
               onChange={(event) => setDate(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input w-full"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500">Account</label>
+            <label className="ui-label">Account</label>
             <div className="mt-1">
               <AccountMultiSelect
                 accounts={accounts}
@@ -167,7 +167,7 @@ export default function VisitCompletionModal({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-manager">
+            <label className="ui-label" htmlFor="visit-modal-manager">
               Manager / Visited By
             </label>
             <input
@@ -175,12 +175,12 @@ export default function VisitCompletionModal({
               value={manager}
               onChange={(event) => setManager(event.target.value)}
               placeholder="Manager"
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input w-full"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-sub">
+            <label className="ui-label" htmlFor="visit-modal-sub">
               Subcontractor (optional)
             </label>
             <input
@@ -188,19 +188,19 @@ export default function VisitCompletionModal({
               value={subcontractor}
               onChange={(event) => setSubcontractor(event.target.value)}
               placeholder="Subcontractor"
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="ui-input w-full"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-type">
+            <label className="ui-label" htmlFor="visit-modal-type">
               Visit Type
             </label>
             <select
               id="visit-modal-type"
               value={visitType}
               onChange={(event) => setVisitType(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="ui-input w-full"
             >
               {VISIT_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -211,14 +211,14 @@ export default function VisitCompletionModal({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-condition">
+            <label className="ui-label" htmlFor="visit-modal-condition">
               Condition Score 0-10
             </label>
             <select
               id="visit-modal-condition"
               value={condition}
               onChange={(event) => setCondition(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="ui-input w-full"
             >
               <option value="">Not Scored</option>
               {CONDITION_SCORES.map((score) => (
@@ -230,14 +230,14 @@ export default function VisitCompletionModal({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-followup">
+            <label className="ui-label" htmlFor="visit-modal-followup">
               Follow-Up Needed
             </label>
             <select
               id="visit-modal-followup"
               value={followUpNeeded}
               onChange={(event) => setFollowUpNeeded(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="ui-input w-full"
             >
               <option>No</option>
               <option>Yes</option>
@@ -246,7 +246,7 @@ export default function VisitCompletionModal({
 
           {followUpNeeded === "Yes" ? (
             <div>
-              <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-followup-date">
+              <label className="ui-label" htmlFor="visit-modal-followup-date">
                 Follow-Up Date
               </label>
               <input
@@ -254,14 +254,14 @@ export default function VisitCompletionModal({
                 type="date"
                 value={followUpDate}
                 onChange={(event) => setFollowUpDate(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="ui-input w-full"
               />
             </div>
           ) : null}
         </div>
 
         <div className="mt-4">
-          <label className="text-xs font-semibold text-slate-500" htmlFor="visit-modal-notes">
+          <label className="ui-label" htmlFor="visit-modal-notes">
             Notes
           </label>
           <textarea
@@ -270,7 +270,7 @@ export default function VisitCompletionModal({
             onChange={(event) => setNotes(event.target.value)}
             rows={4}
             placeholder="Write visit notes, issues found, customer feedback, or follow-up details..."
-            className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            className="ui-input w-full"
           />
         </div>
 
@@ -279,7 +279,7 @@ export default function VisitCompletionModal({
             type="button"
             onClick={handleSaveAndComplete}
             disabled={busy}
-            className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-60"
+            className="ui-btn ui-btn-second"
           >
             {saving ? "Saving..." : "Save Visit + Complete To-Do"}
           </button>
@@ -287,7 +287,7 @@ export default function VisitCompletionModal({
             type="button"
             onClick={handleSkip}
             disabled={busy}
-            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+            className="ui-btn ui-btn-second"
           >
             {skipping ? "Completing..." : "Skip, just complete To-Do"}
           </button>

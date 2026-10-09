@@ -1,5 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { appendSubSchedule, fetchSubSchedules, supersedeActiveSubSchedulesForSub } from "@/lib/googleSheets";
+import { appendSubSchedule, fetchSubSchedules, supersedeActiveSubSchedulesForSub } from "@/lib/data/scheduling";
 import { FREQUENCY_LABELS, validateScheduleEntries } from "@/lib/scheduleRecurrence";
 import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchManagers, appendManager, updateManager } from "@/lib/googleSheets";
+import { fetchManagers, appendManager, updateManager } from "@/lib/data/people";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 

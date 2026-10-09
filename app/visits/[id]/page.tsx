@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { parseISO } from "@/lib/dateUtils";
+import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
 
 type Visit = {
   id: string;
@@ -79,7 +80,7 @@ function clean(value: unknown): string {
 // timezone-safe way to turn them into a Date for display.
 function formatDate(value: string): string {
   const text = clean(value);
-  if (!text) return "—";
+  if (!text) return "No date";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   const date = parseISO(text);
   if (Number.isNaN(date.getTime())) return text;
@@ -88,7 +89,7 @@ function formatDate(value: string): string {
 
 function formatDateTime(value: string): string {
   const text = clean(value);
-  if (!text) return "—";
+  if (!text) return "a time not recorded";
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleString("en-US", {
@@ -270,29 +271,29 @@ export default function VisitDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-        <p className="text-gray-700">Loading visit details...</p>
-      </main>
+      <Screen title="Visit" backHref="/visits">
+        <SkeletonList rows={2} />
+      </Screen>
     );
   }
 
   if (error || !visit) {
     return (
-      <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-        <div className="mx-auto max-w-4xl">
-          <section className="rounded-2xl border border-red-200 bg-red-50 p-5 font-semibold text-red-700">
-            {error || "Visit not found."}
-          </section>
-          <div className="mt-5">
-            <Link
-              href="/visits"
-              className="rounded-xl border border-gray-300 bg-white px-5 py-3 font-bold text-gray-900 shadow-sm no-underline"
-            >
-              Back to Visits
-            </Link>
-          </div>
-        </div>
-      </main>
+      <Screen title="Visit" backHref="/visits">
+        {error ? (
+          <ErrorBox title="The visit did not load." text={error} onRetry={() => void loadVisit()} />
+        ) : (
+          <EmptyState
+            title="Visit not found"
+            text="It may have been removed."
+            action={
+              <BigButton kind="second" href="/visits">
+                Back to Visits
+              </BigButton>
+            }
+          />
+        )}
+      </Screen>
     );
   }
 
@@ -305,299 +306,150 @@ export default function VisitDetailPage() {
   const latestEdit = editHistory[0];
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-      <div className="mx-auto max-w-4xl">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">
-              Cleaning World
+    <Screen
+      title={clean(visit.visitType) || "Visit"}
+      subtitle={clean(visit.accountName) || "Unnamed Account"}
+      backHref="/visits"
+      action={
+        <BigButton onClick={startEditing}>
+          Edit visit
+        </BigButton>
+      }
+    >
+      <Card title="Visit Details">
+        <dl className="ui-details">
+          <div className="ui-detail">
+            <dt>Date</dt>
+            <dd>{formatDate(visit.date)}</dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Account</dt>
+            <dd>
+              {accountHref ? (
+                <Link href={accountHref} className="ui-link">
+                  {clean(visit.accountName) || "Unnamed Account"}
+                </Link>
+              ) : (
+                <>
+                  {clean(visit.accountName) || "Unnamed Account"}
+                  {accountLookupDone ? <span className="ui-muted"> (no matching account on file, so no link)</span> : null}
+                </>
+              )}
+            </dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Visit Type</dt>
+            <dd>{clean(visit.visitType) || "None"}</dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Completed By</dt>
+            <dd>{clean(visit.completedBy) || "None"}</dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Subcontractor</dt>
+            <dd>
+              {clean(linkedAccount?.subcontractor) || "None"}
+              <span className="ui-muted"> (from the linked account; visits do not track their own subcontractor)</span>
+            </dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Condition Score</dt>
+            <dd>{clean(visit.condition) || "None"}</dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Follow-Up Needed</dt>
+            <dd>{clean(visit.followUpNeeded) || "Not set"}</dd>
+          </div>
+          <div className="ui-detail">
+            <dt>Follow-Up Date</dt>
+            <dd>{clean(visit.followUpDate) ? formatDate(visit.followUpDate) : "None"}</dd>
+          </div>
+          <div className="ui-detail ui-detail-full">
+            <dt>Notes</dt>
+            <dd style={{ whiteSpace: "pre-wrap" }}>{clean(visit.notes) || "None"}</dd>
+          </div>
+        </dl>
+      </Card>
+
+      <Card title="Edit History">
+        {editHistory.length === 0 ? (
+          <p className="ui-card-text">No edits recorded yet.</p>
+        ) : (
+          <>
+            <p className="ui-card-text">
+              Last edited by <span className="ui-strong">{clean(latestEdit?.editedBy) || "someone"}</span> on{" "}
+              {formatDateTime(latestEdit?.editedAt || "")}
             </p>
-            <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
-              {clean(visit.visitType) || "Visit"}
-            </h1>
-            <p className="mt-1 text-gray-600">{clean(visit.accountName) || "Unnamed Account"}</p>
-          </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/visits"
-              className="rounded-xl border border-gray-300 bg-white px-5 py-3 text-center font-bold text-gray-900 shadow-sm no-underline"
-            >
-              Back to Visits
-            </Link>
-
-            {!editing ? (
-              <button
-                type="button"
-                onClick={startEditing}
-                className="rounded-xl bg-blue-600 px-5 py-3 font-bold text-white"
-              >
-                Edit Visit
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <section className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-gray-200 p-5">
-            <h2 className="text-xl font-bold text-gray-900">Visit Details</h2>
-            {editing ? (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={cancelEditing}
-                  disabled={saving}
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
-                >
-                  {saving ? "Saving..." : "Save Changes"}
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {saveError ? (
-            <div className="m-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-              {saveError}
-            </div>
-          ) : null}
-
-          {editing && form ? (
-            <div className="grid gap-5 p-5 md:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Your Name</span>
-                <input
-                  value={editedBy}
-                  onChange={(e) => handleEditedByChange(e.target.value)}
-                  placeholder="Enter your name"
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-                <p className="mt-1 text-xs text-gray-500">Recorded in this visit&apos;s edit history.</p>
-              </label>
-
-              <div />
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Visit Date</span>
-                <input
-                  type="date"
-                  value={form.date}
-                  onChange={(e) => updateForm("date", e.target.value)}
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Visit Type</span>
-                <input
-                  list="visit-type-options"
-                  value={form.visitType}
-                  onChange={(e) => updateForm("visitType", e.target.value)}
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-                <datalist id="visit-type-options">
-                  {VISIT_TYPE_OPTIONS.map((option) => (
-                    <option key={option} value={option} />
-                  ))}
-                </datalist>
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Completed By</span>
-                <input
-                  value={form.completedBy}
-                  onChange={(e) => updateForm("completedBy", e.target.value)}
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">
-                  Condition Score (0-10)
-                </span>
-                <input
-                  value={form.condition}
-                  onChange={(e) => updateForm("condition", e.target.value)}
-                  placeholder="0-10"
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Follow-Up Needed</span>
-                <select
-                  value={form.followUpNeeded}
-                  onChange={(e) => updateForm("followUpNeeded", e.target.value)}
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                >
-                  <option value="">Not Set</option>
-                  <option value="Yes">Yes</option>
-                  <option value="No">No</option>
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Follow-Up Date</span>
-                <input
-                  type="date"
-                  value={form.followUpDate}
-                  onChange={(e) => updateForm("followUpDate", e.target.value)}
-                  className="min-h-[44px] w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="mb-1 block text-sm font-bold text-gray-700">Notes</span>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) => updateForm("notes", e.target.value)}
-                  rows={6}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm font-semibold outline-none focus:border-blue-500"
-                />
-              </label>
-            </div>
-          ) : (
-            <div className="grid gap-0 md:grid-cols-2">
-              <div className="border-b border-gray-200 p-5 md:border-r">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Date</p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">{formatDate(visit.date)}</p>
-              </div>
-
-              <div className="border-b border-gray-200 p-5">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Account</p>
-                {accountHref ? (
-                  <Link
-                    href={accountHref}
-                    className="mt-1 block text-lg font-semibold text-blue-700 hover:underline"
-                  >
-                    {clean(visit.accountName) || "Unnamed Account"}
-                  </Link>
-                ) : (
-                  <>
-                    <p className="mt-1 text-lg font-semibold text-gray-900">
-                      {clean(visit.accountName) || "Unnamed Account"}
-                    </p>
-                    {accountLookupDone ? (
-                      <p className="mt-1 text-xs text-gray-500">
-                        No matching account found on file — link unavailable.
-                      </p>
-                    ) : null}
-                  </>
-                )}
-              </div>
-
-              <div className="border-b border-gray-200 p-5 md:border-r">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Visit Type</p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {clean(visit.visitType) || "—"}
-                </p>
-              </div>
-
-              <div className="border-b border-gray-200 p-5">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                  Completed By
-                </p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {clean(visit.completedBy) || "—"}
-                </p>
-              </div>
-
-              <div className="border-b border-gray-200 p-5 md:border-r">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                  Subcontractor
-                </p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {clean(linkedAccount?.subcontractor) || "—"}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  From the linked account — visits don&apos;t track their own subcontractor.
-                </p>
-              </div>
-
-              <div className="border-b border-gray-200 p-5">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                  Condition Score
-                </p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {clean(visit.condition) || "—"}
-                </p>
-              </div>
-
-              <div className="border-b border-gray-200 p-5 md:border-r">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                  Follow-Up Needed
-                </p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {clean(visit.followUpNeeded) || "—"}
-                </p>
-              </div>
-
-              <div className="border-b border-gray-200 p-5 md:border-b-0">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">
-                  Follow-Up Date
-                </p>
-                <p className="mt-1 text-lg font-semibold text-gray-900">
-                  {formatDate(visit.followUpDate)}
-                </p>
-              </div>
-
-              <div className="p-5 md:col-span-2 md:border-t md:border-gray-200">
-                <p className="text-sm font-semibold uppercase tracking-wide text-gray-500">Notes</p>
-                <div className="mt-3 whitespace-pre-wrap rounded-xl border border-gray-200 bg-gray-50 p-5 text-gray-900">
-                  {clean(visit.notes) || "—"}
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        <section className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-bold text-gray-900">Edit History</h2>
-
-          {editHistory.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-500">No edits recorded yet.</p>
-          ) : (
-            <>
-              <p className="mt-2 text-sm text-gray-700">
-                Last edited by{" "}
-                <span className="font-semibold">{clean(latestEdit?.editedBy) || "someone"}</span> on{" "}
-                {formatDateTime(latestEdit?.editedAt || "")}
-              </p>
-
-              {editHistory.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setShowFullHistory((v) => !v)}
-                  className="mt-2 text-sm font-bold text-blue-700 hover:underline"
-                >
+            {editHistory.length > 1 ? (
+              <div style={{ marginTop: 8 }}>
+                <BigButton kind="quiet" onClick={() => setShowFullHistory((v) => !v)} aria-expanded={showFullHistory}>
                   {showFullHistory ? "Hide full history" : `Show full history (${editHistory.length})`}
-                </button>
-              ) : null}
+                </BigButton>
+              </div>
+            ) : null}
 
-              {showFullHistory ? (
-                <ul className="mt-3 space-y-2 border-t border-gray-200 pt-3">
-                  {editHistory.map((entry) => (
-                    <li key={entry.id} className="text-sm text-gray-700">
-                      <span className="font-semibold">{clean(entry.editedBy) || "someone"}</span>{" "}
-                      — {formatDateTime(entry.editedAt)}
-                      {entry.changeSummary ? (
-                        <span className="text-gray-500"> · {entry.changeSummary}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </>
-          )}
-        </section>
-      </div>
-    </main>
+            {showFullHistory ? (
+              <ul className="ui-list-plain" style={{ gap: 8, marginTop: 8 }}>
+                {editHistory.map((entry) => (
+                  <li key={entry.id}>
+                    <span className="ui-strong">{clean(entry.editedBy) || "someone"}</span>, {formatDateTime(entry.editedAt)}
+                    {entry.changeSummary ? <span className="ui-muted"> · {entry.changeSummary}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        )}
+      </Card>
+
+      <Sheet
+        open={editing && form !== null}
+        title="Edit visit"
+        text={clean(visit.accountName) || undefined}
+        onClose={cancelEditing}
+        busy={saving}
+        actions={
+          <BigButton busy={saving} busyLabel="Saving…" onClick={() => void handleSave()}>
+            Save changes
+          </BigButton>
+        }
+      >
+        {form ? (
+          <>
+            <Field
+              label="Your name"
+              hint="Recorded in this visit's edit history."
+              value={editedBy}
+              onChange={(e) => handleEditedByChange(e.target.value)}
+              placeholder="Enter your name"
+            />
+            <Field label="Visit date" type="date" value={form.date} onChange={(e) => updateForm("date", e.target.value)} />
+            <Field label="Visit type" list="visit-type-options" value={form.visitType} onChange={(e) => updateForm("visitType", e.target.value)} />
+            <datalist id="visit-type-options">
+              {VISIT_TYPE_OPTIONS.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+            <Field label="Completed by" value={form.completedBy} onChange={(e) => updateForm("completedBy", e.target.value)} />
+            <Field
+              label="Condition score (0-10)"
+              inputMode="decimal"
+              value={form.condition}
+              onChange={(e) => updateForm("condition", e.target.value)}
+              placeholder="0-10"
+            />
+            <SelectField label="Follow-up needed" value={form.followUpNeeded} onChange={(e) => updateForm("followUpNeeded", e.target.value)}>
+              <option value="">Not Set</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+            </SelectField>
+            <Field label="Follow-up date" optional type="date" value={form.followUpDate} onChange={(e) => updateForm("followUpDate", e.target.value)} />
+            <TextAreaField label="Notes" rows={6} value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} />
+            {saveError ? <ErrorBox title="The changes were not saved." text={saveError} /> : null}
+          </>
+        ) : null}
+      </Sheet>
+    </Screen>
   );
 }

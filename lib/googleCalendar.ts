@@ -1,5 +1,6 @@
 import { google } from "googleapis";
-import { getManagerCalendarColorId } from "./googleSheets";
+import { getManagerCalendarColorId } from "@/lib/data/people";
+import { isOutboundDryRun, logDryRun } from "./outbound";
 
 // One-way sync only: this file WRITES to Calendar (create/patch) and never
 // reads events back to reconcile state — the Sheet stays the single source
@@ -90,6 +91,11 @@ export async function createCalendarEventForToDo(input: ToDoCalendarInput): Prom
   // field on the to-do form).
   if (!input.dueDate) return { eventId: null, failed: false };
 
+  if (isOutboundDryRun()) {
+    logDryRun("calendar event (create)", `${buildEventTitle(input.accountName, input.why, input.status)} on ${input.dueDate}`);
+    return { eventId: `dry-run-${Date.now()}`, failed: false };
+  }
+
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
   if (!calendarId) {
     console.error("[googleCalendar] GOOGLE_CALENDAR_ID is not configured — skipping event creation.");
@@ -147,6 +153,11 @@ export async function updateCalendarEventForToDo(
   // failed here.
   if (!eventId) return { failed: false };
 
+  if (isOutboundDryRun()) {
+    logDryRun("calendar event (update)", `${eventId}: ${buildEventTitle(accountName, why, status)}`);
+    return { failed: false };
+  }
+
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
   if (!calendarId) {
     console.error("[googleCalendar] GOOGLE_CALENDAR_ID is not configured — skipping event update.");
@@ -180,6 +191,11 @@ export async function updateCalendarEventForToDo(
 // success rather than a failure, since the end state we want is achieved.
 export async function deleteCalendarEventForToDo(eventId: string): Promise<{ failed: boolean }> {
   if (!eventId) return { failed: false };
+
+  if (isOutboundDryRun()) {
+    logDryRun("calendar event (delete)", eventId);
+    return { failed: false };
+  }
 
   const calendarId = process.env.GOOGLE_CALENDAR_ID;
   if (!calendarId) {

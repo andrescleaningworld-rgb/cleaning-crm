@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendSale, fetchSales } from "@/lib/googleSheets";
+import { appendSale, fetchSales } from "@/lib/data/sales";
 import { validateRecurringDates } from "@/lib/salesCommission";
 
 // Migrated off the Apps Script backend (see lib/googleSheets.ts's Sales &

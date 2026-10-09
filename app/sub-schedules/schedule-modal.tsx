@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
 import { todayISO } from "@/lib/dateUtils";
+import { BigButton, ErrorBox, Field, SelectField, Sheet } from "@/app/ui";
 
 export type SubSchedule = {
   sheetRow: number;
@@ -74,8 +75,8 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
     timeWindow !== target.timeWindow ||
     monthlyOccurrence !== target.monthlyOccurrence;
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
+    e?.preventDefault();
     if (!adminName.trim()) {
       setError("Enter your name above before saving.");
       return;
@@ -152,205 +153,105 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Sheet
+      open
+      title="Edit schedule"
+      text={`${accountName} · ${target.subId}`}
+      onClose={onClose}
+      busy={submitting}
+      actions={
+        <BigButton busy={submitting} busyLabel="Saving…" onClick={() => void handleSubmit()}>
+          Save
+        </BigButton>
+      }
     >
-      <div role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
-        <h2 className="text-lg font-black text-slate-900">Edit Schedule {target.scheduleId}</h2>
+      <SelectField label="Frequency" value={frequency} onChange={(e) => setFrequency(e.target.value)}>
+        {FREQUENCIES.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.label}
+          </option>
+        ))}
+      </SelectField>
 
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500">AccountID</label>
-              <p className="mt-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
-                {target.accountId}
-              </p>
-            </div>
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500">SubID</label>
-              <p className="mt-1 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-600">
-                {target.subId}
-              </p>
-            </div>
-          </div>
+      {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
+        <>
+          <SelectField label="Day of week" value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
+            {DAYS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField label="Time window" value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
+            {TIME_WINDOWS.map((w) => (
+              <option key={w} value={w}>
+                {w}
+              </option>
+            ))}
+          </SelectField>
+        </>
+      )}
 
-          <div>
-            <label className="text-xs font-bold uppercase text-slate-500">Frequency</label>
-            <select
-              value={frequency}
-              onChange={(e) => setFrequency(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-            >
-              {FREQUENCIES.map((f) => (
-                <option key={f.id} value={f.id}>{f.label}</option>
-              ))}
-            </select>
-          </div>
+      {(frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") && (
+        <>
+          <SelectField label="Which week" value={occurrencePosition} onChange={(e) => setOccurrencePosition(e.target.value)}>
+            <option value="">Select...</option>
+            {POSITIONS.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField label="Weekday" value={occurrenceWeekday} onChange={(e) => setOccurrenceWeekday(e.target.value)}>
+            <option value="">Select...</option>
+            {DAYS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField label="Time window" value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
+            <option value="">Select...</option>
+            {TIME_WINDOWS.map((w) => (
+              <option key={w} value={w}>
+                {w}
+              </option>
+            ))}
+          </SelectField>
+        </>
+      )}
 
-          {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Day of Week</label>
-                <select
-                  value={dayOfWeek}
-                  onChange={(e) => setDayOfWeek(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                >
-                  {DAYS.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Time Window</label>
-                <select
-                  value={timeWindow}
-                  onChange={(e) => setTimeWindow(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                >
-                  {TIME_WINDOWS.map((w) => (
-                    <option key={w} value={w}>{w}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
+      {frequency === "AS_NEEDED" && (
+        <p className="ui-hint">No recurring day needed. Visits for this account are added one at a time via Schedule Exceptions.</p>
+      )}
 
-          {(frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") && (
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Which Week</label>
-                <select
-                  value={occurrencePosition}
-                  onChange={(e) => setOccurrencePosition(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                >
-                  <option value="">Select...</option>
-                  {POSITIONS.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Weekday</label>
-                <select
-                  value={occurrenceWeekday}
-                  onChange={(e) => setOccurrenceWeekday(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                >
-                  <option value="">Select...</option>
-                  {DAYS.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Time Window</label>
-                <select
-                  value={timeWindow}
-                  onChange={(e) => setTimeWindow(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                >
-                  <option value="">Select...</option>
-                  {TIME_WINDOWS.map((w) => (
-                    <option key={w} value={w}>{w}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
+      <SelectField label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <option value="Active">Active</option>
+        <option value="Inactive">Inactive</option>
+      </SelectField>
 
-          {frequency === "AS_NEEDED" && (
-            <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-              No recurring day needed — visits for this account are added one at a time via Schedule Exceptions.
-            </p>
-          )}
+      {patternChanged ? (
+        <Field
+          label="Effective date"
+          hint={`This pattern change takes effect on this date. Visits before it keep the current pattern: this schedule is closed out and a new one starts on ${effectiveDate || "this date"}.`}
+          type="date"
+          value={effectiveDate}
+          onChange={(e) => setEffectiveDate(e.target.value)}
+        />
+      ) : (
+        <>
+          <Field label="Effective start" type="date" value={effectiveStart} onChange={(e) => setEffectiveStart(e.target.value)} />
+          <Field label="Effective end" type="date" value={effectiveEnd} onChange={(e) => setEffectiveEnd(e.target.value)} />
+        </>
+      )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500">Status</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
-          </div>
+      <p className="ui-muted">
+        Submitted by {target.submittedBy || "someone not recorded"} on {target.submittedDate || "a date not recorded"}
+        {target.submittedVia ? ` via ${target.submittedVia}` : ""}
+        {target.lastEditedBy ? ` · last edited by ${target.lastEditedBy} on ${target.lastEditedDate}` : ""}
+      </p>
 
-          {patternChanged ? (
-            <div>
-              <label className="text-xs font-bold uppercase text-slate-500">Effective Date</label>
-              <input
-                type="date"
-                value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-              />
-              <p className="mt-1 text-xs text-slate-500">
-                This pattern change takes effect on this date. Visits before it keep the current pattern — this
-                schedule row will be closed out and a new one created starting {effectiveDate || "this date"}.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Effective Start</label>
-                <input
-                  type="date"
-                  value={effectiveStart}
-                  onChange={(e) => setEffectiveStart(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase text-slate-500">Effective End</label>
-                <input
-                  type="date"
-                  value={effectiveEnd}
-                  onChange={(e) => setEffectiveEnd(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-600"
-                />
-              </div>
-            </div>
-          )}
-
-          <p className="text-xs text-slate-500">
-            Submitted by {target.submittedBy || "—"} on {target.submittedDate || "—"}
-            {target.submittedVia ? ` via ${target.submittedVia}` : ""}
-            {target.lastEditedBy ? ` · last edited by ${target.lastEditedBy} on ${target.lastEditedDate}` : ""}
-          </p>
-
-          {error ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-              {error}
-            </div>
-          ) : null}
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? "Saving..." : "Save"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      {error ? <ErrorBox title="The schedule was not saved." text={error} /> : null}
+    </Sheet>
   );
 }

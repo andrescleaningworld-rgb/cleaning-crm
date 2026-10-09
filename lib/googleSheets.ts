@@ -82,7 +82,17 @@ function getAuthClient() {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
     },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    // SHEETS_READ_ONLY=1 (set only in .env.development.local, never in
+    // production) asks Google for a read-only token, so Google itself
+    // refuses every write made through this client. It is the mechanical
+    // backstop for the migration rule "never write to Sheets from a local
+    // test": a route that still saves to Sheets fails loudly instead of
+    // changing the live sheet.
+    scopes: [
+      process.env.SHEETS_READ_ONLY === "1"
+        ? "https://www.googleapis.com/auth/spreadsheets.readonly"
+        : "https://www.googleapis.com/auth/spreadsheets",
+    ],
   });
 }
 
@@ -3829,6 +3839,18 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
   const complaintRows = ((complaintsRes.data.values ?? []) as string[][]).slice(1);
   const subRows = ((subsRes.data.values ?? []) as string[][]).slice(1);
 
+  return buildSubcontractorPerformanceMap(accountRows, visitRows, complaintRows, subRows);
+}
+
+// The scoring itself, apart from where the rows come from (migration: the
+// Postgres version in lib/pg/performance.ts hands it the same four row
+// lists, built from the tables, so there is one copy of the rules).
+export function buildSubcontractorPerformanceMap(
+  accountRows: string[][],
+  visitRows: string[][],
+  complaintRows: string[][],
+  subRows: string[][]
+): Map<string, SubcontractorPerformance> {
   const result = new Map<string, SubcontractorPerformance>();
   const { allBySubKey, activeCountBySubKey } = buildAccountAssignmentsBySubKey(accountRows, subRows);
 

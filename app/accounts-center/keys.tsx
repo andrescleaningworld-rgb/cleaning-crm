@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { BigButton, Card, CardList, EmptyState, ErrorBox, Screen, SearchBar, SelectField, SkeletonList } from "@/app/ui";
 
 // Raw pass-through account shape — kept loose (index signature) so a save
 // can spread the full record back to /api/accounts without dropping fields
@@ -201,109 +202,95 @@ export default function AccountsCenterKeys() {
     void saveAccountFields(account, { Copy: value, copy: value, "Has Copy": value });
   }
 
+  const cleanerSelect = (account: RawAccount, isSaving: boolean) => (
+    <SelectField
+      label="Cleaner"
+      value={clean(account.subcontractor)}
+      disabled={isSaving}
+      onChange={(e) => handleCleanerChange(account, e.target.value)}
+    >
+      <option value="">Unassigned</option>
+      {subcontractorOptions.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </SelectField>
+  );
+
+  const copyCheck = (account: RawAccount, isSaving: boolean) => (
+    <label className="ui-check">
+      <input type="checkbox" checked={getHasCopy(account)} disabled={isSaving} onChange={(e) => handleCopyToggle(account, e.target.checked)} />
+      <span>Copy</span>
+    </label>
+  );
+
+  const keyCodeCell = (account: RawAccount, isSaving: boolean) =>
+    getKeyCode(account) ? (
+      <span className="ui-strong" style={{ fontFamily: "ui-monospace, monospace" }}>
+        {getKeyCode(account)}
+      </span>
+    ) : (
+      <BigButton kind="second" busy={isSaving} busyLabel="Generating…" onClick={() => handleGenerateCode(account)}>
+        Generate code
+      </BigButton>
+    );
+
   return (
-    <main className="min-h-screen bg-gray-50 p-4 text-gray-900 sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Cleaning World</p>
-          <h1 className="mt-2 text-3xl font-bold sm:text-4xl">Keys</h1>
-          <p className="mt-2 text-sm leading-6 text-gray-500 sm:text-base">
-            Key codes, the cleaner holding each physical copy, and account access info.
-          </p>
-        </div>
+    <Screen title="Keys" subtitle="Key codes, the cleaner holding each physical copy, and account access info.">
+      <SearchBar value={search} onChange={setSearch} label="Search by account name" placeholder="Search by account name" />
 
-        <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by account name..."
-            className="w-full max-w-sm rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500"
-          />
-        </section>
+      {error ? <ErrorBox title="The keys did not load." text={error} onRetry={() => void loadData()} /> : null}
 
-        {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-5 font-bold text-red-700">{error}</div>
-        ) : null}
-
-        <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-          {loading ? (
-            <p className="text-sm text-gray-600">Loading keys...</p>
-          ) : filteredAccounts.length === 0 ? (
-            <p className="text-sm text-gray-600">No accounts found.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                    <th className="p-3">Key Code</th>
-                    <th className="p-3">Account</th>
-                    <th className="p-3">Cleaner</th>
-                    <th className="p-3">Copy</th>
-                    <th className="p-3">Key / Alarm / Access Info</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAccounts.map((account) => {
-                    const accountId = getAccountId(account);
-                    const keyCode = getKeyCode(account);
-                    const hasCopy = getHasCopy(account);
-                    const isSaving = savingId === accountId;
-                    const rowError = rowErrors[accountId];
-
-                    return (
-                      <tr key={accountId || clean(account.accountName)} className="border-b align-top last:border-b-0">
-                        <td className="p-3 font-mono font-bold">
-                          {keyCode ? (
-                            keyCode
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={isSaving}
-                              onClick={() => handleGenerateCode(account)}
-                              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-60"
-                            >
-                              {isSaving ? "Generating..." : "Generate code"}
-                            </button>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          <div className="font-semibold">{clean(account.accountName) || "-"}</div>
-                          {rowError ? <div className="mt-1 text-xs font-semibold text-red-600">{rowError}</div> : null}
-                        </td>
-                        <td className="p-3">
-                          <select
-                            value={clean(account.subcontractor)}
-                            disabled={isSaving}
-                            onChange={(e) => handleCleanerChange(account, e.target.value)}
-                            className="w-full min-w-[180px] rounded-lg border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-                          >
-                            <option value="">Unassigned</option>
-                            {subcontractorOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="p-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={hasCopy}
-                            disabled={isSaving}
-                            onChange={(e) => handleCopyToggle(account, e.target.checked)}
-                            className="h-4 w-4"
-                          />
-                        </td>
-                        <td className="min-w-[220px] p-3">{clean(account.keyAlarmAccessInfo) || "-"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+      {loading ? (
+        <SkeletonList rows={4} />
+      ) : filteredAccounts.length === 0 ? (
+        error ? null : (
+          <EmptyState icon="search" title="No accounts found" text="Try a shorter search." />
+        )
+      ) : (
+        <CardList
+          label="Keys by account"
+          items={filteredAccounts}
+          getKey={(account) => getAccountId(account) || clean(account.accountName)}
+          renderCard={(account) => {
+            const accountId = getAccountId(account);
+            const isSaving = savingId === accountId;
+            return (
+              <Card title={clean(account.accountName) || "No name"}>
+                {rowErrors[accountId] ? <p className="ui-field-error">{rowErrors[accountId]}</p> : null}
+                <div className="ui-stack">
+                  <div>
+                    <p className="ui-label">Key code</p>
+                    {keyCodeCell(account, isSaving)}
+                  </div>
+                  {cleanerSelect(account, isSaving)}
+                  {copyCheck(account, isSaving)}
+                  <div>
+                    <p className="ui-label">Key / Alarm / Access Info</p>
+                    <p className="ui-card-text">{clean(account.keyAlarmAccessInfo) || "None"}</p>
+                  </div>
+                </div>
+              </Card>
+            );
+          }}
+          columns={[
+            { header: "Key Code", cell: (account) => keyCodeCell(account, savingId === getAccountId(account)) },
+            {
+              header: "Account",
+              cell: (account) => (
+                <>
+                  <p className="ui-strong">{clean(account.accountName) || "No name"}</p>
+                  {rowErrors[getAccountId(account)] ? <p className="ui-field-error">{rowErrors[getAccountId(account)]}</p> : null}
+                </>
+              ),
+            },
+            { header: "Cleaner", cell: (account) => cleanerSelect(account, savingId === getAccountId(account)) },
+            { header: "Copy", cell: (account) => copyCheck(account, savingId === getAccountId(account)) },
+            { header: "Key / Alarm / Access Info", cell: (account) => clean(account.keyAlarmAccessInfo) || "None" },
+          ]}
+        />
+      )}
+    </Screen>
   );
 }

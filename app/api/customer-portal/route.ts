@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { getCustomerByPhone, getMainAccountByName, fetchManagers, normalizePhone } from "@/lib/googleSheets";
+import { newPortalOn } from "@/lib/portalSession";
+import { getCustomerByPhone, normalizePhone } from "@/lib/data/customer-portal";
+import { getMainAccountByName } from "@/lib/data/accounts";
+import { fetchManagers } from "@/lib/data/people";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const SCRIPT_URL =
@@ -27,6 +30,12 @@ type ScriptResponse = {
 };
 
 export async function POST(request: Request) {
+  // Where the new portal runs (email + password at /portal), this older
+  // phone-only portal is closed: its pages redirect, and so must its data.
+  if (newPortalOn()) {
+    return NextResponse.json({ success: false, error: "This portal has moved to /portal." }, { status: 410 });
+  }
+
   try {
     if (!SCRIPT_URL) {
       return NextResponse.json(
@@ -186,6 +195,10 @@ export async function POST(request: Request) {
 
 // Optional GET for simple fetches if needed
 export async function GET(request: Request) {
+  if (newPortalOn()) {
+    return NextResponse.json({ success: false, error: "This portal has moved to /portal." }, { status: 410 });
+  }
+
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action") || "getCustomerAccount";
   const customerId = searchParams.get("customerId") || "demo";

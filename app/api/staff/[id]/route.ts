@@ -5,7 +5,7 @@ import {
   staffHasEquipmentCheckoutHistory,
   updateStaff,
   type StaffRole,
-} from "@/lib/googleSheets";
+} from "@/lib/data/people";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

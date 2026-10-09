@@ -5,7 +5,7 @@ import {
   getEquipmentById,
   getOpenRepairForEquipment,
   updateEquipmentFields,
-} from "@/lib/googleSheets";
+} from "@/lib/data/equipment";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

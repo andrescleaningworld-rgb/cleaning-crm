@@ -3,7 +3,7 @@
 // ("Allow PIN setup" / "Reset PIN") and no PIN exists yet. On success the
 // person is signed in and goes straight on to the report.
 import { NextRequest, NextResponse } from "next/server";
-import { getStaffById } from "@/lib/googleSheets";
+import { getStaffById } from "@/lib/data/people";
 import { checkEquipmentCheckLinkKey, createEquipmentStaffPin } from "@/lib/equipmentCheckDb";
 import { startEquipmentCheckSession } from "@/lib/equipmentCheckSession";
 import { isFourDigitPin } from "@/lib/pinAuth";

@@ -122,12 +122,12 @@ export default function FollowUpsPage() {
   ).length;
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6">
-      <div className="mx-auto max-w-7xl">
+    <main className="ui-screen">
+      <div className="ui-screen-body">
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Follow-Ups</h1>
-            <p className="mt-2 text-gray-600">
+            <h1 className="ui-screen-title">Follow-Ups</h1>
+            <p className="ui-muted">
               Track pending account follow-ups, assigned responsibility, due
               dates, subcontractor context, completion status, and follow-up
               notes.
@@ -136,7 +136,7 @@ export default function FollowUpsPage() {
 
           <Link
             href="/"
-            className="rounded-lg bg-gray-900 px-4 py-2 text-white hover:bg-gray-700"
+            className="ui-btn ui-btn-second"
           >
             Back to Dashboard
           </Link>
@@ -144,21 +144,21 @@ export default function FollowUpsPage() {
 
         <form
           onSubmit={addFollowup}
-          className="mb-6 rounded-xl bg-white p-5 shadow"
+          className="ui-card"
         >
-          <h2 className="mb-4 text-2xl font-bold text-gray-900">
+          <h2 className="ui-card-title">
             Add New Follow-Up
           </h2>
 
           <div className="grid gap-4 md:grid-cols-4">
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Account
               </label>
               <select
                 value={newFollowup.accountId}
                 onChange={(event) => handleAccountChange(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                className="ui-input w-full"
               >
                 {accounts.map((account) => (
                   <option key={account.id} value={account.id}>
@@ -169,7 +169,7 @@ export default function FollowUpsPage() {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Due Date
               </label>
               <input
@@ -181,12 +181,12 @@ export default function FollowUpsPage() {
                     dueDate: event.target.value,
                   })
                 }
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                className="ui-input w-full"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Assigned To
               </label>
               <select
@@ -197,7 +197,7 @@ export default function FollowUpsPage() {
                     assignedTo: event.target.value,
                   })
                 }
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                className="ui-input w-full"
               >
                 <option value="Andrés">Andrés</option>
                 <option value="Greg">Greg</option>
@@ -211,7 +211,7 @@ export default function FollowUpsPage() {
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
+              <label className="ui-label">
                 Status
               </label>
               <select
@@ -222,7 +222,7 @@ export default function FollowUpsPage() {
                     status: event.target.value,
                   })
                 }
-                className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                className="ui-input w-full"
               >
                 <option value="Pending">Pending</option>
                 <option value="In Progress">In Progress</option>
@@ -235,7 +235,7 @@ export default function FollowUpsPage() {
           </div>
 
           <div className="mt-4">
-            <label className="mb-2 block text-sm font-medium text-gray-700">
+            <label className="ui-label">
               Follow-Up Note
             </label>
             <textarea
@@ -245,25 +245,25 @@ export default function FollowUpsPage() {
               }
               placeholder="Example: Revisit account, confirm issue was corrected, call customer, follow up with subcontractor..."
               rows={3}
-              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+              className="ui-input w-full"
             />
           </div>
 
           <button
             type="submit"
-            className="mt-4 rounded-lg bg-blue-700 px-5 py-3 font-medium text-white hover:bg-blue-600"
+            className="ui-btn ui-btn-main"
           >
             Add Follow-Up
           </button>
 
-          <p className="mt-3 text-sm text-orange-700">
+          <p className="ui-muted">
             Phase 2 note: This adds the follow-up on-screen. Permanent saving
             comes next when we connect storage.
           </p>
         </form>
 
-        <div className="mb-6 rounded-xl bg-white p-5 shadow">
-          <label className="mb-2 block text-sm font-medium text-gray-700">
+        <div className="ui-card">
+          <label className="ui-label">
             Search Follow-Ups
           </label>
 
@@ -272,11 +272,11 @@ export default function FollowUpsPage() {
             placeholder="Search by account, subcontractor, manager, assigned person, due date, status, or notes..."
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+            className="ui-input w-full"
           />
 
           {searchTerm && (
-            <p className="mt-3 text-sm text-gray-500">
+            <p className="ui-muted">
               Showing {filteredFollowups.length} result
               {filteredFollowups.length === 1 ? "" : "s"} for “{searchTerm}”
             </p>
@@ -284,30 +284,30 @@ export default function FollowUpsPage() {
         </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-4">
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Follow-Ups Showing</p>
-            <p className="mt-2 text-3xl font-bold text-gray-900">
+          <div className="ui-card">
+            <p className="ui-muted">Follow-Ups Showing</p>
+            <p className="ui-stat-value">
               {filteredFollowups.length}
             </p>
           </div>
 
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Pending / In Progress</p>
-            <p className="mt-2 text-3xl font-bold text-orange-600">
+          <div className="ui-card">
+            <p className="ui-muted">Pending / In Progress</p>
+            <p className="ui-stat-value">
               {pendingFollowups}
             </p>
           </div>
 
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Needs Review</p>
-            <p className="mt-2 text-3xl font-bold text-purple-700">
+          <div className="ui-card">
+            <p className="ui-muted">Needs Review</p>
+            <p className="ui-stat-value">
               {needsManagerReview}
             </p>
           </div>
 
-          <div className="rounded-xl bg-white p-5 shadow">
-            <p className="text-sm text-gray-500">Completed</p>
-            <p className="mt-2 text-3xl font-bold text-green-700">
+          <div className="ui-card">
+            <p className="ui-muted">Completed</p>
+            <p className="ui-stat-value">
               {completedFollowups}
             </p>
           </div>
@@ -320,44 +320,44 @@ export default function FollowUpsPage() {
             );
 
             return (
-              <div key={followup.id} className="rounded-xl bg-white p-5 shadow">
+              <div key={followup.id} className="ui-card">
                 <div className="grid gap-4 md:grid-cols-5">
                   <div>
-                    <p className="text-sm text-gray-500">Due Date</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Due Date</p>
+                    <p className="ui-strong">
                       {followup.dueDate}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-500">Account</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Account</p>
+                    <p className="ui-strong">
                       {followup.accountName}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-500">Subcontractor</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Subcontractor</p>
+                    <p className="ui-strong">
                       {relatedAccount?.subcontractor || "Not connected"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-500">Assigned To</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Assigned To</p>
+                    <p className="ui-strong">
                       {followup.assignedTo}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-500">Status</p>
+                    <p className="ui-muted">Status</p>
                     <select
                       value={followup.status}
                       onChange={(event) =>
                         updateStatus(followup.id, event.target.value)
                       }
-                      className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                      className="ui-input w-full"
                     >
                       <option value="Pending">Pending</option>
                       <option value="In Progress">In Progress</option>
@@ -371,34 +371,34 @@ export default function FollowUpsPage() {
 
                 <div className="mt-4 grid gap-4 md:grid-cols-3">
                   <div>
-                    <p className="text-sm text-gray-500">Account Status</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Account Status</p>
+                    <p className="ui-strong">
                       {relatedAccount?.accountStatus || "N/A"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-500">Account Health</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Account Health</p>
+                    <p className="ui-strong">
                       {relatedAccount?.accountHealth || "N/A"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm text-gray-500">Manager</p>
-                    <p className="font-medium text-gray-900">
+                    <p className="ui-muted">Manager</p>
+                    <p className="ui-strong">
                       {relatedAccount?.manager || "N/A"}
                     </p>
                   </div>
                 </div>
 
                 <div className="mt-4 rounded-lg border p-4">
-                  <p className="text-sm text-gray-500">Original Follow-Up Note</p>
-                  <p className="mt-1 text-gray-700">{followup.note}</p>
+                  <p className="ui-muted">Original Follow-Up Note</p>
+                  <p className="ui-muted">{followup.note}</p>
                 </div>
 
                 <div className="mt-4">
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                  <label className="ui-label">
                     Add Follow-Up Update
                   </label>
 
@@ -409,15 +409,15 @@ export default function FollowUpsPage() {
                     }
                     placeholder="Example: Spoke with subcontractor, issue corrected, customer notified..."
                     rows={3}
-                    className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                    className="ui-input w-full"
                   />
 
                   {followup.updateNote && (
                     <div className="mt-3 rounded-lg bg-blue-50 p-3">
-                      <p className="text-sm font-medium text-blue-900">
+                      <p className="ui-strong">
                         Latest Update
                       </p>
-                      <p className="mt-1 text-sm text-blue-800">
+                      <p className="ui-muted">
                         {followup.updateNote}
                       </p>
                     </div>
@@ -428,17 +428,17 @@ export default function FollowUpsPage() {
           })}
 
           {filteredFollowups.length === 0 && (
-            <div className="rounded-xl bg-white p-6 text-center text-gray-500 shadow">
+            <div className="ui-card">
               No follow-ups found. Try a different search.
             </div>
           )}
         </div>
 
-        <div className="mt-6 rounded-xl bg-white p-5 shadow">
-          <h2 className="text-xl font-semibold text-gray-900">
+        <div className="ui-card">
+          <h2 className="ui-card-title">
             Phase 2 Follow-Up Goal
           </h2>
-          <p className="mt-2 text-gray-600">
+          <p className="ui-muted">
             This page allows Cleaning World to add follow-ups, update status,
             add progress notes, and see subcontractor/account context for each
             follow-up.
