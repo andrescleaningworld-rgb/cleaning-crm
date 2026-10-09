@@ -18,7 +18,6 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { clearShellScreen, setShellScreen } from "./shell";
-import { ToastRegion } from "./toast";
 import { UI_WORDS, type UiLang, type UiWords } from "./words";
 
 /* ---------- words ---------- */
@@ -139,7 +138,6 @@ export function Screen({
           {secondaryAction}
         </div>
       ) : null}
-      <ToastRegion />
     </div>
   );
 }

@@ -113,9 +113,158 @@ the status error.
 Interactions added: first-time tips (3), "Saved ✓" after a status change, a
 5-second Undo before the account is cancelled, Try again on the status error.
 
-## Not done yet (step 2, after the OK)
+## Step 2: the rest of the app
 
-Dashboard, To-Do, Sub Center, Subcontractors, Complaints, Visits, Equipment,
-Supplies, Settings, login, customer portal, sub portal. They already have the
-navy bar and the green buttons, because those come from the shared styles.
-Their layouts, tips, swipe, pull-to-refresh and Undo are still to do.
+Rules added in step 2, used on every screen below:
+
+- At a glance: big tappable counts first (`Counts` in `app/ui/`), status as color + icon + word, short labels. Details are one tap deeper.
+- Every card goes where you expect. Counts are links or filters.
+- Every page has a back arrow in the navy bar except home (Dashboard for staff, the portal home for a sub or a customer). A screen says where its arrow goes; otherwise it goes one level up.
+- Navy bar, wide screen: Dashboard, Accounts center, To-Do, Sub Center, then "?" and Menu. Phone: "?" and Menu only. Menu holds every destination.
+- Toasts ("Saved ✓", Undo) now come from one place for every page (`app/layout.tsx`).
+
+### Top bar (changed again in step 2)
+
+| Old (step 1) | Now |
+| --- | --- |
+| Every menu item always showing on a wide screen | Wide: four buttons (Dashboard, Accounts center, To-Do, Sub Center); everything else behind Menu |
+| To-Do reached from the Dashboard | Also in the bar (wide) and in Menu |
+| Back arrow only on screens that set one | On every page except home |
+
+### Dashboard (`app/page.tsx`)
+
+| Old | Now |
+| --- | --- |
+| "Operations Command Center" title and paragraph | Removed. The bar says Dashboard. |
+| Stat: Overdue To-Dos → To-Do | Big count → To-Do filtered to overdue |
+| Stat: Visits This Month → Visits | Big count → Visits |
+| Stat: Open Complaints → Complaints | Big count → Complaints filtered to open |
+| Stat: Accounts Needing Attention → Accounts | Big count "Accounts need you" → Accounts Center on "Need you". It now counts by the same rule as Accounts Center (High Risk, or an open crew problem), so the number and the list agree. It used to also count "needs attention" health. |
+| Stat: Active Accounts → Accounts | Big count → Accounts Center on Active |
+| "Today's Manager To-Dos" (6 cards, each → To-Do) | "Do next": the same 6 cards. Each card opens that to-do. "All to-dos" button. |
+| Buttons: To-Do List, Complaints, Supplies, Crew Link, Supply Orders (with red badges) | Tiles, with the count under the label ("28 overdue", "6 open", "2 new") |
+| Quick Links: Visits, Sales, Subcontractors, Reports | Tiles |
+| Print button | More → Print |
+| Stats: Monthly Revenue, Monthly Sub Pay, Gross Margin | More → "Money hidden · tap to show" (same switch as Accounts Center) |
+| Accounts Needing Attention table (8 rows) | More → "Accounts that need you": cards, each opens the account. Monthly revenue shows when money is showing. |
+| Recent Complaints (5) | More → cards, each opens that complaint |
+| Recent Supply Orders (5) | More → cards, each opens Supply Orders |
+
+Added: tips (3), pull down to refresh, an empty state for no open to-dos.
+
+### To-Do (`app/to-do/page.tsx`)
+
+| Old | Now |
+| --- | --- |
+| Stat cards: Open, Overdue, Done | Big counts at the top. Tap = filter. Overdue is new as a filter. |
+| "New To-Do" form always open | Behind the green "+ Add to-do" button. Same fields. |
+| Search box | "Find a to-do", always showing |
+| Filters: Assigned, Status, Type, Priority, Sort | "Filters and more" |
+| Open Google Calendar, Bulk Edit To-Dos, Print Assigned Tasks, Print This List | "Filters and more" |
+| "Printed: date" line | Only on paper |
+| To-do cards and every button on them | Same |
+| SMS quota banner | Same |
+| "Could not update to-do." pop-up box | A red message at the bottom of the screen |
+
+Added: tips (3), pull down to refresh, "To-do saved ✓" / "Done ✓", a 5-second Undo before a to-do is cancelled, links `?filter=overdue`, `?add=1` (and the existing `?id=`).
+
+### Complaints (`app/complaints/page.tsx`)
+
+| Old | Now |
+| --- | --- |
+| Stats: Total, Open, Closed, Review, Not Valid, With Photos | Big counts: Open (everything not closed), To review, Closed. Tap = filter. The rest are on the line under the search: "Showing N of N · In progress · Not valid · With photos". |
+| Search, Filter and sort, Clear filters | Same |
+| Card: Open button | Same, now the green button |
+| Card: Close complaint | Same, with a 5-second Undo before it is saved |
+| Add complaint (main button) | Same |
+
+Added: tips (3), pull down to refresh, "Complaint closed ✓", link `?status=open`.
+
+### Visits (`app/visits/page.tsx`, protected file)
+
+| Old | Now |
+| --- | --- |
+| Stats: Total Visits, Showing, Follow-Ups Needed | Big counts: This month, Need follow-up, All visits. Tap = filter. "Showing N of N" is a line under the filters. |
+| Add visit (top) | Same |
+| Search, Filter and sort, Clear filters, More → Print | Same |
+| Card: Open | Same, now the green button |
+
+Added: tips (3).
+
+### Sub Center and Subcontractors (`app/subcontractors/page.tsx`)
+
+| Old | Now |
+| --- | --- |
+| Tabs: Subs, Sub Schedules, Coverage, Activity Log; Subcontractors / Service Log | Same |
+| (filters only inside Filter and sort) | Big counts: Active, High risk, No schedule. Each sets the matching filter. |
+| Search, Filter and sort, Clear filters | Same |
+| Card: revenue line (Sub revenue, CW revenue) | Hidden until "Money hidden · tap to show" |
+| Card: Open | Same, now the green button |
+| Card: Add schedule | Same |
+| Add subcontractor (main button) | Same |
+
+Added: tips (3), pull down to refresh.
+
+### Equipment (`app/equipment/page.tsx`, `app/equipment/ui.tsx`)
+
+Already in the simple style, so only the colors and words changed: green
+main button, light-green job tiles, light-blue selected chip, back arrow to
+the Dashboard, "Find equipment", clearer empty words. Every button, chip and
+card is where it was.
+
+### Supplies (`app/supplies/page.tsx`)
+
+| Old | Now |
+| --- | --- |
+| Stats: Active Supplies, Inactive Supplies, Low Stock | Big counts: Active, Low stock (red when above 0), Inactive. Tap = filter. |
+| Search | "Find a supply" |
+| Supply Orders button, Add Supply | Same |
+| Card: Edit, Remove | Same. Remove still asks first, then waits 5 seconds behind Undo. |
+
+Added: tips (2), pull down to refresh, "Removed ✓".
+
+### Settings (`app/settings/page.tsx`)
+
+| Old | Now |
+| --- | --- |
+| Link cards: Customer Portal Access, Extra / Specialty Services, Equipment Categories & Staff, Activity Log (owner only), Logs | Light-green tiles, same places. Activity Log is still owner only. |
+| Stat cards: Active Managers, Visit Types, Update Types, Complaint Validity Options | One line under "Lists used in the app" |
+| Supply settings, Managers (owner), Manager Login Accounts (owner), Complaint Validity Options, Visit Types, Account Update Types, Account Statuses, Account Health Statuses | Same |
+
+### Login (`app/login/page.tsx`, protected file)
+
+| Old | Now |
+| --- | --- |
+| Title and paragraph | "Who are you?" |
+| Admin Login card | Tile "Office staff" |
+| Subcontractor Login card | Tile "Subcontractor" |
+| Customer Portal card | Tile "Customer" |
+| "Select your name to log in" | "Tap your name" |
+| "Back to Login Options" | "Back" |
+| Name list, password, set-up password, owner link | Same |
+
+### Sub portal (`app/subcontractor-portal/page.tsx`, protected file)
+
+| Old | Now |
+| --- | --- |
+| Blue banner with a paragraph | "Type your email to see your accounts." |
+| Email box + "Access Portal" (stayed on screen after login) | Email box + "Open my portal". Hidden once logged in. |
+| "Logged in as", name, email, Logout | Same, on one line with Logout |
+| Pills: N Accounts, N Complaints, pay, Score, status | Big counts: Accounts, Complaints (red when above 0), Score. Tap Accounts or Complaints = that tab. Status and monthly pay are on the line above. |
+| Six tab buttons in six colors | Same six, same order: plain, the open one light blue |
+| Sticky block at the very top | Under the navy bar on a wide screen; not sticky on a phone |
+| Every tab's content | Same |
+
+Added: tips (2).
+
+### Customer portal (`app/(customer)/portal/`)
+
+The home was already eight big tiles and every page already had a back arrow.
+Changed: the tiles are light green, buttons green, the navy bar on top. Nothing
+moved.
+
+### Other pages
+
+Sales, Reports, Documents, Map, Supply Orders, Sub Schedules, Notifications,
+Portal Requests, Help, and the add / edit forms keep their layout. They have
+the navy bar with a back arrow, the green buttons and the 18px text.

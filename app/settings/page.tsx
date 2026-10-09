@@ -1,5 +1,6 @@
 "use client";
 
+import { ShellTitle, Tile } from "@/app/ui";
 import Link from "next/link";
 import {
   useEffect,
@@ -857,123 +858,23 @@ export default function SettingsPage() {
   return (
     <main className="ui-screen">
       <div className="ui-screen-body">
-        <div className="mb-6">
-          <h1 className="ui-screen-title">Settings</h1>
+        <ShellTitle title="Settings" backHref="/" />
+        <h1 className="ui-screen-title">Settings</h1>
 
-          <p className="ui-muted">
-            Manage the dropdown options used throughout the app. Subcontractors
-            are managed on their own dedicated Subcontractors page.
-          </p>
+        {/* The places to go, one tap each. The Activity Log tile is owner-only, as before. */}
+        <div className="ui-acttiles">
+          <Tile icon="key" label="Customer Portal Access" detail="Turn the portal on or off for an account" href="/settings/portal" />
+          <Tile icon="note" label="Extra Services" detail="What customers can request" href="/settings/extra-services" />
+          <Tile icon="status" label="Equipment Categories and Staff" href="/settings/equipment-categories" />
+          {isOwner ? <Tile icon="visit" label="Activity Log" detail="Who changed what" href="/settings/activity-log" /> : null}
+          <Tile icon="print" label="Logs" detail="Account update history" href="/settings/logs" />
         </div>
 
-        {/* Portal Access shortcut */}
-        <Link
-          href="/settings/portal"
-          className="ui-card ui-stack"
-        >
-          <div>
-            <p className="ui-strong">Customer Portal Access</p>
-            <p className="ui-muted">
-              Enable / disable portal access and manage portal codes for each customer account.
-            </p>
-          </div>
-          <span className="ml-4 shrink-0 text-blue-500">→</span>
-        </Link>
-
-        {/* Extra/Specialty Services shortcut */}
-        <Link
-          href="/settings/extra-services"
-          className="ui-card ui-stack"
-        >
-          <div>
-            <p className="ui-strong">Extra / Specialty Services</p>
-            <p className="ui-muted">
-              Manage the specialty services customers can request from the portal — name,
-              description, photo, and display order.
-            </p>
-          </div>
-          <span className="ml-4 shrink-0 text-purple-500">→</span>
-        </Link>
-
-        {/* Team Hub Libraries shortcut hidden 2026-09-24 (Crew Link replaces Team Hub); /settings/team-hub-libraries still exists. */}
-
-        {/* Equipment Categories & Staff shortcut */}
-        <Link
-          href="/settings/equipment-categories"
-          className="ui-card ui-stack"
-        >
-          <div>
-            <p className="ui-strong">Equipment Categories &amp; Staff</p>
-            <p className="ui-muted">
-              Manage equipment categories and the Staff roster used for checkout/return sign-off. Full
-              equipment inventory lives on its own Equipment page.
-            </p>
-          </div>
-          <span className="ml-4 shrink-0 text-teal-500">→</span>
-        </Link>
-
-        {/* Activity Log shortcut — owner-only */}
-        {isOwner ? (
-          <Link
-            href="/settings/activity-log"
-            className="ui-card ui-stack"
-          >
-            <div>
-              <p className="ui-strong">Activity Log</p>
-              <p className="ui-muted">
-                Audit trail of who created, edited, or deleted records across the app, plus logins/logouts.
-              </p>
-            </div>
-            <span className="ml-4 shrink-0 text-amber-500">→</span>
-          </Link>
-        ) : null}
-
-        {/* Logs shortcut */}
-        <Link
-          href="/settings/logs"
-          className="ui-card ui-stack"
-        >
-          <div>
-            <p className="ui-strong">Logs</p>
-            <p className="ui-muted">
-              Browse the account update history log across every account — Change Status notes,
-              onboarding-checklist completion summaries, and manual updates.
-            </p>
-          </div>
-          <span className="ui-muted shrink-0">→</span>
-        </Link>
-
-        <div className="mb-6 grid gap-4 md:grid-cols-4">
-          <div className="ui-card">
-            <p className="ui-muted">Active Managers</p>
-            <p className="ui-stat-value">
-              {activeManagers}
-            </p>
-          </div>
-
-          <div className="ui-card">
-            <p className="ui-muted">Active Visit Types</p>
-            <p className="ui-stat-value">
-              {activeVisitTypes}
-            </p>
-          </div>
-
-          <div className="ui-card">
-            <p className="ui-muted">Active Update Types</p>
-            <p className="ui-stat-value">
-              {activeUpdateTypes}
-            </p>
-          </div>
-
-          <div className="ui-card">
-            <p className="ui-muted">
-              Complaint Validity Options
-            </p>
-            <p className="ui-stat-value">
-              {activeComplaintValidityOptions}
-            </p>
-          </div>
-        </div>
+        <h2 className="ui-section-title">Lists used in the app</h2>
+        <p className="ui-muted">
+          Active now: {activeManagers} managers · {activeVisitTypes} visit types · {activeUpdateTypes} update types · {activeComplaintValidityOptions} complaint validity options.
+          Subcontractors are managed on the Subcontractors page.
+        </p>
 
         <div className="grid gap-6">
           <SupplySettingsSection />

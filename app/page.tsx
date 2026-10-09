@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { BigButton, Counts, EmptyState, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
 
@@ -562,82 +563,6 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
   }
 }
 
-function StatCard({
-  label,
-  value,
-  note,
-  href,
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  href?: string;
-}) {
-  const content = (
-    <div className="ui-card">
-      <p className="ui-muted">
-        {label}
-      </p>
-      <h2 className="ui-card-title">
-        {value}
-      </h2>
-      {note ? <p className="ui-muted">{note}</p> : null}
-    </div>
-  );
-
-  if (!href) return content;
-
-  return (
-    <Link href={href} className="block">
-      {content}
-    </Link>
-  );
-}
-
-function DashboardButton({
-  href,
-  label,
-  badgeCount = 0,
-}: {
-  href: string;
-  label: string;
-  badgeCount?: number;
-}) {
-  return (
-    <Link
-      href={href}
-      className="ui-btn ui-btn-second"
-    >
-      <span>{label}</span>
-      {badgeCount > 0 ? (
-        <span className="ml-2 inline-flex items-center rounded-full bg-red-600 px-2 py-1 text-base font-bold text-white">
-          🔔 {badgeCount}
-        </span>
-      ) : null}
-    </Link>
-  );
-}
-
-function QuickLink({
-  href,
-  title,
-  note,
-}: {
-  href: string;
-  title: string;
-  note: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="ui-card ui-stack"
-    >
-      <h3 className="ui-card-title">{title}</h3>
-      <p className="ui-muted">{note}</p>
-    </Link>
-  );
-}
-
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData>({
     accounts: [],
@@ -648,6 +573,21 @@ export default function DashboardPage() {
   });
 
   const [loading, setLoading] = useState(true);
+  // Open problems the crew reported, per account (best effort: none on failure).
+  const [crewProblems, setCrewProblems] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/team-hub/open-counts", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((body: { countsByAccountId?: Record<string, number> }) => {
+        if (!cancelled) setCrewProblems(body.countsByAccountId ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -728,15 +668,14 @@ export default function DashboardPage() {
     const openTodos = data.todos.filter(isToDoOpen);
     const overdueTodos = data.todos.filter(isToDoOverdue);
 
-    const accountsNeedingAttention = revenueAccounts.filter((account) => {
-      const health = cleanLower(getAccountHealth(account));
-
-      return (
-        health.includes("high risk") ||
-        health.includes("needs attention") ||
-        health.includes("problem") ||
-        health.includes("bad")
-      );
+    // The same rule as "Need you" on Accounts Center, so the number here and
+    // the list it opens agree: not cancelled, and either High Risk or an open
+    // problem from the crew. (It used to also count "needs attention" health.)
+    const accountsNeedingAttention = rawAccounts.filter((account) => {
+      const status = cleanLower(getAccountStatus(account));
+      if (["cancel", "lost", "terminated", "closed"].some((word) => status.includes(word))) return false;
+      if ((crewProblems[getAccountId(account)] ?? 0) > 0) return true;
+      return cleanLower(getAccountHealth(account)).includes("high risk");
     });
 
     const recentTodos = [...openTodos]
@@ -781,349 +720,239 @@ export default function DashboardPage() {
       recentComplaints,
       recentSupplyOrders,
     };
-  }, [data]);
+  }, [data, crewProblems]);
+
+  const [showMore, setShowMore] = useState(false);
+  const [showMoney, setShowMoney] = useState(false);
+
+  useEffect(() => {
+    // Deferred read: localStorage isn't available during SSR. Same switch
+    // as "Money hidden" on Accounts Center, so one tap covers both.
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowMoney(window.localStorage.getItem("cwAccountsShowMoney") === "1");
+    } catch {
+      // Private mode: money simply starts hidden.
+    }
+  }, []);
+
+  function toggleMoney() {
+    const next = !showMoney;
+    setShowMoney(next);
+    try {
+      window.localStorage.setItem("cwAccountsShowMoney", next ? "1" : "0");
+    } catch {
+      // Not remembered, still switched for now.
+    }
+  }
+
+  const overdue = dashboard.overdueTodos.length;
+  const openComplaints = dashboard.openComplaints.length;
+  const needYou = dashboard.accountsNeedingAttention.length;
+  const newOrders = dashboard.newSupplyOrders.length;
 
   return (
-    <main className="ui-screen">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="ui-strong">
-            Cleaning World
-          </p>
-          <h1 className="ui-screen-title">
-            Operations Command Center
-          </h1>
-          <p className="ui-muted">
-            Faster daily view focused on urgent tasks, visits, complaints,
-            supply orders, and accounts needing attention.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap gap-3">
-          <DashboardButton
-            href="/to-do"
-            label="To-Do List"
-            badgeCount={dashboard.overdueTodos.length}
-          />
-          <DashboardButton
-            href="/complaints"
-            label="Complaints"
-            badgeCount={dashboard.openComplaints.length}
-          />
-          <DashboardButton href="/supplies" label="Supplies" />
-          <DashboardButton href="/crew-link" label="Crew Link" />
-          <DashboardButton
-            href="/supply-orders"
-            label="Supply Orders"
-            badgeCount={dashboard.newSupplyOrders.length}
-          />
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="ui-btn ui-btn-second"
-          >
-            Print
-          </button>
-        </div>
-      </div>
+    <Screen title="Dashboard">
+      <Tips
+        id="dashboard"
+        ready={!loading}
+        steps={[
+          { target: '[data-tip="counts"]', text: "These numbers are what needs you today. Tap one to see the list." },
+          { target: '[data-tip="todos"]', text: "Tap a to-do to open it." },
+          { target: '[data-tip="tiles"]', text: "Tap a green tile to go to that part of the app." },
+        ]}
+      />
+      <PullToRefresh onRefresh={() => {
+          window.dispatchEvent(new Event("focus"));
+        }} />
 
       {loading ? (
-        <div className="ui-card">
-          Loading command center...
-        </div>
+        <SkeletonList rows={4} />
       ) : (
         <>
-          <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Overdue To-Dos"
-              value={formatNumber(dashboard.overdueTodos.length)}
-              note="Needs attention first"
-              href="/to-do"
-            />
+          {/* The situation in two seconds. Red only when there is a problem. */}
+          <Counts
+            data-tip="counts"
+            items={[
+              { label: "Overdue to-dos", value: formatNumber(overdue), tone: overdue > 0 ? "bad" : "good", href: "/to-do?filter=overdue" },
+              { label: "Open complaints", value: formatNumber(openComplaints), tone: openComplaints > 0 ? "bad" : "good", href: "/complaints?status=open" },
+              { label: "Accounts need you", value: formatNumber(needYou), tone: needYou > 0 ? "bad" : "good", href: "/accounts-center?show=need-you" },
+              { label: "Visits this month", value: formatNumber(dashboard.visitsThisMonth.length), tone: "info", href: "/visits" },
+              { label: "Active accounts", value: formatNumber(dashboard.activeAccounts.length), tone: "good", href: "/accounts-center?show=active" },
+            ]}
+          />
 
-            <StatCard
-              label="Visits This Month"
-              value={formatNumber(dashboard.visitsThisMonth.length)}
-              note="Field/account visits logged"
-              href="/visits"
-            />
-
-            <StatCard
-              label="Open Complaints"
-              value={formatNumber(dashboard.openComplaints.length)}
-              note="Not closed or resolved"
-              href="/complaints"
-            />
-
-            <StatCard
-              label="Accounts Needing Attention"
-              value={formatNumber(dashboard.accountsNeedingAttention.length)}
-              note="High risk or needs attention"
-              href="/accounts"
-            />
-
-            <StatCard
-              label="Active Accounts"
-              value={formatNumber(dashboard.activeAccounts.length)}
-              note="Currently active accounts"
-              href="/accounts"
-            />
-          </section>
-
-          <section className="ui-stat">
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <div>
-                <h2 className="ui-card-title">Today&apos;s Manager To-Dos</h2>
-                <p className="ui-muted">
-                  Open tasks sorted by due date. Use this first when assigning
-                  or checking work.
-                </p>
-              </div>
-
-              <Link className="ui-link" href="/to-do">
-                View all
+          {/* The one main list: what to do next. */}
+          <section className="ui-screen-body" aria-label="To-dos to do next">
+            <div className="ui-card-row">
+              <h2 className="ui-section-title">Do next</h2>
+              <Link className="ui-btn ui-btn-second" href="/to-do">
+                All to-dos
               </Link>
             </div>
 
             {dashboard.recentTodos.length === 0 ? (
-              <p className="ui-muted">No open to-dos found.</p>
+              <EmptyState title="No to-dos open" text="Tap Add to-do to make one." action={<BigButton href="/to-do?add=1">Add to-do</BigButton>} />
             ) : (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {dashboard.recentTodos.map((todo, index) => (
-                  <Link
-                    key={`todo-${index}`}
-                    href="/to-do"
-                    className="ui-card ui-stack"
-                  >
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      <span className="rounded-full bg-blue-100 px-2 py-1 text-base font-bold text-blue-700">
-                        {getToDoTaskType(todo) || "Task"}
-                      </span>
-
-                      {isToDoOverdue(todo) ? (
-                        <span className="rounded-full bg-red-100 px-2 py-1 text-base font-bold text-red-700">
-                          Overdue
+              <ul className="ui-acct-list" data-tip="todos">
+                {dashboard.recentTodos.map((todo, index) => {
+                  const id = cleanText(getValue(todo, ["id", "ID", "toDoId", "todoId"]));
+                  return (
+                    <li key={`todo-${id || index}`}>
+                      <Link href={id ? `/to-do?id=${encodeURIComponent(id)}` : "/to-do"} className={`ui-acct ui-acct-link ${isToDoOverdue(todo) ? "ui-acct-problem" : ""}`.trim()}>
+                        <span className="ui-acct-name">{getToDoAccount(todo) || "No account"}</span>
+                        <span className="ui-actions-row">
+                          {isToDoOverdue(todo) ? <StatusPill kind="needs-you">Overdue</StatusPill> : <StatusPill kind="waiting">{getToDoStatus(todo) || "Open"}</StatusPill>}
+                          <StatusPill kind="off">{getToDoTaskType(todo) || "Task"}</StatusPill>
                         </span>
-                      ) : null}
-
-                      <span className="rounded-full bg-gray-100 px-2 py-1 text-base font-bold text-gray-700">
-                        {getToDoStatus(todo) || "Open"}
-                      </span>
-                    </div>
-
-                    <strong>{getToDoAccount(todo) || "No account"}</strong>
-
-                    <p className="ui-muted">
-                      {getToDoWhy(todo) || "No reason entered."}
-                    </p>
-
-                    <p className="ui-muted">
-                      Assigned to: {getToDoAssignedTo(todo) || "-"} · Due:{" "}
-                      {getDisplayDueDate(todo)}
-                    </p>
-                  </Link>
-                ))}
-              </div>
+                        <span className="ui-acct-line">{getToDoWhy(todo) || "No reason entered."}</span>
+                        <span className="ui-acct-line">
+                          {getToDoAssignedTo(todo) || "Nobody yet"} · Due {getDisplayDueDate(todo)}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </section>
 
-          <section className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <StatCard
-              label="Monthly Revenue"
-              value={formatMoney(dashboard.monthlyRevenue)}
-              note={`${formatNumber(
-                dashboard.revenueAccounts.length
-              )} active revenue accounts`}
-              href="/accounts"
-            />
+          {/* Where to go. */}
+          <div className="ui-acttiles" data-tip="tiles">
+            <Tile icon="todo" label="To-Do" detail={overdue > 0 ? `${overdue} overdue` : undefined} href="/to-do" />
+            <Tile icon="problem" label="Complaints" detail={openComplaints > 0 ? `${openComplaints} open` : undefined} href="/complaints" />
+            <Tile icon="visit" label="Visits" href="/visits" />
+            <Tile icon="note" label="Supply Orders" detail={newOrders > 0 ? `${newOrders} new` : undefined} href="/supply-orders" />
+            <Tile icon="key" label="Supplies" href="/supplies" />
+            <Tile icon="call" label="Crew Link" href="/crew-link" />
+            <Tile icon="money" label="Sales" href="/sales" />
+            <Tile icon="status" label="Subcontractors" href="/subcontractors" />
+            <Tile icon="print" label="Reports" href="/reports" />
+            <Tile icon="more" label={showMore ? "Less" : "More"} onClick={() => setShowMore((value) => !value)} aria-expanded={showMore} aria-controls="dashboard-more" />
+          </div>
 
-            <StatCard
-              label="Monthly Sub Pay"
-              value={formatMoney(dashboard.monthlySubcontractorPay)}
-              note="Revenue accounts only"
-            />
-
-            <StatCard
-              label="Gross Margin"
-              value={formatMoney(dashboard.grossMargin)}
-              note={formatPercent(dashboard.grossMarginPercent)}
-            />
-          </section>
-
-          <section className="ui-card">
-            <div className="mb-4 flex items-center justify-between gap-4">
-              <h2 className="ui-card-title">Accounts Needing Attention</h2>
-              <Link className="ui-link" href="/accounts">
-                View all
-              </Link>
-            </div>
-
-            {dashboard.accountsNeedingAttention.length === 0 ? (
-              <p className="ui-muted">
-                No accounts marked as high risk or needing attention.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="ui-table w-full">
-                  <thead>
-                    <tr className="border-b bg-gray-50 text-left uppercase tracking-wide text-gray-500">
-                      <th className="p-3">Account</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3">Health</th>
-                      <th className="p-3">Manager</th>
-                      <th className="p-3">Subcontractor</th>
-                      <th className="p-3 text-right">Monthly Revenue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dashboard.accountsNeedingAttention
-                      .slice(0, 8)
-                      .map((account, index) => {
-                        const id = getAccountId(account);
-                        const name =
-                          getAccountName(account) || "Unnamed Account";
-                        const href = id
-                          ? `/accounts/${encodeURIComponent(id)}`
-                          : "/accounts";
-
-                        return (
-                          <tr
-                            key={`attention-${index}`}
-                            className="border-b last:border-b-0"
-                          >
-                            <td className="p-3">
-                              <Link
-                                className="ui-link"
-                                href={href}
-                              >
-                                {name}
-                              </Link>
-                            </td>
-                            <td className="p-3">
-                              {getAccountStatus(account) || "-"}
-                            </td>
-                            <td className="p-3">
-                              {getAccountHealth(account) || "-"}
-                            </td>
-                            <td className="p-3">
-                              {getAccountManager(account) || "-"}
-                            </td>
-                            <td className="p-3">
-                              {getAccountSubcontractor(account) || "-"}
-                            </td>
-                            <td className="p-3 text-right">
-                              {formatMoney(getMonthlyRevenue(account))}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <section className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-2">
-            <div className="ui-card">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="ui-card-title">Recent Complaints</h2>
-                <Link className="ui-link" href="/complaints">
-                  View
+          {/* One tap deeper: the accounts that need you, the latest complaints and orders, money. */}
+          <div id="dashboard-more" hidden={!showMore} className="ui-screen-body">
+            <section className="ui-screen-body" aria-label="Accounts that need you">
+              <div className="ui-card-row">
+                <h2 className="ui-section-title">Accounts that need you</h2>
+                <Link className="ui-btn ui-btn-second" href="/accounts-center?show=need-you">
+                  See all
                 </Link>
               </div>
+              {dashboard.accountsNeedingAttention.length === 0 ? (
+                <p className="ui-muted">None. No account is High Risk and the crew has no open problems.</p>
+              ) : (
+                <ul className="ui-acct-list">
+                  {dashboard.accountsNeedingAttention.slice(0, 8).map((account, index) => {
+                    const id = getAccountId(account);
+                    return (
+                      <li key={`attention-${index}`}>
+                        <Link href={id ? `/accounts/${encodeURIComponent(id)}` : "/accounts-center"} className="ui-acct ui-acct-link ui-acct-problem">
+                          <span className="ui-acct-name">{getAccountName(account) || "Unnamed Account"}</span>
+                          <span className="ui-actions-row">
+                            <StatusPill kind="needs-you">{getAccountHealth(account) || "Needs you"}</StatusPill>
+                            <StatusPill kind="off">{getAccountStatus(account) || "No status"}</StatusPill>
+                          </span>
+                          <span className="ui-acct-line">
+                            Manager: {getAccountManager(account) || "-"} · Sub: {getAccountSubcontractor(account) || "-"}
+                          </span>
+                          {showMoney ? <span className="ui-acct-line">{formatMoney(getMonthlyRevenue(account))} a month</span> : null}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
 
+            <section className="ui-screen-body" aria-label="Recent complaints">
+              <div className="ui-card-row">
+                <h2 className="ui-section-title">Recent complaints</h2>
+                <Link className="ui-btn ui-btn-second" href="/complaints">
+                  See all
+                </Link>
+              </div>
               {dashboard.recentComplaints.length === 0 ? (
-                <p className="ui-muted">No complaints found.</p>
+                <p className="ui-muted">No complaints yet.</p>
               ) : (
-                <div className="space-y-3">
-                  {dashboard.recentComplaints.map((complaint, index) => (
-                    <div
-                      key={`complaint-${index}`}
-                      className="ui-stat"
-                    >
-                      <strong>
-                        {getRowAccountName(complaint) || "Unknown Account"}
-                      </strong>
-                      <p className="ui-muted">
-                        {getRowTitle(complaint) || "Complaint"}
-                      </p>
-                      <p className="ui-muted">
-                        {getComplaintStatus(complaint) || "Open"} ·{" "}
-                        {getDisplayDate(complaint)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
+                <ul className="ui-acct-list">
+                  {dashboard.recentComplaints.map((complaint, index) => {
+                    const id = cleanText(getValue(complaint, ["id", "ID", "complaintId", "rowNumber"]));
+                    const open = isComplaintOpen(complaint);
+                    return (
+                      <li key={`complaint-${index}`}>
+                        <Link href={id ? `/complaints/${encodeURIComponent(id)}` : "/complaints"} className={`ui-acct ui-acct-link ${open ? "ui-acct-problem" : ""}`.trim()}>
+                          <span className="ui-acct-name">{getRowAccountName(complaint) || "Unknown Account"}</span>
+                          <span className="ui-actions-row">
+                            <StatusPill kind={open ? "needs-you" : "done"}>{getComplaintStatus(complaint) || "Open"}</StatusPill>
+                          </span>
+                          <span className="ui-acct-line">{getRowTitle(complaint) || "Complaint"}</span>
+                          <span className="ui-acct-line">{getDisplayDate(complaint)}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </div>
+            </section>
 
-            <div className="ui-card">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="ui-card-title">Recent Supply Orders</h2>
-                <Link className="ui-link" href="/supply-orders">
-                  View
+            <section className="ui-screen-body" aria-label="Recent supply orders">
+              <div className="ui-card-row">
+                <h2 className="ui-section-title">Recent supply orders</h2>
+                <Link className="ui-btn ui-btn-second" href="/supply-orders">
+                  See all
                 </Link>
               </div>
-
               {dashboard.recentSupplyOrders.length === 0 ? (
-                <p className="ui-muted">No supply orders found.</p>
+                <p className="ui-muted">No supply orders yet.</p>
               ) : (
-                <div className="space-y-3">
+                <ul className="ui-acct-list">
                   {dashboard.recentSupplyOrders.map((order, index) => (
-                    <div
-                      key={`supply-order-${index}`}
-                      className="ui-stat"
-                    >
-                      <strong>
-                        {getRowAccountName(order) || "Unknown Account"}
-                      </strong>
-                      <p className="ui-muted">
-                        {getSupplyOrderTitle(order) || "Supply Order"}
-                      </p>
-                      <p className="ui-muted">
-                        {getSupplyOrderStatus(order) || "No status"} ·{" "}
-                        {getDisplayDate(order)}
-                      </p>
-                    </div>
+                    <li key={`supply-order-${index}`}>
+                      <Link href="/supply-orders" className="ui-acct ui-acct-link">
+                        <span className="ui-acct-name">{getRowAccountName(order) || "Unknown Account"}</span>
+                        <span className="ui-actions-row">
+                          <StatusPill kind={isNewSupplyOrder(order) ? "waiting" : "off"}>{getSupplyOrderStatus(order) || "No status"}</StatusPill>
+                        </span>
+                        <span className="ui-acct-line">{getSupplyOrderTitle(order) || "Supply Order"}</span>
+                        <span className="ui-acct-line">{getDisplayDate(order)}</span>
+                      </Link>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
-            </div>
-          </section>
+            </section>
 
-          <section className="ui-card">
-            <div className="mb-4">
-              <h2 className="ui-card-title">Quick Links</h2>
-              <p className="ui-muted">
-                Heavier pages only load when you click them.
-              </p>
-            </div>
+            <BigButton kind="second" onClick={() => window.print()}>
+              Print
+            </BigButton>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <QuickLink
-                href="/visits"
-                title="Visits"
-                note="View or add account visits."
-              />
-              <QuickLink
-                href="/sales"
-                title="Sales"
-                note="Sales and commissions."
-              />
-              <QuickLink
-                href="/subcontractors"
-                title="Subcontractors"
-                note="Sub list, accounts, and performance."
-              />
-              <QuickLink
-                href="/reports"
-                title="Reports"
-                note="Print and review reports."
-              />
-            </div>
-          </section>
+            <button type="button" className="ui-money-toggle" aria-pressed={showMoney} onClick={toggleMoney}>
+              {showMoney ? "Money showing · tap to hide" : "Money hidden · tap to show"}
+            </button>
+            {showMoney ? (
+              <div className="ui-stats">
+                <Link href="/accounts-center?show=active" className="ui-stat">
+                  <p className="ui-stat-label">Monthly Revenue</p>
+                  <p className="ui-stat-value">{formatMoney(dashboard.monthlyRevenue)}</p>
+                  <p className="ui-muted">{formatNumber(dashboard.revenueAccounts.length)} active revenue accounts</p>
+                </Link>
+                <Link href="/subcontractors" className="ui-stat">
+                  <p className="ui-stat-label">Monthly Sub Pay</p>
+                  <p className="ui-stat-value">{formatMoney(dashboard.monthlySubcontractorPay)}</p>
+                  <p className="ui-muted">Revenue accounts only</p>
+                </Link>
+                <Link href="/reports" className="ui-stat">
+                  <p className="ui-stat-label">Gross Margin</p>
+                  <p className="ui-stat-value">{formatMoney(dashboard.grossMargin)}</p>
+                  <p className="ui-muted">{formatPercent(dashboard.grossMarginPercent)}</p>
+                </Link>
+              </div>
+            ) : null}
+          </div>
         </>
       )}
-    </main>
+    </Screen>
   );
 }

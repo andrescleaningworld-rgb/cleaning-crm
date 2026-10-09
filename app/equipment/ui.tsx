@@ -65,18 +65,20 @@ export function StatusChip({ status }: { status: SimpleStatus }) {
 // this area's own big-button look.
 export function EquipmentShell({ back, title, children }: { back?: { href: string; label: string }; title: string; children: ReactNode }) {
   return (
-    <Screen title={title} backHref={back?.href}>
+    // Every page has a back arrow in the navy bar; the equipment home goes back to the Dashboard.
+    <Screen title={title} backHref={back?.href ?? "/"}>
       {children}
     </Screen>
   );
 }
 
 const BUTTON_TONES = {
-  primary: "bg-blue-700 text-white hover:bg-blue-800",
-  green: "bg-green-600 text-white hover:bg-green-700",
+  // Brand (simple redesign): main buttons green, everyday tiles light green.
+  primary: "bg-[#3B6D11] text-white hover:bg-[#2F570D]",
+  green: "bg-[#3B6D11] text-white hover:bg-[#2F570D]",
   amber: "bg-amber-100 text-amber-900 border-2 border-amber-300 hover:bg-amber-200",
   red: "bg-white text-red-700 border-2 border-red-300 hover:bg-red-50",
-  plain: "bg-white text-gray-800 border-2 border-gray-300 hover:bg-gray-100",
+  plain: "bg-[#EAF3DE] text-[#27500A] border-2 border-transparent hover:border-[#3B6D11]",
 } as const;
 
 export function BigButton({

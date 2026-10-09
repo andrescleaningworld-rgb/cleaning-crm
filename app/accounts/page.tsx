@@ -840,6 +840,11 @@ export default function AccountsPage() {
     } catch {
       // Private mode: money simply starts hidden.
     }
+    // A count on the Dashboard links here already filtered: ?show=need-you.
+    if (new URLSearchParams(window.location.search).get("show") === "need-you") {
+      setNeedsYouOnly(true);
+      setStatusFilter("All");
+    }
     // Who is logged in, for the "My accounts" chip.
     fetch("/api/session-role", { cache: "no-store" })
       .then((res) => res.json())

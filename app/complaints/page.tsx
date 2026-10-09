@@ -7,6 +7,7 @@ import {
   BigButton,
   Card,
   CardList,
+  Counts,
   EmptyState,
   ErrorBox,
   Field,
@@ -14,9 +15,13 @@ import {
   SearchBar,
   SelectField,
   Sheet,
+  PullToRefresh,
   SkeletonList,
   StatusPill,
   TextAreaField,
+  Tips,
+  showToast,
+  undoable,
   type StatusKind,
 } from "@/app/ui";
 
@@ -274,6 +279,12 @@ export default function ComplaintsPage() {
   const [resolutionNote, setResolutionNote] = useState("");
   // Layout only: filters open in a sheet.
   const [showFilters, setShowFilters] = useState(false);
+  // Redesign: the big counts are filters. "open" = not closed yet.
+  const [quick, setQuick] = useState<"all" | "open" | "review" | "closed">("all");
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("status") === "open") setQuick("open");
+  }, []);
 
   async function loadComplaints() {
     try {
@@ -424,12 +435,34 @@ export default function ComplaintsPage() {
 
       setSuccessMessage("Complaint closed successfully.");
       closeCloseModal();
+      showToast("Complaint closed ✓");
       await loadComplaints();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error closing complaint.");
+      // After an Undo wait the sheet is closed: open it again so the error is seen.
+      setSelectedComplaint(selectedComplaint);
     } finally {
       setSavingClose(false);
     }
+  }
+
+  // Closing a complaint is hard to take back, so it waits 5 seconds behind an
+  // Undo button before anything is saved.
+  function requestCloseComplaint() {
+    const target = selectedComplaint;
+    if (!target) return;
+    if (!clean(resolutionNote)) {
+      setError("Please enter a resolution note before closing the complaint.");
+      return;
+    }
+    setError("");
+    setSelectedComplaint(null);
+    undoable({
+      message: "Closing this complaint…",
+      run: () => handleCloseComplaint(),
+      onUndo: () => setSelectedComplaint(target),
+      undoneMessage: "Not closed. Nothing was changed.",
+    });
   }
 
   // Unique accounts for filter dropdown
@@ -466,6 +499,9 @@ export default function ComplaintsPage() {
 
       // Status filter
       if (statusFilter !== "All" && clean(c.status) !== statusFilter) return false;
+      if (quick === "open" && isClosedComplaint(c.status)) return false;
+      if (quick === "closed" && !isClosedComplaint(c.status)) return false;
+      if (quick === "review" && clean(c.complaintValidity).toLowerCase() !== "needs review") return false;
 
       // Account filter
       if (accountFilter !== "All" && clean(c.accountName) !== accountFilter) return false;
@@ -495,7 +531,7 @@ export default function ComplaintsPage() {
     }
 
     return result;
-  }, [complaints, search, statusFilter, accountFilter, sortOrder, dateFrom, dateTo]);
+  }, [complaints, search, statusFilter, accountFilter, sortOrder, dateFrom, dateTo, quick]);
 
   const openComplaints = useMemo(
     () =>
@@ -538,6 +574,7 @@ export default function ComplaintsPage() {
   );
 
   function clearFilters() {
+    setQuick("all");
     setSearch("");
     setStatusFilter("All");
     setAccountFilter("All");
@@ -565,7 +602,7 @@ export default function ComplaintsPage() {
     );
   const rowActions = (c: Complaint) => (
     <div className="ui-actions-row">
-      <BigButton kind="second" onClick={() => openDetail(c)} aria-label={`Open the complaint for ${clean(c.accountName) || "this account"}`}>
+      <BigButton onClick={() => openDetail(c)} aria-label={`Open the complaint for ${clean(c.accountName) || "this account"}`} data-tip="open">
         Open
       </BigButton>
       {!isClosedComplaint(c.status) ? (
@@ -580,7 +617,7 @@ export default function ComplaintsPage() {
   return (
     <Screen
       title="Complaints"
-      subtitle="Track account complaints, status, validity, follow-ups, and resolution notes."
+      backHref="/"
       action={
         <BigButton icon="plus" href="/complaints/new">
           Add complaint
@@ -594,34 +631,33 @@ export default function ComplaintsPage() {
         </p>
       ) : null}
 
-      <div className="ui-stats">
-        <div className="ui-stat">
-          <p className="ui-stat-label">Total</p>
-          <p className="ui-stat-value">{complaints.length}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Open</p>
-          <p className="ui-stat-value">{openComplaints}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Closed</p>
-          <p className="ui-stat-value">{resolvedComplaints}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Review</p>
-          <p className="ui-stat-value">{needsReviewComplaints}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Not Valid</p>
-          <p className="ui-stat-value">{notValidComplaints}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">With Photos</p>
-          <p className="ui-stat-value">{loadingPhotos ? "…" : withPhotosComplaints}</p>
-        </div>
-      </div>
+      <Tips
+        id="complaints"
+        ready={!loading}
+        steps={[
+          { target: '[data-tip="counts"]', text: "Tap a number to see only those complaints." },
+          { target: '[data-tip="open"]', text: "Tap Open to read a complaint and its photos." },
+          { target: ".ui-actionbar .ui-btn-main", text: "Tap Add complaint to log a new one." },
+        ]}
+      />
+      <PullToRefresh
+        onRefresh={async () => {
+          await loadComplaints();
+          showToast("Updated ✓");
+        }}
+      />
 
-      <SearchBar value={search} onChange={setSearch} label="Search complaints" placeholder="Search complaints" />
+      {/* At a glance: tap a number to see those complaints. */}
+      <Counts
+        data-tip="counts"
+        items={[
+          { label: "Open", value: complaints.length - resolvedComplaints, tone: complaints.length - resolvedComplaints > 0 ? "bad" : "good", pressed: quick === "open", onClick: () => setQuick(quick === "open" ? "all" : "open") },
+          { label: "To review", value: needsReviewComplaints, tone: "info", pressed: quick === "review", onClick: () => setQuick(quick === "review" ? "all" : "review") },
+          { label: "Closed", value: resolvedComplaints, tone: "off", pressed: quick === "closed", onClick: () => setQuick(quick === "closed" ? "all" : "closed") },
+        ]}
+      />
+
+      <SearchBar value={search} onChange={setSearch} label="Find a complaint" placeholder="Find a complaint" />
 
       <div className="ui-actions-row">
         <BigButton kind="second" onClick={() => setShowFilters(true)}>
@@ -633,15 +669,17 @@ export default function ComplaintsPage() {
       </div>
 
       <p className="ui-muted" role="status">
-        {loading ? "Loading complaints…" : `${filteredComplaints.length} of ${complaints.length}`}
+        {loading
+          ? "Loading complaints…"
+          : `Showing ${filteredComplaints.length} of ${complaints.length} · In progress: ${openComplaints} · Not valid: ${notValidComplaints} · With photos: ${loadingPhotos ? "…" : withPhotosComplaints}`}
       </p>
 
       {loading ? (
         <SkeletonList rows={3} />
       ) : filteredComplaints.length === 0 ? (
         <EmptyState
-          title="No complaints found"
-          text="Try a different search, or clear the filters."
+          title={quick === "open" ? "No open complaints" : "No complaints here"}
+          text={quick === "open" ? "Nothing needs you. Tap Add complaint to log a new one." : "Tap Clear filters to see them all, or Add complaint to log one."}
           action={
             <BigButton kind="second" icon="plus" href="/complaints/new">
               Add complaint
@@ -839,7 +877,7 @@ export default function ComplaintsPage() {
         onClose={closeCloseModal}
         busy={savingClose}
         actions={
-          <BigButton busy={savingClose} busyLabel="Closing…" onClick={() => void handleCloseComplaint()}>
+          <BigButton busy={savingClose} busyLabel="Closing…" onClick={requestCloseComplaint}>
             Close complaint
           </BigButton>
         }

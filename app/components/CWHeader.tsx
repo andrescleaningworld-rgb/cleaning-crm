@@ -23,6 +23,7 @@ type PortalNewCountResponse = {
 const adminNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts-center", label: "Accounts center" },
+  { href: "/to-do", label: "To-Do" },
   { href: "/sub-center", label: "Sub Center" },
   { href: "/sales", label: "Sales" },
   { href: "/reports", label: "Reports" },
@@ -31,6 +32,10 @@ const adminNavItems = [
   { href: "/settings", label: "Settings" },
   { href: "/map", label: "Map" },
 ];
+
+// The four places staff go most: buttons in the bar on a wide screen.
+// Everything (these included) is in the Menu.
+const PRIMARY_HREFS = ["/", "/accounts-center", "/to-do", "/sub-center"];
 
 const subcontractorNavItems = [
   { href: "/subcontractor-portal", label: "Home" },
@@ -171,13 +176,23 @@ export default function CWHeader() {
   const shell = useShell();
   const pageName = shell.title || fallbackPageName(pathname);
   const badgeTotal = newNotificationCount + portalCount;
+  const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
+
+  // Every page has a back arrow except home. A screen can say where its
+  // arrow goes; otherwise it goes one level up, and from a top-level page, home.
+  const home = role === "subcontractor" ? "/subcontractor-portal" : role === "customer" ? "/portal" : "/";
+  const isHome = pathname === home || pathname === "/" || pathname === "/portal" || pathname === "/customer-portal" || pathname === "/subcontractor-portal";
+  const isLogin = pathname.endsWith("/login") || pathname.startsWith("/portal/forgot") || pathname.startsWith("/portal/set-password");
+  const parent = "/" + pathname.split("/").filter(Boolean).slice(0, -1).join("/");
+  const fallbackBack = mounted && role && !isHome && !isLogin ? (parent === "/" ? home : parent) : "";
+  const backHref = shell.backHref || (shell.onBack ? "" : fallbackBack);
   const pill = (active: boolean) => `cw-topbar-link ${active ? "cw-topbar-link-on" : ""}`.trim();
 
   return (
     <header className="cw-topbar no-print">
       <div className="cw-topbar-row">
-        {shell.backHref ? (
-          <Link href={shell.backHref} className="cw-topbar-btn" aria-label="Back">
+        {isHome ? null : backHref ? (
+          <Link href={backHref} className="cw-topbar-btn" aria-label="Back">
             <BackArrow />
           </Link>
         ) : shell.onBack ? (
@@ -196,6 +211,18 @@ export default function CWHeader() {
           <p className="cw-topbar-brand">Cleaning World</p>
           <h1 className="cw-topbar-page">{pageName}</h1>
         </div>
+
+        {showNav && role === "admin" && (
+          <div className="cw-topbar-primary">
+            {adminNavItems
+              .filter((item) => PRIMARY_HREFS.includes(item.href))
+              .map((item) => (
+                <Link key={item.href} href={item.href} className={pill(isActive(item.href))}>
+                  {item.label}
+                </Link>
+              ))}
+          </div>
+        )}
 
         {!isLoginPage &&
           (shell.tipsCount > 0 ? (
@@ -244,14 +271,11 @@ export default function CWHeader() {
             </Link>
           )}
 
-          {navItems.map((item) => {
-            const isActive = item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`);
-            return (
-              <Link key={item.href} href={item.href} className={pill(isActive)}>
-                {item.label}
-              </Link>
-            );
-          })}
+          {navItems.map((item) => (
+            <Link key={item.href} href={item.href} className={pill(isActive(item.href))}>
+              {item.label}
+            </Link>
+          ))}
 
           {/* The "?" in the bar shows a screen's tips when it has some, so Help also lives here. */}
           {role === "admin" && (

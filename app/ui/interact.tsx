@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { addShellTips, SHOW_TIPS_EVENT } from "./shell";
+import { addShellTips, clearShellScreen, setShellScreen, SHOW_TIPS_EVENT } from "./shell";
 
 /* ---------- Tips ---------- */
 
@@ -390,4 +390,61 @@ export function Tile({
       {inner}
     </button>
   );
+}
+
+/* ---------- Counts ---------- */
+
+export type CountItem = {
+  label: string;
+  value: number | string;
+  /** good = green, bad = red (problems only), off = gray, info = light blue. */
+  tone: "good" | "bad" | "off" | "info";
+  /** A link to where these things are listed... */
+  href?: string;
+  /** ...or a filter of the list on this screen. */
+  onClick?: () => void;
+  pressed?: boolean;
+};
+
+/**
+ * The big numbers at the top of a screen: the situation in two seconds.
+ * Every count is tappable and goes to (or filters to) the things it counts.
+ */
+export function Counts({ items, label = "At a glance", ...rest }: { items: CountItem[]; label?: string; "data-tip"?: string }) {
+  return (
+    <div className="ui-counts" role="group" aria-label={label} {...rest}>
+      {items.map((item) => {
+        const className = `ui-count ui-count-${item.tone}`;
+        const inner = (
+          <>
+            <span className="ui-count-number">{item.value}</span>
+            <span className="ui-count-label">{item.label}</span>
+          </>
+        );
+        return item.href ? (
+          <Link key={item.label} href={item.href} className={className}>
+            {inner}
+          </Link>
+        ) : (
+          <button key={item.label} type="button" className={className} aria-pressed={item.pressed} onClick={item.onClick}>
+            {inner}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ---------- ShellTitle ---------- */
+
+/**
+ * For a page that does not use <Screen>: tells the navy bar its name and
+ * where its back arrow goes. Renders nothing.
+ */
+export function ShellTitle({ title, backHref }: { title: string; backHref?: string }) {
+  useEffect(() => {
+    setShellScreen(title, backHref);
+    return () => clearShellScreen(title);
+  }, [title, backHref]);
+  return null;
 }

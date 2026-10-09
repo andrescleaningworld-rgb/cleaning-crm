@@ -8,10 +8,12 @@ import {
   BigButton,
   Card,
   CardList,
+  Counts,
   EmptyState,
   ErrorBox,
   Field,
   LABELS,
+  PullToRefresh,
   SaveStatus,
   Screen,
   SearchBar,
@@ -21,6 +23,8 @@ import {
   StatusPill,
   Tabs,
   TextAreaField,
+  Tips,
+  showToast,
   useSaveAction,
   type StatusKind,
 } from "@/app/ui";
@@ -390,6 +394,24 @@ export default function SubcontractorsPage() {
   const [scheduledSubEmails, setScheduledSubEmails] = useState<Set<string> | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  // Redesign: money stays hidden until asked for (same switch as Accounts Center).
+  const [showMoney, setShowMoney] = useState(false);
+  useEffect(() => {
+    try {
+      setShowMoney(window.localStorage.getItem("cwAccountsShowMoney") === "1");
+    } catch {
+      // Private mode: money simply starts hidden.
+    }
+  }, []);
+  function toggleMoney() {
+    const next = !showMoney;
+    setShowMoney(next);
+    try {
+      window.localStorage.setItem("cwAccountsShowMoney", next ? "1" : "0");
+    } catch {
+      // Not remembered, still switched for now.
+    }
+  }
 
   const loadSubcontractors = useCallback(async () => {
     try {
@@ -597,6 +619,11 @@ export default function SubcontractorsPage() {
     [statusFilter, performanceFilter, accountFilter, scheduleFilter].filter((f) => f !== "all").length +
     (sortBy !== "nameAsc" ? 1 : 0);
 
+  // The big counts at the top. Each one is a filter that was already in "Filter and sort".
+  const activeSubCount = subcontractors.filter((sub) => getStatus(sub).toLowerCase().trim() === "active").length;
+  const highRiskSubCount = subcontractors.filter((sub) => getScoreStatus(getScore(sub)).value === "highRisk").length;
+  const noScheduleSubCount = subcontractors.filter((sub) => hasSchedule(sub) === false).length;
+
   const scorePill = (sub: Subcontractor) => {
     const status = getScoreStatus(getScore(sub));
     return <StatusPill kind={status.kind}>{status.label}</StatusPill>;
@@ -621,7 +648,7 @@ export default function SubcontractorsPage() {
     return (
       <div className="ui-actions-row">
         {id ? (
-          <BigButton kind="second" href={`/subcontractors/${encodeURIComponent(id)}`}>
+          <BigButton href={`/subcontractors/${encodeURIComponent(id)}`} data-tip="open">
             {LABELS.open}
           </BigButton>
         ) : (
@@ -650,7 +677,7 @@ export default function SubcontractorsPage() {
   return (
     <Screen
       title="Subcontractors"
-      subtitle="View, score, add, and manage Cleaning World subcontractors"
+      backHref="/"
       action={
         adminTab === "subs" ? (
           <BigButton icon="plus" onClick={() => setShowForm(true)}>
@@ -671,7 +698,33 @@ export default function SubcontractorsPage() {
 
       {adminTab === "subs" ? (
         <>
-          <SearchBar value={search} onChange={setSearch} label="Search subcontractors" placeholder="Search name, phone, email" />
+          <Tips
+            id="subcontractors"
+            ready={!loading && !error}
+            steps={[
+              { target: '[data-tip="counts"]', text: "Tap a number to see only those subs." },
+              { target: '[data-tip="open"]', text: "Tap Open to see a sub and their accounts." },
+              { target: ".ui-actionbar .ui-btn-main", text: "Tap Add subcontractor to add a new cleaning company." },
+            ]}
+          />
+          <PullToRefresh
+            onRefresh={async () => {
+              await loadSubcontractors();
+              showToast("Updated ✓");
+            }}
+          />
+
+          {/* At a glance: tap a number to see those subs. */}
+          <Counts
+            data-tip="counts"
+            items={[
+              { label: "Active", value: activeSubCount, tone: "good", pressed: statusFilter === "active", onClick: () => setStatusFilter(statusFilter === "active" ? "all" : "active") },
+              { label: "High risk", value: highRiskSubCount, tone: highRiskSubCount > 0 ? "bad" : "good", pressed: performanceFilter === "highRisk", onClick: () => setPerformanceFilter(performanceFilter === "highRisk" ? "all" : "highRisk") },
+              { label: "No schedule", value: noScheduleSubCount, tone: "info", pressed: scheduleFilter === "noSchedule", onClick: () => setScheduleFilter(scheduleFilter === "noSchedule" ? "all" : "noSchedule") },
+            ]}
+          />
+
+          <SearchBar value={search} onChange={setSearch} label="Find a sub" placeholder="Find a sub" />
 
           <div className="ui-actions-row">
             <BigButton kind="second" onClick={() => setShowFilters(true)}>
@@ -713,8 +766,8 @@ export default function SubcontractorsPage() {
               />
             ) : (
               <EmptyState
-                title="No subcontractors match"
-                text="Try a shorter search, or clear the filters."
+                title="No subs match"
+                text="Tap Clear filters to see them all."
                 action={
                   <BigButton kind="second" onClick={clearFilters}>
                     Clear filters
@@ -733,9 +786,11 @@ export default function SubcontractorsPage() {
                   <p className="ui-card-text">
                     {scoreText(sub)} · {countsText(sub)}
                   </p>
-                  <p className="ui-card-text">
-                    Sub revenue {formatMoney(getSubRevenue(sub))} · CW revenue {formatMoney(getCleaningWorldRevenue(sub))}
-                  </p>
+                  {showMoney ? (
+                    <p className="ui-card-text">
+                      Sub revenue {formatMoney(getSubRevenue(sub))} · CW revenue {formatMoney(getCleaningWorldRevenue(sub))}
+                    </p>
+                  ) : null}
                   <div className="ui-actions-row" style={{ marginTop: 8 }}>
                     {schedulePill(sub)}
                     <span className="ui-muted">Status: {getStatus(sub)}</span>
@@ -766,8 +821,14 @@ export default function SubcontractorsPage() {
                   header: "Revenue",
                   cell: (sub) => (
                     <>
-                      <p className="ui-muted ui-nowrap">Sub {formatMoney(getSubRevenue(sub))}</p>
-                      <p className="ui-muted ui-nowrap">CW {formatMoney(getCleaningWorldRevenue(sub))}</p>
+                      {showMoney ? (
+                        <>
+                          <p className="ui-muted ui-nowrap">Sub {formatMoney(getSubRevenue(sub))}</p>
+                          <p className="ui-muted ui-nowrap">CW {formatMoney(getCleaningWorldRevenue(sub))}</p>
+                        </>
+                      ) : (
+                        <span className="ui-muted">Hidden</span>
+                      )}
                     </>
                   ),
                 },
@@ -786,6 +847,9 @@ export default function SubcontractorsPage() {
               ]}
             />
           )}
+          <button type="button" className="ui-money-toggle" aria-pressed={showMoney} onClick={toggleMoney}>
+            {showMoney ? "Money showing · tap to hide" : "Money hidden · tap to show"}
+          </button>
         </>
       ) : (
         <SubVisitLog />

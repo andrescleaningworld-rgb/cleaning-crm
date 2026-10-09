@@ -110,9 +110,9 @@ export default function EquipmentListPage() {
         type="search"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 Search by name or tag number"
+        placeholder="🔍 Find equipment"
         aria-label="Search equipment"
-        className="min-h-[64px] w-full rounded-2xl border-2 border-gray-300 bg-white px-5 text-xl outline-none focus:border-blue-600"
+        className="min-h-[64px] w-full rounded-2xl border-2 border-gray-300 bg-white px-5 text-xl outline-none focus:border-[#0C447C]"
       />
 
       <div className="flex flex-wrap gap-2">
@@ -123,7 +123,7 @@ export default function EquipmentListPage() {
             onClick={() => setFilter(f)}
             aria-pressed={filter === f}
             className={`flex min-h-[52px] items-center gap-2 rounded-full border-2 px-4 text-lg font-bold ${
-              filter === f ? "border-blue-700 bg-blue-700 text-white" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
+              filter === f ? "border-[#0C447C] bg-[#E6F1FB] text-[#0C447C]" : "border-gray-300 bg-white text-gray-800 hover:bg-gray-100"
             }`}
           >
             {f !== "all" ? <span className={`h-3 w-3 rounded-full ${SIMPLE_STATUS_STYLE[f].dot}`} aria-hidden="true" /> : null}
@@ -139,7 +139,7 @@ export default function EquipmentListPage() {
         <p className="p-8 text-center text-xl text-gray-600">Loading…</p>
       ) : shown.length === 0 && !loadError ? (
         <p className="rounded-2xl bg-white p-8 text-center text-xl text-gray-600 shadow-sm">
-          {query ? "Nothing matches that search." : "Nothing here."}
+          {query ? "Nothing matches. Try a shorter search." : filter === "all" ? "No equipment yet. Tap Add equipment." : "Nothing here. Tap All in use to see everything."}
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

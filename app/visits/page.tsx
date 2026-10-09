@@ -7,6 +7,7 @@ import {
   BigButton,
   Card,
   CardList,
+  Counts,
   EmptyState,
   ErrorBox,
   Field,
@@ -18,6 +19,7 @@ import {
   Sheet,
   SkeletonList,
   StatusPill,
+  Tips,
   type StatusKind,
 } from "@/app/ui";
 
@@ -108,6 +110,8 @@ export default function VisitsPage() {
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
+  // Redesign: the big counts are filters.
+  const [quick, setQuick] = useState<"all" | "month" | "follow-up">("all");
   const [filterAccount, setFilterAccount] = useState("");
   const [filterSub, setFilterSub] = useState("");
   const [filterManager, setFilterManager] = useState("");
@@ -161,10 +165,18 @@ export default function VisitsPage() {
     [visits],
   );
 
+  const thisMonthPrefix = toISO(new Date()).slice(0, 7);
+  const needsFollowUp = (visit: Visit) => {
+    const val = clean(visit.followUpNeeded).toLowerCase();
+    return val === "yes" || val === "true" || val === "needed";
+  };
+
   const filteredVisits = useMemo(() => {
     const term = search.toLowerCase().trim();
     const filtered = visits.filter((visit) => {
       const iso = toISODate(visit.date);
+      if (quick === "month" && !iso.startsWith(thisMonthPrefix)) return false;
+      if (quick === "follow-up" && !needsFollowUp(visit)) return false;
       if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
       if (filterSub && clean(visit.subcontractor) !== filterSub) return false;
       if (filterManager && clean(visit.manager) !== filterManager) return false;
@@ -193,8 +205,9 @@ export default function VisitsPage() {
       if (da === db) return 0;
       return da > db ? -1 : 1;
     });
-  }, [visits, search, filterAccount, filterSub, filterManager, filterStatus, dateFrom, dateTo, sortBy]);
+  }, [visits, search, filterAccount, filterSub, filterManager, filterStatus, dateFrom, dateTo, sortBy, quick, thisMonthPrefix]);
 
+  const visitsThisMonth = useMemo(() => visits.filter((v) => toISODate(v.date).startsWith(thisMonthPrefix)).length, [visits, thisMonthPrefix]);
   const followUpsNeeded = useMemo(
     () =>
       visits.filter((v) => {
@@ -209,6 +222,7 @@ export default function VisitsPage() {
   );
 
   function clearFilters() {
+    setQuick("all");
     setSearch("");
     setFilterAccount("");
     setFilterSub("");
@@ -238,12 +252,21 @@ export default function VisitsPage() {
   return (
     <Screen
       title="Visits"
-      subtitle="Track account visits, conditions, follow-ups, managers, and notes."
+      backHref="/"
       headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: printAll }]} />}
     >
       {/* At the top, above the list, so it is seen without scrolling (it was
           in the bar at the bottom of the screen and was being missed). */}
-      <div className="print:hidden">
+      <Tips
+        id="visits"
+        ready={!loading}
+        steps={[
+          { target: '[data-tip="counts"]', text: "Tap a number to see only those visits." },
+          { target: '[data-tip="add"]', text: "Tap Add visit after you check an account." },
+          { target: '[data-tip="open"]', text: "Tap Open to read a visit." },
+        ]}
+      />
+      <div className="print:hidden" data-tip="add">
         <BigButton icon="plus" href="/visits/new" className="w-full">
           Add visit
         </BigButton>
@@ -254,7 +277,19 @@ export default function VisitsPage() {
         <ErrorBox title="The visits did not load." text={error} />
       ) : (
         <div className="ui-print-view ui-screen-body">
-          <SearchBar value={search} onChange={setSearch} label="Search visits" placeholder="Search by account, manager, type or notes" />
+          {/* At a glance: tap a number to see those visits. */}
+          <div className="print:hidden">
+            <Counts
+              data-tip="counts"
+              items={[
+                { label: "This month", value: visitsThisMonth, tone: "info", pressed: quick === "month", onClick: () => setQuick(quick === "month" ? "all" : "month") },
+                { label: "Need follow-up", value: followUpsNeeded, tone: followUpsNeeded > 0 ? "bad" : "good", pressed: quick === "follow-up", onClick: () => setQuick(quick === "follow-up" ? "all" : "follow-up") },
+                { label: "All visits", value: visits.length, tone: "off", pressed: quick === "all", onClick: () => setQuick("all") },
+              ]}
+            />
+          </div>
+
+          <SearchBar value={search} onChange={setSearch} label="Find a visit" placeholder="Find a visit" />
 
           <div className="ui-actions-row">
             <BigButton kind="second" onClick={() => setShowFilters(true)}>
@@ -267,25 +302,12 @@ export default function VisitsPage() {
             ) : null}
           </div>
 
-          <div className="ui-stats">
-            <div className="ui-stat">
-              <p className="ui-stat-label">Total Visits</p>
-              <p className="ui-stat-value">{visits.length}</p>
-            </div>
-            <div className="ui-stat">
-              <p className="ui-stat-label">Showing</p>
-              <p className="ui-stat-value">{filteredVisits.length}</p>
-              <p className="ui-muted">After filters</p>
-            </div>
-            <div className="ui-stat">
-              <p className="ui-stat-label">Follow-Ups Needed</p>
-              <p className="ui-stat-value">{followUpsNeeded}</p>
-              <p className="ui-muted">Marked Yes</p>
-            </div>
-          </div>
+          <p className="ui-muted" role="status">
+            Showing {filteredVisits.length} of {visits.length} visits
+          </p>
 
           {filteredVisits.length === 0 ? (
-            <EmptyState icon="search" title="No visits found" text="Try a shorter search, or clear the filters." />
+            <EmptyState icon="search" title="No visits here" text="Tap All visits to see every visit, or Add visit to log one." />
           ) : (
             <>
               <CardList
@@ -302,7 +324,7 @@ export default function VisitsPage() {
                     {clean(visit.notes) ? <p className="ui-card-text ui-clamp">{clean(visit.notes)}</p> : null}
                     {visit.id ? (
                       <div style={{ marginTop: 12 }}>
-                        <BigButton kind="second" href={visitHref(visit)} aria-label={`Open the visit to ${clean(visit.accountName) || "this account"} on ${formatDate(visit.date) || "an unknown date"}`}>
+                        <BigButton href={visitHref(visit)} data-tip="open" aria-label={`Open the visit to ${clean(visit.accountName) || "this account"} on ${formatDate(visit.date) || "an unknown date"}`}>
                           {LABELS.open}
                         </BigButton>
                       </div>

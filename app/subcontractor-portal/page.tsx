@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { Counts, Tips } from "@/app/ui";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
@@ -520,28 +521,18 @@ export default function SubcontractorPortalPage() {
   function getPortalButtonClass(view: PortalView) {
     const isActive = activePortalView === view;
 
+    const on = "border-2 border-[#0C447C] bg-[#E6F1FB] text-[#0C447C]";
+    const off = "border-2 border-slate-300 bg-white text-slate-900 hover:border-[#0C447C]";
     const colorClasses: Record<PortalView, string> = {
-      accounts: isActive
-        ? "bg-blue-700 text-white ring-2 ring-blue-200"
-        : "border border-blue-200 bg-blue-50 text-blue-800 hover:border-blue-400 hover:bg-blue-100",
-      complaints: isActive
-        ? "bg-orange-600 text-white ring-2 ring-orange-200"
-        : "border border-orange-200 bg-orange-50 text-orange-800 hover:border-orange-400 hover:bg-orange-100",
-      issue: isActive
-        ? "bg-red-600 text-white ring-2 ring-red-200"
-        : "border border-red-200 bg-red-50 text-red-800 hover:border-red-400 hover:bg-red-100",
-      supplies: isActive
-        ? "bg-green-700 text-white ring-2 ring-green-200"
-        : "border border-green-200 bg-green-50 text-green-800 hover:border-green-400 hover:bg-green-100",
-      schedule: isActive
-        ? "bg-indigo-700 text-white ring-2 ring-indigo-200"
-        : "border border-indigo-200 bg-indigo-50 text-indigo-800 hover:border-indigo-400 hover:bg-indigo-100",
-      calendar: isActive
-        ? "bg-teal-700 text-white ring-2 ring-teal-200"
-        : "border border-teal-200 bg-teal-50 text-teal-800 hover:border-teal-400 hover:bg-teal-100",
+      accounts: isActive ? on : off,
+      complaints: isActive ? on : off,
+      issue: isActive ? on : off,
+      supplies: isActive ? on : off,
+      schedule: isActive ? on : off,
+      calendar: isActive ? on : off,
     };
 
-    return `rounded-2xl px-3 py-3 text-center text-base font-black shadow-sm transition ${colorClasses[view]}`;
+    return `min-h-[48px] rounded-2xl px-3 py-3 text-center text-lg font-black transition active:scale-[0.97] ${colorClasses[view]}`;
   }
 
   function getFilteredSuppliesForLine(line: OrderLineItem) {
@@ -1291,21 +1282,10 @@ export default function SubcontractorPortalPage() {
   return (
     <main className="ui-screen">
       <div className="ui-screen-body">
-        <section className="ui-on-dark rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-5 text-white shadow-lg">
-          <p className="ui-strong">
-            Cleaning World
-          </p>
-          <h1 className="ui-screen-title">
-            Subcontractor Portal
-          </h1>
-          <p className="ui-muted">
-            Enter the email Cleaning World has on file. After your email is
-            verified, you will only see your assigned accounts, complaints, issue
-            reporting, and supply order options.
-          </p>
-        </section>
+        <h1 className="ui-screen-title">Subcontractor Portal</h1>
+        {!subcontractor ? <p className="ui-section-title">Type your email to see your accounts.</p> : null}
 
-        <section className="ui-card">
+        <section className="ui-card" hidden={subcontractor !== null}>
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
               <label className="ui-label">
@@ -1326,7 +1306,7 @@ export default function SubcontractorPortalPage() {
               disabled={loading}
               className="ui-btn ui-btn-main w-full"
             >
-              {loading ? "Loading Portal..." : "Access Portal"}
+              {loading ? "Opening…" : "Open my portal"}
             </button>
           </form>
         </section>
@@ -1348,47 +1328,38 @@ export default function SubcontractorPortalPage() {
             {/* Account-info bar + tab nav are combined into a single sticky
                 block pinned to the very top of the viewport, so both stay
                 reachable without scrolling once the sub is logged in. */}
-            <div className="sticky top-0 z-30 -mx-4 mt-4 bg-slate-100/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white/95 sm:px-3 sm:shadow-sm">
-              <div className="ui-card">
-                <div>
-                  <p className="ui-muted">
-                    Logged in as
-                  </p>
-                  <p className="ui-strong">
-                    {getSubcontractorDisplayName(subcontractor)}
-                  </p>
-                  <p className="ui-muted">
-                    {subcontractor.email}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="ui-btn ui-btn-quiet"
-                  >
-                    Logout
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-base font-black text-blue-700">
-                    {activeAccounts.length} Accounts
-                  </span>
-                  <span className="rounded-full bg-orange-50 px-3 py-1 text-base font-black text-orange-700">
-                    {openComplaints.length} Complaints
-                  </span>
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-base font-black text-emerald-700">
-                    {formatMoney(totalSubPay)}
-                  </span>
-                  <span className="rounded-full bg-purple-50 px-3 py-1 text-base font-black text-purple-700">
-                    Score {subcontractorScore}
-                  </span>
-                  <span className="rounded-full bg-green-50 px-3 py-1 text-base font-black text-green-700">
-                    {cleanText(subcontractor.status) || "Active"}
-                  </span>
-                </div>
+            <div className="z-30 mt-4 flex flex-col gap-3 py-3 md:sticky md:top-[72px] md:bg-slate-100/95 md:backdrop-blur sm:mx-0 sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white/95 sm:px-3 sm:shadow-sm">
+              <Tips
+                id="sub-portal"
+                steps={[
+                  { target: '[data-tip="counts"]', text: "Your accounts and any open complaints. Tap a number to see them." },
+                  { target: '[data-tip="tabs"]', text: "Tap a button to report an issue, order supplies or see your schedule." },
+                ]}
+              />
+              <div className="ui-card-row">
+                <p className="ui-strong">{getSubcontractorDisplayName(subcontractor)}</p>
+                <button type="button" onClick={handleLogout} className="ui-btn ui-btn-second">
+                  Logout
+                </button>
               </div>
-
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6">
+              <p className="ui-muted">
+                {subcontractor.email} · {cleanText(subcontractor.status) || "Active"} · Monthly pay {formatMoney(totalSubPay)}
+              </p>
+              <Counts
+                data-tip="counts"
+                items={[
+                  { label: "Accounts", value: activeAccounts.length, tone: "info", pressed: activePortalView === "accounts", onClick: () => handleTabChange("accounts") },
+                  {
+                    label: "Complaints",
+                    value: openComplaints.length,
+                    tone: openComplaints.length > 0 ? "bad" : "good",
+                    pressed: activePortalView === "complaints",
+                    onClick: () => handleTabChange("complaints"),
+                  },
+                  { label: "Score", value: /[0-9]/.test(String(subcontractorScore)) ? subcontractorScore : "None", tone: "off", onClick: () => handleTabChange("accounts") },
+                ]}
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6" data-tip="tabs">
                 <button
                   type="button"
                   onClick={() => handleTabChange("accounts")}
