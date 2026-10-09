@@ -338,7 +338,7 @@ function paperDetail(row: PaperRow): string {
   const data = row.data ?? {};
   if (row.kind === "supply") return [clean(data.items), clean(data.subcontractor) ? `Ordered by ${clean(data.subcontractor)}` : ""].filter(Boolean).join(". ");
   if (row.kind === "complaint") return clean(data.issue);
-  if (row.kind === "extra") return clean(data.notes);
+  if (row.kind === "extra") return [clean(data.notes), clean(data.date) ? `For ${clean(data.date)}` : ""].filter(Boolean).join(". ");
   if (row.kind === "note") return clean(data.notes);
   return "";
 }
@@ -394,7 +394,7 @@ export async function listPapers(): Promise<{ papers: Paper[]; done: Paper[] }> 
 const isBoardKind = (kind: string): kind is PaperKind => (PAPER_KINDS as string[]).includes(kind);
 
 /** "+ Pin something" and "+ Extra job": a paper someone writes by hand. */
-export async function pinPaper(input: { kind: "note" | "extra"; text: string; accountId?: string; accountName?: string; square?: string; by: string }): Promise<string> {
+export async function pinPaper(input: { kind: "note" | "extra"; text: string; accountId?: string; accountName?: string; square?: string; date?: string; by: string }): Promise<string> {
   const text = input.text.trim().slice(0, 500);
   const accountName = clean(input.accountName);
   const itemId = `board-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
@@ -406,7 +406,12 @@ export async function pinPaper(input: { kind: "note" | "extra"; text: string; ac
     accountId: clean(input.accountId),
     accountName,
     step: input.kind === "extra" ? EXTRA_STEPS[0].key : "pinned",
-    data: { notes: input.kind === "extra" && accountName ? text : "", updateType: input.kind === "extra" ? "Extra job" : "" },
+    data: {
+      notes: input.kind === "extra" && accountName ? text : "",
+      updateType: input.kind === "extra" ? "Extra job" : "",
+      // The day the extra job is for (YYYY-MM-DD): it shows in blue on the Cleaning calendar.
+      date: input.kind === "extra" && /^d{4}-d{2}-d{2}$/.test(input.date ?? "") ? (input.date as string) : "",
+    },
     createdBy: input.by,
     square: clean(input.square),
   });

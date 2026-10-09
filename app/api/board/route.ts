@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       if (!text && !(paperKind === "extra" && accountName)) return refuse("Write a few words first.");
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
       if (paperKind === "note" && !square) return refuse("Pick whose square it goes in.");
-      const id = await pinPaper({ kind: paperKind, text, accountId, accountName, square, by });
+      const id = await pinPaper({ kind: paperKind, text, accountId, accountName, square, date: clean(body.date), by });
       return NextResponse.json({ success: true, itemId: id });
     }
 

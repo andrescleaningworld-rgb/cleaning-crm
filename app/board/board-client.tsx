@@ -11,6 +11,7 @@ import {
   CHEER,
   EmptyState,
   ErrorBox,
+  Field,
   MOTTO,
   Screen,
   SelectField,
@@ -344,6 +345,7 @@ function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" |
   const [text, setText] = useState("");
   const [square, setSquare] = useState(defaultSquare);
   const [accountId, setAccountId] = useState("");
+  const [date, setDate] = useState("");
   const [accounts, setAccounts] = useState<PickerOption[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -354,6 +356,7 @@ function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" |
     setText("");
     setSquare(mode === "note" ? defaultSquare : "");
     setAccountId("");
+    setDate("");
     setError("");
   }, [mode, defaultSquare]);
 
@@ -374,7 +377,7 @@ function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" |
     if (mode === "extra" && !account && !text.trim()) return setError("Pick the account or write what the job is.");
     setSaving(true);
     try {
-      await postBoard({ action: "pin", kind: mode, text, square, accountId: account?.id ?? "", accountName: account?.name ?? "" });
+      await postBoard({ action: "pin", kind: mode, text, square, accountId: account?.id ?? "", accountName: account?.name ?? "", date: mode === "extra" ? date : "" });
       showToast(CHEER.logged);
       onPinned();
       onClose();
@@ -406,6 +409,7 @@ function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" |
           )
         ) : null}
         <TextAreaField label={mode === "extra" ? "What is the job?" : "What needs doing?"} rows={3} maxLength={500} value={text} onChange={(event) => setText(event.target.value)} />
+        {mode === "extra" ? <Field label="What day" hint="It shows in blue on the Calendar." optional type="date" value={date} onChange={(event) => setDate(event.target.value)} /> : null}
         <SelectField label={mode === "extra" ? "Who does it" : "Whose square"} optional={mode === "extra"} value={square} onChange={(event) => setSquare(event.target.value)}>
           <option value="">{mode === "extra" ? "Nobody yet (Extra jobs square)" : "Pick a manager"}</option>
           {data.managers.map((manager) => (
