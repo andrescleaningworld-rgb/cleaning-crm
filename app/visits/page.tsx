@@ -240,12 +240,14 @@ export default function VisitsPage() {
       title="Visits"
       subtitle="Track account visits, conditions, follow-ups, managers, and notes."
       headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: printAll }]} />}
-      action={
-        <BigButton icon="plus" href="/visits/new">
+    >
+      {/* At the top, above the list, so it is seen without scrolling (it was
+          in the bar at the bottom of the screen and was being missed). */}
+      <div className="print:hidden">
+        <BigButton icon="plus" href="/visits/new" className="w-full">
           Add visit
         </BigButton>
-      }
-    >
+      </div>
       {loading ? (
         <SkeletonList rows={4} />
       ) : error ? (
