@@ -22,6 +22,22 @@ if (process.env.VERCEL_ENV === "preview") {
   }
 }
 
+// The redesign branch's preview is for looking at screens with practice data
+// only. Vercel cannot hold branch settings before the branch exists, so the
+// very first push would otherwise build a preview that reads and writes the
+// live Sheets and can send real texts and emails. Stop the build instead
+// until the safety settings are there.
+if (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_GIT_COMMIT_REF === "redesign/simple") {
+  const missing = [
+    process.env.SHEETS_READ_ONLY === "1" ? "" : "SHEETS_READ_ONLY=1",
+    process.env.OUTBOUND_DRY_RUN === "1" ? "" : "OUTBOUND_DRY_RUN=1",
+    process.env.DATA_SOURCE_ACCOUNTS === "postgres" ? "" : "DATA_SOURCE_*=postgres",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(`Preview build stopped: the redesign/simple preview needs ${missing.join(", ")} set for Preview on this branch.`);
+  }
+}
+
 const nextConfig: NextConfig = {
   /* config options here */
 };
