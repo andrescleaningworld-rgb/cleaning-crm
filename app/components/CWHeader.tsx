@@ -39,6 +39,7 @@ const ADMIN_GROUPS: NavGroup[] = [
     items: [
       { href: "/complaints", label: "Complaints", icon: "problem" },
       { href: "/visits", label: "Visits", icon: "visit" },
+      { href: "/extra-jobs", label: "Extra Jobs", icon: "extra" },
       { href: "/supplies", label: "Supplies", icon: "supplies" },
       { href: "/supply-orders", label: "Supply Orders", icon: "orders" },
       { href: "/crew-link", label: "Crew Link", icon: "crew" },
@@ -411,6 +412,7 @@ const SIDE_ICONS = {
   orders: "M5 4h2l2 11h9l2-8H8M10 19.5a1 1 0 100-2 1 1 0 000 2zm7 0a1 1 0 100-2 1 1 0 000 2z",
   crew: "M4 5h16v11H9l-5 4V5zm4 4h8M8 12h5",
   sales: "M4 19h16M7 16V10m5 6V6m5 10v-4",
+  extra: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm7 4v8m-4-4h8",
   reports: "M6 3h9l4 4v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zm3 8h6m-6 4h6",
   documents: "M4 6a1 1 0 011-1h5l2 2h7a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V6z",
   equipment: "M14 6a4 4 0 00-5 5L4 16v4h4l5-5a4 4 0 005-5l-3 3-2-2 3-3a4 4 0 00-2-2z",
