@@ -6,12 +6,10 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AccountPicker,
   BigButton,
   CHEER,
   EmptyState,
   ErrorBox,
-  Field,
   MOTTO,
   Screen,
   SelectField,
@@ -21,13 +19,15 @@ import {
   TextAreaField,
   friendlyDate,
   showToast,
-  type PickerOption,
 } from "@/app/ui";
 import { KIND_LABEL, daysLabel, daysPinned, isOld, type BoardData, type Paper } from "@/lib/board";
 import BoardCanvas from "./board-canvas";
 import styles from "./board.module.css";
 
 export type BoardTab = "board" | "mine" | "calendar" | "tv";
+
+/** A blue paper that mirrors a real extra job: it is finished on the job's page, not on the board. */
+const isExtraJob = (paper: Paper) => paper.kind === "extra" && paper.itemId.startsWith("job-");
 
 export const BOARD_TABS: { value: BoardTab; label: string }[] = [
   { value: "board", label: "Whole board" },
@@ -62,7 +62,7 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
   const [data, setData] = useState<BoardData | null>(null);
   const [tab, setTab] = useState<"board" | "mine">(startTab);
   const [openKey, setOpenKey] = useState("");
-  const [pinning, setPinning] = useState<"" | "note" | "extra">("");
+  const [pinning, setPinning] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [whose, setWhose] = useState("");
@@ -140,10 +140,11 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
       ) : (
         <>
           <div className={styles.actions}>
-            <BigButton icon="plus" onClick={() => setPinning("note")}>
+            <BigButton icon="plus" onClick={() => setPinning(true)}>
               Pin something
             </BigButton>
-            <BigButton icon="plus" onClick={() => setPinning("extra")}>
+            {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
+            <BigButton icon="plus" href="/extra-jobs/new">
               Extra job
             </BigButton>
           </div>
@@ -206,7 +207,7 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
 
             <div className={styles.sheetButtons}>
               {open.href ? (
-                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "supply" ? "Open order" : "Open account"}</BigButton>
+                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "supply" ? "Open order" : isExtraJob(open) ? "Open job" : "Open account"}</BigButton>
               ) : null}
               {open.takenAt ? (
                 <BigButton kind="second" disabled={busy} onClick={() => void take(open, false)}>
@@ -217,10 +218,13 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
                   Got it
                 </BigButton>
               )}
-              <BigButton kind="second" icon="check" disabled={busy} onClick={() => void finish(open, true)}>
-                Done
-              </BigButton>
+              {isExtraJob(open) ? null : (
+                <BigButton kind="second" icon="check" disabled={busy} onClick={() => void finish(open, true)}>
+                  Done
+                </BigButton>
+              )}
             </div>
+            {isExtraJob(open) ? <p className="ui-muted">To finish it, open the job and tap Done there. It needs an after photo. The paper then comes down by itself.</p> : null}
 
             <p className="ui-label">Hand it to</p>
             <div className={styles.give}>
@@ -260,7 +264,7 @@ export default function BoardClient({ startTab }: { startTab: "board" | "mine" }
         ))}
       </Sheet>
 
-      {data ? <PinSheet mode={pinning} data={data} defaultSquare={data.me.squareId} onClose={() => setPinning("")} onPinned={() => void load()} /> : null}
+      {data ? <PinSheet open={pinning} data={data} defaultSquare={data.me.squareId} onClose={() => setPinning(false)} onPinned={() => void load()} /> : null}
     </Screen>
   );
 }
@@ -328,9 +332,11 @@ function MySquare({
               <BigButton kind="second" onClick={() => onOpen(paper)}>
                 Open
               </BigButton>
-              <BigButton kind="second" icon="check" disabled={busy} onClick={() => onDone(paper)}>
-                Done
-              </BigButton>
+              {isExtraJob(paper) ? null : (
+                <BigButton kind="second" icon="check" disabled={busy} onClick={() => onDone(paper)}>
+                  Done
+                </BigButton>
+              )}
             </div>
           </article>
         );
@@ -339,45 +345,29 @@ function MySquare({
   );
 }
 
-/* ---------- "+ Pin something" and "+ Extra job" ---------- */
+/* ---------- "+ Pin something": a to-do in someone's square ---------- */
 
-function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" | "note" | "extra"; data: BoardData; defaultSquare: string; onClose: () => void; onPinned: () => void }) {
+function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: boolean; data: BoardData; defaultSquare: string; onClose: () => void; onPinned: () => void }) {
   const [text, setText] = useState("");
   const [square, setSquare] = useState(defaultSquare);
-  const [accountId, setAccountId] = useState("");
-  const [date, setDate] = useState("");
-  const [accounts, setAccounts] = useState<PickerOption[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   // Each opening starts fresh.
   useEffect(() => {
-    if (!mode) return;
+    if (!open) return;
     setText("");
-    setSquare(mode === "note" ? defaultSquare : "");
-    setAccountId("");
-    setDate("");
+    setSquare(defaultSquare);
     setError("");
-  }, [mode, defaultSquare]);
-
-  // The account names, the first time an extra job is added.
-  useEffect(() => {
-    if (mode !== "extra" || accounts) return;
-    fetch("/api/board?view=accounts", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((body: { accounts?: PickerOption[] }) => setAccounts(body.accounts ?? []))
-      .catch(() => setAccounts([]));
-  }, [mode, accounts]);
+  }, [open, defaultSquare]);
 
   async function save() {
     setError("");
-    const account = accounts?.find((option) => option.id === accountId);
-    if (mode === "note" && !text.trim()) return setError("Write what needs doing.");
-    if (mode === "note" && !square) return setError("Pick whose square it goes in.");
-    if (mode === "extra" && !account && !text.trim()) return setError("Pick the account or write what the job is.");
+    if (!text.trim()) return setError("Write what needs doing.");
+    if (!square) return setError("Pick whose square it goes in.");
     setSaving(true);
     try {
-      await postBoard({ action: "pin", kind: mode, text, square, accountId: account?.id ?? "", accountName: account?.name ?? "", date: mode === "extra" ? date : "" });
+      await postBoard({ action: "pin", kind: "note", text, square });
       showToast(CHEER.logged);
       onPinned();
       onClose();
@@ -390,8 +380,8 @@ function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" |
 
   return (
     <Sheet
-      open={mode !== ""}
-      title={mode === "extra" ? "Extra job" : "Pin something"}
+      open={open}
+      title="Pin something"
       onClose={onClose}
       busy={saving}
       actions={
@@ -401,17 +391,9 @@ function PinSheet({ mode, data, defaultSquare, onClose, onPinned }: { mode: "" |
       }
     >
       <div className="ui-stack">
-        {mode === "extra" ? (
-          accounts === null ? (
-            <SkeletonList rows={1} />
-          ) : (
-            <AccountPicker options={accounts} value={accountId} onChange={setAccountId} label="Account" searchLabel="Find an account" emptyText="No account with that name." />
-          )
-        ) : null}
-        <TextAreaField label={mode === "extra" ? "What is the job?" : "What needs doing?"} rows={3} maxLength={500} value={text} onChange={(event) => setText(event.target.value)} />
-        {mode === "extra" ? <Field label="What day" hint="It shows in blue on the Calendar." optional type="date" value={date} onChange={(event) => setDate(event.target.value)} /> : null}
-        <SelectField label={mode === "extra" ? "Who does it" : "Whose square"} optional={mode === "extra"} value={square} onChange={(event) => setSquare(event.target.value)}>
-          <option value="">{mode === "extra" ? "Nobody yet (Extra jobs square)" : "Pick a manager"}</option>
+        <TextAreaField label="What needs doing?" rows={3} maxLength={500} value={text} onChange={(event) => setText(event.target.value)} />
+        <SelectField label="Whose square" value={square} onChange={(event) => setSquare(event.target.value)}>
+          <option value="">Pick a manager</option>
           {data.managers.map((manager) => (
             <option key={manager.id} value={manager.id}>
               {manager.name}
