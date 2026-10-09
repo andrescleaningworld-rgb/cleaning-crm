@@ -6,7 +6,7 @@
 // Everyone on staff can read it; only the owner can change it.
 
 import { useEffect, useState } from "react";
-import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, Tips, showToast } from "@/app/ui";
+import { BigButton, CHEER, Card, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, Tips, showToast } from "@/app/ui";
 import { onboardingRules, sectionName, type HandoffSettings, type OnboardingRule } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 import { postHandoff, useHandoffs } from "../../components/handoffs";
@@ -67,7 +67,7 @@ export default function TeamSettingsPage() {
       const next: HandoffSettings = { officeOwners: office, redAfterDays, onboarding: rules };
       await postHandoff({ action: "saveSettings", settings: next });
       await handoffs.reload();
-      showToast("Saved ✓");
+      showToast(CHEER.logged);
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
     } finally {

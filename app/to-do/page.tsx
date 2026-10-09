@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
+import { CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
@@ -1161,7 +1161,7 @@ export default function ToDoPage() {
       await loadTodos();
       setForm(emptyForm);
       setShowForm(false);
-      showToast("To-do saved ✓");
+      showToast(CHEER.logged);
       setSelectedAccounts([]);
     } catch (error) {
       console.error("Failed to add to-do(s):", error);
@@ -1211,7 +1211,7 @@ export default function ToDoPage() {
       }
 
       await loadTodos();
-      showToast(status === "Done" ? "Done ✓" : "Saved ✓");
+      showToast(status === "Done" ? "Done ✓" : CHEER.logged);
     } catch (error) {
       console.error("Failed to update to-do:", error);
       showToast("That did not save. Check your connection and try again.", "bad");

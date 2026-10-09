@@ -5,7 +5,7 @@
 // POST /api/to-do { action: "addToDos" } with one account.
 
 import { useEffect, useState } from "react";
-import { BigButton, ErrorBox, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
+import { BigButton, CHEER, ErrorBox, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
 
 const TASK_TYPES = [
   "Visit",
@@ -109,7 +109,7 @@ export default function QuickToDoSheet({
       const data = (await response.json().catch(() => ({}))) as { success?: boolean; message?: string; calendarSyncFailed?: boolean };
       if (!data.success) throw new Error(data.message ?? "Could not create to-do.");
       onClose();
-      showToast(data.calendarSyncFailed ? "To-do saved ✓ (calendar sync failed, check the To-Do page)" : "To-do saved ✓");
+      showToast(data.calendarSyncFailed ? `${CHEER.logged} (Calendar sync failed, check the To-Do page.)` : CHEER.logged);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create to-do.");
     } finally {

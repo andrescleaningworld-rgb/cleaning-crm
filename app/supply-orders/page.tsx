@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { StatusPill, type StatusKind } from "@/app/ui";
+import { CHEER, StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
 import OrderSteps from "./order-steps";
@@ -839,6 +839,7 @@ export default function SupplyOrdersPage() {
                 Review, approve, deny, and complete supply orders submitted by
                 subcontractors.
               </p>
+              <p className="ui-cheer">{CHEER.order}</p>
             </div>
 
             <div className="ui-actions-row">

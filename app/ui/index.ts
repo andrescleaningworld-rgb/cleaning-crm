@@ -51,10 +51,13 @@ export { Counts, PullToRefresh, ShellTitle, SwipeRow, Tile, TileIconSvg, Tips, t
 export { SHOW_TIPS_EVENT, useShell } from "./shell";
 
 export {
+  CHEER,
   friendlyDate,
   GLOSSARY,
   LABELS,
+  MOTTO,
   PROPOSED_RENAMES,
+  SUB_WORDS,
   todayIso,
   UI_WORDS,
   type UiLang,

@@ -12,7 +12,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { BigButton, ErrorBox, Field, Sheet, StatusPill, Stepper, showToast, undoable } from "@/app/ui";
+import { BigButton, CHEER, ErrorBox, Field, Sheet, StatusPill, Stepper, showToast, undoable } from "@/app/ui";
 import {
   KIND_LABEL,
   handoffHref,
@@ -308,7 +308,7 @@ export function AcceptedEstimate({
       }
       await postHandoff({ action: "startAccount", accountId, accountName, manager, acceptedOn, estimateUrl, estimateName });
       setOpen(false);
-      showToast(current ? "Saved ✓" : "Done ✓ — this account is on the New accounts board");
+      showToast(CHEER.logged);
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
@@ -329,9 +329,12 @@ export function AcceptedEstimate({
           </BigButton>
         </div>
       ) : (
-        <BigButton icon="camera" onClick={openSheet} data-tip="estimate">
-          Add accepted estimate
-        </BigButton>
+        <div className="ui-stack">
+          <BigButton icon="camera" onClick={openSheet} data-tip="estimate">
+            Add accepted estimate
+          </BigButton>
+          <p className="ui-cheer">{CHEER.estimate}</p>
+        </div>
       )}
 
       <Sheet

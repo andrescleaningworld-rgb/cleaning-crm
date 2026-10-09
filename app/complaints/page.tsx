@@ -19,6 +19,7 @@ import {
   SkeletonList,
   StatusPill,
   TextAreaField,
+  CHEER,
   Tips,
   showToast,
   undoable,
@@ -435,7 +436,7 @@ export default function ComplaintsPage() {
 
       setSuccessMessage("Complaint closed successfully.");
       closeCloseModal();
-      showToast("Complaint closed ✓");
+      showToast(CHEER.logged);
       await loadComplaints();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error closing complaint.");

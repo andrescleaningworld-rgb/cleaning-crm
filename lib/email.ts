@@ -1,3 +1,4 @@
+import { CHEER } from "@/app/ui/words";
 import { Resend } from "resend";
 import nodemailer, { type Transporter } from "nodemailer";
 import { isOutboundDryRun, logDryRun } from "./outbound";
@@ -105,9 +106,13 @@ async function sendViaGmail(
 function sendPlainTextEmail(
   to: string[],
   subject: string,
-  lines: string[],
-  attachments?: EmailAttachment[]
+  bodyLines: string[],
+  attachments?: EmailAttachment[],
+  // Emails to staff and subcontractors end with the house rule. Emails to
+  // customers do not.
+  withMotto = true
 ): Promise<boolean> {
+  const lines = withMotto ? [...bodyLines, "", CHEER.emailLine] : bodyLines;
   if (isOutboundDryRun()) {
     logDryRun("email", `to ${to.join(", ")} – "${subject}" (${lines.length} lines, ${attachments?.length ?? 0} attachments)`);
     return Promise.resolve(true);
@@ -142,7 +147,7 @@ export async function sendInternalNotification(
 // One email to one customer (the portal's "Set your password" link). Plain
 // text, through the same provider and the same dry-run switch as the rest.
 export async function sendCustomerEmail(to: string, subject: string, lines: string[]): Promise<boolean> {
-  return sendPlainTextEmail([to], subject, lines);
+  return sendPlainTextEmail([to], subject, lines, undefined, false);
 }
 
 // Subcontractor-facing notification — replaces the old Apps Script

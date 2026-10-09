@@ -3247,3 +3247,122 @@ a.ui-stat {
   height: auto;
   margin: 4px auto;
 }
+
+/* ---------- "If it's not in the app, it does not exist!" ---------- */
+
+/* The loading screen: navy, logo, the rule in big white letters. */
+.cw-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  text-align: center;
+}
+
+.cw-loading-logo {
+  width: 150px;
+  height: 104px;
+  padding: 10px;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.cw-loading-motto {
+  max-width: 14em;
+  margin: 0;
+  font-size: clamp(28px, 7vw, 44px);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.cw-loading-wait {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+/* The rule as one line on a screen. */
+.ui-motto {
+  margin: 6px 0 0;
+  color: var(--ui-navy);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+/* A short cheer next to a button. */
+.ui-cheer {
+  margin: 0;
+  color: var(--ui-green-ink);
+  font-weight: 700;
+}
+
+/* The slim banner on My work (one per screen, closable, back tomorrow). */
+.ui-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.ui-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-banner > button {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+/* All clear, and the streak. */
+.ui-allclear {
+  padding: 24px 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  text-align: center;
+  animation: ui-rise 0.18s ease;
+}
+
+.ui-allclear-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.ui-allclear p {
+  margin: 4px 0 0;
+}
+
+.ui-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font-size: 16px;
+  font-weight: 800;
+}

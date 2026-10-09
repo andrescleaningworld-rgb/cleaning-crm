@@ -23,6 +23,7 @@ import {
   TextAreaField,
   TileIconSvg,
   Tips,
+  CHEER,
   showToast as kitToast,
   undoable,
   type StatusKind,
@@ -2359,7 +2360,7 @@ async function handleSaveTransferProposal() {
       }
 
       closeStatusModal();
-      kitToast("Saved ✓");
+      kitToast(CHEER.logged);
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Something went wrong changing the account status.");
       // After an Undo wait the sheet is closed: open it again so the error and its Try again are seen.

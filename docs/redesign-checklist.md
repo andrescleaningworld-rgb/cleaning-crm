@@ -376,3 +376,24 @@ screens use.
 
 First-time tips were added on: My work, the New accounts board, the To
 process list, Orders in progress, Settings → Team.
+
+## "If it is not in the app, it does not exist!" and encouragement
+
+All of this text is in the words file (`app/ui/words.ts`: `MOTTO`, `CHEER`,
+`SUB_WORDS`). Friendly, never shaming: it cheers logging and names nobody.
+At most one banner per screen.
+
+| Where | What |
+| --- | --- |
+| Loading screen (`app/loading.tsx`) | Navy, the logo, the rule in big white letters |
+| Staff login | The rule under "Who are you?" |
+| Dashboard, top of My work | Slim navy banner with the rule. The × hides it until tomorrow. Shows even where handoffs are off. |
+| Next to "Add accepted estimate" | "No paper on desks — snap it here" |
+| Add update form | "Logged here = office sees it right away" |
+| Supply Orders | "Ordered here = tracked to delivery" |
+| App emails to staff and subcontractors | The rule as the last line. Emails to customers do not get it. |
+| After a save | "Logged ✓ — now it exists!" (status change, to-do, estimate, team settings, closed complaint, account update) |
+| My work, empty | "All clear! 🎉 Nothing is waiting on you. Nice work." |
+| My work, title row | "🔥 N days with nothing late", from 2 days up. Kept on the device per person. Goes back to zero without a word when something is late. |
+| Dashboard, Mondays only | "Last week, as a team": to-dos done, visits logged, complaints logged. Team totals only; nobody is ranked. |
+| Sub portal | The rule in English, Spanish and Portuguese |

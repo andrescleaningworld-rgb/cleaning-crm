@@ -1,6 +1,6 @@
 "use client";
 
-import { Tile } from "@/app/ui";
+import { MOTTO, Tile } from "@/app/ui";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { identifyManager } from "@/app/components/OneSignalInit";
@@ -157,6 +157,7 @@ function LoginForm() {
       <div className="ui-card w-full">
         <div className="mb-6 text-center">
           <h1 className="ui-section-title">{mode === "choice" ? "Who are you?" : "Log in"}</h1>
+          <p className="ui-motto">{MOTTO.en}</p>
         </div>
 
         {mode === "choice" ? (

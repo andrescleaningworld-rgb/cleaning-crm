@@ -18,6 +18,7 @@ import {
   SkeletonList,
   StatusPill,
   TextAreaField,
+  CHEER,
   showToast,
 } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
@@ -496,10 +497,9 @@ function AccountUpdatesPageContent() {
       setUpdates((currentUpdates) => [newUpdate, ...currentUpdates]);
 
       setSavedMessage("Account update saved successfully.");
-      if (handoffs.state === "ready") {
-        showToast("Done ✓ — sent to Office");
-        void handoffs.reload();
-      }
+      // With handoffs on, the office has it now; either way it is logged.
+      showToast(handoffs.state === "ready" ? "Logged ✓ — sent to Office" : CHEER.logged);
+      if (handoffs.state === "ready") void handoffs.reload();
       setShowForm(false);
 
       setUpdateDate(todayDate());
@@ -683,7 +683,7 @@ function AccountUpdatesPageContent() {
       <Sheet
         open={showForm}
         title="Add update"
-        text={openedFromAccountDetail ? `Update for ${selectedAccountName || accountNameFromUrl || accountIdFromUrl}` : undefined}
+        text={`${openedFromAccountDetail ? `Update for ${selectedAccountName || accountNameFromUrl || accountIdFromUrl}. ` : ""}${CHEER.update}`}
         onClose={() => setShowForm(false)}
         busy={isSaving}
         actions={

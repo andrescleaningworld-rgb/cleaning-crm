@@ -12,6 +12,7 @@ import {
   SkeletonList,
   StatusPill,
   TextAreaField,
+  CHEER,
   Tile,
   Tips,
   showToast,
@@ -971,7 +972,7 @@ export default function AccountDetailPage() {
 
       setStatusMessage("Status changed and history note saved.");
       setShowStatusModal(false);
-      showToast("Saved ✓");
+      showToast(CHEER.logged);
     } catch (err) {
       setStatusError(
         err instanceof Error

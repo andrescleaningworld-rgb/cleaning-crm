@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
 import MyWork from "./components/my-work";
-import { BigButton, Counts, EmptyState, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
+import { BigButton, CHEER, Counts, EmptyState, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
 
@@ -688,6 +688,24 @@ export default function DashboardPage() {
       return cleanLower(getAccountHealth(account)).includes("high risk");
     });
 
+    // Last week (Monday to Sunday), for the Monday team card: totals for the
+    // whole team, never per person.
+    const lastWeekDay = new Date();
+    lastWeekDay.setDate(lastWeekDay.getDate() - 7);
+    const lastWeekStart = new Date(lastWeekDay.getFullYear(), lastWeekDay.getMonth(), lastWeekDay.getDate() - ((lastWeekDay.getDay() + 6) % 7));
+    const lastWeekEnd = new Date(lastWeekStart.getFullYear(), lastWeekStart.getMonth(), lastWeekStart.getDate() + 7);
+    const inLastWeek = (date: Date | null) => date !== null && date >= lastWeekStart && date < lastWeekEnd;
+    const lastWeek = {
+      todosDone: data.todos.filter((todo) =>
+        isToDoDoneThisWeek(
+          { status: getToDoStatus(todo), dueDate: cleanText(getValue(todo, ["Due Date", "dueDate"])), createdDate: cleanText(getValue(todo, ["Created Date", "createdDate"])) },
+          lastWeekDay
+        )
+      ).length,
+      visits: data.visits.filter((visit) => inLastWeek(getDate(visit))).length,
+      complaints: data.complaints.filter((complaint) => inLastWeek(getDate(complaint))).length,
+    };
+
     const recentTodos = [...openTodos]
       .sort((a, b) => {
         const dateA = getDueDate(a)?.getTime() ?? Number.MAX_SAFE_INTEGER;
@@ -726,6 +744,7 @@ export default function DashboardPage() {
       openTodos,
       overdueTodos,
       doneThisWeekTodos,
+      lastWeek,
       recentTodos,
       accountsNeedingAttention,
       recentComplaints,
@@ -799,6 +818,17 @@ export default function DashboardPage() {
               { label: "Active accounts", value: formatNumber(dashboard.activeAccounts.length), tone: "good", href: "/accounts-center?show=active" },
             ]}
           />
+
+          {/* Mondays: what the team got into the app last week. Totals only. */}
+          {new Date().getDay() === 1 ? (
+            <section className="ui-allclear" aria-label={CHEER.mondayTitle}>
+              <p className="ui-allclear-title">{CHEER.mondayTitle}</p>
+              <p className="ui-strong">
+                {formatNumber(dashboard.lastWeek.todosDone)} to-dos done · {formatNumber(dashboard.lastWeek.visits)} visits logged · {formatNumber(dashboard.lastWeek.complaints)} complaints logged
+              </p>
+              <p>{CHEER.mondayText}</p>
+            </section>
+          ) : null}
 
           {/* What is waiting on me: new accounts, account updates, supply orders. */}
           <MyWork orders={data.supplyOrders} />
