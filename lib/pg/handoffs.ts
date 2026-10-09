@@ -102,7 +102,10 @@ const SELECT_ITEM = `
 /** Everything still open, plus what was finished in the last 30 days (for "Processed by ..."). */
 export async function listHandoffs(): Promise<HandoffItem[]> {
   const sql = getSql();
-  const rows = (await sql.query(`${SELECT_ITEM} WHERE i.done_at IS NULL OR i.done_at > now() - interval '30 days' ORDER BY i.step_since ASC`)) as Row[];
+  // 'complaint' and 'note' rows are Pin Board papers only (lib/pg/board.ts); they have no steps here.
+  const rows = (await sql.query(
+    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'note') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') ORDER BY i.step_since ASC`
+  )) as Row[];
   return rows.map(toItem);
 }
 

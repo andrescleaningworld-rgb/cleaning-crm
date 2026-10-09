@@ -1,0 +1,437 @@
+/* The Office Pin Board: cork, wood frame, pinned papers.
+   Used by /board (staff) and /board/tv (read-only, bigger). */
+
+.motto {
+  align-self: center;
+  position: relative;
+  margin: 4px auto 0;
+  padding: 14px 22px 10px;
+  background: #fffdf5;
+  border: 1px solid #e6dcc0;
+  box-shadow: 0 3px 8px rgba(60, 40, 10, 0.25);
+  transform: rotate(-1deg);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--ui-navy, #0c447c);
+  text-align: center;
+}
+
+.motto::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin-left: -8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff8a80, #c62828 60%, #8e1b1b);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.actions > * {
+  flex: 1 1 220px;
+}
+
+/* ---------- the board ---------- */
+
+.frame {
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #8a5a2b 0%, #a9713a 22%, #7a4d22 48%, #a06a35 74%, #6f451d 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.12),
+    inset 0 0 12px rgba(0, 0, 0, 0.45),
+    0 8px 24px rgba(40, 25, 5, 0.3);
+}
+
+.cork {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 8px;
+  background-color: #c79a63;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(92, 58, 22, 0.35) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 70% 60%, rgba(255, 226, 170, 0.35) 0 1.5px, transparent 2px),
+    radial-gradient(circle at 45% 80%, rgba(92, 58, 22, 0.28) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 85% 15%, rgba(255, 226, 170, 0.28) 0 1px, transparent 1.6px),
+    linear-gradient(135deg, #cfa36c, #bf8f56);
+  background-size:
+    23px 23px,
+    31px 31px,
+    17px 17px,
+    27px 27px,
+    100% 100%;
+  box-shadow: inset 0 0 18px rgba(60, 35, 5, 0.55);
+}
+
+.row {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.square {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 170px;
+  padding: 10px;
+  border: 2px dashed rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: background 120ms, border-color 120ms;
+}
+
+.squareOver {
+  background: rgba(255, 255, 255, 0.34);
+  border-color: #ffffff;
+  border-style: solid;
+}
+
+.squareMine {
+  border-color: #ffe27a;
+  border-style: solid;
+}
+
+.squareHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.squareName {
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: #fffdf5;
+  box-shadow: 0 2px 4px rgba(60, 40, 10, 0.3);
+  font-size: 18px;
+  font-weight: 800;
+  color: #10233f;
+}
+
+.squareCount {
+  min-width: 34px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(16, 35, 63, 0.82);
+  color: #ffffff;
+  font-weight: 800;
+  text-align: center;
+}
+
+.papers {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 14px 10px;
+  padding-top: 6px;
+}
+
+.emptySquare {
+  margin: auto;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(60, 35, 5, 0.6);
+}
+
+/* ---------- a paper ---------- */
+
+.paper {
+  position: relative;
+  flex: 1 1 150px;
+  max-width: 240px;
+  min-height: 96px;
+  padding: 18px 12px 12px;
+  border: 0;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 4px 9px rgba(50, 30, 5, 0.38);
+  color: #10233f;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button.paper:hover {
+  box-shadow: 0 7px 14px rgba(50, 30, 5, 0.45);
+}
+
+.account {
+  background: #ffffff;
+}
+.extra {
+  background: #d6e9ff;
+}
+.complaint {
+  background: #ffd9e6;
+}
+.order {
+  background: #d9f2cf;
+}
+.note {
+  background: #fff3a0;
+  box-shadow: 0 5px 10px rgba(50, 30, 5, 0.4);
+}
+
+.pin {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  border-radius: 50%;
+  box-shadow: 0 3px 4px rgba(0, 0, 0, 0.45);
+}
+
+.pinRed {
+  background: radial-gradient(circle at 35% 30%, #ff9a8f, #d32f2f 58%, #8e1b1b);
+}
+
+.pinGreen {
+  background: radial-gradient(circle at 35% 30%, #b9f0a4, #2e8b2e 58%, #1b5a1b);
+}
+
+.kind {
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #3d4f69;
+}
+
+.title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.note .title {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.who {
+  display: block;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1b5a1b;
+}
+
+.bar {
+  display: block;
+  height: 10px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: #dfe6ee;
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ui-green, #3b6d11);
+}
+
+.barText {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #3d4f69;
+}
+
+/* Stuck too long: yellowed, a curled corner and a red tag. */
+.old {
+  background-image: linear-gradient(160deg, rgba(214, 170, 60, 0.38), rgba(190, 140, 40, 0.5));
+  border-bottom-right-radius: 26px 22px;
+}
+
+.old::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 26px;
+  height: 22px;
+  border-top-left-radius: 14px;
+  background: linear-gradient(135deg, #f1e3b4 0%, #d9bf7a 55%, rgba(120, 85, 20, 0.55) 100%);
+  box-shadow: -2px -2px 4px rgba(60, 40, 5, 0.3);
+}
+
+.daysTag {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  background: #c62828;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+  transform: rotate(4deg);
+}
+
+.dragging {
+  opacity: 0.35;
+}
+
+.ghost {
+  position: fixed;
+  z-index: 300;
+  width: 190px;
+  pointer-events: none;
+  transform: translate(-50%, -30%) rotate(-4deg) scale(1.05);
+  box-shadow: 0 16px 26px rgba(40, 25, 5, 0.5);
+}
+
+/* ---------- the paper's sheet, the Done tray, My square ---------- */
+
+.sheetLine {
+  margin: 0;
+  font-size: 18px;
+}
+
+.sheetButtons {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.give {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+
+.trayButton {
+  align-self: flex-start;
+}
+
+.trayRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ui-line-soft, #e3ebf4);
+}
+
+.mineCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  border-left: 12px solid #c9d6e4;
+  background: #ffffff;
+  box-shadow: var(--ui-shadow);
+}
+
+.mineCard.account {
+  border-left-color: #9aa9bd;
+}
+.mineCard.extra {
+  border-left-color: #4a90e2;
+  background: #ffffff;
+}
+.mineCard.complaint {
+  border-left-color: #e2557f;
+  background: #ffffff;
+}
+.mineCard.order {
+  border-left-color: #4c9a2a;
+  background: #ffffff;
+}
+.mineCard.note {
+  border-left-color: #e0b400;
+  background: #ffffff;
+  box-shadow: var(--ui-shadow);
+}
+
+.mineTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.mineTagOld {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: #c62828;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.mineTag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: var(--ui-off-soft, #eceff3);
+  font-weight: 700;
+}
+
+/* ---------- TV mode: everything bigger, nothing to tap ---------- */
+
+.tv .squareName {
+  font-size: 28px;
+}
+.tv .squareCount {
+  font-size: 24px;
+}
+.tv .paper {
+  flex-basis: 200px;
+  max-width: 320px;
+  min-height: 120px;
+  cursor: default;
+}
+.tv .kind {
+  font-size: 18px;
+}
+.tv .title {
+  font-size: 28px;
+}
+.tv .daysTag {
+  font-size: 20px;
+}
+.tv .emptySquare {
+  font-size: 22px;
+}
+.tv .row {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .square {
+    transition: none;
+  }
+}
