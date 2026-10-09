@@ -43,12 +43,21 @@ export default function AccountsCenterPage() {
   // Phase 6: open-problem count across every account's Team Hub, shown as a
   // badge on the tab itself so staff notice without opening it.
   const [openTeamHubCount, setOpenTeamHubCount] = useState(0);
+  const [showRecent, setShowRecent] = useState(false);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
     // eagerly (lazy initializer) would mismatch the server-rendered tab.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTab(getStoredTab());
+    // "See problem" on an account card opens the Crew Link tab: by link
+    // (?tab=team-hub) from elsewhere, or by this event when already here.
+    if (new URLSearchParams(window.location.search).get("tab") === "team-hub") setActiveTab("team-hub");
+    const onTab = (event: Event) => {
+      if ((event as CustomEvent<string>).detail === "team-hub") setActiveTab("team-hub");
+    };
+    window.addEventListener("cw:accounts-center-tab", onTab);
+    return () => window.removeEventListener("cw:accounts-center-tab", onTab);
   }, []);
 
   useEffect(() => {
@@ -80,8 +89,13 @@ export default function AccountsCenterPage() {
 
       {activeTab === "all" && (
         <>
-          <RecentActivitySummary />
+          {/* The counts, the search box and the accounts come first. What was
+              added lately (it used to sit on top) is one tap away below. */}
           <AccountsPage />
+          <button type="button" className="ui-money-toggle" aria-expanded={showRecent} onClick={() => setShowRecent((value) => !value)}>
+            {showRecent ? "Recent activity · tap to hide" : "Recent activity · tap to show"}
+          </button>
+          {showRecent ? <RecentActivitySummary /> : null}
         </>
       )}
       {activeTab === "visits" && <VisitsPage />}

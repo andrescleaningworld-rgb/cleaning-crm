@@ -2068,3 +2068,775 @@ button.ui-card:hover {
   flex: 1;
   min-width: 0;
 }
+
+/* ==========================================================================
+   Simple redesign (branch redesign/simple). Brand: navy top bar, green main
+   buttons, light-green action tiles, light-blue selected chips, red only for
+   problems. Phone first: 18px body, 48px tap targets, 56px main button.
+   These rules come last on purpose: they re-color the kit above.
+   ========================================================================== */
+
+:root {
+  --ui-navy: #0c447c;
+  --ui-navy-ink: #093560;
+  --ui-green: #3b6d11;
+  --ui-green-press: #2f570d;
+  --ui-green-soft: #eaf3de;
+  --ui-green-ink: #27500a;
+  --ui-sky-soft: #e6f1fb;
+
+  --ui-brand: #0c447c;
+  --ui-brand-ink: #0c447c;
+  --ui-brand-soft: #e6f1fb;
+  --ui-good: #3b6d11;
+  --ui-good-soft: #eaf3de;
+  --ui-r-control: 14px;
+}
+
+/* ---------- The navy bar on every screen ---------- */
+
+.cw-app-shell {
+  padding: 0;
+}
+
+.cw-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  box-shadow: 0 2px 10px rgba(9, 53, 96, 0.25);
+}
+
+.cw-topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 8px 12px;
+}
+
+.cw-topbar-logo {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 44px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.cw-topbar-names {
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-topbar-brand {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  opacity: 0.9;
+}
+
+.cw-topbar-page {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.15;
+  /* Up to two lines, then "…": account names can be long. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 479px) {
+  .cw-topbar-row {
+    gap: 8px;
+    padding: 8px;
+  }
+  .cw-topbar-logo {
+    width: 52px;
+    height: 38px;
+  }
+  .cw-topbar-page {
+    font-size: 18px;
+  }
+  .cw-topbar-btn {
+    padding: 0 8px;
+    font-size: 17px;
+  }
+}
+
+.cw-topbar-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.06s ease;
+}
+
+.cw-topbar-btn:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.cw-topbar-btn:focus-visible,
+.cw-topbar-link:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.cw-topbar-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ui-bad);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.cw-topbar-nav {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 12px 12px;
+}
+
+.cw-topbar-nav-open {
+  display: flex;
+}
+
+.cw-topbar-link,
+.cw-topbar-nav > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cw-topbar-link-on {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: var(--ui-navy);
+}
+
+@media (max-width: 479px) {
+  .cw-topbar-nav-open {
+    flex-direction: column;
+  }
+  .cw-topbar-nav-open > * {
+    width: 100%;
+  }
+}
+
+@media (min-width: 900px) {
+  .cw-topbar-menu {
+    display: none;
+  }
+  .cw-topbar-nav {
+    display: flex;
+    padding: 0 24px 12px;
+  }
+  .cw-topbar-row {
+    padding: 8px 24px;
+  }
+}
+
+main.cw-page-card {
+  margin: 12px;
+  width: auto;
+}
+
+@media (min-width: 900px) {
+  main.cw-page-card {
+    margin: 24px;
+  }
+}
+
+/* The page name is in the navy bar now, so the title row of a screen keeps
+   only its subtitle and its More button. (Still printed: the bar is not.) */
+.ui-screen-header {
+  position: static;
+  border-bottom: 0;
+  padding: 0;
+  align-items: flex-start;
+}
+
+.ui-screen-header > .ui-btn-icon:first-child {
+  display: none;
+}
+
+.ui-screen-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media print {
+  .ui-screen-title {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+    white-space: normal;
+  }
+  main.cw-page-card {
+    margin: 0;
+  }
+}
+
+/* ---------- Buttons, chips, toasts in the brand colors ---------- */
+
+.ui-btn {
+  border-radius: var(--ui-r-control);
+  transition: background-color 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease;
+}
+
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-btn-main {
+  background: var(--ui-green);
+  color: #ffffff;
+}
+
+.ui-btn-main:hover:not(:disabled) {
+  background: var(--ui-green-press);
+}
+
+.ui-btn-second {
+  color: var(--ui-navy);
+  border-color: var(--ui-navy);
+}
+
+.ui-btn-problem {
+  min-height: var(--ui-tap-main);
+  background: var(--ui-bad);
+  color: #ffffff;
+  font-size: 20px;
+}
+
+.ui-chip {
+  transition: background-color 0.12s ease, transform 0.08s ease;
+}
+
+.ui-chip:active {
+  transform: scale(0.97);
+}
+
+.ui-chip[aria-pressed="true"] {
+  border-color: var(--ui-navy);
+  background: var(--ui-sky-soft);
+  color: var(--ui-navy);
+}
+
+.ui-toast {
+  pointer-events: auto;
+  animation: ui-rise 0.16s ease;
+}
+
+.ui-toast-wait {
+  background: var(--ui-ink);
+  border-radius: var(--ui-r-panel);
+}
+
+.ui-toast-action {
+  min-height: 44px;
+  margin: -6px -10px -6px 6px;
+  padding: 4px 16px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ui-sheet[open] {
+  animation: ui-rise 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-toast,
+  .ui-sheet[open],
+  .ui-tip,
+  .ui-tip-layer {
+    animation: none;
+  }
+  .ui-btn,
+  .ui-chip,
+  .ui-acttile,
+  .ui-count,
+  .ui-tip-ring {
+    transition: none;
+  }
+}
+
+/* ---------- Three big counts (Accounts Center) ---------- */
+
+.ui-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ui-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 88px;
+  padding: 10px 4px;
+  border: 3px solid transparent;
+  border-radius: var(--ui-r-panel);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+.ui-count:active {
+  transform: scale(0.97);
+}
+
+.ui-count-number {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.ui-count-label {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.ui-count-good {
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+}
+
+.ui-count-bad {
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+}
+
+.ui-count-off {
+  background: var(--ui-off-soft);
+  color: var(--ui-off);
+}
+
+.ui-count[aria-pressed="true"] {
+  border-color: currentColor;
+}
+
+/* ---------- Account cards ---------- */
+
+.ui-acct-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 800px) {
+  .ui-acct-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1250px) {
+  .ui-acct-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.ui-acct {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 16px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+}
+
+.ui-acct-problem {
+  border-color: var(--ui-bad);
+}
+
+.ui-acct-name {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ui-acct-name a {
+  color: var(--ui-ink);
+  text-decoration: none;
+}
+
+.ui-acct-line {
+  margin: 0;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
+.ui-acct-wrong {
+  margin: 0;
+  color: var(--ui-bad);
+  font-weight: 700;
+}
+
+.ui-acct-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.ui-acct-buttons > .ui-btn-main,
+.ui-acct-buttons > .ui-btn-problem {
+  flex: 1;
+}
+
+.ui-acct-buttons > .ui-btn-second {
+  min-height: var(--ui-tap-main);
+}
+
+.ui-money-toggle {
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 10px 16px;
+  border: 2px dashed var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: transparent;
+  color: var(--ui-muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- Swipe a card left ---------- */
+
+.ui-swipe {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--ui-r-panel);
+}
+
+.ui-swipe-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 2px 2px 2px 8px;
+}
+
+.ui-swipe-actions > * {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 84px;
+  border: 0;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-swipe-content {
+  position: relative;
+  height: 100%;
+  background: var(--ui-paper);
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+/* ---------- Pull down to refresh ---------- */
+
+.ui-ptr-bar {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -110px;
+  width: 220px;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: var(--ui-shadow);
+  pointer-events: none;
+}
+
+/* ---------- First-time tips ---------- */
+
+.ui-tip-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  font-family: var(--ui-font);
+  animation: ui-fade 0.16s ease;
+}
+
+.ui-tip-ring {
+  position: fixed;
+  border: 4px solid #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 0 0 9999px rgba(16, 35, 63, 0.6);
+  pointer-events: none;
+  transition: top 0.16s ease, left 0.16s ease, width 0.16s ease, height 0.16s ease;
+}
+
+.ui-tip {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 16px;
+  border-radius: var(--ui-r-panel);
+  background: #ffffff;
+  color: var(--ui-ink);
+  box-shadow: var(--ui-shadow);
+  animation: ui-rise 0.16s ease;
+}
+
+.ui-tip-text {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ui-tip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ui-tip-count {
+  color: var(--ui-muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ui-tip-btn {
+  min-width: 120px;
+}
+
+/* ---------- Big light-green action tiles (account page) ---------- */
+
+.ui-acttiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 800px) {
+  .ui-acttiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.ui-acttile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 112px;
+  padding: 14px 8px;
+  border: 2px solid transparent;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font: inherit;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+.ui-acttile:hover:not(:disabled),
+.ui-acttile[aria-expanded="true"] {
+  border-color: var(--ui-green);
+}
+
+.ui-acttile:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-acttile:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ui-acttile-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.ui-acttile-label {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ui-acttile-detail {
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* The "Next cleaning" card at the top of an account. */
+.ui-next {
+  padding: 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-sky-soft);
+  color: var(--ui-navy);
+}
+
+.ui-next-label {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ui-next-day {
+  margin: 2px 0 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.ui-next-time {
+  margin: 2px 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ui-next-who {
+  margin: 0;
+  color: var(--ui-ink);
+}
+
+.ui-section-title {
+  margin: 8px 0 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.ui-more-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .ui-more-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* The open menu scrolls by itself on a short phone, so Logout is always reachable. */
+.cw-topbar-nav-open {
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
+  flex-wrap: nowrap;
+}
+
+@media (min-width: 480px) {
+  .cw-topbar-nav-open {
+    flex-wrap: wrap;
+  }
+}

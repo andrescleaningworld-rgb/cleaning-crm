@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutButton";
+import { SHOW_TIPS_EVENT, useShell } from "@/app/ui";
 
 type UserRole = "admin" | "subcontractor" | "customer" | null;
 
@@ -165,129 +166,135 @@ export default function CWHeader() {
   const isLoginPage = pathname === "/login";
   const showNav = !isLoginPage && navItems.length > 0;
 
+  // The page name under "Cleaning World": the redesigned screen says its own
+  // name (app/ui/shell.ts); older pages fall back to their menu label.
+  const shell = useShell();
+  const pageName = shell.title || fallbackPageName(pathname);
+  const badgeTotal = newNotificationCount + portalCount;
+  const pill = (active: boolean) => `cw-topbar-link ${active ? "cw-topbar-link-on" : ""}`.trim();
+
   return (
-    <header className="no-print w-full bg-slate-50 px-4 py-8 sm:py-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="relative overflow-hidden rounded-[26px] bg-gradient-to-r from-blue-900 via-blue-700 to-sky-500 px-6 py-6 sm:py-4 shadow-xl">
-          {!isLoginPage && (
-            <Link
-              href="/help"
-              title="Help / Tutorial"
-              className="absolute right-6 top-5 flex h-12 w-12 items-center justify-center rounded-full border border-white/35 bg-white/15 text-lg font-bold text-white shadow-md transition hover:bg-white/25"
+    <header className="cw-topbar no-print">
+      <div className="cw-topbar-row">
+        {shell.backHref ? (
+          <Link href={shell.backHref} className="cw-topbar-btn" aria-label="Back">
+            <BackArrow />
+          </Link>
+        ) : shell.onBack ? (
+          <button type="button" className="cw-topbar-btn" aria-label="Back" onClick={shell.onBack}>
+            <BackArrow />
+          </button>
+        ) : null}
+
+        {/* cw-emblem.png is the emblem with no empty margin (276x180). The
+            box never shrinks, and the image keeps its own proportions. */}
+        <div className="cw-topbar-logo">
+          <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
+        </div>
+
+        <div className="cw-topbar-names">
+          <p className="cw-topbar-brand">Cleaning World</p>
+          <h1 className="cw-topbar-page">{pageName}</h1>
+        </div>
+
+        {!isLoginPage &&
+          (shell.tipsCount > 0 ? (
+            <button
+              type="button"
+              className="cw-topbar-btn"
+              aria-label="Show the tips for this screen"
+              title="Show tips"
+              onClick={() => window.dispatchEvent(new Event(SHOW_TIPS_EVENT))}
             >
               ?
+            </button>
+          ) : (
+            <Link href="/help" className="cw-topbar-btn" aria-label="Help" title="Help / Tutorial">
+              ?
+            </Link>
+          ))}
+
+        {showNav && (
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-expanded={menuOpen}
+            aria-controls="cw-header-nav"
+            className="cw-topbar-btn cw-topbar-menu"
+          >
+            {menuOpen ? "Close" : "Menu"}
+            {!menuOpen && badgeTotal > 0 && <span className="cw-topbar-badge">{badgeTotal}</span>}
+          </button>
+        )}
+      </div>
+
+      {showNav && (
+        <nav id="cw-header-nav" onClick={() => setMenuOpen(false)} className={`cw-topbar-nav ${menuOpen ? "cw-topbar-nav-open" : ""}`.trim()}>
+          {role === "admin" && (
+            <Link href="/notifications" className={pill(pathname === "/notifications")}>
+              🔔 Notifications
+              {newNotificationCount > 0 && <span className="cw-topbar-badge">{newNotificationCount}</span>}
             </Link>
           )}
 
-          <div className="flex flex-col gap-5">
-            <div className="flex items-center gap-5 pr-16">
-              {/* cw-emblem.png is the emblem with no empty margin (276x180). The
-                  box never shrinks, and the image keeps its own proportions. */}
-              <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded-2xl bg-white p-2 shadow-md">
-                <Image
-                  src="/cw-emblem.png"
-                  alt="Cleaning World"
-                  width={276}
-                  height={180}
-                  priority
-                  unoptimized
-                  className="h-full w-full object-contain"
-                />
-              </div>
+          {role === "admin" && (
+            <Link href="/portal-requests" className={pill(pathname === "/portal-requests")}>
+              Portal
+              {portalCount > 0 && <span className="cw-topbar-badge">{portalCount}</span>}
+            </Link>
+          )}
 
-              <div>
-                <h1 className="text-3xl sm:text-2xl font-extrabold tracking-tight text-white drop-shadow-sm">
-                  Cleaning World
-                </h1>
-                <p className="mt-1 text-base font-semibold text-white">
-                  Service Portal &amp; Operations
-                </p>
-              </div>
-            </div>
+          {navItems.map((item) => {
+            const isActive = item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link key={item.href} href={item.href} className={pill(isActive)}>
+                {item.label}
+              </Link>
+            );
+          })}
 
-            {showNav && (
-              <button
-                type="button"
-                onClick={() => setMenuOpen((open) => !open)}
-                aria-expanded={menuOpen}
-                aria-controls="cw-header-nav"
-                className="inline-flex min-h-[48px] items-center justify-center rounded-full border border-white/25 bg-white/15 px-5 py-2 text-base font-bold text-white shadow-sm transition hover:bg-white/25 sm:hidden"
-              >
-                {menuOpen ? "Close menu" : "Menu"}
-                {!menuOpen && newNotificationCount + portalCount > 0 && (
-                  <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-base font-extrabold text-white">
-                    {newNotificationCount + portalCount}
-                  </span>
-                )}
-              </button>
-            )}
+          {/* The "?" in the bar shows a screen's tips when it has some, so Help also lives here. */}
+          {role === "admin" && (
+            <Link href="/help" className={pill(pathname === "/help")}>
+              Help
+            </Link>
+          )}
 
-            {showNav && (
-              <nav id="cw-header-nav" onClick={() => setMenuOpen(false)} className={`${menuOpen ? "flex" : "hidden"} flex-wrap items-center gap-3 sm:flex`}>
-                {role === "admin" && (
-                  <Link
-                    href="/notifications"
-                    className={`inline-flex min-h-[48px] items-center rounded-full border px-4 py-2 text-base font-bold shadow-sm transition ${
-                      pathname === "/notifications"
-                        ? "border-white bg-white text-blue-800"
-                        : "border-white/25 bg-white/15 text-white hover:bg-white/25"
-                    }`}
-                  >
-                    🔔 Notifications
-                    {newNotificationCount > 0 && (
-                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-base font-extrabold text-white">
-                        {newNotificationCount}
-                      </span>
-                    )}
-                  </Link>
-                )}
-
-                {role === "admin" && (
-                  <Link
-                    href="/portal-requests"
-                    className={`inline-flex min-h-[48px] items-center rounded-full border px-4 py-2 text-base font-bold shadow-sm transition ${
-                      pathname === "/portal-requests"
-                        ? "border-white bg-white text-blue-800"
-                        : "border-white/25 bg-white/15 text-white hover:bg-white/25"
-                    }`}
-                  >
-                    Portal
-                    {portalCount > 0 && (
-                      <span className="ml-2 rounded-full bg-red-600 px-2 py-0.5 text-base font-extrabold text-white">
-                        {portalCount}
-                      </span>
-                    )}
-                  </Link>
-                )}
-
-                {navItems.map((item) => {
-                  const isActive =
-                    item.href === "/"
-                      ? pathname === "/"
-                      : pathname === item.href ||
-                        pathname.startsWith(`${item.href}/`);
-
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`inline-flex min-h-[48px] items-center rounded-full border px-4 py-2 text-base font-bold shadow-sm transition ${
-                        isActive
-                          ? "border-white bg-white text-blue-800"
-                          : "border-white/25 bg-white/15 text-white hover:bg-white/25"
-                      }`}
-                    >
-                      {item.label}
-                    </Link>
-                  );
-                })}
-
-                {role === "admin" && <LogoutButton />}
-              </nav>
-            )}
-          </div>
-        </div>
-      </div>
+          {role === "admin" && <LogoutButton />}
+        </nav>
+      )}
     </header>
   );
+}
+
+function BackArrow() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 5l-7 7 7 7" />
+    </svg>
+  );
+}
+
+const PAGE_NAMES: Record<string, string> = {
+  "": "Dashboard",
+  login: "Log in",
+  accounts: "Accounts",
+  "accounts-center": "Accounts Center",
+  "sub-center": "Sub Center",
+  subcontractors: "Subcontractors",
+  "subcontractor-portal": "Subcontractor Portal",
+  "customer-portal": "Customer Portal",
+  portal: "Customer Portal",
+  "portal-requests": "Portal Requests",
+  "to-do": "To-Do",
+  "sub-schedules": "Sub Schedules",
+  "supply-orders": "Supply Orders",
+  "team-hub": "Crew Link",
+  "crew-link": "Crew Link",
+};
+
+function fallbackPageName(pathname: string): string {
+  const first = pathname.split("/").filter(Boolean)[0] ?? "";
+  if (PAGE_NAMES[first]) return PAGE_NAMES[first];
+  return first.replace(/-/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

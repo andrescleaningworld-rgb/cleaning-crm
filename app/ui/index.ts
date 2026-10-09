@@ -44,7 +44,11 @@ export {
   type TabOption,
 } from "./controls";
 
-export { showToast, ToastRegion } from "./toast";
+export { flushUndo, showToast, ToastRegion, undoable } from "./toast";
+
+export { PullToRefresh, SwipeRow, Tile, TileIconSvg, Tips, type TileIcon, type TipStep } from "./interact";
+
+export { SHOW_TIPS_EVENT, useShell } from "./shell";
 
 export {
   friendlyDate,

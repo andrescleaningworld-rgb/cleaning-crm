@@ -265,7 +265,7 @@ export default function OnboardingChecklist({
   return (
     <div className={compact ? "space-y-5" : "space-y-6"}>
       {collapsible ? (
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => setCollapsed((prev) => !prev)}
@@ -293,7 +293,7 @@ export default function OnboardingChecklist({
             <button
               type="button"
               onClick={onOpenWizard}
-              className="shrink-0 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-indigo-500"
+              className="ui-btn ui-btn-second shrink-0"
             >
               Open in Wizard View
             </button>

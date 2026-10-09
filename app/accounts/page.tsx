@@ -9,15 +9,22 @@ import {
   EmptyState,
   ErrorBox,
   Field,
+  Icon,
   LABELS,
   MoreMenu,
+  PullToRefresh,
   Screen,
   SearchBar,
   SelectField,
   Sheet,
   SkeletonList,
   StatusPill,
+  SwipeRow,
   TextAreaField,
+  TileIconSvg,
+  Tips,
+  showToast as kitToast,
+  undoable,
   type StatusKind,
 } from "@/app/ui";
 import { getGoogleMapsUrl } from "../lib/backend";
@@ -107,6 +114,8 @@ type Manager = {
 // Mirrors app/to-do/page.tsx's taskTypes — kept as a separate local copy
 // since that file doesn't export it, same as this file's other small
 // cross-page duplications (e.g. the Manager fetch/filter pattern above).
+const SHOW_MONEY_KEY = "cwAccountsShowMoney";
+
 const BULK_TODO_TASK_TYPES = [
   "Visit",
   "Complaint Follow-Up",
@@ -813,17 +822,41 @@ export default function AccountsPage() {
   const [quickToDoSaving, setQuickToDoSaving] = useState(false);
   const [quickToDoError, setQuickToDoError] = useState("");
 
-  // Minimal self-contained toast — no shared toast component exists
-  // elsewhere in the app yet, so this stays local to this page.
-  const [toast, setToast] = useState("");
   const [showFilters, setShowFilters] = useState(false);
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Redesign: what the three counts, the chips, the card's three dots and
+  // the money switch need.
+  const [needsYouOnly, setNeedsYouOnly] = useState(false);
+  const [townFilter, setTownFilter] = useState("");
+  const [picker, setPicker] = useState<"sub" | "town" | null>(null);
+  const [moreAccount, setMoreAccount] = useState<Account | null>(null);
+  const [showMoney, setShowMoney] = useState(false);
+  const [myName, setMyName] = useState("");
 
   useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    };
+    // Deferred read: localStorage isn't available during SSR.
+    try {
+      setShowMoney(window.localStorage.getItem(SHOW_MONEY_KEY) === "1");
+    } catch {
+      // Private mode: money simply starts hidden.
+    }
+    // Who is logged in, for the "My accounts" chip.
+    fetch("/api/session-role", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { name?: string }) => setMyName(normalizeText(data.name)))
+      .catch(() => {});
   }, []);
+
+  function toggleMoney() {
+    setShowMoney((value) => {
+      try {
+        window.localStorage.setItem(SHOW_MONEY_KEY, value ? "0" : "1");
+      } catch {
+        // Not remembered, still switched for now.
+      }
+      return !value;
+    });
+  }
 
   // Team Hub Phase 6: red "open problems" badge per account row. Best-effort
   // — a failed load just shows no badges.
@@ -842,9 +875,7 @@ export default function AccountsPage() {
   }, []);
 
   function showToast(message: string) {
-    setToast(message);
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => setToast(""), 4000);
+    kitToast(message);
   }
 
 
@@ -1112,6 +1143,8 @@ export default function AccountsPage() {
       if (!accountMatchesNonLocationFilters(account, nonLocationFilterParams)) {
         return false;
       }
+      if (townFilter && townOf(account) !== townFilter) return false;
+      if (needsYouOnly && !problemLineOf(account, openTeamHubProblems[getAccountId(account)] ?? 0)) return false;
 
       if (nearAccountRef) {
         if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
@@ -1169,7 +1202,7 @@ export default function AccountsPage() {
         normalizeText(b.accountName)
       );
     });
-  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption]);
+  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems]);
 
   // Accounts that would otherwise match the current filters but are hidden
   // from Near Account results only because they have no stored coordinates —
@@ -1208,6 +1241,20 @@ export default function AccountsPage() {
 
   const activeCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Active").length, [accounts]);
   const cancelledCount = useMemo(() => accounts.filter((a) => a._statusCategory === "Cancelled").length, [accounts]);
+  const needsYouCount = useMemo(
+    () => accounts.filter((a) => problemLineOf(a, openTeamHubProblems[getAccountId(a)] ?? 0) !== "").length,
+    [accounts, openTeamHubProblems]
+  );
+  // Towns of the accounts that are not cancelled, most accounts first.
+  const towns = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const account of filterOptionAccounts.length ? filterOptionAccounts : accounts) {
+      if (account._statusCategory === "Cancelled") continue;
+      const town = townOf(account);
+      if (town) counts.set(town, (counts.get(town) ?? 0) + 1);
+    }
+    return Array.from(counts, ([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [filterOptionAccounts, accounts]);
   const highRiskCount = useMemo(() => accounts.filter((a) => normalizeLower(a.accountHealth).includes("high risk")).length, [accounts]);
 
   const filteredSubPay = useMemo(
@@ -2149,7 +2196,55 @@ async function handleSaveTransferProposal() {
   printWindow.focus();
 }
 
+  // The manager name on the accounts that belongs to whoever is logged in
+  // (accents and capitals can differ between the two lists).
+  const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  const myManagerName = myName ? managers.map(String).find((name) => name !== "All" && fold(name) === fold(myName)) ?? "" : "";
+  const myAccountsOn = myManagerName !== "" && managerFilter === myManagerName;
+
+  function toggleMyAccounts() {
+    if (myAccountsOn) {
+      setManagerFilter("All");
+      return;
+    }
+    if (!myManagerName) {
+      kitToast("No accounts have you as their manager.", "bad");
+      return;
+    }
+    setManagerFilter(myManagerName);
+  }
+
+  // The three big counts at the top.
+  function showOnly(which: "Active" | "NeedsYou" | "Cancelled") {
+    setVisibleCount(INITIAL_VISIBLE_COUNT);
+    if (which === "NeedsYou") {
+      // Tapping it again goes back to Active.
+      setNeedsYouOnly((value) => !value);
+      setStatusFilter(needsYouOnly ? "Active" : "All");
+      return;
+    }
+    setNeedsYouOnly(false);
+    setStatusFilter(which);
+  }
+
+  async function refreshList() {
+    await fetchAccounts(searchText.trim());
+    kitToast("Updated ✓");
+  }
+
+  // Open crew problems are worked from the Crew Link tab of Accounts Center.
+  function seeCrewProblems() {
+    if (window.location.pathname.startsWith("/accounts-center")) {
+      window.dispatchEvent(new CustomEvent("cw:accounts-center-tab", { detail: "team-hub" }));
+      window.scrollTo({ top: 0 });
+    } else {
+      window.location.assign("/accounts-center?tab=team-hub");
+    }
+  }
+
   function clearFilters() {
+    setNeedsYouOnly(false);
+    setTownFilter("");
     setSearchText("");
     setStatusFilter("Active");
     setManagerFilter("All");
@@ -2161,8 +2256,7 @@ async function handleSaveTransferProposal() {
     setMinSubPayFilter("");
     setMaxSubPayFilter("");
     setSortOption("Account Name");
-    setAccounts([]);
-    setHasSearched(false);
+    void fetchAccounts("");
   }
 
   // -------------------------------------------------------------------------
@@ -2260,11 +2354,37 @@ async function handleSaveTransferProposal() {
       }
 
       closeStatusModal();
+      kitToast("Saved ✓");
     } catch (err) {
       setStatusError(err instanceof Error ? err.message : "Something went wrong changing the account status.");
+      // After an Undo wait the sheet is closed: open it again so the error and its Try again are seen.
+      setStatusModalAccount(statusModalAccount);
     } finally {
       setSavingStatus(false);
     }
+  }
+
+  // Cancelling an account is hard to take back, so it waits 5 seconds behind
+  // an Undo button before anything is saved. Every other status saves at once.
+  function requestStatusSave() {
+    const target = statusModalAccount;
+    if (!target) return;
+    if (newStatus !== "Cancelled" || target._statusCategory === "Cancelled") {
+      void handleSaveStatusChange();
+      return;
+    }
+    if (!statusReason.trim()) {
+      setStatusError("Please add a reason/note for the status change.");
+      return;
+    }
+    setStatusError("");
+    setStatusModalAccount(null);
+    undoable({
+      message: `Cancelling ${normalizeText(target.accountName) || "this account"}…`,
+      run: () => handleSaveStatusChange(),
+      onUndo: () => setStatusModalAccount(target),
+      undoneMessage: "Not cancelled. Nothing was changed.",
+    });
   }
 
   const money0 = (value: number) =>
@@ -2274,6 +2394,7 @@ async function handleSaveTransferProposal() {
     (statusFilter !== "Active" ? 1 : 0) +
     (managerFilter !== "All" ? 1 : 0) +
     (subcontractorFilter !== "All" ? 1 : 0) +
+    (townFilter ? 1 : 0) +
     (nearAccountRef ? 1 : 0) +
     [minRevenueFilter, maxRevenueFilter, minSubPayFilter, maxSubPayFilter].filter((v) => v.trim() !== "").length +
     (!nearAccountRef && sortOption !== "Account Name" ? 1 : 0);
@@ -2284,10 +2405,12 @@ async function handleSaveTransferProposal() {
   return (
     <Screen
       title="Accounts"
-      subtitle="The default view shows active accounts."
+      subtitle="Tap a number to see those accounts."
       headerRight={
         <MoreMenu
           items={[
+            { label: filtersOn ? `Filter and sort (${filtersOn} on)` : "Filter and sort", onSelect: () => setShowFilters(true) },
+            { label: "Clear filters", onSelect: clearFilters },
             { label: transferMode ? "Close transfer" : "Transfer proposal", onSelect: toggleTransferMode },
             { label: bulkToDoMode ? "Cancel selection" : "Create to-dos for multiple", icon: "plus", onSelect: toggleBulkToDoMode },
             ...(hasSearched ? [{ label: "Print sub account list", onSelect: handlePrintSubcontractorAccountList }] : []),
@@ -2301,8 +2424,111 @@ async function handleSaveTransferProposal() {
         </BigButton>
       }
     >
+      <Tips
+        id="accounts"
+        ready={hasSearched && !loading && !transferMode && visibleAccounts.length > 0}
+        steps={[
+          { target: '[data-tip="counts"]', text: "Tap a number to see only those accounts." },
+          { target: '[data-tip="open"]', text: "Tap Open to see an account." },
+          { target: '[data-tip="card-more"]', text: "Tap the three dots for Call, To-do and more. On a phone you can also swipe a card to the left." },
+        ]}
+      />
+
       {error ? <ErrorBox title="Something did not load." text={error} onRetry={handleSearch} /> : null}
       {subcontractorWarning ? <ErrorBox title="Some subcontractor details did not load." text={subcontractorWarning} /> : null}
+
+      {/* Three big counts. Tapping one shows only those accounts. */}
+      <div className="ui-counts" data-tip="counts">
+        <button type="button" className="ui-count ui-count-good" aria-pressed={!needsYouOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
+          <span className="ui-count-number">{activeCount}</span>
+          <span className="ui-count-label">Active</span>
+        </button>
+        <button type="button" className="ui-count ui-count-bad" aria-pressed={needsYouOnly} onClick={() => showOnly("NeedsYou")}>
+          <span className="ui-count-number">{needsYouCount}</span>
+          <span className="ui-count-label">Need you</span>
+        </button>
+        <button type="button" className="ui-count ui-count-off" aria-pressed={!needsYouOnly && statusFilter === "Cancelled"} onClick={() => showOnly("Cancelled")}>
+          <span className="ui-count-number">{cancelledCount}</span>
+          <span className="ui-count-label">Cancelled</span>
+        </button>
+      </div>
+
+      {/* One search box. The list narrows as you type; Enter (or the
+          keyboard's Search key) also asks the server, exactly as the old
+          Search button did. */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSearch();
+        }}
+      >
+        <SearchBar value={searchText} onChange={setSearchText} label="Find an account" placeholder="Find an account" />
+      </form>
+
+      <div className="ui-chips" role="group" aria-label="Filters">
+        <button type="button" className="ui-chip" aria-pressed={myAccountsOn} onClick={toggleMyAccounts}>
+          My accounts
+        </button>
+        <button type="button" className="ui-chip" aria-pressed={subcontractorFilter !== "All"} onClick={() => setPicker("sub")}>
+          {subcontractorFilter !== "All" ? `Sub: ${subcontractors.find((sub) => sub.value === subcontractorFilter)?.label ?? subcontractorFilter}` : "By sub"}
+        </button>
+        <button type="button" className="ui-chip" aria-pressed={townFilter !== ""} onClick={() => setPicker("town")}>
+          {townFilter ? `Town: ${townFilter}` : "By town"}
+        </button>
+      </div>
+
+      <Sheet open={picker === "sub"} title="Show one sub's accounts" onClose={() => setPicker(null)}>
+        <ul className="ui-picker-list">
+          {subcontractors.map((sub) => (
+            <li key={sub.value}>
+              <button
+                type="button"
+                className="ui-picker-option"
+                aria-pressed={subcontractorFilter === sub.value}
+                onClick={() => {
+                  setSubcontractorFilter(sub.value);
+                  setPicker(null);
+                }}
+              >
+                {sub.value === "All" ? "All subs" : sub.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Sheet>
+
+      <Sheet open={picker === "town"} title="Show one town's accounts" onClose={() => setPicker(null)}>
+        <ul className="ui-picker-list">
+          <li>
+            <button
+              type="button"
+              className="ui-picker-option"
+              aria-pressed={townFilter === ""}
+              onClick={() => {
+                setTownFilter("");
+                setPicker(null);
+              }}
+            >
+              All towns
+            </button>
+          </li>
+          {towns.map((town) => (
+            <li key={town.name}>
+              <button
+                type="button"
+                className="ui-picker-option"
+                aria-pressed={townFilter === town.name}
+                onClick={() => {
+                  setTownFilter(town.name);
+                  setPicker(null);
+                }}
+              >
+                {town.name} ({town.count})
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Sheet>
 
       {bulkToDoMode ? (
         <Card title={`${selectedCount} account${plural(selectedCount)} selected`}>
@@ -2320,66 +2546,6 @@ async function handleSaveTransferProposal() {
           {bulkToDoSuccess}
         </p>
       ) : null}
-
-      {/* One search box. Accounts load when Search is tapped (or Enter is
-          pressed), with or without a search term, exactly as before. */}
-      <form
-        className="ui-searchrow"
-        onSubmit={(event) => {
-          event.preventDefault();
-          handleSearch();
-        }}
-      >
-        <SearchBar value={searchText} onChange={setSearchText} label="Search accounts" placeholder="Search accounts, or leave blank to see all" />
-        <BigButton type="submit" kind="second" busy={loading} busyLabel="Searching…">
-          Search
-        </BigButton>
-      </form>
-
-      <div className="ui-actions-row">
-        <BigButton kind="second" onClick={() => setShowFilters(true)}>
-          {filtersOn ? `Filter and sort (${filtersOn} on)` : "Filter and sort"}
-        </BigButton>
-        {hasSearched ? (
-          <BigButton kind="quiet" onClick={clearFilters}>
-            Clear filters
-          </BigButton>
-        ) : null}
-      </div>
-
-      <div className="ui-stats">
-        <div className="ui-stat">
-          <p className="ui-stat-label">Total Loaded</p>
-          <p className="ui-stat-value">{accounts.length}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Active</p>
-          <p className="ui-stat-value">{activeCount}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Cancelled</p>
-          <p className="ui-stat-value">{cancelledCount}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">High Risk</p>
-          <p className="ui-stat-value">{highRiskCount}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Revenue In Current View</p>
-          <p className="ui-stat-value">{money0(filteredRevenue)}</p>
-          <p className="ui-muted">Updates when you filter accounts.</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Sub Pay In Current View</p>
-          <p className="ui-stat-value">{money0(filteredSubPay)}</p>
-          <p className="ui-muted">Total subcontractor pay for the filtered accounts.</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Gross Margin In Current View</p>
-          <p className="ui-stat-value">{money0(filteredGrossMargin)}</p>
-          <p className="ui-muted">{filteredMarginPercent}% of revenue</p>
-        </div>
-      </div>
 
       {hasSearched ? (
         <div role="status">
@@ -2881,23 +3047,20 @@ async function handleSaveTransferProposal() {
 
       {/* Accounts list */}
       {!transferMode ? (
-        <>
-          {/* `loading` alone used to gate this whole block, which blanked the
-              entire list back to a loading placeholder on every refetch —
-              even though the previous `accounts` data was still sitting in
-              state the whole time. The placeholder only shows when there is
-              nothing to show yet (first load); a refetch with existing data
-              keeps the current rows and swaps them once the new results land. */}
+        <PullToRefresh onRefresh={refreshList}>
+          {/* The loading placeholder only shows when there is nothing to show
+              yet (first load); a refetch with existing data keeps the current
+              cards and swaps them once the new results land. */}
           {loading && accounts.length === 0 ? (
             <SkeletonList rows={4} />
           ) : !hasSearched ? (
             <EmptyState
               icon="search"
-              title="Tap Search to get started"
-              text="Type a search term first, or leave it blank to browse all accounts."
+              title="No accounts loaded yet"
+              text="Tap Show accounts to load them."
               action={
                 <BigButton kind="second" onClick={handleSearch}>
-                  Search
+                  Show accounts
                 </BigButton>
               }
             />
@@ -2906,8 +3069,8 @@ async function handleSaveTransferProposal() {
               <SkeletonList rows={3} />
             ) : (
               <EmptyState
-                title="No accounts found for this search"
-                text="Try a shorter search, or clear the filters."
+                title={needsYouOnly ? "Nothing needs you right now" : "No accounts match"}
+                text={needsYouOnly ? "Tap Active to see all your active accounts." : "Try a shorter search, or tap Clear filters to see them all."}
                 action={
                   <BigButton kind="second" onClick={clearFilters}>
                     Clear filters
@@ -2916,81 +3079,135 @@ async function handleSaveTransferProposal() {
               />
             )
           ) : (
-            <CardList
-              label="Accounts"
-              items={visibleAccounts.map((account, index) => ({ account, index }))}
-              getKey={({ account, index }) => `${getAccountId(account)}-${index}`}
-              renderCard={({ account }) => (
-                <Card>
-                  <AccountNameBlock
+            <ul className="ui-acct-list" aria-label="Accounts">
+              {visibleAccounts.map((account, index) => (
+                <li key={`${getAccountId(account)}-${index}`}>
+                  <AccountCard
                     account={account}
                     openProblems={openTeamHubProblems[getAccountId(account)] ?? 0}
                     selecting={bulkToDoMode}
                     selected={selectedBulkToDoIds.has(getAccountId(account))}
                     onToggle={() => toggleBulkToDoAccount(account)}
+                    showMoney={showMoney}
+                    onMore={setMoreAccount}
+                    onToDo={openQuickToDoModal}
+                    onSeeCrewProblems={seeCrewProblems}
                   />
-                  <div className="ui-actions-row" style={{ marginTop: 8 }}>
-                    <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
-                    <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "N/A"}</StatusPill>
-                  </div>
-                  <p className="ui-card-text">
-                    Manager: {account.manager || "Unassigned"} · Sub: {getSubDisplayLabel(subDisplayOf(account))}
-                  </p>
-                  <p className="ui-card-text">Started {formatDate(account.accountStartDate) || "not set"}</p>
-                  <AccountMoneyBlock account={account} />
-                  <div style={{ marginTop: 12 }}>
-                    <AccountRowActions account={account} onStatus={openStatusModal} onToDo={openQuickToDoModal} />
-                  </div>
-                </Card>
-              )}
-              columns={[
-                {
-                  header: "Account",
-                  cell: ({ account }) => (
-                    <AccountNameBlock
-                      account={account}
-                      openProblems={openTeamHubProblems[getAccountId(account)] ?? 0}
-                      selecting={bulkToDoMode}
-                      selected={selectedBulkToDoIds.has(getAccountId(account))}
-                      onToggle={() => toggleBulkToDoAccount(account)}
-                    />
-                  ),
-                },
-                {
-                  header: "Manager / Subcontractor",
-                  cell: ({ account }) => (
-                    <>
-                      <p className="ui-strong">{account.manager || "Unassigned"}</p>
-                      <p className="ui-muted">{getSubDisplayLabel(subDisplayOf(account))}</p>
-                    </>
-                  ),
-                },
-                {
-                  header: "Status / Health",
-                  cell: ({ account }) => (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
-                      <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
-                      <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "N/A"}</StatusPill>
-                    </div>
-                  ),
-                },
-                { header: "Start Date", cell: ({ account }) => <span className="ui-nowrap">{formatDate(account.accountStartDate) || "Not set"}</span> },
-                { header: "Revenue / Margin", cell: ({ account }) => <AccountMoneyBlock account={account} /> },
-                { header: "Action", cell: ({ account }) => <AccountRowActions account={account} onStatus={openStatusModal} onToDo={openQuickToDoModal} /> },
-              ]}
-            />
+                </li>
+              ))}
+            </ul>
           )}
 
           {/* Load more */}
           {visibleCount < filteredAccounts.length ? (
-            <div>
+            <div style={{ marginTop: 12 }}>
               <BigButton kind="second" onClick={() => setVisibleCount((n) => n + LOAD_MORE_COUNT)}>
                 Show 15 more
               </BigButton>
             </div>
           ) : null}
-        </>
+        </PullToRefresh>
       ) : null}
+
+      {/* Money is hidden until someone asks for it. The choice is remembered on this device. */}
+      <button type="button" className="ui-money-toggle" aria-pressed={showMoney} onClick={toggleMoney}>
+        {showMoney ? "Money showing · tap to hide" : "Money hidden · tap to show"}
+      </button>
+
+      {showMoney ? (
+        <div className="ui-stats">
+          <div className="ui-stat">
+            <p className="ui-stat-label">Revenue In Current View</p>
+            <p className="ui-stat-value">{money0(filteredRevenue)}</p>
+            <p className="ui-muted">Updates when you filter accounts.</p>
+          </div>
+          <div className="ui-stat">
+            <p className="ui-stat-label">Sub Pay In Current View</p>
+            <p className="ui-stat-value">{money0(filteredSubPay)}</p>
+            <p className="ui-muted">Total subcontractor pay for the filtered accounts.</p>
+          </div>
+          <div className="ui-stat">
+            <p className="ui-stat-label">Gross Margin In Current View</p>
+            <p className="ui-stat-value">{money0(filteredGrossMargin)}</p>
+            <p className="ui-muted">{filteredMarginPercent}% of revenue</p>
+          </div>
+        </div>
+      ) : null}
+
+      <p className="ui-muted">
+        Total loaded: <span className="ui-strong">{accounts.length}</span> · High risk: <span className="ui-strong">{highRiskCount}</span>
+      </p>
+
+      {/* The three dots on a card: everything about that account that is not on the card. */}
+      <Sheet open={moreAccount !== null} title={moreAccount?.accountName || "Account"} onClose={() => setMoreAccount(null)}>
+        {moreAccount ? (
+          <>
+            <div className="ui-actions-row">
+              <StatusPill kind={accountStatusKind(moreAccount.status)}>{moreAccount.status || "N/A"}</StatusPill>
+              <StatusPill kind={accountHealthKind(moreAccount.accountHealth)}>{moreAccount.accountHealth || "N/A"}</StatusPill>
+            </div>
+            <dl className="ui-details">
+              <div className="ui-detail">
+                <dt>Manager</dt>
+                <dd>{moreAccount.manager || "Unassigned"}</dd>
+              </div>
+              <div className="ui-detail">
+                <dt>Subcontractor</dt>
+                <dd>{getSubDisplayLabel(subDisplayOf(moreAccount))}</dd>
+              </div>
+              <div className="ui-detail">
+                <dt>Started</dt>
+                <dd>{formatDate(moreAccount.accountStartDate) || "Not set"}</dd>
+              </div>
+              {normalizeText(moreAccount._frequencyText) ? (
+                <div className="ui-detail">
+                  <dt>Frequency</dt>
+                  <dd>{moreAccount._frequencyText}</dd>
+                </div>
+              ) : null}
+            </dl>
+            {showMoney ? <AccountMoneyBlock account={moreAccount} /> : <p className="ui-muted">Money is hidden. Use the button at the bottom of the list to show it.</p>}
+            <div className="ui-more-actions">
+              <BigButton href={`/accounts/${encodeURIComponent(getAccountId(moreAccount))}`}>Open</BigButton>
+              {telHref(moreAccount.phone) ? (
+                <a className="ui-btn ui-btn-second" href={telHref(moreAccount.phone)}>
+                  Call contact
+                </a>
+              ) : (
+                <BigButton kind="second" disabled>
+                  No phone on file
+                </BigButton>
+              )}
+              <BigButton
+                kind="second"
+                icon="plus"
+                onClick={() => {
+                  const account = moreAccount;
+                  setMoreAccount(null);
+                  openQuickToDoModal(account);
+                }}
+              >
+                To-do
+              </BigButton>
+              <BigButton
+                kind="second"
+                onClick={() => {
+                  const account = moreAccount;
+                  setMoreAccount(null);
+                  openStatusModal(account);
+                }}
+              >
+                Change status
+              </BigButton>
+              {getGoogleMapsUrl(moreAccount.address) !== "#" ? (
+                <a className="ui-btn ui-btn-second" href={getGoogleMapsUrl(moreAccount.address)} target="_blank" rel="noopener noreferrer">
+                  Directions
+                </a>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </Sheet>
 
       {/* Status change */}
       <Sheet
@@ -3000,7 +3217,7 @@ async function handleSaveTransferProposal() {
         onClose={closeStatusModal}
         busy={savingStatus}
         actions={
-          <BigButton busy={savingStatus} busyLabel="Saving…" onClick={() => void handleSaveStatusChange()}>
+          <BigButton busy={savingStatus} busyLabel="Saving…" onClick={requestStatusSave}>
             Save status change
           </BigButton>
         }
@@ -3022,7 +3239,7 @@ async function handleSaveTransferProposal() {
           onChange={(e) => setStatusReason(e.target.value)}
           disabled={savingStatus}
         />
-        {statusError ? <ErrorBox title="The status was not changed." text={statusError} /> : null}
+        {statusError ? <ErrorBox title="The status was not changed." text={statusError} onRetry={requestStatusSave} /> : null}
       </Sheet>
 
       {/* Quick to-do for one account */}
@@ -3074,11 +3291,6 @@ async function handleSaveTransferProposal() {
         {quickToDoError ? <ErrorBox title="The to-do was not created." text={quickToDoError} /> : null}
       </Sheet>
 
-      {toast ? (
-        <div className="ui-toast-region" role="status" aria-live="polite">
-          <div className="ui-toast">{toast}</div>
-        </div>
-      ) : null}
     </Screen>
   );
 }
@@ -3091,12 +3303,11 @@ function subDisplayOf(account: Account): SubcontractorDisplay {
   return account._subDisplay ?? { contactName: "", companyName: "", fallback: normalizeText(account.subcontractor) || "Unassigned" };
 }
 
-// Same categories as the old color classes: Active green, Cancelled red,
-// Paused / Over 90 Days amber, anything else gray.
+// "Red only for problems": a cancelled account is finished, not a problem, so
+// it is gray. Active green, Paused / Over 90 Days amber, anything else gray.
 function accountStatusKind(status: string | undefined): StatusKind {
   const category = getStatusCategory(status);
   if (category === "Active") return "done";
-  if (category === "Cancelled") return "needs-you";
   if (category === "Paused" || category === "Over 90 Days") return "waiting";
   return "off";
 }
@@ -3109,55 +3320,132 @@ function accountHealthKind(health: string | undefined): StatusKind {
   return "off";
 }
 
-function AccountNameBlock({
+function telHref(phone: string | undefined): string {
+  const digits = normalizeText(phone).replace(/[^0-9+]/g, "");
+  return digits.replace(/\D/g, "").length >= 7 ? `tel:${digits}` : "";
+}
+
+// The town an account is in: its City, or else the part of the address just
+// before the state ("12 Main St, Springfield, IL 62701" -> "Springfield").
+function townOf(account: Account): string {
+  const city = normalizeText(account.city);
+  if (city) return city;
+  const parts = normalizeText(account.address)
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length < 3) return "";
+  const town = parts[parts.length - 2];
+  return /\d/.test(town) ? "" : town;
+}
+
+// What makes an account "need you": the crew reported a problem that is
+// still open, or its health is High Risk. Cancelled accounts never do.
+function problemLineOf(account: Account, openProblems: number): string {
+  if (account._statusCategory === "Cancelled") return "";
+  if (openProblems > 0) return `${openProblems} open problem${openProblems === 1 ? "" : "s"} from the crew.`;
+  if (normalizeLower(account.accountHealth).includes("high risk")) return "Account health is High Risk.";
+  return "";
+}
+
+function AccountCard({
   account,
   openProblems,
   selecting,
   selected,
   onToggle,
+  showMoney,
+  onMore,
+  onToDo,
+  onSeeCrewProblems,
 }: {
   account: Account;
   openProblems: number;
   selecting: boolean;
   selected: boolean;
   onToggle: () => void;
+  showMoney: boolean;
+  onMore: (account: Account) => void;
+  onToDo: (account: Account) => void;
+  onSeeCrewProblems: () => void;
 }) {
   const accountId = getAccountId(account);
+  const href = `/accounts/${encodeURIComponent(accountId)}`;
+  const name = account.accountName || "Unnamed Account";
   const mapsUrl = getGoogleMapsUrl(account.address);
+  const problem = problemLineOf(account, openProblems);
+  const tel = telHref(account.phone);
+  const days = normalizeText(account.cleaningDays) || normalizeText(account.frequency);
+
   return (
-    <div style={{ minWidth: 0 }}>
-      {selecting ? (
-        <label className="ui-check" style={{ marginBottom: 8 }}>
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={onToggle}
-            aria-label={`Select ${account.accountName || "account"} for bulk to-do creation`}
-          />
-          <span>Select</span>
-        </label>
-      ) : null}
-      <Link href={`/accounts/${encodeURIComponent(accountId)}`} className="ui-table-rowlink">
-        {account.accountName || "Unnamed Account"}
-      </Link>
-      {openProblems > 0 ? (
-        <div>
-          <StatusPill kind="needs-you">
-            {openProblems} open problem{openProblems === 1 ? "" : "s"}
-          </StatusPill>
+    <SwipeRow
+      actions={
+        <>
+          {tel ? (
+            <a href={tel} aria-label={`Call the contact for ${name}`}>
+              <TileIconSvg name="call" />
+              Call
+            </a>
+          ) : null}
+          <button type="button" onClick={() => onToDo(account)} aria-label={`Add to-do for ${name}`}>
+            <TileIconSvg name="todo" />
+            To-do
+          </button>
+        </>
+      }
+    >
+      <article className={`ui-acct ${problem ? "ui-acct-problem" : ""}`.trim()}>
+        {selecting ? (
+          <label className="ui-check">
+            <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Select ${name} for bulk to-do creation`} />
+            <span>Select</span>
+          </label>
+        ) : null}
+        <h3 className="ui-acct-name">
+          <Link href={href}>{name}</Link>
+        </h3>
+        <p className="ui-acct-line">
+          {mapsUrl !== "#" ? (
+            <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
+              {account.address || "No address"}
+            </a>
+          ) : (
+            account.address || "No address"
+          )}
+        </p>
+        {account._distanceMiles != null ? <p className="ui-strong">{formatMiles(account._distanceMiles)} away</p> : null}
+        <div className="ui-actions-row">
+          {problem ? <StatusPill kind="needs-you">Needs you</StatusPill> : null}
+          <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
         </div>
-      ) : null}
-      <div>
-        {mapsUrl !== "#" ? (
-          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
-            {account.address || "No address"}
-          </a>
-        ) : (
-          <span className="ui-muted">{account.address || "No address"}</span>
-        )}
-      </div>
-      {account._distanceMiles != null ? <p className="ui-strong">{formatMiles(account._distanceMiles)} away</p> : null}
-    </div>
+        {problem ? <p className="ui-acct-wrong">{problem}</p> : null}
+        <p className="ui-acct-line">
+          Sub: {getSubDisplayLabel(subDisplayOf(account))}
+          {days ? ` · ${days}` : ""}
+        </p>
+        {showMoney ? <AccountMoneyBlock account={account} /> : null}
+        <div className="ui-acct-buttons">
+          {problem ? (
+            openProblems > 0 ? (
+              <button type="button" className="ui-btn ui-btn-problem" onClick={onSeeCrewProblems}>
+                See problem
+              </button>
+            ) : (
+              <Link href={href} className="ui-btn ui-btn-problem">
+                See problem
+              </Link>
+            )
+          ) : (
+            <Link href={href} className="ui-btn ui-btn-main" data-tip="open">
+              Open
+            </Link>
+          )}
+          <button type="button" className="ui-btn ui-btn-second ui-btn-icon" aria-label={`More for ${name}`} onClick={() => onMore(account)} data-tip="card-more">
+            <Icon name="more" />
+          </button>
+        </div>
+      </article>
+    </SwipeRow>
   );
 }
 
@@ -3176,27 +3464,6 @@ function AccountMoneyBlock({ account }: { account: Account }) {
         {account._grossMarginPercent ?? 0}%)
       </p>
       {normalizeText(account._frequencyText) ? <p className="ui-muted">{account._frequencyText}</p> : null}
-    </div>
-  );
-}
-
-function AccountRowActions({
-  account,
-  onStatus,
-  onToDo,
-}: {
-  account: Account;
-  onStatus: (account: Account) => void;
-  onToDo: (account: Account) => void;
-}) {
-  return (
-    <div className="ui-actions-row">
-      <BigButton kind="second" onClick={() => onStatus(account)} aria-label={`Change status for ${account.accountName ?? "this account"}`}>
-        Change status
-      </BigButton>
-      <BigButton kind="second" icon="plus" onClick={() => onToDo(account)} aria-label={`Add to-do for ${account.accountName ?? "this account"}`}>
-        To-do
-      </BigButton>
     </div>
   );
 }

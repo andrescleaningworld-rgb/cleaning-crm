@@ -8,13 +8,16 @@ import Link from "next/link";
 import {
   createContext,
   useContext,
+  useEffect,
   useId,
+  useRef,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { clearShellScreen, setShellScreen } from "./shell";
 import { ToastRegion } from "./toast";
 import { UI_WORDS, type UiLang, type UiWords } from "./words";
 
@@ -99,6 +102,18 @@ export function Screen({
   children: ReactNode;
 }) {
   const words = useUiWords();
+  // The navy bar at the top of the app shows this screen's name and back arrow.
+  // (onBack is usually a new function on every render, so the bar gets one
+  // steady function that calls the latest one.)
+  const onBackRef = useRef(onBack);
+  useEffect(() => {
+    onBackRef.current = onBack;
+  });
+  const hasOnBack = Boolean(onBack);
+  useEffect(() => {
+    setShellScreen(title, backHref, hasOnBack ? () => onBackRef.current?.() : undefined);
+    return () => clearShellScreen(title);
+  }, [title, backHref, hasOnBack]);
   return (
     <div className="ui-screen">
       <header className="ui-screen-header">
