@@ -27,6 +27,8 @@ export type ExtraJobPhoto = { id: string; url: string; fileName: string; uploade
 export type ExtraJob = {
   id: string;
   jobNumber: string;
+  /** The optional "WO / Estimate #": free text, may be empty. Not our job number. */
+  woNumber: string;
   accountId: string;
   accountName: string;
   source: ExtraJobSource;
@@ -73,10 +75,13 @@ export type NewExtraJob = {
   subName: string;
   subPay: number;
   soldBy: string;
+  woNumber: string;
 };
 
+export type AccountChoice = { id: string; name: string; subId: string; manager: string; address: string; active: boolean };
+
 export type FormChoices = {
-  accounts: { id: string; name: string; subId: string; manager: string }[];
+  accounts: AccountChoice[];
   subs: { id: string; name: string }[];
   sellers: string[];
   me: string;
@@ -110,6 +115,37 @@ export function monthOf(day: string): { from: string; to: string } {
 export function todayDay(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The account search on the quick form: the text may be anywhere in the name
+ * or the address ("boat" finds "JKs Boathouse"), active accounts come first,
+ * and at most `limit` are shown. Fewer than 2 letters finds nothing.
+ */
+export function searchAccounts(accounts: AccountChoice[], text: string, limit = 8): AccountChoice[] {
+  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (text.trim().length < 2) return [];
+  const rank = (account: AccountChoice) => {
+    const name = account.name.toLowerCase();
+    const first = words[0];
+    // Active first; then a name that starts with what was typed, a name that has it, an address that has it.
+    return (account.active ? 0 : 10) + (name.startsWith(first) ? 0 : name.includes(first) ? 1 : 2);
+  };
+  return accounts
+    .filter((account) => {
+      const haystack = `${account.name} ${account.address}`.toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    })
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+    .slice(0, limit);
+}
+
+/** Text search on the Extra Jobs page: job number, WO / Estimate #, account, the job, the sub. */
+export function jobMatches(job: ExtraJob, text: string): boolean {
+  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+  const haystack = [job.jobNumber, job.woNumber, job.accountName, job.description, job.subName, job.soldBy].join(" ").toLowerCase();
+  return words.every((word) => haystack.includes(word));
 }
 
 /** Checks the quick form. Returns what to tell the person, or "" when it is fine. */

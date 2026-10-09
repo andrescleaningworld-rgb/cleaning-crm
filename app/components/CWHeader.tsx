@@ -28,7 +28,7 @@ const ADMIN_GROUPS: NavGroup[] = [
   {
     name: "Daily",
     items: [
-      { href: "/", label: "Dashboard", icon: "home" },
+      { href: "/board", label: "Board", icon: "board" },
       { href: "/accounts-center", label: "Accounts center", icon: "accounts" },
       { href: "/to-do", label: "To-Do", icon: "todo" },
       { href: "/sub-center", label: "Sub Center", icon: "subs" },
@@ -48,6 +48,8 @@ const ADMIN_GROUPS: NavGroup[] = [
   {
     name: "Office",
     items: [
+      // The old dashboard: the counts and lists at a glance.
+      { href: "/", label: "Overview", icon: "home" },
       { href: "/sales", label: "Sales", icon: "sales" },
       { href: "/reports", label: "Reports", icon: "reports" },
       { href: "/documents", label: "Documents", icon: "documents" },
@@ -238,7 +240,7 @@ export default function CWHeader() {
 
   // Every page has a back arrow except home. A screen can say where its
   // arrow goes; otherwise it goes one level up, and from a top-level page, home.
-  const home = role === "subcontractor" ? "/subcontractor-portal" : role === "customer" ? "/portal" : "/";
+  const home = role === "subcontractor" ? "/subcontractor-portal" : role === "customer" ? "/portal" : "/board";
   const isHome = pathname === home || pathname === "/" || pathname === "/portal" || pathname === "/customer-portal" || pathname === "/subcontractor-portal";
   const isLogin = pathname.endsWith("/login") || pathname.startsWith("/portal/forgot") || pathname.startsWith("/portal/set-password");
   const parent = "/" + pathname.split("/").filter(Boolean).slice(0, -1).join("/");
@@ -413,6 +415,8 @@ const SIDE_ICONS = {
   crew: "M4 5h16v11H9l-5 4V5zm4 4h8M8 12h5",
   sales: "M4 19h16M7 16V10m5 6V6m5 10v-4",
   extra: "M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1zm7 4v8m-4-4h8",
+  // A pin board: a frame with two pinned papers.
+  board: "M4 5h16v14H4V5zm3 4h4v4H7V9zm6 2h4v4h-4v-4zM9 7.500v1.500m6 .500v1.500",
   reports: "M6 3h9l4 4v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zm3 8h6m-6 4h6",
   documents: "M4 6a1 1 0 011-1h5l2 2h7a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V6z",
   equipment: "M14 6a4 4 0 00-5 5L4 16v4h4l5-5a4 4 0 005-5l-3 3-2-2 3-3a4 4 0 00-2-2z",
@@ -438,7 +442,7 @@ function SideIcon({ name }: { name: SideIconName }) {
 }
 
 const PAGE_NAMES: Record<string, string> = {
-  "": "Dashboard",
+  "": "Overview",
   login: "Log in",
   accounts: "Accounts",
   "accounts-center": "Accounts Center",

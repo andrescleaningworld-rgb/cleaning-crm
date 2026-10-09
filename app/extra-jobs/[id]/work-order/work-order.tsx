@@ -58,6 +58,7 @@ export default function WorkOrder({ id, copy }: { id: string; copy: "sub" | "off
                 </div>
                 <div className={styles.orderNumber}>
                   <strong>{job.jobNumber}</strong>
+                  {job.woNumber ? <span className={styles.orderWo}>WO / Estimate #: {job.woNumber}</span> : null}
                   <span className={styles.copyTag}>{office ? "Office copy" : "Sub copy"}</span>
                   {job.status === "cancelled" ? (
                     <>

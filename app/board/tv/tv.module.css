@@ -21,11 +21,30 @@
   flex: none;
 }
 
+.brandBox {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.logo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 104px;
+  height: 76px;
+  padding: 6px;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
 .brand {
   margin: 0;
   font-size: 34px;
   font-weight: 800;
   line-height: 1.1;
+  color: #ffffff;
 }
 
 .motto {

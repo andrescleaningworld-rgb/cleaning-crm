@@ -152,16 +152,117 @@
 
 .picked {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   border: 2px solid var(--ui-green, #3b6d11);
   border-radius: 14px;
   background: var(--ui-green-soft, #eaf3de);
   font-size: 20px;
   font-weight: 800;
+}
+
+.pickedText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pickedLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-green-ink, #27500a);
+}
+
+.pickedAddress {
+  font-size: 16px;
+  font-weight: 600;
+  color: #3d4f69;
+}
+
+/* A small link, but still a full-size place to tap. */
+.changeLink {
+  flex: none;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--ui-brand-ink, #0c447c);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* The accounts found while typing: up to 8, each one a big row to tap. */
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 14px;
+  border: 2px solid var(--ui-line, #c9d6e4);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--ui-ink, #10233f);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.result:hover,
+.result:focus-visible {
+  border-color: var(--ui-green, #3b6d11);
+  background: var(--ui-green-soft, #eaf3de);
+}
+
+.resultName {
+  font-size: 19px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.resultAddress {
+  font-size: 16px;
+  color: var(--ui-muted, #52627a);
+}
+
+.resultOff {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--ui-off-soft, #eceff3);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ui-muted, #52627a);
+}
+
+.wo {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ui-muted, #52627a);
+}
+
+.orderWo {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 /* ---------- one job ---------- */

@@ -11,5 +11,6 @@ export const dynamic = "force-dynamic";
 export default async function BoardPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   if (!boardFlagOn()) notFound();
   const { tab } = await searchParams;
-  return <BoardClient startTab={tab === "mine" ? "mine" : "board"} />;
+  // No tab asked for: a phone opens "My square", a wide screen the whole board.
+  return <BoardClient startTab={tab === "mine" ? "mine" : "board"} phoneOpensMine={tab !== "mine" && tab !== "board"} />;
 }
