@@ -38,6 +38,11 @@ export default function NewAccountsBoard() {
           showToast("Updated ✓");
         }}
       />
+      <div className="print:hidden">
+        <BigButton kind="second" icon="plus" href="/accounts/new" className="w-full">
+          Add a new account
+        </BigButton>
+      </div>
 
       {handoffs.state === "off" ? (
         <EmptyState title="Not turned on here yet" text="The New accounts board works once this database has the handoff tables." />
@@ -74,9 +79,6 @@ export default function NewAccountsBoard() {
           </div>
 
           <div data-tip="how" className="ui-more-actions">
-            <BigButton kind="second" icon="plus" href="/accounts/new">
-              Add a new account
-            </BigButton>
             <BigButton kind="second" href="/help/how-it-works">
               How it works
             </BigButton>

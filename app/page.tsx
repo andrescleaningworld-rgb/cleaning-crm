@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
 import MyWork from "./components/my-work";
-import { BigButton, CHEER, Counts, EmptyState, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
+import { BigButton, CHEER, Counts, EmptyState, ErrorBox, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
 
@@ -15,6 +15,20 @@ type DashboardData = {
   supplyOrders: AnyRow[];
   todos: AnyRow[];
 };
+
+type SectionKey = keyof DashboardData;
+type SectionStatus = "loading" | "ready" | "failed";
+
+// Each part of the dashboard loads on its own, so one slow or broken source
+// only affects the cards that need it.
+const SECTIONS: Record<SectionKey, { url: string; label: string }> = {
+  accounts: { url: "/api/accounts", label: "Accounts" },
+  visits: { url: "/api/visits", label: "Visits" },
+  complaints: { url: "/api/complaints", label: "Complaints" },
+  supplyOrders: { url: "/api/supply-orders", label: "Supply Orders" },
+  todos: { url: "/api/to-do", label: "To-Dos" },
+};
+const SECTION_KEYS = Object.keys(SECTIONS) as SectionKey[];
 
 type ApiResponse = {
   data?: AnyRow[];
@@ -522,7 +536,9 @@ function getRowTitle(row: AnyRow): string {
   );
 }
 
-async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
+// Null means the source did not answer; an empty list means it answered with
+// nothing.
+async function safeReadData(url: string, key: string): Promise<AnyRow[] | null> {
   try {
     // Matches app/to-do/page.tsx's own loadTodos() — without this, a plain
     // fetch() defaults to the browser's normal HTTP cache mode, which can
@@ -536,7 +552,7 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
 
     if (!response.ok) {
       console.warn(`${key} API failed:`, response.status, text.slice(0, 300));
-      return [];
+      return null;
     }
 
     let json: ApiResponse | AnyRow[];
@@ -545,7 +561,7 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
       json = JSON.parse(text) as ApiResponse | AnyRow[];
     } catch {
       console.warn(`${key} API did not return JSON:`, text.slice(0, 300));
-      return [];
+      return null;
     }
 
     if (Array.isArray(json)) return json;
@@ -561,7 +577,7 @@ async function safeReadData(url: string, key: string): Promise<AnyRow[]> {
     return [];
   } catch (error) {
     console.warn(`${key} API error:`, error);
-    return [];
+    return null;
   }
 }
 
@@ -574,7 +590,14 @@ export default function DashboardPage() {
     todos: [],
   });
 
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<Record<SectionKey, SectionStatus>>({
+    accounts: "loading",
+    visits: "loading",
+    complaints: "loading",
+    supplyOrders: "loading",
+    todos: "loading",
+  });
+  const alive = useRef(true);
   // Open problems the crew reported, per account (best effort: none on failure).
   const [crewProblems, setCrewProblems] = useState<Record<string, number>>({});
 
@@ -591,35 +614,34 @@ export default function DashboardPage() {
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadSection = useCallback(async (key: SectionKey) => {
+    const rows = await safeReadData(SECTIONS[key].url, SECTIONS[key].label);
+    if (!alive.current) return;
 
-    async function loadDashboard(showLoading: boolean) {
-      if (showLoading) setLoading(true);
-
-      const [accounts, visits, complaints, supplyOrders, todos] =
-        await Promise.all([
-          safeReadData("/api/accounts", "Accounts"),
-          safeReadData("/api/visits", "Visits"),
-          safeReadData("/api/complaints", "Complaints"),
-          safeReadData("/api/supply-orders", "Supply Orders"),
-          safeReadData("/api/to-do", "To-Dos"),
-        ]);
-
-      if (cancelled) return;
-
-      setData({
-        accounts,
-        visits,
-        complaints,
-        supplyOrders,
-        todos,
-      });
-
-      if (showLoading) setLoading(false);
+    if (rows) {
+      setData((current) => ({ ...current, [key]: rows }));
+      setStatus((current) => (current[key] === "ready" ? current : { ...current, [key]: "ready" }));
+      return;
     }
 
-    void loadDashboard(true);
+    // A failed refresh keeps what is already on screen; only a section that
+    // has nothing to show turns into the red box.
+    setStatus((current) => (current[key] === "ready" ? current : { ...current, [key]: "failed" }));
+  }, []);
+
+  function retrySection(key: SectionKey) {
+    setStatus((current) => ({ ...current, [key]: "loading" }));
+    void loadSection(key);
+  }
+
+  useEffect(() => {
+    alive.current = true;
+
+    function loadAll() {
+      for (const key of SECTION_KEYS) void loadSection(key);
+    }
+
+    loadAll();
 
     // The mount-only load above never re-runs on its own — a manager who
     // creates a to-do on /to-do and comes back to this tab would otherwise
@@ -630,7 +652,7 @@ export default function DashboardPage() {
     // needs to be current.
     function handleFocusOrVisible() {
       if (document.visibilityState === "visible") {
-        void loadDashboard(false);
+        loadAll();
       }
     }
 
@@ -638,11 +660,11 @@ export default function DashboardPage() {
     window.addEventListener("focus", handleFocusOrVisible);
 
     return () => {
-      cancelled = true;
+      alive.current = false;
       document.removeEventListener("visibilitychange", handleFocusOrVisible);
       window.removeEventListener("focus", handleFocusOrVisible);
     };
-  }, []);
+  }, [loadSection]);
 
   const dashboard = useMemo(() => {
     const rawAccounts = data.accounts;
@@ -781,11 +803,19 @@ export default function DashboardPage() {
   const needYou = dashboard.accountsNeedingAttention.length;
   const newOrders = dashboard.newSupplyOrders.length;
 
+  // A number is only shown once everything it is counted from has loaded:
+  // "…" while loading, "–" with a red line when a source failed.
+  const failed = (...keys: SectionKey[]) => keys.some((key) => status[key] === "failed");
+  const pending = (...keys: SectionKey[]) => keys.some((key) => status[key] === "loading");
+  const countValue = (count: number, ...keys: SectionKey[]) => (failed(...keys) ? "–" : pending(...keys) ? "…" : formatNumber(count));
+  const countNote = (...keys: SectionKey[]) => (failed(...keys) ? "Did not load" : undefined);
+  const countTone = (tone: "good" | "bad" | "info", ...keys: SectionKey[]) => (failed(...keys) || pending(...keys) ? "off" : tone);
+
   return (
     <Screen title="Dashboard">
       <Tips
         id="dashboard"
-        ready={!loading}
+        ready={!pending(...SECTION_KEYS)}
         steps={[
           { target: '[data-tip="counts"]', text: "These numbers are what needs you today. Tap one to see the list." },
           { target: '[data-tip="todos"]', text: "Tap a to-do to open it." },
@@ -796,31 +826,28 @@ export default function DashboardPage() {
           window.dispatchEvent(new Event("focus"));
         }} />
 
-      {loading ? (
-        <SkeletonList rows={4} />
-      ) : (
-        <>
+      <>
           {/* The situation in two seconds. Red only when there is a problem. */}
           <Counts
             data-tip="counts"
             items={[
               {
                 label: "To-dos pending",
-                value: formatNumber(dashboard.openTodos.length),
-                tone: "info",
-                problemNote: overdue > 0 ? `${formatNumber(overdue)} overdue` : undefined,
+                value: countValue(dashboard.openTodos.length, "todos"),
+                tone: countTone("info", "todos"),
+                problemNote: countNote("todos") ?? (overdue > 0 ? `${formatNumber(overdue)} overdue` : undefined),
                 href: "/to-do?filter=pending",
               },
-              { label: "To-dos done", value: formatNumber(dashboard.doneThisWeekTodos.length), tone: "good", href: "/to-do?filter=done-week" },
-              { label: "Open complaints", value: formatNumber(openComplaints), tone: openComplaints > 0 ? "bad" : "good", href: "/complaints?status=open" },
-              { label: "Accounts need you", value: formatNumber(needYou), tone: needYou > 0 ? "bad" : "good", href: "/accounts-center?show=need-you" },
-              { label: "Visits this month", value: formatNumber(dashboard.visitsThisMonth.length), tone: "info", href: "/visits" },
-              { label: "Active accounts", value: formatNumber(dashboard.activeAccounts.length), tone: "good", href: "/accounts-center?show=active" },
+              { label: "To-dos done", value: countValue(dashboard.doneThisWeekTodos.length, "todos"), tone: countTone("good", "todos"), problemNote: countNote("todos"), href: "/to-do?filter=done-week" },
+              { label: "Open complaints", value: countValue(openComplaints, "complaints"), tone: countTone(openComplaints > 0 ? "bad" : "good", "complaints"), problemNote: countNote("complaints"), href: "/complaints?status=open" },
+              { label: "Accounts need you", value: countValue(needYou, "accounts"), tone: countTone(needYou > 0 ? "bad" : "good", "accounts"), problemNote: countNote("accounts"), href: "/accounts-center?show=need-you" },
+              { label: "Visits this month", value: countValue(dashboard.visitsThisMonth.length, "visits"), tone: countTone("info", "visits"), problemNote: countNote("visits"), href: "/visits" },
+              { label: "Active accounts", value: countValue(dashboard.activeAccounts.length, "accounts"), tone: countTone("good", "accounts"), problemNote: countNote("accounts"), href: "/accounts-center?show=active" },
             ]}
           />
 
           {/* Mondays: what the team got into the app last week. Totals only. */}
-          {new Date().getDay() === 1 ? (
+          {new Date().getDay() === 1 && !failed("todos", "visits", "complaints") && !pending("todos", "visits", "complaints") ? (
             <section className="ui-allclear" aria-label={CHEER.mondayTitle}>
               <p className="ui-allclear-title">{CHEER.mondayTitle}</p>
               <p className="ui-strong">
@@ -832,6 +859,9 @@ export default function DashboardPage() {
 
           {/* What is waiting on me: new accounts, account updates, supply orders. */}
           <MyWork orders={data.supplyOrders} />
+          {failed("supplyOrders") ? (
+            <ErrorBox title="The supply orders did not load." text="New supply orders may be missing from the list above." onRetry={() => retrySection("supplyOrders")} />
+          ) : null}
 
           {/* Then the to-dos, soonest first. */}
           <section className="ui-screen-body" aria-label="To-dos to do next">
@@ -842,7 +872,11 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            {dashboard.recentTodos.length === 0 ? (
+            {failed("todos") ? (
+              <ErrorBox title="The to-dos did not load." onRetry={() => retrySection("todos")} />
+            ) : pending("todos") ? (
+              <SkeletonList rows={3} />
+            ) : dashboard.recentTodos.length === 0 ? (
               <EmptyState title="No to-dos open" text="Tap Add to-do to make one." action={<BigButton href="/to-do?add=1">Add to-do</BigButton>} />
             ) : (
               <ul className="ui-acct-list" data-tip="todos">
@@ -891,7 +925,11 @@ export default function DashboardPage() {
                   See all
                 </Link>
               </div>
-              {dashboard.accountsNeedingAttention.length === 0 ? (
+              {failed("accounts") ? (
+                <ErrorBox title="The accounts did not load." onRetry={() => retrySection("accounts")} />
+              ) : pending("accounts") ? (
+                <SkeletonList rows={2} />
+              ) : dashboard.accountsNeedingAttention.length === 0 ? (
                 <p className="ui-muted">None. No account is High Risk and the crew has no open problems.</p>
               ) : (
                 <ul className="ui-acct-list">
@@ -924,7 +962,11 @@ export default function DashboardPage() {
                   See all
                 </Link>
               </div>
-              {dashboard.recentComplaints.length === 0 ? (
+              {failed("complaints") ? (
+                <ErrorBox title="The complaints did not load." onRetry={() => retrySection("complaints")} />
+              ) : pending("complaints") ? (
+                <SkeletonList rows={2} />
+              ) : dashboard.recentComplaints.length === 0 ? (
                 <p className="ui-muted">No complaints yet.</p>
               ) : (
                 <ul className="ui-acct-list">
@@ -955,7 +997,11 @@ export default function DashboardPage() {
                   See all
                 </Link>
               </div>
-              {dashboard.recentSupplyOrders.length === 0 ? (
+              {failed("supplyOrders") ? (
+                <ErrorBox title="The supply orders did not load." onRetry={() => retrySection("supplyOrders")} />
+              ) : pending("supplyOrders") ? (
+                <SkeletonList rows={2} />
+              ) : dashboard.recentSupplyOrders.length === 0 ? (
                 <p className="ui-muted">No supply orders yet.</p>
               ) : (
                 <ul className="ui-acct-list">
@@ -982,7 +1028,11 @@ export default function DashboardPage() {
             <button type="button" className="ui-money-toggle" aria-pressed={showMoney} onClick={toggleMoney}>
               {showMoney ? "Money showing · tap to hide" : "Money hidden · tap to show"}
             </button>
-            {showMoney ? (
+            {showMoney && failed("accounts") ? (
+              <ErrorBox title="The money numbers did not load." onRetry={() => retrySection("accounts")} />
+            ) : showMoney && pending("accounts") ? (
+              <SkeletonList rows={1} />
+            ) : showMoney ? (
               <div className="ui-stats">
                 <Link href="/accounts-center?show=active" className="ui-stat">
                   <p className="ui-stat-label">Monthly Revenue</p>
@@ -1002,8 +1052,7 @@ export default function DashboardPage() {
               </div>
             ) : null}
           </div>
-        </>
-      )}
+      </>
     </Screen>
   );
 }

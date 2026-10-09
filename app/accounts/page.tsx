@@ -2424,11 +2424,6 @@ async function handleSaveTransferProposal() {
           ]}
         />
       }
-      action={
-        <BigButton icon="plus" href="/accounts/new">
-          Add account
-        </BigButton>
-      }
     >
       <Tips
         id="accounts"
@@ -2439,6 +2434,12 @@ async function handleSaveTransferProposal() {
           { target: '[data-tip="card-more"]', text: "Tap the three dots for Call, To-do and more. On a phone you can also swipe a card to the left." },
         ]}
       />
+      {/* "Add account" sits at the top of the page, like "Add visit" on Visits. */}
+      <div className="print:hidden">
+        <BigButton icon="plus" href="/accounts/new" className="w-full">
+          Add account
+        </BigButton>
+      </div>
 
       {error ? <ErrorBox title="Something did not load." text={error} onRetry={handleSearch} /> : null}
       {subcontractorWarning ? <ErrorBox title="Some subcontractor details did not load." text={subcontractorWarning} /> : null}
