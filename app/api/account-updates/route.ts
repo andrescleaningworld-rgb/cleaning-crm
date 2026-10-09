@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { handoffsReady, startHandoff } from "@/lib/pg/handoffs";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -193,9 +194,32 @@ export async function POST(request: Request) {
       );
     }
 
+    // The office's "To process" list. Best effort: a failure here never
+    // fails the update itself (it is already saved above).
+    let handoffId = "";
+    try {
+      if (await handoffsReady()) {
+        handoffId = data.id || `u-${crypto.randomUUID()}`;
+        await startHandoff({
+          kind: "update",
+          itemId: handoffId,
+          title: payload.accountName || "Account update",
+          accountId: payload.accountId,
+          accountName: payload.accountName,
+          manager: payload.manager,
+          step: "to-process",
+          data: { updateType: payload.updateType, notes: payload.notes, date: payload.date },
+          createdBy: payload.manager,
+        });
+      }
+    } catch (err) {
+      console.error("[account-updates] handoff start failed:", err instanceof Error ? err.message : err);
+    }
+
     return NextResponse.json({
       success: true,
       id: data.id || "",
+      handoffId,
       message: data.message || "Account update saved successfully.",
       sentPayload: payload,
       scriptResponse: data,

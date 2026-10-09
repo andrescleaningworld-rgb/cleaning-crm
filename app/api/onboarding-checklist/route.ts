@@ -6,6 +6,8 @@ import {
 } from "@/lib/data/accounts";
 import { createEmptyChecklistItems, isChecklistComplete } from "@/lib/onboardingChecklist";
 import { syncOnboardingFieldWrite } from "@/lib/onboardingFieldSync";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { syncAccountStep } from "@/lib/pg/handoffs";
 
 export async function GET(request: NextRequest) {
   try {
@@ -98,7 +100,18 @@ export async function POST(request: NextRequest) {
       // calling markAutoStableApplied below so this never re-fires.
       const justCompleted = isChecklistComplete(checklist.items) && !checklist.autoStableAppliedAt;
 
-      return NextResponse.json({ success: true, checklist, justCompleted });
+      // New accounts board: when the last item of a section is ticked, the
+      // account moves to the next section and to that section's owner.
+      // Best effort: a failure here never fails the checklist save.
+      let handoff = null;
+      try {
+        const identity = await getAdminIdentity(request);
+        handoff = await syncAccountStep(accountId, checklist.items, identity?.name ?? "");
+      } catch (err) {
+        console.error("[onboarding-checklist] handoff sync failed:", err instanceof Error ? err.message : err);
+      }
+
+      return NextResponse.json({ success: true, checklist, justCompleted, handoff });
     }
 
     if (action === "markAutoStableApplied") {

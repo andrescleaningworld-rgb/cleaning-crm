@@ -6,6 +6,7 @@ import {
   Card,
   CardList,
   ConfirmSheet,
+  Counts,
   EmptyState,
   ErrorBox,
   Field,
@@ -15,8 +16,11 @@ import {
   Sheet,
   SkeletonList,
   StatusPill,
+  PullToRefresh,
   TextAreaField,
+  Tips,
   showToast,
+  undoable,
   type StatusKind,
 } from "@/app/ui";
 
@@ -279,6 +283,8 @@ export default function SuppliesPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<SupplyForm>(emptyForm);
   const [removing, setRemoving] = useState<SupplyItem | null>(null);
+  // Redesign: the big counts are filters.
+  const [quick, setQuick] = useState<"all" | "active" | "low" | "inactive">("all");
 
   async function loadSupplies() {
     try {
@@ -311,10 +317,16 @@ export default function SuppliesPage() {
 
   const filteredSupplies = useMemo(() => {
     const q = search.toLowerCase().trim();
+    const byCount = supplies.filter((item) => {
+      if (quick === "active") return isActiveSupply(item);
+      if (quick === "inactive") return !isActiveSupply(item);
+      if (quick === "low") return isLowStock(item);
+      return true;
+    });
 
-    if (!q) return supplies;
+    if (!q) return byCount;
 
-    return supplies.filter((item) => {
+    return byCount.filter((item) => {
       return [
         getSupplyId(item),
         getSupplyName(item),
@@ -331,7 +343,7 @@ export default function SuppliesPage() {
         .toLowerCase()
         .includes(q);
     });
-  }, [supplies, search]);
+  }, [supplies, search, quick]);
 
   function updateForm(field: keyof SupplyForm, value: string) {
     setForm((prev) => ({
@@ -457,6 +469,7 @@ export default function SuppliesPage() {
       }
 
       setSuccessMessage("Supply item deactivated successfully.");
+      showToast("Removed ✓");
       await loadSupplies();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -498,7 +511,7 @@ export default function SuppliesPage() {
   return (
     <Screen
       title="Supplies"
-      subtitle="Manage the supply list used by the subcontractor portal."
+      backHref="/"
       headerRight={
         <BigButton kind="second" href="/supply-orders">
           {newSupplyOrdersCount > 0 ? `Supply Orders (${newSupplyOrdersCount})` : "Supply Orders"}
@@ -510,26 +523,36 @@ export default function SuppliesPage() {
         </BigButton>
       }
     >
-      <div className="ui-stats">
-        <div className="ui-stat">
-          <p className="ui-stat-label">Active Supplies</p>
-          <p className="ui-stat-value">{activeCount}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Inactive Supplies</p>
-          <p className="ui-stat-value">{inactiveCount}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Low Stock</p>
-          <p className="ui-stat-value">{lowStockCount}</p>
-        </div>
-      </div>
+      <Tips
+        id="supplies"
+        ready={!loading}
+        steps={[
+          { target: '[data-tip="counts"]', text: "Tap a number to see only those supplies. Red means stock is low." },
+          { target: ".ui-actionbar .ui-btn-main", text: "Tap Add Supply to add something subs can order." },
+        ]}
+      />
+      <PullToRefresh
+        onRefresh={async () => {
+          await loadSupplies();
+          showToast("Updated ✓");
+        }}
+      />
+
+      {/* At a glance: tap a number to see those supplies. */}
+      <Counts
+        data-tip="counts"
+        items={[
+          { label: "Active", value: activeCount, tone: "good", pressed: quick === "active", onClick: () => setQuick(quick === "active" ? "all" : "active") },
+          { label: "Low stock", value: lowStockCount, tone: lowStockCount > 0 ? "bad" : "good", pressed: quick === "low", onClick: () => setQuick(quick === "low" ? "all" : "low") },
+          { label: "Inactive", value: inactiveCount, tone: "off", pressed: quick === "inactive", onClick: () => setQuick(quick === "inactive" ? "all" : "inactive") },
+        ]}
+      />
 
       <SearchBar
         value={search}
         onChange={setSearch}
-        label="Search supplies"
-        placeholder="Search by item, category, description, status"
+        label="Find a supply"
+        placeholder="Find a supply"
       />
 
       {successMessage ? (
@@ -549,7 +572,7 @@ export default function SuppliesPage() {
         {loading ? (
           <SkeletonList rows={4} />
         ) : filteredSupplies.length === 0 ? (
-          <EmptyState icon="search" title="No supplies found." />
+          <EmptyState icon="search" title="No supplies here" text="Tap Add Supply to add one, or tap the count again to see them all." />
         ) : (
           <CardList
             label="Supplies"
@@ -686,8 +709,14 @@ export default function SuppliesPage() {
         busy={saving}
         busyLabel="Removing..."
         onConfirm={async () => {
-          if (removing) await handleDeactivate(removing);
+          const item = removing;
           setRemoving(null);
+          if (!item) return;
+          undoable({
+            message: `Removing ${getSupplyName(item)}…`,
+            run: () => handleDeactivate(item),
+            undoneMessage: "Not removed. Nothing was changed.",
+          });
         }}
         onCancel={() => setRemoving(null)}
       />

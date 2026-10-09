@@ -34,9 +34,9 @@ export default function AccountHistory({ accountId }: { accountId: string }) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center justify-between text-left">
-        <span className="text-base font-black text-slate-900">History</span>
-        <span className="text-sm font-bold text-blue-700">{open ? "Hide" : "Show changes"}</span>
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-h-[48px] w-full items-center justify-between text-left">
+        <span className="text-lg font-black text-slate-900">History</span>
+        <span className="text-base font-bold text-blue-900">{open ? "Hide" : "Show changes"}</span>
       </button>
       {open ? (
         <div className="mt-3">

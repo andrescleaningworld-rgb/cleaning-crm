@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { StatusPill, type StatusKind } from "@/app/ui";
+import { CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
@@ -16,6 +16,7 @@ import {
   TO_DO_PRIORITIES,
   type ToDoPriority,
 } from "@/lib/toDoPriority";
+import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
 
 // Shape returned by GET /api/to-do/[id]/sms-status — mirrors lib/googleSheets.ts's
 // SmsLogEntry closely enough for badge rendering without importing a server-only type.
@@ -805,6 +806,13 @@ export default function ToDoPage() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  // Redesign: the Overdue count is a filter; the form and the extra filters
+  // open on a tap instead of always taking the top of the screen.
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  // "To-dos done" counts the ones done this week; tapping it shows just those.
+  const [doneWeekOnly, setDoneWeekOnly] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   // Bulk edit: select N existing to-dos (from whatever's currently
   // filtered/visible), then apply one shared partial update to all of them
@@ -848,6 +856,12 @@ export default function ToDoPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("filter") === "overdue") setOverdueOnly(true);
+    if (params.get("filter") === "done-week") {
+      setDoneWeekOnly(true);
+      setStatusFilter("Done");
+    }
+    if (params.get("add") === "1") setShowForm(true);
     const id = params.get("id");
     if (!id) return;
 
@@ -1008,6 +1022,8 @@ export default function ToDoPage() {
 
         return true;
       })
+      .filter((todo) => !overdueOnly || isOverdue(todo))
+      .filter((todo) => !doneWeekOnly || isToDoDoneThisWeek(todo))
       .filter((todo) => {
         if (assignedFilter === "All") return true;
         return todo.assignedTo === assignedFilter;
@@ -1048,7 +1064,7 @@ export default function ToDoPage() {
 
         return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
       });
-  }, [todos, search, assignedFilter, statusFilter, typeFilter, priorityFilter, sortOrder]);
+  }, [todos, search, assignedFilter, statusFilter, typeFilter, priorityFilter, sortOrder, overdueOnly, doneWeekOnly]);
 
   // What actually gets printed: whatever's currently filtered on screen
   // (filteredTodos already reflects the active status/assigned/type/priority
@@ -1066,6 +1082,7 @@ export default function ToDoPage() {
 
   const overdueCount = todos.filter(isOverdue).length;
   const doneCount = todos.filter((todo) => todo.status === "Done").length;
+  const doneThisWeekCount = todos.filter((todo) => isToDoDoneThisWeek(todo)).length;
 
   // One to-do per selected account, written as a SINGLE batched request —
   // not one addToDo call per account. Firing N concurrent requests each
@@ -1143,6 +1160,8 @@ export default function ToDoPage() {
       await submitToDos(accountNames, groupId);
       await loadTodos();
       setForm(emptyForm);
+      setShowForm(false);
+      showToast(CHEER.logged);
       setSelectedAccounts([]);
     } catch (error) {
       console.error("Failed to add to-do(s):", error);
@@ -1156,7 +1175,21 @@ export default function ToDoPage() {
     }
   }
 
+  // Cancelling a to-do is hard to take back, so it waits 5 seconds behind an
+  // Undo button. Every other status saves at once.
   async function updateStatus(toDoId: string, status: string, notes: string) {
+    if (status === "Cancelled") {
+      undoable({
+        message: "Cancelling this to-do…",
+        run: () => saveStatus(toDoId, status, notes),
+        undoneMessage: "Not cancelled. Nothing was changed.",
+      });
+      return;
+    }
+    await saveStatus(toDoId, status, notes);
+  }
+
+  async function saveStatus(toDoId: string, status: string, notes: string) {
     try {
       const response = await fetch("/api/to-do", {
         method: "POST",
@@ -1178,9 +1211,10 @@ export default function ToDoPage() {
       }
 
       await loadTodos();
+      showToast(status === "Done" ? "Done ✓" : CHEER.logged);
     } catch (error) {
       console.error("Failed to update to-do:", error);
-      alert("Could not update to-do.");
+      showToast("That did not save. Check your connection and try again.", "bad");
     }
   }
 
@@ -1425,12 +1459,75 @@ export default function ToDoPage() {
       `}</style>
 
       <div className="todo-page-content ui-screen-body">
-        <header className="ui-screen-header">
-          <div className="ui-screen-titles">
-            <h1 className="ui-screen-title">To-Do</h1>
-            <p className="ui-screen-subtitle">Tasks for managers: visits, follow-ups, reminders.</p>
-          </div>
-        </header>
+        <ShellTitle title="To-Do" backHref="/" />
+        <h1 className="ui-screen-title">To-Do</h1>
+        <Tips
+          id="to-do"
+          ready={!loading}
+          steps={[
+            { target: '[data-tip="counts"]', text: "Tap a number to see only those to-dos." },
+            { target: '[data-tip="add"]', text: "Tap Add to-do to make a new one." },
+            { target: '[data-tip="todo-list"] .ui-card', text: "Each card is one to-do. Use its buttons to mark it done or change it." },
+          ]}
+        />
+        <PullToRefresh
+          onRefresh={async () => {
+            await loadTodos();
+            showToast("Updated ✓");
+          }}
+        />
+
+        {/* At a glance: tap a number to see those to-dos. */}
+        <div className="no-print">
+          <Counts
+            data-tip="counts"
+            items={[
+              {
+                label: "To-dos pending",
+                value: openCount,
+                tone: "info",
+                problemNote: overdueCount > 0 ? `${overdueCount} overdue` : undefined,
+                pressed: !overdueOnly && !doneWeekOnly && statusFilter === "Open",
+                onClick: () => {
+                  setOverdueOnly(false);
+                  setDoneWeekOnly(false);
+                  setStatusFilter("Open");
+                },
+              },
+              {
+                label: "To-dos done",
+                value: doneThisWeekCount,
+                tone: "good",
+                pressed: doneWeekOnly,
+                onClick: () => {
+                  setOverdueOnly(false);
+                  setDoneWeekOnly(true);
+                  setStatusFilter("Done");
+                },
+              },
+            ]}
+          />
+        </div>
+
+        {/* The overdue ones on their own are one tap away (the Dashboard's old count linked here). */}
+        {overdueCount > 0 || overdueOnly ? (
+          <button
+            type="button"
+            className="ui-chip no-print"
+            aria-pressed={overdueOnly}
+            onClick={() => {
+              setDoneWeekOnly(false);
+              setStatusFilter("Open");
+              setOverdueOnly((value) => !value);
+            }}
+          >
+            {overdueOnly ? "Showing only overdue · tap for all pending" : `Show only the ${overdueCount} overdue`}
+          </button>
+        ) : null}
+
+        <button type="button" className="ui-btn ui-btn-main no-print" data-tip="add" aria-expanded={showForm} onClick={() => setShowForm((value) => !value)}>
+          {showForm ? "Close the form" : "+ Add to-do"}
+        </button>
 
         {quotaWarning !== null && !quotaBannerDismissed ? (
           <div className="ui-card ui-stack no-print">
@@ -1447,7 +1544,8 @@ export default function ToDoPage() {
           </div>
         ) : null}
 
-        <div className="no-print flex flex-wrap justify-end gap-2">
+        {/* Calendar, bulk edit and print: one tap away, with the filters. */}
+        <div className="no-print flex flex-wrap justify-end gap-2" hidden={!showFilters}>
           <a
             href="https://calendar.google.com/calendar/r?cid=cleaningworldoperations%40gmail.com"
             target="_blank"
@@ -1645,7 +1743,7 @@ export default function ToDoPage() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="hidden gap-4 print:grid md:grid-cols-3">
           <div className="ui-card">
             <p className="ui-muted">Open</p>
             <p className="ui-stat-value">{openCount}</p>
@@ -1662,7 +1760,7 @@ export default function ToDoPage() {
           </div>
         </section>
 
-        <section className="ui-card no-print">
+        <section className="ui-card no-print" hidden={!showForm}>
           <h2 className="ui-card-title">New To-Do</h2>
 
           <form
@@ -1840,14 +1938,22 @@ export default function ToDoPage() {
           </form>
         </section>
 
-        <section className="ui-card no-print">
-          <div className="grid gap-3 md:grid-cols-6">
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search..."
-              className="ui-input"
-            />
+        <div className="no-print flex flex-col gap-2 sm:flex-row">
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Find a to-do"
+            aria-label="Find a to-do"
+            className="ui-input min-w-0 flex-1"
+          />
+          <button type="button" className="ui-btn ui-btn-second" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}>
+            {showFilters ? "Hide" : "Filters and more"}
+          </button>
+        </div>
+
+        <section className="ui-card no-print" hidden={!showFilters}>
+          <div className="grid gap-3 md:grid-cols-5">
 
             <select
               value={assignedFilter}
@@ -1861,7 +1967,12 @@ export default function ToDoPage() {
 
             <select
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => {
+                // Picking a status by hand leaves the two quick filters.
+                setOverdueOnly(false);
+                setDoneWeekOnly(false);
+                setStatusFilter(event.target.value);
+              }}
               className="ui-input"
             >
               <option>Open</option>
@@ -1904,13 +2015,15 @@ export default function ToDoPage() {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className="space-y-3" data-tip="todo-list">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="ui-card-title">
-                Visible To-Dos ({filteredTodos.length})
+                {doneWeekOnly
+                  ? `To-dos done this week (${filteredTodos.length})`
+                  : `${overdueOnly ? "Overdue" : statusFilter === "Open" ? "Pending" : statusFilter === "All" ? "All" : statusFilter} to-dos (${filteredTodos.length})`}
               </h2>
-              <p className="ui-muted">
+              <p className="ui-muted hidden print:block">
                 Printed: {new Date().toLocaleDateString()}
               </p>
             </div>
@@ -1919,6 +2032,7 @@ export default function ToDoPage() {
               type="button"
               onClick={openPrintModal}
               className="ui-btn ui-btn-second no-print"
+              hidden={!showFilters}
             >
               Print This List
             </button>
@@ -1929,8 +2043,9 @@ export default function ToDoPage() {
               Loading...
             </div>
           ) : filteredTodos.length === 0 ? (
-            <div className="ui-card">
-              No to-dos found.
+            <div className="ui-empty">
+              <p className="ui-empty-title">{overdueOnly ? "Nothing is overdue" : doneWeekOnly ? "Nothing done yet this week" : "No to-dos here"}</p>
+              <p className="ui-empty-text">{overdueOnly || doneWeekOnly ? "Tap To-dos pending to see what is open." : "Tap Add to-do to make one, or change the filters."}</p>
             </div>
           ) : (
             filteredTodos.map((todo) => (

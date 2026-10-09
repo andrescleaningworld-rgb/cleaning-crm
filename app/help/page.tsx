@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useHandoffs } from "../components/handoffs";
 
 type Language = "en" | "es" | "pt";
 type UserRole = "admin" | "subcontractor" | "customer" | null;
@@ -866,6 +867,8 @@ const languageButtons: { value: Language; label: string }[] = [
 export default function HelpPage() {
   const [language, setLanguage] = useState<Language>("en");
   const [role, setRole] = useState<UserRole>(null);
+  // The "How it works" page describes handoffs, so its link only shows where they are on.
+  const handoffsOn = useHandoffs().state === "ready";
   const [roleChecked, setRoleChecked] = useState(false);
 
   // Instant client-side guess (covers subcontractor, which has no server
@@ -933,6 +936,11 @@ export default function HelpPage() {
 
   return (
     <main className="ui-screen">
+      {handoffsOn && role !== "subcontractor" && role !== "customer" ? (
+        <Link href="/help/how-it-works" className="ui-btn ui-btn-main">
+          How it works: new accounts, updates and supply orders
+        </Link>
+      ) : null}
       <section className="ui-card">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>

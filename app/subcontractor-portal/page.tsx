@@ -2,6 +2,9 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { Counts, Tips, setShellExtra } from "@/app/ui";
+import { SUB_WORDS } from "@/app/ui/words";
+import SimpleHome, { PinPad, useSubLang } from "./simple-home";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
@@ -460,6 +463,57 @@ export default function SubcontractorPortalPage() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
+  // The simple home (four big buttons). null = not known yet, false = off
+  // here (today's screen shows instead), true = on. "More" opens everything
+  // the portal did before.
+  const [homeOn, setHomeOn] = useState<boolean | null>(null);
+  const [showMore, setShowMore] = useState(false);
+  const [lang, nextLang] = useSubLang();
+  const subWords = SUB_WORDS[lang];
+  // PIN login: a phone that already picked a PIN is asked only for the PIN.
+  const [pinDevice, setPinDevice] = useState<{ firstName: string } | null>(null);
+  const [pinError, setPinError] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [useEmailLogin, setUseEmailLogin] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/subcontractor-portal/pin", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { on?: boolean; device?: { firstName: string } | null }) => setPinDevice(data.on && data.device ? data.device : null))
+      .catch(() => setPinDevice(null));
+  }, []);
+
+  // The language button sits in the navy bar while the simple home is showing.
+  const homeShowing = Boolean(subcontractor) && homeOn === true;
+  useEffect(() => {
+    setShellExtra(homeShowing || (!subcontractor && pinDevice) ? { label: lang.toUpperCase(), ariaLabel: "Language / Idioma", onClick: nextLang } : null);
+    return () => setShellExtra(null);
+  }, [homeShowing, subcontractor, pinDevice, lang, nextLang]);
+
+  async function handlePinLogin(pin: string) {
+    setPinBusy(true);
+    setPinError("");
+    try {
+      const response = await fetch("/api/subcontractor-portal/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", pin }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; reason?: string; triesLeft?: number; minutes?: number; error?: string };
+      if (response.ok && data.success) {
+        await restorePortalFromSession();
+        return;
+      }
+      if (data.reason === "locked") setPinError(subWords.pinLocked(data.minutes ?? 15));
+      else if (data.reason === "wrong") setPinError(subWords.pinWrong(data.triesLeft ?? 0));
+      else {
+        // No PIN on file any more: fall back to the email login.
+        setUseEmailLogin(true);
+        setPinError("");
+      }
+    } catch {
+      setPinError(subWords.notSent);
+    } finally {
+      setPinBusy(false);
+    }
+  }
+
   const activeAccounts = useMemo(() => {
     return accounts.filter(isActiveAccount);
   }, [accounts]);
@@ -520,28 +574,18 @@ export default function SubcontractorPortalPage() {
   function getPortalButtonClass(view: PortalView) {
     const isActive = activePortalView === view;
 
+    const on = "border-2 border-[#0C447C] bg-[#E6F1FB] text-[#0C447C]";
+    const off = "border-2 border-slate-300 bg-white text-slate-900 hover:border-[#0C447C]";
     const colorClasses: Record<PortalView, string> = {
-      accounts: isActive
-        ? "bg-blue-700 text-white ring-2 ring-blue-200"
-        : "border border-blue-200 bg-blue-50 text-blue-800 hover:border-blue-400 hover:bg-blue-100",
-      complaints: isActive
-        ? "bg-orange-600 text-white ring-2 ring-orange-200"
-        : "border border-orange-200 bg-orange-50 text-orange-800 hover:border-orange-400 hover:bg-orange-100",
-      issue: isActive
-        ? "bg-red-600 text-white ring-2 ring-red-200"
-        : "border border-red-200 bg-red-50 text-red-800 hover:border-red-400 hover:bg-red-100",
-      supplies: isActive
-        ? "bg-green-700 text-white ring-2 ring-green-200"
-        : "border border-green-200 bg-green-50 text-green-800 hover:border-green-400 hover:bg-green-100",
-      schedule: isActive
-        ? "bg-indigo-700 text-white ring-2 ring-indigo-200"
-        : "border border-indigo-200 bg-indigo-50 text-indigo-800 hover:border-indigo-400 hover:bg-indigo-100",
-      calendar: isActive
-        ? "bg-teal-700 text-white ring-2 ring-teal-200"
-        : "border border-teal-200 bg-teal-50 text-teal-800 hover:border-teal-400 hover:bg-teal-100",
+      accounts: isActive ? on : off,
+      complaints: isActive ? on : off,
+      issue: isActive ? on : off,
+      supplies: isActive ? on : off,
+      schedule: isActive ? on : off,
+      calendar: isActive ? on : off,
     };
 
-    return `rounded-2xl px-3 py-3 text-center text-base font-black shadow-sm transition ${colorClasses[view]}`;
+    return `min-h-[48px] rounded-2xl px-3 py-3 text-center text-lg font-black transition active:scale-[0.97] ${colorClasses[view]}`;
   }
 
   function getFilteredSuppliesForLine(line: OrderLineItem) {
@@ -1291,21 +1335,18 @@ export default function SubcontractorPortalPage() {
   return (
     <main className="ui-screen">
       <div className="ui-screen-body">
-        <section className="ui-on-dark rounded-3xl bg-gradient-to-br from-blue-950 via-blue-800 to-sky-500 p-5 text-white shadow-lg">
-          <p className="ui-strong">
-            Cleaning World
-          </p>
-          <h1 className="ui-screen-title">
-            Subcontractor Portal
-          </h1>
-          <p className="ui-muted">
-            Enter the email Cleaning World has on file. After your email is
-            verified, you will only see your assigned accounts, complaints, issue
-            reporting, and supply order options.
-          </p>
-        </section>
+        <h1 className="ui-screen-title">Subcontractor Portal</h1>
+        {!subcontractor && pinDevice && !useEmailLogin ? (
+          <section className="ui-card">
+            <PinPad title={`${subWords.hello(pinDevice.firstName)} — ${subWords.pinTitle}`} error={pinError} busy={pinBusy || loading} onDone={(pin) => void handlePinLogin(pin)} />
+            <button type="button" className="ui-btn ui-btn-quiet w-full" onClick={() => setUseEmailLogin(true)}>
+              {subWords.useEmail}
+            </button>
+          </section>
+        ) : null}
+        {!subcontractor && !(pinDevice && !useEmailLogin) ? <p className="ui-section-title">Type your email to see your accounts.</p> : null}
 
-        <section className="ui-card">
+        <section className="ui-card" hidden={subcontractor !== null || Boolean(pinDevice && !useEmailLogin)}>
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
               <label className="ui-label">
@@ -1326,8 +1367,13 @@ export default function SubcontractorPortalPage() {
               disabled={loading}
               className="ui-btn ui-btn-main w-full"
             >
-              {loading ? "Loading Portal..." : "Access Portal"}
+              {loading ? "Opening…" : "Open my portal"}
             </button>
+            {pinDevice ? (
+              <button type="button" className="ui-btn ui-btn-quiet w-full" onClick={() => setUseEmailLogin(false)}>
+                {subWords.usePin}
+              </button>
+            ) : null}
           </form>
         </section>
 
@@ -1345,50 +1391,64 @@ export default function SubcontractorPortalPage() {
 
         {subcontractor ? (
           <>
+            {!showMore ? (
+              <SimpleHome
+                accounts={activeAccounts}
+                supplies={activeSupplyItems.map((item) => ({ supplyItem: getSupplyName(item), category: getSupplyCategory(item), unit: item.unit }))}
+                lang={lang}
+                onMore={() => {
+                  setShowMore(true);
+                  window.scrollTo({ top: 0 });
+                }}
+                onReady={setHomeOn}
+              />
+            ) : null}
+            {homeOn === true && showMore ? (
+              <button type="button" className="ui-btn ui-btn-second w-full" onClick={() => setShowMore(false)}>
+                ← {subWords.back}
+              </button>
+            ) : null}
+            {homeOn === true && !showMore ? (
+              <button type="button" onClick={handleLogout} className="ui-btn ui-btn-quiet w-full">
+                Logout
+              </button>
+            ) : null}
+            <div hidden={homeOn === null || (homeOn === true && !showMore)}>
             {/* Account-info bar + tab nav are combined into a single sticky
                 block pinned to the very top of the viewport, so both stay
                 reachable without scrolling once the sub is logged in. */}
-            <div className="sticky top-0 z-30 -mx-4 mt-4 bg-slate-100/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white/95 sm:px-3 sm:shadow-sm">
-              <div className="ui-card">
-                <div>
-                  <p className="ui-muted">
-                    Logged in as
-                  </p>
-                  <p className="ui-strong">
-                    {getSubcontractorDisplayName(subcontractor)}
-                  </p>
-                  <p className="ui-muted">
-                    {subcontractor.email}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="ui-btn ui-btn-quiet"
-                  >
-                    Logout
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-base font-black text-blue-700">
-                    {activeAccounts.length} Accounts
-                  </span>
-                  <span className="rounded-full bg-orange-50 px-3 py-1 text-base font-black text-orange-700">
-                    {openComplaints.length} Complaints
-                  </span>
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-base font-black text-emerald-700">
-                    {formatMoney(totalSubPay)}
-                  </span>
-                  <span className="rounded-full bg-purple-50 px-3 py-1 text-base font-black text-purple-700">
-                    Score {subcontractorScore}
-                  </span>
-                  <span className="rounded-full bg-green-50 px-3 py-1 text-base font-black text-green-700">
-                    {cleanText(subcontractor.status) || "Active"}
-                  </span>
-                </div>
+            <div className="z-30 mt-4 flex flex-col gap-3 py-3 md:sticky md:top-[72px] md:bg-slate-100/95 md:backdrop-blur sm:mx-0 sm:rounded-3xl sm:border sm:border-slate-200 sm:bg-white/95 sm:px-3 sm:shadow-sm">
+              <Tips
+                id="sub-portal"
+                steps={[
+                  { target: '[data-tip="counts"]', text: "Your accounts and any open complaints. Tap a number to see them." },
+                  { target: '[data-tip="tabs"]', text: "Tap a button to report an issue, order supplies or see your schedule." },
+                ]}
+              />
+              <div className="ui-card-row">
+                <p className="ui-strong">{getSubcontractorDisplayName(subcontractor)}</p>
+                <button type="button" onClick={handleLogout} className="ui-btn ui-btn-second">
+                  Logout
+                </button>
               </div>
-
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6">
+              <p className="ui-muted">
+                {subcontractor.email} · {cleanText(subcontractor.status) || "Active"} · Monthly pay {formatMoney(totalSubPay)}
+              </p>
+              <Counts
+                data-tip="counts"
+                items={[
+                  { label: "Accounts", value: activeAccounts.length, tone: "info", pressed: activePortalView === "accounts", onClick: () => handleTabChange("accounts") },
+                  {
+                    label: "Complaints",
+                    value: openComplaints.length,
+                    tone: openComplaints.length > 0 ? "bad" : "good",
+                    pressed: activePortalView === "complaints",
+                    onClick: () => handleTabChange("complaints"),
+                  },
+                  { label: "Score", value: /[0-9]/.test(String(subcontractorScore)) ? subcontractorScore : "None", tone: "off", onClick: () => handleTabChange("accounts") },
+                ]}
+              />
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6" data-tip="tabs">
                 <button
                   type="button"
                   onClick={() => handleTabChange("accounts")}
@@ -2343,6 +2403,7 @@ export default function SubcontractorPortalPage() {
 
             <div className={activePortalView === "calendar" ? "block" : "hidden"}>
               <ScheduleCalendarTab accounts={activeAccounts} subcontractor={subcontractor} />
+            </div>
             </div>
           </>
         ) : null}

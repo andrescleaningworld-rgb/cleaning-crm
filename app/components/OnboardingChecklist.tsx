@@ -30,7 +30,13 @@ type ChecklistApiResponse = {
     autoStableAppliedAt: string;
   };
   justCompleted?: boolean;
+  // New accounts board: the account's handoff after this save (null when the
+  // account is not on the board).
+  handoff?: { step: string } | null;
 };
+
+// Per checklist section, for an account on the New accounts board.
+export type OnboardingSectionGuide = { owner: string; due: string; late: boolean; current: boolean };
 
 export type OnboardingChecklistProps = {
   accountId: string;
@@ -60,6 +66,11 @@ export type OnboardingChecklistProps = {
   // meaningful (and only passed) for variant="section", since the modal is
   // the wizard view and already has its own header/close button.
   onOpenWizard?: () => void;
+  // New accounts board: who owns each section and when it is due. Display only.
+  sectionGuide?: Record<string, OnboardingSectionGuide>;
+  // Fired after a save when the server reports the account's handoff, so the
+  // host can say "Done, sent to ..." and refresh.
+  onHandoff?: (step: string) => void;
 };
 
 function ChevronDownIcon({ className }: { className?: string }) {
@@ -100,7 +111,14 @@ export default function OnboardingChecklist({
   onAllItemsComplete,
   variant = "section",
   onOpenWizard,
+  sectionGuide,
+  onHandoff,
 }: OnboardingChecklistProps) {
+  // The latest onHandoff, so a save that finishes later still reaches it.
+  const onHandoffRef = useRef(onHandoff);
+  useEffect(() => {
+    onHandoffRef.current = onHandoff;
+  });
   // Collapsed by default so the account detail page starts shorter; staff
   // can still see progress via the "X of Y complete" text next to the
   // chevron without expanding.
@@ -209,6 +227,7 @@ export default function OnboardingChecklist({
       setItems(data.checklist.items);
       setLastUpdatedAt(data.checklist.lastUpdatedAt);
       setCompletedAt(data.checklist.completedAt);
+      if (data.handoff?.step) onHandoffRef.current?.(data.handoff.step);
       setAutoStableAppliedAt(data.checklist.autoStableAppliedAt);
 
       if (data.justCompleted && !hasFiredCompleteRef.current) {
@@ -265,7 +284,7 @@ export default function OnboardingChecklist({
   return (
     <div className={compact ? "space-y-5" : "space-y-6"}>
       {collapsible ? (
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <button
             type="button"
             onClick={() => setCollapsed((prev) => !prev)}
@@ -293,7 +312,7 @@ export default function OnboardingChecklist({
             <button
               type="button"
               onClick={onOpenWizard}
-              className="shrink-0 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-indigo-500"
+              className="ui-btn ui-btn-second shrink-0"
             >
               Open in Wizard View
             </button>
@@ -355,6 +374,14 @@ export default function OnboardingChecklist({
             {ONBOARDING_CHECKLIST_SECTIONS.map((section) => (
               <div key={section.key}>
                 <h3 className="text-sm font-black uppercase tracking-wide text-slate-500">{section.title}</h3>
+                {sectionGuide?.[section.key] ? (
+                  <p className={`mt-1 text-base font-bold ${sectionGuide[section.key].late ? "text-red-700" : sectionGuide[section.key].current ? "text-[#0C447C]" : "text-slate-600"}`}>
+                    {sectionGuide[section.key].current ? "Now · " : ""}
+                    {sectionGuide[section.key].owner}
+                    {sectionGuide[section.key].due ? ` · due ${sectionGuide[section.key].due}` : ""}
+                    {sectionGuide[section.key].late ? " · late" : ""}
+                  </p>
+                ) : null}
                 <div className="mt-3 space-y-3">
                   {section.items.map((item) => {
                     const state = items[item.key] ?? { checked: false, note: "", completedAt: null };

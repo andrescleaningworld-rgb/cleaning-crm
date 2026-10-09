@@ -172,3 +172,230 @@ export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
+
+/* ---------- "If it's not in the app, it does not exist!" ---------- */
+
+// The house rule and the encouragement around it. Friendly, never shaming:
+// these lines celebrate logging things and never name who has not.
+// Every screen that shows the rule or a cheer reads it from here.
+
+export const MOTTO: Record<UiLang, string> = {
+  en: "If it's not in the app, it does not exist!",
+  es: "Si no está en la app, no existe!",
+  pt: "Se não está no app, não existe!",
+};
+
+export const CHEER = {
+  /** After every save. */
+  logged: "Logged ✓ — now it exists!",
+  /** Next to "Add accepted estimate". */
+  estimate: "No paper on desks — snap it here",
+  /** On the add update form. */
+  update: "Logged here = office sees it right away",
+  /** On supply orders. */
+  order: "Ordered here = tracked to delivery",
+  /** My work is empty. */
+  allClearTitle: "All clear! 🎉",
+  allClearText: "Nothing is waiting on you. Nice work.",
+  /** Personal streak, shown from 2 days up. */
+  streak: (days: number) => `${days} days with nothing late`,
+  /** Monday team card: the team as a whole, never one person. */
+  mondayTitle: "Last week, as a team",
+  mondayText: "All of this is in the app, so all of it exists. Thank you.",
+  /** The last line of app emails. */
+  emailLine: "If it's not in the app, it does not exist!",
+} as const;
+
+/** What the sub portal's home says, per language. */
+export const SUB_WORDS: Record<
+  UiLang,
+  {
+    hello: (name: string) => string;
+    today: (sites: number) => string;
+    noSitesToday: string;
+    doneToday: string;
+    photos: string;
+    problem: string;
+    extraJob: string;
+    supplies: string;
+    myRequests: string;
+    waiting: (count: number) => string;
+    more: string;
+    back: string;
+    send: string;
+    sending: string;
+    sent: string;
+    sentText: string;
+    pickSite: string;
+    photo: string;
+    talk: string;
+    listening: string;
+    before: string;
+    after: string;
+    takePhoto: string;
+    anotherPhoto: string;
+    retrying: string;
+    whatHappened: string;
+    problems: { cantGetIn: string; broken: string; noSupplies: string; damage: string; customer: string; other: string };
+    otherItem: string;
+    otherItemHint: string;
+    nothingPicked: string;
+    received: string;
+    approved: string;
+    done: string;
+    noRequests: string;
+    tryAgain: string;
+    notSent: string;
+    pinTitle: string;
+    pinNew: string;
+    pinAgain: string;
+    pinWrong: (left: number) => string;
+    pinLocked: (minutes: number) => string;
+    pinNoMatch: string;
+    useEmail: string;
+    usePin: string;
+    optional: string;
+  }
+> = {
+  en: {
+    hello: (name) => `Hello, ${name}`,
+    today: (sites) => `Today · ${sites} site${sites === 1 ? "" : "s"}`,
+    noSitesToday: "No sites on your schedule today.",
+    doneToday: "Done today",
+    photos: "Photos",
+    problem: "Problem",
+    extraJob: "Extra job",
+    supplies: "Supplies",
+    myRequests: "My requests",
+    waiting: (count) => `${count} waiting`,
+    more: "More",
+    back: "Back",
+    send: "Send",
+    sending: "Sending…",
+    sent: "Sent ✓",
+    sentText: "We have it. Thank you!",
+    pickSite: "Which site?",
+    photo: "Photo",
+    talk: "Talk",
+    listening: "Listening… tap to stop",
+    before: "Before",
+    after: "After",
+    takePhoto: "Take photo",
+    anotherPhoto: "Another photo",
+    retrying: "Weak signal. Trying again…",
+    whatHappened: "What happened?",
+    problems: { cantGetIn: "Can't get in", broken: "Broken", noSupplies: "No supplies", damage: "Damage", customer: "Customer", other: "Other" },
+    otherItem: "Other item",
+    otherItemHint: "Something not on the list",
+    nothingPicked: "Tap + on what you need.",
+    received: "Received",
+    approved: "Approved",
+    done: "Done",
+    noRequests: "No requests yet. Tap a big button to send one.",
+    tryAgain: "Try again",
+    notSent: "Not sent. Check your signal and try again.",
+    pinTitle: "Your PIN",
+    pinNew: "Pick 4 numbers you will remember",
+    pinAgain: "Type them again",
+    pinWrong: (left) => `Not that one. ${left} tr${left === 1 ? "y" : "ies"} left.`,
+    pinLocked: (minutes) => `Too many tries. Wait ${minutes} minutes.`,
+    pinNoMatch: "Those did not match. Start again.",
+    useEmail: "Use my email instead",
+    usePin: "Use my PIN",
+    optional: "optional",
+  },
+  es: {
+    hello: (name) => `Hola, ${name}`,
+    today: (sites) => `Hoy · ${sites} lugar${sites === 1 ? "" : "es"}`,
+    noSitesToday: "Hoy no tienes lugares en tu horario.",
+    doneToday: "Hecho hoy",
+    photos: "Fotos",
+    problem: "Problema",
+    extraJob: "Trabajo extra",
+    supplies: "Suministros",
+    myRequests: "Mis pedidos",
+    waiting: (count) => `${count} en espera`,
+    more: "Más",
+    back: "Atrás",
+    send: "Enviar",
+    sending: "Enviando…",
+    sent: "Enviado ✓",
+    sentText: "Lo tenemos. ¡Gracias!",
+    pickSite: "¿Qué lugar?",
+    photo: "Foto",
+    talk: "Hablar",
+    listening: "Escuchando… toca para parar",
+    before: "Antes",
+    after: "Después",
+    takePhoto: "Tomar foto",
+    anotherPhoto: "Otra foto",
+    retrying: "Señal débil. Intentando otra vez…",
+    whatHappened: "¿Qué pasó?",
+    problems: { cantGetIn: "No puedo entrar", broken: "Roto", noSupplies: "Sin suministros", damage: "Daño", customer: "Cliente", other: "Otro" },
+    otherItem: "Otra cosa",
+    otherItemHint: "Algo que no está en la lista",
+    nothingPicked: "Toca + en lo que necesitas.",
+    received: "Recibido",
+    approved: "Aprobado",
+    done: "Hecho",
+    noRequests: "Todavía no hay pedidos. Toca un botón grande para enviar uno.",
+    tryAgain: "Intentar otra vez",
+    notSent: "No se envió. Revisa tu señal e intenta otra vez.",
+    pinTitle: "Tu PIN",
+    pinNew: "Elige 4 números que vas a recordar",
+    pinAgain: "Escríbelos otra vez",
+    pinWrong: (left) => `Ese no es. Te queda${left === 1 ? "" : "n"} ${left} intento${left === 1 ? "" : "s"}.`,
+    pinLocked: (minutes) => `Demasiados intentos. Espera ${minutes} minutos.`,
+    pinNoMatch: "No son iguales. Empieza otra vez.",
+    useEmail: "Usar mi correo",
+    usePin: "Usar mi PIN",
+    optional: "opcional",
+  },
+  pt: {
+    hello: (name) => `Olá, ${name}`,
+    today: (sites) => `Hoje · ${sites} loca${sites === 1 ? "l" : "is"}`,
+    noSitesToday: "Hoje não há locais na sua agenda.",
+    doneToday: "Feito hoje",
+    photos: "Fotos",
+    problem: "Problema",
+    extraJob: "Trabalho extra",
+    supplies: "Materiais",
+    myRequests: "Meus pedidos",
+    waiting: (count) => `${count} em espera`,
+    more: "Mais",
+    back: "Voltar",
+    send: "Enviar",
+    sending: "Enviando…",
+    sent: "Enviado ✓",
+    sentText: "Recebemos. Obrigado!",
+    pickSite: "Qual local?",
+    photo: "Foto",
+    talk: "Falar",
+    listening: "Ouvindo… toque para parar",
+    before: "Antes",
+    after: "Depois",
+    takePhoto: "Tirar foto",
+    anotherPhoto: "Outra foto",
+    retrying: "Sinal fraco. Tentando de novo…",
+    whatHappened: "O que aconteceu?",
+    problems: { cantGetIn: "Não consigo entrar", broken: "Quebrado", noSupplies: "Sem materiais", damage: "Dano", customer: "Cliente", other: "Outro" },
+    otherItem: "Outro item",
+    otherItemHint: "Algo que não está na lista",
+    nothingPicked: "Toque em + no que você precisa.",
+    received: "Recebido",
+    approved: "Aprovado",
+    done: "Feito",
+    noRequests: "Ainda não há pedidos. Toque num botão grande para enviar um.",
+    tryAgain: "Tentar de novo",
+    notSent: "Não foi enviado. Verifique o sinal e tente de novo.",
+    pinTitle: "Seu PIN",
+    pinNew: "Escolha 4 números que você vai lembrar",
+    pinAgain: "Digite de novo",
+    pinWrong: (left) => `Não é esse. Resta${left === 1 ? "" : "m"} ${left} tentativa${left === 1 ? "" : "s"}.`,
+    pinLocked: (minutes) => `Muitas tentativas. Espere ${minutes} minutos.`,
+    pinNoMatch: "Não são iguais. Comece de novo.",
+    useEmail: "Usar meu e-mail",
+    usePin: "Usar meu PIN",
+    optional: "opcional",
+  },
+};

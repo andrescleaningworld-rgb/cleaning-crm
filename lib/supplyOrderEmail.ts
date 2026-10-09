@@ -5,17 +5,16 @@
 import { sendInternalNotification } from "@/lib/email";
 import { markSupplyOrderEmail, type NewSupplyOrder } from "@/lib/data/supplies";
 
-export async function emailNewSupplyOrder(order: NewSupplyOrder): Promise<void> {
-  const sent = await sendInternalNotification(`New supply order: ${order.supplyItem}`, [
-    `Order ID: ${order.orderId}`,
-    `Subcontractor: ${order.subcontractor || "Not given"}`,
-    `Subcontractor email: ${order.subcontractorEmail || "Not given"}`,
-    `Account: ${order.accountName || "Not given"}`,
-    `Item: ${order.supplyItem}`,
-    `Quantity: ${[order.quantity, order.unit].filter(Boolean).join(" ") || "Not given"}`,
-    `Delivery: ${order.deliveryMode || "Not given"}`,
-    `Notes: ${order.notes || "None"}`,
-    `Status: ${order.status}`,
+// The email only says what is waiting and links straight to it; the details
+// are on the order itself. `origin` is the site the order was placed on
+// (https://...), so the link opens the same site.
+export async function emailNewSupplyOrder(order: NewSupplyOrder, origin = ""): Promise<void> {
+  const what = [[order.quantity, order.unit].filter(Boolean).join(" "), order.supplyItem].filter(Boolean).join(" ");
+  const base = origin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "");
+  const sent = await sendInternalNotification(`Supply order waiting: ${order.accountName || order.supplyItem}`, [
+    "A supply order is waiting for the account's manager to approve it.",
+    `${what || "Supplies"} for ${order.accountName || "an account"}${order.subcontractor ? `, ordered by ${order.subcontractor}` : ""}.`,
+    base ? `Open it: ${base}/supply-orders?order=${encodeURIComponent(order.orderId)}` : `Open Supply Orders in the app. Order ID: ${order.orderId}`,
   ]).catch(() => false);
   await markSupplyOrderEmail(order.rowNumber, "info@cleaningworldinc.com, crm@cleaningworldinc.com", sent ? "Sent" : "Not sent").catch(() => undefined);
 }

@@ -2068,3 +2068,1632 @@ button.ui-card:hover {
   flex: 1;
   min-width: 0;
 }
+
+/* ==========================================================================
+   Simple redesign (branch redesign/simple). Brand: navy top bar, green main
+   buttons, light-green action tiles, light-blue selected chips, red only for
+   problems. Phone first: 18px body, 48px tap targets, 56px main button.
+   These rules come last on purpose: they re-color the kit above.
+   ========================================================================== */
+
+:root {
+  --ui-navy: #0c447c;
+  --ui-navy-ink: #093560;
+  --ui-green: #3b6d11;
+  --ui-green-press: #2f570d;
+  --ui-green-soft: #eaf3de;
+  --ui-green-ink: #27500a;
+  --ui-sky-soft: #e6f1fb;
+
+  --ui-brand: #0c447c;
+  --ui-brand-ink: #0c447c;
+  --ui-brand-soft: #e6f1fb;
+  --ui-good: #3b6d11;
+  --ui-good-soft: #eaf3de;
+  --ui-r-control: 14px;
+}
+
+/* ---------- The navy bar on every screen ---------- */
+
+.cw-app-shell {
+  padding: 0;
+}
+
+.cw-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  box-shadow: 0 2px 10px rgba(9, 53, 96, 0.25);
+}
+
+.cw-topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 8px 12px;
+}
+
+.cw-topbar-logo {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 44px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.cw-topbar-names {
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-topbar-brand {
+  margin: 0;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.2;
+  opacity: 0.9;
+}
+
+.cw-topbar-page {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.15;
+  /* Up to two lines, then "…": account names can be long. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 479px) {
+  .cw-topbar-row {
+    gap: 8px;
+    padding: 8px;
+  }
+  .cw-topbar-logo {
+    width: 52px;
+    height: 38px;
+  }
+  .cw-topbar-page {
+    font-size: 18px;
+  }
+  .cw-topbar-btn {
+    padding: 0 8px;
+    font-size: 17px;
+  }
+}
+
+.cw-topbar-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.06s ease;
+}
+
+.cw-topbar-btn:active {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.cw-topbar-btn:focus-visible,
+.cw-topbar-link:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+}
+
+.cw-topbar-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--ui-bad);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.cw-topbar-nav {
+  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 12px 12px;
+}
+
+.cw-topbar-nav-open {
+  display: flex;
+}
+
+.cw-topbar-link,
+.cw-topbar-nav > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 16px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cw-topbar-link-on {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: var(--ui-navy);
+}
+
+@media (max-width: 479px) {
+  .cw-topbar-nav-open {
+    flex-direction: column;
+  }
+  .cw-topbar-nav-open > * {
+    width: 100%;
+  }
+}
+
+/* Wide screens: four buttons in the bar, the rest behind Menu. Phones: Menu only. */
+.cw-topbar-primary {
+  display: none;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+@media (min-width: 900px) {
+  .cw-topbar-primary {
+    display: flex;
+  }
+  .cw-topbar-nav {
+    padding: 0 24px 12px;
+  }
+  .cw-topbar-row {
+    padding: 8px 24px;
+  }
+}
+
+main.cw-page-card {
+  margin: 12px;
+  width: auto;
+}
+
+@media (min-width: 900px) {
+  main.cw-page-card {
+    margin: 24px;
+  }
+}
+
+/* The page name is in the navy bar now, so the title row of a screen keeps
+   only its subtitle and its More button. (Still printed: the bar is not.) */
+.ui-screen-header {
+  position: static;
+  border-bottom: 0;
+  padding: 0;
+  align-items: flex-start;
+}
+
+.ui-screen-header > .ui-btn-icon:first-child {
+  display: none;
+}
+
+.ui-screen-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media print {
+  .ui-screen-title {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+    white-space: normal;
+  }
+  main.cw-page-card {
+    margin: 0;
+  }
+}
+
+/* ---------- Buttons, chips, toasts in the brand colors ---------- */
+
+.ui-btn {
+  border-radius: var(--ui-r-control);
+  transition: background-color 0.12s ease, transform 0.08s ease, box-shadow 0.12s ease;
+}
+
+.ui-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-btn-main {
+  background: var(--ui-green);
+  color: #ffffff;
+}
+
+.ui-btn-main:hover:not(:disabled) {
+  background: var(--ui-green-press);
+}
+
+.ui-btn-second {
+  color: var(--ui-navy);
+  border-color: var(--ui-navy);
+}
+
+.ui-btn-problem {
+  min-height: var(--ui-tap-main);
+  background: var(--ui-bad);
+  color: #ffffff;
+  font-size: 20px;
+}
+
+.ui-chip {
+  transition: background-color 0.12s ease, transform 0.08s ease;
+}
+
+.ui-chip:active {
+  transform: scale(0.97);
+}
+
+.ui-chip[aria-pressed="true"] {
+  border-color: var(--ui-navy);
+  background: var(--ui-sky-soft);
+  color: var(--ui-navy);
+}
+
+.ui-toast {
+  pointer-events: auto;
+  animation: ui-rise 0.16s ease;
+}
+
+.ui-toast-wait {
+  background: var(--ui-ink);
+  border-radius: var(--ui-r-panel);
+}
+
+.ui-toast-action {
+  min-height: 44px;
+  margin: -6px -10px -6px 6px;
+  padding: 4px 16px;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@keyframes ui-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ui-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ui-sheet[open] {
+  animation: ui-rise 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-toast,
+  .ui-sheet[open],
+  .ui-tip,
+  .ui-tip-layer {
+    animation: none;
+  }
+  .ui-btn,
+  .ui-chip,
+  .ui-acttile,
+  .ui-count,
+  .ui-tip-ring {
+    transition: none;
+  }
+}
+
+/* ---------- Three big counts (Accounts Center) ---------- */
+
+.ui-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ui-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 88px;
+  padding: 10px 4px;
+  border: 3px solid transparent;
+  border-radius: var(--ui-r-panel);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+.ui-count:active {
+  transform: scale(0.97);
+}
+
+.ui-count-number {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.ui-count-label {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.ui-count-good {
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+}
+
+.ui-count-bad {
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+}
+
+.ui-count-off {
+  background: var(--ui-off-soft);
+  color: var(--ui-off);
+}
+
+.ui-count[aria-pressed="true"] {
+  border-color: currentColor;
+}
+
+/* ---------- Account cards ---------- */
+
+.ui-acct-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 800px) {
+  .ui-acct-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1250px) {
+  .ui-acct-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.ui-acct {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 16px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+}
+
+.ui-acct-problem {
+  border-color: var(--ui-bad);
+}
+
+.ui-acct-name {
+  margin: 0;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.ui-acct-name a {
+  color: var(--ui-ink);
+  text-decoration: none;
+}
+
+.ui-acct-line {
+  margin: 0;
+  color: var(--ui-muted);
+  overflow-wrap: anywhere;
+}
+
+.ui-acct-wrong {
+  margin: 0;
+  color: var(--ui-bad);
+  font-weight: 700;
+}
+
+.ui-acct-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.ui-acct-buttons > .ui-btn-main,
+.ui-acct-buttons > .ui-btn-problem {
+  flex: 1;
+}
+
+.ui-acct-buttons > .ui-btn-second {
+  min-height: var(--ui-tap-main);
+}
+
+.ui-money-toggle {
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 10px 16px;
+  border: 2px dashed var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: transparent;
+  color: var(--ui-muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ---------- Swipe a card left ---------- */
+
+.ui-swipe {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--ui-r-panel);
+}
+
+.ui-swipe-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  padding: 2px 2px 2px 8px;
+}
+
+.ui-swipe-actions > * {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 84px;
+  border: 0;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-swipe-content {
+  position: relative;
+  height: 100%;
+  background: var(--ui-paper);
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+/* ---------- Pull down to refresh ---------- */
+
+.ui-ptr-bar {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -110px;
+  width: 220px;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: var(--ui-shadow);
+  pointer-events: none;
+}
+
+/* ---------- First-time tips ---------- */
+
+.ui-tip-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  font-family: var(--ui-font);
+  animation: ui-fade 0.16s ease;
+}
+
+.ui-tip-ring {
+  position: fixed;
+  border: 4px solid #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 0 0 9999px rgba(16, 35, 63, 0.6);
+  pointer-events: none;
+  transition: top 0.16s ease, left 0.16s ease, width 0.16s ease, height 0.16s ease;
+}
+
+.ui-tip {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 16px;
+  border-radius: var(--ui-r-panel);
+  background: #ffffff;
+  color: var(--ui-ink);
+  box-shadow: var(--ui-shadow);
+  animation: ui-rise 0.16s ease;
+}
+
+.ui-tip-text {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ui-tip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ui-tip-count {
+  color: var(--ui-muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ui-tip-btn {
+  min-width: 120px;
+}
+
+/* ---------- Big light-green action tiles (account page) ---------- */
+
+.ui-acttiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 800px) {
+  .ui-acttiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.ui-acttile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 112px;
+  padding: 14px 8px;
+  border: 2px solid transparent;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font: inherit;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+.ui-acttile:hover:not(:disabled),
+.ui-acttile[aria-expanded="true"] {
+  border-color: var(--ui-green);
+}
+
+.ui-acttile:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-acttile:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ui-acttile-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.ui-acttile-label {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.ui-acttile-detail {
+  font-size: 16px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* The "Next cleaning" card at the top of an account. */
+.ui-next {
+  padding: 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-sky-soft);
+  color: var(--ui-navy);
+}
+
+.ui-next-label {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ui-next-day {
+  margin: 2px 0 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.ui-next-time {
+  margin: 2px 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ui-next-who {
+  margin: 0;
+  color: var(--ui-ink);
+}
+
+.ui-section-title {
+  margin: 8px 0 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.ui-more-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .ui-more-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* The open menu scrolls by itself on a short phone, so Logout is always reachable. */
+.cw-topbar-nav-open {
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
+  flex-wrap: nowrap;
+}
+
+@media (min-width: 480px) {
+  .cw-topbar-nav-open {
+    flex-wrap: wrap;
+  }
+}
+
+/* Counts: three across on a phone; more than three wrap. Links look like the buttons. */
+.ui-counts {
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+a.ui-count {
+  text-decoration: none;
+}
+
+.ui-count-info {
+  background: var(--ui-sky-soft);
+  color: var(--ui-navy);
+}
+
+/* A whole card that is one link or button: it presses down like a button. */
+a.ui-card,
+button.ui-card {
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+a.ui-card:active,
+button.ui-card:active {
+  transform: scale(0.985);
+}
+
+.ui-tap-toggle {
+  width: 100%;
+  min-height: var(--ui-tap);
+  padding: 10px 16px;
+  border: 2px dashed var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: transparent;
+  color: var(--ui-muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* A card that is one big link (Dashboard lists). */
+a.ui-acct-link {
+  color: var(--ui-ink);
+  text-decoration: none;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+a.ui-acct-link:hover {
+  border-color: var(--ui-navy);
+}
+
+a.ui-acct-link:active {
+  transform: scale(0.985);
+}
+
+a.ui-acct-link.ui-acct-problem:hover {
+  border-color: var(--ui-bad);
+}
+
+a.ui-stat {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Login: the three choices, one per row on a phone, three across when wide. */
+.ui-acttiles-one {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 800px) {
+  .ui-acttiles-one {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Customer portal home tiles in the brand: light green, dark green words. */
+.ui-tile {
+  border-color: transparent;
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  box-shadow: none;
+  transition: transform 0.08s ease, border-color 0.12s ease;
+}
+
+.ui-tile:hover,
+.ui-tile[aria-current="true"] {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+}
+
+.ui-tile:active {
+  transform: scale(0.98);
+}
+
+.ui-tile-detail {
+  color: var(--ui-green-ink);
+}
+
+/* One small red line under a count's number ("3 overdue"). */
+.ui-count-note {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+/* ==========================================================================
+   Left sidebar (replaces the bar's buttons and its Menu panel).
+   Wide screens: always there, navy, every section as icon + name; a button
+   shrinks it to icons only. Phones: slides in from the left over a dark
+   backdrop when Menu is tapped.
+   ========================================================================== */
+
+.cw-side {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(86vw, 300px);
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  box-shadow: 4px 0 24px rgba(9, 53, 96, 0.35);
+  /* Closed on a phone: off screen, and out of reach of the keyboard and screen readers. */
+  transform: translateX(-104%);
+  visibility: hidden;
+  transition: transform 0.18s ease, visibility 0s linear 0.18s;
+}
+
+.cw-side-open {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.18s ease;
+}
+
+.cw-side-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(16, 35, 63, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.cw-side-backdrop-on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cw-side-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 64px;
+  padding: 8px 8px 8px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.cw-side-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.cw-side-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.cw-side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+
+.cw-side-group + .cw-side-group {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.cw-side-heading {
+  margin: 0;
+  padding: 6px 12px 2px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.cw-side-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.06s ease;
+}
+
+.cw-side-link:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.cw-side-link:active {
+  transform: scale(0.98);
+}
+
+.cw-side-link:focus-visible,
+.cw-side-close:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: -3px;
+}
+
+.cw-side-link-on,
+.cw-side-link-on:hover {
+  background: #ffffff;
+  color: var(--ui-navy);
+}
+
+.cw-side-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+}
+
+.cw-side-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.cw-side-foot {
+  padding: 8px 10px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* "Icons only" is a wide-screen control. */
+.cw-side-collapse {
+  display: none;
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-side,
+  .cw-side-open,
+  .cw-side-backdrop {
+    transition: none;
+  }
+}
+
+@media screen and (min-width: 900px) {
+  .cw-side {
+    width: 248px;
+    transform: none;
+    visibility: visible;
+    box-shadow: none;
+    transition: width 0.16s ease;
+  }
+
+  .cw-side-backdrop,
+  .cw-side-close,
+  .cw-topbar-menu {
+    display: none;
+  }
+
+  .cw-side-collapse {
+    display: flex;
+  }
+
+  /* The page (bar and content) sits to the right of the sidebar and uses all the width that is left. */
+  .cw-app-container:has(.cw-side) {
+    max-width: none;
+    padding-left: 248px;
+    transition: padding-left 0.16s ease;
+  }
+
+  .cw-app-container:has(.cw-side-mini) {
+    padding-left: 72px;
+  }
+
+  /* Icons only. Each link keeps its name for screen readers and as a hover title. */
+  .cw-side-mini {
+    width: 72px;
+  }
+
+  .cw-side-mini .cw-side-label,
+  .cw-side-mini .cw-side-heading,
+  .cw-side-mini .cw-side-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .cw-side-mini .cw-side-top {
+    padding: 8px;
+  }
+
+  .cw-side-mini .cw-side-link {
+    position: relative;
+    justify-content: center;
+    padding: 8px 0;
+  }
+
+  .cw-side-mini .cw-side-badge {
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    min-width: 20px;
+    height: 20px;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-app-container:has(.cw-side) {
+    transition: none;
+  }
+}
+
+/* ---------- Handoffs: what to do now, who is next ---------- */
+
+.ui-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--ui-r-control);
+  background: var(--ui-sky-soft);
+  color: var(--ui-ink);
+}
+
+.ui-guide p {
+  margin: 0;
+}
+
+.ui-guide-done {
+  margin: 8px 0 0;
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font-weight: 700;
+}
+
+.ui-acct .ui-stepper {
+  margin: 2px 0;
+}
+
+/* Settings -> Team: one checklist section per row (stacked on a phone). */
+.ui-team-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--ui-line-soft);
+}
+
+@media (min-width: 800px) {
+  .ui-team-row {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.8fr);
+    align-items: end;
+  }
+}
+
+/* Help -> How it works: the picture of a flow. */
+.ui-flow {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  margin: 4px auto;
+}
+
+/* ---------- "If it's not in the app, it does not exist!" ---------- */
+
+/* The loading screen: navy, logo, the rule in big white letters. */
+.cw-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 24px;
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-family: var(--ui-font);
+  text-align: center;
+}
+
+.cw-loading-logo {
+  width: 150px;
+  height: 104px;
+  padding: 10px;
+  border-radius: 20px;
+  background: #ffffff;
+}
+
+.cw-loading-motto {
+  max-width: 14em;
+  margin: 0;
+  font-size: clamp(28px, 7vw, 44px);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.cw-loading-wait {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+/* The rule as one line on a screen. */
+.ui-motto {
+  margin: 6px 0 0;
+  color: var(--ui-navy);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+/* A short cheer next to a button. */
+.ui-cheer {
+  margin: 0;
+  color: var(--ui-green-ink);
+  font-weight: 700;
+}
+
+/* The slim banner on My work (one per screen, closable, back tomorrow). */
+.ui-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-navy);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.ui-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-banner > button {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #ffffff;
+  font: inherit;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+/* All clear, and the streak. */
+.ui-allclear {
+  padding: 24px 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  text-align: center;
+  animation: ui-rise 0.18s ease;
+}
+
+.ui-allclear-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.ui-allclear p {
+  margin: 4px 0 0;
+}
+
+.ui-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+/* ==========================================================================
+   The simple sub portal home: one hand, big targets, almost no typing.
+   ========================================================================== */
+
+.sub-home {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--ui-font);
+  font-size: 18px;
+  color: var(--ui-ink);
+}
+
+.sub-motto {
+  margin: 0;
+  text-align: center;
+}
+
+/* Four giant buttons, two by two: icon + one word. */
+.sub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sub-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 132px;
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 22px;
+  font: inherit;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.sub-big:active {
+  transform: scale(0.97);
+}
+
+.sub-big .ui-acttile-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.sub-big-green {
+  background: var(--ui-green);
+  color: #ffffff;
+}
+
+.sub-big-red {
+  background: var(--ui-bad);
+  color: #ffffff;
+}
+
+.sub-big-light {
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+}
+
+/* "My requests" and "More": one full-width row each. */
+.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 18px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sub-row > span:first-child {
+  flex: 1;
+}
+
+.sub-site-done {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+}
+
+/* A flow: back + title, then its few big controls. */
+.sub-flow-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sub-sites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sub-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sub-two > .ui-chip {
+  min-height: 56px;
+  font-size: 19px;
+}
+
+.sub-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 96px;
+  padding: 10px;
+  border: 2px solid transparent;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sub-mid-on {
+  border-color: var(--ui-green);
+  background: #ffffff;
+}
+
+.sub-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sub-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 92px;
+  padding: 8px;
+  border: 3px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+}
+
+.sub-choice > span:first-child {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.sub-choice[aria-pressed="true"] {
+  border-color: var(--ui-bad);
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+}
+
+.sub-send {
+  width: 100%;
+  min-height: 64px;
+  font-size: 22px;
+}
+
+/* Supplies: a picture, the name, and big − / +. */
+.sub-supplies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sub-supplies > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+}
+
+.sub-supplies > li.sub-supply-on {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+}
+
+.sub-supply-pic {
+  flex: 0 0 auto;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.sub-supply-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.sub-step {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--ui-green);
+  color: #ffffff;
+  font: inherit;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sub-step:disabled {
+  background: var(--ui-line);
+  cursor: default;
+}
+
+.sub-count {
+  flex: 0 0 auto;
+  min-width: 28px;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* After every send. */
+.sub-sent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 50vh;
+  border-radius: 24px;
+  background: var(--ui-green);
+  color: #ffffff;
+  text-align: center;
+  animation: ui-rise 0.18s ease;
+}
+
+.sub-sent p {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.sub-sent .sub-sent-mark {
+  font-size: 48px;
+  font-weight: 800;
+}
+
+.sub-lang {
+  min-width: 64px;
+}
+
+/* The PIN pad. */
+.sub-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.sub-pin-dots {
+  display: flex;
+  gap: 14px;
+}
+
+.sub-pin-dot {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--ui-navy);
+  border-radius: 999px;
+}
+
+.sub-pin-dot-on {
+  background: var(--ui-navy);
+}
+
+.sub-pin-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 76px);
+  gap: 12px;
+}
+
+.sub-pin-key {
+  width: 76px;
+  height: 76px;
+  border: 2px solid var(--ui-line);
+  border-radius: 999px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 30px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.08s ease, background-color 0.12s ease;
+}
+
+.sub-pin-key:active {
+  transform: scale(0.95);
+  background: var(--ui-sky-soft);
+}

@@ -44,13 +44,20 @@ export {
   type TabOption,
 } from "./controls";
 
-export { showToast, ToastRegion } from "./toast";
+export { flushUndo, showToast, ToastRegion, undoable } from "./toast";
+
+export { Counts, PullToRefresh, ShellTitle, SwipeRow, Tile, TileIconSvg, Tips, type CountItem, type TileIcon, type TipStep } from "./interact";
+
+export { setShellExtra, SHOW_TIPS_EVENT, useShell } from "./shell";
 
 export {
+  CHEER,
   friendlyDate,
   GLOSSARY,
   LABELS,
+  MOTTO,
   PROPOSED_RENAMES,
+  SUB_WORDS,
   todayIso,
   UI_WORDS,
   type UiLang,

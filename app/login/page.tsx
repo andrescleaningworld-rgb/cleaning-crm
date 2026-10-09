@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { MOTTO, Tile } from "@/app/ui";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { identifyManager } from "@/app/components/OneSignalInit";
@@ -156,100 +156,28 @@ function LoginForm() {
     <main className="ui-screen">
       <div className="ui-card w-full">
         <div className="mb-6 text-center">
-          <p className="ui-strong">
-            Cleaning World
-          </p>
-
-          <h1 className="ui-screen-title">
-            Operations & Quality App
-          </h1>
-
-          <p className="ui-muted">
-            Choose the correct login below. Admins log in with their own name
-            and password. Subcontractors and customers use their respective
-            portals.
-          </p>
+          <h1 className="ui-section-title">{mode === "choice" ? "Who are you?" : "Log in"}</h1>
+          <p className="ui-motto">{MOTTO.en}</p>
         </div>
 
         {mode === "choice" ? (
-          <div className="grid gap-4 md:grid-cols-2">
-            <button
-              type="button"
+          <div className="ui-acttiles ui-acttiles-one">
+            <Tile
+              icon="edit"
+              label="Office staff"
+              detail="Managers and admins"
               onClick={() => {
                 setMode("admin-picker");
                 setError("");
               }}
-              className="ui-card ui-stack"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-700 text-xl font-black text-white">
-                A
-              </div>
-
-              <h2 className="ui-card-title">
-                Admin Login
-              </h2>
-
-              <p className="ui-muted">
-                For Cleaning World office/admin access, dashboard, accounts,
-                complaints, visits, reports, supply orders, and management tools.
-              </p>
-
-              <div className="mt-5 rounded-xl bg-blue-700 px-4 py-3 text-center font-bold text-white">
-                Continue as Admin
-              </div>
-            </button>
-
-            <Link
-              href="/subcontractor-portal"
-              className="ui-card ui-stack"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-xl font-black text-white">
-                S
-              </div>
-
-              <h2 className="ui-card-title">
-                Subcontractor Login
-              </h2>
-
-              <p className="ui-muted">
-                For subcontractors to view assigned accounts, submit supply
-                orders, and manage their Cleaning World portal access.
-              </p>
-
-              <div className="mt-5 rounded-xl bg-emerald-700 px-4 py-3 text-center font-bold text-white">
-                Continue as Subcontractor
-              </div>
-            </Link>
-
-            <Link
-              href="/customer-portal/login"
-              className="ui-card ui-stack"
-            >
-              <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-purple-700 text-xl font-black text-white">
-                C
-              </div>
-
-              <h2 className="ui-card-title">
-                Customer Portal
-              </h2>
-
-              <p className="ui-muted">
-                For Cleaning World customers to view service details, request
-                specialty services, report complaints, or request changes.
-              </p>
-
-              <div className="mt-5 rounded-xl bg-purple-700 px-4 py-3 text-center font-bold text-white">
-                Enter Customer Portal
-              </div>
-            </Link>
+            />
+            <Tile icon="todo" label="Subcontractor" detail="Your accounts, schedule and supplies" href="/subcontractor-portal" />
+            <Tile icon="key" label="Customer" detail="Your cleaning service" href="/customer-portal/login" />
           </div>
         ) : mode === "admin-picker" ? (
           <div className="mx-auto w-full max-w-md">
             <div className="ui-card">
-              <h2 className="ui-card-title">Admin Login</h2>
-              <p className="ui-muted">
-                Select your name to log in.
-              </p>
+              <h2 className="ui-card-title">Tap your name</h2>
             </div>
 
             <div className="space-y-2">
@@ -288,7 +216,7 @@ function LoginForm() {
               onClick={() => setMode("choice")}
               className="ui-btn ui-btn-second w-full"
             >
-              Back to Login Options
+              Back
             </button>
           </div>
         ) : mode === "admin-password" && selected ? (

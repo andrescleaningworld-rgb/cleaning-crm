@@ -6,13 +6,17 @@ import {
   Card,
   ErrorBox,
   Field,
-  MoreMenu,
   Screen,
   SelectField,
   Sheet,
   SkeletonList,
   StatusPill,
   TextAreaField,
+  CHEER,
+  Tile,
+  Tips,
+  showToast,
+  undoable,
   type StatusKind,
 } from "@/app/ui";
 import { useParams, useSearchParams } from "next/navigation";
@@ -22,6 +26,12 @@ import OnboardingChecklist from "../../components/OnboardingChecklist";
 import OnboardingWizardModal from "../../components/OnboardingWizardModal";
 import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
+import QuickToDoSheet from "../../components/QuickToDoSheet";
+import NextCleaning from "./next-cleaning";
+import SitePhotos from "./site-photos";
+import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
+import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
+import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 
 type Account = {
   id?: string;
@@ -190,7 +200,8 @@ function formatCalculatedMoney(value: number) {
 function accountStatusKind(status: string | undefined): StatusKind {
   const clean = String(status || "").toLowerCase();
 
-  if (clean.includes("cancel") || clean.includes("inactive") || clean.includes("lost")) return "needs-you";
+  // Red is only for problems: a cancelled account is finished, so it is gray.
+  if (clean.includes("cancel") || clean.includes("inactive") || clean.includes("lost")) return "off";
   if (clean.includes("active")) return "done";
   if (clean.includes("pause")) return "waiting";
 
@@ -311,6 +322,12 @@ export default function AccountDetailPage() {
   const [pdfError, setPdfError] = useState("");
   const printIframeRef = useRef<HTMLIFrameElement>(null);
   const [showFullAccountInfo, setShowFullAccountInfo] = useState(false);
+  // Redesign: everything that is not one of the six tiles sits behind "More".
+  const [showMore, setShowMore] = useState(false);
+  const [showToDo, setShowToDo] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  // New accounts board: this account's place on it, if it is on it.
+  const handoffs = useHandoffs();
 
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
@@ -508,6 +525,15 @@ export default function AccountDetailPage() {
     account?.contactPhone ||
     account?.customerPhone ||
     "N/A";
+
+  useEffect(() => {
+    if (searchParams.get("onboarding") === "1") {
+      setShowMore(true);
+      setShowOnboardingWizard(true);
+    }
+  }, [searchParams]);
+
+  const hasContactPhone = contactPhone !== "N/A" && /[0-9]/.test(contactPhone);
 
   function makeTelLink(phone: string | undefined | null): string {
     if (!phone || phone === "N/A") return "#";
@@ -947,15 +973,40 @@ export default function AccountDetailPage() {
 
       setStatusMessage("Status changed and history note saved.");
       setShowStatusModal(false);
+      showToast(CHEER.logged);
     } catch (err) {
       setStatusError(
         err instanceof Error
           ? err.message
           : "Something went wrong changing the account status."
       );
+      // After an Undo wait the sheet is closed: open it again so the error and its Try again are seen.
+      setShowStatusModal(true);
     } finally {
       setSavingStatus(false);
     }
+  }
+
+  // Cancelling an account is hard to take back, so it waits 5 seconds behind
+  // an Undo button before anything is saved. Every other status saves at once.
+  function requestStatusSave() {
+    if (!account) return;
+    if (newStatus !== "Cancelled" || cleanText(account.status) === "Cancelled") {
+      void handleSaveStatusChange();
+      return;
+    }
+    if (!statusReason.trim()) {
+      setStatusError("Please add a reason/note for the status change.");
+      return;
+    }
+    setStatusError("");
+    setShowStatusModal(false);
+    undoable({
+      message: `Cancelling ${cleanText(account.accountName) || "this account"}…`,
+      run: () => handleSaveStatusChange(),
+      onUndo: () => setShowStatusModal(true),
+      undoneMessage: "Not cancelled. Nothing was changed.",
+    });
   }
 
   // Fired once by OnboardingChecklist the moment its last item becomes
@@ -1058,6 +1109,30 @@ export default function AccountDetailPage() {
   }
 
   const accountName = account.accountName || "Unnamed Account";
+
+  // This account on the New accounts board (null when it is not on it).
+  const thisAccountId = getAccountId(account, rawAccountIdFromUrl);
+  const onboardingHandoff = handoffs.items.find((item) => item.kind === "account" && item.itemId === thisAccountId) ?? null;
+  const onboardingRulesNow = onboardingRules(handoffs.settings);
+  const sectionGuide = onboardingHandoff
+    ? Object.fromEntries(
+        ONBOARDING_CHECKLIST_SECTIONS.map((section) => {
+          const rule = onboardingRulesNow[section.key];
+          const current = onboardingHandoff.step === section.key;
+          const left = accountDaysLeft({ ...onboardingHandoff, step: section.key }, handoffs.settings);
+          const accepted = onboardingHandoff.data.acceptedOn ? new Date(`${onboardingHandoff.data.acceptedOn}T00:00:00`) : null;
+          const due = accepted && !Number.isNaN(accepted.getTime()) ? new Date(accepted.getTime() + rule.days * 86400000).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+          return [section.key, { owner: ownerLabel(rule.owner, onboardingHandoff), due, late: current && left !== null && left < 0, current }];
+        })
+      )
+    : undefined;
+  // After a checklist save: when the account moved to another section, say who has it now.
+  const handleOnboardingHandoff = (step: string) => {
+    if (onboardingHandoff && step !== onboardingHandoff.step) {
+      showToast(step === ACCOUNT_DONE_STEP ? "Done ✓ — onboarding finished" : sentToText(onboardingHandoff, step, handoffs.settings));
+      void handoffs.reload();
+    }
+  };
   const grossMarginText = estimatedGrossMargin ? formatCalculatedMoney(estimatedGrossMargin) : account.grossMargin || "N/A";
   const addressLink = accountAddress ? (
     <a href={getGoogleMapsUrl(accountAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">
@@ -1091,103 +1166,47 @@ export default function AccountDetailPage() {
         <div className="account-detail-print">
           <Screen
             title={accountName}
-            subtitle="Cleaning World Account"
             backHref="/accounts"
-            headerRight={
-              <span className="account-detail-print-hide">
-                <MoreMenu
-                  items={[
-                    { label: "Change status", onSelect: openStatusModal },
-                    {
-                      label: togglingPortalAccess ? "Updating portal access…" : `Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`,
-                      icon: portalAccess === "YES" ? "check" : "off",
-                      onSelect: () => void handleTogglePortalAccess(),
-                    },
-                    { label: "Print PDF", onSelect: openPdfModal },
-                    {
-                      label: sendingPacket ? "Sending packet…" : "Send new account packet",
-                      onSelect: () => void handleSendNewAccountPacket(),
-                    },
-                    {
-                      label: "Customer email",
-                      onSelect: () => {
-                        setEmailError("");
-                        setEmailDraft(contactEmail === "N/A" ? "" : contactEmail);
-                      },
-                    },
-                    {
-                      label: sendingPortalInvite ? "Sending portal invite…" : "Send portal invite",
-                      onSelect: () => void handleSendPortalInvite(),
-                    },
-                    { label: "Onboarding checklist", onSelect: () => setShowOnboardingWizard(true) },
-                    { label: "Add sale", icon: "plus", href: `/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}` },
-                    { label: "Full account info", onSelect: () => setShowFullAccountInfo(true) },
-                  ]}
-                />
-                <Sheet
-                  open={emailDraft !== null}
-                  title="Customer email"
-                  text="The customer logs in to the portal with this email."
-                  onClose={() => setEmailDraft(null)}
-                  busy={savingEmail}
-                  actions={
-                    <BigButton busy={savingEmail} busyLabel="Saving…" onClick={() => void handleSaveCustomerEmail()}>
-                      Save email
-                    </BigButton>
-                  }
-                >
-                  <Field
-                    label="Customer email"
-                    optional
-                    type="email"
-                    inputMode="email"
-                    autoComplete="off"
-                    autoCapitalize="none"
-                    spellCheck={false}
-                    value={emailDraft ?? ""}
-                    onChange={(event) => setEmailDraft(event.target.value)}
-                    placeholder="name@example.com"
-                    error={emailError || undefined}
-                  />
-                </Sheet>
-                <Sheet
-                  open={portalInvite !== null}
-                  title={portalInvite?.ok ? "Portal invite" : "Portal invite not sent"}
-                  text={portalInvite?.message}
-                  onClose={() => setPortalInvite(null)}
-                >
-                  {portalInvite?.devLink ? (
-                    <div className="ui-stack">
-                      <p>Test account: emails are not sent here. This is the link the email would carry.</p>
-                      <p className="ui-code">{portalInvite.devLink}</p>
-                    </div>
-                  ) : null}
-                </Sheet>
-              </span>
-            }
             action={
               <span className="account-detail-print-hide" style={{ display: "contents" }}>
                 <BigButton href={`/accounts/${accountIdForUrl}/edit`}>Edit account</BigButton>
               </span>
             }
           >
-            {accountAddress ? <p className="ui-muted">{addressLink}</p> : null}
+            <Tips
+              id="account"
+              steps={[
+                { target: '[data-tip="call"]', text: "Tap a green tile to do that thing. This one calls the contact." },
+                { target: '[data-tip="more"]', text: "Tap More for everything else: money, history, onboarding, portal and printing." },
+                { target: ".ui-actionbar .ui-btn-main", text: "Tap Edit account to change anything about this account." },
+              ]}
+            />
+
+            <NextCleaning
+              accountId={getAccountId(account, rawAccountIdFromUrl)}
+              cleaningDays={cleaningDays}
+              frequency={cleaningFrequency}
+              sub={subcontractorContactDisplay}
+              subCompany={subcontractorCompanyDisplay}
+              manager={account.manager || ""}
+            />
+
+            {onboardingHandoff && !onboardingHandoff.doneAt ? (
+              <div className="account-detail-print-hide">
+                <HandoffCard item={{ ...onboardingHandoff, title: "New account" }} settings={handoffs.settings} data-tip="new-account">
+                  <BigButton onClick={() => setShowOnboardingWizard(true)}>Open checklist</BigButton>
+                </HandoffCard>
+              </div>
+            ) : null}
 
             <div className="ui-actions-row">
               <StatusPill kind={accountStatusKind(account.status)}>{account.status || "No Status"}</StatusPill>
               <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "No Health Status"}</StatusPill>
             </div>
-
-            <div className="ui-actions-row account-detail-print-hide">
-              <BigButton kind="second" icon="plus" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
-                Add visit
-              </BigButton>
-              <BigButton kind="second" icon="plus" href={accountComplaintLink}>
-                Add complaint
-              </BigButton>
-              <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
-                Add update
-              </BigButton>
+            {/* The full name: the bar at the top shortens long ones. */}
+            <div>
+              <p className="ui-acct-name">{accountName}</p>
+              {accountAddress ? <p className="ui-muted">{addressLink}</p> : null}
             </div>
 
             {packetMessage ? (
@@ -1211,30 +1230,155 @@ export default function AccountDetailPage() {
               </div>
             ) : null}
 
-            <div className="ui-stats">
-              <div className="ui-stat">
-                <p className="ui-stat-label">Manager</p>
-                <p className="ui-stat-value">{account.manager || "Unassigned"}</p>
-              </div>
-              <div className="ui-stat">
-                <p className="ui-stat-label">Subcontractor</p>
-                <p className="ui-stat-value">{subcontractorContactDisplay}</p>
-                {subcontractorCompanyDisplay ? <p className="ui-muted">{subcontractorCompanyDisplay}</p> : null}
-              </div>
-              <div className="ui-stat">
-                <p className="ui-stat-label">Monthly Revenue</p>
-                <p className="ui-stat-value">{formatMoney(account.monthlyRevenue)}</p>
-              </div>
-              <div className="ui-stat">
-                <p className="ui-stat-label">Sub Pay</p>
-                <p className="ui-stat-value">{formatMoney(subcontractorPay)}</p>
-              </div>
-              <div className="ui-stat">
-                <p className="ui-stat-label">Est. Gross Margin</p>
-                <p className="ui-stat-value">{grossMarginText}</p>
-                {account.grossMarginPercent ? <p className="ui-muted">({account.grossMarginPercent.replace(/%$/, "")}%)</p> : null}
-              </div>
+            {/* The six things people do most, one tap each. */}
+            <div className="ui-acttiles account-detail-print-hide">
+              <Tile
+                icon="call"
+                label="Call contact"
+                detail={hasContactPhone ? (contactPerson !== "N/A" ? contactPerson : contactPhone) : "No phone on file"}
+                href={hasContactPhone ? makeTelLink(contactPhone) : undefined}
+                external
+                disabled={!hasContactPhone}
+                data-tip="call"
+              />
+              <Tile icon="todo" label="Add to-do" onClick={() => setShowToDo(true)} />
+              <Tile icon="problem" label="Log problem" href={accountComplaintLink} />
+              <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}`} />
+              <Tile icon="key" label="Keys and alarm" onClick={() => setShowKeys(true)} />
+              <Tile
+                icon="more"
+                label={showMore ? "Less" : "More"}
+                onClick={() => setShowMore((value) => !value)}
+                aria-expanded={showMore}
+                aria-controls="account-more"
+                data-tip="more"
+              />
             </div>
+
+            <QuickToDoSheet
+              open={showToDo}
+              onClose={() => setShowToDo(false)}
+              accountId={getAccountId(account, rawAccountIdFromUrl)}
+              accountName={accountName}
+              manager={account.manager}
+            />
+
+            <Sheet open={showKeys} title="Keys and alarm" text={accountName} onClose={() => setShowKeys(false)}>
+              <dl className="ui-details">
+                <Detail label="Has Key" value={account.hasKey || "N/A"} />
+                <Detail label="Alarm Info" value={alarmInfo || "N/A"} full />
+              </dl>
+              <BigButton kind="second" href={`/accounts/${accountIdForUrl}/edit`}>
+                Change keys or alarm
+              </BigButton>
+            </Sheet>
+
+            <Sheet
+              open={emailDraft !== null}
+              title="Customer email"
+              text="The customer logs in to the portal with this email."
+              onClose={() => setEmailDraft(null)}
+              busy={savingEmail}
+              actions={
+                <BigButton busy={savingEmail} busyLabel="Saving…" onClick={() => void handleSaveCustomerEmail()}>
+                  Save email
+                </BigButton>
+              }
+            >
+              <Field
+                label="Customer email"
+                optional
+                type="email"
+                inputMode="email"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                value={emailDraft ?? ""}
+                onChange={(event) => setEmailDraft(event.target.value)}
+                placeholder="name@example.com"
+                error={emailError || undefined}
+              />
+            </Sheet>
+            <Sheet
+              open={portalInvite !== null}
+              title={portalInvite?.ok ? "Portal invite" : "Portal invite not sent"}
+              text={portalInvite?.message}
+              onClose={() => setPortalInvite(null)}
+            >
+              {portalInvite?.devLink ? (
+                <div className="ui-stack">
+                  <p>Test account: emails are not sent here. This is the link the email would carry.</p>
+                  <p className="ui-code">{portalInvite.devLink}</p>
+                </div>
+              ) : null}
+            </Sheet>
+
+            {/* Everything else lives behind the More tile. */}
+            <div id="account-more" hidden={!showMore} className="ui-screen-body">
+              <h2 className="ui-section-title account-detail-print-hide">More for this account</h2>
+
+              <div className="ui-more-actions account-detail-print-hide">
+                <BigButton kind="second" onClick={openStatusModal}>
+                  Change status
+                </BigButton>
+                <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                  Add update
+                </BigButton>
+                <BigButton kind="second" icon="plus" href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                  Add sale
+                </BigButton>
+                <BigButton kind="second" onClick={openPdfModal}>
+                  Print PDF
+                </BigButton>
+                <BigButton kind="second" busy={sendingPacket} busyLabel="Sending packet…" onClick={() => void handleSendNewAccountPacket()}>
+                  Send new account packet
+                </BigButton>
+                <BigButton
+                  kind="second"
+                  icon={portalAccess === "YES" ? "check" : "off"}
+                  busy={togglingPortalAccess}
+                  busyLabel="Updating portal access…"
+                  onClick={() => void handleTogglePortalAccess()}
+                >
+                  {`Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
+                </BigButton>
+                <BigButton
+                  kind="second"
+                  onClick={() => {
+                    setEmailError("");
+                    setEmailDraft(contactEmail === "N/A" ? "" : contactEmail);
+                  }}
+                >
+                  Customer email
+                </BigButton>
+                <BigButton kind="second" busy={sendingPortalInvite} busyLabel="Sending portal invite…" onClick={() => void handleSendPortalInvite()}>
+                  Send portal invite
+                </BigButton>
+                <BigButton kind="second" onClick={() => setShowOnboardingWizard(true)}>
+                  Onboarding checklist
+                </BigButton>
+                <BigButton kind="second" onClick={() => setShowFullAccountInfo(true)}>
+                  Full account info
+                </BigButton>
+              </div>
+
+              <Card title="Money">
+                <div className="ui-stats">
+                  <div className="ui-stat">
+                    <p className="ui-stat-label">Monthly Revenue</p>
+                    <p className="ui-stat-value">{formatMoney(account.monthlyRevenue)}</p>
+                  </div>
+                  <div className="ui-stat">
+                    <p className="ui-stat-label">Sub Pay</p>
+                    <p className="ui-stat-value">{formatMoney(subcontractorPay)}</p>
+                  </div>
+                  <div className="ui-stat">
+                    <p className="ui-stat-label">Est. Gross Margin</p>
+                    <p className="ui-stat-value">{grossMarginText}</p>
+                    {account.grossMarginPercent ? <p className="ui-muted">({account.grossMarginPercent.replace(/%$/, "")}%)</p> : null}
+                  </div>
+                </div>
+              </Card>
 
             <Card title="Account Snapshot">
               <p className="ui-card-text">Main operational details for this account.</p>
@@ -1263,6 +1407,18 @@ export default function AccountDetailPage() {
             {/* the exact same OnboardingChecklist component the wizard modal    */}
             {/* uses, just inline rather than in a modal.                        */}
             {/* --------------------------------------------------------------- */}
+            {handoffs.state === "ready" && !onboardingHandoff?.doneAt ? (
+              <section className="ui-card ui-stack account-detail-print-hide">
+                <h2 className="ui-card-title">New account</h2>
+                <p className="ui-card-text">
+                  {onboardingHandoff
+                    ? `Accepted ${onboardingHandoff.data.acceptedOn || "(no date)"}. This account is on the New accounts board.`
+                    : "Is this a new account? Add the accepted estimate and it goes on the New accounts board, with each step, its owner and its due date."}
+                </p>
+                <AcceptedEstimate accountId={thisAccountId} accountName={accountName} manager={account.manager || ""} current={onboardingHandoff} onSaved={() => void handoffs.reload()} />
+              </section>
+            ) : null}
+
             <section className="ui-card account-detail-print-hide">
               <OnboardingChecklist
                 accountId={getAccountId(account, rawAccountIdFromUrl)}
@@ -1270,6 +1426,8 @@ export default function AccountDetailPage() {
                 manager={account.manager}
                 accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
                 onAllItemsComplete={applyOnboardingCompletionStable}
+                sectionGuide={sectionGuide}
+                onHandoff={handleOnboardingHandoff}
                 variant="section"
                 onOpenWizard={() => setShowOnboardingWizard(true)}
               />
@@ -1284,9 +1442,13 @@ export default function AccountDetailPage() {
               <ChecklistTemplateEditor accountId={getAccountId(account, rawAccountIdFromUrl)} accountName={accountName} />
             </section>
 
+            <SitePhotos accountId={thisAccountId} accountName={accountName} />
+
             {/* Every save: who, when, and each field's old → new value. */}
             <div className="account-detail-print-hide">
               <AccountHistory accountId={getAccountId(account, rawAccountIdFromUrl)} />
+            </div>
+
             </div>
 
             {showOnboardingWizard ? (
@@ -1296,6 +1458,8 @@ export default function AccountDetailPage() {
                 manager={account.manager}
                 accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
                 onAllItemsComplete={applyOnboardingCompletionStable}
+                sectionGuide={sectionGuide}
+                onHandoff={handleOnboardingHandoff}
                 onClose={() => setShowOnboardingWizard(false)}
               />
             ) : null}
@@ -1335,7 +1499,7 @@ export default function AccountDetailPage() {
               onClose={closeStatusModal}
               busy={savingStatus}
               actions={
-                <BigButton busy={savingStatus} busyLabel="Saving…" onClick={() => void handleSaveStatusChange()}>
+                <BigButton busy={savingStatus} busyLabel="Saving…" onClick={requestStatusSave}>
                   Save status change
                 </BigButton>
               }
@@ -1362,7 +1526,7 @@ export default function AccountDetailPage() {
                 onChange={(event) => setStatusReason(event.target.value)}
                 disabled={savingStatus}
               />
-              {statusError ? <ErrorBox title="The status was not changed." text={statusError} /> : null}
+              {statusError ? <ErrorBox title="The status was not changed." text={statusError} onRetry={requestStatusSave} /> : null}
             </Sheet>
 
             <Sheet
