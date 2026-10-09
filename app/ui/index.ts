@@ -48,7 +48,7 @@ export { flushUndo, showToast, ToastRegion, undoable } from "./toast";
 
 export { Counts, PullToRefresh, ShellTitle, SwipeRow, Tile, TileIconSvg, Tips, type CountItem, type TileIcon, type TipStep } from "./interact";
 
-export { SHOW_TIPS_EVENT, useShell } from "./shell";
+export { setShellExtra, SHOW_TIPS_EVENT, useShell } from "./shell";
 
 export {
   CHEER,

@@ -309,6 +309,12 @@ export default function CWHeader() {
             <h1 className="cw-topbar-page">{pageName}</h1>
           </div>
 
+          {shell.extra ? (
+            <button type="button" className="cw-topbar-btn" aria-label={shell.extra.ariaLabel} onClick={shell.extra.onClick}>
+              {shell.extra.label}
+            </button>
+          ) : null}
+
           {!isLoginPage &&
             (shell.tipsCount > 0 ? (
               <button

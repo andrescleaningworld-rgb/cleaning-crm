@@ -2,7 +2,9 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { Counts, Tips } from "@/app/ui";
+import { Counts, Tips, setShellExtra } from "@/app/ui";
+import { SUB_WORDS } from "@/app/ui/words";
+import SimpleHome, { PinPad, useSubLang } from "./simple-home";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
@@ -460,6 +462,57 @@ export default function SubcontractorPortalPage() {
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+
+  // The simple home (four big buttons). null = not known yet, false = off
+  // here (today's screen shows instead), true = on. "More" opens everything
+  // the portal did before.
+  const [homeOn, setHomeOn] = useState<boolean | null>(null);
+  const [showMore, setShowMore] = useState(false);
+  const [lang, nextLang] = useSubLang();
+  const subWords = SUB_WORDS[lang];
+  // PIN login: a phone that already picked a PIN is asked only for the PIN.
+  const [pinDevice, setPinDevice] = useState<{ firstName: string } | null>(null);
+  const [pinError, setPinError] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [useEmailLogin, setUseEmailLogin] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/subcontractor-portal/pin", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { on?: boolean; device?: { firstName: string } | null }) => setPinDevice(data.on && data.device ? data.device : null))
+      .catch(() => setPinDevice(null));
+  }, []);
+
+  // The language button sits in the navy bar while the simple home is showing.
+  const homeShowing = Boolean(subcontractor) && homeOn === true;
+  useEffect(() => {
+    setShellExtra(homeShowing || (!subcontractor && pinDevice) ? { label: lang.toUpperCase(), ariaLabel: "Language / Idioma", onClick: nextLang } : null);
+    return () => setShellExtra(null);
+  }, [homeShowing, subcontractor, pinDevice, lang, nextLang]);
+
+  async function handlePinLogin(pin: string) {
+    setPinBusy(true);
+    setPinError("");
+    try {
+      const response = await fetch("/api/subcontractor-portal/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "login", pin }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; reason?: string; triesLeft?: number; minutes?: number; error?: string };
+      if (response.ok && data.success) {
+        await restorePortalFromSession();
+        return;
+      }
+      if (data.reason === "locked") setPinError(subWords.pinLocked(data.minutes ?? 15));
+      else if (data.reason === "wrong") setPinError(subWords.pinWrong(data.triesLeft ?? 0));
+      else {
+        // No PIN on file any more: fall back to the email login.
+        setUseEmailLogin(true);
+        setPinError("");
+      }
+    } catch {
+      setPinError(subWords.notSent);
+    } finally {
+      setPinBusy(false);
+    }
+  }
 
   const activeAccounts = useMemo(() => {
     return accounts.filter(isActiveAccount);
@@ -1283,9 +1336,17 @@ export default function SubcontractorPortalPage() {
     <main className="ui-screen">
       <div className="ui-screen-body">
         <h1 className="ui-screen-title">Subcontractor Portal</h1>
-        {!subcontractor ? <p className="ui-section-title">Type your email to see your accounts.</p> : null}
+        {!subcontractor && pinDevice && !useEmailLogin ? (
+          <section className="ui-card">
+            <PinPad title={`${subWords.hello(pinDevice.firstName)} — ${subWords.pinTitle}`} error={pinError} busy={pinBusy || loading} onDone={(pin) => void handlePinLogin(pin)} />
+            <button type="button" className="ui-btn ui-btn-quiet w-full" onClick={() => setUseEmailLogin(true)}>
+              {subWords.useEmail}
+            </button>
+          </section>
+        ) : null}
+        {!subcontractor && !(pinDevice && !useEmailLogin) ? <p className="ui-section-title">Type your email to see your accounts.</p> : null}
 
-        <section className="ui-card" hidden={subcontractor !== null}>
+        <section className="ui-card" hidden={subcontractor !== null || Boolean(pinDevice && !useEmailLogin)}>
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
               <label className="ui-label">
@@ -1308,6 +1369,11 @@ export default function SubcontractorPortalPage() {
             >
               {loading ? "Opening…" : "Open my portal"}
             </button>
+            {pinDevice ? (
+              <button type="button" className="ui-btn ui-btn-quiet w-full" onClick={() => setUseEmailLogin(false)}>
+                {subWords.usePin}
+              </button>
+            ) : null}
           </form>
         </section>
 
@@ -1325,6 +1391,29 @@ export default function SubcontractorPortalPage() {
 
         {subcontractor ? (
           <>
+            {!showMore ? (
+              <SimpleHome
+                accounts={activeAccounts}
+                supplies={activeSupplyItems.map((item) => ({ supplyItem: getSupplyName(item), category: getSupplyCategory(item), unit: item.unit }))}
+                lang={lang}
+                onMore={() => {
+                  setShowMore(true);
+                  window.scrollTo({ top: 0 });
+                }}
+                onReady={setHomeOn}
+              />
+            ) : null}
+            {homeOn === true && showMore ? (
+              <button type="button" className="ui-btn ui-btn-second w-full" onClick={() => setShowMore(false)}>
+                ← {subWords.back}
+              </button>
+            ) : null}
+            {homeOn === true && !showMore ? (
+              <button type="button" onClick={handleLogout} className="ui-btn ui-btn-quiet w-full">
+                Logout
+              </button>
+            ) : null}
+            <div hidden={homeOn === null || (homeOn === true && !showMore)}>
             {/* Account-info bar + tab nav are combined into a single sticky
                 block pinned to the very top of the viewport, so both stay
                 reachable without scrolling once the sub is logged in. */}
@@ -2314,6 +2403,7 @@ export default function SubcontractorPortalPage() {
 
             <div className={activePortalView === "calendar" ? "block" : "hidden"}>
               <ScheduleCalendarTab accounts={activeAccounts} subcontractor={subcontractor} />
+            </div>
             </div>
           </>
         ) : null}

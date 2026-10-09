@@ -3366,3 +3366,334 @@ a.ui-stat {
   font-size: 16px;
   font-weight: 800;
 }
+
+/* ==========================================================================
+   The simple sub portal home: one hand, big targets, almost no typing.
+   ========================================================================== */
+
+.sub-home {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--ui-font);
+  font-size: 18px;
+  color: var(--ui-ink);
+}
+
+.sub-motto {
+  margin: 0;
+  text-align: center;
+}
+
+/* Four giant buttons, two by two: icon + one word. */
+.sub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sub-big {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 132px;
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 22px;
+  font: inherit;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.sub-big:active {
+  transform: scale(0.97);
+}
+
+.sub-big .ui-acttile-icon {
+  width: 48px;
+  height: 48px;
+}
+
+.sub-big-green {
+  background: var(--ui-green);
+  color: #ffffff;
+}
+
+.sub-big-red {
+  background: var(--ui-bad);
+  color: #ffffff;
+}
+
+.sub-big-light {
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+}
+
+/* "My requests" and "More": one full-width row each. */
+.sub-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 18px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sub-row > span:first-child {
+  flex: 1;
+}
+
+.sub-site-done {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+}
+
+/* A flow: back + title, then its few big controls. */
+.sub-flow-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sub-sites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sub-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sub-two > .ui-chip {
+  min-height: 56px;
+  font-size: 19px;
+}
+
+.sub-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 96px;
+  padding: 10px;
+  border: 2px solid transparent;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.sub-mid-on {
+  border-color: var(--ui-green);
+  background: #ffffff;
+}
+
+.sub-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sub-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 92px;
+  padding: 8px;
+  border: 3px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  text-align: center;
+  cursor: pointer;
+}
+
+.sub-choice > span:first-child {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.sub-choice[aria-pressed="true"] {
+  border-color: var(--ui-bad);
+  background: var(--ui-bad-soft);
+  color: var(--ui-bad);
+}
+
+.sub-send {
+  width: 100%;
+  min-height: 64px;
+  font-size: 22px;
+}
+
+/* Supplies: a picture, the name, and big − / +. */
+.sub-supplies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sub-supplies > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+}
+
+.sub-supplies > li.sub-supply-on {
+  border-color: var(--ui-green);
+  background: var(--ui-green-soft);
+}
+
+.sub-supply-pic {
+  flex: 0 0 auto;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.sub-supply-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.sub-step {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--ui-green);
+  color: #ffffff;
+  font: inherit;
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sub-step:disabled {
+  background: var(--ui-line);
+  cursor: default;
+}
+
+.sub-count {
+  flex: 0 0 auto;
+  min-width: 28px;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* After every send. */
+.sub-sent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 50vh;
+  border-radius: 24px;
+  background: var(--ui-green);
+  color: #ffffff;
+  text-align: center;
+  animation: ui-rise 0.18s ease;
+}
+
+.sub-sent p {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.sub-sent .sub-sent-mark {
+  font-size: 48px;
+  font-weight: 800;
+}
+
+.sub-lang {
+  min-width: 64px;
+}
+
+/* The PIN pad. */
+.sub-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.sub-pin-dots {
+  display: flex;
+  gap: 14px;
+}
+
+.sub-pin-dot {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--ui-navy);
+  border-radius: 999px;
+}
+
+.sub-pin-dot-on {
+  background: var(--ui-navy);
+}
+
+.sub-pin-keys {
+  display: grid;
+  grid-template-columns: repeat(3, 76px);
+  gap: 12px;
+}
+
+.sub-pin-key {
+  width: 76px;
+  height: 76px;
+  border: 2px solid var(--ui-line);
+  border-radius: 999px;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 30px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.08s ease, background-color 0.12s ease;
+}
+
+.sub-pin-key:active {
+  transform: scale(0.95);
+  background: var(--ui-sky-soft);
+}

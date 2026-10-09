@@ -23,6 +23,7 @@ import {
   useSaveAction,
   type StatusKind,
 } from "@/app/ui";
+import PinLinkButton from "./pin-link";
 import {
   normalizeSubName,
   resolveAssignedSubKey,
@@ -896,6 +897,8 @@ export default function SubcontractorDetailPage() {
           </BigButton>
         }
       >
+        <PinLinkButton email={form.email || ""} name={form.contactName || getCompanyName(subcontractor)} />
+
         <div className="ui-actions-row">
           <StatusPill kind={statusKind(form.status || "Active")}>{form.status || "Active"}</StatusPill>
           <StatusPill kind={scoreStatus.kind}>{scoreStatus.label}</StatusPill>

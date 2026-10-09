@@ -397,3 +397,42 @@ At most one banner per screen.
 | My work, title row | "🔥 N days with nothing late", from 2 days up. Kept on the device per person. Goes back to zero without a word when something is late. |
 | Dashboard, Mondays only | "Last week, as a team": to-dos done, visits logged, complaints logged. Team totals only; nobody is ranked. |
 | Sub portal | The rule in English, Spanish and Portuguese |
+
+## Sub portal: the simple home
+
+Protected file edited: `app/subcontractor-portal/page.tsx` (approved for this
+task). New: `simple-home.tsx`, `setup/page.tsx`, the routes under
+`/api/subcontractor-portal/home` and `/pin`, `/api/admin/sub-pin-link`,
+tables in `db/migrations/019_sub_home.sql`. Feature flag `FEATURE_SUB_HOME`:
+off on Production when unset, where the portal shows the screen it has today.
+
+| Old | Now |
+| --- | --- |
+| Email box to log in | Still there, as the fallback ("Use my email instead") |
+| (new) | PIN login: staff tap "Text the PIN setup link" on the sub page; the sub opens the link and picks 4 numbers (typed twice). After that the phone asks only for the PIN, for 90 days. 5 wrong tries, then a 15-minute wait. The link works once, for 7 days. |
+| Logged-in header: name, email, Logout, counts, six tabs | Behind "More", unchanged |
+| My Accounts, Complaints, Report Issue, Supply Order, My Schedule, My Calendar, crew checklists, equipment | Behind "More", unchanged |
+| (new) | Navy bar: logo, "Hola, [first name]", an EN / ES / PT button (remembered on the phone; the first visit follows the phone language) |
+| (new) | "Today · X sites": a card per site with address and time window, a green check when a visit was logged today |
+| (new) | Four giant buttons, two by two: Photos (green), Problem (red), Extra job and Supplies (light green) |
+| (new) | "My requests" with a waiting count: problems, extra jobs and supply orders with Received / Approved / Done |
+| Report Issue form (type, urgency, description, photos) | Still under More. The new Problem button: pick one of six icons (Cannot get in, Broken, No supplies, Damage, Customer, Other), optional Photo and Talk, Send. It files the issue the way the form does and puts it in the account manager's My work with "Mark handled". |
+| (new) | Extra job: Photo and/or Talk, Send. It goes to the office To process list as "Extra job from a sub": Received, Approved, Done, which the sub sees. |
+| Supply Order form (category, item, quantity, delivery, notes) | Still under More. The new Supplies button: a picture list with big minus and plus buttons, an "Other item" box, Send. Each item becomes an order and starts the supply steps. |
+| (new) | Photos: the camera opens straight away, several in a row, Before / After, shrunk on the phone, sent again by itself on a weak signal. Staff see them on the account page, More, "Photos from the sub". |
+| (new) | After every send: a big green "Sent ✓", then back to the home |
+| (new) | The rule on the home in the chosen language |
+
+Taps: Problem = Problem, the icon, Send. Extra job = Extra job, Photo or
+Talk, Send. Supplies = Supplies, plus, Send. Photos = Photos, the site
+(skipped when there is one site), the shutter.
+
+Test sub: `npx tsx scripts/migrate/create-test-sub.mts` makes "ZZ Test Sub" in
+the practice database only (made-up email and phone). Outside production its
+home shows one made-up site, "ZZ Test Site", and the setup link is shown on
+screen instead of being texted. `--remove` deletes it and everything it sent.
+
+## Visits (checked again)
+
+"Add visit" is the big button at the top of the Visits page, and "Log visit"
+on an account opens the new visit form with that account selected.

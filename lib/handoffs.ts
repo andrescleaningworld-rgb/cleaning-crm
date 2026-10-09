@@ -6,7 +6,7 @@
 
 import { ONBOARDING_CHECKLIST_SECTIONS, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 
-export type HandoffKind = "account" | "update" | "order";
+export type HandoffKind = "account" | "update" | "order" | "issue" | "extra";
 export type OwnerRole = "office" | "manager" | "sub";
 
 export type HandoffItem = {
@@ -85,6 +85,19 @@ export const UPDATE_STEPS: StepDef[] = [
   { key: "processed", label: "Processed", owner: "", todo: "", button: "" },
 ];
 
+// A problem a subcontractor reported from the portal home.
+export const ISSUE_STEPS: StepDef[] = [
+  { key: "reported", label: "Reported", owner: "manager", todo: "The manager looks at the problem and takes care of it.", button: "Mark handled" },
+  { key: "handled", label: "Handled", owner: "", todo: "", button: "" },
+];
+
+// An extra job a subcontractor asked for from the portal home.
+export const EXTRA_STEPS: StepDef[] = [
+  { key: "received", label: "Received", owner: "office", todo: "The office checks the extra job and approves it.", button: "Approve" },
+  { key: "approved", label: "Approved", owner: "office", todo: "The office enters it (billing, schedule) and marks it done.", button: "Mark done" },
+  { key: "done", label: "Done", owner: "", todo: "", button: "" },
+];
+
 // A new account: one step per section of the Onboarding Checklist.
 export const ONBOARDING_DEFAULTS: Record<string, OnboardingRule> = {
   sale: { owner: "manager", days: 1 },
@@ -152,6 +165,8 @@ export function currentOnboardingSection(items: OnboardingChecklistItems): strin
 export function stepsFor(kind: HandoffKind, settings: HandoffSettings | null): StepDef[] {
   if (kind === "order") return ORDER_STEPS;
   if (kind === "update") return UPDATE_STEPS;
+  if (kind === "issue") return ISSUE_STEPS;
+  if (kind === "extra") return EXTRA_STEPS;
   return accountSteps(settings);
 }
 
@@ -266,8 +281,18 @@ export function sortForWork(items: HandoffItem[], settings: HandoffSettings | nu
 /** Where one tap on a My work card goes. */
 export function handoffHref(item: Pick<HandoffItem, "kind" | "itemId" | "accountId">): string {
   if (item.kind === "account") return `/accounts/${encodeURIComponent(item.accountId || item.itemId)}?onboarding=1`;
-  if (item.kind === "update") return `/account-updates?process=${encodeURIComponent(item.itemId)}`;
+  if (item.kind === "update" || item.kind === "extra") return `/account-updates?process=${encodeURIComponent(item.itemId)}`;
+  // A reported problem is handled right on its My work card.
+  if (item.kind === "issue") return "/";
   return `/supply-orders?order=${encodeURIComponent(item.itemId)}`;
 }
 
-export const KIND_LABEL: Record<HandoffKind, string> = { account: "New account", update: "Account update", order: "Supply order" };
+export const KIND_LABEL: Record<HandoffKind, string> = { account: "New account", update: "Account update", order: "Supply order", issue: "Problem from a sub", extra: "Extra job from a sub" };
+
+/** What a subcontractor sees for one of their requests: Received, Approved or Done. */
+export function subStatus(item: Pick<HandoffItem, "kind" | "step" | "doneAt">): "received" | "approved" | "done" {
+  if (item.doneAt) return "done";
+  if (item.kind === "extra") return item.step === "approved" ? "approved" : "received";
+  if (item.kind === "order") return item.step === "ordered" ? "received" : item.step === "delivered" ? "done" : "approved";
+  return "received";
+}

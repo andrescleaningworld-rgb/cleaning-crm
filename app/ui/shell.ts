@@ -13,9 +13,11 @@ export type ShellState = {
   backHref: string;
   onBack: (() => void) | null;
   tipsCount: number;
+  /** One extra button in the bar, e.g. the sub portal's EN / ES / PT. */
+  extra: { label: string; ariaLabel: string; onClick: () => void } | null;
 };
 
-const EMPTY: ShellState = { title: "", backHref: "", onBack: null, tipsCount: 0 };
+const EMPTY: ShellState = { title: "", backHref: "", onBack: null, tipsCount: 0, extra: null };
 let state: ShellState = EMPTY;
 const listeners = new Set<() => void>();
 
@@ -31,6 +33,10 @@ export function setShellScreen(title: string, backHref?: string, onBack?: () => 
 /** Only clears when this screen is still the one shown (a newer screen may already have taken over). */
 export function clearShellScreen(title: string) {
   if (state.title === title) set({ ...state, title: "", backHref: "", onBack: null });
+}
+
+export function setShellExtra(extra: ShellState["extra"]) {
+  set({ ...state, extra });
 }
 
 export function addShellTips(delta: number) {

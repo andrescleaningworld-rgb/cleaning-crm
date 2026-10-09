@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BigButton, Counts, EmptyState, Sheet, TextAreaField, Tips } from "@/app/ui";
-import { isLate, sortForWork, type HandoffItem } from "@/lib/handoffs";
+import { isLate, sortForWork, stepOf, type HandoffItem } from "@/lib/handoffs";
 import { HandoffCard, advanceWithUndo, postHandoff, shortDay, type HandoffsState } from "../components/handoffs";
 
 /** The handoff of one update on the list: by its id, or (an update saved while Apps Script was not answering with an id) by account and note. */
@@ -32,10 +32,36 @@ export default function ToProcess({ handoffs, focusId }: { handoffs: HandoffsSta
   const [target, setTarget] = useState<HandoffItem | null>(null);
   const [note, setNote] = useState("");
   const [onlyLate, setOnlyLate] = useState(false);
+  // An extra job from a sub moves in place (Received -> Approved -> Done): itemId -> the step it is moving to.
+  const [moving, setMoving] = useState<Record<string, string>>({});
+
+  function advanceExtra(item: HandoffItem) {
+    const { next } = stepOf(item, handoffs.settings);
+    if (!next) return;
+    const setMove = (step: string | null) =>
+      setMoving((current) => {
+        const copy = { ...current };
+        if (step) copy[item.itemId] = step;
+        else delete copy[item.itemId];
+        return copy;
+      });
+    advanceWithUndo({
+      item,
+      toStep: next.key,
+      settings: handoffs.settings,
+      onOptimistic: () => setMove(next.key),
+      onUndo: () => setMove(null),
+      run: async () => {
+        await postHandoff({ action: "advance", kind: "extra", itemId: item.itemId, toStep: next.key });
+        await handoffs.reload();
+        setMove(null);
+      },
+    });
+  }
 
   const waiting = useMemo(
-    () => sortForWork(handoffs.items.filter((item) => item.kind === "update" && !item.doneAt && !leaving.has(item.itemId)), handoffs.settings),
-    [handoffs.items, handoffs.settings, leaving]
+    () => sortForWork(handoffs.items.filter((item) => (item.kind === "update" || item.kind === "extra") && !item.doneAt && !leaving.has(item.itemId)).map((item) => (moving[item.itemId] ? { ...item, step: moving[item.itemId] } : item)), handoffs.settings),
+    [handoffs.items, handoffs.settings, leaving, moving]
   );
   const late = waiting.filter((item) => isLate(item, handoffs.settings));
   const shown = onlyLate ? late : waiting;
@@ -105,14 +131,25 @@ export default function ToProcess({ handoffs, focusId }: { handoffs: HandoffsSta
                   settings={handoffs.settings}
                   detail={[item.data.updateType, item.data.notes].filter(Boolean).join(": ") + (item.createdBy ? ` (from ${item.createdBy})` : "")}
                 >
-                  <BigButton
-                    onClick={() => {
-                      setNote("");
-                      setTarget(item);
-                    }}
-                  >
-                    Mark processed
-                  </BigButton>
+                  {item.kind === "extra" ? (
+                    <BigButton disabled={Boolean(moving[item.itemId]) || !stepOf(item, handoffs.settings).step?.button} onClick={() => advanceExtra(item)}>
+                      {stepOf(item, handoffs.settings).step?.button || "Done"}
+                    </BigButton>
+                  ) : (
+                    <BigButton
+                      onClick={() => {
+                        setNote("");
+                        setTarget(item);
+                      }}
+                    >
+                      Mark processed
+                    </BigButton>
+                  )}
+                  {item.data.photoUrl ? (
+                    <a className="ui-btn ui-btn-second" href={item.data.photoUrl} target="_blank" rel="noopener noreferrer">
+                      Photo
+                    </a>
+                  ) : null}
                 </HandoffCard>
               </li>
             ))}

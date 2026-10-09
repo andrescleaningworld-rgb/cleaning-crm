@@ -331,6 +331,9 @@ const TILE_ICONS = {
   status: "M4 12a8 8 0 0113.700-5.700L20 8.500M20 4v4.500h-4.500M20 12a8 8 0 01-13.700 5.700L4 15.500M4 20v-4.500h4.500",
   print: "M7 8V4h10v4M7 17H5a1 1 0 01-1-1v-6a1 1 0 011-1h14a1 1 0 011 1v6a1 1 0 01-1 1h-2M7 14h10v6H7v-6z",
   note: "M6 3h9l4 4v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zm3 8h6m-6 4h6",
+  camera: "M4 8h3l1.5-2h7L17 8h3v11H4V8zm8 8a3 3 0 100-6 3 3 0 000 6z",
+  mic: "M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3zM6 11a6 6 0 0012 0M12 17v4m-3 0h6",
+  box: "M4 8l8-4 8 4v8l-8 4-8-4V8zm0 0l8 4 8-4M12 12v8",
 } as const;
 
 export type TileIcon = keyof typeof TILE_ICONS;

@@ -6,9 +6,9 @@
 // button.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CHEER, EmptyState, MOTTO, SkeletonList, Tips } from "@/app/ui";
+import { BigButton, CHEER, EmptyState, MOTTO, SkeletonList, Tips } from "@/app/ui";
 import { isLate, isMine, orderStepFromStatus, sortForWork, type HandoffItem } from "@/lib/handoffs";
-import { HandoffCard, handoffCardHref, postHandoff, useHandoffs } from "./handoffs";
+import { HandoffCard, advanceWithUndo, handoffCardHref, postHandoff, useHandoffs } from "./handoffs";
 
 /** What the handoff tracking needs to know about one supply order, from whatever the orders list returned. */
 export function orderForSync(order: Record<string, unknown>) {
@@ -43,7 +43,8 @@ const today = () => {
 
 function detailOf(item: HandoffItem): string {
   if (item.kind === "order") return [item.data.items, item.data.subcontractor ? `for ${item.data.subcontractor}` : ""].filter(Boolean).join(" ");
-  if (item.kind === "update") return [item.data.updateType, item.data.notes].filter(Boolean).join(": ");
+  if (item.kind === "update" || item.kind === "extra") return [item.data.updateType, item.data.notes].filter(Boolean).join(": ") + (item.data.sub ? ` (from ${item.data.sub})` : "");
+  if (item.kind === "issue") return [item.data.problemType, item.data.notes].filter(Boolean).join(": ") + (item.data.sub ? ` (from ${item.data.sub})` : "");
   return item.manager ? `Manager: ${item.manager}` : "";
 }
 
@@ -94,7 +95,32 @@ export default function MyWork({ orders }: { orders: Record<string, unknown>[] }
       .catch(() => {});
   }, [handoffs, orders]);
 
-  const open = useMemo(() => handoffs.items.filter((item) => !item.doneAt), [handoffs.items]);
+  // Hidden at once when "Mark handled" is tapped; shown again on Undo.
+  const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const open = useMemo(() => handoffs.items.filter((item) => !item.doneAt && !leaving.has(`${item.kind}-${item.itemId}`)), [handoffs.items, leaving]);
+
+  function markHandled(item: HandoffItem) {
+    const key = `${item.kind}-${item.itemId}`;
+    const setGone = (gone: boolean) =>
+      setLeaving((current) => {
+        const next = new Set(current);
+        if (gone) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    advanceWithUndo({
+      item,
+      toStep: "handled",
+      settings: handoffs.settings,
+      onOptimistic: () => setGone(true),
+      onUndo: () => setGone(false),
+      run: async () => {
+        await postHandoff({ action: "advance", kind: "issue", itemId: item.itemId, toStep: "handled" });
+        await handoffs.reload();
+        setGone(false);
+      },
+    });
+  }
   const mine = useMemo(() => sortForWork(open.filter((item) => isMine(item, handoffs.settings, handoffs.me)), handoffs.settings), [open, handoffs.settings, handoffs.me]);
   const shown = everyone ? sortForWork(open, handoffs.settings) : mine;
   const others = open.length - mine.length;
@@ -169,7 +195,18 @@ export default function MyWork({ orders }: { orders: Record<string, unknown>[] }
           <ul className="ui-acct-list">
             {shown.map((item) => (
               <li key={`${item.kind}-${item.itemId}`}>
-                <HandoffCard item={item} settings={handoffs.settings} href={handoffCardHref(item)} showKind detail={detailOf(item)} />
+                {item.kind === "issue" ? (
+                  <HandoffCard item={item} settings={handoffs.settings} showKind detail={detailOf(item)}>
+                    <BigButton onClick={() => markHandled(item)}>Mark handled</BigButton>
+                    {item.data.photoUrl ? (
+                      <a className="ui-btn ui-btn-second" href={item.data.photoUrl} target="_blank" rel="noopener noreferrer">
+                        Photo
+                      </a>
+                    ) : null}
+                  </HandoffCard>
+                ) : (
+                  <HandoffCard item={item} settings={handoffs.settings} href={handoffCardHref(item)} showKind detail={detailOf(item)} />
+                )}
               </li>
             ))}
           </ul>

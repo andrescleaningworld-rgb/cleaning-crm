@@ -28,6 +28,7 @@ import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
+import SitePhotos from "./site-photos";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
@@ -1440,6 +1441,8 @@ export default function AccountDetailPage() {
             <section className="account-detail-print-hide">
               <ChecklistTemplateEditor accountId={getAccountId(account, rawAccountIdFromUrl)} accountName={accountName} />
             </section>
+
+            <SitePhotos accountId={thisAccountId} accountName={accountName} />
 
             {/* Every save: who, when, and each field's old → new value. */}
             <div className="account-detail-print-hide">

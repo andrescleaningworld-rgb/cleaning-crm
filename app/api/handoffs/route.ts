@@ -9,7 +9,7 @@ import { fetchAllMainAccounts, fetchOnboardingChecklist } from "@/lib/data/accou
 import {
   ACCOUNT_DONE_STEP,
   ORDER_STEPS,
-  UPDATE_STEPS,
+  stepsFor,
   currentOnboardingSection,
   onboardingRules,
   type HandoffKind,
@@ -108,8 +108,8 @@ export async function POST(request: NextRequest) {
       const kind = clean(body.kind) as HandoffKind;
       const itemId = clean(body.itemId);
       const toStep = clean(body.toStep);
-      if ((kind !== "update" && kind !== "order") || !itemId) return refuse("kind and itemId are required.");
-      const steps = kind === "order" ? ORDER_STEPS : UPDATE_STEPS;
+      if (!["update", "order", "issue", "extra"].includes(kind) || !itemId) return refuse("kind and itemId are required.");
+      const steps = stepsFor(kind, null);
       const toIndex = steps.findIndex((s) => s.key === toStep);
       if (toIndex < 1) return refuse("That is not a step this can move to.");
 
