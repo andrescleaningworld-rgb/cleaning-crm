@@ -14,6 +14,8 @@ import {
 } from "@/lib/data/accounts";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
+import { isPostgres } from "@/lib/dataSource";
+import { sendSubcontractorNotification } from "@/lib/email";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -310,9 +312,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // The new-account packet email is composed by Apps Script, so it needs
-    // the URL on either source; add/update only need it on Sheets.
-    if (!SCRIPT_URL && (!accountsOnPostgres() || action === "sendNewAccountPacket" || body.action === "sendNewAccountPacket")) {
+    // The new-account packet email is composed by Apps Script (unless
+    // DATA_SOURCE_ACCOUNT_PACKET=postgres), so it needs the URL on either
+    // source; add/update only need it on Sheets.
+    const packetNeedsScript = (action === "sendNewAccountPacket" || body.action === "sendNewAccountPacket") && !isPostgres("ACCOUNT_PACKET");
+    if (!SCRIPT_URL && (!accountsOnPostgres() || packetNeedsScript)) {
       return NextResponse.json(
         { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
         { status: 500 }
@@ -372,7 +376,8 @@ export async function POST(request: NextRequest) {
     }
 
     // === NEW: Handle Send New Account Packet ===
-    if (action === "sendNewAccountPacket") {
+    // (With DATA_SOURCE_ACCOUNT_PACKET=postgres the app sends it itself, just below.)
+    if (action === "sendNewAccountPacket" && !isPostgres("ACCOUNT_PACKET")) {
       const response = await fetchAppsScriptDirect(SCRIPT_URL!, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -400,6 +405,39 @@ export async function POST(request: NextRequest) {
     // Sending a packet must NEVER create a new row in the sheet.
     // Call the Apps Script via GET so doGet() runs (not doPost which writes rows).
     if (body.action === "sendNewAccountPacket") {
+      // DATA_SOURCE_ACCOUNT_PACKET=postgres: the app sends the packet email
+      // itself, to the subcontractor, with the same details. Apps Script is
+      // not called and no row is written anywhere.
+      if (isPostgres("ACCOUNT_PACKET")) {
+        const field = (key: string) => String(body[key] ?? "").trim();
+        const to = field("subcontractorEmail");
+        if (!to) {
+          return NextResponse.json({ success: false, error: "This subcontractor has no email on file, so the packet was not sent." }, { status: 400 });
+        }
+        const sent = await sendSubcontractorNotification(to, `New Account - ${field("accountName") || "Account"}`, [
+          `Account: ${field("accountName") || "-"}`,
+          `Address: ${field("address") || "-"}`,
+          `Start date: ${field("startDate") || "-"}`,
+          `Cleaning schedule: ${field("cleaningSchedule") || "-"}`,
+          `Subcontractor: ${field("subcontractor") || "-"}`,
+          `Monthly pay: ${field("monthlySubcontractorPay") || "-"}`,
+          `Key: ${field("hasKey") || "-"}`,
+          `Alarm: ${field("alarmInfo") || "-"}`,
+          "",
+          "Scope of work:",
+          field("scope") || "-",
+          "",
+          "Notes:",
+          field("notes") || "-",
+          "",
+          `Cleaning World contact: ${field("manager") || "Cleaning World Office"}`,
+        ]);
+        if (!sent) {
+          return NextResponse.json({ success: false, error: "The packet email could not be sent." }, { status: 500 });
+        }
+        return NextResponse.json({ success: true, message: "New account packet sent successfully." });
+      }
+
       const params = new URLSearchParams({
         action: "sendNewAccountPacket",
         accountId:              String(body.accountId              ?? ""),

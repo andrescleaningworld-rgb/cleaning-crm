@@ -25,7 +25,7 @@ const TABLES = {
   sub_activity_log: ["SUBS / SUB_PORTAL", "MAIN / Subcontractor Activity Log", "What subs did in their portal (Login, Viewed Schedule …). Never mixed with the staff activity log."],
   accounts: ["ACCOUNTS", "MAIN / Accounts", "Customer accounts. `id` is the app's account id; `pk` is the row's own key."],
   onboarding_checklists: ["ACCOUNTS", "MAIN / OnboardingChecklist", "New-account checklist progress."],
-  account_updates: ["(Apps Script)", "MAIN / Account Updates", "Account history notes. Copied; the app still reads and saves them through Apps Script."],
+  account_updates: ["(Apps Script)", "MAIN / Account Updates", "Account history notes. Copied; the app reads and saves them here with DATA_SOURCE_ACCOUNT_UPDATES=postgres (otherwise through Apps Script)."],
   sub_transfer_proposals: ["(Apps Script)", "MAIN / Sub Transfer Proposals", "Proposals to move accounts to another sub. Copied; still on Apps Script."],
   equipment_categories: ["EQUIPMENT", "MAIN / EquipmentCategories", "Kinds of equipment."],
   equipment: ["EQUIPMENT", "MAIN / Equipment", "Machines and tools."],

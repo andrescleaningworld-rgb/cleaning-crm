@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { handoffsReady, startHandoff } from "@/lib/pg/handoffs";
+import { isPostgres } from "@/lib/dataSource";
+import { addAccountUpdate, listAccountUpdates } from "@/lib/pg/account-updates";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -36,6 +38,12 @@ function clean(value: unknown): string {
 
 export async function GET() {
   try {
+    // DATA_SOURCE_ACCOUNT_UPDATES=postgres: the same list, in the same shape,
+    // without Apps Script.
+    if (isPostgres("ACCOUNT_UPDATES")) {
+      return NextResponse.json({ success: true, accountUpdates: await listAccountUpdates() }, { headers: { "Cache-Control": "no-store" } });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -119,7 +127,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    if (!SCRIPT_URL) {
+    const postgres = isPostgres("ACCOUNT_UPDATES");
+    if (!postgres && !SCRIPT_URL) {
       return NextResponse.json(
         {
           success: false,
@@ -142,15 +151,24 @@ export async function POST(request: Request) {
       notifyEmail: clean(body.notifyEmail),
     };
 
-    console.log("Saving account update payload:", payload);
 
     // addAccountUpdate appends a new history row (and sends an email) — not
     // idempotent, so a thrown error (timeout/network failure) is not
     // retried here to avoid risking a duplicate entry/email. A 5xx means
     // the Apps Script explicitly rejected the request (safe to retry,
     // nothing was written).
+    // DATA_SOURCE_ACCOUNT_UPDATES=postgres: saved here (and the notice email
+    // sent from here); Apps Script is not called.
+    let data: ScriptResponse;
+    if (postgres) {
+      if (!payload.accountName && !payload.notes) {
+        return NextResponse.json({ success: false, error: "Nothing to save: the update has no account and no notes." }, { status: 400 });
+      }
+      const saved = await addAccountUpdate(payload);
+      data = { success: true, id: saved.id, message: "Account update saved successfully." };
+    } else {
     const response = await fetchAppsScript(
-      SCRIPT_URL,
+      SCRIPT_URL!,
       {
         method: "POST",
         headers: {
@@ -164,8 +182,6 @@ export async function POST(request: Request) {
     );
 
     const text = await response.text();
-
-    let data: ScriptResponse;
 
     try {
       data = JSON.parse(text) as ScriptResponse;
@@ -192,6 +208,7 @@ export async function POST(request: Request) {
         },
         { status: 500 }
       );
+    }
     }
 
     // The office's "To process" list. Best effort: a failure here never

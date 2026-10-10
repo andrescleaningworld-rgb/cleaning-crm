@@ -144,6 +144,11 @@ export async function sendInternalNotification(
   );
 }
 
+// One notice to one person on the team (the Account Updates "notify" email).
+export async function sendStaffNotification(to: string, subject: string, lines: string[]): Promise<boolean> {
+  return sendPlainTextEmail([to], subject, lines);
+}
+
 // One email to one customer (the portal's "Set your password" link). Plain
 // text, through the same provider and the same dry-run switch as the rest.
 export async function sendCustomerEmail(to: string, subject: string, lines: string[]): Promise<boolean> {
