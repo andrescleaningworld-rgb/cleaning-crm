@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
+import { PinButton, usePinInfo } from "../components/pin-to-board";
 import { useEffect, useMemo, useState } from "react";
 import {
   BigButton,
@@ -259,6 +260,8 @@ function getComplaintPhotoCount(
 
 export default function ComplaintsPage() {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  // "Pin to board" (Settings -> Pin Board).
+  const { info: pinInfo } = usePinInfo();
   const [photos, setPhotos] = useState<ComplaintPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingPhotos, setLoadingPhotos] = useState(true);
@@ -706,6 +709,16 @@ export default function ComplaintsPage() {
               {photoText(complaint) ? <p className="ui-card-text">{photoText(complaint)}</p> : null}
               {clean(complaint.accountName) ? <p className="ui-card-text">{accountLink(complaint)}</p> : null}
               <div style={{ marginTop: 12 }}>{rowActions(complaint)}</div>
+              {clean(complaint.id) ? (
+                <div style={{ marginTop: 8 }}>
+                  <PinButton
+                    info={pinInfo}
+                    type="complaint"
+                    record={{ recordId: clean(complaint.id), title: clean(complaint.accountName) || "Complaint", accountName: clean(complaint.accountName) }}
+                    managerName={clean(complaint.manager)}
+                  />
+                </div>
+              ) : null}
             </Card>
           )}
           columns={[

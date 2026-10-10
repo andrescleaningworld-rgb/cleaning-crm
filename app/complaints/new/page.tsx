@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
@@ -263,6 +264,10 @@ function NewComplaintPageContent() {
   const [showAccountResults, setShowAccountResults] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [saving, setSaving] = useState(false);
+  // "Pin to board": starts as Settings says, in the square of whoever the complaint is assigned to.
+  const { info: pinInfo } = usePinInfo();
+  const [pinPicked, setPinPicked] = useState<PinChoice | null>(null);
+  const pinChoice = pinPicked ?? startingPin(pinInfo, "complaint", form.assignedTo);
   const [message, setMessage] = useState("");
   const [selectedPhotos, setSelectedPhotos] = useState<SelectedPhoto[]>([]);
   const [todoDueDateTouched, setTodoDueDateTouched] = useState(false);
@@ -636,6 +641,10 @@ function NewComplaintPageContent() {
         (data.rowNumber ? String(data.rowNumber) : "") ||
         `COMP-${Date.now()}`;
 
+      // The complaint is saved; put its paper in the chosen square. (Only with its real id: a made-up one pins nothing.)
+      await pinAfterSave(pinInfo, "complaint", pinChoice, { recordId: data.id ?? "", title: form.accountName, accountId: form.accountId, accountName: form.accountName });
+      setPinPicked(null);
+
       let successMessage = "Complaint saved successfully.";
 
       if (selectedPhotos.length > 0) {
@@ -935,6 +944,8 @@ function NewComplaintPageContent() {
             </div>
           )}
         </Card>
+
+        <PinSwitch info={pinInfo} type="complaint" value={pinChoice} onChange={setPinPicked} disabled={saving} />
 
         <div className="ui-actionbar">
           <BigButton type="submit" busy={saving} busyLabel="Saving…">

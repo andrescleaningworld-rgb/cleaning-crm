@@ -326,7 +326,7 @@ const LINE_OPEN = `(
 // One order = the lines that share an Order Group ID. The lines saved so far
 // have none, so without it one order = what one sub ordered for one account
 // on one day.
-const SUB_ORDER_GROUPS = `
+export const SUB_ORDER_GROUPS = `
   SELECT 'sub-' || COALESCE(
            NULLIF(btrim(o.order_group_id), ''),
            md5(o.ordered_on::text || '|' || lower(btrim(COALESCE(NULLIF(btrim(o.subcontractor_email), ''), o.subcontractor))) || '|' || lower(btrim(o.account_name))),
@@ -369,9 +369,12 @@ type PaperRow = {
 function paperHref(row: PaperRow): string {
   const accountId = clean(row.account_id);
   if (row.kind === "account") return `/accounts/${encodeURIComponent(row.item_id)}?onboarding=1`;
-  if (row.kind === "complaint") return "/complaints";
+  // The complaint itself (its id is the paper's id).
+  if (row.kind === "complaint") return `/complaints/${encodeURIComponent(row.item_id)}`;
   if (row.kind === "supply") return clean(row.data?.orderId) ? `/supply-orders?order=${encodeURIComponent(clean(row.data?.orderId))}` : "/supply-orders";
   if (row.kind === "extra" && clean(row.data?.jobId)) return `/extra-jobs/${encodeURIComponent(clean(row.data?.jobId))}`;
+  // A record pinned from its own screen ("Pin to board") opens where it lives.
+  if (row.kind === "note" && clean(row.data?.recordType)) return clean(row.data?.href);
   return accountId ? `/accounts/${encodeURIComponent(accountId)}` : "";
 }
 
@@ -397,6 +400,7 @@ function toPaper(row: PaperRow): Paper {
   return {
     kind: row.kind,
     itemId: row.item_id,
+    label: row.kind === "note" ? clean(row.data?.label) : "",
     title: clean(row.title) || clean(row.account_name),
     accountId: clean(row.account_id),
     accountName: clean(row.account_name),
@@ -411,6 +415,9 @@ function toPaper(row: PaperRow): Paper {
     doneBy: row.board_done_by ?? "",
     progress: row.kind === "account" ? countChecklistProgress(checklistItems(row.checklist_items)) : null,
     href: paperHref(row),
+    forWho: clean(row.data?.forWho),
+    dueDate: clean(row.data?.dueDate),
+    recordDone: clean(row.data?.recordDoneOn) !== "",
   };
 }
 

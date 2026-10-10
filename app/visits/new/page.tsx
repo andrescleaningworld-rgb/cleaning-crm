@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { BigButton, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 
 type Account = {
@@ -23,6 +24,8 @@ type SaveVisitResponse = {
   success?: boolean;
   error?: string;
   message?: string;
+  /** The new visit's id. */
+  id?: string;
 };
 
 function clean(value: unknown): string {
@@ -61,6 +64,10 @@ function NewVisitPageContent() {
   const [notes, setNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
+  // "Pin to board": starts as Settings says, in the square of the manager who made the visit.
+  const { info: pinInfo } = usePinInfo();
+  const [pinPicked, setPinPicked] = useState<PinChoice | null>(null);
+  const pinChoice = pinPicked ?? startingPin(pinInfo, "visit", manager);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -181,6 +188,8 @@ function NewVisitPageContent() {
         throw new Error(data.error || "Failed to save visit.");
       }
 
+      await pinAfterSave(pinInfo, "visit", pinChoice, { recordId: clean(data.id), title: [visitType, accountName].filter(Boolean).join(" · "), accountName });
+
       setMessage(data.message || "Visit saved successfully.");
 
       setTimeout(() => {
@@ -272,6 +281,8 @@ function NewVisitPageContent() {
           onChange={(event) => setNotes(event.target.value)}
           placeholder="Write visit notes, issues found, customer feedback, or follow-up details..."
         />
+
+        <PinSwitch info={pinInfo} type="visit" value={pinChoice} onChange={setPinPicked} disabled={saving} />
       </form>
     </Screen>
   );

@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
+import { PIN_TYPES, isPinType, readPinTypes, type PinInfo } from "@/lib/boardPins";
+import { getPinTypes, listPinnedRecords, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import {
   boardReady,
   createTvLink,
@@ -45,14 +47,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, accounts: rows.map((row) => ({ id: row.id, name: row.account_name.trim() })) }, noStore);
     }
 
+    // What a record's own screen needs to offer "Pin to board": which types are switched on, the squares, and what is pinned now.
+    if (view === "pin") {
+      const [types, managers, pinned] = await Promise.all([getPinTypes(), listBoardManagers(), listPinnedRecords()]);
+      const info: PinInfo = { types, managers, pinned };
+      return NextResponse.json({ success: true, ready: true, ...info }, noStore);
+    }
+
     // Settings -> Pin Board: the days setting and the TV links (owner only).
     if (view === "settings") {
       if (identity?.role !== "owner") return refuse("Only the owner can see the TV links.", 403);
-      const [settings, links] = await Promise.all([getBoardSettings(), listTvLinks()]);
-      return NextResponse.json({ success: true, ready: true, settings, links }, noStore);
+      const [settings, links, pinTypes, pinReady] = await Promise.all([getBoardSettings(), listTvLinks(), getPinTypes(), pinSettingsReady()]);
+      return NextResponse.json({ success: true, ready: true, settings, links, pinTypes, pinReady }, noStore);
     }
 
     await syncBoard();
+    // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
+    await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
     const [settings, managers, lists] = await Promise.all([getBoardSettings(), listBoardManagers(), listPapers()]);
     const staffId = clean(identity?.staffId);
     const me: BoardMe = {
@@ -95,7 +106,6 @@ export async function POST(request: NextRequest) {
       const square = clean(body.square);
       if (!kind || !itemId) return refuse("kind and itemId are required.");
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
-      if (!square && kind === "note") return refuse("A to-do stays in a person's square.");
       if (!(await movePaper(kind, itemId, square))) return refuse("That paper is not on the board any more.", 404);
       return NextResponse.json({ success: true });
     }
@@ -112,6 +122,36 @@ export async function POST(request: NextRequest) {
       if (isExtraJobPaper(kind, itemId) && body.on !== false) return refuse("Mark this job Done on its own page. It needs an after photo.");
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
       return NextResponse.json({ success: true });
+    }
+
+    // "Pin to board" on a record's own screen. The record is only read; the paper points at it.
+    if (action === "pinRecord") {
+      const type = clean(body.type);
+      const recordId = clean(body.recordId);
+      const square = clean(body.square);
+      if (!isPinType(type) || !recordId) return refuse("type and recordId are required.");
+      if (!PIN_TYPES.find((entry) => entry.type === type)?.available) return refuse("That kind of record cannot be pinned yet.");
+      if (!(await getPinTypes())[type].show) return refuse("Pin to board is switched off for that kind of record.", 409);
+      if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate) }, by);
+      if (!pinned) return refuse("That record was not found, so it was not pinned.", 404);
+      return NextResponse.json({ success: true });
+    }
+
+    // "Unpin" on a record's own screen: the paper comes down; the record is not touched.
+    if (action === "unpinRecord") {
+      const type = clean(body.type);
+      const recordId = clean(body.recordId);
+      if (!isPinType(type) || !recordId) return refuse("type and recordId are required.");
+      if (!(await unpinRecord(type, recordId, by))) return refuse("It was not on the board any more.", 404);
+      return NextResponse.json({ success: true });
+    }
+
+    // Settings -> Pin Board -> "Pin to board": which kinds of record offer it (owner only).
+    if (action === "savePinTypes") {
+      if (identity.role !== "owner") return refuse("Only the owner can change this.", 403);
+      if (!(await pinSettingsReady())) return refuse("This database is not ready for that setting yet.", 409);
+      return NextResponse.json({ success: true, pinTypes: await savePinTypes(readPinTypes(body.pinTypes), by) });
     }
 
     if (action === "saveSettings") {

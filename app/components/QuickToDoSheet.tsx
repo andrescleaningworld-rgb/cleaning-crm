@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { BigButton, CHEER, ErrorBox, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
+import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "./pin-to-board";
 
 const TASK_TYPES = [
   "Visit",
@@ -49,6 +50,10 @@ export default function QuickToDoSheet({
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // "Pin to board": starts as Settings says, in the square of whoever it is assigned to.
+  const { info: pinInfo } = usePinInfo();
+  const [pinPicked, setPinPicked] = useState<PinChoice | null>(null);
+  const pinChoice = pinPicked ?? startingPin(pinInfo, "todo", form.assignedTo);
 
   useEffect(() => {
     if (!open) return;
@@ -106,8 +111,10 @@ export default function QuickToDoSheet({
           status: "Open",
         }),
       });
-      const data = (await response.json().catch(() => ({}))) as { success?: boolean; message?: string; calendarSyncFailed?: boolean };
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; message?: string; calendarSyncFailed?: boolean; ids?: string[] };
       if (!data.success) throw new Error(data.message ?? "Could not create to-do.");
+      await pinAfterSave(pinInfo, "todo", pinChoice, { recordId: data.ids?.[0] ?? "", title: [form.why || form.taskType, accountName].filter(Boolean).join(" · "), accountId, accountName });
+      setPinPicked(null);
       onClose();
       showToast(data.calendarSyncFailed ? `${CHEER.logged} (Calendar sync failed, check the To-Do page.)` : CHEER.logged);
     } catch (err) {
@@ -164,6 +171,7 @@ export default function QuickToDoSheet({
         onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
         disabled={saving}
       />
+      <PinSwitch info={pinInfo} type="todo" value={pinChoice} onChange={setPinPicked} disabled={saving} />
       {error ? <ErrorBox title="The to-do was not created." text={error} onRetry={() => void submit()} /> : null}
     </Sheet>
   );
