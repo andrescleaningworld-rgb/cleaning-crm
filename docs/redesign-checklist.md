@@ -436,3 +436,7 @@ screen instead of being texted. `--remove` deletes it and everything it sent.
 
 "Add visit" is the big button at the top of the Visits page, and "Log visit"
 on an account opens the new visit form with that account selected.
+
+## Photos
+
+New page, nothing moved: see `docs/photos.md`. Sidebar → Work → Photos (camera icon), and Account page → More → Photos, both only where `FEATURE_PHOTOS` is on.

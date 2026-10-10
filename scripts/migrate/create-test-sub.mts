@@ -33,6 +33,7 @@ const remove = process.argv.includes("--remove");
 async function removeAll() {
   await sql.query(`DELETE FROM handoff_items WHERE lower(data->>'subEmail') = $1`, [EMAIL]).catch(() => undefined);
   await sql.query(`DELETE FROM sub_site_photos WHERE sub_email = $1`, [EMAIL]).catch(() => undefined);
+  await sql.query(`DELETE FROM photo_index WHERE account_name LIKE 'ZZ Test%'`).catch(() => undefined);
   await sql.query(`DELETE FROM sub_setup_links WHERE email = $1`, [EMAIL]).catch(() => undefined);
   await sql.query(`DELETE FROM sub_pins WHERE email = $1`, [EMAIL]).catch(() => undefined);
   // What the test sub sent from the made-up site (rows made by the app carry no source_sheet).

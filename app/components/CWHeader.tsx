@@ -61,6 +61,9 @@ const ADMIN_GROUPS: NavGroup[] = [
   },
 ];
 
+// Added to the Work group where FEATURE_PHOTOS is on.
+const PHOTOS_ITEM: NavItem = { href: "/photos", label: "Photos", icon: "camera" };
+
 // Pinned to the bottom of the sidebar, above Logout.
 const ADMIN_FOOT: NavItem[] = [
   { href: "/settings", label: "Settings", icon: "settings" },
@@ -114,6 +117,22 @@ export default function CWHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   // Wide screens: icons only, remembered on this device.
   const [collapsed, setCollapsed] = useState(false);
+  // Photos shows in the sidebar only where FEATURE_PHOTOS is on.
+  const [photosOn, setPhotosOn] = useState(false);
+
+  useEffect(() => {
+    if (role !== "admin") return;
+    let cancelled = false;
+    fetch("/api/photo-index?flag=1")
+      .then((response) => response.json())
+      .then((data: { on?: boolean }) => {
+        if (!cancelled) setPhotosOn(data.on === true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
@@ -211,11 +230,14 @@ export default function CWHeader() {
 
   const navGroups = useMemo<NavGroup[]>(() => {
     if (!mounted) return [];
-    if (role === "admin") return ADMIN_GROUPS;
+    if (role === "admin") {
+      if (!photosOn) return ADMIN_GROUPS;
+      return ADMIN_GROUPS.map((group) => (group.name === "Work" ? { ...group, items: [...group.items, PHOTOS_ITEM] } : group));
+    }
     if (role === "subcontractor") return SUBCONTRACTOR_GROUPS;
     if (role === "customer") return CUSTOMER_GROUPS;
     return [];
-  }, [role, mounted]);
+  }, [role, mounted, photosOn]);
 
   // While the slide-in menu is open on a phone, the page behind it does not scroll.
   useEffect(() => {
@@ -404,6 +426,7 @@ function BackArrow() {
 }
 
 const SIDE_ICONS = {
+  camera: "M4 8h3l1.5-2h7L17 8h3v11H4V8zm8 8a3 3 0 100-6 3 3 0 000 6z",
   home: "M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6h-6v6H5a1 1 0 01-1-1v-8z",
   accounts: "M4 20V6a1 1 0 011-1h8a1 1 0 011 1v14M14 10h5a1 1 0 011 1v9M3 20h18M8 9h2M8 13h2M8 17h2",
   todo: "M9 11l3 3 8-8M20 12v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1h11",

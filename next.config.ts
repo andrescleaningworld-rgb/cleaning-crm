@@ -27,19 +27,24 @@ if (process.env.VERCEL_ENV === "preview") {
 // very first push would otherwise build a preview that reads and writes the
 // live Sheets and can send real texts and emails. Stop the build instead
 // until the safety settings are there.
-if (process.env.VERCEL_ENV === "preview" && process.env.VERCEL_GIT_COMMIT_REF === "redesign/simple") {
+const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos"];
+if (process.env.VERCEL_ENV === "preview" && SAFE_PREVIEW_BRANCHES.includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")) {
   const missing = [
     process.env.SHEETS_READ_ONLY === "1" ? "" : "SHEETS_READ_ONLY=1",
     process.env.OUTBOUND_DRY_RUN === "1" ? "" : "OUTBOUND_DRY_RUN=1",
     process.env.DATA_SOURCE_ACCOUNTS === "postgres" ? "" : "DATA_SOURCE_*=postgres",
   ].filter(Boolean);
   if (missing.length > 0) {
-    throw new Error(`Preview build stopped: the redesign/simple preview needs ${missing.join(", ")} set for Preview on this branch.`);
+    throw new Error(`Preview build stopped: the ${process.env.VERCEL_GIT_COMMIT_REF} preview needs ${missing.join(", ")} set for Preview on this branch.`);
   }
 }
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The Photos page asks Next's image resizer for small thumbnails of files
+  // kept in Blob storage.
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "**.public.blob.vercel-storage.com" }],
+  },
 };
 
 export default nextConfig;
