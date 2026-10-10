@@ -23,6 +23,8 @@ export const DATA_SOURCE_AREAS = [
   "CUSTOMER_PORTAL",
   "SUPPLIES",
   "SUB_PORTAL",
+  "ACCOUNT_UPDATES",
+  "ACCOUNT_PACKET",
 ] as const;
 
 export type DataSourceArea = (typeof DATA_SOURCE_AREAS)[number];

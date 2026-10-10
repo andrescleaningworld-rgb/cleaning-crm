@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { isPostgres } from "@/lib/dataSource";
+import { addAccountUpdate, listAccountUpdates } from "@/lib/pg/account-updates";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -13,6 +15,12 @@ export const maxDuration = 45;
 
 export async function GET() {
   try {
+    // DATA_SOURCE_ACCOUNT_UPDATES=postgres: the same list, without Apps Script.
+    if (isPostgres("ACCOUNT_UPDATES")) {
+      const updates = await listAccountUpdates();
+      return NextResponse.json({ success: true, updates, accountUpdates: updates });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -91,6 +99,14 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    // DATA_SOURCE_ACCOUNT_UPDATES=postgres: saved here; Apps Script is not called.
+    if (isPostgres("ACCOUNT_UPDATES")) {
+      const body = (await request.json()) as Record<string, unknown>;
+      const text = (key: string) => String(body[key] ?? "").trim();
+      const saved = await addAccountUpdate({ date: text("date"), accountName: text("accountName"), accountId: text("accountId"), updateType: text("updateType"), manager: text("manager"), notes: text("notes"), notifyEmail: text("notifyEmail"), title: text("title"), followUpNeeded: text("followUpNeeded"), followUpDate: text("followUpDate") });
+      return NextResponse.json({ success: true, id: saved.id, message: "Account update saved successfully." });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
