@@ -19,7 +19,7 @@ import { getSql } from "@/lib/db";
 import { PIN_TYPES, readPinTypes, type PinRequest, type PinType, type PinTypes } from "@/lib/boardPins";
 import { SUB_ORDER_GROUPS } from "@/lib/pg/board";
 
-/** The settings column comes with migration 024. Until it is applied, the defaults are used and nothing can be saved. */
+/** The settings column comes with migration 025. Until it is applied, the defaults are used and nothing can be saved. */
 export async function pinSettingsReady(): Promise<boolean> {
   const sql = getSql();
   const rows = (await sql`
@@ -47,7 +47,9 @@ const noteItemId = (type: PinType, recordId: string) => `pin-${type}-${recordId}
 /** Where each kind of record opens. */
 function recordHref(type: PinType, recordId: string): string {
   if (type === "visit") return `/visits/${encodeURIComponent(recordId)}`;
-  if (type === "todo") return "/to-do";
+  // Opens the To-Do page scrolled to that to-do, highlighted.
+  if (type === "todo") return `/to-do?id=${encodeURIComponent(recordId)}`;
+  if (type === "account") return `/accounts/${encodeURIComponent(recordId)}`;
   return "";
 }
 
@@ -79,13 +81,14 @@ export async function pinRecord(request: PinRequest, by: string): Promise<boolea
   const square = request.square.trim();
   const recordId = request.recordId.trim();
 
-  if (request.type === "todo" || request.type === "visit") {
+  if (request.type === "todo" || request.type === "visit" || request.type === "account") {
     const one = PIN_TYPES.find((entry) => entry.type === request.type)!.one;
-    const data = { notes: "", recordType: request.type, recordId, label: one, href: recordHref(request.type, recordId) };
+    const dueDate = /^\d{4}-\d{2}-\d{2}/.test(request.dueDate ?? "") ? (request.dueDate as string).slice(0, 10) : "";
+    const data = { notes: "", recordType: request.type, recordId, label: one, href: recordHref(request.type, recordId), forWho: (request.forWho ?? "").trim().slice(0, 80), dueDate };
     await sql.query(
       `INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
        VALUES ('note', $1, $2, $3, $4, '', 'pinned', $5::jsonb, $6, now(), $7)
-       ON CONFLICT (kind, item_id) DO UPDATE SET title = EXCLUDED.title, account_id = EXCLUDED.account_id, account_name = EXCLUDED.account_name, ${REPIN}`,
+       ON CONFLICT (kind, item_id) DO UPDATE SET title = EXCLUDED.title, account_id = EXCLUDED.account_id, account_name = EXCLUDED.account_name, data = EXCLUDED.data, created_by = EXCLUDED.created_by, ${REPIN}`,
       [noteItemId(request.type, recordId), request.title.trim().slice(0, 300) || one, (request.accountId ?? "").trim(), (request.accountName ?? "").trim(), JSON.stringify(data), by, square]
     );
     return true;
@@ -127,6 +130,78 @@ export async function pinRecord(request: PinRequest, by: string): Promise<boolea
   return false;
 }
 
+/**
+ * Takes a record's paper down ("Unpin" on the record's own screen). It goes
+ * to the Done tray with who unpinned it, like any paper taken down by hand.
+ * The record itself is not touched. Returns false when it was not pinned.
+ */
+export async function unpinRecord(type: PinType, recordId: string, by: string): Promise<boolean> {
+  const sql = getSql();
+  const id = recordId.trim();
+  const who = `Unpinned by ${by}`.slice(0, 120);
+  if (type === "todo" || type === "visit" || type === "account") {
+    const rows = (await sql`
+      UPDATE handoff_items SET board_done_at = now(), board_done_by = ${who}
+      WHERE kind = 'note' AND item_id = ${noteItemId(type, id)} AND board_pinned_at IS NOT NULL AND board_done_at IS NULL RETURNING item_id
+    `) as unknown[];
+    return rows.length > 0;
+  }
+  if (type === "complaint") {
+    const rows = (await sql`
+      UPDATE handoff_items SET board_done_at = now(), board_done_by = ${who}
+      WHERE kind = 'complaint' AND item_id = ${id} AND board_pinned_at IS NOT NULL AND board_done_at IS NULL RETURNING item_id
+    `) as unknown[];
+    return rows.length > 0;
+  }
+  if (type === "supply") {
+    const rows = (await sql.query(
+      `UPDATE handoff_items h SET board_done_at = now(), board_done_by = $2
+       WHERE h.kind = 'supply' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
+         AND h.item_id = (SELECT ${ORDER_PAPER_ID} FROM sub_supply_orders o WHERE btrim(o.order_id) = $1 OR o.sheet_row::text = $1 LIMIT 1)
+       RETURNING h.item_id`,
+      [id, who]
+    )) as unknown[];
+    return rows.length > 0;
+  }
+  return false;
+}
+
+/**
+ * Pinned to-dos follow their to-do: when it is Done (or Cancelled) the paper
+ * gets a green check, stays up for the rest of that day, and comes down by
+ * itself the next day. The to-do itself is only read.
+ */
+export async function syncPinnedTodos(): Promise<void> {
+  const sql = getSql();
+  // 1. Mark the papers whose to-do is finished (the day it was noticed).
+  await sql`
+    UPDATE handoff_items h SET data = h.data || jsonb_build_object('recordDoneOn', to_char(now() AT TIME ZONE 'America/New_York', 'YYYY-MM-DD'))
+    WHERE h.kind = 'note' AND h.data->>'recordType' = 'todo' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
+      AND COALESCE(h.data->>'recordDoneOn', '') = ''
+      AND EXISTS (SELECT 1 FROM todos t WHERE t.todo_id = h.data->>'recordId' AND lower(btrim(t.status)) IN ('done', 'cancelled', 'canceled', 'completed'))
+  `;
+  // 2. A to-do that was reopened loses its check.
+  await sql`
+    UPDATE handoff_items h SET data = h.data - 'recordDoneOn'
+    WHERE h.kind = 'note' AND h.data->>'recordType' = 'todo' AND h.board_done_at IS NULL AND COALESCE(h.data->>'recordDoneOn', '') <> ''
+      AND EXISTS (SELECT 1 FROM todos t WHERE t.todo_id = h.data->>'recordId' AND lower(btrim(t.status)) NOT IN ('done', 'cancelled', 'canceled', 'completed'))
+  `;
+  // 3. The next day, the checked paper comes down.
+  await sql`
+    UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Done in To-Do'
+    WHERE h.kind = 'note' AND h.data->>'recordType' = 'todo' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
+      AND COALESCE(h.data->>'recordDoneOn', '') <> ''
+      AND h.data->>'recordDoneOn' < to_char(now() AT TIME ZONE 'America/New_York', 'YYYY-MM-DD')
+  `;
+  // 4. Keep the due date and who it is for in step with the to-do.
+  await sql`
+    UPDATE handoff_items h SET data = h.data || jsonb_build_object('dueDate', COALESCE(to_char(t.due_date, 'YYYY-MM-DD'), ''), 'forWho', t.assigned_to)
+    FROM todos t
+    WHERE h.kind = 'note' AND h.data->>'recordType' = 'todo' AND h.board_done_at IS NULL AND t.todo_id = h.data->>'recordId'
+      AND (COALESCE(h.data->>'dueDate', '') <> COALESCE(to_char(t.due_date, 'YYYY-MM-DD'), '') OR COALESCE(h.data->>'forWho', '') <> t.assigned_to)
+  `;
+}
+
 /** Per record type, the ids of the records that are on the board right now (so their button can say "On the board"). */
 export async function listPinnedRecords(): Promise<Partial<Record<PinType, string[]>>> {
   const sql = getSql();
@@ -146,6 +221,7 @@ export async function listPinnedRecords(): Promise<Partial<Record<PinType, strin
   return {
     todo: notes.filter((row) => row.type === "todo").map((row) => row.id),
     visit: notes.filter((row) => row.type === "visit").map((row) => row.id),
+    account: notes.filter((row) => row.type === "account").map((row) => row.id),
     complaint: complaints.map((row) => row.id),
     supply: orders.map((row) => row.id),
   };

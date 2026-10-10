@@ -8,7 +8,7 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
 import { PIN_TYPES, isPinType, readPinTypes, type PinInfo } from "@/lib/boardPins";
-import { getPinTypes, listPinnedRecords, pinRecord, pinSettingsReady, savePinTypes } from "@/lib/pg/board-pins";
+import { getPinTypes, listPinnedRecords, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import {
   boardReady,
   createTvLink,
@@ -62,6 +62,8 @@ export async function GET(request: NextRequest) {
     }
 
     await syncBoard();
+    // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
+    await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
     const [settings, managers, lists] = await Promise.all([getBoardSettings(), listBoardManagers(), listPapers()]);
     const staffId = clean(identity?.staffId);
     const me: BoardMe = {
@@ -131,8 +133,17 @@ export async function POST(request: NextRequest) {
       if (!PIN_TYPES.find((entry) => entry.type === type)?.available) return refuse("That kind of record cannot be pinned yet.");
       if (!(await getPinTypes())[type].show) return refuse("Pin to board is switched off for that kind of record.", 409);
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
-      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square }, by);
+      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate) }, by);
       if (!pinned) return refuse("That record was not found, so it was not pinned.", 404);
+      return NextResponse.json({ success: true });
+    }
+
+    // "Unpin" on a record's own screen: the paper comes down; the record is not touched.
+    if (action === "unpinRecord") {
+      const type = clean(body.type);
+      const recordId = clean(body.recordId);
+      if (!isPinType(type) || !recordId) return refuse("type and recordId are required.");
+      if (!(await unpinRecord(type, recordId, by))) return refuse("It was not on the board any more.", 404);
       return NextResponse.json({ success: true });
     }
 

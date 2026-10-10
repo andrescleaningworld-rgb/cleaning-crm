@@ -115,12 +115,54 @@ export function PinButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [justPinned, setJustPinned] = useState(false);
+  const [justUnpinned, setJustUnpinned] = useState(false);
+  const [unpinOpen, setUnpinOpen] = useState(false);
   if (!info || !pinIsOn(info, type) || !record.recordId) return null;
-  if (justPinned || info.pinned[type]?.includes(record.recordId)) {
+
+  async function unpin() {
+    setError("");
+    setBusy(true);
+    try {
+      const response = await fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unpinRecord", type, recordId: record.recordId }) });
+      const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || body.success !== true) throw new Error(body.error ?? "It was not unpinned. Try again.");
+      setJustPinned(false);
+      setJustUnpinned(true);
+      setUnpinOpen(false);
+      showToast("Unpinned. It is off the board.");
+      onPinned?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "It was not unpinned. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // On the board already: the button says so, and a tap offers Unpin.
+  if (justPinned || (!justUnpinned && info.pinned[type]?.includes(record.recordId))) {
     return (
-      <span className="ui-pill ui-pill-done" data-pin-to-board={type}>
-        On the board
-      </span>
+      <>
+        <BigButton kind="second" data-pin-to-board={type} aria-pressed onClick={() => (setError(""), setUnpinOpen(true))}>
+          📌 On the board
+        </BigButton>
+        <Sheet
+          open={unpinOpen}
+          title="On the board"
+          text={record.title}
+          onClose={() => setUnpinOpen(false)}
+          busy={busy}
+          actions={
+            <BigButton busy={busy} busyLabel="Unpinning…" onClick={() => void unpin()}>
+              Unpin
+            </BigButton>
+          }
+        >
+          <div className="ui-stack">
+            <p>Unpin takes the paper off the board. Nothing else changes.</p>
+            {error ? <p className="ui-field-error">{error}</p> : null}
+          </div>
+        </Sheet>
+      </>
     );
   }
 
@@ -130,6 +172,7 @@ export function PinButton({
     try {
       await pinRecord({ type, square, ...record });
       setJustPinned(true);
+      setJustUnpinned(false);
       setOpen(false);
       showToast("Pinned to the board.");
       onPinned?.();
@@ -151,7 +194,7 @@ export function PinButton({
           setOpen(true);
         }}
       >
-        Pin to board
+        📌 Pin to board
       </BigButton>
       <Sheet
         open={open}

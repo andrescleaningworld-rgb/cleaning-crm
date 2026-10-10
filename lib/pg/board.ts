@@ -369,7 +369,8 @@ type PaperRow = {
 function paperHref(row: PaperRow): string {
   const accountId = clean(row.account_id);
   if (row.kind === "account") return `/accounts/${encodeURIComponent(row.item_id)}?onboarding=1`;
-  if (row.kind === "complaint") return "/complaints";
+  // The complaint itself (its id is the paper's id).
+  if (row.kind === "complaint") return `/complaints/${encodeURIComponent(row.item_id)}`;
   if (row.kind === "supply") return clean(row.data?.orderId) ? `/supply-orders?order=${encodeURIComponent(clean(row.data?.orderId))}` : "/supply-orders";
   if (row.kind === "extra" && clean(row.data?.jobId)) return `/extra-jobs/${encodeURIComponent(clean(row.data?.jobId))}`;
   // A record pinned from its own screen ("Pin to board") opens where it lives.
@@ -414,6 +415,9 @@ function toPaper(row: PaperRow): Paper {
     doneBy: row.board_done_by ?? "",
     progress: row.kind === "account" ? countChecklistProgress(checklistItems(row.checklist_items)) : null,
     href: paperHref(row),
+    forWho: clean(row.data?.forWho),
+    dueDate: clean(row.data?.dueDate),
+    recordDone: clean(row.data?.recordDoneOn) !== "",
   };
 }
 

@@ -30,6 +30,7 @@ import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
 import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
+import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
@@ -329,6 +330,8 @@ export default function AccountDetailPage() {
   const [showKeys, setShowKeys] = useState(false);
   // New accounts board: this account's place on it, if it is on it.
   const handoffs = useHandoffs();
+  // Pin Board: the "Pin to board" button (only where accounts are switched on in Settings -> Pin Board).
+  const { info: pinInfo } = usePinInfo();
 
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
@@ -1363,6 +1366,7 @@ export default function AccountDetailPage() {
                   Full account info
                 </BigButton>
                 <PhotosLink accountId={thisAccountId} accountName={accountName} />
+                <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
               </div>
 
               <Card title="Money">

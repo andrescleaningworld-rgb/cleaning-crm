@@ -27,7 +27,7 @@ if (process.env.VERCEL_ENV === "preview") {
 // very first push would otherwise build a preview that reads and writes the
 // live Sheets and can send real texts and emails. Stop the build instead
 // until the safety settings are there.
-const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos"];
+const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos", "feature/pin-to-board", "feature/no-apps-script"];
 if (process.env.VERCEL_ENV === "preview" && SAFE_PREVIEW_BRANCHES.includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")) {
   const missing = [
     process.env.SHEETS_READ_ONLY === "1" ? "" : "SHEETS_READ_ONLY=1",

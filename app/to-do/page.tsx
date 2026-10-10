@@ -515,7 +515,7 @@ function ToDoCard({
               <PinButton
                 info={pinInfo}
                 type="todo"
-                record={{ recordId: todo.id, title: [todo.why || todo.taskType, todo.accountName].filter(Boolean).join(" · "), accountName: todo.accountName }}
+                record={{ recordId: todo.id, title: [todo.why || todo.taskType, todo.accountName].filter(Boolean).join(" · "), accountName: todo.accountName, forWho: todo.assignedTo, dueDate: todo.dueDate }}
                 managerName={todo.assignedTo}
               />
             </div>

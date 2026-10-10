@@ -4,7 +4,7 @@
 // TV mode are their own pages, reached from the same tabs.
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BigButton,
   CHEER,
@@ -20,7 +20,7 @@ import {
   friendlyDate,
   showToast,
 } from "@/app/ui";
-import { KIND_LABEL, daysLabel, daysPinned, isOld, paperLabel, type BoardData, type Paper } from "@/lib/board";
+import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, daysLabel, daysPinned, isOld, paperLabel, type BoardData, type Paper } from "@/lib/board";
 import BoardCanvas from "./board-canvas";
 import styles from "./board.module.css";
 
@@ -59,6 +59,8 @@ export async function postBoard(body: Record<string, unknown>): Promise<Record<s
 
 export default function BoardClient({ startTab, phoneOpensMine = false }: { startTab: "board" | "mine"; phoneOpensMine?: boolean }) {
   const [state, setState] = useState<State>("loading");
+  const router = useRouter();
+  const restored = useRef(false);
   const [data, setData] = useState<BoardData | null>(null);
   const [tab, setTab] = useState<"board" | "mine">(startTab);
   const [openKey, setOpenKey] = useState("");
@@ -126,6 +128,36 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   const move = (paper: Paper, square: string) =>
     void act({ action: "move", kind: paper.kind, itemId: paper.itemId, square }, square ? `Handed to ${managerName(square)}` : paper.kind === "note" ? "Moved to Office" : "Back in the shared square");
   const take = (paper: Paper, on: boolean) => act({ action: "take", kind: paper.kind, itemId: paper.itemId, on }, on ? "Got it. The pin is green." : "Given back. The pin is red.");
+  // Tap = deep dive: a paper that points at a record opens that exact record.
+  // The board's place is remembered, so the back arrow returns to the same spot.
+  const loaded = data !== null;
+  useEffect(() => {
+    if (!loaded || restored.current) return;
+    restored.current = true;
+    try {
+      const saved = Number(window.sessionStorage.getItem(BOARD_SCROLL_KEY));
+      window.sessionStorage.removeItem(BOARD_SCROLL_KEY);
+      window.sessionStorage.removeItem(BOARD_FROM_KEY);
+      if (Number.isFinite(saved) && saved > 0) window.requestAnimationFrame(() => window.scrollTo({ top: saved }));
+    } catch {
+      // No storage: the board starts at the top.
+    }
+  }, [loaded]);
+
+  const openPaper = (paper: Paper) => {
+    if (!paper.href) {
+      setOpenKey(`${paper.kind}:${paper.itemId}`);
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(BOARD_SCROLL_KEY, String(window.scrollY));
+      window.sessionStorage.setItem(BOARD_FROM_KEY, paper.href.split("?")[0]);
+    } catch {
+      // No storage: it still opens; the board simply starts at the top afterwards.
+    }
+    router.push(paper.href);
+  };
+
   const finish = async (paper: Paper, on: boolean) => {
     const ok = await act({ action: "done", kind: paper.kind, itemId: paper.itemId, on }, on ? "Done. It is in the Done tray." : "Pinned back on the board.");
     if (ok && on) setOpenKey("");
@@ -156,8 +188,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
           {tab === "board" ? (
             <>
-              <BoardCanvas papers={papers} managers={data.managers} settings={data.settings} mySquare={data.me.squareId} onOpen={(paper) => setOpenKey(`${paper.kind}:${paper.itemId}`)} onMove={move} />
-              <p className="ui-muted">Tap a paper to open it. Drag it into a square to hand it off (on a phone, hold it first).</p>
+              <BoardCanvas papers={papers} managers={data.managers} settings={data.settings} mySquare={data.me.squareId} onOpen={openPaper} onMove={move} />
+              <p className="ui-muted">Tap a paper to open the thing itself. Drag it into a square to hand it off (on a phone, hold it first). Got it and Done are in My square.</p>
             </>
           ) : (
             <MySquare

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutButton";
 import { SHOW_TIPS_EVENT, useShell } from "@/app/ui";
+import { BOARD_FROM_KEY } from "@/lib/board";
 
 type UserRole = "admin" | "subcontractor" | "customer" | null;
 
@@ -267,7 +268,16 @@ export default function CWHeader() {
   const isLogin = pathname.endsWith("/login") || pathname.startsWith("/portal/forgot") || pathname.startsWith("/portal/set-password");
   const parent = "/" + pathname.split("/").filter(Boolean).slice(0, -1).join("/");
   const fallbackBack = mounted && role && !isHome && !isLogin ? (parent === "/" ? home : parent) : "";
-  const backHref = shell.backHref || (shell.onBack ? "" : fallbackBack);
+  // A page opened by tapping a paper on the Pin Board goes back to the board.
+  let fromBoard = false;
+  if (mounted && role === "admin" && !isHome) {
+    try {
+      fromBoard = window.sessionStorage.getItem(BOARD_FROM_KEY) === pathname;
+    } catch {
+      // No storage: the usual back arrow.
+    }
+  }
+  const backHref = fromBoard ? "/board" : shell.backHref || (shell.onBack ? "" : fallbackBack);
 
   function toggleCollapsed() {
     const next = !collapsed;

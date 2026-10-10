@@ -7,7 +7,7 @@
 
 import { Caveat } from "next/font/google";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, isOld, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import styles from "./board.module.css";
 
 const handwriting = Caveat({ subsets: ["latin"], weight: ["700"], display: "swap" });
@@ -45,6 +45,22 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
           </span>
         </>
       ) : null}
+      {!tv && (paper.forWho || paper.dueDate) ? (
+        <span className={styles.meta}>
+          {paper.forWho ? `For ${paper.forWho}` : ""}
+          {paper.forWho && paper.dueDate ? " · " : ""}
+          {paper.dueDate ? `Due ${dueLabel(paper.dueDate)}` : ""}
+        </span>
+      ) : null}
+      {isOverdue(paper, now) ? (
+        <span className={styles.overdueCorner} aria-hidden="true" />
+      ) : null}
+      {isOverdue(paper, now) ? <span className="ui-visually-hidden">Overdue.</span> : null}
+      {paper.recordDone ? (
+        <span className={styles.doneCheck}>
+          ✓ <span className="ui-visually-hidden">Done. It comes down tomorrow.</span>
+        </span>
+      ) : null}
       {!tv && taken ? <span className={styles.who}>Got it: {paper.takenBy}</span> : null}
       <span className="ui-visually-hidden">{taken ? "Someone has it." : "Nobody has taken it yet."}</span>
     </>
@@ -78,6 +94,8 @@ export default function BoardCanvas({
   onMove?: (paper: Paper, square: string) => void;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
+  // TV mode: the paper someone tapped, shown bigger. Nothing else happens on a tap there.
+  const [zoomed, setZoomed] = useState<Paper | null>(null);
   const [now, setNow] = useState(() => new Date());
   const pending = useRef<Pending | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -180,7 +198,14 @@ export default function BoardCanvas({
     const key = paperKey(paper);
     const style = { transform: `rotate(${paperTilt(paper.itemId)}deg)` };
     const face = <PaperFace paper={paper} settings={settings} tv={tv} now={now} />;
-    if (tv || !onOpen) {
+    if (tv) {
+      return (
+        <div key={key} className={paperClass(paper, settings, now)} style={style} role="button" tabIndex={0} onClick={() => setZoomed(paper)} onKeyDown={(event) => event.key === "Enter" && setZoomed(paper)}>
+          {face}
+        </div>
+      );
+    }
+    if (!onOpen) {
       return (
         <div key={key} className={paperClass(paper, settings, now)} style={style}>
           {face}
@@ -219,6 +244,13 @@ export default function BoardCanvas({
 
   return (
     <div className={`${styles.frame} ${tv ? styles.tv : ""}`}>
+      {tv && zoomed ? (
+        <div className={styles.zoom} role="dialog" aria-label="Paper, bigger" onClick={() => setZoomed(null)}>
+          <div className={`${paperClass(zoomed, settings, now)} ${styles.zoomPaper}`}>
+            <PaperFace paper={zoomed} settings={settings} tv now={now} />
+          </div>
+        </div>
+      ) : null}
       <div className={styles.cork}>
         <div className={styles.row}>
           {SHARED_SQUARES.map((square) => renderSquare(`shared:${square.kind}`, square.label, papersIn(papers, { shared: square.kind })))}

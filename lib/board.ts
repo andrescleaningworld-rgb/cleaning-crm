@@ -48,7 +48,30 @@ export type Paper = {
   progress: { done: number; total: number } | null;
   /** The real record this paper opens. "" = the paper is all there is (a note). */
   href: string;
+  /** A pinned record: who it is for and when it is due (YYYY-MM-DD). "" when not known. */
+  forWho: string;
+  dueDate: string;
+  /** A pinned to-do that is Done: green check, comes down the next day. */
+  recordDone: boolean;
 };
+
+/** Past its due date and not done: the red corner. */
+export function isOverdue(paper: Pick<Paper, "dueDate" | "recordDone">, now = new Date()): boolean {
+  if (!paper.dueDate || paper.recordDone) return false;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return paper.dueDate < today;
+}
+
+/** This tab only: where the board was scrolled to, and the page a paper opened, so its back arrow returns to the board. */
+export const BOARD_SCROLL_KEY = "cwBoardScroll";
+export const BOARD_FROM_KEY = "cwBoardFrom";
+
+/** "Oct 12" from YYYY-MM-DD. */
+export function dueLabel(dueDate: string): string {
+  const [y, m, d] = dueDate.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
 
 /** The few words printed on a paper: its own label when it has one, else its kind's. */
 export const paperLabel = (paper: Pick<Paper, "kind" | "label">) => paper.label || KIND_LABEL[paper.kind];

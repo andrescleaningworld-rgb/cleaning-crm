@@ -31,6 +31,9 @@ function forTv(paper: Paper): Paper {
     badge: "",
     square: paper.square,
     pinnedAt: paper.pinnedAt,
+    forWho: "",
+    dueDate: paper.dueDate,
+    recordDone: paper.recordDone,
     pinnedBy: "",
     takenBy: "",
     // Only whether someone has it (green pin), not who.

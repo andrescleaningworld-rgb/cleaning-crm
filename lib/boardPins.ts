@@ -7,7 +7,7 @@
 // paper that points at it. Unpinning or Done on the board changes the paper
 // only.
 
-export type PinType = "todo" | "complaint" | "supply" | "visit" | "update" | "packet";
+export type PinType = "todo" | "complaint" | "supply" | "visit" | "account" | "update" | "packet";
 
 export type PinTypeSetting = { show: boolean; pinned: boolean };
 
@@ -25,6 +25,7 @@ export const PIN_TYPES: {
   { type: "complaint", label: "Complaints", one: "Complaint", available: true },
   { type: "supply", label: "Supply orders", one: "Supply order", available: true },
   { type: "visit", label: "Visits", one: "Visit", available: true },
+  { type: "account", label: "Accounts", one: "Account", available: true },
   // Account Updates and the New Account packet are still saved by Apps Script.
   // Pinning one would need its record in Postgres first.
   { type: "update", label: "Account Updates", one: "Account update", available: false },
@@ -39,6 +40,7 @@ export const DEFAULT_PIN_TYPES: PinTypes = {
   complaint: { show: false, pinned: false },
   supply: { show: false, pinned: false },
   visit: { show: false, pinned: false },
+  account: { show: false, pinned: false },
   update: { show: false, pinned: false },
   packet: { show: false, pinned: false },
 };
@@ -81,6 +83,9 @@ export type PinRequest = {
   accountName?: string;
   /** "" = Office. */
   square: string;
+  /** Printed on the paper: who it is for, and when it is due (YYYY-MM-DD). */
+  forWho?: string;
+  dueDate?: string;
 };
 
 /** The square a record's manager owns, by name; Office when that manager has no square. */
