@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import AddPhotos from "./add-photos";
 import { BigButton, Counts, EmptyState, ErrorBox, Field, PullToRefresh, Screen, SearchBar, Sheet, SkeletonList, Tips, showToast } from "@/app/ui";
 
 type Photo = {
@@ -28,6 +29,7 @@ type Photo = {
   takenBy: string;
   takenAt: string;
   isImage: boolean;
+  viaApp?: boolean;
 };
 
 type ApiAnswer = {
@@ -53,6 +55,8 @@ function driveId(url: string): string {
 function thumbUrl(photo: Photo): string {
   if (photo.store === "drive") {
     const id = driveId(photo.url);
+    // Added from Drive by hand: the file may be shared only with the app, so the app fetches its picture.
+    if (photo.viaApp && id) return `/api/photo-index/drive?file=${encodeURIComponent(id)}&s=400`;
     return id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w400` : photo.url;
   }
   return `/_next/image?url=${encodeURIComponent(photo.url)}&w=384&q=75`;
@@ -61,6 +65,7 @@ function thumbUrl(photo: Photo): string {
 function fullUrl(photo: Photo): string {
   if (photo.store === "drive") {
     const id = driveId(photo.url);
+    if (photo.viaApp && id) return `/api/photo-index/drive?file=${encodeURIComponent(id)}&s=1600`;
     return id ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(id)}&sz=w1600` : photo.url;
   }
   return `/_next/image?url=${encodeURIComponent(photo.url)}&w=1200&q=75`;
@@ -221,6 +226,7 @@ function PhotosContent() {
   const [to, setTo] = useState("");
   const [picker, setPicker] = useState<"account" | "kind" | "date" | null>(null);
   const [viewer, setViewer] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
 
   // The search box waits a moment after the last key.
@@ -354,7 +360,19 @@ function PhotosContent() {
   }
 
   return (
-    <Screen title="Photos" subtitle="Every photo in the app, by account, issue and date." backHref="/">
+    <Screen
+      title="Photos"
+      subtitle="Every photo in the app, by account, issue and date."
+      backHref="/"
+      action={
+        state === "ready" ? (
+          <BigButton icon="plus" onClick={() => setAdding(true)}>
+            Add photos
+          </BigButton>
+        ) : undefined
+      }
+    >
+      <AddPhotos open={adding} onClose={() => setAdding(false)} onAdded={() => void refresh()} startAccount={account} />
       <Tips
         id="photos"
         ready={state === "ready"}
@@ -362,6 +380,7 @@ function PhotosContent() {
           { target: '[data-tip="counts"]', text: "Every photo in the app is here. Tap a number to see only those." },
           { target: '[data-tip="chips"]', text: "Narrow it down by account, by issue or by date." },
           { target: ".ph-thumb", text: "Tap a photo to see it full screen. Swipe left or right for the next one." },
+          { target: ".ui-actionbar .ui-btn-main", text: "Have photos on your phone or in Google Drive? Tap Add photos to put them here." },
         ]}
       />
       <PullToRefresh
@@ -415,7 +434,7 @@ function PhotosContent() {
           {photos.length === 0 ? (
             <EmptyState
               title={filtersOn ? "No photos match" : "No photos yet"}
-              text={filtersOn ? "Tap Clear filters to see them all." : "Photos show up here as soon as someone adds one: on a complaint, a crew problem, an extra job, or from the sub portal."}
+              text={filtersOn ? "Tap Clear filters to see them all, or Add photos to put some here." : "Photos show up here as soon as someone adds one: on a complaint, a crew problem, an extra job, or from the sub portal. Have some already? Tap Add photos."}
               action={
                 filtersOn ? (
                   <BigButton kind="second" onClick={clearFilters}>

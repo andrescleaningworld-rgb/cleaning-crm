@@ -70,3 +70,19 @@ same step can be run by hand: `npx tsx scripts/migrate/fill-photo-index.mts`
 `/photos` and `/api/photo-index` are not on any public list in `proxy.ts`, so
 a subcontractor, a customer or a logged-out visitor is sent to the login. The
 API also checks the staff session itself.
+
+## Add photos
+
+The green "Add photos" button on the page puts photos you already have into the index.
+
+- **From this device**: pick one or many (up to 20 at a time, 10MB each). They are stored in Blob storage under `photos/`.
+- **From Google Drive**: paste a link to a photo, or to a folder of photos. The photos stay in Drive; they are listed, not copied or moved. Adding the same link twice adds nothing.
+
+For both you pick the account (from the list), what the photos are of, Before / After / Neither, and the day they were taken.
+
+**Drive needs one thing turned on.** The app looks in Drive as its own Google account (the service account), read-only. On 2026-10-09 Google answered "accessNotConfigured": the Google Drive API is not enabled in that account's Google Cloud project. Until it is enabled:
+
+- a link to a single photo is still added, without the app being able to check it; its picture shows only if the file is set to "Anyone with the link";
+- a folder link cannot be opened, and the form says so.
+
+Once the Drive API is enabled, a folder (shared with the service account as Viewer, or set to "Anyone with the link") imports every picture directly inside it, up to 300 at a time, and pictures of files shared only with the app are shown through the app.

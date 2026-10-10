@@ -34,6 +34,8 @@ export type IndexedPhoto = {
   takenBy: string;
   takenAt: string;
   isImage: boolean;
+  /** A Drive photo added with "Add photos": its picture is fetched through the app, because the file may be shared only with the app. */
+  viaApp: boolean;
 };
 
 export function photosFlagOn(): boolean {
@@ -267,6 +269,7 @@ export async function syncPhotoIndex(force = false): Promise<SyncReport> {
 
 type Row = {
   id: string | number;
+  source_key: string;
   store: "blob" | "drive";
   url: string;
   account_id: string;
@@ -297,6 +300,7 @@ const toPhoto = (row: Row): IndexedPhoto => ({
   takenBy: row.taken_by,
   takenAt: new Date(row.taken_at).toISOString(),
   isImage: row.is_image,
+  viaApp: row.source_key.startsWith("drive-import:"),
 });
 
 export type PhotoFilter = {
