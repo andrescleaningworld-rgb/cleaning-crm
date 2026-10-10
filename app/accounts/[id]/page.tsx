@@ -29,6 +29,7 @@ import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
 import SitePhotos from "./site-photos";
+import PhotosLink from "./photos-link";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
@@ -1361,6 +1362,7 @@ export default function AccountDetailPage() {
                 <BigButton kind="second" onClick={() => setShowFullAccountInfo(true)}>
                   Full account info
                 </BigButton>
+                <PhotosLink accountId={thisAccountId} accountName={accountName} />
               </div>
 
               <Card title="Money">
