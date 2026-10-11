@@ -1,23 +1,31 @@
 "use client";
 
-// Office TV mode: the board and "Today's cleanings", taking turns every 30
-// seconds. Nothing here can be tapped. It asks for fresh data every minute.
+// Office TV mode: ONE fixed screen, the size of the TV, that never scrolls.
 //
-// The one exception: staff who opened TV mode from the board's tabs (logged
-// in, no TV link) get a small "Exit TV mode" button when they move the
-// mouse. A TV opened with its secret link never shows it: there is nothing
-// behind it for that TV to go back to.
+//   top strip      logo, the three counts, the clock and date
+//   left (70%)     the pin board: only the squares that have notes
+//   right (30%)    today's cleanings, with a progress bar
+//
+// A square (or the cleanings list) shows as many rows as fit. When there are
+// more, it shows "+N more" and turns to the next rows every 8 seconds, so
+// nothing is ever cut off. Late and stuck notes are red and come first.
+//
+// Everything is sized from the real height of the screen (--u = 1% of it),
+// measured here, so it also fits a TV browser whose toolbar takes part of the
+// screen and one too old for newer CSS units. Nothing needs a click: the only
+// link is "Exit TV mode", for staff looking at TV mode from the board's tabs.
+// The page asks for fresh data every minute and keeps the last board when a
+// refresh fails ("Reconnecting…" in the top strip).
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { MOTTO } from "@/app/ui";
-import type { BoardManager, BoardSettings, Paper } from "@/lib/board";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
-import BoardCanvas from "../board-canvas";
 import styles from "./tv.module.css";
 
 type TvCleaning = { accountName: string; sub: string; status: CleaningStatus };
+type ListedCleaning = TvCleaning & { key: string };
 type TvData = {
   today: string;
   settings: BoardSettings;
@@ -28,65 +36,74 @@ type TvData = {
 };
 
 const REFRESH_MS = 60_000;
-const ROTATE_MS = 30_000;
+const ROTATE_MS = 8_000;
+const SHIFT_MS = 10 * 60_000;
+/** Where the whole picture sits, in pixels; it moves to the next one every 10 minutes so nothing burns into the TV. */
+const SHIFTS: [number, number][] = [
+  [0, 0],
+  [4, 2],
+  [-3, 4],
+  [3, -3],
+  [-4, -2],
+];
 
-/** Shrinks its content to fit the space it has, so a full board never needs scrolling on the TV. */
-function FitToScreen({ children, watch }: { children: React.ReactNode; watch: unknown }) {
-  const outer = useRef<HTMLDivElement>(null);
-  const inner = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+/** Row heights, in hundredths of the screen height (they match tv.module.css). */
+const NOTE_ROW = 7.6;
+const CLEANING_ROW = 7.2;
+const ROW_GAP = 0.8;
+
+/**
+ * Shows as many rows as fit in the space it has. When there are more, the
+ * last row says "+N more" and the rows turn over on every tick.
+ */
+function Fitting<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; unit: number; row: number; tick: number; keyOf: (item: T) => string; render: (item: T) => ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+
   useLayoutEffect(() => {
-    const fit = () => {
-      if (!outer.current || !inner.current) return;
-      const room = outer.current.clientHeight;
-      const need = inner.current.scrollHeight;
-      setScale(need > room && need > 0 ? Math.max(0.35, room / need) : 1);
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, [watch]);
-  return (
-    <div ref={outer} className={styles.fit}>
-      <div ref={inner} style={{ transform: `scale(${scale})`, transformOrigin: "top center", width: `${100 / scale}%`, marginLeft: `${(100 - 100 / scale) / 2}%` }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-const EXIT_SHOWN_MS = 3_000;
-
-/** "Exit TV mode": shows when the mouse moves, hides again after 3 seconds. Never for a TV link. */
-function ExitButton({ token }: { token: string }) {
-  const [shown, setShown] = useState(false);
-  useEffect(() => {
-    if (token) return;
-    let timer = 0;
-    const show = () => {
-      setShown(true);
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => setShown(false), EXIT_SHOWN_MS);
-    };
-    window.addEventListener("mousemove", show);
+    const measure = () => setHeight(box.current?.clientHeight ?? 0);
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" || !box.current ? null : new ResizeObserver(measure);
+    if (observer && box.current) observer.observe(box.current);
     return () => {
-      window.removeEventListener("mousemove", show);
-      window.clearTimeout(timer);
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
     };
-  }, [token]);
-  if (token || !shown) return null;
+  }, [unit]);
+
+  const rowPx = row * unit;
+  const gapPx = ROW_GAP * unit;
+  const capacity = rowPx > 0 ? Math.max(1, Math.floor((height + gapPx) / (rowPx + gapPx))) : 1;
+  let shown = items;
+  let more = 0;
+  if (items.length > capacity) {
+    // One row is kept for "+N more" (when there is room for more than one row at all).
+    const perPage = Math.max(1, capacity - 1);
+    const pages = Math.ceil(items.length / perPage);
+    const start = (tick % pages) * perPage;
+    shown = items.slice(start, start + perPage);
+    more = capacity > 1 ? items.length - shown.length : 0;
+  }
+
   return (
-    <Link href="/board" className={styles.exit}>
-      Exit TV mode
-    </Link>
+    <div ref={box} className={styles.fitting}>
+      {height > 0 ? shown.map((item) => <div key={keyOf(item)}>{render(item)}</div>) : null}
+      {height > 0 && more > 0 ? <p className={styles.more}>+{more} more</p> : null}
+    </div>
   );
 }
 
 export default function TvClient({ token, onDenied }: { token: string; onDenied?: () => void }) {
   const [data, setData] = useState<TvData | null>(null);
-  const [problem, setProblem] = useState<"" | "off" | "denied" | "failed">("");
-  const [screen, setScreen] = useState<"board" | "today">("board");
+  const [problem, setProblem] = useState<"" | "off" | "denied">("");
+  const [reconnecting, setReconnecting] = useState(false);
   const [clock, setClock] = useState("");
+  const [now, setNow] = useState(() => new Date());
+  const [tick, setTick] = useState(0);
+  const [shift, setShift] = useState(0);
+  const [unit, setUnit] = useState(0);
+  const root = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -110,105 +127,220 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
         cleanings: body.cleanings ?? [],
       });
       setProblem("");
+      setReconnecting(false);
     } catch {
-      // Keep showing the last board; a TV should not go blank over one missed refresh.
-      setProblem((current) => (current === "" ? "failed" : current));
+      // Keep showing the last board; the top strip says it is reconnecting.
+      setReconnecting(true);
     }
   }, [token, onDenied]);
 
+  // Data every minute, the rows every 8 seconds, the clock, and the small shift every 10 minutes.
   useEffect(() => {
     void load();
     const refresh = window.setInterval(() => void load(), REFRESH_MS);
-    const rotate = window.setInterval(() => setScreen((current) => (current === "board" ? "today" : "board")), ROTATE_MS);
-    const tick = () => setClock(new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }));
-    tick();
-    const clockTimer = window.setInterval(tick, 5_000);
+    const rotate = window.setInterval(() => setTick((value) => value + 1), ROTATE_MS);
+    const move = window.setInterval(() => setShift((value) => (value + 1) % SHIFTS.length), SHIFT_MS);
+    const time = () => {
+      const date = new Date();
+      setNow(date);
+      setClock(date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }));
+    };
+    time();
+    const clockTimer = window.setInterval(time, 5_000);
     return () => {
       window.clearInterval(refresh);
       window.clearInterval(rotate);
+      window.clearInterval(move);
       window.clearInterval(clockTimer);
     };
   }, [load]);
 
-  if (!data) {
+  const hasData = data !== null;
+  // One unit = 1% of the screen's real height (what is left under a TV browser's toolbar).
+  useLayoutEffect(() => {
+    const measure = () => {
+      const height = root.current?.clientHeight || window.innerHeight;
+      setUnit(height / 100);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [hasData, problem]);
+
+  // The page behind never scrolls while the TV screen is up.
+  useEffect(() => {
+    const html = document.documentElement;
+    const before = [html.style.overflow, document.body.style.overflow];
+    html.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = before[0];
+      document.body.style.overflow = before[1];
+    };
+  }, []);
+
+  // Keep the screen awake. A browser that refuses still has the tiny moving dot (styles.awake).
+  useEffect(() => {
+    type Lock = { release: () => Promise<void> };
+    let lock: Lock | null = null;
+    let alive = true;
+    const ask = async () => {
+      try {
+        const wakeLock = (navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<Lock> } }).wakeLock;
+        if (!wakeLock || document.visibilityState !== "visible") return;
+        const got = await wakeLock.request("screen");
+        if (alive) lock = got;
+        else void got.release();
+      } catch {
+        // Refused: the moving dot keeps the screen busy.
+      }
+    };
+    void ask();
+    document.addEventListener("visibilitychange", ask);
+    return () => {
+      alive = false;
+      document.removeEventListener("visibilitychange", ask);
+      void lock?.release().catch(() => null);
+    };
+  }, []);
+
+  // The squares that have notes, late and stuck notes first in each.
+  const squares = useMemo(() => {
+    if (!data) return [];
+    const late = (paper: Paper) => (isOverdue(paper, now) || isOld(paper, data.settings, now) ? 0 : 1);
+    const sorted = (list: Paper[]) => [...list].sort((a, b) => late(a) - late(b) || a.pinnedAt.localeCompare(b.pinnedAt));
+    const all = [
+      ...SHARED_SQUARES.map((square) => ({ key: `shared:${square.kind}`, name: square.label, papers: papersIn(data.papers, { shared: square.kind }) })),
+      { key: "shared:note", name: "Office", papers: papersIn(data.papers, { shared: "note" }) },
+      ...data.managers.map((manager) => ({ key: `mgr:${manager.id}`, name: manager.name, papers: papersIn(data.papers, { manager: manager.id }) })),
+    ];
+    return all.filter((square) => square.papers.length > 0).map((square) => ({ ...square, papers: sorted(square.papers) }));
+  }, [data, now]);
+
+  const exit = token ? null : (
+    <Link href="/board" className={styles.exit}>
+      Exit TV mode
+    </Link>
+  );
+
+  if (problem === "denied" || problem === "off") {
     return (
       <div className={styles.message}>
-        <ExitButton token={token} />
-        <p className={styles.messageTitle}>
-          {problem === "denied" ? "This TV link is off" : problem === "off" ? "The Pin Board is not turned on here yet" : problem === "failed" ? "The board did not load" : "Loading the board"}
-        </p>
+        {exit}
+        <p className={styles.messageTitle}>{problem === "denied" ? "This TV is not connected" : "The Pin Board is not turned on here yet"}</p>
         {problem === "denied" ? <p>Ask the owner to connect this TV again: open /tv on this TV.</p> : null}
-        {problem === "failed" ? <p>It will try again in a minute.</p> : null}
       </div>
     );
   }
 
-  const day = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
-  const done = data.cleanings.filter((cleaning) => cleaning.status === "cleaned").length;
+  const count = squares.length;
+  const columns = count <= 3 ? Math.max(1, count) : count === 4 ? 2 : count <= 9 ? 3 : 4;
+  const cleaned = data ? data.cleanings.filter((cleaning) => cleaning.status === "cleaned").length : 0;
+  const total = data ? data.cleanings.length : 0;
+  // Still to do first, so what needs attention is on screen longest.
+  const cleanings: ListedCleaning[] = data
+    ? data.cleanings.map((cleaning, index) => ({ ...cleaning, key: String(index) })).sort((a, b) => Number(a.status === "cleaned") - Number(b.status === "cleaned"))
+    : [];
+  const day = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const [dx, dy] = SHIFTS[shift];
 
   return (
-    <div className={styles.tv} aria-live="off">
-      <ExitButton token={token} />
-      <header className={styles.top}>
-        <div className={styles.brandBox}>
-          {/* The same logo, on the same white tile, as the app's own top bar. */}
-          <span className={styles.logo}>
-            <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
-          </span>
-          <div>
+    <div ref={root} className={styles.tv} style={{ ["--u" as string]: unit > 0 ? `${unit}px` : undefined }} data-tv-screen aria-live="off">
+      <span className={styles.awake} aria-hidden="true" />
+      <div className={styles.stage} style={{ transform: `translate(${dx}px, ${dy}px)` }}>
+        <header className={styles.strip}>
+          <div className={styles.brandBox}>
+            {/* The same logo, on the same white tile, as the app's own top bar. */}
+            <span className={styles.logo}>
+              <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
+            </span>
             <p className={styles.brand}>Cleaning World</p>
-            <p className={styles.motto}>{MOTTO.en}</p>
           </div>
-        </div>
-        <div className={styles.counters}>
-          <div className={styles.counter}>
-            <span className={styles.counterNumber}>{data.counters.pinned}</span>
-            <span className={styles.counterLabel}>Pinned</span>
+          <div className={styles.counters}>
+            <div className={styles.counter} data-count="pinned">
+              <span className={styles.counterNumber}>{data ? data.counters.pinned : "–"}</span>
+              <span className={styles.counterLabel}>Pinned</span>
+            </div>
+            <div className={`${styles.counter} ${data && data.counters.stuck > 0 ? styles.counterBad : ""}`} data-count="stuck">
+              <span className={styles.counterNumber}>{data ? data.counters.stuck : "–"}</span>
+              <span className={styles.counterLabel}>Stuck too long</span>
+            </div>
+            <div className={`${styles.counter} ${styles.counterGood}`} data-count="done">
+              <span className={styles.counterNumber}>{data ? data.counters.doneToday : "–"}</span>
+              <span className={styles.counterLabel}>Done today</span>
+            </div>
           </div>
-          <div className={`${styles.counter} ${data.counters.stuck > 0 ? styles.counterBad : ""}`}>
-            <span className={styles.counterNumber}>{data.counters.stuck}</span>
-            <span className={styles.counterLabel}>Stuck too long</span>
+          <div className={styles.clockBox}>
+            <p className={styles.clock}>{clock}</p>
+            <p className={styles.day}>{reconnecting ? <span className={styles.reconnecting}>Reconnecting…</span> : day}</p>
           </div>
-          <div className={`${styles.counter} ${styles.counterGood}`}>
-            <span className={styles.counterNumber}>{data.counters.doneToday}</span>
-            <span className={styles.counterLabel}>Done today</span>
-          </div>
-        </div>
-        <div className={styles.clockBox}>
-          <p className={styles.clock}>{clock}</p>
-          <p className={styles.day}>{day}</p>
-        </div>
-      </header>
+        </header>
 
-      {screen === "board" ? (
-        <FitToScreen key="board" watch={data}>
-          <BoardCanvas papers={data.papers} managers={data.managers} settings={data.settings} tv />
-        </FitToScreen>
-      ) : (
-        <FitToScreen key="today" watch={data}>
-          <section className={styles.today}>
-            <h1 className={styles.todayTitle}>
-              Today&apos;s cleanings
-              <span className={styles.todayCount}>
-                {done} of {data.cleanings.length} cleaned
-              </span>
-            </h1>
-            {data.cleanings.length === 0 ? (
-              <p className={styles.todayEmpty}>No cleanings on the schedule today.</p>
-            ) : (
-              <ul className={styles.todayGrid}>
-                {data.cleanings.map((cleaning, index) => (
-                  <li key={`${cleaning.accountName}-${index}`} className={`${styles.todayItem} ${styles[cleaning.status]}`}>
-                    <span className={styles.todayName}>{cleaning.accountName}</span>
-                    <span className={styles.todaySub}>{cleaning.sub || "No sub on the schedule"}</span>
-                    <span className={styles.todayStatus}>{STATUS_LABEL[cleaning.status]}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+        <div className={styles.body}>
+          <section className={styles.board} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }} aria-label="Pin board">
+            {!data ? <p className={styles.empty}>{reconnecting ? "Reconnecting…" : "Loading the board"}</p> : null}
+            {data && count === 0 ? <p className={styles.empty}>Nothing pinned. All clear.</p> : null}
+            {squares.map((square) => (
+              <div key={square.key} className={styles.square} data-square={square.key}>
+                <div className={styles.squareHead}>
+                  <h2 className={styles.squareName}>{square.name}</h2>
+                  <span className={styles.squareCount}>{square.papers.length}</span>
+                </div>
+                <Fitting
+                  items={square.papers}
+                  unit={unit}
+                  row={NOTE_ROW}
+                  tick={tick}
+                  keyOf={(paper) => `${paper.kind}:${paper.itemId}`}
+                  render={(paper) => {
+                    const overdue = isOverdue(paper, now);
+                    const stuck = data ? isOld(paper, data.settings, now) : false;
+                    return (
+                      <div className={`${styles.note} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${overdue || stuck ? styles.late : ""}`} data-late={overdue || stuck ? "1" : "0"}>
+                        <p className={styles.noteType}>
+                          {paperLabel(paper)}
+                          {overdue ? ` · due ${dueLabel(paper.dueDate)}` : stuck ? ` · ${daysLabel(daysPinned(paper, now))}` : ""}
+                          {paper.recordDone ? " · done ✓" : ""}
+                        </p>
+                        <p className={styles.noteName}>{paper.accountName || paperLabel(paper)}</p>
+                        {overdue || stuck ? <span className={styles.lateCorner} aria-hidden="true" /> : null}
+                      </div>
+                    );
+                  }}
+                />
+              </div>
+            ))}
           </section>
-        </FitToScreen>
-      )}
+
+          <aside className={styles.side} aria-label="Today's cleanings">
+            <h2 className={styles.sideTitle}>Today&apos;s cleanings</h2>
+            <p className={styles.progressText} data-progress>
+              <strong>{cleaned}</strong> of {total} cleaned
+            </p>
+            <div className={styles.progressBar}>
+              <span style={{ width: `${total > 0 ? Math.round((cleaned / total) * 100) : 0}%` }} />
+            </div>
+            {data && total === 0 ? <p className={styles.empty}>No cleanings on the schedule today.</p> : null}
+            <Fitting
+              items={cleanings}
+              unit={unit}
+              row={CLEANING_ROW}
+              tick={tick}
+              keyOf={(cleaning) => cleaning.key}
+              render={(cleaning) => (
+                <div className={`${styles.cleaning} ${styles[cleaning.status] ?? ""}`}>
+                  <p className={styles.cleaningName}>{cleaning.accountName}</p>
+                  <p className={styles.cleaningSub}>
+                    {STATUS_LABEL[cleaning.status]}
+                    {cleaning.sub ? ` · ${cleaning.sub}` : ""}
+                  </p>
+                </div>
+              )}
+            />
+          </aside>
+        </div>
+      </div>
+      {exit}
     </div>
   );
 }
