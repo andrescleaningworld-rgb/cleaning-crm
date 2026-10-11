@@ -11,6 +11,7 @@ import { PIN_TYPES, isPinType, readPinTypes, type PinInfo } from "@/lib/boardPin
 import { getPinTypes, listPinnedRecords, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import {
   boardReady,
+  connectTv,
   createTvLink,
   finishPaper,
   getBoardSettings,
@@ -166,6 +167,17 @@ export async function POST(request: NextRequest) {
       const { token } = await createTvLink(clean(body.label) || "Office TV", by);
       // The only time the token leaves the server. It is not logged.
       return NextResponse.json({ success: true, token }, noStore);
+    }
+
+    // "Show on TV": the 6-digit code a waiting TV is showing.
+    if (action === "connectTv") {
+      if (identity.role !== "owner") return refuse("Only the owner can connect a TV.", 403);
+      const code = clean(body.code).replace(/\D/g, "");
+      if (code.length !== 6) return refuse("Type the 6 numbers showing on the TV.");
+      if (!(await connectTv(code, clean(body.label) || "Office TV", by))) {
+        return refuse("That code did not match a TV. Codes last 10 minutes: check the numbers on the TV and try again.", 404);
+      }
+      return NextResponse.json({ success: true });
     }
 
     if (action === "revokeTvLink") {

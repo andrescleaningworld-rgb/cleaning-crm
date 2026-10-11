@@ -37,6 +37,15 @@ export function handoffsFlagOn(): boolean {
 
 export async function handoffsReady(): Promise<boolean> {
   if (!handoffsFlagOn()) return false;
+  return handoffTablesReady();
+}
+
+/**
+ * The tables are in this database, whether or not the feature is switched
+ * on. Enough for Settings -> Team: the owner can set the team up before (or
+ * without) My work and To process being on.
+ */
+export async function handoffTablesReady(): Promise<boolean> {
   if (ready === true) return true;
   try {
     const sql = getSql();

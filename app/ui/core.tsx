@@ -17,7 +17,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { clearShellScreen, setShellScreen } from "./shell";
+import { clearShellScreen, setShellExtra, setShellScreen } from "./shell";
 import { UI_WORDS, type UiLang, type UiWords } from "./words";
 
 /* ---------- words ---------- */
@@ -86,6 +86,7 @@ export function Screen({
   headerRight,
   action,
   secondaryAction,
+  onEdit,
   children,
 }: {
   title: string;
@@ -98,6 +99,8 @@ export function Screen({
   /** The one main action: a <BigButton />. */
   action?: ReactNode;
   secondaryAction?: ReactNode;
+  /** A detail screen that can be edited: puts "Edit" in the navy bar at the top, next to "?". */
+  onEdit?: () => void;
   children: ReactNode;
 }) {
   const words = useUiWords();
@@ -113,6 +116,16 @@ export function Screen({
     setShellScreen(title, backHref, hasOnBack ? () => onBackRef.current?.() : undefined);
     return () => clearShellScreen(title);
   }, [title, backHref, hasOnBack]);
+  const onEditRef = useRef(onEdit);
+  useEffect(() => {
+    onEditRef.current = onEdit;
+  });
+  const hasEdit = Boolean(onEdit);
+  useEffect(() => {
+    if (!hasEdit) return;
+    setShellExtra({ label: "Edit", ariaLabel: "Edit", onClick: () => onEditRef.current?.() });
+    return () => setShellExtra(null);
+  }, [hasEdit]);
   return (
     <div className="ui-screen">
       <header className="ui-screen-header">

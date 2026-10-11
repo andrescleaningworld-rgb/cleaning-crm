@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { fetchAllMainAccounts, fetchOnboardingChecklist } from "@/lib/data/accounts";
+import { fetchManagers, fetchStaff } from "@/lib/data/people";
 import {
   ACCOUNT_DONE_STEP,
   ORDER_STEPS,
@@ -20,6 +21,8 @@ import {
   getHandoff,
   getHandoffSettings,
   handoffMe,
+  handoffTablesReady,
+  handoffsFlagOn,
   handoffsReady,
   listHandoffs,
   moveHandoff,
@@ -39,8 +42,57 @@ function cleanData(value: unknown): Record<string, string> {
   return out;
 }
 
+/**
+ * Who can be picked in Settings -> Team: active managers and office staff,
+ * from Staff (Settings -> Staff) and the Managers list. Never subcontractors.
+ */
+async function teamPeople(): Promise<string[]> {
+  const names = new Set<string>();
+  const [staff, managers] = await Promise.allSettled([fetchStaff(), fetchManagers()]);
+  if (staff.status === "fulfilled") {
+    for (const person of staff.value) {
+      if (person.active && (person.role === "Manager" || person.role === "OfficeStaff") && person.name.trim()) names.add(person.name.trim());
+    }
+  }
+  if (managers.status === "fulfilled") {
+    for (const manager of managers.value) {
+      if ((!manager.status || manager.status.trim().toLowerCase() === "active") && manager.name.trim()) names.add(manager.name.trim());
+    }
+  }
+  if (staff.status === "rejected" && managers.status === "rejected") throw new Error("The staff list did not load.");
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
 export async function GET(request: NextRequest) {
   try {
+    // Settings -> Team: works as soon as the tables exist, even while My
+    // work and To process are switched off.
+    if (request.nextUrl.searchParams.get("view") === "settings") {
+      if (!(await handoffTablesReady())) return NextResponse.json({ success: true, ready: false });
+      const identity = await getAdminIdentity(request);
+      const settings = await getHandoffSettings();
+      let people: string[] = [];
+      let peopleError = "";
+      try {
+        people = await teamPeople();
+      } catch (error) {
+        console.error("[handoffs GET settings] people:", error instanceof Error ? error.message : error);
+        peopleError = "The staff list did not load. Try again in a moment.";
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          ready: true,
+          featureOn: handoffsFlagOn(),
+          settings: { ...settings, onboarding: onboardingRules(settings) },
+          me: handoffMe(identity?.name ?? "", identity?.role, settings),
+          people,
+          peopleError,
+        },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
     if (!(await handoffsReady())) return NextResponse.json({ success: true, ready: false });
     const identity = await getAdminIdentity(request);
     const [settings, items] = await Promise.all([getHandoffSettings(), listHandoffs()]);
@@ -62,12 +114,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!(await handoffsReady())) return refuse("Handoffs are not set up in this database yet.", 409);
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const action = clean(body.action);
+    // Team settings only need the tables; everything else needs the feature on.
+    const allowed = action === "saveSettings" ? await handoffTablesReady() : await handoffsReady();
+    if (!allowed) return refuse("This database has not had its update for this yet. Nothing was saved.", 409);
     const identity = await getAdminIdentity(request);
     if (!identity) return refuse("Log in first.", 401);
     const by = identity.name ?? "";
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const action = clean(body.action);
 
     // A new account goes on the New accounts board: the day the estimate was
     // accepted, and (optionally) the estimate file already uploaded.
@@ -196,6 +250,8 @@ export async function POST(request: NextRequest) {
     if (action === "saveSettings") {
       if (identity.role !== "owner") return refuse("Only the owner can change the team settings.", 403);
       const input = (body.settings ?? {}) as Partial<HandoffSettings>;
+      const red = Math.round(Number(input.redAfterDays));
+      if (!Number.isFinite(red) || red < 1 || red > 30) return refuse("Days before red must be a number from 1 to 30.");
       const settings = await saveHandoffSettings(
         {
           officeOwners: Array.isArray(input.officeOwners) ? input.officeOwners.map(clean) : [],

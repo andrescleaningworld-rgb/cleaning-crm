@@ -263,3 +263,81 @@
   font-size: 48px;
   font-weight: 800;
 }
+
+/* ---------- a TV that is not connected yet: its code and QR ---------- */
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2vh;
+  height: 100%;
+  padding: 4vh 4vw;
+  color: #ffffff;
+  text-align: center;
+}
+
+.pairBrand {
+  margin: 0;
+  font-size: clamp(20px, 2.4vw, 40px);
+  font-weight: 800;
+  color: #ffe27a;
+}
+
+.pairTitle {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 72px);
+  font-weight: 800;
+}
+
+.pairRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6vw;
+  margin-top: 2vh;
+}
+
+.pairSide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5vh;
+  max-width: 46vw;
+}
+
+.pairStep {
+  margin: 0;
+  font-size: clamp(18px, 2vw, 36px);
+  font-weight: 700;
+}
+
+.pairCode {
+  margin: 0;
+  padding: 1vh 3vw;
+  border-radius: 24px;
+  background: #ffffff;
+  color: #0c447c;
+  font-size: clamp(64px, 11vw, 220px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pairNote {
+  margin: 0;
+  font-size: clamp(16px, 1.5vw, 28px);
+  opacity: 0.9;
+}
+
+.pairQr {
+  width: clamp(180px, 22vw, 420px);
+  height: auto;
+  padding: 12px;
+  border-radius: 20px;
+  background: #ffffff;
+}

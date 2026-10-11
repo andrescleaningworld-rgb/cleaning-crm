@@ -82,7 +82,7 @@ function ExitButton({ token }: { token: string }) {
   );
 }
 
-export default function TvClient({ token }: { token: string }) {
+export default function TvClient({ token, onDenied }: { token: string; onDenied?: () => void }) {
   const [data, setData] = useState<TvData | null>(null);
   const [problem, setProblem] = useState<"" | "off" | "denied" | "failed">("");
   const [screen, setScreen] = useState<"board" | "today">("board");
@@ -91,7 +91,13 @@ export default function TvClient({ token }: { token: string }) {
   const load = useCallback(async () => {
     try {
       const response = await fetch(`/api/board/tv${token ? `?k=${encodeURIComponent(token)}` : ""}`, { cache: "no-store" });
-      if (response.status === 401) return setProblem("denied");
+      if (response.status === 401) {
+        // Disconnected: the board comes off this screen right away.
+        setData(null);
+        setProblem("denied");
+        onDenied?.();
+        return;
+      }
       const body = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<TvData>;
       if (!response.ok || body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setProblem("off");
@@ -108,7 +114,7 @@ export default function TvClient({ token }: { token: string }) {
       // Keep showing the last board; a TV should not go blank over one missed refresh.
       setProblem((current) => (current === "" ? "failed" : current));
     }
-  }, [token]);
+  }, [token, onDenied]);
 
   useEffect(() => {
     void load();
@@ -131,7 +137,7 @@ export default function TvClient({ token }: { token: string }) {
         <p className={styles.messageTitle}>
           {problem === "denied" ? "This TV link is off" : problem === "off" ? "The Pin Board is not turned on here yet" : problem === "failed" ? "The board did not load" : "Loading the board"}
         </p>
-        {problem === "denied" ? <p>Ask the owner to make a new TV link in Settings.</p> : null}
+        {problem === "denied" ? <p>Ask the owner to connect this TV again: open /tv on this TV.</p> : null}
         {problem === "failed" ? <p>It will try again in a minute.</p> : null}
       </div>
     );

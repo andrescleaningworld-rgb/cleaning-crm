@@ -13,7 +13,7 @@
 // until migration 020 is applied there), so every caller first asks
 // boardReady() and treats "not ready" as "this feature is off".
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomInt } from "node:crypto";
 import { getSql } from "@/lib/db";
 import {
   DEFAULT_BOARD_SETTINGS,
@@ -521,7 +521,8 @@ type TvLinkRow = { id: string; label: string; created_by: string; created_at: st
 
 export async function listTvLinks(): Promise<TvLink[]> {
   const sql = getSql();
-  const rows = (await sql`SELECT id::text, label, created_by, created_at, last_seen_at, revoked_at, revoked_by FROM board_tv_links ORDER BY created_at DESC`) as TvLinkRow[];
+  // A TV that is still showing its code (not connected yet) is not a link to list.
+  const rows = (await sql`SELECT id::text, label, created_by, created_at, last_seen_at, revoked_at, revoked_by FROM board_tv_links WHERE revoked_by NOT LIKE ${PAIR_PREFIX + "%"} ORDER BY created_at DESC`) as TvLinkRow[];
   return rows.map((row) => ({
     id: row.id,
     label: row.label,
@@ -531,6 +532,68 @@ export async function listTvLinks(): Promise<TvLink[]> {
     revokedAt: iso(row.revoked_at),
     revokedBy: row.revoked_by,
   }));
+}
+
+/* ---------- connecting a TV with a 6-digit code ----------
+ *
+ * The TV makes its own secret and keeps it. While it waits, that secret is
+ * stored (hashed, like every TV link) as a link that is still off, marked
+ * "pair:<code>". When the owner types the code on a phone, the link is
+ * switched on and named, and the TV's secret starts working. No new table.
+ */
+
+const PAIR_PREFIX = "pair:";
+export const TV_CODE_MINUTES = 10;
+const MAX_WAITING_TVS = 30;
+
+const validTvSecret = (secret: string) => secret.length >= 20 && secret.length <= 100;
+
+export type TvPairing = { state: "connected" } | { state: "renew" } | { state: "busy" } | { state: "waiting"; code: string; secondsLeft: number };
+
+/** A TV asks for (or asks again about) its code. */
+export async function startTvPairing(secret: string): Promise<TvPairing> {
+  if (!validTvSecret(secret)) return { state: "renew" };
+  const sql = getSql();
+  const hash = hashToken(secret);
+  // Codes nobody used: gone after 10 minutes.
+  await sql`DELETE FROM board_tv_links WHERE revoked_by LIKE ${PAIR_PREFIX + "%"} AND created_at < now() - make_interval(mins => ${TV_CODE_MINUTES})`;
+  const mine = (await sql`
+    SELECT revoked_at IS NULL AS live, revoked_by, GREATEST(0, ${TV_CODE_MINUTES * 60} - EXTRACT(EPOCH FROM now() - created_at))::int AS left
+    FROM board_tv_links WHERE token_hash = ${hash}
+  `) as { live: boolean; revoked_by: string; left: number }[];
+  if (mine[0]?.live) return { state: "connected" };
+  if (mine[0]?.revoked_by.startsWith(PAIR_PREFIX)) return { state: "waiting", code: mine[0].revoked_by.slice(PAIR_PREFIX.length), secondsLeft: mine[0].left };
+  // This TV was disconnected: its old secret never works again, it needs a new one.
+  if (mine[0]) return { state: "renew" };
+
+  const waiting = (await sql`SELECT revoked_by FROM board_tv_links WHERE revoked_by LIKE ${PAIR_PREFIX + "%"}`) as { revoked_by: string }[];
+  if (waiting.length >= MAX_WAITING_TVS) return { state: "busy" };
+  const taken = new Set(waiting.map((row) => row.revoked_by));
+  let code = "";
+  for (let attempt = 0; attempt < 20 && !code; attempt++) {
+    const candidate = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    if (!taken.has(PAIR_PREFIX + candidate)) code = candidate;
+  }
+  if (!code) return { state: "busy" };
+  await sql`
+    INSERT INTO board_tv_links (token_hash, label, created_by, revoked_at, revoked_by)
+    VALUES (${hash}, 'Waiting to connect', '', now(), ${PAIR_PREFIX + code})
+    ON CONFLICT (token_hash) DO NOTHING
+  `;
+  return { state: "waiting", code, secondsLeft: TV_CODE_MINUTES * 60 };
+}
+
+/** The owner typed a TV's code: that TV is connected and named. False when the code is wrong or older than 10 minutes. */
+export async function connectTv(code: string, label: string, by: string): Promise<boolean> {
+  if (!/^\d{6}$/.test(code)) return false;
+  const sql = getSql();
+  const rows = (await sql`
+    UPDATE board_tv_links
+    SET label = ${label.trim().slice(0, 60) || "Office TV"}, created_by = ${by}, created_at = now(), revoked_at = NULL, revoked_by = ''
+    WHERE revoked_by = ${PAIR_PREFIX + code} AND created_at > now() - make_interval(mins => ${TV_CODE_MINUTES})
+    RETURNING id
+  `) as unknown[];
+  return rows.length > 0;
 }
 
 /** Makes a new TV link. The token is returned once, here, and never stored. */

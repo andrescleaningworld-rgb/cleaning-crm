@@ -19,7 +19,7 @@ import {
   undoable,
   type StatusKind,
 } from "@/app/ui";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
 import { AccountPacketPrintView } from "./account-packet-print-view";
 import OnboardingChecklist from "../../components/OnboardingChecklist";
@@ -295,6 +295,7 @@ async function readPortalActionResponse(
 
 export default function AccountDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const rawAccountIdFromUrl = String(params?.id || "");
   const decodedAccountIdFromUrl = decodeURIComponent(rawAccountIdFromUrl);
@@ -1171,18 +1172,14 @@ export default function AccountDetailPage() {
           <Screen
             title={accountName}
             backHref="/accounts"
-            action={
-              <span className="account-detail-print-hide" style={{ display: "contents" }}>
-                <BigButton href={`/accounts/${accountIdForUrl}/edit`}>Edit account</BigButton>
-              </span>
-            }
+            onEdit={() => router.push(`/accounts/${accountIdForUrl}/edit`)}
           >
             <Tips
               id="account"
               steps={[
                 { target: '[data-tip="call"]', text: "Tap a green tile to do that thing. This one calls the contact." },
                 { target: '[data-tip="more"]', text: "Tap More for everything else: money, history, onboarding, portal and printing." },
-                { target: ".ui-actionbar .ui-btn-main", text: "Tap Edit account to change anything about this account." },
+                { target: '.cw-topbar-btn[aria-label="Edit"]', text: "Tap Edit at the top to change anything about this account." },
               ]}
             />
 

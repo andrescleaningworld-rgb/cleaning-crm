@@ -313,11 +313,7 @@ export default function VisitDetailPage() {
       title={clean(visit.visitType) || "Visit"}
       subtitle={clean(visit.accountName) || "Unnamed Account"}
       backHref="/visits"
-      action={
-        <BigButton onClick={startEditing}>
-          Edit visit
-        </BigButton>
-      }
+      onEdit={startEditing}
       secondaryAction={
         <PinButton
           info={pinInfo}

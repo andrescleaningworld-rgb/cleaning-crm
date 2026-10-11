@@ -101,7 +101,7 @@ export default function HowItWorksPage() {
         <p>
           <span className="ui-strong">Red</span> means late. Do red first.
         </p>
-        <BigButton href="/">Open My work</BigButton>
+        <BigButton href="/overview">Open My work</BigButton>
       </section>
 
       <section className="ui-card ui-stack">
