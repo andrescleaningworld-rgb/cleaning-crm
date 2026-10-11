@@ -14,6 +14,7 @@
 // on in local dev and on Vercel previews (same rule as the other flags).
 
 import { fetchAppsScript } from "@/lib/appsScriptFetch";
+import { isPostgres } from "@/lib/dataSource";
 import { getSql } from "@/lib/db";
 
 export const PHOTO_KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit"] as const;
@@ -73,7 +74,7 @@ const SOURCES: { name: string; sql: string }[] = [
     // Complaint photos and old sub portal issue photos: Google Drive, listed in the Photos tab (copied to "photos").
     name: "Drive photos (complaints, old sub portal)",
     sql: `${INSERT}
-      SELECT 'drive:' || p.photo_id, 'drive', p.drive_url, COALESCE(p.account_ref, p.account_id_raw, ''), p.account_name,
+      SELECT 'drive:' || p.photo_id, CASE WHEN p.blob_url <> '' THEN 'blob' ELSE 'drive' END, COALESCE(NULLIF(p.blob_url, ''), p.drive_url), COALESCE(p.account_ref, p.account_id_raw, ''), p.account_name,
         CASE WHEN p.source_type ILIKE '%complaint%' THEN 'Complaint' ELSE 'Sub photo' END, '',
         CASE WHEN p.source_type ILIKE '%complaint%' THEN 'complaint' ELSE 'sub-issue' END, p.source_id,
         CASE WHEN p.source_type ILIKE '%complaint%' THEN 'Open the complaint' ELSE 'Open the account' END,
@@ -181,6 +182,8 @@ type ScriptPhoto = Record<string, unknown>;
 
 /** The Photos tab as Apps Script reports it today (read-only). Adds the ones the index does not have. */
 async function syncFromAppsScript(): Promise<number> {
+  // With DATA_SOURCE_PHOTOS=postgres the photos table is the list; Apps Script is not asked.
+  if (isPostgres("PHOTOS")) return 0;
   const base = process.env.GOOGLE_SCRIPT_URL;
   if (!base) return 0;
   const url = new URL(base);
