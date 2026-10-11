@@ -93,6 +93,10 @@ const PUBLIC_PATHS = [
   // "/api/board" stay behind the staff login.
   "/board/tv",
   "/api/board/tv",
+  // The Accept / Decline buttons in a transfer proposal email (they used to
+  // open the Apps Script web app). A subcontractor taps them from their
+  // email, with no login. See app/api/sub-transfer-response/route.ts.
+  "/api/sub-transfer-response",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action
