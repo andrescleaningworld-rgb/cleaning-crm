@@ -50,6 +50,8 @@ function recordHref(type: PinType, recordId: string): string {
   // Opens the To-Do page scrolled to that to-do, highlighted.
   if (type === "todo") return `/to-do?id=${encodeURIComponent(recordId)}`;
   if (type === "account") return `/accounts/${encodeURIComponent(recordId)}`;
+  // An update saved without an id of its own (the board made up "new-…") opens the Account Updates list.
+  if (type === "update") return recordId.startsWith("new-") ? "/account-updates" : `/account-updates/${encodeURIComponent(recordId)}`;
   return "";
 }
 
@@ -81,10 +83,10 @@ export async function pinRecord(request: PinRequest, by: string): Promise<boolea
   const square = request.square.trim();
   const recordId = request.recordId.trim();
 
-  if (request.type === "todo" || request.type === "visit" || request.type === "account") {
+  if (request.type === "todo" || request.type === "visit" || request.type === "account" || request.type === "update") {
     const one = PIN_TYPES.find((entry) => entry.type === request.type)!.one;
     const dueDate = /^\d{4}-\d{2}-\d{2}/.test(request.dueDate ?? "") ? (request.dueDate as string).slice(0, 10) : "";
-    const data = { notes: "", recordType: request.type, recordId, label: one, href: recordHref(request.type, recordId), forWho: (request.forWho ?? "").trim().slice(0, 80), dueDate };
+    const data = { notes: (request.notes ?? "").trim().slice(0, 1000), recordType: request.type, recordId, label: one, href: recordHref(request.type, recordId), forWho: (request.forWho ?? "").trim().slice(0, 80), dueDate };
     await sql.query(
       `INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
        VALUES ('note', $1, $2, $3, $4, '', 'pinned', $5::jsonb, $6, now(), $7)
@@ -139,7 +141,7 @@ export async function unpinRecord(type: PinType, recordId: string, by: string): 
   const sql = getSql();
   const id = recordId.trim();
   const who = `Unpinned by ${by}`.slice(0, 120);
-  if (type === "todo" || type === "visit" || type === "account") {
+  if (type === "todo" || type === "visit" || type === "account" || type === "update") {
     const rows = (await sql`
       UPDATE handoff_items SET board_done_at = now(), board_done_by = ${who}
       WHERE kind = 'note' AND item_id = ${noteItemId(type, id)} AND board_pinned_at IS NOT NULL AND board_done_at IS NULL RETURNING item_id

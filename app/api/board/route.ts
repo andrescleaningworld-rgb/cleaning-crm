@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
+import { NOTE_BOXES } from "@/lib/board";
 import { PIN_TYPES, isPinType, readPinTypes, type PinInfo } from "@/lib/boardPins";
 import { getPinTypes, listPinnedRecords, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import {
@@ -96,10 +97,13 @@ export async function POST(request: NextRequest) {
       if (kind === "extra") return refuse("Set the extra job up with the Extra job button. It pins itself.");
       const text = clean(body.text);
       const square = clean(body.square);
+      // A sticky note added by tapping inside a shared box hangs in that box ("office" = the Office box).
+      const box = clean(body.box);
+      const inBox = box === "office" || (NOTE_BOXES as readonly string[]).includes(box);
       if (!text) return refuse("Write a few words first.");
-      if (!square) return refuse("Pick whose square it goes in.");
-      if (!(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
-      const id = await pinPaper({ text, accountId: clean(body.accountId), accountName: clean(body.accountName), square, by });
+      if (!square && !inBox) return refuse("Pick whose square it goes in.");
+      if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      const id = await pinPaper({ text, accountId: clean(body.accountId), accountName: clean(body.accountName), square, by, notes: clean(body.notes), dueDate: clean(body.dueDate), box: square || box === "office" ? "" : box });
       return NextResponse.json({ success: true, itemId: id });
     }
 
@@ -136,6 +140,18 @@ export async function POST(request: NextRequest) {
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
       const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate) }, by);
       if (!pinned) return refuse("That record was not found, so it was not pinned.", 404);
+      return NextResponse.json({ success: true });
+    }
+
+    // The board's own "tap a box to add": the to-do or account update was just
+    // saved by its own API; this hangs its paper in the box that was tapped.
+    if (action === "pinNew") {
+      const type = clean(body.type);
+      const recordId = clean(body.recordId);
+      const square = clean(body.square);
+      if ((type !== "todo" && type !== "update") || !recordId) return refuse("type and recordId are required.");
+      if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate), notes: clean(body.notes) }, by);
       return NextResponse.json({ success: true });
     }
 

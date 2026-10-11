@@ -18,10 +18,12 @@ import {
   SkeletonList,
   Tabs,
   TextAreaField,
+  Tips,
   friendlyDate,
   showToast,
 } from "@/app/ui";
-import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, daysLabel, daysPinned, isOld, paperLabel, type BoardData, type Paper } from "@/lib/board";
+import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, type BoardData, type Paper } from "@/lib/board";
+import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
 import styles from "./board.module.css";
 
@@ -67,6 +69,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   const [openKey, setOpenKey] = useState("");
   const [pinning, setPinning] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
+  // "Tap empty space in a box to add something there": the box that was tapped.
+  const [adding, setAdding] = useState<AddTarget | null>(null);
   // "Show on TV": open, and the code a scanned QR brought along (/board?tv=123456).
   const [tvOpen, setTvOpen] = useState(false);
   const [tvCode, setTvCode] = useState("");
@@ -156,11 +160,11 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
     }
   }, [loaded]);
 
-  const openPaper = (paper: Paper) => {
-    if (!paper.href) {
-      setOpenKey(`${paper.kind}:${paper.itemId}`);
-      return;
-    }
+  // A tap opens the note as a large card. "Open full details" on the card goes to the item itself.
+  const openPaper = (paper: Paper) => setOpenKey(`${paper.kind}:${paper.itemId}`);
+
+  const openDetails = (paper: Paper) => {
+    if (!paper.href) return;
     try {
       window.sessionStorage.setItem(BOARD_SCROLL_KEY, String(window.scrollY));
       window.sessionStorage.setItem(BOARD_FROM_KEY, paper.href.split("?")[0]);
@@ -170,8 +174,31 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
     router.push(paper.href);
   };
 
+  // Tap empty space in a box: the right form for that box, already filled in for it.
+  const addTo = (square: string) => {
+    if (!data) return;
+    if (square.startsWith("mgr:")) {
+      const manager = data.managers.find((entry) => entry.id === square.slice(4));
+      if (manager) setAdding({ kind: "todo", manager });
+      return;
+    }
+    const box = square.slice("shared:".length);
+    if (box === "note") return setAdding({ kind: "update" });
+    try {
+      window.sessionStorage.setItem(BOARD_SCROLL_KEY, String(window.scrollY));
+    } catch {
+      // No storage: the board simply starts at the top afterwards.
+    }
+    if (box === "extra") return router.push("/extra-jobs/new?from=board");
+    // New accepted: the account is added first; "Add accepted estimate" is its first step.
+    if (box === "account") return router.push("/accounts/new?from=board");
+    if ((NOTE_BOXES as readonly string[]).includes(box)) setAdding({ kind: "note", box, boxName: SHARED_SQUARES.find((entry) => entry.kind === box)?.label ?? "this box" });
+  };
+
+  const printNotes = (query: string) => window.open(`/board/print?${query}`, "_blank", "noopener");
+
   const finish = async (paper: Paper, on: boolean) => {
-    const ok = await act({ action: "done", kind: paper.kind, itemId: paper.itemId, on }, on ? "Done. It is in the Done tray." : "Pinned back on the board.");
+    const ok = await act({ action: "done", kind: paper.kind, itemId: paper.itemId, on }, on ? "Unpinned. It is in the Done tray." : "Pinned back on the board.");
     if (ok && on) setOpenKey("");
   };
 
@@ -205,8 +232,9 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
           {tab === "board" ? (
             <>
-              <BoardCanvas papers={papers} managers={data.managers} settings={data.settings} mySquare={data.me.squareId} onOpen={openPaper} onMove={move} />
-              <p className="ui-muted">Tap a paper to open the thing itself. Drag it into a square to hand it off (on a phone, hold it first). Got it and Done are in My square.</p>
+              <BoardCanvas papers={papers} managers={data.managers} settings={data.settings} mySquare={data.me.squareId} onOpen={openPaper} onMove={move} onAdd={addTo} />
+              <p className="ui-muted">Tap empty space in a box to add something there. Tap a note to open it. Drag it into a square to hand it off (on a phone, hold it first).</p>
+              <Tips id="board-add" steps={[{ target: "[data-square]", text: "Tap empty space in a box to add something there." }]} />
             </>
           ) : (
             <MySquare
@@ -240,29 +268,62 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       <Sheet open={Boolean(open)} title={open ? open.title || KIND_LABEL[open.kind] : ""} onClose={() => setOpenKey("")} closeLabel="Close" busy={busy}>
         {open && data ? (
           <div className="ui-stack">
-            <p className={styles.sheetLine}>
-              <strong>
+            <div className={`${styles.bigCard} ${styles[open.kind]} ${open.label === "Account update" ? styles.updateNote : ""}`} data-big-card>
+              <p className={styles.bigType}>
                 {paperLabel(open)}
                 {open.badge ? `, ${open.badge}` : ""}
-              </strong>
-              {open.accountName && open.accountName !== open.title ? ` for ${open.accountName}` : ""}
-            </p>
-            {open.detail ? <p className={styles.sheetLine}>{open.detail}</p> : null}
-            <p className="ui-muted">
-              Pinned {friendlyDate(open.pinnedAt)}
-              {open.pinnedBy ? ` by ${open.pinnedBy}` : ""}. {isOld(open, data.settings) ? `On the board ${daysLabel(daysPinned(open))}.` : ""}
-            </p>
-            {open.progress ? (
-              <p className={styles.sheetLine}>
-                Checklist: {open.progress.done} of {open.progress.total} done
               </p>
-            ) : null}
-            <p className={styles.sheetLine}>{open.takenAt ? `${open.takenBy} has it.` : "Nobody has taken it yet."}</p>
+              <h2 className={styles.bigTitle}>{open.title || KIND_LABEL[open.kind]}</h2>
+              <dl className={styles.bigFacts}>
+                {open.accountName && open.accountName !== open.title ? (
+                  <>
+                    <dt>Account</dt>
+                    <dd>{open.accountName}</dd>
+                  </>
+                ) : null}
+                <dt>Who</dt>
+                <dd>{open.forWho || data.managers.find((manager) => manager.id === open.square)?.name || "Office"}</dd>
+                {open.dueDate ? (
+                  <>
+                    <dt>Due</dt>
+                    <dd>
+                      {dueLabel(open.dueDate)}
+                      {isOverdue(open) ? " (overdue)" : ""}
+                    </dd>
+                  </>
+                ) : null}
+                {open.detail ? (
+                  <>
+                    <dt>Details</dt>
+                    <dd>{open.detail}</dd>
+                  </>
+                ) : null}
+                {open.progress ? (
+                  <>
+                    <dt>Checklist</dt>
+                    <dd>
+                      {open.progress.done} of {open.progress.total} done
+                    </dd>
+                  </>
+                ) : null}
+                <dt>Last update</dt>
+                <dd>
+                  {open.recordDone ? "Done. It comes down tomorrow." : open.takenAt ? `${open.takenBy} took it ${friendlyDate(open.takenAt)}.` : `Pinned ${friendlyDate(open.pinnedAt)}${open.pinnedBy ? ` by ${open.pinnedBy}` : ""}.`}
+                  {isOld(open, data.settings) ? ` On the board ${daysLabel(daysPinned(open))}.` : ""}
+                </dd>
+              </dl>
+            </div>
 
             <div className={styles.sheetButtons}>
-              {open.href ? (
-                <BigButton href={open.href}>{open.kind === "account" ? "Open checklist" : open.kind === "complaint" ? "Open complaints" : open.kind === "supply" ? "Open order" : isExtraJob(open) ? "Open job" : open.label === "Visit" ? "Open visit" : open.label === "To-do" && open.href === "/to-do" ? "Open to-dos" : "Open account"}</BigButton>
-              ) : null}
+              {open.href ? <BigButton onClick={() => openDetails(open)}>Open full details</BigButton> : null}
+              <BigButton kind="second" onClick={() => printNotes(`note=${encodeURIComponent(`${open.kind}:${open.itemId}`)}`)}>
+                Print
+              </BigButton>
+              {isExtraJob(open) ? null : (
+                <BigButton kind="second" disabled={busy} onClick={() => void finish(open, true)}>
+                  Unpin
+                </BigButton>
+              )}
               {open.takenAt ? (
                 <BigButton kind="second" disabled={busy} onClick={() => void take(open, false)}>
                   Give it back
@@ -272,13 +333,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                   Got it
                 </BigButton>
               )}
-              {isExtraJob(open) ? null : (
-                <BigButton kind="second" icon="check" disabled={busy} onClick={() => void finish(open, true)}>
-                  Done
-                </BigButton>
-              )}
             </div>
-            {isExtraJob(open) ? <p className="ui-muted">To finish it, open the job and tap Done there. It needs an after photo. The paper then comes down by itself.</p> : null}
+            {isExtraJob(open) ? <p className="ui-muted">To finish it, tap Open full details and tap Done on the job. It needs an after photo. The paper then comes down by itself.</p> : null}
 
             <p className="ui-label">Hand it to</p>
             <div className={styles.give}>
@@ -324,6 +380,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
           <p>Only the owner can connect a TV. Ask the owner to scan the code on the TV.</p>
         </Sheet>
       ) : null}
+      {data ? <AddToBoxSheet target={adding} me={data.me.name} onClose={() => setAdding(null)} onAdded={() => void load()} /> : null}
       {data ? <PinSheet open={pinning} data={data} defaultSquare={data.me.squareId} onClose={() => setPinning(false)} onPinned={() => void load()} /> : null}
     </Screen>
   );
@@ -362,6 +419,13 @@ function MySquare({
             </option>
           ))}
         </SelectField>
+      ) : null}
+      {whose && papers.length > 0 ? (
+        <div>
+          <BigButton kind="second" onClick={() => window.open(`/board/print?square=${encodeURIComponent(whose)}`, "_blank", "noopener")}>
+            Print my square
+          </BigButton>
+        </div>
       ) : null}
       {whose && papers.length === 0 ? <EmptyState title="Nothing pinned here" text="When someone hands off a paper, it shows up here." icon="check" /> : null}
       {papers.map((paper) => {

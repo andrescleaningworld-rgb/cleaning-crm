@@ -418,6 +418,7 @@ function toPaper(row: PaperRow): Paper {
     forWho: clean(row.data?.forWho),
     dueDate: clean(row.data?.dueDate),
     recordDone: clean(row.data?.recordDoneOn) !== "",
+    box: row.kind === "note" ? clean(row.data?.box) : "",
   };
 }
 
@@ -443,7 +444,7 @@ export async function listPapers(): Promise<{ papers: Paper[]; done: Paper[] }> 
 const isBoardKind = (kind: string): kind is PaperKind => (PAPER_KINDS as string[]).includes(kind);
 
 /** "+ Pin something": a to-do someone writes by hand. (An extra job is set up on the Extra Jobs form, not here.) */
-export async function pinPaper(input: { text: string; accountId?: string; accountName?: string; square: string; by: string }): Promise<string> {
+export async function pinPaper(input: { text: string; accountId?: string; accountName?: string; square: string; by: string; notes?: string; dueDate?: string; box?: string }): Promise<string> {
   const itemId = `board-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
   await insertPaper({
     kind: "note",
@@ -452,7 +453,13 @@ export async function pinPaper(input: { text: string; accountId?: string; accoun
     accountId: clean(input.accountId),
     accountName: clean(input.accountName),
     step: "pinned",
-    data: { notes: "" },
+    data: {
+      notes: clean(input.notes).slice(0, 1000),
+      dueDate: /^\d{4}-\d{2}-\d{2}$/.test(clean(input.dueDate)) ? clean(input.dueDate) : "",
+      box: clean(input.box),
+      // A sticky note added inside a box is a plain note, not a to-do.
+      label: clean(input.box) || clean(input.notes) || clean(input.dueDate) ? "Note" : "",
+    },
     createdBy: input.by,
     square: clean(input.square),
   });

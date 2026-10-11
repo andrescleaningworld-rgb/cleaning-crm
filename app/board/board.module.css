@@ -186,6 +186,11 @@ button.paper:hover {
   background: #fff3a0;
   box-shadow: 0 5px 10px rgba(50, 30, 5, 0.4);
 }
+/* An account update: green. */
+.note.updateNote,
+.updateNote {
+  background: #c9ecc4;
+}
 
 .pin {
   position: absolute;
@@ -505,4 +510,75 @@ button.paper:hover {
 }
 .tv .paper {
   cursor: zoom-in;
+}
+
+/* ---------- tap empty space in a box to add something there ---------- */
+
+.squareAdd {
+  cursor: copy;
+}
+
+.squareAdd .emptySquare {
+  opacity: 0.6;
+  font-size: 18px;
+}
+
+/* The strip at the bottom of every box: always room to tap. */
+.addStrip {
+  flex: 1 0 48px;
+  min-height: 48px;
+  margin-top: auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: copy;
+}
+
+.addStrip:hover,
+.addStrip:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  outline: none;
+}
+
+/* ---------- one note, opened as a large card ---------- */
+
+.bigCard {
+  padding: 18px 18px 22px;
+  border-radius: 6px;
+  box-shadow: 0 6px 14px rgba(40, 24, 6, 0.28);
+  color: #10233f;
+}
+
+.bigType {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.bigTitle {
+  margin: 6px 0 10px;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.bigFacts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 18px;
+}
+
+.bigFacts dt {
+  font-weight: 800;
+}
+
+.bigFacts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }

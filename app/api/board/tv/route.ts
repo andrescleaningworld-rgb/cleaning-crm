@@ -34,6 +34,7 @@ function forTv(paper: Paper): Paper {
     forWho: "",
     dueDate: paper.dueDate,
     recordDone: paper.recordDone,
+    box: paper.box,
     pinnedBy: "",
     takenBy: "",
     // Only whether someone has it (green pin), not who.
