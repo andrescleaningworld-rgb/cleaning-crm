@@ -1,30 +1,81 @@
-/* Office TV mode: big, read-only, nothing to tap. */
+/* Office TV mode: one fixed screen, read from across the room, nothing to tap.
+ *
+ * Every size is a number of --u, where 1u = 1% of the screen's real height.
+ * tv-client.tsx measures it; until then (and on a browser where that fails)
+ * it is 1vh. Where a size needs limits, a plain calc() comes first and a
+ * clamp() after it, so a TV browser too old for clamp() still gets the size.
+ * No "inset", no flex "gap": older TV browsers do not know them.
+ */
 
 .tv {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  height: 100%;
-  padding: 18px 22px 22px;
+  --u: 1vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: #0c447c;
   font-family: var(--ui-font, system-ui, sans-serif);
   color: #ffffff;
-  cursor: none;
   -webkit-user-select: none;
   user-select: none;
 }
 
-.top {
-  display: flex;
+/* The whole picture. It moves a few pixels every 10 minutes (burn-in); the padding leaves room for that. */
+.stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: calc(var(--u) * 1.2);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: calc(var(--u) * 10) minmax(0, 1fr);
+  grid-row-gap: calc(var(--u) * 1.2);
+  transition: transform 2s ease;
+}
+
+/* Keeps the screen busy on a browser that refuses a wake lock: a dot nobody can see, always moving. */
+.awake {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  animation: tvAwake 4s linear infinite;
+}
+
+@keyframes tvAwake {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(3px);
+  }
+}
+
+/* ---------- top strip ---------- */
+
+.strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-column-gap: calc(var(--u) * 2.5);
   align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  flex: none;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .brandBox {
   display: flex;
   align-items: center;
-  gap: 16px;
+  min-width: 0;
 }
 
 .logo {
@@ -32,230 +83,443 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 104px;
-  height: 76px;
-  padding: 6px;
-  border-radius: 14px;
+  width: calc(var(--u) * 12);
+  height: calc(var(--u) * 8.4);
+  margin-right: calc(var(--u) * 1.6);
+  padding: calc(var(--u) * 0.6);
+  box-sizing: border-box;
+  border-radius: calc(var(--u) * 1.4);
   background: #ffffff;
 }
 
 .brand {
   margin: 0;
-  font-size: 34px;
+  font-size: calc(var(--u) * 3.6);
+  font-size: clamp(18px, calc(var(--u) * 3.6), 64px);
   font-weight: 800;
-  line-height: 1.1;
-  color: #ffffff;
-}
-
-.motto {
-  margin: 4px 0 0;
-  font-size: 22px;
-  font-weight: 700;
-  color: #ffe27a;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
 .counters {
-  display: flex;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-column-gap: calc(var(--u) * 1.6);
+  min-width: 0;
 }
 
 .counter {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  min-width: 190px;
-  padding: 8px 22px 10px;
-  border-radius: 16px;
-  background: #ffffff;
-  color: #10233f;
+  justify-content: center;
+  height: calc(var(--u) * 9);
+  padding: 0 calc(var(--u) * 1.6);
+  border-radius: calc(var(--u) * 1.6);
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
 }
 
 .counterNumber {
-  font-size: 64px;
+  margin-right: calc(var(--u) * 1.4);
+  font-size: calc(var(--u) * 7);
+  font-size: clamp(36px, calc(var(--u) * 7), 120px);
   font-weight: 800;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .counterLabel {
-  font-size: 22px;
+  font-size: calc(var(--u) * 2.6);
+  font-size: clamp(16px, calc(var(--u) * 2.6), 44px);
   font-weight: 700;
+  line-height: 1.1;
 }
 
 .counterBad {
   background: #c62828;
-  color: #ffffff;
 }
 
 .counterGood {
-  background: #eaf3de;
-  color: #27500a;
+  background: #2e7d32;
 }
 
 .clockBox {
   text-align: right;
+  white-space: nowrap;
 }
 
 .clock {
   margin: 0;
-  font-size: 64px;
+  font-size: calc(var(--u) * 6);
+  font-size: clamp(32px, calc(var(--u) * 6), 110px);
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .day {
-  margin: 4px 0 0;
-  font-size: 22px;
+  margin: calc(var(--u) * 0.4) 0 0;
+  font-size: calc(var(--u) * 2.4);
+  font-size: clamp(16px, calc(var(--u) * 2.4), 40px);
   font-weight: 700;
 }
 
-.fit {
-  flex: 1 1 auto;
+.reconnecting {
+  padding: 0 calc(var(--u) * 1);
+  border-radius: calc(var(--u) * 1);
+  background: #ffe27a;
+  color: #10233f;
+}
+
+/* ---------- the two areas ---------- */
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  grid-column-gap: calc(var(--u) * 1.2);
   min-height: 0;
   overflow: hidden;
 }
 
-/* ---------- Today's cleanings ---------- */
+/* Left: the squares that have notes, sharing the space evenly. */
+.board {
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+  grid-gap: calc(var(--u) * 1.2);
+  min-height: 0;
+  overflow: hidden;
+}
 
-.today {
-  padding: 22px;
-  border-radius: 18px;
-  background: #f6fafe;
+.empty {
+  margin: auto;
+  padding: calc(var(--u) * 2);
+  font-size: calc(var(--u) * 3.4);
+  font-weight: 800;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.square {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-row-gap: calc(var(--u) * 0.8);
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--u) * 1.2);
+  box-sizing: border-box;
+  border-radius: calc(var(--u) * 1.6);
+  background: #b98a52;
+  overflow: hidden;
+}
+
+.squareHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.squareName {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 3.4);
+  font-size: clamp(18px, calc(var(--u) * 3.4), 60px);
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(60, 35, 5, 0.6);
+}
+
+.squareCount {
+  flex: none;
+  margin-left: calc(var(--u) * 1.2);
+  font-size: calc(var(--u) * 6);
+  font-size: clamp(32px, calc(var(--u) * 6), 110px);
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(60, 35, 5, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The rows of one square, or of the cleanings list: exactly what fits. */
+.fitting {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fitting > div,
+.fitting > .more {
+  margin: 0 0 calc(var(--u) * 0.8);
+}
+
+.more {
+  height: calc(var(--u) * 7.6);
+  line-height: calc(var(--u) * 7.6);
+  font-size: calc(var(--u) * 3);
+  font-size: clamp(16px, calc(var(--u) * 3), 52px);
+  font-weight: 800;
+  text-align: center;
+  color: #ffffff;
+  opacity: 0.95;
+}
+
+.side .more {
+  height: calc(var(--u) * 7.2);
+  line-height: calc(var(--u) * 7.2);
   color: #10233f;
 }
 
-.todayTitle {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 16px;
-  font-size: 44px;
-  font-weight: 800;
+/* One note: the kind of paper, and the account. */
+.note {
+  position: relative;
+  height: calc(var(--u) * 7.6);
+  padding: calc(var(--u) * 0.7) calc(var(--u) * 1.2);
+  box-sizing: border-box;
+  border: calc(var(--u) * 0.4) solid transparent;
+  border-radius: calc(var(--u) * 0.8);
+  color: #10233f;
+  overflow: hidden;
 }
 
-.todayCount {
-  font-size: 30px;
-  font-weight: 700;
-  color: #27500a;
-}
-
-.todayEmpty {
-  margin: 40px 0;
-  font-size: 32px;
-  text-align: center;
-}
-
-.todayGrid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+.noteType {
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.todayItem {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  border-left: 14px solid #9aa9bd;
-  background: #eceff3;
-}
-
-.todayName {
-  font-size: 26px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 2.2);
+  font-size: clamp(14px, calc(var(--u) * 2.2), 38px);
   font-weight: 800;
   line-height: 1.15;
-  overflow-wrap: anywhere;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.8;
 }
 
-.todaySub {
-  font-size: 20px;
-}
-
-.todayStatus {
-  font-size: 20px;
+.noteName {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 3);
+  font-size: clamp(18px, calc(var(--u) * 3), 52px);
   font-weight: 800;
+  line-height: 1.2;
+}
+
+.account {
+  background: #ffffff;
+}
+.extra {
+  background: #d6e9ff;
+}
+.complaint {
+  background: #ffd9e6;
+}
+.supply {
+  background: #d9f2cf;
+}
+.note.note,
+.note {
+  background-color: #fff3a0;
+}
+.note.account {
+  background-color: #ffffff;
+}
+.note.extra {
+  background-color: #d6e9ff;
+}
+.note.complaint {
+  background-color: #ffd9e6;
+}
+.note.supply {
+  background-color: #d9f2cf;
+}
+.note.updateNote {
+  background-color: #c9ecc4;
+}
+
+/* Late or stuck: a red border and a red corner. They are first in their square. */
+.late {
+  border-color: #c62828;
+}
+
+.late .noteType {
+  color: #b71c1c;
+  opacity: 1;
+}
+
+.lateCorner {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 0 calc(var(--u) * 3) calc(var(--u) * 3);
+  border-color: transparent transparent #c62828 transparent;
+}
+
+/* ---------- right: today's cleanings ---------- */
+
+.side {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--u) * 1.4);
+  box-sizing: border-box;
+  border-radius: calc(var(--u) * 1.6);
+  background: #ffffff;
+  color: #10233f;
+  overflow: hidden;
+}
+
+.side .empty {
+  font-size: calc(var(--u) * 2.8);
+}
+
+.sideTitle {
+  margin: 0;
+  font-size: calc(var(--u) * 3);
+  font-size: clamp(18px, calc(var(--u) * 3), 52px);
+  font-weight: 800;
+}
+
+.progressText {
+  margin: calc(var(--u) * 0.4) 0;
+  font-size: calc(var(--u) * 3.4);
+  font-size: clamp(20px, calc(var(--u) * 3.4), 60px);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.progressText strong {
+  font-size: calc(var(--u) * 6.5);
+  font-size: clamp(34px, calc(var(--u) * 6.5), 116px);
+  font-weight: 800;
+}
+
+.progressBar {
+  height: calc(var(--u) * 2.4);
+  margin-bottom: calc(var(--u) * 1.2);
+  border-radius: calc(var(--u) * 1.2);
+  background: #dfe5ec;
+  overflow: hidden;
+}
+
+.progressBar span {
+  display: block;
+  height: 100%;
+  min-width: calc(var(--u) * 0.6);
+  border-radius: calc(var(--u) * 1.2);
+  background: #2e7d32;
+  transition: width 1s ease;
+}
+
+.cleaning {
+  height: calc(var(--u) * 7.2);
+  padding: calc(var(--u) * 0.6) calc(var(--u) * 1.2);
+  box-sizing: border-box;
+  border-left: calc(var(--u) * 0.9) solid #8a97a8;
+  border-radius: calc(var(--u) * 0.8);
+  background: #f1f4f8;
+  overflow: hidden;
+}
+
+.cleaningName {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 3);
+  font-size: clamp(18px, calc(var(--u) * 3), 52px);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.cleaningSub {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 2.2);
+  font-size: clamp(14px, calc(var(--u) * 2.2), 38px);
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .cleaned {
-  border-left-color: #3b6d11;
-  background: #eaf3de;
-}
-.cleaned .todayStatus {
-  color: #27500a;
-}
-.missed {
-  border-left-color: #c62828;
-  background: #fce7e5;
-}
-.missed .todayStatus {
-  color: #b3261e;
-}
-.extra {
-  border-left-color: #1f6fd0;
-  background: #e6f1fb;
-}
-.extra .todayStatus {
-  color: #0c447c;
-}
-.scheduled .todayStatus,
-.unconfirmed .todayStatus {
-  color: #52627a;
+  border-left-color: #2e7d32;
+  background: #e6f4e6;
 }
 
-/* ---------- "Exit TV mode": staff only, while the mouse is moving ---------- */
+.missed {
+  border-left-color: #c62828;
+  background: #fdecea;
+}
+
+.missed .cleaningSub {
+  color: #b71c1c;
+}
+
+.unconfirmed {
+  border-left-color: #e0a800;
+}
+
+.cleaning.extra {
+  border-left-color: #1565c0;
+  background-color: #e6f1fb;
+}
+
+/* ---------- the one link: staff looking at TV mode from the board ---------- */
 
 .exit {
   position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 5;
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 6px 16px;
-  border: 2px solid #ffffff;
-  border-radius: 12px;
-  background: rgba(16, 35, 63, 0.92);
+  right: calc(var(--u, 1vh) * 1);
+  bottom: calc(var(--u, 1vh) * 0.6);
+  z-index: 210;
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: rgba(16, 35, 63, 0.75);
   color: #ffffff;
-  font-family: var(--ui-font, system-ui, sans-serif);
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   text-decoration: none;
-  cursor: pointer;
-}
-
-/* The pointer is hidden on the TV; it comes back while the button is up. */
-.tv:has(.exit),
-.message:has(.exit) {
-  cursor: default;
+  opacity: 0.75;
 }
 
 .exit:hover,
 .exit:focus-visible {
-  background: #ffffff;
-  color: #10233f;
+  opacity: 1;
 }
 
-/* ---------- before the first load, or a link that is off ---------- */
+/* ---------- before the board: not connected, or not turned on ---------- */
 
 .message {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  height: 100%;
   padding: 24px;
+  box-sizing: border-box;
+  background: #0c447c;
   color: #ffffff;
   font-family: var(--ui-font, system-ui, sans-serif);
   font-size: 28px;
   text-align: center;
+}
+
+.message > * {
+  margin: 6px 0;
 }
 
 .messageTitle {
@@ -263,6 +527,7 @@
   font-size: 48px;
   font-weight: 800;
 }
+
 
 /* ---------- a TV that is not connected yet: its code and QR ---------- */
 
@@ -340,4 +605,15 @@
   padding: 12px;
   border-radius: 20px;
   background: #ffffff;
+}
+
+/* For a TV browser too old for flex "gap": plain margins between the parts of the code screen. */
+.pair > * {
+  margin-top: 1vh;
+  margin-bottom: 1vh;
+}
+
+.pairRow > * {
+  margin-left: 2vw;
+  margin-right: 2vw;
 }

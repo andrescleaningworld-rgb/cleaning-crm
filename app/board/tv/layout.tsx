@@ -11,5 +11,7 @@ export const metadata: Metadata = {
 };
 
 export default function BoardTvLayout({ children }: { children: React.ReactNode }) {
-  return <div className="fixed inset-0 z-[100] overflow-hidden bg-[var(--ui-navy,#0c447c)]">{children}</div>;
+  // Written out (top/left/right/bottom) instead of "inset": an older TV browser does not know "inset",
+  // and without it this layer is not fixed at all and the page scrolls.
+  return <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100, overflow: "hidden", background: "#0c447c" }}>{children}</div>;
 }
