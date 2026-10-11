@@ -30,6 +30,7 @@ import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
 import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
+import SupplyMode from "./supply-mode";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
@@ -1363,6 +1364,7 @@ export default function AccountDetailPage() {
                   Full account info
                 </BigButton>
                 <PhotosLink accountId={thisAccountId} accountName={accountName} />
+                <SupplyMode accountId={thisAccountId} accountName={accountName} />
                 <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
               </div>
 

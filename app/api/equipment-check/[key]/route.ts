@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchStaff } from "@/lib/data/people";
 import { checkEquipmentCheckLinkKey, listEquipmentStaffPinStatuses } from "@/lib/equipmentCheckDb";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
+import { supplyControlReady } from "@/lib/pg/supply-control";
 
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   try {
@@ -30,7 +31,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       })
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    return NextResponse.json({ success: true, active: true, people });
+    // The tablet shows its Supplies button only where Supply Check is switched on.
+    return NextResponse.json({ success: true, active: true, people, supplies: await supplyControlReady() });
   } catch (error) {
     console.error("[equipment-check GET]", error);
     return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });

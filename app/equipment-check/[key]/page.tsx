@@ -64,6 +64,8 @@ export default function EquipmentCheckPage() {
   const [active, setActive] = useState(true);
   const [people, setPeople] = useState<Person[]>([]);
   const [screen, setScreen] = useState<Screen>({ kind: "people" });
+  // Supply Check lives next door on the same tablet, once it is switched on.
+  const [suppliesOn, setSuppliesOn] = useState(false);
   const [signedInName, setSignedInName] = useState("");
   const [notice, setNotice] = useState("");
   // Only true when this browser also has a manager/owner login — shows
@@ -86,8 +88,9 @@ export default function EquipmentCheckPage() {
   const loadPeople = useCallback(async () => {
     try {
       const res = await fetch(apiBase, { cache: "no-store" });
-      const data = (await res.json()) as { active?: boolean; people?: Person[] };
+      const data = (await res.json()) as { active?: boolean; people?: Person[]; supplies?: boolean };
       setActive(data.active !== false);
+      setSuppliesOn(data.supplies === true);
       setPeople(data.people ?? []);
     } catch {
       setNotice(s.noSignal);
@@ -196,6 +199,11 @@ export default function EquipmentCheckPage() {
           {isManager && (
             <Link href="/equipment" className="rounded-lg bg-white/15 px-3 py-1.5 text-xs font-semibold text-white active:bg-white/25">
               Exit to Equipment
+            </Link>
+          )}
+          {suppliesOn && (
+            <Link href={`/equipment-check/${encodeURIComponent(key)}/supplies`} className="rounded-lg bg-white/15 px-3 py-2 text-base font-semibold text-white active:bg-white/25">
+              🧴 {lang === "en" ? "Supplies" : "Suministros"}
             </Link>
           )}
           <LangToggle lang={lang} onChange={setLang} />

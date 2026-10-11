@@ -320,6 +320,8 @@ export function isExtraJobPaper(kind: string, itemId: string): boolean {
 const LINE_OPEN = `(
   btrim(o.status) = '' OR lower(btrim(o.status)) = 'new' OR lower(o.status) LIKE '%review%'
   OR lower(o.status) LIKE '%approved%' OR lower(o.status) LIKE '%progress%' OR lower(o.status) LIKE '%pending%'
+  -- Supply control: picked from the shelf or bought, not delivered yet.
+  OR lower(btrim(o.status)) IN ('picked', 'bought')
 )`;
 
 // The sub portal's supply orders, one row per order instead of one per line.
