@@ -2,7 +2,7 @@ import { describeAccountChanges } from "@/lib/accountChanges";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
-import { findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
+import { findSubcontractorEmailByName, findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms } from "@/lib/sms";
 import {
   setAccountChecklistNeeded,
@@ -15,9 +15,29 @@ import {
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 import { isPostgres } from "@/lib/dataSource";
+import { getSql } from "@/lib/db";
 import { sendSubcontractorNotification } from "@/lib/email";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+
+// Where the New Account packet goes. An account does not carry its sub's
+// email: it is on the sub's own record (Apps Script looked it up there too).
+// First the sub the account is linked to, then the sub's name as typed.
+async function packetEmailFor(accountId: string, subName: string): Promise<string> {
+  if (accountsOnPostgres() && accountId) {
+    try {
+      const rows = (await getSql()`
+        SELECT s.email FROM accounts a JOIN subcontractors s ON s.id = a.subcontractor_id
+        WHERE a.id = ${accountId} AND btrim(s.email) <> ''
+        LIMIT 1
+      `) as { email: string }[];
+      if (rows[0]) return rows[0].email.trim();
+    } catch (err) {
+      console.error("[accounts] packet email lookup failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  return (await findSubcontractorEmailByName(subName)).trim();
+}
 
 // Apps Script latency has been measured spiking to ~14s on a single call;
 // this must comfortably exceed the per-attempt timeout in fetchAppsScript
@@ -410,9 +430,10 @@ export async function POST(request: NextRequest) {
       // not called and no row is written anywhere.
       if (isPostgres("ACCOUNT_PACKET")) {
         const field = (key: string) => String(body[key] ?? "").trim();
-        const to = field("subcontractorEmail");
+        const to = field("subcontractorEmail") || (await packetEmailFor(field("accountId"), field("subcontractor")));
         if (!to) {
-          return NextResponse.json({ success: false, error: "This subcontractor has no email on file, so the packet was not sent." }, { status: 400 });
+          const who = field("subcontractor");
+          return NextResponse.json({ success: false, error: who ? `No email was found for ${who}. Add it on the subcontractor's page, then send the packet again.` : "This account has no subcontractor yet, so the packet was not sent." }, { status: 400 });
         }
         const sent = await sendSubcontractorNotification(to, `New Account - ${field("accountName") || "Account"}`, [
           `Account: ${field("accountName") || "-"}`,
