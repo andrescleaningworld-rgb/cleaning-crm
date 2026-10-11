@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
+import { isPostgres } from "@/lib/dataSource";
+import { createSubTransferProposal, getSubTransferProposals, sendSubTransferProposalEmail, updateSubTransferProposalStatus } from "@/lib/pg/sub-transfers";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -14,6 +16,12 @@ export const maxDuration = 45;
 
 export async function GET() {
   try {
+    // DATA_SOURCE_SUB_TRANSFERS=postgres: the same list, in the same shape, without Apps Script.
+    if (isPostgres("SUB_TRANSFERS")) {
+      const proposals = await getSubTransferProposals();
+      return NextResponse.json({ success: true, proposals, count: proposals.length });
+    }
+
     if (!SCRIPT_URL) {
       return NextResponse.json(
         {
@@ -101,7 +109,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!SCRIPT_URL) {
+    const onPostgres = isPostgres("SUB_TRANSFERS");
+    if (!onPostgres && !SCRIPT_URL) {
       return NextResponse.json(
         {
           success: false,
@@ -132,8 +141,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // DATA_SOURCE_SUB_TRANSFERS=postgres: the same three actions, done here
+    // (lib/pg/sub-transfers.ts). Apps Script is not called. The Accept and
+    // Decline buttons in the email open this app.
+    if (onPostgres) {
+      let result: Record<string, unknown>;
+      try {
+        const proposal = (body.proposal || body) as Record<string, unknown>;
+        result =
+          requestedAction === "sendSubTransferProposalEmail"
+            ? await sendSubTransferProposalEmail(proposal, request.nextUrl.origin)
+            : requestedAction === "updateSubTransferProposalStatus"
+              ? await updateSubTransferProposalStatus(body as Record<string, unknown>)
+              : await createSubTransferProposal(proposal);
+      } catch (err) {
+        // What the script answered for a refused request: { success: false, error }.
+        result = { success: false, error: String(err instanceof Error ? `Error: ${err.message}` : err) };
+      }
+      if (result.success === false) {
+        return NextResponse.json(
+          { success: false, error: result.error || result.message || "Failed to save transfer proposal.", googleScriptResponse: result },
+          { status: 500 }
+        );
+      }
+      const savedId = (result.proposalId as string | undefined) || null;
+      const who = await getAdminIdentity(request);
+      if (who?.accountId) {
+        await logActivity({
+          actorAccountId: who.accountId,
+          actorRole: who.role ?? "manager",
+          actorName: who.name || "",
+          action: requestedAction === "updateSubTransferProposalStatus" ? "update" : "create",
+          entityType: "sub_transfer_proposal",
+          entityId: savedId,
+        });
+      }
+      return NextResponse.json({ success: true, message: result.message || "Transfer proposal request completed.", proposalId: savedId, sentTo: result.sentTo || null, data: result });
+    }
+
     const response = await fetchAppsScript(
-      SCRIPT_URL,
+      SCRIPT_URL!,
       {
         method: "POST",
         headers: {

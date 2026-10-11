@@ -26,6 +26,7 @@ export const DATA_SOURCE_AREAS = [
   "ACCOUNT_UPDATES",
   "ACCOUNT_PACKET",
   "PHOTOS",
+  "SUB_TRANSFERS",
 ] as const;
 
 export type DataSourceArea = (typeof DATA_SOURCE_AREAS)[number];

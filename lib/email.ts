@@ -144,6 +144,36 @@ export async function sendInternalNotification(
   );
 }
 
+// An email with its own HTML layout and a plain-text twin (the transfer
+// proposal to a subcontractor, and the office notice when they answer).
+// Sent exactly as written: no line is added. Same provider and the same
+// dry-run switch as every other email. `fromName` is the sender's name.
+export async function sendHtmlEmail(input: { to: string[]; subject: string; text: string; html: string; fromName?: string }): Promise<boolean> {
+  if (isOutboundDryRun()) {
+    logDryRun("email", `to ${input.to.join(", ")} – "${input.subject}" (HTML, ${input.html.length} characters)`);
+    return true;
+  }
+  const provider = (process.env.EMAIL_PROVIDER || "gmail").trim().toLowerCase();
+  if (provider === "resend") {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) return false;
+    const address = process.env.RESEND_FROM ?? "onboarding@resend.dev";
+    const result = await new Resend(apiKey).emails.send({ from: input.fromName && !address.includes("<") ? `${input.fromName} <${address}>` : address, to: input.to, subject: input.subject, text: input.text, html: input.html });
+    if (result.error) throw new Error(`Resend rejected the send: ${result.error.message}`);
+    return true;
+  }
+  const transporter = getGmailTransporter();
+  if (!transporter) return false;
+  await transporter.sendMail({
+    from: input.fromName ? { name: input.fromName, address: process.env.GMAIL_USER ?? "" } : process.env.GMAIL_USER,
+    to: input.to.join(", "),
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  });
+  return true;
+}
+
 // One notice to one person on the team (the Account Updates "notify" email).
 export async function sendStaffNotification(to: string, subject: string, lines: string[]): Promise<boolean> {
   return sendPlainTextEmail([to], subject, lines);
