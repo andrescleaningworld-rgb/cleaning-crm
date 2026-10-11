@@ -1,0 +1,169 @@
+/* Printing notes from the Pin Board: one note big on a page, or a whole
+   square on one page. On screen it is a preview of the same sheet. */
+
+.sheet {
+  max-width: 8in;
+  margin: 12px auto 0;
+  padding: 0.3in;
+  border: 1px solid #d5dbe3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #10233f;
+}
+
+.heading {
+  margin: 0 0 0.15in;
+  font-size: 22pt;
+  font-weight: 800;
+}
+
+.grid {
+  display: grid;
+  gap: 0.15in;
+}
+
+.note {
+  display: flex;
+  gap: 0.25in;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.2in;
+  border: 2px solid #10233f;
+  border-radius: 8px;
+  break-inside: avoid;
+}
+
+.text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.type {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0.05in 0 0.1in;
+  font-weight: 800;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.04in 0.2in;
+  margin: 0;
+}
+
+.facts dt {
+  font-weight: 800;
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.address {
+  display: block;
+  font-weight: 400;
+}
+
+.qrBox {
+  flex: 0 0 auto;
+  text-align: center;
+}
+
+.qr {
+  display: block;
+  height: auto;
+}
+
+.qrText {
+  margin: 4px 0 0;
+  font-weight: 700;
+}
+
+.motto {
+  margin: 0.25in 0 0;
+  text-align: center;
+  font-weight: 800;
+}
+
+/* One note: big and readable. */
+.one .type {
+  font-size: 16pt;
+}
+.one .title {
+  font-size: 34pt;
+}
+.one .facts {
+  font-size: 18pt;
+}
+.one .qr {
+  width: 2.2in;
+}
+.one .qrText {
+  font-size: 11pt;
+}
+.one .motto {
+  font-size: 18pt;
+}
+
+/* A whole square on one page: two columns of smaller notes. */
+.many .grid {
+  grid-template-columns: 1fr 1fr;
+}
+.many .note {
+  padding: 0.1in;
+  gap: 0.1in;
+}
+.many .type {
+  font-size: 8pt;
+}
+.many .title {
+  font-size: 12pt;
+}
+.many .facts {
+  font-size: 9pt;
+}
+.many .qr {
+  width: 0.8in;
+}
+.many .qrText {
+  display: none;
+}
+.many .motto {
+  font-size: 12pt;
+}
+
+@media (max-width: 640px) {
+  .note {
+    flex-direction: column;
+  }
+  .many .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  @page {
+    margin: 0.4in;
+  }
+  .sheet {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .note {
+    flex-direction: row;
+  }
+  .many .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

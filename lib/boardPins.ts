@@ -85,6 +85,8 @@ export type PinRequest = {
   square: string;
   /** Printed on the paper: who it is for, and when it is due (YYYY-MM-DD). */
   forWho?: string;
+  /** A few more words for the paper (the note typed with it). */
+  notes?: string;
   dueDate?: string;
 };
 

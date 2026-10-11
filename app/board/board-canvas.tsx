@@ -6,7 +6,7 @@
 // name and the kind of paper).
 
 import { Caveat } from "next/font/google";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import styles from "./board.module.css";
 
@@ -68,7 +68,8 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
 }
 
 export function paperClass(paper: Paper, settings: BoardSettings, now: Date): string {
-  return `${styles.paper} ${styles[paper.kind]} ${isOld(paper, settings, now) ? styles.old : ""}`;
+  // An account update is a green note; every other note is yellow.
+  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""}`;
 }
 
 type Pending = { paper: Paper; x: number; y: number; touch: boolean; timer: number | null };
@@ -82,6 +83,7 @@ export default function BoardCanvas({
   tv = false,
   onOpen,
   onMove,
+  onAdd,
 }: {
   papers: Paper[];
   managers: BoardManager[];
@@ -92,6 +94,8 @@ export default function BoardCanvas({
   onOpen?: (paper: Paper) => void;
   /** A paper was dropped into a square: "" = its shared square, else a manager's Staff ID. */
   onMove?: (paper: Paper, square: string) => void;
+  /** Empty space in a box was tapped: "shared:<kind>", "shared:note" (Office) or "mgr:<Staff ID>". Never in TV mode. */
+  onAdd?: (square: string) => void;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
   // TV mode: the paper someone tapped, shown bigger. Nothing else happens on a tap there.
@@ -218,6 +222,7 @@ export default function BoardCanvas({
         type="button"
         className={`${paperClass(paper, settings, now)} ${drag && paperKey(drag.paper) === key ? styles.dragging : ""}`}
         style={style}
+        data-paper
         onPointerDown={(event) => onPointerDown(event, paper)}
         onContextMenu={(event) => event.preventDefault()}
         onClick={() => {
@@ -231,13 +236,32 @@ export default function BoardCanvas({
   }
 
   function renderSquare(key: string, name: string, list: Paper[], mine = false) {
+    const canAdd = !tv && Boolean(onAdd);
+    // A tap on a paper opens the paper; a tap anywhere else in the box adds something there.
+    const tapEmpty = (event: ReactMouseEvent<HTMLElement>) => {
+      if (!canAdd || Date.now() < skipClickUntil.current) return;
+      if ((event.target as HTMLElement).closest("[data-paper]")) return;
+      onAdd?.(key);
+    };
     return (
-      <section key={key} data-square={key} className={`${styles.square} ${drag?.over === key ? styles.squareOver : ""} ${mine ? styles.squareMine : ""}`} aria-label={name}>
+      <section
+        key={key}
+        data-square={key}
+        className={`${styles.square} ${canAdd ? styles.squareAdd : ""} ${drag?.over === key ? styles.squareOver : ""} ${mine ? styles.squareMine : ""}`}
+        aria-label={name}
+        onClick={canAdd ? tapEmpty : undefined}
+      >
         <div className={styles.squareHead}>
           <h2 className={styles.squareName}>{name}</h2>
           <span className={styles.squareCount}>{list.length}</span>
         </div>
-        {list.length === 0 ? <p className={styles.emptySquare}>Nothing pinned</p> : <div className={styles.papers}>{list.map(renderPaper)}</div>}
+        {list.length === 0 ? <p className={styles.emptySquare}>{canAdd ? "Tap to add" : "Nothing pinned"}</p> : <div className={styles.papers}>{list.map(renderPaper)}</div>}
+        {/* Always some empty room at the bottom to tap, even in a full box. */}
+        {canAdd ? (
+          <button type="button" className={styles.addStrip} aria-label={`Add to ${name}`}>
+            <span className="ui-visually-hidden">Add to {name}</span>
+          </button>
+        ) : null}
       </section>
     );
   }
@@ -255,7 +279,7 @@ export default function BoardCanvas({
         <div className={styles.row}>
           {SHARED_SQUARES.map((square) => renderSquare(`shared:${square.kind}`, square.label, papersIn(papers, { shared: square.kind })))}
           {/* The Office square: records pinned for the office ("Pin to board"), and a to-do whose manager is no longer on the board. Shown only when something is in it. */}
-          {papersIn(papers, { shared: "note" }).length > 0 ? renderSquare("shared:note", "Office", papersIn(papers, { shared: "note" })) : null}
+          {papersIn(papers, { shared: "note" }).length > 0 || (!tv && onAdd) ? renderSquare("shared:note", "Office", papersIn(papers, { shared: "note" })) : null}
         </div>
         <div className={styles.row}>
           {managers.map((manager) => renderSquare(`mgr:${manager.id}`, manager.name, papersIn(papers, { manager: manager.id }), manager.id === mySquare))}

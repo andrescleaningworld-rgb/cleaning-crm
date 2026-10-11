@@ -53,7 +53,12 @@ export type Paper = {
   dueDate: string;
   /** A pinned to-do that is Done: green check, comes down the next day. */
   recordDone: boolean;
+  /** A sticky note added inside a shared box ("supply", "complaint", "account"): it hangs there. "" = the Office box. */
+  box: string;
 };
+
+/** The shared boxes a plain sticky note can be added into. */
+export const NOTE_BOXES = ["account", "complaint", "supply"] as const;
 
 /** Past its due date and not done: the red corner. */
 export function isOverdue(paper: Pick<Paper, "dueDate" | "recordDone">, now = new Date()): boolean {
@@ -133,7 +138,8 @@ export function paperTilt(itemId: string): number {
 
 /** The papers hanging in one square. */
 export function papersIn(papers: Paper[], square: { shared: PaperKind } | { manager: string }): Paper[] {
-  if ("shared" in square) return papers.filter((paper) => paper.square === "" && paper.kind === square.shared);
+  // A sticky note with no square hangs in the box it was added into, or in the Office box.
+  if ("shared" in square) return papers.filter((paper) => paper.square === "" && (paper.kind === "note" ? (paper.box || "note") === square.shared : paper.kind === square.shared));
   return papers.filter((paper) => paper.square === square.manager);
 }
 
