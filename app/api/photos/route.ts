@@ -1,4 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { isPostgres } from "@/lib/dataSource";
+import { addPhoto, copyDrivePhotos, listPhotosShape } from "@/lib/pg/photos";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 
 const GOOGLE_SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
@@ -16,6 +18,20 @@ function getErrorMessage(error: unknown): string {
 }
 
 export async function GET() {
+  // DATA_SOURCE_PHOTOS=postgres: the same list, in the same shape, without
+  // Apps Script. Old Drive photos are copied into Blob storage a few at a
+  // time, after the answer is sent; the Drive originals are only read.
+  if (isPostgres("PHOTOS")) {
+    try {
+      const photos = await listPhotosShape();
+      after(() => copyDrivePhotos(3).catch((error) => console.error("[photos] Drive copy:", getErrorMessage(error))));
+      return NextResponse.json({ success: true, photos, data: photos }, { headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+      console.error("[photos GET]", getErrorMessage(error));
+      return NextResponse.json({ success: false, message: "The photos did not load.", photos: [], data: [] }, { status: 500 });
+    }
+  }
+
   if (!GOOGLE_SCRIPT_URL) {
     return NextResponse.json(
       {
@@ -99,6 +115,20 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  // DATA_SOURCE_PHOTOS=postgres: the photo goes to Blob storage and its
+  // record to Postgres. Apps Script and Google Drive are not involved.
+  if (isPostgres("PHOTOS")) {
+    try {
+      const body = (await request.json()) as Record<string, unknown>;
+      const saved = await addPhoto(body);
+      return NextResponse.json({ success: true, message: "Photo uploaded.", photo: { success: true, photoId: saved.photoId, driveUrl: saved.url } });
+    } catch (error) {
+      const message = getErrorMessage(error);
+      console.error("[photos POST]", message);
+      return NextResponse.json({ success: false, message: message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "The photo did not upload. Try again." }, { status: 400 });
+    }
+  }
+
   if (!GOOGLE_SCRIPT_URL) {
     return NextResponse.json(
       {

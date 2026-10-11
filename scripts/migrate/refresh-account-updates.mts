@@ -9,38 +9,23 @@
 //   npx tsx scripts/migrate/refresh-account-updates.mts --production            production, dry run
 //   npx tsx scripts/migrate/refresh-account-updates.mts --production --write    production, copy in
 //
-// --production reads the database address from DATABASE_URL in
-// .env.production.local (never printed) and refuses the practice database's
+// --production reads the database address from .env.production.local
+// (lib/production.mjs; never printed) and refuses the practice database's
 // address, so the two cannot be mixed up. Take a Neon backup branch first.
 //
 // Rules: a row already copied is refreshed, never doubled (same key as
 // import-accounts.mts). Rows saved by the app itself (no sheet row) are never
 // touched. Nothing is ever deleted. No names, notes or emails are printed.
-import fs from "node:fs";
-import path from "node:path";
 import { neon } from "@neondatabase/serverless";
-import { REPO_ROOT, loadEnv } from "./lib/env.mjs";
-import { ALLOWED_ENDPOINTS, assertDevDatabase } from "./lib/guard.mjs";
+import { loadEnv } from "./lib/env.mjs";
+import { assertDevDatabase } from "./lib/guard.mjs";
+import { productionUrl } from "./lib/production.mjs";
 import { cell, sha256, toDate } from "./lib/import-helpers.mjs";
 import { isBlankRow, readTab } from "./lib/sheets-readonly.mjs";
 
 loadEnv();
 const write = process.argv.includes("--write");
 const production = process.argv.includes("--production");
-
-function productionUrl(): string {
-  const file = path.join(REPO_ROOT, ".env.production.local");
-  if (!fs.existsSync(file)) throw new Error(".env.production.local is not here. Pull it first; nothing was done.");
-  const line = fs
-    .readFileSync(file, "utf8")
-    .split(/\r?\n/)
-    .find((entry) => entry.startsWith("DATABASE_URL="));
-  const url = (line ?? "").slice("DATABASE_URL=".length).trim().replace(/^"|"$/g, "");
-  if (!url || url === "[SENSITIVE]") throw new Error("DATABASE_URL in .env.production.local is empty or a placeholder. Nothing was done.");
-  const endpoint = new URL(url).hostname.split(".")[0].replace(/-pooler$/, "");
-  if (ALLOWED_ENDPOINTS.includes(endpoint)) throw new Error("That DATABASE_URL is the practice database, not production. Nothing was done.");
-  return url;
-}
 
 const url = production ? productionUrl() : assertDevDatabase(process.env.MIGRATION_DATABASE_URL);
 const sql = neon(url);
