@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { addShellTips, clearShellScreen, setShellScreen, SHOW_TIPS_EVENT } from "./shell";
+import { loadTips, markTipSeen, setTipsOff, tipWasSeen, tipsAreOff } from "./tips-store";
 
 /* ---------- Tips ---------- */
 
@@ -18,8 +19,6 @@ export type TipStep = {
   target: string;
   text: string;
 };
-
-const TIPS_SEEN_PREFIX = "cwTipsSeen:";
 
 function firstVisible(selector: string): HTMLElement | null {
   for (const el of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
@@ -31,8 +30,10 @@ function firstVisible(selector: string): HTMLElement | null {
 
 /**
  * Two or three short tips, shown one at a time the first time someone opens
- * a screen. "Got it" moves on; after the last one they never show again on
- * this device, until the "?" in the top bar is tapped.
+ * a kind of screen. They count as seen the moment they first show, for this
+ * person on every device (tips-store.ts), so they never come back by
+ * themselves; the "?" in the top bar shows them again. "Skip all" turns
+ * every tip off (Settings -> Tips turns them back on).
  */
 export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]; ready?: boolean }) {
   // -1 = not showing.
@@ -48,15 +49,20 @@ export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]
   // First visit: start once the screen has its content.
   useEffect(() => {
     if (!ready) return;
-    let seen = true;
-    try {
-      seen = window.localStorage.getItem(TIPS_SEEN_PREFIX + id) === "1";
-    } catch {
-      seen = true;
-    }
-    if (seen) return;
-    const start = window.setTimeout(() => setIndex(0), 500);
-    return () => window.clearTimeout(start);
+    let alive = true;
+    let start = 0;
+    void loadTips().then(() => {
+      if (!alive || tipsAreOff() || tipWasSeen(id)) return;
+      start = window.setTimeout(() => {
+        // Seen from the first moment: leaving the screen half way does not bring them back.
+        markTipSeen(id);
+        setIndex(0);
+      }, 500);
+    });
+    return () => {
+      alive = false;
+      window.clearTimeout(start);
+    };
   }, [id, ready]);
 
   // The "?" in the top bar.
@@ -69,12 +75,13 @@ export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]
   const finish = useCallback(() => {
     setIndex(-1);
     setBox(null);
-    try {
-      window.localStorage.setItem(TIPS_SEEN_PREFIX + id, "1");
-    } catch {
-      // Private mode: the tips simply show again next time.
-    }
+    markTipSeen(id);
   }, [id]);
+
+  const skipAll = useCallback(() => {
+    setTipsOff(true);
+    finish();
+  }, [finish]);
 
   // Point at the step's target; a step whose target is not on screen is skipped.
   useLayoutEffect(() => {
@@ -128,6 +135,11 @@ export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]
           </span>
           <button type="button" className="ui-btn ui-btn-main ui-tip-btn" onClick={() => (last ? finish() : setIndex(index + 1))}>
             Got it
+          </button>
+        </div>
+        <div className="ui-tip-row ui-tip-skip">
+          <button type="button" className="ui-link" onClick={skipAll}>
+            Skip all tips
           </button>
         </div>
       </div>

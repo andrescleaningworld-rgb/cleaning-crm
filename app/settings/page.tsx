@@ -1,7 +1,7 @@
 "use client";
 
 import { ShellTitle, Tile } from "@/app/ui";
-import { useHandoffs } from "../components/handoffs";
+import TipsToggle from "./tips-toggle";
 import Link from "next/link";
 import {
   useEffect,
@@ -737,7 +737,6 @@ function SupplySettingsSection() {
 export default function SettingsPage() {
   const [isOwner, setIsOwner] = useState(false);
   // Settings -> Team only exists where handoffs are turned on.
-  const handoffsOn = useHandoffs().state === "ready";
   const [managers, setManagers] = useState<Manager[]>([]);
   const [managersLoading, setManagersLoading] = useState(true);
   const [managersError, setManagersError] = useState("");
@@ -866,13 +865,15 @@ export default function SettingsPage() {
 
         {/* The places to go, one tap each. The Activity Log tile is owner-only, as before. */}
         <div className="ui-acttiles">
-          {handoffsOn ? <Tile icon="status" label="Team" detail="Who does the Office steps, and when things turn red" href="/settings/team" /> : null}
+          <Tile icon="status" label="Team" detail="Who does the Office steps, when things turn red, and connected TVs" href="/settings/team" />
           <Tile icon="key" label="Customer Portal Access" detail="Turn the portal on or off for an account" href="/settings/portal" />
           <Tile icon="note" label="Extra Services" detail="What customers can request" href="/settings/extra-services" />
           <Tile icon="status" label="Equipment Categories and Staff" href="/settings/equipment-categories" />
           {isOwner ? <Tile icon="visit" label="Activity Log" detail="Who changed what" href="/settings/activity-log" /> : null}
           <Tile icon="print" label="Logs" detail="Account update history" href="/settings/logs" />
         </div>
+
+        <TipsToggle />
 
         <h2 className="ui-section-title">Lists used in the app</h2>
         <p className="ui-muted">

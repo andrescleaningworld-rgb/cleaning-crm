@@ -2714,6 +2714,20 @@ main.cw-page-card {
   min-width: 120px;
 }
 
+.ui-tip-skip {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.ui-tip-skip .ui-link {
+  min-height: 44px;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* ---------- Big light-green action tiles (account page) ---------- */
 
 .ui-acttiles {
