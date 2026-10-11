@@ -886,16 +886,13 @@ export default function SubcontractorDetailPage() {
         headerRight={
           <MoreMenu
             items={[
+              { label: "Edit", onSelect: () => setEditing(true) },
               { label: LABELS.print, onSelect: handlePrint },
               { label: refreshing ? "Refreshing…" : "Refresh", icon: "clock", onSelect: () => void handleRefresh() },
             ]}
           />
         }
-        action={
-          <BigButton onClick={() => setEditing(true)}>
-            Change details
-          </BigButton>
-        }
+        onEdit={() => setEditing(true)}
       >
         <PinLinkButton email={form.email || ""} name={form.contactName || getCompanyName(subcontractor)} />
 

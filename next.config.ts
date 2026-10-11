@@ -27,7 +27,7 @@ if (process.env.VERCEL_ENV === "preview") {
 // very first push would otherwise build a preview that reads and writes the
 // live Sheets and can send real texts and emails. Stop the build instead
 // until the safety settings are there.
-const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos", "feature/pin-to-board", "feature/no-apps-script"];
+const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos", "feature/pin-to-board", "feature/no-apps-script", "feature/board-fixes"];
 if (process.env.VERCEL_ENV === "preview" && SAFE_PREVIEW_BRANCHES.includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")) {
   const missing = [
     process.env.SHEETS_READ_ONLY === "1" ? "" : "SHEETS_READ_ONLY=1",
@@ -40,6 +40,10 @@ if (process.env.VERCEL_ENV === "preview" && SAFE_PREVIEW_BRANCHES.includes(proce
 }
 
 const nextConfig: NextConfig = {
+  // The short address typed on the office TV's remote.
+  async redirects() {
+    return [{ source: "/tv", destination: "/board/tv", permanent: false }];
+  },
   // The Photos page asks Next's image resizer for small thumbnails of files
   // kept in Blob storage.
   images: {

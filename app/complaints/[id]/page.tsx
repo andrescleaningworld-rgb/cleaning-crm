@@ -448,13 +448,14 @@ export default function ComplaintDetailPage() {
         complaint ? (
           <MoreMenu
             items={[
+              { label: "Edit", onSelect: startEditing },
               { label: resending ? "Resending…" : "Resend subcontractor email", onSelect: () => void resendSubcontractorEmail() },
               { label: LABELS.print, onSelect: () => window.print() },
             ]}
           />
         ) : undefined
       }
-      action={complaint ? <BigButton onClick={startEditing}>Edit complaint</BigButton> : undefined}
+      onEdit={complaint && !isEditing ? startEditing : undefined}
     >
       {error && complaint && !isEditing ? <ErrorBox title="That did not work." text={error} /> : null}
       {successMessage ? (

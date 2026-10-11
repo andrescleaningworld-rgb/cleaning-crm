@@ -10,6 +10,7 @@ import {
   CHEER,
   EmptyState,
   ErrorBox,
+  Field,
   MOTTO,
   Screen,
   SelectField,
@@ -66,6 +67,17 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   const [openKey, setOpenKey] = useState("");
   const [pinning, setPinning] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
+  // "Show on TV": open, and the code a scanned QR brought along (/board?tv=123456).
+  const [tvOpen, setTvOpen] = useState(false);
+  const [tvCode, setTvCode] = useState("");
+  useEffect(() => {
+    const code = (new URLSearchParams(window.location.search).get("tv") ?? "").replace(/\D/g, "").slice(0, 6);
+    if (code.length !== 6) return;
+    setTvCode(code);
+    setTvOpen(true);
+    // The code is used once: it does not stay in the address.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [whose, setWhose] = useState("");
   const changeTab = useBoardTabs(tab, setTab);
@@ -184,6 +196,11 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             <BigButton icon="plus" href="/extra-jobs/new?from=board">
               Extra job
             </BigButton>
+            {data.me.isOwner ? (
+              <BigButton kind="second" onClick={() => setTvOpen(true)}>
+                Show on TV
+              </BigButton>
+            ) : null}
           </div>
 
           {tab === "board" ? (
@@ -301,6 +318,12 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
         ))}
       </Sheet>
 
+      {data?.me.isOwner ? <ShowOnTvSheet open={tvOpen} startCode={tvCode} onClose={() => setTvOpen(false)} /> : null}
+      {data && !data.me.isOwner && tvOpen ? (
+        <Sheet open title="Show on TV" onClose={() => setTvOpen(false)} closeLabel="Close">
+          <p>Only the owner can connect a TV. Ask the owner to scan the code on the TV.</p>
+        </Sheet>
+      ) : null}
       {data ? <PinSheet open={pinning} data={data} defaultSquare={data.me.squareId} onClose={() => setPinning(false)} onPinned={() => void load()} /> : null}
     </Screen>
   );
@@ -438,6 +461,96 @@ function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: bool
           ))}
         </SelectField>
         {error ? <p className="ui-field-error">{error}</p> : null}
+      </div>
+    </Sheet>
+  );
+}
+
+/**
+ * "Show on TV": the owner types the 6 numbers the TV is showing (or arrives
+ * here from the TV's QR code with them filled in) and names the TV. The TV
+ * switches to the board by itself. "Copy TV link" is the backup for a TV
+ * whose browser can paste a link.
+ */
+function ShowOnTvSheet({ open, startCode, onClose }: { open: boolean; startCode: string; onClose: () => void }) {
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("Office TV");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [link, setLink] = useState("");
+
+  // Each opening starts fresh.
+  useEffect(() => {
+    if (!open) return;
+    setCode(startCode);
+    setError("");
+    setLink("");
+  }, [open, startCode]);
+
+  async function connect() {
+    setError("");
+    if (code.length !== 6) return setError("Type the 6 numbers showing on the TV.");
+    setBusy(true);
+    try {
+      await postBoard({ action: "connectTv", code, label: name });
+      showToast("Connected ✓ The TV is switching to the board.");
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That did not connect. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyLink() {
+    setError("");
+    setBusy(true);
+    try {
+      const data = await postBoard({ action: "createTvLink", label: name });
+      const made = `${window.location.origin}/board/tv?k=${encodeURIComponent(String(data.token ?? ""))}`;
+      setLink(made);
+      try {
+        await navigator.clipboard.writeText(made);
+        showToast("TV link copied. Paste it in the TV's browser.");
+      } catch {
+        showToast("Copy did not work. Select the link below and copy it.", "bad");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The link was not made. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet
+      open={open}
+      title="Show on TV"
+      text="On the TV, open cleaning-crm-xi.vercel.app/tv. It shows 6 numbers."
+      onClose={onClose}
+      busy={busy}
+      actions={
+        <BigButton busy={busy} busyLabel="Connecting…" onClick={() => void connect()}>
+          Connect TV
+        </BigButton>
+      }
+    >
+      <div className="ui-stack">
+        <Field label="The 6 numbers on the TV" inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+        <Field label="Name for this TV" hint="So you know which TV is which in Settings, Team." maxLength={60} value={name} onChange={(event) => setName(event.target.value)} />
+        {error ? <p className="ui-field-error">{error}</p> : null}
+        <p className="ui-muted">The TV only shows the board. Nothing can be changed from it, and it never shows money.</p>
+        <div>
+          <BigButton kind="second" disabled={busy} onClick={() => void copyLink()}>
+            Copy TV link
+          </BigButton>
+        </div>
+        <p className="ui-muted">Backup: for a TV with a browser where you can paste. Each tap makes a new link.</p>
+        {link ? (
+          <p className="ui-code" style={{ overflowWrap: "anywhere" }}>
+            {link}
+          </p>
+        ) : null}
       </div>
     </Sheet>
   );

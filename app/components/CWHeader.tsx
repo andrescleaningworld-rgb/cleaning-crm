@@ -50,7 +50,7 @@ const ADMIN_GROUPS: NavGroup[] = [
     name: "Office",
     items: [
       // The old dashboard: the counts and lists at a glance.
-      { href: "/", label: "Overview", icon: "home" },
+      { href: "/overview", label: "Overview", icon: "home" },
       { href: "/sales", label: "Sales", icon: "sales" },
       { href: "/reports", label: "Reports", icon: "reports" },
       { href: "/documents", label: "Documents", icon: "documents" },
@@ -335,9 +335,16 @@ export default function CWHeader() {
 
           {/* cw-emblem.png is the emblem with no empty margin (276x180). The
               box never shrinks, and the image keeps its own proportions. */}
-          <div className="cw-topbar-logo">
-            <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
-          </div>
+          {/* The logo goes home: the Board for staff, their own portal for a sub or a customer. */}
+          {mounted && role && !isLogin ? (
+            <Link href={home} className="cw-topbar-logo" aria-label="Home">
+              <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
+            </Link>
+          ) : (
+            <div className="cw-topbar-logo">
+              <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
+            </div>
+          )}
 
           <div className="cw-topbar-names">
             <p className="cw-topbar-brand">Cleaning World</p>
@@ -476,6 +483,7 @@ function SideIcon({ name }: { name: SideIconName }) {
 
 const PAGE_NAMES: Record<string, string> = {
   "": "Overview",
+  overview: "Overview",
   login: "Log in",
   accounts: "Accounts",
   "accounts-center": "Accounts Center",
