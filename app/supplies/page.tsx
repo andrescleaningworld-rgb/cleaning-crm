@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import SupplyControl from "./supply-control";
 import {
   BigButton,
   Card,
@@ -537,6 +538,9 @@ export default function SuppliesPage() {
           showToast("Updated ✓");
         }}
       />
+
+      {/* Supply control (the shelf, reorder, orders, spend): shows only where it is switched on. */}
+      <SupplyControl />
 
       {/* At a glance: tap a number to see those supplies. */}
       <Counts
