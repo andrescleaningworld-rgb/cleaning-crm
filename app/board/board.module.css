@@ -29,6 +29,13 @@
   box-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
 }
 
+/* One click: the board on the TV, full screen. */
+.tvButton {
+  width: 100%;
+  min-height: 76px;
+  font-size: 26px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

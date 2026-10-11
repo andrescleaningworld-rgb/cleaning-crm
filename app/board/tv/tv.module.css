@@ -36,9 +36,15 @@
   padding: calc(var(--u) * 1.2);
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: calc(var(--u) * 10) minmax(0, 1fr);
+  grid-template-rows: calc(var(--u) * 10) minmax(0, 1fr) calc(var(--u) * 9);
   grid-row-gap: calc(var(--u) * 1.2);
   transition: transform 2s ease;
+}
+
+/* No mouse movement for a few seconds: no pointer over the board. */
+.idle,
+.idle * {
+  cursor: none;
 }
 
 /* Keeps the screen busy on a browser that refuses a wake lock: a dot nobody can see, always moving. */
@@ -472,6 +478,73 @@
 .cleaning.extra {
   border-left-color: #1565c0;
   background-color: #e6f1fb;
+}
+
+/* ---------- bottom strip: the company rule ---------- */
+
+.rule {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 calc(var(--u) * 2);
+  box-sizing: border-box;
+  border-radius: calc(var(--u) * 1.6);
+  background: #3b6d11;
+  background: var(--ui-green, #3b6d11);
+  overflow: hidden;
+}
+
+/* As big as the strip allows; on a narrow screen the width decides, so the words are never cut. */
+.ruleText {
+  margin: 0;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 6.2);
+  font-size: min(calc(var(--u) * 6.2), 3.7vw);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+}
+
+/* ---------- full screen: the button to go back in, and the F11 hint ---------- */
+
+.fullButton {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--u, 1vh) * 14);
+  z-index: 210;
+  transform: translateX(-50%);
+  padding: calc(var(--u, 1vh) * 2.4) calc(var(--u, 1vh) * 6);
+  border: 0;
+  border-radius: calc(var(--u, 1vh) * 2.4);
+  background: #ffffff;
+  color: #0c447c;
+  font-family: inherit;
+  font-size: calc(var(--u, 1vh) * 5);
+  font-size: clamp(24px, calc(var(--u, 1vh) * 5), 80px);
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.hint {
+  position: fixed;
+  top: calc(var(--u, 1vh) * 1);
+  left: 50%;
+  z-index: 210;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 4px 14px;
+  border-radius: 10px;
+  background: rgba(16, 35, 63, 0.85);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 /* ---------- the one link: staff looking at TV mode from the board ---------- */

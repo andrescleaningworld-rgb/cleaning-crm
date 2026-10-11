@@ -4028,3 +4028,12 @@ button.ui-supply-tile {
   font-weight: 800;
   cursor: pointer;
 }
+
+/* ---------- Office TV mode (app/board/tv) ----------
+   While the TV screen is up, nothing else of the app is on the page: no top
+   bar, no update notice, no "Saved" messages. tv-gate.tsx sets the mark. */
+
+html[data-tv-mode] .cw-app-container > :not(main),
+html[data-tv-mode] body > div:not(.cw-app-shell) {
+  display: none !important;
+}

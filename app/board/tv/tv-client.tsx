@@ -5,6 +5,7 @@
 //   top strip      logo, the three counts, the clock and date
 //   left (70%)     the pin board: only the squares that have notes
 //   right (30%)    today's cleanings, with a progress bar
+//   bottom strip   the company rule, in green, always there
 //
 // A square (or the cleanings list) shows as many rows as fit. When there are
 // more, it shows "+N more" and turns to the next rows every 8 seconds, so
@@ -12,8 +13,14 @@
 //
 // Everything is sized from the real height of the screen (--u = 1% of it),
 // measured here, so it also fits a TV browser whose toolbar takes part of the
-// screen and one too old for newer CSS units. Nothing needs a click: the only
-// link is "Exit TV mode", for staff looking at TV mode from the board's tabs.
+// screen and one too old for newer CSS units. Nothing needs a click.
+//
+// Full screen (no browser tabs or address bar) starts with the click on the
+// board's "TV Mode (Full Screen)" button. When it is not on (Esc was pressed,
+// or the TV opened its own link), moving the mouse shows one big "Full
+// screen" button; a browser that cannot do it gets a small "Press F11" hint,
+// once. The mouse pointer, that button and "Exit TV mode" (for staff who came
+// from the board) all go away after a few seconds without the mouse moving.
 // The page asks for fresh data every minute and keeps the last board when a
 // refresh fails ("Reconnecting…" in the top strip).
 
@@ -22,6 +29,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
+import { MOTTO } from "@/app/ui/words";
+import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported } from "../full-screen";
 import styles from "./tv.module.css";
 
 type TvCleaning = { accountName: string; sub: string; status: CleaningStatus };
@@ -38,6 +47,10 @@ type TvData = {
 const REFRESH_MS = 60_000;
 const ROTATE_MS = 8_000;
 const SHIFT_MS = 10 * 60_000;
+/** The mouse pointer and the buttons go away after this long without the mouse moving. */
+const IDLE_MS = 4_000;
+const HINT_MS = 12_000;
+const HINT_KEY = "cwTvF11Hint";
 /** Where the whole picture sits, in pixels; it moves to the next one every 10 minutes so nothing burns into the TV. */
 const SHIFTS: [number, number][] = [
   [0, 0],
@@ -104,6 +117,11 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const [shift, setShift] = useState(0);
   const [unit, setUnit] = useState(0);
   const root = useRef<HTMLDivElement>(null);
+  // Full screen: on or not, whether this browser can do it when asked, and the F11 hint.
+  const [full, setFull] = useState(true);
+  const [canFull, setCanFull] = useState(false);
+  const [hint, setHint] = useState(false);
+  const [idle, setIdle] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -179,6 +197,67 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     };
   }, []);
 
+  /** "Press F11 for full screen": shown once per time the browser is opened, for a browser that cannot do it itself. */
+  const showHint = useCallback(() => {
+    try {
+      if (window.sessionStorage.getItem(HINT_KEY)) return;
+      window.sessionStorage.setItem(HINT_KEY, "1");
+    } catch {
+      // A browser that keeps nothing: the hint just shows.
+    }
+    setHint(true);
+    window.setTimeout(() => setHint(false), HINT_MS);
+  }, []);
+
+  // Is the browser out of the way? Checked again whenever full screen starts or ends (Esc), or the window changes.
+  useEffect(() => {
+    const check = () => {
+      setFull(fillsTheScreen());
+      setCanFull(fullScreenSupported());
+    };
+    check();
+    if (!fillsTheScreen() && !fullScreenSupported()) showHint();
+    FULL_SCREEN_EVENTS.forEach((name) => document.addEventListener(name, check));
+    window.addEventListener("resize", check);
+    return () => {
+      FULL_SCREEN_EVENTS.forEach((name) => document.removeEventListener(name, check));
+      window.removeEventListener("resize", check);
+    };
+  }, [showHint]);
+
+  // No mouse movement for a few seconds: the pointer and the buttons go away. Any movement brings them back.
+  useEffect(() => {
+    let timer = 0;
+    let last = "";
+    const wake = () => {
+      setIdle(false);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setIdle(true), IDLE_MS);
+    };
+    const moved = (event: MouseEvent) => {
+      // A browser also reports a "move" when the picture changes under a still mouse; only a real move counts.
+      const at = `${event.screenX},${event.screenY}`;
+      if (at === last) return;
+      last = at;
+      wake();
+    };
+    wake();
+    window.addEventListener("mousemove", moved);
+    window.addEventListener("mousedown", wake);
+    window.addEventListener("touchstart", wake);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("mousemove", moved);
+      window.removeEventListener("mousedown", wake);
+      window.removeEventListener("touchstart", wake);
+    };
+  }, []);
+
+  /** The big "Full screen" button. A browser only allows it from inside a click, which this is. */
+  const goFull = async () => {
+    if (!(await enterFullScreen())) showHint();
+  };
+
   // Keep the screen awake. A browser that refuses still has the tiny moving dot (styles.awake).
   useEffect(() => {
     type Lock = { release: () => Promise<void> };
@@ -217,11 +296,13 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     return all.filter((square) => square.papers.length > 0).map((square) => ({ ...square, papers: sorted(square.papers) }));
   }, [data, now]);
 
-  const exit = token ? null : (
-    <Link href="/board" className={styles.exit}>
-      Exit TV mode
-    </Link>
-  );
+  // Leaving TV mode also ends full screen.
+  const exit =
+    token || idle ? null : (
+      <Link href="/board" className={styles.exit} onClick={() => void exitFullScreen()}>
+        Exit TV mode
+      </Link>
+    );
 
   if (problem === "denied" || problem === "off") {
     return (
@@ -245,7 +326,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const [dx, dy] = SHIFTS[shift];
 
   return (
-    <div ref={root} className={styles.tv} style={{ ["--u" as string]: unit > 0 ? `${unit}px` : undefined }} data-tv-screen aria-live="off">
+    <div ref={root} className={`${styles.tv} ${idle ? styles.idle : ""}`} style={{ ["--u" as string]: unit > 0 ? `${unit}px` : undefined }} data-tv-screen aria-live="off">
       <span className={styles.awake} aria-hidden="true" />
       <div className={styles.stage} style={{ transform: `translate(${dx}px, ${dy}px)` }}>
         <header className={styles.strip}>
@@ -339,7 +420,18 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
             />
           </aside>
         </div>
+
+        {/* The company rule: its own strip under the board, so it never covers a square. */}
+        <footer className={styles.rule} data-tv-rule>
+          <p className={styles.ruleText}>{MOTTO.en}</p>
+        </footer>
       </div>
+      {!full && canFull && !idle ? (
+        <button type="button" className={styles.fullButton} onClick={() => void goFull()}>
+          Full screen
+        </button>
+      ) : null}
+      {hint && !full ? <p className={styles.hint}>Press F11 for full screen</p> : null}
       {exit}
     </div>
   );

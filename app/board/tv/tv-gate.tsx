@@ -13,11 +13,14 @@
 
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { exitFullScreen } from "../full-screen";
 import TvClient from "./tv-client";
 import styles from "./tv.module.css";
 
 const SECRET_KEY = "cwTvSecret";
 const ASK_EVERY_MS = 3_000;
+/** How many TV screens are up in this page: 1 on /board/tv, 0 once it is left. */
+let tvScreens = 0;
 
 type Mode = { kind: "checking" } | { kind: "board"; token: string } | { kind: "code"; code: string; secondsLeft: number } | { kind: "problem"; text: string };
 
@@ -45,6 +48,22 @@ export default function TvGate({ token }: { token: string }) {
   const [mode, setMode] = useState<Mode>(token ? { kind: "board", token } : { kind: "checking" });
   const [qr, setQr] = useState("");
   const secret = useRef("");
+
+  // While TV mode is up, the rest of the app is hidden (globals.css: html[data-tv-mode]).
+  // Leaving TV mode, by any road, also ends full screen.
+  useEffect(() => {
+    tvScreens += 1;
+    document.documentElement.setAttribute("data-tv-mode", "1");
+    return () => {
+      tvScreens -= 1;
+      // Checked a moment later: in development React takes a screen down and puts it straight back.
+      window.setTimeout(() => {
+        if (tvScreens > 0) return;
+        document.documentElement.removeAttribute("data-tv-mode");
+        void exitFullScreen();
+      }, 0);
+    };
+  }, []);
 
   /** Asks for this TV's code, or learns that it has been connected. */
   const ask = useCallback(async () => {

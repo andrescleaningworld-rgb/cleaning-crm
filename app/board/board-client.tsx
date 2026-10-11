@@ -25,6 +25,7 @@ import {
 import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, type BoardData, type Paper } from "@/lib/board";
 import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
+import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
 export type BoardTab = "board" | "mine" | "calendar" | "tv";
@@ -45,7 +46,11 @@ export function useBoardTabs(current: BoardTab, onLocal?: (tab: "board" | "mine"
   return (tab: BoardTab) => {
     if (tab === current) return;
     if (tab === "calendar") router.push("/board/calendar");
-    else if (tab === "tv") router.push("/board/tv");
+    else if (tab === "tv") {
+      // Full screen has to start inside this click; it stays on while the TV page opens.
+      void enterFullScreen();
+      router.push("/board/tv");
+    }
     else if (onLocal) onLocal(tab);
     else router.push(tab === "mine" ? "/board?tab=mine" : "/board?tab=board");
   };
@@ -215,6 +220,10 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
         <ErrorBox title="The board did not load." onRetry={() => void load()} />
       ) : (
         <>
+          <BigButton className={styles.tvButton} onClick={() => changeTab("tv")}>
+            📺 TV Mode (Full Screen)
+          </BigButton>
+
           <div className={styles.actions}>
             <BigButton icon="plus" onClick={() => setPinning(true)}>
               Pin something
