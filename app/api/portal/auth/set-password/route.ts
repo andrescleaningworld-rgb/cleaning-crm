@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { newPortalOn, sessionOptions, type PortalSessionData } from "@/lib/portalSession";
+import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { accountsForEmail, setPasswordWithToken } from "@/lib/pg/portal-auth";
 
 // POST { token, password }: sets the password from a link and logs the
 // customer in. The password is hashed here and never logged.
 export async function POST(request: NextRequest) {
-  if (!newPortalOn()) return NextResponse.json({ error: "Not available." }, { status: 404 });
-
   let body: { token?: unknown; password?: unknown };
   try {
     body = await request.json();

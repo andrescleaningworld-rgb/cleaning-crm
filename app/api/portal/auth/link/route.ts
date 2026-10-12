@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { newPortalOn } from "@/lib/portalSession";
 import { cleanEmail, createPasswordLink } from "@/lib/pg/portal-auth";
 import { isNonProduction, passwordLinkEmail, passwordLinkUrl } from "@/lib/portalAuth";
 import { sendCustomerEmail } from "@/lib/email";
@@ -13,8 +12,6 @@ import { sendCustomerEmail } from "@/lib/email";
 // accounts, the link is also returned so it can be shown on screen (emails
 // are dry-run there). A real customer's link is never returned.
 export async function POST(request: NextRequest) {
-  if (!newPortalOn()) return NextResponse.json({ error: "Not available." }, { status: 404 });
-
   let body: { email?: unknown; kind?: unknown };
   try {
     body = await request.json();

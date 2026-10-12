@@ -1,15 +1,12 @@
 import { redirect } from "next/navigation";
 import { getPortalLogin } from "@/lib/portalAuth";
-import { newPortalOn } from "@/lib/portalSession";
 import NewPortalLogin from "./new-login";
-import OldPortalLogin from "./old-login";
 
 export const dynamic = "force-dynamic";
 
-// Where the new portal runs: email + password. Everywhere else: the phone +
-// code login, exactly as before.
+// The one customer login: email + password. The older phone + code login
+// and the phone-only /customer-portal pages are gone; their addresses land here.
 export default async function PortalLoginPage() {
-  if (!newPortalOn()) return <OldPortalLogin />;
   const login = await getPortalLogin();
   if (login) redirect(login.current ? "/portal" : "/portal/locations");
   return <NewPortalLogin />;

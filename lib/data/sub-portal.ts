@@ -1,6 +1,6 @@
-// The subcontractor portal. Today it goes through Apps Script inside
-// app/api/subcontractor-portal, app/api/notifications and
-// app/api/subcontractor-issues; with DATA_SOURCE_SUB_PORTAL set to
+// The subcontractor portal. With the switch off it goes through Apps Script
+// inside app/api/subcontractor-portal and app/api/notifications; with
+// DATA_SOURCE_SUB_PORTAL set to
 // "postgres" those routes use the functions below instead and Apps Script
 // is not called. Unset (the default) changes nothing.
 //

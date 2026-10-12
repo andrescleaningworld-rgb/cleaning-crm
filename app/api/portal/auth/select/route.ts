@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { newPortalOn, sessionOptions, type PortalSessionData } from "@/lib/portalSession";
+import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { accountsForEmail } from "@/lib/pg/portal-auth";
 
 // POST { accountId }: "Which location?". Only a location the logged-in
 // email really opens can be picked.
 export async function POST(request: NextRequest) {
-  if (!newPortalOn()) return NextResponse.json({ error: "Not available." }, { status: 404 });
-
   let body: { accountId?: unknown };
   try {
     body = await request.json();

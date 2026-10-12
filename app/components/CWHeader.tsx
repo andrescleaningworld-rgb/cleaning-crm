@@ -85,10 +85,10 @@ const CUSTOMER_GROUPS: NavGroup[] = [
   {
     name: "Menu",
     items: [
-      { href: "/customer-portal", label: "My Account", icon: "home" },
-      { href: "/customer-portal/requests", label: "Requests", icon: "portal" },
-      { href: "/customer-portal/complaints", label: "Complaints", icon: "problem" },
-      { href: "/customer-portal/history", label: "History", icon: "visit" },
+      { href: "/portal", label: "Home", icon: "home" },
+      { href: "/portal/problem", label: "Report a problem", icon: "problem" },
+      { href: "/portal/requests", label: "What I sent", icon: "portal" },
+      { href: "/portal/visits", label: "My cleanings", icon: "visit" },
     ],
   },
 ];

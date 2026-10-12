@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
-import { newPortalOn, sessionOptions, type PortalSessionData } from "@/lib/portalSession";
+import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { verifyLogin } from "@/lib/pg/portal-auth";
 
 // POST { email, password }: the new portal's login. Nothing typed here is
 // logged. A wrong email and a wrong password get the same answer.
 export async function POST(request: NextRequest) {
-  if (!newPortalOn()) return NextResponse.json({ error: "Not available." }, { status: 404 });
-
   let body: { email?: unknown; password?: unknown };
   try {
     body = await request.json();
