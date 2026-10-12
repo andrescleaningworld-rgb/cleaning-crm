@@ -28,6 +28,8 @@ import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
+import CancellationFields from "../../components/CancellationFields";
+import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/cancellation";
 import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
 import SupplyMode from "./supply-mode";
@@ -48,6 +50,8 @@ type Account = {
   manager?: string;
   subcontractor?: string;
   subcontractorEmail?: string;
+  finalCleaningDate?: string;
+  cancellationReason?: string;
   status?: string;
   accountHealth?: string;
   monthlyRevenue?: string;
@@ -338,6 +342,9 @@ export default function AccountDetailPage() {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
   const [statusReason, setStatusReason] = useState("");
+  // Asked only when the new status is Cancelled (see lib/cancellation.ts).
+  const [finalCleaningDate, setFinalCleaningDate] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -851,6 +858,8 @@ export default function AccountDetailPage() {
         : "Active"
     );
     setStatusReason("");
+    setFinalCleaningDate("");
+    setCancellationReason("");
     setStatusError("");
     setStatusMessage("");
     setShowStatusModal(true);
@@ -861,16 +870,27 @@ export default function AccountDetailPage() {
 
     setShowStatusModal(false);
     setStatusReason("");
+    setFinalCleaningDate("");
+    setCancellationReason("");
     setStatusError("");
+  }
+
+  // What still has to be filled in before the status can be saved; "" when nothing.
+  // Cancelled asks for the final cleaning date and a reason, and for a note only when the reason is "Other".
+  // For every other status the note is optional, as its label says.
+  function statusProblem(): string {
+    return newStatus === "Cancelled" ? cancellationProblem({ finalCleaningDate, reason: cancellationReason, notes: statusReason }) : "";
   }
 
   async function handleSaveStatusChange() {
     if (!account) return;
 
     const cleanReason = statusReason.trim();
+    const cancelling = newStatus === "Cancelled";
 
-    if (!cleanReason) {
-      setStatusError("Please add a reason/note for the status change.");
+    const problem = statusProblem();
+    if (problem) {
+      setStatusError(problem);
       return;
     }
 
@@ -891,7 +911,7 @@ export default function AccountDetailPage() {
         body: JSON.stringify({
           action: "updateAccountFields",
           accountId,
-          fields: { status: newStatus },
+          fields: cancelling ? { status: newStatus, finalCleaningDate, cancellationReason } : { status: newStatus },
         }),
       });
 
@@ -901,13 +921,14 @@ export default function AccountDetailPage() {
         throw new Error(accountData.error || "Could not update account status.");
       }
 
-      const updateNote =
-        "Status changed from " +
-        oldStatus +
-        " to " +
-        newStatus +
-        ". Reason: " +
-        cleanReason;
+      const updateNote = cancelling
+        ? cancellationNote({ finalCleaningDate, reason: cancellationReason, notes: cleanReason })
+        : "Status changed from " +
+          oldStatus +
+          " to " +
+          newStatus +
+          "." +
+          (cleanReason ? " Reason: " + cleanReason : "");
 
       const updateResponse = await fetch("/api/account-updates", {
         method: "POST",
@@ -939,6 +960,9 @@ export default function AccountDetailPage() {
           ? {
               ...current,
               status: newStatus,
+              // Any other status clears them on the server too.
+              finalCleaningDate: cancelling ? finalCleaningDate : "",
+              cancellationReason: cancelling ? cancellationReason : "",
             }
           : current
       );
@@ -1001,8 +1025,9 @@ export default function AccountDetailPage() {
       void handleSaveStatusChange();
       return;
     }
-    if (!statusReason.trim()) {
-      setStatusError("Please add a reason/note for the status change.");
+    const problem = statusProblem();
+    if (problem) {
+      setStatusError(problem);
       return;
     }
     setStatusError("");
@@ -1191,6 +1216,8 @@ export default function AccountDetailPage() {
               sub={subcontractorContactDisplay}
               subCompany={subcontractorCompanyDisplay}
               manager={account.manager || ""}
+              cancelled={isCancelledStatus(account.status)}
+              finalCleaningDate={isCancelledStatus(account.status) ? account.finalCleaningDate || "" : ""}
             />
 
             {onboardingHandoff && !onboardingHandoff.doneAt ? (
@@ -1522,10 +1549,19 @@ export default function AccountDetailPage() {
                   </option>
                 ))}
               </SelectField>
+              {newStatus === "Cancelled" ? (
+                <CancellationFields
+                  finalCleaningDate={finalCleaningDate}
+                  reason={cancellationReason}
+                  disabled={savingStatus}
+                  onFinalCleaningDate={setFinalCleaningDate}
+                  onReason={setCancellationReason}
+                />
+              ) : null}
               <TextAreaField
-                label="Reason / history note"
+                label={newStatus === "Cancelled" ? "Notes" : "Reason / history note"}
                 hint="This will also create an Account Update history note."
-                optional
+                optional={newStatus !== "Cancelled" || cancellationReason !== "Other"}
                 rows={5}
                 placeholder="Customer requested cancellation effective July 1. / Paused due to remodeling. / Account needs review due to service concern."
                 value={statusReason}

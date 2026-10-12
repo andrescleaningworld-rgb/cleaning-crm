@@ -15,6 +15,7 @@
 
 import { fetchAppsScript } from "@/lib/appsScriptFetch";
 import { isPostgres } from "@/lib/dataSource";
+import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 
 export const PHOTO_KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit"] as const;
@@ -208,7 +209,6 @@ async function syncFromAppsScript(): Promise<number> {
     const sourceId = text(photo, "sourceId", "Source ID");
     const complaint = /complaint/i.test(sourceType);
     const accountId = text(photo, "accountId", "Account ID");
-    const taken = new Date(text(photo, "timestamp", "Timestamp", "date", "Date"));
     const rows = (await sql.query(
       `${INSERT} VALUES ($1, 'drive', $2, $3, $4, $5, '', $6, $7, $8, $9, $10, COALESCE($11::timestamptz, now()), true)
        ON CONFLICT (source_key) DO NOTHING RETURNING id`,
@@ -223,7 +223,7 @@ async function syncFromAppsScript(): Promise<number> {
         complaint ? "Open the complaint" : "Open the account",
         complaint && sourceId ? `/complaints/${sourceId}` : accountId ? `/accounts/${accountId}` : "",
         text(photo, "uploadedBy", "Uploaded By"),
-        Number.isNaN(taken.getTime()) ? null : taken.toISOString(),
+        timestampOrNull(text(photo, "timestamp", "Timestamp", "date", "Date")),
       ]
     )) as unknown[];
     added += rows.length;

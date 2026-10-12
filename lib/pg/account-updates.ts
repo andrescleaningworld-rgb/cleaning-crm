@@ -6,6 +6,7 @@
 //
 // The table is account_updates (migration 005), filled from the sheet by
 // scripts/migrate/import-accounts.mts. Rows saved here have no source_sheet.
+import { dateOrNull, todayISO } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 import { sendStaffNotification } from "@/lib/email";
 
@@ -104,7 +105,8 @@ function newUpdateId(now = new Date()): string {
 export async function addAccountUpdate(input: NewAccountUpdate): Promise<{ id: string; emailed: boolean }> {
   const sql = getSql();
   const update = {
-    date: clean(input.date),
+    // No date sent (a status change sends none): today, as Apps Script did.
+    date: clean(input.date) || todayISO(),
     accountName: clean(input.accountName),
     accountId: clean(input.accountId),
     updateType: clean(input.updateType),
@@ -116,6 +118,10 @@ export async function addAccountUpdate(input: NewAccountUpdate): Promise<{ id: s
     followUpDate: clean(input.followUpDate),
   };
 
+  // Postgres refuses "" (or any text that is not a day) for a date column,
+  // so the typed column gets NULL then; the text as sent is kept beside it.
+  const updateDate = dateOrNull(update.date);
+
   // Two saves in the same second get different ids.
   let id = "";
   for (let attempt = 0; attempt < 5 && !id; attempt++) {
@@ -123,7 +129,7 @@ export async function addAccountUpdate(input: NewAccountUpdate): Promise<{ id: s
     const saved = (await sql`
       INSERT INTO account_updates (legacy_key, update_id_raw, account_id_raw, account_pk, account_name, update_date, update_date_raw, update_type, notes, created_by, notify_email, update_title, follow_up_needed, follow_up_date_raw)
       VALUES (${candidate}, ${candidate}, ${update.accountId}, (SELECT pk FROM accounts WHERE id = ${update.accountId} AND ${update.accountId} <> '' LIMIT 1), ${update.accountName},
-              CASE WHEN ${update.date} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN ${update.date}::date END, ${update.date}, ${update.updateType}, ${update.notes}, ${update.manager}, ${update.notifyEmail},
+              ${updateDate}::date, ${update.date}, ${update.updateType}, ${update.notes}, ${update.manager}, ${update.notifyEmail},
               ${update.title}, ${update.followUpNeeded}, ${update.followUpDate})
       ON CONFLICT (legacy_key) DO NOTHING
       RETURNING update_id_raw

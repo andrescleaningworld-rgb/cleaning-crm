@@ -21,6 +21,7 @@ import type {
   ToDoEditResult,
   ToDoStatusUpdateResult,
 } from "@/lib/googleSheets";
+import { dateOrNull } from "@/lib/dateUtils";
 
 type ToDoInput = Parameters<typeof sheets.appendToDo>[0];
 
@@ -50,12 +51,6 @@ const TODO_COLUMNS =
 async function allToDoRows(): Promise<ToDoRow[]> {
   const sql = getSql();
   return (await sql.query(`SELECT ${TODO_COLUMNS} FROM todos WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ToDoRow[];
-}
-
-/** YYYY-MM-DD for the typed column, or null. */
-function toDay(text: string): string | null {
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(text ?? "").trim());
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
 }
 
 /* ---------- Reads ---------- */
@@ -98,7 +93,7 @@ function insertValues(id: string, createdDate: string, data: ToDoInput): unknown
     id,
     createdDate,
     data.dueDate,
-    toDay(data.dueDate),
+    dateOrNull(data.dueDate),
     data.assignedTo,
     data.accountName,
     data.accountId ?? "",
@@ -214,7 +209,7 @@ async function writeEdit(sheetRow: number, updates: ToDoEditInput): Promise<void
   };
   if (updates.dueDate !== undefined) {
     set("due_date_raw", updates.dueDate);
-    set("due_date", toDay(updates.dueDate), "date");
+    set("due_date", dateOrNull(updates.dueDate), "date");
   }
   if (updates.assignedTo !== undefined) set("assigned_to", updates.assignedTo);
   if (updates.taskType !== undefined) set("task_type", updates.taskType);

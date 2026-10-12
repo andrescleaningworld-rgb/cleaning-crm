@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/data/accounts";
 import { getTabForAccount, getTemplateByPorterCode, insertSubmission, listActiveTabs, setSubmissionNotesTranslation } from "@/lib/checklistDb";
 import { waitUntil } from "@vercel/functions";
+import { dateOrNull } from "@/lib/dateUtils";
 import { translateToEnglish } from "@/lib/translate";
 import {
   DEFAULT_TAB_NAME,
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
       tabId: tab?.id ?? null,
       tabName: tab?.name ?? null,
       porterName,
-      weekOf: body.weekOf ? String(body.weekOf) : null,
+      weekOf: dateOrNull(body.weekOf),
       timeIn: String(body.timeIn ?? ""),
       timeOut: String(body.timeOut ?? ""),
       startedAt,

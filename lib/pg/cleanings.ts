@@ -5,6 +5,7 @@
 
 import { getSql } from "@/lib/db";
 import { addDays, dayToDate, MISSED_COUNTS_FROM, officeDay, OFFICE_TIME_ZONE, type CalendarData, type Cleaning, type CleaningProof } from "@/lib/cleanings";
+import { cancelledLastDays } from "@/lib/pg/accounts";
 import { generateScheduleDates } from "@/lib/scheduleRecurrence";
 
 type AccountRow = { id: string; account_name: string; checklist_needed: string; manager: string; sub: string; sub_id: string };
@@ -32,6 +33,11 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
   const sql = getSql();
   const today = officeDay();
   const last = addDays(from, 62) < to ? addDays(from, 62) : to;
+  // A cancelled account stays on the calendar up to its final cleaning date
+  // (the "Change status" sheet) and has nothing after it. Cancelled with no
+  // final date: not on the calendar at all, as before.
+  const finalDays = new Map([...(await cancelledLastDays())].filter(([, day]) => day !== ""));
+  const leaving = [...finalDays.keys()];
 
   const [accounts, schedules, exceptions, marks, checklists, subVisits, photos, visits, extras, pinned] = (await Promise.all([
     sql`
@@ -42,7 +48,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
       FROM accounts a
       LEFT JOIN managers m ON m.id = a.manager_id
       LEFT JOIN subcontractors s ON s.id = a.subcontractor_id
-      WHERE a.id IS NOT NULL AND a.status_key <> 'cancelled'
+      WHERE a.id IS NOT NULL AND (a.status_key <> 'cancelled' OR a.id = ANY(${leaving}::text[]))
     `,
     sql`
       SELECT COALESCE(s.account_ref, btrim(s.account_id)) AS account_id, s.frequency, s.recurring, s.day_of_week, s.monthly_occurrence,
@@ -86,6 +92,10 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
   ])) as [AccountRow[], ScheduleRow[], ExceptionRow[], MarkRow[], DayRow[], DayRow[], DayRow[], DayRow[], ExtraRow[], { item_id: string }[]];
 
   const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const afterFinal = (accountId: string, day: string) => {
+    const finalDay = finalDays.get(accountId);
+    return finalDay !== undefined && day > finalDay;
+  };
   const rangeStart = dayToDate(from);
   const rangeEnd = dayToDate(last);
 
@@ -101,6 +111,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
       rangeEnd
     );
     for (const day of days) {
+      if (afterFinal(row.account_id, day)) continue;
       const k = key(row.account_id, day);
       const existing = planned.get(k);
       if (existing) {
@@ -119,7 +130,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
       if (exception.original_day) planned.delete(key(exception.account_id, exception.original_day));
     } else if (type === "reschedule" && exception.new_day) {
       if (exception.original_day) planned.delete(key(exception.account_id, exception.original_day));
-      if (exception.new_day >= from && exception.new_day <= last && accountById.has(exception.account_id)) {
+      if (exception.new_day >= from && exception.new_day <= last && accountById.has(exception.account_id) && !afterFinal(exception.account_id, exception.new_day)) {
         const account = accountById.get(exception.account_id)!;
         planned.set(key(exception.account_id, exception.new_day), {
           accountId: exception.account_id,
@@ -150,7 +161,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
   const cleanings: Cleaning[] = [];
   const build = (accountId: string, day: string, plan: { sub: string; subId: string; timeWindow: string } | null): Cleaning | null => {
     const account = accountById.get(accountId);
-    if (!account) return null;
+    if (!account || afterFinal(accountId, day)) return null;
     const k = key(accountId, day);
     const mark = markBy.get(k);
     const found = proof.get(k) ?? "";

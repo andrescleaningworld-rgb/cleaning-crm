@@ -11,6 +11,7 @@
 import crypto from "node:crypto";
 import { getSql } from "@/lib/db";
 import type { RawSubcontractorRow, SubcontractorActivityLogEntry } from "@/lib/googleSheets";
+import { dateOrNull } from "@/lib/dateUtils";
 
 const SHEET_ORDER = "source_row NULLS LAST, created_at, id";
 
@@ -41,16 +42,6 @@ const norm = (text: unknown) => String(text ?? "").trim().toLowerCase().replace(
 // Must match fingerprintOf in scripts/migrate/import-subs.mjs.
 function fingerprintOf(contact: string, company: string, email: string): string {
   return crypto.createHash("sha256").update([norm(contact), norm(company), norm(email)].join("\u001f")).digest("hex");
-}
-
-// YYYY-MM-DD or M/D/YYYY → YYYY-MM-DD; anything else has no typed date.
-function toDate(raw: string): string | null {
-  const text = raw.trim();
-  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(text);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(text);
-  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
-  return null;
 }
 
 /* ---------- reads ---------- */
@@ -153,7 +144,7 @@ export async function updateSubcontractor(id: string, fields: Record<string, unk
   const params: (string | null)[] = writes.map(({ value }) => value);
   // Keep the derived columns in step with what was written.
   if (writes.some((w) => w.column === "insurance_expiration_raw")) {
-    params.push(toDate(String(next.insurance_expiration_raw ?? "")));
+    params.push(dateOrNull(String(next.insurance_expiration_raw ?? "")));
     assignments.push(`insurance_expiration = $${params.length}`);
   }
   params.push(fingerprintOf(String(next.contact_name ?? ""), String(next.company_name ?? ""), String(next.email ?? "")));
@@ -204,7 +195,7 @@ export async function addSubcontractor(fields: Record<string, unknown>): Promise
       text("areas_serviced"),
       text("services_provided"),
       text("employee_capacity"),
-      toDate(text("insurance_expiration_raw")),
+      dateOrNull(text("insurance_expiration_raw")),
       text("insurance_expiration_raw"),
       text("status"),
       text("notes"),

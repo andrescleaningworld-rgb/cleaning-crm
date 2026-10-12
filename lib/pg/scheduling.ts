@@ -12,25 +12,14 @@
 // back as an entry with every field empty; here it is simply gone.
 
 import { getSql } from "@/lib/db";
+import { addDays, officeDay } from "@/lib/cleanings";
+import { cancelledLastDays } from "@/lib/pg/accounts";
 import type { ScheduleException, SubcontractorVisitWithRow, SubSchedule } from "@/lib/googleSheets";
+import { dateOrNull, timestampOrNull } from "@/lib/dateUtils";
 
 // The next row number for a table: after the last row, never before row 2
 // (row 1 is the header in Sheets).
 const nextRow = (table: string) => `(SELECT COALESCE(MAX(sheet_row), 1) + 1 FROM ${table})`;
-
-/** YYYY-MM-DD for the typed column, or null. */
-function toDate(text: string): string | null {
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(text ?? "").trim());
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
-}
-
-/** ISO timestamp for the typed column, or null when the text is not a date. */
-function toTimestamp(text: string): string | null {
-  const trimmed = String(text ?? "").trim();
-  if (!trimmed) return null;
-  const date = new Date(trimmed);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
 
 type ColumnTarget = { column: string; typed?: { column: string; value: (text: string) => unknown } };
 
@@ -109,7 +98,7 @@ export async function updateSubcontractorVisit(
     {
       accountName: { column: "account_name" },
       subName: { column: "sub_name" },
-      visitDate: { column: "visit_date_raw", typed: { column: "visit_date", value: toDate } },
+      visitDate: { column: "visit_date_raw", typed: { column: "visit_date", value: dateOrNull } },
       arrivalTime: { column: "arrival_time" },
       notes: { column: "notes" },
     },
@@ -144,7 +133,7 @@ export async function logSubcontractorVisit(data: {
        CASE WHEN EXISTS (SELECT 1 FROM subcontractor_visits WHERE legacy_key = $1)
             THEN $1 || '#' || ${nextRow("subcontractor_visits")}::text ELSE $1 END,
        $1, $2, $3, $4, $5, $6, $7, $8, ${nextRow("subcontractor_visits")})`,
-    [visitId, data.accountName, data.subEmail, data.subName, data.visitDate, toDate(data.visitDate), data.arrivalTime, data.notes]
+    [visitId, data.accountName, data.subEmail, data.subName, data.visitDate, dateOrNull(data.visitDate), data.arrivalTime, data.notes]
   );
   return visitId;
 }
@@ -154,6 +143,7 @@ export async function logSubcontractorVisit(data: {
 type ScheduleRow = {
   schedule_id: string;
   account_id: string;
+  account_ref: string | null;
   sub_id_raw: string;
   day_of_week: string;
   time_window: string;
@@ -171,10 +161,47 @@ type ScheduleRow = {
   sheet_row: number;
 };
 
+// The last day a cancelled account has cleanings: its final cleaning date,
+// or yesterday when none was recorded (so nothing from today on).
+// undefined = the account is not cancelled.
+async function lastDayByAccount(): Promise<(accountId: string) => string | undefined> {
+  const lastDays = await cancelledLastDays();
+  const yesterday = addDays(officeDay(), -1);
+  return (accountId) => {
+    const day = lastDays.get(accountId);
+    return day === undefined ? undefined : day || yesterday;
+  };
+}
+
+/**
+ * Every schedule, for the screens. A cancelled account's schedules end on
+ * its final cleaning date here (the "Change status" sheet), so no calendar
+ * or "next cleaning" shows a day after it. Nothing is changed in the table:
+ * the schedule records stay as they are, and when the account gets another
+ * status its schedule is back without re-entering it. The end date that is
+ * really stored rides along as storedEffectiveEnd, for the sheet that edits
+ * a schedule.
+ */
 export async function fetchSubSchedules(): Promise<SubSchedule[]> {
+  const [schedules, lastDayOf] = await Promise.all([storedSubSchedules(), lastDayByAccount()]);
+  return schedules.map(({ schedule, accountId }) => {
+    const lastDay = lastDayOf(accountId);
+    if (!lastDay) return schedule;
+    const end = dateOrNull(schedule.effectiveEnd);
+    return end && end <= lastDay ? schedule : { ...schedule, effectiveEnd: lastDay, storedEffectiveEnd: schedule.effectiveEnd };
+  });
+}
+
+// The schedules exactly as stored. The saves below read these, so a final
+// cleaning date is never written into a schedule by accident.
+async function storedSubSchedules(): Promise<{ schedule: SubSchedule; accountId: string }[]> {
   const sql = getSql();
   const rows = (await sql.query(`SELECT * FROM sub_schedules WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ScheduleRow[];
-  return rows.map((r) => ({
+  return rows.map((r) => ({ accountId: (r.account_ref ?? r.account_id).trim(), schedule: toSubSchedule(r) }));
+}
+
+function toSubSchedule(r: ScheduleRow): SubSchedule {
+  return {
     sheetRow: r.sheet_row,
     scheduleId: r.schedule_id,
     accountId: r.account_id,
@@ -193,7 +220,7 @@ export async function fetchSubSchedules(): Promise<SubSchedule[]> {
     monthlyOccurrence: r.monthly_occurrence,
     // Historical rows predate this column: blank means "Sub Portal".
     submittedVia: r.submitted_via.trim() || "Sub Portal",
-  }));
+  };
 }
 
 export async function appendSubSchedule(data: {
@@ -235,9 +262,9 @@ export async function appendSubSchedule(data: {
       data.timeWindow,
       data.recurring,
       data.effectiveStart,
-      toDate(data.effectiveStart),
+      dateOrNull(data.effectiveStart),
       data.effectiveEnd,
-      toDate(data.effectiveEnd),
+      dateOrNull(data.effectiveEnd),
       data.status,
       data.submittedBy,
       today,
@@ -274,11 +301,11 @@ export async function updateSubSchedule(
       dayOfWeek: { column: "day_of_week" },
       timeWindow: { column: "time_window" },
       recurring: { column: "recurring" },
-      effectiveStart: { column: "effective_start_raw", typed: { column: "effective_start", value: toDate } },
-      effectiveEnd: { column: "effective_end_raw", typed: { column: "effective_end", value: toDate } },
+      effectiveStart: { column: "effective_start_raw", typed: { column: "effective_start", value: dateOrNull } },
+      effectiveEnd: { column: "effective_end_raw", typed: { column: "effective_end", value: dateOrNull } },
       status: { column: "status" },
       lastEditedBy: { column: "last_edited_by" },
-      lastEditedDate: { column: "last_edited_date_raw", typed: { column: "last_edited_at", value: toTimestamp } },
+      lastEditedDate: { column: "last_edited_date_raw", typed: { column: "last_edited_at", value: timestampOrNull } },
       frequency: { column: "frequency" },
       monthlyOccurrence: { column: "monthly_occurrence" },
     },
@@ -304,7 +331,7 @@ export async function applySchedulePatternChange(
   effectiveDate: string,
   editedBy: string
 ): Promise<{ scheduleId: string; accountId: string; subId: string }> {
-  const schedules = await fetchSubSchedules();
+  const schedules = (await storedSubSchedules()).map(({ schedule }) => schedule);
   const current = schedules.find((s) => s.scheduleId === scheduleId);
   if (!current) {
     throw new Error(`SubSchedule ${scheduleId} not found`);
@@ -353,7 +380,7 @@ export async function supersedeActiveSubSchedulesForSub(
   subId: string,
   editedBy: string
 ): Promise<SubSchedule[]> {
-  const schedules = await fetchSubSchedules();
+  const schedules = (await storedSubSchedules()).map(({ schedule }) => schedule);
   const active = schedules.filter((s) => s.accountId === accountId && s.subId === subId && s.status === "Active");
   if (active.length === 0) return [];
 
@@ -379,6 +406,7 @@ export async function supersedeActiveSubSchedulesForSub(
 type ExceptionRow = {
   exception_id: string;
   account_id: string;
+  account_ref: string | null;
   original_date_raw: string;
   type: string;
   new_date_raw: string;
@@ -392,18 +420,26 @@ type ExceptionRow = {
 export async function fetchScheduleExceptions(): Promise<ScheduleException[]> {
   const sql = getSql();
   const rows = (await sql.query(`SELECT * FROM schedule_exceptions WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ExceptionRow[];
-  return rows.map((r) => ({
-    sheetRow: r.sheet_row,
-    exceptionId: r.exception_id,
-    accountId: r.account_id,
-    originalDate: r.original_date_raw,
-    type: r.type,
-    newDate: r.new_date_raw,
-    newTimeWindow: r.new_time_window,
-    reason: r.reason,
-    createdBy: r.created_by,
-    createdDate: r.created_date_raw,
-  }));
+  const lastDayOf = await lastDayByAccount();
+  return rows.map((r) => {
+    // A cleaning moved to a day after a cancelled account's last day does not
+    // happen: the screens get it as a skipped day. The record is not changed.
+    const lastDay = lastDayOf((r.account_ref ?? r.account_id).trim());
+    const newDay = dateOrNull(r.new_date_raw);
+    const movedPastLastDay = Boolean(lastDay && newDay && newDay > lastDay && r.type.trim().toLowerCase() === "reschedule");
+    return {
+      sheetRow: r.sheet_row,
+      exceptionId: r.exception_id,
+      accountId: r.account_id,
+      originalDate: r.original_date_raw,
+      type: movedPastLastDay ? "Skip" : r.type,
+      newDate: movedPastLastDay ? "" : r.new_date_raw,
+      newTimeWindow: movedPastLastDay ? "" : r.new_time_window,
+      reason: r.reason,
+      createdBy: r.created_by,
+      createdDate: r.created_date_raw,
+    };
+  });
 }
 
 export async function appendScheduleException(data: {
@@ -433,10 +469,10 @@ export async function appendScheduleException(data: {
       exceptionId,
       data.accountId,
       data.originalDate,
-      toDate(data.originalDate),
+      dateOrNull(data.originalDate),
       data.type,
       data.newDate,
-      toDate(data.newDate),
+      dateOrNull(data.newDate),
       data.newTimeWindow,
       data.reason,
       data.createdBy,
@@ -462,9 +498,9 @@ export async function updateScheduleException(
   const sets = buildSets(
     fields,
     {
-      originalDate: { column: "original_date_raw", typed: { column: "original_date", value: toDate } },
+      originalDate: { column: "original_date_raw", typed: { column: "original_date", value: dateOrNull } },
       type: { column: "type" },
-      newDate: { column: "new_date_raw", typed: { column: "new_date", value: toDate } },
+      newDate: { column: "new_date_raw", typed: { column: "new_date", value: dateOrNull } },
       newTimeWindow: { column: "new_time_window" },
       reason: { column: "reason" },
     },

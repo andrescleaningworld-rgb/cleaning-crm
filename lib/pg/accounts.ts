@@ -21,6 +21,8 @@ import {
   type OnboardingChecklistState,
 } from "@/lib/onboardingChecklist";
 import { normalizeSubName, resolveAssignedSubKey } from "@/lib/subAccountMatching";
+import { isCancellationReason, isCancelledStatus } from "@/lib/cancellation";
+import { dateOrNull, timestampOrNull, toISO } from "@/lib/dateUtils";
 
 const SHEET_ORDER = "source_row NULLS LAST, created_at, pk";
 
@@ -112,20 +114,93 @@ export async function fetchAccountRows(): Promise<AccountRow[]> {
   return (await sql.query(`SELECT * FROM accounts WHERE NOT is_test ORDER BY ${SHEET_ORDER}`)) as AccountRow[];
 }
 
+/* ---------- cancellation details (migration 029; not sheet columns) ---------- */
+
+// final_cleaning_date and cancellation_reason are filled in by the "Change
+// status" sheet when an account is cancelled. They have no column in the
+// Accounts tab, so they are not part of ACCOUNT_COLUMNS or `unformatted`.
+
+// A DATE column arrives as a Date at local midnight; text is read by the shared rule.
+const dayOf = (value: unknown): string => (value instanceof Date ? toISO(value) : dateOrNull(value) ?? "");
+
+/**
+ * Every cancelled account: Account ID → its final cleaning day (YYYY-MM-DD),
+ * or "" when none was recorded (cancelled before the sheet asked, or from
+ * the edit form). Every calendar uses this to take a cancelled account off:
+ * cleanings up to and including the final day stay, nothing after it; with
+ * no final day there is nothing from today on. An account that is not
+ * cancelled is not in the map, so setting it back to Active brings its
+ * schedule back as it was.
+ */
+export async function cancelledLastDays(): Promise<Map<string, string>> {
+  const sql = getSql();
+  let rows: { id: string; day: string | null }[];
+  try {
+    rows = (await sql`
+      SELECT id, final_cleaning_date::text AS day FROM accounts WHERE id IS NOT NULL AND status_key IN ('cancelled', 'canceled')
+    `) as { id: string; day: string | null }[];
+  } catch (error) {
+    // 42703 = the column does not exist (migration 029 has not run here): no final days yet.
+    if ((error as { code?: string }).code !== "42703") throw error;
+    rows = (await sql`SELECT id, NULL AS day FROM accounts WHERE id IS NOT NULL AND status_key IN ('cancelled', 'canceled')`) as { id: string; day: string | null }[];
+  }
+  return new Map(rows.map((row) => [row.id.trim(), row.day ?? ""]));
+}
+
+/**
+ * The cancellation columns to set for one save, with their old and new
+ * values for the account's History. `fields` is what the screen sent;
+ * `writes` are the sheet columns being saved with it.
+ */
+function cancellationWrite(
+  current: AccountRow,
+  fields: Record<string, unknown>,
+  writes: { header: string; value: string }[]
+): { sets: [column: string, value: string | null][]; before: Record<string, string>; after: Record<string, string> } {
+  const had = { day: dayOf(current.final_cleaning_date), reason: text(current, "cancellation_reason") };
+  let day: string | undefined;
+  let reason: string | undefined;
+
+  if (fields.finalCleaningDate !== undefined) {
+    const raw = String(fields.finalCleaningDate ?? "").trim();
+    const parsed = dateOrNull(raw);
+    if (raw && !parsed) throw new Error("The final cleaning date is not a date.");
+    day = parsed ?? "";
+  }
+  if (fields.cancellationReason !== undefined) {
+    reason = String(fields.cancellationReason ?? "").trim();
+    if (reason && !isCancellationReason(reason)) throw new Error("That cancellation reason is not on the list.");
+  }
+
+  // Any status other than Cancelled: the account is not leaving any more, so
+  // an old final date must not go on hiding its cleanings.
+  const status = writes.find((write) => write.header === "Status");
+  if (status && !isCancelledStatus(status.value)) {
+    if (day === undefined && had.day) day = "";
+    if (reason === undefined && had.reason) reason = "";
+  }
+
+  const sets: [string, string | null][] = [];
+  const before: Record<string, string> = {};
+  const after: Record<string, string> = {};
+  if (day !== undefined) {
+    sets.push(["final_cleaning_date", day || null]);
+    before["Final Cleaning Date"] = had.day;
+    after["Final Cleaning Date"] = day;
+  }
+  if (reason !== undefined) {
+    sets.push(["cancellation_reason", reason]);
+    before["Cancellation Reason"] = had.reason;
+    after["Cancellation Reason"] = reason;
+  }
+  return { sets, before, after };
+}
+
 /* ---------- typed values kept next to the text ---------- */
 
 export const toMoney = (raw: string): string | null => {
   const cleaned = raw.replace(/[$,\s]/g, "");
   return cleaned !== "" && !Number.isNaN(Number(cleaned)) ? Number(cleaned).toFixed(2) : null;
-};
-
-export const toDate = (raw: string): string | null => {
-  const value = raw.trim();
-  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(value);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(value);
-  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
-  return null;
 };
 
 const toNumber = (raw: string): number | null => (raw.trim() !== "" && !Number.isNaN(Number(raw)) ? Number(raw) : null);
@@ -182,10 +257,10 @@ export async function buildAccountWrite(
     unformatted[INDEX_OF_HEADER.get(header)!] = heldValue(value);
     switch (header) {
       case "Start Date":
-        set("start_date", toDate(value));
+        set("start_date", dateOrNull(value));
         break;
       case "Cancelled Date":
-        set("cancelled_date", toDate(value));
+        set("cancelled_date", dateOrNull(value));
         break;
       case "Monthly Revenue":
         set("monthly_revenue", toMoney(value));
@@ -367,8 +442,17 @@ export async function updateAccountFieldsDirect(
   const after = { ...before };
   for (const { header, value } of writes) after[header] = value;
 
-  if (writes.length > 0) {
-    const { assignments, params } = await buildAccountWrite(current, writes);
+  // Checked before anything is written, so a bad value saves nothing.
+  const cancellation = cancellationWrite(current, resolvedFields, writes);
+  Object.assign(before, cancellation.before);
+  Object.assign(after, cancellation.after);
+
+  const { assignments, params } = writes.length > 0 ? await buildAccountWrite(current, writes) : { assignments: [] as string[], params: [] as unknown[] };
+  for (const [column, value] of cancellation.sets) {
+    params.push(value);
+    assignments.push(`${column} = $${params.length}`);
+  }
+  if (assignments.length > 0) {
     params.push(current.pk);
     await sql.query(`UPDATE accounts SET ${assignments.join(", ")}, updated_at = now() WHERE pk = $${params.length}`, params);
   }
@@ -473,7 +557,6 @@ export async function setOnboardingChecklistItem(input: {
   const accountName = input.accountName || existing?.accountName || "";
   const itemsJson = JSON.stringify(items);
   const autoStable = existing?.autoStableAppliedAt ?? "";
-  const stamp = (value: string) => (value && !Number.isNaN(new Date(value).getTime()) ? new Date(value).toISOString() : null);
 
   const sql = getSql();
   // The key of an existing row is kept as stored, so a second click updates
@@ -483,8 +566,8 @@ export async function setOnboardingChecklistItem(input: {
     INSERT INTO onboarding_checklists
       (account_id, legacy_key, account_name, items, items_raw, started_at, started_at_raw, last_updated_at, last_updated_at_raw,
        completed_at, completed_at_raw, auto_stable_applied_at_raw)
-    VALUES (${key}, ${key}, ${accountName}, ${itemsJson}::jsonb, ${itemsJson}, ${stamp(startedAt)}, ${startedAt}, ${now}, ${now},
-            ${stamp(completedAt)}, ${completedAt}, ${autoStable})
+    VALUES (${key}, ${key}, ${accountName}, ${itemsJson}::jsonb, ${itemsJson}, ${timestampOrNull(startedAt)}, ${startedAt}, ${now}, ${now},
+            ${timestampOrNull(completedAt)}, ${completedAt}, ${autoStable})
     ON CONFLICT (account_id) DO UPDATE SET
       account_name = EXCLUDED.account_name, items = EXCLUDED.items, items_raw = EXCLUDED.items_raw,
       started_at = EXCLUDED.started_at, started_at_raw = EXCLUDED.started_at_raw,
@@ -596,7 +679,10 @@ function toAppsScriptAccount(row: AccountRow, action: AppsScriptAccountsAction):
     manager: held(row, 9),
     subcontractor: held(row, 8),
     status: held(row, 16),
-    ...(action === "getAllAccounts" ? { cancelledDate: appsScriptDateText(held(row, 17)) } : {}),
+    // getAllAccounts is the staff list. The sub portal reads getAccounts, so the reason an account left never goes to a sub.
+    ...(action === "getAllAccounts"
+      ? { cancelledDate: appsScriptDateText(held(row, 17)), finalCleaningDate: dayOf(row.final_cleaning_date), cancellationReason: text(row, "cancellation_reason") }
+      : {}),
     accountHealth: held(row, 19),
     accountStartDate: startDateText(held(row, 2)),
     monthlyRevenue: held(row, 7),
@@ -735,6 +821,11 @@ export async function updateAccountFromPayload(
   if (unique.length === 0) return { accountId: targetId, changed: [] };
 
   const { assignments, params } = await buildAccountWrite(current, [...unique, { header: "Last Updated / Time Stamp", value: nowStamp() }]);
+  // The full edit form can also take an account out of Cancelled.
+  for (const [column, value] of cancellationWrite(current, {}, unique).sets) {
+    params.push(value);
+    assignments.push(`${column} = $${params.length}`);
+  }
   params.push(current.pk);
   await sql.query(`UPDATE accounts SET ${assignments.join(", ")}, updated_at = now() WHERE pk = $${params.length}`, params);
   return { accountId: targetId, changed: unique.map((w) => w.header) };

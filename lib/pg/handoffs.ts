@@ -6,6 +6,7 @@
 // until migration 018 is applied there), so every caller first asks
 // handoffsReady() and treats "not ready" as "this feature is off".
 
+import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 import {
   ACCOUNT_DONE_STEP,
@@ -142,7 +143,7 @@ export type NewHandoff = {
 /** Starts tracking something. Does nothing if it is already tracked. */
 export async function startHandoff(input: NewHandoff): Promise<HandoffItem> {
   const sql = getSql();
-  const since = input.stepSince && !Number.isNaN(new Date(input.stepSince).getTime()) ? new Date(input.stepSince).toISOString() : null;
+  const since = timestampOrNull(input.stepSince);
   const inserted = (await sql.query(
     `INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamptz, now()), $9::jsonb, $10)

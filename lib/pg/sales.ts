@@ -8,6 +8,7 @@
 
 import { getSql } from "@/lib/db";
 import type { Sale, SaleInput } from "@/lib/googleSheets";
+import { dateOrNull } from "@/lib/dateUtils";
 
 type SaleRow = {
   sale_id: string;
@@ -31,12 +32,6 @@ type SaleRow = {
   recurring_end_date_raw: string;
   sheet_row: number;
 };
-
-/** YYYY-MM-DD for the typed column, or null. */
-function toDay(text: string): string | null {
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(text ?? "").trim());
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
-}
 
 export async function fetchSales(): Promise<Sale[]> {
   const sql = getSql();
@@ -104,7 +99,7 @@ export async function appendSale(data: SaleInput): Promise<string> {
       data.accountId,
       data.accountName,
       data.saleDate,
-      toDay(data.saleDate),
+      dateOrNull(data.saleDate),
       data.serviceSold,
       data.workOrderEstimateNumber,
       data.soldBy,
@@ -120,9 +115,9 @@ export async function appendSale(data: SaleInput): Promise<string> {
       data.serviceType,
       data.manager,
       data.recurringStartDate,
-      toDay(data.recurringStartDate),
+      dateOrNull(data.recurringStartDate),
       data.recurringEndDate,
-      toDay(data.recurringEndDate),
+      dateOrNull(data.recurringEndDate),
     ]
   );
   return id;

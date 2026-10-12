@@ -24,6 +24,7 @@ import type {
   EquipmentStatus,
   PartStockAdjustReason,
 } from "@/lib/googleSheets";
+import { dateOrNull, timestampOrNull } from "@/lib/dateUtils";
 
 // Same id shape as lib/googleSheets.ts: PREFIX-<last 8 chars of the UTC
 // timestamp>-<4 random chars>.
@@ -36,20 +37,6 @@ function newId(prefix: string): string {
 // The next row number for a table: after the last row, never before row 2
 // (row 1 is the header in Sheets).
 const nextRow = (table: string) => `(SELECT COALESCE(MAX(sheet_row), 1) + 1 FROM ${table})`;
-
-/** ISO timestamp for the typed column, or null when the text is not a date. */
-function toTimestamp(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const date = new Date(trimmed);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-/** YYYY-MM-DD for the typed column, or null. */
-function toDate(text: string): string | null {
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(text.trim());
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
-}
 
 function toNumber(text: string): number | null {
   const cleaned = text.replace(/[$,\s]/g, "");
@@ -230,7 +217,7 @@ export async function appendEquipmentItem(data: {
       data.categoryId,
       data.serialNumber,
       data.purchaseDate,
-      toDate(data.purchaseDate),
+      dateOrNull(data.purchaseDate),
       costRaw,
       toNumber(costRaw),
       data.conditionNotes,
@@ -248,7 +235,7 @@ const EQUIPMENT_FIELD_COLUMNS: Record<string, { column: string; typed?: { column
   name: { column: "name" },
   categoryId: { column: "category_id" },
   serialNumber: { column: "serial_number" },
-  purchaseDate: { column: "purchase_date_raw", typed: { column: "purchase_date", value: toDate } },
+  purchaseDate: { column: "purchase_date_raw", typed: { column: "purchase_date", value: dateOrNull } },
   purchaseCost: { column: "purchase_cost_raw", typed: { column: "purchase_cost", value: toNumber } },
   status: { column: "status_raw" },
   currentHolderType: { column: "current_holder_type" },
@@ -256,8 +243,8 @@ const EQUIPMENT_FIELD_COLUMNS: Record<string, { column: string; typed?: { column
   currentHolderName: { column: "current_holder_name" },
   conditionNotes: { column: "condition_notes" },
   photoUrl: { column: "photo_url" },
-  checkedOutAt: { column: "checked_out_at_raw", typed: { column: "checked_out_at", value: toTimestamp } },
-  expectedReturnAt: { column: "expected_return_at_raw", typed: { column: "expected_return_at", value: toTimestamp } },
+  checkedOutAt: { column: "checked_out_at_raw", typed: { column: "checked_out_at", value: timestampOrNull } },
+  expectedReturnAt: { column: "expected_return_at_raw", typed: { column: "expected_return_at", value: timestampOrNull } },
   needsMaintenanceReview: { column: "needs_maintenance_review_raw" },
 };
 
@@ -396,9 +383,9 @@ export async function appendEquipmentCheckout(data: {
       data.holderName,
       data.accountId,
       data.checkedOutAt,
-      toTimestamp(data.checkedOutAt),
+      timestampOrNull(data.checkedOutAt),
       data.expectedReturnAt,
-      toTimestamp(data.expectedReturnAt),
+      timestampOrNull(data.expectedReturnAt),
       data.conditionAtCheckout,
       data.signedOutByStaffId,
       data.signedOutByStaffName,
@@ -438,7 +425,7 @@ export async function updateEquipmentCheckout(
   };
   if (fields.returnedAt !== undefined) {
     set("returned_at_raw", fields.returnedAt);
-    set("returned_at", toTimestamp(fields.returnedAt));
+    set("returned_at", timestampOrNull(fields.returnedAt));
   }
   if (fields.conditionAtReturn !== undefined) set("condition_at_return", fields.conditionAtReturn);
   if (fields.signedInByStaffId !== undefined) set("signed_out_by_staff_id", fields.signedInByStaffId);
@@ -529,7 +516,7 @@ export async function appendEquipmentRepair(data: {
       id,
       data.equipmentId,
       startedRaw,
-      toTimestamp(startedRaw),
+      timestampOrNull(startedRaw),
       data.description,
       costRaw,
       toNumber(costRaw),

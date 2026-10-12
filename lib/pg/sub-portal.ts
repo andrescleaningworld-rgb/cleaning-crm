@@ -11,9 +11,10 @@
 // means logging in as a real subcontractor.
 
 import { getSql } from "@/lib/db";
-import { getAccountsAppsScriptShape } from "@/lib/pg/accounts";
+import { cancelledLastDays, getAccountsAppsScriptShape } from "@/lib/pg/accounts";
 import { getComplaintsAppsScriptShape, type AppsScriptComplaint } from "@/lib/pg/complaints";
 import { getSubcontractorsAppsScriptShape, type AppsScriptSubcontractor } from "@/lib/pg/subs";
+import { dateOrNull, todayISO } from "@/lib/dateUtils";
 
 const text = (value: unknown) => String(value ?? "").trim();
 const lower = (value: unknown) => text(value).toLowerCase();
@@ -39,15 +40,6 @@ function newYorkParts(now: Date): Record<string, string> {
 function sheetStamp(now = new Date()): string {
   const p = newYorkParts(now);
   return `${p.month}/${p.day}/${p.year} ${Number(p.hour)}:${p.minute}:${p.second}`;
-}
-
-/** YYYY-MM-DD from "M/D/YYYY …" or "YYYY-MM-DD…"; null when the text is not a date. */
-function toDay(value: string): string | null {
-  const v = text(value);
-  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(v);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(v);
-  return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
 }
 
 /** "SUBISSUE-20261008140509": a prefix plus the moment, as the sheet's ids are made. */
@@ -86,7 +78,9 @@ const CANCELLED = new Set(["cancelled", "canceled"]);
  *   subcontractor  the row from the subcontractor list (first one with the
  *                  email, in sheet order, when two rows share it).
  *   accounts       the accounts tied to that subcontractor, in the shape of
- *                  the accounts list; cancelled accounts are left out.
+ *                  the accounts list; a cancelled account is left out once
+ *                  its final cleaning date has passed (at once when it has
+ *                  none), the same day it leaves the sub's calendar.
  *   complaints     the complaints on those accounts, every status (the
  *                  screen shows the open ones).
  *   supplyItems    the supply list without the inactive items.
@@ -106,7 +100,7 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
   const subId = (await idRows)[0]?.id;
   if (!subcontractor || !subId) return null;
 
-  const [linked, allAccounts, allComplaints, supplyRows] = await Promise.all([
+  const [linked, allAccounts, allComplaints, supplyRows, lastDays] = await Promise.all([
     sql.query(`SELECT source_row, COALESCE(id, '') AS id FROM accounts WHERE subcontractor_id = $1::text`, [subId]) as unknown as Promise<
       { source_row: number | null; id: string }[]
     >,
@@ -118,13 +112,19 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
     ) as unknown as Promise<
       { supply_item: string; category: string; description: string; unit: string; status: string; notes: string; active_raw: string; sheet_row: number }[]
     >,
+    cancelledLastDays(),
   ]);
 
+  const today = todayISO();
   const linkedRows = new Set(linked.map((r) => Number(r.source_row ?? 0)).filter((n) => n > 0));
   const linkedIds = new Set(linked.map((r) => text(r.id)).filter(Boolean));
   const accounts = allAccounts.filter((account) => {
     const mine = linkedRows.has(Number(account.rowNumber)) || (text(account.accountId) !== "" && linkedIds.has(text(account.accountId)));
-    return mine && !CANCELLED.has(lower(account.status));
+    if (!mine) return false;
+    if (!CANCELLED.has(lower(account.status))) return true;
+    // Cancelled: the sub still cleans it up to and including the final cleaning date.
+    const lastDay = lastDays.get(text(account.accountId)) ?? "";
+    return lastDay !== "" && lastDay >= today;
   });
 
   const accountIds = new Set(accounts.map((a) => text(a.accountId)).filter(Boolean));
@@ -212,7 +212,7 @@ export async function getSubPortalIssuesShape(): Promise<{ issues: SubPortalIssu
   )) as IssueRow[];
   const issues = rows.map((row) => ({
     rowNumber: row.sheet_row,
-    timestamp: toDay(row.timestamp_raw) ?? text(row.timestamp_raw),
+    timestamp: dateOrNull(row.timestamp_raw) ?? text(row.timestamp_raw),
     issueId: text(row.issue_id),
     subcontractorEmail: text(row.subcontractor_email),
     subcontractorName: text(row.subcontractor_name),
@@ -282,7 +282,7 @@ export async function submitSubPortalIssue(issue: Record<string, unknown>): Prom
     [
       base,
       stamp,
-      toDay(stamp),
+      dateOrNull(stamp),
       values.subcontractorEmail,
       values.subcontractorName,
       values.accountId,
