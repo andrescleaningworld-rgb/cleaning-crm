@@ -137,7 +137,11 @@ export async function GET(request: NextRequest) {
 
     let accounts: unknown[];
     try {
-      accounts = await getOrFetch(`accounts:${action}`, () => fetchAccountsForAction(action));
+      // The 60-second cache exists for the slow Apps Script list. On Postgres
+      // the list is read fresh every time, so a status change or any other
+      // save shows at once, on every screen, with no window where a list
+      // read just before the save is served again after it.
+      accounts = accountsOnPostgres() ? await fetchAccountsForAction(action) : await getOrFetch(`accounts:${action}`, () => fetchAccountsForAction(action));
     } catch (err) {
       if (err instanceof AccountsFetchError) {
         return NextResponse.json(
@@ -166,8 +170,13 @@ export async function GET(request: NextRequest) {
         accounts,
       },
       {
+        // Never kept by the browser or anything in between. It used to say
+        // "public, max-age=60, stale-while-revalidate=120": the browser could
+        // go on showing an account as Active for up to three minutes after
+        // it was cancelled, until a hard refresh. (It is also the staff list,
+        // with revenue and pay in it: not something to mark "public".)
         headers: {
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=120",
+          "Cache-Control": "no-store",
         },
       }
     );

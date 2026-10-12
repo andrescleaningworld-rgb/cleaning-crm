@@ -2533,6 +2533,17 @@ main.cw-page-card {
   border-color: var(--ui-bad);
 }
 
+/* A cancelled account among the others (a search finds every account): a little greyed, still readable. */
+.ui-acct-cancelled {
+  background: #eef0f3;
+  border-style: dashed;
+}
+
+.ui-acct-cancelled .ui-acct-name a,
+.ui-acct-cancelled .ui-acct-line {
+  color: #5b6573;
+}
+
 .ui-acct-name {
   margin: 0;
   font-size: 21px;

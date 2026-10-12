@@ -351,8 +351,10 @@ function accountMatchesNonLocationFilters(
   const matchesSearch =
     !params.cleanSearch || (account._searchBlob ?? "").includes(params.cleanSearch);
 
+  // Text in the search box looks at every account, whichever box (Active /
+  // Need you / Cancelled) is picked: a cancelled account must still be found.
   const matchesStatus =
-    params.statusFilter === "All" || account._statusCategory === params.statusFilter;
+    params.cleanSearch !== "" || params.statusFilter === "All" || account._statusCategory === params.statusFilter;
 
   const matchesManager =
     params.managerFilter === "All" || normalizeText(account.manager) === params.managerFilter;
@@ -926,10 +928,14 @@ export default function AccountsPage() {
   // (/api/accounts treats a blank "q" as "return everything," so the
   // mount-time fetchAccounts("") call already has the full list in hand).
 
-  const fetchAccounts = useCallback(async (q: string) => {
-    setLoading(true);
-    setError("");
-    setHasSearched(true);
+  // `quiet`: a refresh nobody asked for (coming back to the page). It shows
+  // no "Refreshing…" and, if it fails, leaves the list that is there.
+  const fetchAccounts = useCallback(async (q: string, quiet = false) => {
+    if (!quiet) {
+      setLoading(true);
+      setError("");
+      setHasSearched(true);
+    }
     try {
       const accountsResponse = await fetch(`/api/accounts?q=${encodeURIComponent(q)}`, { cache: "no-store" });
 
@@ -950,12 +956,34 @@ export default function AccountsPage() {
         setFilterOptionAccounts(enriched);
       }
     } catch (err) {
+      if (quiet) return;
       setError(err instanceof Error ? err.message : "Something went wrong loading accounts.");
       setAccounts([]);
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }, []);
+
+  // Coming back to this page (another tab, the phone unlocked, the browser's
+  // Back button) reads the list again, so a status changed somewhere else
+  // shows here, and in the counts in the boxes, without a refresh.
+  const lastQuery = useRef("");
+  useEffect(() => {
+    let last = Date.now();
+    const refresh = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 5_000) return;
+      last = Date.now();
+      void fetchAccounts(lastQuery.current, true);
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+    };
+  }, [fetchAccounts]);
 
 
   async function loadTransferProposals() {
@@ -1042,6 +1070,7 @@ export default function AccountsPage() {
   // search box still works: /api/accounts treats a blank "q" as "return
   // everything," so clicking Search with no text browses the full list.
   function handleSearch() {
+    lastQuery.current = searchText.trim();
     void fetchAccounts(searchText.trim());
   }
 
@@ -1155,7 +1184,8 @@ export default function AccountsPage() {
         return false;
       }
       if (townFilter && townOf(account) !== townFilter) return false;
-      if (needsYouOnly && !problemLineOf(account, openTeamHubProblems[getAccountId(account)] ?? 0)) return false;
+      // The "Need you" box is off while searching, like the other two.
+      if (needsYouOnly && !nonLocationFilterParams.cleanSearch && !problemLineOf(account, openTeamHubProblems[getAccountId(account)] ?? 0)) return false;
 
       if (nearAccountRef) {
         if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
@@ -2239,6 +2269,7 @@ async function handleSaveTransferProposal() {
   }
 
   async function refreshList() {
+    lastQuery.current = searchText.trim();
     await fetchAccounts(searchText.trim());
     kitToast("Updated ✓");
   }
@@ -2426,6 +2457,8 @@ async function handleSaveTransferProposal() {
     [minRevenueFilter, maxRevenueFilter, minSubPayFilter, maxSubPayFilter].filter((v) => v.trim() !== "").length +
     (!nearAccountRef && sortOption !== "Account Name" ? 1 : 0);
 
+  // Text in the search box: every account is searched and no box is the one picked.
+  const searchingAll = nonLocationFilterParams.cleanSearch !== "";
   const selectedCount = selectedBulkToDoIds.size;
   const plural = (n: number) => (n === 1 ? "" : "s");
 
@@ -2467,15 +2500,15 @@ async function handleSaveTransferProposal() {
 
       {/* Three big counts. Tapping one shows only those accounts. */}
       <div className="ui-counts" data-tip="counts">
-        <button type="button" className="ui-count ui-count-good" aria-pressed={!needsYouOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
+        <button type="button" className="ui-count ui-count-good" aria-pressed={!searchingAll && !needsYouOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
           <span className="ui-count-number">{activeCount}</span>
           <span className="ui-count-label">Active</span>
         </button>
-        <button type="button" className="ui-count ui-count-bad" aria-pressed={needsYouOnly} onClick={() => showOnly("NeedsYou")}>
+        <button type="button" className="ui-count ui-count-bad" aria-pressed={!searchingAll && needsYouOnly} onClick={() => showOnly("NeedsYou")}>
           <span className="ui-count-number">{needsYouCount}</span>
           <span className="ui-count-label">Need you</span>
         </button>
-        <button type="button" className="ui-count ui-count-off" aria-pressed={!needsYouOnly && statusFilter === "Cancelled"} onClick={() => showOnly("Cancelled")}>
+        <button type="button" className="ui-count ui-count-off" aria-pressed={!searchingAll && !needsYouOnly && statusFilter === "Cancelled"} onClick={() => showOnly("Cancelled")}>
           <span className="ui-count-number">{cancelledCount}</span>
           <span className="ui-count-label">Cancelled</span>
         </button>
@@ -2577,6 +2610,11 @@ async function handleSaveTransferProposal() {
 
       {hasSearched ? (
         <div role="status">
+          {searchingAll ? (
+            <p className="ui-strong" data-searching-all>
+              Searching all accounts. The Active, Need you and Cancelled boxes are off while you search.
+            </p>
+          ) : null}
           <p className="ui-muted">
             Showing <span className="ui-strong">{visibleAccounts.length}</span> of{" "}
             <span className="ui-strong">{filteredAccounts.length}</span> matching account{plural(filteredAccounts.length)}
@@ -3431,7 +3469,7 @@ function AccountCard({
         </>
       }
     >
-      <article className={`ui-acct ${problem ? "ui-acct-problem" : ""}`.trim()}>
+      <article className={`ui-acct ${problem ? "ui-acct-problem" : ""} ${account._statusCategory === "Cancelled" ? "ui-acct-cancelled" : ""}`.trim()}>
         {selecting ? (
           <label className="ui-check">
             <input type="checkbox" checked={selected} onChange={onToggle} aria-label={`Select ${name} for bulk to-do creation`} />
