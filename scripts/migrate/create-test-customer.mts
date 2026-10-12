@@ -1,8 +1,13 @@
-// Creates (or removes) the portal test customer "ZZ Test Customer" in the
-// practice database only. It never exists in Google Sheets.
+// Creates (or removes) the portal test customer "ZZ Test Customer". It never
+// exists in Google Sheets.
 //
-//   npx tsx scripts/migrate/create-test-customer.mts --email <address>
-//   npx tsx scripts/migrate/create-test-customer.mts --remove
+//   npx tsx scripts/migrate/create-test-customer.mts --email <address>      practice database
+//   npx tsx scripts/migrate/create-test-customer.mts --remove               practice database
+//   ... add --production for the production database (.env.production.local),
+//   to try the new customer portal on the live site with one test customer
+//   before any real customer. Take a Neon backup branch first, and only with
+//   the owner's OK. It adds (or removes) only its own rows, all marked as
+//   test data; no real account, schedule or visit is read or changed.
 //
 // What it makes, all marked as test data (accounts.is_test = true, so staff
 // lists, reports, revenue, maps and sub lists leave it out):
@@ -17,16 +22,24 @@
 // Safe to re-run: it removes its own rows first. The email is not printed.
 import { loadEnv } from "./lib/env.mjs";
 import { assertDevDatabase } from "./lib/guard.mjs";
+import { productionUrl } from "./lib/production.mjs";
 
 loadEnv();
-process.env.DATABASE_URL = assertDevDatabase(process.env.MIGRATION_DATABASE_URL);
+const args = process.argv.slice(2);
+const production = args.includes("--production");
+const url = production ? productionUrl() : assertDevDatabase(process.env.MIGRATION_DATABASE_URL);
+process.env.DATABASE_URL = url;
+// lib/db.ts prefers MIGRATION_DATABASE_URL on a developer's machine; for production it must not be there.
+if (production) process.env.MIGRATION_DATABASE_URL = "";
 process.env.OUTBOUND_DRY_RUN = "1";
 
-const { getSql } = await import("../../lib/db");
+const { databaseUrl, getSql } = await import("../../lib/db");
+// The app code this script calls (addAccount) picks its own database: stop unless it is the one meant.
+if (databaseUrl() !== url) throw new Error("The app code would not use the database this script was pointed at. Nothing was done.");
 const sql = getSql();
+console.log(`${production ? "PRODUCTION" : "Practice"} database.`);
 
 const NAME = "ZZ Test Customer";
-const args = process.argv.slice(2);
 const remove = args.includes("--remove");
 const email = (args.includes("--email") ? args[args.indexOf("--email") + 1] ?? "" : "").trim().toLowerCase();
 
