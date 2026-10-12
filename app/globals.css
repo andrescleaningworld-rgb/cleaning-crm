@@ -2533,6 +2533,79 @@ main.cw-page-card {
   border-color: var(--ui-bad);
 }
 
+/* ---------- the sub score alert (a sub dropped below 6) ---------- */
+
+/* On the Accounts center item in the sidebar: red, with a warning sign. */
+.cw-side-alert {
+  background: #c62828;
+  color: #ffffff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* The card at the top of Accounts Center. */
+.ui-score-alert-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border: 2px solid #c62828;
+  border-radius: var(--ui-r-panel);
+  background: #fdecea;
+  color: #10233f;
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-score-alert-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #c62828;
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.ui-score-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-color: #c62828;
+}
+
+.ui-score-alert-name {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.ui-score-alert-score {
+  margin-left: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #c62828;
+  color: #ffffff;
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.ui-score-alert-why {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 17px;
+  line-height: 1.45;
+}
+
 /* A cancelled account among the others (a search finds every account): a little greyed, still readable. */
 .ui-acct-cancelled {
   background: #eef0f3;

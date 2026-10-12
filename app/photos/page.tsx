@@ -30,6 +30,8 @@ type Photo = {
   takenAt: string;
   isImage: boolean;
   viaApp?: boolean;
+  /** The "Show on TV" star. */
+  showOnTv?: boolean;
 };
 
 type ApiAnswer = {
@@ -111,8 +113,9 @@ function Thumb({ photo, onOpen }: { photo: Photo; onOpen: () => void }) {
 
 /* ---------- full screen ---------- */
 
-function Viewer({ photos, index, onIndex, onClose }: { photos: Photo[]; index: number; onIndex: (next: number) => void; onClose: () => void }) {
+function Viewer({ photos, index, onIndex, onClose, onStar }: { photos: Photo[]; index: number; onIndex: (next: number) => void; onClose: () => void; onStar: (photo: Photo, on: boolean) => Promise<void> }) {
   const photo = photos[index];
+  const [starring, setStarring] = useState(false);
   const touch = useRef<{ x: number; y: number } | null>(null);
   const go = useCallback((delta: number) => onIndex(Math.min(photos.length - 1, Math.max(0, index + delta))), [index, photos.length, onIndex]);
 
@@ -195,6 +198,21 @@ function Viewer({ photos, index, onIndex, onClose }: { photos: Photo[]; index: n
               {photo.linkedLabel || "Open"}
             </Link>
           ) : null}
+          {/* The star: starred photos are the slideshow on the office TV. Pictures in the app's own storage only. */}
+          {photo.isImage && photo.store === "blob" ? (
+            <button
+              type="button"
+              className={photo.showOnTv ? "ui-btn ui-btn-main" : "ui-btn ui-btn-second"}
+              aria-pressed={photo.showOnTv === true}
+              disabled={starring}
+              onClick={() => {
+                setStarring(true);
+                void onStar(photo, !photo.showOnTv).finally(() => setStarring(false));
+              }}
+            >
+              {photo.showOnTv ? "★ On the TV" : "☆ Show on TV"}
+            </button>
+          ) : null}
           <a className="ui-btn ui-btn-second ph-viewer-original" href={photo.url} target="_blank" rel="noopener noreferrer">
             Original file
           </a>
@@ -214,6 +232,19 @@ function PhotosContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [counts, setCounts] = useState({ total: 0, week: 0, problems: 0, beforeAfter: 0 });
   const [accounts, setAccounts] = useState<{ name: string; count: number }[]>([]);
+
+  // The "Show on TV" star: starred photos are the slideshow on the office TV.
+  const starPhoto = useCallback(async (photo: Photo, on: boolean) => {
+    try {
+      const response = await fetch("/api/photo-index/star", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: photo.id, on }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || data.success !== true) throw new Error(data.error || "That did not save. Try again.");
+      setPhotos((current) => current.map((item) => (item.id === photo.id ? { ...item, showOnTv: on } : item)));
+      showToast(on ? "It will show on the TV." : "Taken off the TV.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "That did not save. Try again.", "bad");
+    }
+  }, []);
 
   const [search, setSearch] = useState("");
   const [typed, setTyped] = useState("");
@@ -528,7 +559,7 @@ function PhotosContent() {
         <Field label="To" type="date" optional value={to} onChange={(event) => (setTo(event.target.value), setDateChoice("pick"))} />
       </Sheet>
 
-      {viewer !== null ? <Viewer photos={photos} index={viewer} onIndex={setViewer} onClose={() => setViewer(null)} /> : null}
+      {viewer !== null ? <Viewer photos={photos} index={viewer} onIndex={setViewer} onClose={() => setViewer(null)} onStar={starPhoto} /> : null}
     </Screen>
   );
 }

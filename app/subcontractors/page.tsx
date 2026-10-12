@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { isScheduleEffectivelyActive } from "@/lib/scheduleRecurrence";
+import { findDuplicateSubs, matchWords } from "@/lib/subDuplicates";
 import {
   BigButton,
   Card,
@@ -262,9 +263,13 @@ const SORT_OPTIONS: [string, string][] = [
   ["complaintsLow", "Least complaints"],
 ];
 
-function AddSubcontractorSheet({ onClose, onAdded }: { onClose: () => void; onAdded: () => Promise<void> }) {
+function AddSubcontractorSheet({ existing, onClose, onAdded }: { existing: Subcontractor[]; onClose: () => void; onAdded: () => Promise<void> }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [nameError, setNameError] = useState("");
+
+  // The duplicate warning: is there already a sub with this name, email or phone? Checked as the form is typed.
+  const known = useMemo(() => existing.map((sub) => ({ companyName: sub.companyName || sub.CompanyName || sub.company || "", contactName: getContactName(sub), email: getEmail(sub), phone: getPhone(sub) })), [existing]);
+  const duplicates = useMemo(() => findDuplicateSubs(form, known), [form, known]);
 
   function updateForm(field: keyof typeof EMPTY_FORM, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -277,7 +282,8 @@ function AddSubcontractorSheet({ onClose, onAdded }: { onClose: () => void; onAd
         res = await fetch("/api/subcontractors", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "addSubcontractor", ...values }),
+          // The warning was on screen when Save was tapped ("Add anyway"), so the server need not stop it again.
+          body: JSON.stringify({ action: "addSubcontractor", ...values, confirmDuplicate: findDuplicateSubs(values, known).length > 0 }),
         });
       } catch {
         throw new Error("The internet dropped. Check your connection and try again.");
@@ -310,10 +316,23 @@ function AddSubcontractorSheet({ onClose, onAdded }: { onClose: () => void; onAd
       busy={save.saving}
       actions={
         <BigButton busy={save.saving} busyLabel="Saving…" onClick={handleSave}>
-          Save subcontractor
+          {duplicates.length > 0 ? "Add anyway" : "Save subcontractor"}
         </BigButton>
       }
     >
+      {duplicates.length > 0 ? (
+        <div className="ui-errorbox" role="alert" data-duplicate-warning>
+          <p className="ui-errorbox-title">{duplicates.length === 1 ? "This subcontractor may already be here" : "These subcontractors may already be here"}</p>
+          <ul>
+            {duplicates.slice(0, 5).map((duplicate, index) => (
+              <li key={index}>
+                <strong>{duplicate.label}</strong>: {matchWords(duplicate.matches)}
+              </li>
+            ))}
+          </ul>
+          <p>Check the list before adding a second one. If this is a different subcontractor, tap Add anyway.</p>
+        </div>
+      ) : null}
       <Field
         label="Company name"
         value={form.companyName}
@@ -899,7 +918,7 @@ export default function SubcontractorsPage() {
         ) : null}
       </Sheet>
 
-      {showForm ? <AddSubcontractorSheet onClose={() => setShowForm(false)} onAdded={loadSubcontractors} /> : null}
+      {showForm ? <AddSubcontractorSheet existing={subcontractors} onClose={() => setShowForm(false)} onAdded={loadSubcontractors} /> : null}
     </Screen>
   );
 }

@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutButton";
 import { SHOW_TIPS_EVENT, useShell } from "@/app/ui";
 import { BOARD_FROM_KEY } from "@/lib/board";
+import { SubScoreAlertsSheet, useSubScoreAlerts } from "./sub-score-alerts";
 
 type UserRole = "admin" | "subcontractor" | "customer" | null;
 
@@ -260,6 +261,9 @@ export default function CWHeader() {
   const badgeTotal = newNotificationCount + portalCount;
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
   const badgeFor = (href: string) => (href === "/notifications" ? newNotificationCount : href === "/portal-requests" ? portalCount : 0);
+  // Subs whose score dropped below 6: a red warning on the Accounts center item. Tapping it shows who and why.
+  const scoreAlerts = useSubScoreAlerts(mounted && role === "admin");
+  const [scoreAlertsOpen, setScoreAlertsOpen] = useState(false);
 
   // Every page has a back arrow except home. A screen can say where its
   // arrow goes; otherwise it goes one level up, and from a top-level page, home.
@@ -305,6 +309,29 @@ export default function CWHeader() {
         {badge > 0 ? (
           <span className="cw-topbar-badge cw-side-badge" aria-label={`${badge} new`}>
             {badge}
+          </span>
+        ) : null}
+        {item.href === "/accounts-center" && scoreAlerts.length > 0 ? (
+          // Its own button inside the link: it opens the list instead of going to the page.
+          <span
+            role="button"
+            tabIndex={0}
+            className="cw-topbar-badge cw-side-badge cw-side-alert"
+            aria-label={`${scoreAlerts.length} sub score alert${scoreAlerts.length === 1 ? "" : "s"}. Show who and why.`}
+            title="A sub's score dropped below 6"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setScoreAlertsOpen(true);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.stopPropagation();
+              setScoreAlertsOpen(true);
+            }}
+          >
+            ⚠ {scoreAlerts.length}
           </span>
         ) : null}
       </Link>
@@ -430,6 +457,7 @@ export default function CWHeader() {
           </aside>
         </>
       )}
+      {role === "admin" ? <SubScoreAlertsSheet open={scoreAlertsOpen} alerts={scoreAlerts} onClose={() => setScoreAlertsOpen(false)} /> : null}
     </>
   );
 }

@@ -205,6 +205,12 @@ export async function addSubcontractor(fields: Record<string, unknown>): Promise
   return { id: inserted[0].legacy_row_id, subcontractorId: inserted[0].id };
 }
 
+/** Name, email and phone of every sub on file, for the duplicate warning (lib/subDuplicates.ts). */
+export async function getSubIdentities(): Promise<{ companyName: string; contactName: string; email: string; phone: string }[]> {
+  const rows = (await getSql()`SELECT company_name, contact_name, email, COALESCE(NULLIF(btrim(phone), ''), extra_phone_raw) AS phone FROM subcontractors`) as Record<string, string>[];
+  return rows.map((row) => ({ companyName: row.company_name, contactName: row.contact_name, email: row.email, phone: row.phone ?? "" }));
+}
+
 /* ---------- the list the Apps Script "getSubcontractors" action returns ---------- */
 
 // Two callers still take their subcontractor list from Apps Script: the

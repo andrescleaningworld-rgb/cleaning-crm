@@ -5,6 +5,9 @@
 // What leaves here is cut down for a screen anyone in the office can see:
 // the account name and the kind of paper, nothing else. No note text, no
 // order details, no money, no addresses, no phone numbers, no record ids.
+// The slideshow is the photos staff gave the "Show on TV" star, with the
+// account name under each; "today" is the day's birthdays, anniversaries,
+// holidays and company events (first names and titles only).
 
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
@@ -13,6 +16,8 @@ import { isOld, type Paper } from "@/lib/board";
 import { officeDay } from "@/lib/cleanings";
 import { boardReady, getBoardSettings, listBoardManagers, listPapers, syncBoard, tvTokenIsValid } from "@/lib/pg/board";
 import { listCleanings } from "@/lib/pg/cleanings";
+import { eventLine } from "@/lib/officeEvents";
+import { listOfficeEvents, tvSlides } from "@/lib/pg/office-events";
 
 const noStore = { headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
 
@@ -55,7 +60,15 @@ export async function GET(request: NextRequest) {
 
     await syncBoard();
     const today = officeDay();
-    const [settings, managers, lists, calendar] = await Promise.all([getBoardSettings(), listBoardManagers(), listPapers(), listCleanings(today, today)]);
+    const [settings, managers, lists, calendar, slides, events] = await Promise.all([
+      getBoardSettings(),
+      listBoardManagers(),
+      listPapers(),
+      listCleanings(today, today),
+      // Neither may stop the board: no photos and no days is a fine answer.
+      tvSlides().catch(() => []),
+      listOfficeEvents(today, today).catch(() => []),
+    ]);
     const squares = new Set(managers.map((manager) => manager.id));
     const papers = lists.papers.map((paper) => (paper.square && !squares.has(paper.square) ? { ...paper, square: "" } : paper));
     return NextResponse.json(
@@ -72,6 +85,8 @@ export async function GET(request: NextRequest) {
           doneToday: lists.done.filter((paper) => paper.doneAt && officeDay(paper.doneAt) === today).length,
         },
         cleanings: calendar.cleanings.map((cleaning) => ({ accountName: cleaning.accountName, sub: cleaning.sub, status: cleaning.status })),
+        slides,
+        todayNotes: events.map((event) => ({ kind: event.kind, text: eventLine(event) })),
       },
       noStore
     );

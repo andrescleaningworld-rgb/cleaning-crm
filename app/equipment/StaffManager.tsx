@@ -10,6 +10,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { Staff, StaffRole } from "./types";
 import { StaffEquipmentReports, StaffPinControls, useEquipmentPinStatuses } from "./EquipmentCheckAdmin";
 import { BigButton, ConfirmDialog, ErrorNote } from "./ui";
+import { StaffDatesFields, useStaffDates } from "./StaffDates";
 
 const ROLE_OPTIONS: StaffRole[] = ["Manager", "OfficeStaff", "InsideStaff"];
 const ROLE_LABELS: Record<StaffRole, string> = { Manager: "Manager", OfficeStaff: "Office Staff", InsideStaff: "Inside Staff" };
@@ -29,6 +30,8 @@ export default function StaffManager() {
   const [deleteError, setDeleteError] = useState("");
   const equipmentPins = useEquipmentPinStatuses();
   const [historyStaffId, setHistoryStaffId] = useState<string | null>(null);
+  // Birthday and first day of work, for the board calendar and the TV.
+  const staffDates = useStaffDates();
 
   async function loadStaff() {
     setLoadError("");
@@ -198,6 +201,8 @@ export default function StaffManager() {
                     />
                   </div>
                 </div>
+
+                {staffDates.on ? <StaffDatesFields staffId={member.id} name={member.name} value={staffDates.dates[member.id]} onSaved={staffDates.reload} /> : null}
 
                 <div className="grid grid-cols-2 gap-3">
                   <BigButton

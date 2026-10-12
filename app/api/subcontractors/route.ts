@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
+import { findDuplicateSubs, matchWords } from "@/lib/subDuplicates";
+import { getSubIdentities } from "@/lib/pg/subs";
 import {
   getAllAccountsForSubEnrichment,
 } from "@/lib/data/accounts";
@@ -544,8 +546,28 @@ export async function POST(request: Request) {
     // action when the switch is off, still goes to Apps Script below.
     if (body.action === "addSubcontractor" && subsOnPostgres()) {
       try {
-        const { action: _action, ...fields } = body as { action?: unknown; [key: string]: unknown };
+        const { action: _action, confirmDuplicate, ...fields } = body as { action?: unknown; confirmDuplicate?: unknown; [key: string]: unknown };
         void _action;
+        // The duplicate warning. The sheet shows it while the form is typed; this catches a sub someone else
+        // added a moment ago. "Add anyway" on the sheet sends confirmDuplicate.
+        if (confirmDuplicate !== true) {
+          const word = (key: string) => String(fields[key] ?? "").trim();
+          const duplicates = findDuplicateSubs(
+            { companyName: word("companyName"), contactName: word("contactName"), email: word("email"), phone: word("phone") },
+            await getSubIdentities()
+          );
+          if (duplicates.length > 0) {
+            return NextResponse.json(
+              {
+                success: false,
+                duplicate: true,
+                duplicates,
+                error: `This subcontractor may already be here: ${duplicates.slice(0, 3).map((duplicate) => `${duplicate.label} (${matchWords(duplicate.matches)})`).join("; ")}. Close this and look at the list first.`,
+              },
+              { status: 409 }
+            );
+          }
+        }
         const created = await addSubcontractor(fields);
         await invalidateCached("subcontractors:getSubcontractors");
         return NextResponse.json({ success: true, id: created.id });
