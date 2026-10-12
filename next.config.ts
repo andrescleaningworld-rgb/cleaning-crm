@@ -22,6 +22,20 @@ if (process.env.VERCEL_ENV === "preview") {
   }
 }
 
+// The same stop for the three branches of October 12, 2026 (kept apart from
+// the list below so the branches merge without a conflict on that line).
+const SWITCH_ON_PREVIEW_BRANCHES = ["feature/switch-on-prep", "feature/customer-portal-merge", "feature/office-extras"];
+if (process.env.VERCEL_ENV === "preview" && SWITCH_ON_PREVIEW_BRANCHES.includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")) {
+  const missing = [
+    process.env.SHEETS_READ_ONLY === "1" ? "" : "SHEETS_READ_ONLY=1",
+    process.env.OUTBOUND_DRY_RUN === "1" ? "" : "OUTBOUND_DRY_RUN=1",
+    process.env.DATA_SOURCE_ACCOUNTS === "postgres" ? "" : "DATA_SOURCE_*=postgres",
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    throw new Error(`Preview build stopped: the ${process.env.VERCEL_GIT_COMMIT_REF} preview needs ${missing.join(", ")} set for Preview on this branch.`);
+  }
+}
+
 // The redesign branch's preview is for looking at screens with practice data
 // only. Vercel cannot hold branch settings before the branch exists, so the
 // very first push would otherwise build a preview that reads and writes the
