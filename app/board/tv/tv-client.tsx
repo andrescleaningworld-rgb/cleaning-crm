@@ -15,6 +15,12 @@
 // top strip opens today's cleanings there. Both have a big "Back to board"
 // button and go back by themselves after 60 seconds.
 //
+// Slideshow: after a few minutes on the board, the middle shows about a
+// minute of the photos staff gave the "Show on TV" star (and first, today's
+// birthdays, anniversaries, holidays and company events), then the board
+// again. A click anywhere goes straight back to the board. With no starred
+// photos and nothing today, the board simply stays.
+//
 // The picture keeps a 4% margin from every edge of the screen (a TV cuts off
 // its edges: overscan). Everything inside is sized from the picture itself
 // (--u = 1% of its height, or less on a screen narrower than a TV), measured
@@ -36,12 +42,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
+import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
 import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported } from "../full-screen";
 import styles from "./tv.module.css";
 
 type TvCleaning = { accountName: string; sub: string; status: CleaningStatus };
 type ListedCleaning = TvCleaning & { key: string };
+type TvSlide = { url: string; caption: string };
+type TvNote = { kind: OfficeEventKind; text: string };
 type TvData = {
   today: string;
   settings: BoardSettings;
@@ -49,6 +58,10 @@ type TvData = {
   papers: Paper[];
   counters: { pinned: number; stuck: number; doneToday: number };
   cleanings: TvCleaning[];
+  /** The photos with the "Show on TV" star. */
+  slides: TvSlide[];
+  /** Today's birthdays, anniversaries, holidays, office closed, company events. */
+  todayNotes: TvNote[];
 };
 
 const REFRESH_MS = 60_000;
@@ -67,6 +80,10 @@ const SHIFTS: [number, number][] = [
   [-4, -2],
 ];
 
+/** The slideshow: this long on the board, then SLIDES_PER_SHOW slides of SLIDE_MS each (about a minute), and again. */
+const BOARD_MS = 4 * 60_000;
+const SLIDE_MS = 10_000;
+const SLIDES_PER_SHOW = 6;
 /** A list that was opened (a square, or today's cleanings) closes by itself after this long. */
 const BACK_MS = 60_000;
 /** The picture is a TV's shape, 16:9. On a narrower screen the width decides the size of everything. */
@@ -256,6 +273,8 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
         papers: body.papers ?? [],
         counters: body.counters ?? { pinned: 0, stuck: 0, doneToday: 0 },
         cleanings: body.cleanings ?? [],
+        slides: body.slides ?? [],
+        todayNotes: body.todayNotes ?? [],
       });
       setProblem("");
       setReconnecting(false);
@@ -306,6 +325,39 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     const timer = window.setTimeout(() => setView("board"), BACK_MS);
     return () => window.clearTimeout(timer);
   }, [view]);
+
+  // The slideshow. `show` is the photo the running show started on (null = the board is up); `slide` is where it is.
+  const [show, setShow] = useState<number | null>(null);
+  const [slide, setSlide] = useState(0);
+  const nextStart = useRef(0);
+  const photoCount = data?.slides.length ?? 0;
+  const hasNotes = (data?.todayNotes.length ?? 0) > 0;
+  const photosPerShow = Math.min(photoCount, SLIDES_PER_SHOW - (hasNotes ? 1 : 0));
+  const deckLength = (hasNotes ? 1 : 0) + photosPerShow;
+
+  // The board has been up long enough: start a show, if there is anything to show.
+  useEffect(() => {
+    if (view !== "board" || show !== null || deckLength === 0) return;
+    const timer = window.setTimeout(() => {
+      setSlide(0);
+      setShow(nextStart.current);
+    }, BOARD_MS);
+    return () => window.clearTimeout(timer);
+  }, [view, show, deckLength]);
+
+  // While a show runs: the next slide every few seconds, then back to the board. The next show goes on from where this one stopped.
+  useEffect(() => {
+    if (show === null) return;
+    const timer = window.setTimeout(() => {
+      if (slide + 1 < deckLength) return setSlide(slide + 1);
+      nextStart.current = photoCount > 0 ? (show + photosPerShow) % photoCount : 0;
+      setShow(null);
+    }, SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [show, slide, deckLength, photoCount, photosPerShow]);
+
+  /** Any click during the slideshow: the board is back at once. */
+  const endShow = useCallback(() => setShow(null), []);
 
   // The page behind never scrolls while the TV screen is up.
   useEffect(() => {
@@ -442,7 +494,11 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const count = squares.length;
   // A square that was open and has no notes any more: the board shows again.
   const opened = squares.find((square) => square.key === view) ?? null;
-  const showing = view === "cleanings" ? "cleanings" : opened ? "square" : "board";
+  const slideshow = show !== null && view === "board" && deckLength > 0 && data !== null;
+  const showing = view === "cleanings" ? "cleanings" : opened ? "square" : slideshow ? "slides" : "board";
+  // This show's slides: today's notes first (when there are any), then the next few starred photos.
+  const notesSlide = slideshow && hasNotes && slide === 0;
+  const photoSlide = slideshow && !notesSlide && data && photoCount > 0 ? data.slides[((show ?? 0) + slide - (hasNotes ? 1 : 0)) % photoCount] : null;
   // Today's cleanings sit beside the board only while few squares are in use; after that the squares get the full width.
   const sideShown = count <= SIDE_UP_TO;
   const rows = squareRows(count, board.width, board.height);
@@ -529,7 +585,10 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
             <button
               type="button"
               className={`${styles.counter} ${styles.counterButton} ${showing === "cleanings" ? styles.counterOn : ""}`}
-              onClick={() => setView(showing === "cleanings" ? "board" : "cleanings")}
+              onClick={() => {
+                setShow(null);
+                setView(showing === "cleanings" ? "board" : "cleanings");
+              }}
               aria-pressed={showing === "cleanings"}
               data-count="cleanings"
             >
@@ -543,7 +602,28 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
           </div>
         </header>
 
-        {showing === "board" ? (
+        {showing === "slides" ? (
+          // The slideshow takes the middle of the screen; the top strip and the company rule stay. A click ends it.
+          <section className={styles.slides} onClick={endShow} aria-label="Photos" data-tv-slides={notesSlide ? "notes" : "photo"}>
+            {notesSlide && data ? (
+              <div className={styles.notes}>
+                <p className={styles.notesTitle}>Today</p>
+                {data.todayNotes.slice(0, 5).map((note, index) => (
+                  <p key={index} className={styles.noteLine}>
+                    <span aria-hidden="true">{EVENT_ICON[note.kind]}</span> {note.text}
+                  </p>
+                ))}
+              </div>
+            ) : photoSlide ? (
+              <>
+                <div className={styles.slidePhoto}>
+                  <Image key={photoSlide.url} src={photoSlide.url} alt="" fill unoptimized sizes="92vw" className={styles.slideImage} />
+                </div>
+                {photoSlide.caption ? <p className={styles.slideCaption}>{photoSlide.caption}</p> : null}
+              </>
+            ) : null}
+          </section>
+        ) : showing === "board" ? (
           <div className={`${styles.body} ${sideShown ? "" : styles.bodyWide}`} data-tv-side={sideShown ? "1" : "0"}>
             <div ref={board.box} className={styles.board} role="region" aria-label="Pin board">
               {!data ? <p className={styles.empty}>{reconnecting ? "Reconnecting…" : "Loading the board"}</p> : null}

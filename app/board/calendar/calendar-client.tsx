@@ -2,7 +2,9 @@
 
 // The Cleaning calendar: which accounts are cleaned on which day, by which
 // sub, and whether it happened. Green = cleaned, gray = scheduled (or, in
-// the past, not confirmed), red = missed, blue = extra job.
+// the past, not confirmed), red = missed, blue = extra job. Above each day's
+// cleanings: birthdays, work anniversaries, holidays, office closed and
+// company events (calendar-events.tsx).
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -19,7 +21,10 @@ import {
   type CalendarData,
   type Cleaning,
 } from "@/lib/cleanings";
+import type { OfficeEvent } from "@/lib/officeEvents";
+import { EVENT_ICON } from "@/lib/officeEvents";
 import { BOARD_TABS, useBoardTabs } from "../board-client";
+import { AddEventSheet, EventChips, RemoveEventSheet, useOfficeEvents } from "./calendar-events";
 import boardStyles from "../board.module.css";
 import styles from "./calendar.module.css";
 
@@ -72,6 +77,15 @@ export default function CalendarClient() {
   const [busy, setBusy] = useState(false);
   const changeTab = useBoardTabs("calendar");
   const range = useMemo(() => rangeFor(view, day), [view, day]);
+  // Birthdays, anniversaries, holidays, office closed, company events.
+  const office = useOfficeEvents(range.from, range.to);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<OfficeEvent | null>(null);
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, OfficeEvent[]>();
+    for (const event of office.events) map.set(event.day, [...(map.get(event.day) ?? []), event]);
+    return map;
+  }, [office.events]);
 
   const load = useCallback(async () => {
     try {
@@ -247,6 +261,15 @@ export default function CalendarClient() {
             <span className={`${styles.swatch} ${styles.extra}`} /> Extra job
           </p>
 
+          {office.on ? (
+            <div>
+              <BigButton kind="second" icon="plus" onClick={() => setAdding(true)}>
+                Add to calendar
+              </BigButton>
+            </div>
+          ) : null}
+          {view === "today" ? <EventChips events={eventsByDay.get(day) ?? []} onPick={setRemoving} /> : null}
+
           {state === "loading" || !data || !fresh ? (
             <SkeletonList rows={3} />
           ) : view === "today" ? (
@@ -263,6 +286,7 @@ export default function CalendarClient() {
                     {weekdayName(d)} <span>{shortDay(d)}</span>
                     {d === today ? <span className={styles.todayTag}>Today</span> : null}
                   </h3>
+                  <EventChips events={eventsByDay.get(d) ?? []} onPick={setRemoving} />
                   {(byDay.get(d)?.length ?? 0) === 0 ? <p className="ui-muted">Nothing</p> : <ul className={styles.list}>{byDay.get(d)!.map(card)}</ul>}
                 </section>
               ))}
@@ -288,9 +312,14 @@ export default function CalendarClient() {
                       setDay(d);
                       setView("today");
                     }}
-                    aria-label={`${longDay(d)}: ${c.total} cleanings, ${c.done} done, ${c.missed} missed`}
+                    aria-label={`${longDay(d)}: ${c.total} cleanings, ${c.done} done, ${c.missed} missed${(eventsByDay.get(d) ?? []).map((event) => `, ${event.title}`).join("")}`}
                   >
                     <span className={styles.monthDay}>{dayToDate(d).getDate()}</span>
+                    {(eventsByDay.get(d) ?? []).length > 0 ? (
+                      <span className={styles.monthEvents} aria-hidden="true">
+                        {Array.from(new Set((eventsByDay.get(d) ?? []).map((event) => EVENT_ICON[event.kind]))).join(" ")}
+                      </span>
+                    ) : null}
                     {c.total > 0 ? <span className={styles.monthTotal}>{c.total}</span> : null}
                     <span className={styles.monthDots}>
                       {c.done > 0 ? <span className={`${styles.dot} ${styles.cleaned}`}>{c.done}</span> : null}
@@ -304,6 +333,9 @@ export default function CalendarClient() {
           )}
         </>
       )}
+
+      <AddEventSheet open={adding} day={day} onClose={() => setAdding(false)} onSaved={() => void office.reload()} />
+      <RemoveEventSheet event={removing} onClose={() => setRemoving(null)} onRemoved={() => void office.reload()} />
 
       {/* One cleaning: was it done? */}
       <Sheet open={Boolean(open)} title={open ? open.accountName : ""} text={open ? longDay(open.day) : ""} onClose={() => setOpenKey("")} closeLabel="Close" busy={busy}>

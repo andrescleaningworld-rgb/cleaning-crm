@@ -38,6 +38,8 @@ export type IndexedPhoto = {
   isImage: boolean;
   /** A Drive photo added with "Add photos": its picture is fetched through the app, because the file may be shared only with the app. */
   viaApp: boolean;
+  /** The "Show on TV" star: the photo is in the TV slideshow (migration 030). */
+  showOnTv: boolean;
 };
 
 export function photosFlagOn(): boolean {
@@ -286,6 +288,8 @@ type Row = {
   taken_by: string;
   taken_at: string | Date;
   is_image: boolean;
+  /** Not there until migration 030 is applied. */
+  show_on_tv?: boolean;
 };
 
 const toPhoto = (row: Row): IndexedPhoto => ({
@@ -304,6 +308,7 @@ const toPhoto = (row: Row): IndexedPhoto => ({
   takenAt: new Date(row.taken_at).toISOString(),
   isImage: row.is_image,
   viaApp: row.source_key.startsWith("drive-import:"),
+  showOnTv: row.show_on_tv === true,
 });
 
 export type PhotoFilter = {

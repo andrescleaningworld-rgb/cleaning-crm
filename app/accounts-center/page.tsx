@@ -12,6 +12,7 @@ import NewAccountsBoard from "./new-accounts";
 import TeamHubStaffQueue from "./team-hub-queue";
 import { Tabs } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
+import { SubScoreAlertsCard } from "../components/sub-score-alerts";
 
 type CenterTab = "all" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails";
 
@@ -92,6 +93,8 @@ export default function AccountsCenterPage() {
     // .ui-screen here only sets the type and focus styles for the tab bar;
     // each tab below brings its own Screen (title, back, main action).
     <div className="ui-screen">
+      {/* A sub's score dropped below 6: who and why, one tap away. Nothing shows when there is none. */}
+      <SubScoreAlertsCard />
       <Tabs label="Accounts Center sections" tabs={tabs} value={activeTab} onChange={handleTabChange} />
 
       {activeTab === "all" && (
