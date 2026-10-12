@@ -1,10 +1,10 @@
 "use client";
 
-// The four things a customer can send from the new portal. Each one posts
-// to the same address the portal used before (/api/portal/complaints,
-// service-requests, date-changes, billing-requests), so staff get them in
-// Portal Requests exactly as today. After a save the customer lands on the
-// big "Sent ✓" screen.
+// The four things a customer can send from the portal: as few boxes as
+// possible, big ones, and one green Send button. Each posts to
+// /api/portal/complaints, service-requests, date-changes or billing-requests,
+// so staff get them in Portal Requests. After a save the customer lands on
+// the big "Got it!" screen.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -60,21 +60,21 @@ function FormScreen({
 
 // ─── Report a problem (with photos) ──────────────────────────────────────────
 
-const PROBLEM_KINDS = ["Missed Cleaning", "Quality Issue", "Staff Conduct", "Damaged Property", "Communication Issue", "Other"];
+// One box to say what happened, photos from the phone's camera, and (only if
+// the customer wants) one tap to say what kind. Nothing else to fill in.
+const PROBLEM_KINDS = ["Missed Cleaning", "Quality Issue", "Damaged Property", "Other"];
 
 export function ProblemForm({ accountName }: { accountName: string }) {
   const words = usePortalWords();
   const router = useRouter();
   const [kind, setKind] = useState("");
   const [details, setDetails] = useState("");
-  const [day, setDay] = useState("");
   const [photos, setPhotos] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
   async function submit() {
-    if (!kind) return setError(words.needKind);
     if (!details.trim()) return setError(words.needDetails);
     setBusy(true);
     setError("");
@@ -92,7 +92,7 @@ export function ProblemForm({ accountName }: { accountName: string }) {
         }
         setUploading(false);
       }
-      await post("/api/portal/complaints", { issueType: kind, description: details.trim(), incidentDate: day, photos: urls });
+      await post("/api/portal/complaints", { issueType: kind || "Other", description: details.trim(), incidentDate: "", photos: urls });
       router.push("/portal/sent?kind=problem");
     } catch {
       setError(words.somethingWrong);
@@ -103,22 +103,31 @@ export function ProblemForm({ accountName }: { accountName: string }) {
 
   return (
     <FormScreen title={words.problemTitle} subtitle={accountName} busy={busy} busyLabel={uploading ? words.uploadingPhotos : undefined} error={error} onSubmit={submit}>
-      <SelectField label={words.problemKind} value={kind} onChange={(e) => setKind(e.target.value)}>
-        <option value="">{words.pickOne}</option>
-        {PROBLEM_KINDS.map((k) => (
-          <option key={k} value={k}>
-            {words.problemKinds[k] ?? k}
-          </option>
-        ))}
-      </SelectField>
-      <TextAreaField label={words.problemDetails} value={details} onChange={(e) => setDetails(e.target.value)} rows={4} />
-      <Field label={words.problemDate} optional type="date" value={day} onChange={(e) => setDay(e.target.value)} />
-      <PhotoPicker label={words.photos} files={photos} onChange={setPhotos} max={6} />
+      <TextAreaField label={words.problemDetails} value={details} onChange={(e) => setDetails(e.target.value)} rows={5} />
+      <PhotoPicker label={words.photos} files={photos} onChange={setPhotos} max={4} />
+      <div className="ui-field" role="group" aria-label={words.problemKind}>
+        <span className="ui-label">
+          {words.problemKind} <span className="ui-muted">({words.optional})</span>
+        </span>
+        <div className="ui-stack">
+          {PROBLEM_KINDS.map((k) => {
+            const on = kind === k;
+            return (
+              <button key={k} type="button" aria-pressed={on} className={`ui-pick ${on ? "ui-pick-on" : ""}`.trim()} onClick={() => setKind(on ? "" : k)}>
+                <span className="min-w-0 flex-1 ui-strong">{words.problemKinds[k] ?? k}</span>
+                <span className="ui-pick-mark" aria-hidden="true">
+                  ✓
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </FormScreen>
   );
 }
 
-// ─── Ask for extra service ───────────────────────────────────────────────────
+// ─── Request extra cleaning ──────────────────────────────────────────────────
 
 export type PortalService = { id: string; name: string; description: string; imageUrl: string };
 
@@ -127,7 +136,6 @@ export function ServiceForm({ accountName, services }: { accountName: string; se
   const router = useRouter();
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [details, setDetails] = useState("");
-  const [day, setDay] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -146,7 +154,7 @@ export function ServiceForm({ accountName, services }: { accountName: string; se
     setBusy(true);
     setError("");
     try {
-      await post("/api/portal/service-requests", { serviceRequested: names.join(", ") || "Other", details: details.trim(), preferredDate: day });
+      await post("/api/portal/service-requests", { serviceRequested: names.join(", ") || "Other", details: details.trim(), preferredDate: "" });
       router.push("/portal/sent?kind=service");
     } catch {
       setError(words.somethingWrong);
@@ -183,8 +191,7 @@ export function ServiceForm({ accountName, services }: { accountName: string; se
           })}
         </div>
       ) : null}
-      <TextAreaField label={words.serviceDetails} optional value={details} onChange={(e) => setDetails(e.target.value)} rows={3} />
-      <Field label={words.serviceDate} optional type="date" value={day} onChange={(e) => setDay(e.target.value)} />
+      <TextAreaField label={words.serviceDetails} optional={services.length > 0} value={details} onChange={(e) => setDetails(e.target.value)} rows={3} />
     </FormScreen>
   );
 }

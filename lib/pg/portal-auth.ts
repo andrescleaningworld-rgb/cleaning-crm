@@ -14,6 +14,7 @@
 
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
+import { isPostgres } from "@/lib/dataSource";
 import { getSql } from "@/lib/db";
 
 export const LINK_HOURS = 24;
@@ -28,6 +29,11 @@ const sha256 = (text: string) => crypto.createHash("sha256").update(text).digest
 // ─── The "Portal open to customers" setting ──────────────────────────────────
 
 export async function isPortalOpen(): Promise<boolean> {
+  // Closed, whatever the setting says, until the customer portal's own switch
+  // (DATA_SOURCE_CUSTOMER_PORTAL=postgres) is on. The setting can only be
+  // changed in Settings once that switch is on; this makes sure a value left
+  // in the table can never open the portal to real customers before then.
+  if (!isPostgres("CUSTOMER_PORTAL")) return false;
   const sql = getSql();
   const rows = (await sql.query(`SELECT value FROM portal_settings WHERE key = 'open_to_customers'`)) as { value: string }[];
   return rows[0]?.value === "true";

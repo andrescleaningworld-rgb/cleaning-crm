@@ -1,18 +1,10 @@
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { getIronSession } from "iron-session";
-import { newPortalOn, sessionOptions, type PortalSessionData } from "@/lib/portalSession";
-import { BillingRequestForm } from "./form";
+import { BillingForm } from "../request-forms";
+import { requireCustomer } from "../server";
 
-export default async function BillingRequestsPage() {
-  // Where the new portal runs, this form lives at /portal/billing.
-  if (newPortalOn()) redirect("/portal/billing");
-  const session = await getIronSession<PortalSessionData>(await cookies(), sessionOptions());
-  if (!session.accountId) redirect("/portal/login");
-  return (
-    <BillingRequestForm
-      accountId={session.accountId!}
-      accountName={session.accountName!}
-    />
-  );
+export const dynamic = "force-dynamic";
+
+// The billing question form, one tap in from "My bill" (/portal/billing).
+export default async function PortalBillingQuestionPage() {
+  const { account } = await requireCustomer();
+  return <BillingForm accountName={account.accountName} />;
 }

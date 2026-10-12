@@ -3,7 +3,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getPortalLogin, type PortalLogin } from "@/lib/portalAuth";
-import { newPortalOn } from "@/lib/portalSession";
 import type { PortalAccount } from "@/lib/pg/portal-auth";
 import { asPortalLang, PORTAL_LANG_COOKIE, PORTAL_WORDS, type PortalLang, type PortalWords } from "./words";
 
@@ -18,12 +17,10 @@ export async function portalWords(): Promise<{ lang: PortalLang; words: PortalWo
 
 /**
  * For every screen behind the login: the logged-in customer and the
- * location in use. Sends the visitor to the old portal where the new one is
- * not running, to the login when nobody is logged in, and to "Which
- * location?" when no location is picked.
+ * location in use. Sends the visitor to the login when nobody is logged in,
+ * and to "Which location?" when no location is picked.
  */
 export async function requireCustomer(): Promise<{ login: PortalLogin; account: PortalAccount; lang: PortalLang; words: PortalWords }> {
-  if (!newPortalOn()) redirect("/portal/dashboard");
   const login = await getPortalLogin();
   if (!login) redirect("/portal/login");
   if (!login.current) redirect("/portal/locations");

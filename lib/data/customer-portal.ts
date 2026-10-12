@@ -3,9 +3,8 @@
 // call goes to Google Sheets (default, today's behavior) or to Postgres.
 // Function names and return shapes are identical on both sides.
 //
-// Not here: the requests, complaints and history of the older
-// /customer-portal pages. They go to Apps Script (app/api/customer-portal)
-// and stay there.
+// This switch is for the staff lists only. What a customer does in /portal
+// (log in, send a request, read their own) is always Postgres.
 
 import { isPostgres } from "@/lib/dataSource";
 import * as sheets from "@/lib/googleSheets";
@@ -16,6 +15,7 @@ export type { MergedPortalAccount, PortalSubmission } from "@/lib/googleSheets";
 
 const source = () => (isPostgres("CUSTOMER_PORTAL") ? pg : sheets);
 
+// The old phone and phone + code lookups: no page uses them any more; the migration check scripts still do.
 export const getCustomerByPortalCode: typeof sheets.getCustomerByPortalCode = (...args) => source().getCustomerByPortalCode(...args);
 export const getCustomerByPhone: typeof sheets.getCustomerByPhone = (...args) => source().getCustomerByPhone(...args);
 export const getMergedPortalAccounts: typeof sheets.getMergedPortalAccounts = () => source().getMergedPortalAccounts();
@@ -26,9 +26,5 @@ export const getPortalNewCount: typeof sheets.getPortalNewCount = () => source()
 export const listPortalSubmissions: typeof sheets.listPortalSubmissions = () => source().listPortalSubmissions();
 export const updateSubmissionStatus: typeof sheets.updateSubmissionStatus = (...args) => source().updateSubmissionStatus(...args);
 
-/**
- * Saves one request a customer sent from /portal. On Sheets this is the same
- * appendToSheet(tab, values) call the routes made before.
- */
-export const appendPortalRequest: typeof pg.appendPortalRequest = (tab, values) =>
-  isPostgres("CUSTOMER_PORTAL") ? pg.appendPortalRequest(tab, values) : sheets.appendToSheet(tab, values);
+/** Saves one request a customer sent from /portal. Always Postgres. */
+export const appendPortalRequest: typeof pg.appendPortalRequest = (tab, values) => pg.appendPortalRequest(tab, values);

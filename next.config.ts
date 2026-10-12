@@ -57,7 +57,7 @@ if (process.env.VERCEL_ENV === "preview" && SWITCH_ON_PREVIEW_BRANCHES.includes(
 // very first push would otherwise build a preview that reads and writes the
 // live Sheets and can send real texts and emails. Stop the build instead
 // until the safety settings are there.
-const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos", "feature/pin-to-board", "feature/no-apps-script", "feature/board-fixes", "feature/board-add-print", "feature/finish", "feature/supply-control", "feature/sub-transfers"];
+const SAFE_PREVIEW_BRANCHES = ["redesign/simple", "feature/photos", "feature/pin-to-board", "feature/no-apps-script", "feature/board-fixes", "feature/board-add-print", "feature/finish", "feature/supply-control", "feature/sub-transfers", "feature/customer-portal-redesign"];
 if (process.env.VERCEL_ENV === "preview" && SAFE_PREVIEW_BRANCHES.includes(process.env.VERCEL_GIT_COMMIT_REF ?? "")) {
   const missing = [
     process.env.SHEETS_READ_ONLY === "1" ? "" : "SHEETS_READ_ONLY=1",
@@ -70,9 +70,14 @@ if (process.env.VERCEL_ENV === "preview" && SAFE_PREVIEW_BRANCHES.includes(proce
 }
 
 const nextConfig: NextConfig = {
-  // The short address typed on the office TV's remote.
+  // Short and old addresses. "/tv" is what gets typed on the office TV's remote.
   async redirects() {
-    return [{ source: "/tv", destination: "/board/tv", permanent: false }];
+    return [
+      { source: "/tv", destination: "/board/tv", permanent: false },
+      // One customer portal. The older phone-only pages are gone; their addresses open the login.
+      { source: "/customer-portal", destination: "/portal/login", permanent: false },
+      { source: "/customer-portal/:path*", destination: "/portal/login", permanent: false },
+    ];
   },
   // The Photos page asks Next's image resizer for small thumbnails of files
   // kept in Blob storage.

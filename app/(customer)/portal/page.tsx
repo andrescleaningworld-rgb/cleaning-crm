@@ -1,43 +1,60 @@
-import { Screen } from "@/app/ui";
-import { getMyRequests, getNextCleanings } from "@/lib/pg/portal-home";
-import { LangToggle, PortalLogoutButton, PortalTile } from "./portal-ui";
+import { Screen, Tips } from "@/app/ui";
+import { getMyRequests } from "@/lib/pg/portal-home";
+import { LangToggle, PortalBigTile, PortalLogoutButton, PortalStatus } from "./portal-ui";
 import { requireCustomer } from "./server";
-import { portalDay } from "./words";
 
 export const dynamic = "force-dynamic";
 
-// The customer portal's home: seven big buttons, one tap each.
+// The customer portal's home: the account's name and four giant buttons, one
+// tap each. Under them, the last things this customer sent and where each
+// one stands. Everything else is one tap further in (a date change under My
+// cleanings, the monthly price under My bill).
 export default async function PortalHomePage() {
-  const { login, account, lang, words } = await requireCustomer();
-  const [next, requests] = await Promise.all([getNextCleanings(account.accountId, 1), getMyRequests(account.accountId)]);
-  const open = requests.filter((r) => r.state !== "done").length;
-  const cleaning = next[0];
+  const { login, account, words } = await requireCustomer();
+  const requests = await getMyRequests(account.accountId);
+  const latest = requests.slice(0, 3);
 
   return (
-    <Screen title={`${words.hello}, ${account.accountName}`} subtitle={account.address || words.brand} headerRight={<LangToggle />}>
+    <Screen title={account.accountName} subtitle={account.address || words.brand} headerRight={<LangToggle />}>
       {account.isTest ? (
         <p className="ui-savestatus" role="note">
           {words.testBanner}
         </p>
       ) : null}
 
-      <nav className="ui-tiles" aria-label={words.home}>
-        <PortalTile
-          href="/portal/next"
-          icon="📅"
-          label={words.nextCleaning}
-          detail={cleaning ? `${portalDay(cleaning.date, lang)} · ${words.windows[cleaning.timeWindow] ?? cleaning.timeWindow}` : words.noNextCleaning}
-        />
-        <PortalTile href="/portal/visits" icon="🧹" label={words.pastVisits} />
-        <PortalTile href="/portal/problem" icon="⚠️" label={words.reportProblem} />
-        <PortalTile href="/portal/service" icon="✨" label={words.extraService} />
-        <PortalTile href="/portal/date" icon="🔁" label={words.changeDate} />
-        <PortalTile href="/portal/billing" icon="💳" label={words.billingQuestion} />
-        <PortalTile href="/portal/contact" icon="📞" label={words.contactUs} />
-        <PortalTile href="/portal/requests" icon="📋" label={words.myRequests} detail={open > 0 ? `${open} · ${words.states.working}` : undefined} />
+      <nav className="ui-portal-tiles" aria-label={words.home}>
+        <PortalBigTile href="/portal/problem" icon="⚠️" label={words.reportProblem} tip="problem" />
+        <PortalBigTile href="/portal/service" icon="✨" label={words.extraService} tip="extra" />
+        <PortalBigTile href="/portal/visits" icon="🧹" label={words.myCleanings} />
+        <PortalBigTile href="/portal/contact" icon="📞" label={words.contactUs} tip="contact" />
       </nav>
 
+      {latest.length > 0 ? (
+        <section className="ui-stack" aria-label={words.myRequests}>
+          <h2 className="ui-portal-heading">{words.myRequests}</h2>
+          <ul className="ui-cardlist">
+            {latest.map((r) => (
+              <li key={r.key} className="ui-portal-sent-row">
+                <span className="ui-portal-sent-words">
+                  <span className="ui-strong">{words.kinds[r.kind] ?? r.kind}</span>
+                  <span className="ui-muted">{r.date}</span>
+                </span>
+                <PortalStatus state={r.state} />
+              </li>
+            ))}
+          </ul>
+          {requests.length > latest.length ? (
+            <a href="/portal/requests" className="ui-btn ui-btn-second">
+              {words.seeAll}
+            </a>
+          ) : null}
+        </section>
+      ) : null}
+
       <div className="ui-actions-row">
+        <a href="/portal/billing" className="ui-btn ui-btn-second">
+          💳 {words.myBill}
+        </a>
         {login.accounts.length > 1 ? (
           <a href="/portal/locations" className="ui-btn ui-btn-second">
             {words.switchLocation}
@@ -45,6 +62,16 @@ export default async function PortalHomePage() {
         ) : null}
         <PortalLogoutButton />
       </div>
+
+      {/* Shown once, the first time this customer opens the portal on this device. */}
+      <Tips
+        id="portal-home"
+        steps={[
+          { target: '[data-tip="problem"]', text: words.tipProblem },
+          { target: '[data-tip="extra"]', text: words.tipExtra },
+          { target: '[data-tip="contact"]', text: words.tipContact },
+        ]}
+      />
     </Screen>
   );
 }
