@@ -20,6 +20,22 @@ if (process.env.VERCEL_ENV === "preview") {
       "Preview build stopped: MIGRATION_DATABASE_URL is not a database address. It must be the full connection string of the practice database, starting with postgresql://, not the branch name."
     );
   }
+  // A preview must not hold the production database's address in either of
+  // the two settings the app can open a database from. Vercel's Neon
+  // connection puts production's address in DATABASE_URL for every
+  // environment, so a new branch has it until DATABASE_URL is added for
+  // Preview on that branch with the practice database. Until then its
+  // preview does not build. The same list and the same check are in
+  // lib/db.ts (PRODUCTION_ENDPOINTS), for a preview that is already running.
+  const PRODUCTION_ENDPOINTS = ["ep-old-unit-auedho5y"];
+  for (const name of ["MIGRATION_DATABASE_URL", "DATABASE_URL"]) {
+    const value = (process.env[name] ?? "").toLowerCase();
+    if (PRODUCTION_ENDPOINTS.some((endpoint) => value.includes(endpoint))) {
+      throw new Error(
+        `Preview build stopped: ${name} holds the PRODUCTION database address. A preview must only know the practice database. In Vercel → Settings → Environment Variables, add ${name} for Preview on this branch (${process.env.VERCEL_GIT_COMMIT_REF ?? "this branch"}) with the practice database (migration-dev), then redeploy.`
+      );
+    }
+  }
 }
 
 // The same stop for the three branches of October 12, 2026 (kept apart from
