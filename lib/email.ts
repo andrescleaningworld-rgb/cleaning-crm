@@ -103,7 +103,8 @@ async function sendViaGmail(
 // sendSubcontractorNotification below — defaults to "gmail" (the current
 // stopgap) when unset, so no env var needs to be added anywhere to use it.
 // Set EMAIL_PROVIDER=resend to switch back once the domain is verified.
-// sendPortalNotification is unaffected — it calls Resend directly.
+// sendPortalNotification goes the same way as the rest (it used to call
+// Resend directly, and so sent nothing where there is no Resend key).
 function sendPlainTextEmail(
   to: string[],
   subject: string,
@@ -214,30 +215,18 @@ export async function sendPortalNotification({
   /** Who gets it. Problems and extra cleaning requests go to the service address only (lib/portalContacts.ts). */
   to?: string[];
 }): Promise<void> {
-  if (isOutboundDryRun()) {
-    // The log line says who it would have gone to: that is how a preview shows where an email goes.
-    logDryRun("portal email", `to ${to.join(", ")} – "[Portal] ${subject} — ${accountName}" (${lines.length} lines)`);
-    return;
+  // The same sender as every other email the app sends (Gmail unless
+  // EMAIL_PROVIDER says otherwise), and the same dry run: there the log line
+  // says who it would have gone to, which is how a preview shows where an
+  // email goes.
+  //
+  // The request is already saved when this runs, so a notice that does not
+  // go out must never make the customer's request look failed (they would
+  // send it again). It is logged instead.
+  try {
+    const sent = await sendPlainTextEmail(to, `[Portal] ${subject} — ${accountName}`, [`New portal submission from: ${accountName} (${accountId})`, "", ...lines, "", "— Cleaning World Customer Portal"]);
+    if (!sent) console.error(`[portal notice] not sent (no email sender is set up here): "${subject}"`);
+  } catch (error) {
+    console.error(`[portal notice] not sent: "${subject}":`, error instanceof Error ? error.message : error);
   }
-
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return;
-
-  const resend = new Resend(apiKey);
-  const from = process.env.RESEND_FROM ?? "onboarding@resend.dev";
-
-  const body = [
-    `New portal submission from: ${accountName} (${accountId})`,
-    "",
-    ...lines,
-    "",
-    "— Cleaning World Customer Portal",
-  ].join("\n");
-
-  await resend.emails.send({
-    from,
-    to,
-    subject: `[Portal] ${subject} — ${accountName}`,
-    text: body,
-  });
 }
