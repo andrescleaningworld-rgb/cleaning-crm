@@ -8,6 +8,11 @@ import { newPortalOn } from "@/lib/portalSession";
 //
 // GET  → { available, open, ready, officePhone }   ready = how many customers could log in if it were open
 // POST { open: boolean }  or  { officePhone: string }
+//
+// "available" is false while the customer portal's switch
+// (DATA_SOURCE_CUSTOMER_PORTAL) is off: the portal cannot be opened to
+// customers from here then. The office phone number is different: staff can
+// read and save it at any time, so it is ready before the portal opens.
 
 async function readiness() {
   const sql = getSql();
@@ -21,7 +26,11 @@ async function readiness() {
 }
 
 export async function GET() {
-  if (!newPortalOn()) return NextResponse.json({ available: false, open: false, ready: { withEmail: 0, total: 0 }, officePhone: "" });
+  if (!newPortalOn()) {
+    // The number can be typed ahead of time; everything about opening the portal stays off.
+    const officePhone = await getOfficePhone().catch(() => "");
+    return NextResponse.json({ available: false, open: false, ready: { withEmail: 0, total: 0 }, officePhone });
+  }
   try {
     return NextResponse.json({ available: true, open: await isPortalOpen(), ready: await readiness(), officePhone: await getOfficePhone() });
   } catch (err) {
@@ -31,7 +40,6 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!newPortalOn()) return NextResponse.json({ error: "The new customer portal is not running here yet." }, { status: 409 });
   let body: { open?: unknown; officePhone?: unknown };
   try {
     body = await request.json();
@@ -46,6 +54,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: err instanceof Error ? err.message : "Failed to save the number." }, { status: 400 });
     }
   }
+  // Opening (or closing) the portal: only where the customer portal's switch is on.
+  if (!newPortalOn()) return NextResponse.json({ error: "The new customer portal is not running here yet." }, { status: 409 });
   if (typeof body.open !== "boolean") return NextResponse.json({ error: "open must be true or false." }, { status: 400 });
   try {
     const actor = await getAdminIdentity(request);
