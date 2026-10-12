@@ -55,7 +55,8 @@ export async function GET(request: NextRequest) {
 
     await syncBoard();
     const today = officeDay();
-    const [settings, managers, lists, calendar] = await Promise.all([getBoardSettings(), listBoardManagers(), listPapers(), listCleanings(today, today)]);
+    const settings = await getBoardSettings();
+    const [managers, lists, calendar] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays), listCleanings(today, today)]);
     const squares = new Set(managers.map((manager) => manager.id));
     const papers = lists.papers.map((paper) => (paper.square && !squares.has(paper.square) ? { ...paper, square: "" } : paper));
     return NextResponse.json(

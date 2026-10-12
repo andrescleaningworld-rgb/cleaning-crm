@@ -365,8 +365,18 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       </Sheet>
 
       {/* The Done tray: who unpinned what, and when. */}
-      <Sheet open={trayOpen} title="Done tray" text="Unpinned in the last 30 days, newest first." onClose={() => setTrayOpen(false)} closeLabel="Close" busy={busy}>
-        {data && data.done.length === 0 ? <p className="ui-muted">Nothing has been unpinned yet.</p> : null}
+      <Sheet
+        open={trayOpen}
+        title="Done tray"
+        text={`Finished in the last ${data?.settings.doneDays ?? 7} days, newest first. Older ones are in the Archive.`}
+        onClose={() => setTrayOpen(false)}
+        closeLabel="Close"
+        busy={busy}
+      >
+        <BigButton kind="second" href="/board/archive">
+          Open the Archive
+        </BigButton>
+        {data && data.done.length === 0 ? <p className="ui-muted">Nothing was finished in these days.</p> : null}
         {data?.done.map((paper) => (
           <div key={`${paper.kind}:${paper.itemId}`} className={styles.trayRow}>
             <div>
