@@ -60,10 +60,10 @@ export async function GET(request: NextRequest) {
 
     await syncBoard();
     const today = officeDay();
-    const [settings, managers, lists, calendar, slides, events] = await Promise.all([
-      getBoardSettings(),
+    const settings = await getBoardSettings();
+    const [managers, lists, calendar, slides, events] = await Promise.all([
       listBoardManagers(),
-      listPapers(),
+      listPapers(settings.doneDays),
       listCleanings(today, today),
       // Neither may stop the board: no photos and no days is a fine answer.
       tvSlides().catch(() => []),

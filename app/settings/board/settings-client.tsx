@@ -11,6 +11,7 @@ type State = "loading" | "off" | "denied" | "failed" | "ready";
 export default function BoardSettingsClient() {
   const [state, setState] = useState<State>("loading");
   const [days, setDays] = useState("3");
+  const [doneDays, setDoneDays] = useState("7");
   const [links, setLinks] = useState<TvLink[]>([]);
   const [pinTypes, setPinTypes] = useState<PinTypes>(DEFAULT_PIN_TYPES);
   /** False until this database has the column the switches are saved in. */
@@ -30,6 +31,7 @@ export default function BoardSettingsClient() {
       if (!response.ok || body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
       setDays(String(body.settings?.oldAfterDays ?? 3));
+      setDoneDays(String(body.settings?.doneDays ?? 7));
       setLinks(body.links ?? []);
       setPinTypes(readPinTypes(body.pinTypes));
       setPinReady(body.pinReady === true);
@@ -60,6 +62,18 @@ export default function BoardSettingsClient() {
       const value = Math.round(Number(days));
       if (!Number.isFinite(value) || value < 1 || value > 60) throw new Error("Days must be a number from 1 to 60.");
       await postBoard({ action: "saveSettings", oldAfterDays: value });
+      showToast(CHEER.logged);
+    });
+
+  const saveDoneDays = () =>
+    run(async () => {
+      const value = Math.round(Number(doneDays));
+      if (!Number.isFinite(value) || value < 1 || value > 90) throw new Error("Days must be a number from 1 to 90.");
+      const data = await postBoard({ action: "saveSettings", doneDays: value });
+      // Where the database does not have the setting yet, the answer is still 7.
+      const saved = Number((data.settings as BoardSettings | undefined)?.doneDays ?? value);
+      setDoneDays(String(saved));
+      if (saved !== value) throw new Error("This database cannot keep that number yet. It stays at 7 days.");
       showToast(CHEER.logged);
     });
 
@@ -128,6 +142,25 @@ export default function BoardSettingsClient() {
             />
             <div style={{ marginTop: 12 }}>
               <BigButton busy={busy} busyLabel="Saving…" onClick={() => void saveDays()}>
+                Save days
+              </BigButton>
+            </div>
+          </Card>
+
+          <Card title="How long a finished paper stays in the Done tray">
+            <Field
+              label="Days in the Done tray"
+              hint="After this many days a finished paper moves to the Archive. Nothing is ever deleted: it can be found there and put back on the board."
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={90}
+              value={doneDays}
+              disabled={busy}
+              onChange={(event) => setDoneDays(event.target.value)}
+            />
+            <div style={{ marginTop: 12 }}>
+              <BigButton busy={busy} busyLabel="Saving…" onClick={() => void saveDoneDays()}>
                 Save days
               </BigButton>
             </div>

@@ -18,6 +18,7 @@ import {
   getBoardSettings,
   isExtraJobPaper,
   listBoardManagers,
+  listArchive,
   listPapers,
   listTvLinks,
   movePaper,
@@ -56,6 +57,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, ready: true, ...info }, noStore);
     }
 
+    // The Archive: finished papers that have left the Done tray. Search by account, or by the day it was finished.
+    if (view === "archive") {
+      if (!identity) return refuse("Log in first.", 401);
+      const params = request.nextUrl.searchParams;
+      const settings = await getBoardSettings();
+      const list = await listArchive({ doneDays: settings.doneDays, search: params.get("q") ?? "", day: params.get("day") ?? "", offset: Number(params.get("offset") ?? 0) || 0 });
+      return NextResponse.json({ success: true, ready: true, doneDays: settings.doneDays, ...list }, noStore);
+    }
+
     // Settings -> Pin Board: the days setting and the TV links (owner only).
     if (view === "settings") {
       if (identity?.role !== "owner") return refuse("Only the owner can see the TV links.", 403);
@@ -66,7 +76,8 @@ export async function GET(request: NextRequest) {
     await syncBoard();
     // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
     await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
-    const [settings, managers, lists] = await Promise.all([getBoardSettings(), listBoardManagers(), listPapers()]);
+    const settings = await getBoardSettings();
+    const [managers, lists] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays)]);
     const staffId = clean(identity?.staffId);
     const me: BoardMe = {
       name: clean(identity?.name),
@@ -173,9 +184,13 @@ export async function POST(request: NextRequest) {
 
     if (action === "saveSettings") {
       if (identity.role !== "owner") return refuse("Only the owner can change this.", 403);
-      const days = Math.round(Number(body.oldAfterDays));
+      const current = await getBoardSettings();
+      // Each of the two numbers is saved when it is sent; the other one stays.
+      const days = body.oldAfterDays === undefined ? current.oldAfterDays : Math.round(Number(body.oldAfterDays));
       if (!Number.isFinite(days) || days < 1 || days > 60) return refuse("Days must be a number from 1 to 60.");
-      return NextResponse.json({ success: true, settings: await saveBoardSettings({ oldAfterDays: days }, by) });
+      const doneDays = body.doneDays === undefined ? current.doneDays : Math.round(Number(body.doneDays));
+      if (!Number.isFinite(doneDays) || doneDays < 1 || doneDays > 90) return refuse("Days in the Done tray must be a number from 1 to 90.");
+      return NextResponse.json({ success: true, settings: await saveBoardSettings({ oldAfterDays: days, doneDays }, by) });
     }
 
     if (action === "createTvLink") {

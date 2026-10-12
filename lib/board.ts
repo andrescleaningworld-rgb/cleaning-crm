@@ -83,9 +83,13 @@ export const paperLabel = (paper: Pick<Paper, "kind" | "label">) => paper.label 
 
 export type BoardManager = { id: string; name: string };
 
-export type BoardSettings = { oldAfterDays: number };
+export type BoardSettings = {
+  oldAfterDays: number;
+  /** Days a finished paper stays in the Done tray before it moves to the Archive. */
+  doneDays: number;
+};
 
-export const DEFAULT_BOARD_SETTINGS: BoardSettings = { oldAfterDays: 3 };
+export const DEFAULT_BOARD_SETTINGS: BoardSettings = { oldAfterDays: 3, doneDays: 7 };
 
 export type BoardMe = {
   name: string;
@@ -101,7 +105,7 @@ export type BoardData = {
   managers: BoardManager[];
   /** Still pinned, oldest first. */
   papers: Paper[];
-  /** The Done tray: unpinned in the last 30 days, newest first. */
+  /** The Done tray: finished in the last settings.doneDays days, newest first. Older ones are in the Archive. */
   done: Paper[];
 };
 

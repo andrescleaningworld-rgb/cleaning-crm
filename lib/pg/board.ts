@@ -432,14 +432,46 @@ const SELECT_PAPER = `
   LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
   WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL})`;
 
-/** Everything still pinned (oldest first) and the Done tray (last 30 days, newest first). */
-export async function listPapers(): Promise<{ papers: Paper[]; done: Paper[] }> {
+/**
+ * Everything still pinned (oldest first) and the Done tray: the papers
+ * finished in the last `doneDays` days, newest first. A finished paper is
+ * never deleted: after those days it is in the Archive (listArchive).
+ */
+export async function listPapers(doneDays = DEFAULT_BOARD_SETTINGS.doneDays): Promise<{ papers: Paper[]; done: Paper[] }> {
   const sql = getSql();
   const [open, done] = await Promise.all([
     sql.query(`${SELECT_PAPER} AND i.board_done_at IS NULL ORDER BY i.board_pinned_at ASC, i.item_id ASC`),
-    sql.query(`${SELECT_PAPER} AND i.board_done_at > now() - interval '30 days' ORDER BY i.board_done_at DESC LIMIT 100`),
+    sql.query(`${SELECT_PAPER} AND i.board_done_at > now() - ($1::int || ' days')::interval ORDER BY i.board_done_at DESC LIMIT 200`, [doneDays]),
   ]);
   return { papers: (open as PaperRow[]).map(toPaper), done: (done as PaperRow[]).map(toPaper) };
+}
+
+/**
+ * The Archive: finished papers that have left the Done tray (finished more
+ * than `doneDays` days ago), newest first. `search` looks in the account
+ * name and the words on the paper; `day` (YYYY-MM-DD, office time) is the
+ * day it was finished. 100 at a time; `more` says there are older ones.
+ */
+export async function listArchive(input: { doneDays: number; search?: string; day?: string; offset?: number }): Promise<{ papers: Paper[]; more: boolean; total: number }> {
+  const sql = getSql();
+  const params: unknown[] = [input.doneDays];
+  let where = ` AND i.board_done_at <= now() - ($1::int || ' days')::interval`;
+  const search = clean(input.search).toLowerCase();
+  if (search) {
+    params.push(search);
+    where += ` AND (lower(i.account_name) LIKE '%' || $${params.length} || '%' OR lower(i.title) LIKE '%' || $${params.length} || '%')`;
+  }
+  if (input.day && /^\d{4}-\d{2}-\d{2}$/.test(input.day)) {
+    params.push(input.day);
+    where += ` AND (i.board_done_at AT TIME ZONE 'America/New_York')::date = $${params.length}::date`;
+  }
+  const offset = Math.max(0, Math.round(input.offset ?? 0));
+  const [rows, count] = await Promise.all([
+    sql.query(`${SELECT_PAPER}${where} ORDER BY i.board_done_at DESC, i.item_id LIMIT 101 OFFSET ${offset}`, params),
+    sql.query(`SELECT count(*)::int AS n FROM handoff_items i WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL})${where}`, params),
+  ]);
+  const list = rows as PaperRow[];
+  return { papers: list.slice(0, 100).map(toPaper), more: list.length > 100, total: (count as { n: number }[])[0]?.n ?? 0 };
 }
 
 /* ---------- what people do to a paper ---------- */
@@ -509,8 +541,11 @@ export async function finishPaper(kind: string, itemId: string, by: string, on: 
 
 export async function getBoardSettings(): Promise<BoardSettings> {
   const sql = getSql();
-  const rows = (await sql`SELECT old_after_days FROM board_settings WHERE id = true`) as { old_after_days: number }[];
-  return rows[0] ? { oldAfterDays: rows[0].old_after_days } : DEFAULT_BOARD_SETTINGS;
+  // done_days is read through to_jsonb so the board still loads where migration 032 is not applied yet (7 days there).
+  const rows = (await sql`SELECT old_after_days, to_jsonb(board_settings)->>'done_days' AS done_days FROM board_settings WHERE id = true`) as { old_after_days: number; done_days: string | null }[];
+  if (!rows[0]) return DEFAULT_BOARD_SETTINGS;
+  const doneDays = Number(rows[0].done_days);
+  return { oldAfterDays: rows[0].old_after_days, doneDays: Number.isFinite(doneDays) && doneDays >= 1 ? doneDays : DEFAULT_BOARD_SETTINGS.doneDays };
 }
 
 export async function saveBoardSettings(settings: BoardSettings, by: string): Promise<BoardSettings> {
@@ -520,7 +555,15 @@ export async function saveBoardSettings(settings: BoardSettings, by: string): Pr
     INSERT INTO board_settings (id, old_after_days, updated_by, updated_at) VALUES (true, ${days}, ${by}, now())
     ON CONFLICT (id) DO UPDATE SET old_after_days = EXCLUDED.old_after_days, updated_by = EXCLUDED.updated_by, updated_at = now()
   `;
-  return { oldAfterDays: days };
+  // Its own step: the column is only there once migration 032 is applied.
+  const doneDays = Math.min(90, Math.max(1, Math.round(settings.doneDays)));
+  try {
+    await sql`UPDATE board_settings SET done_days = ${doneDays} WHERE id = true`;
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42703") throw error;
+    return { oldAfterDays: days, doneDays: DEFAULT_BOARD_SETTINGS.doneDays };
+  }
+  return { oldAfterDays: days, doneDays };
 }
 
 /* ---------- TV links ---------- */
