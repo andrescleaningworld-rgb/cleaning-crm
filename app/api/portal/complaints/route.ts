@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
+import { SERVICE_EMAIL } from "@/lib/portalContacts";
 
 export async function POST(request: NextRequest) {
   const session = await requirePortalAccount();
@@ -53,6 +54,8 @@ export async function POST(request: NextRequest) {
     ]);
 
     await sendPortalNotification({
+      // "Report a problem" goes to the service address only.
+      to: [SERVICE_EMAIL],
       subject: "New Complaint",
       accountName: session.accountName ?? "",
       accountId: session.accountId,

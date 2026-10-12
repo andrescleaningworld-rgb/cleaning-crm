@@ -2,6 +2,7 @@ import { CHEER } from "@/app/ui/words";
 import { Resend } from "resend";
 import nodemailer, { type Transporter } from "nodemailer";
 import { isOutboundDryRun, logDryRun } from "./outbound";
+import { BILLING_EMAIL, SERVICE_EMAIL } from "./portalContacts";
 
 // Requires RESEND_API_KEY in .env.local — silently skips if not set.
 // Also requires a verified sending domain in Resend dashboard.
@@ -204,14 +205,18 @@ export async function sendPortalNotification({
   accountName,
   accountId,
   lines,
+  to = [BILLING_EMAIL, SERVICE_EMAIL],
 }: {
   subject: string;
   accountName: string;
   accountId: string;
   lines: string[];
+  /** Who gets it. Problems and extra cleaning requests go to the service address only (lib/portalContacts.ts). */
+  to?: string[];
 }): Promise<void> {
   if (isOutboundDryRun()) {
-    logDryRun("portal email", `"[Portal] ${subject} — ${accountName}" (${lines.length} lines)`);
+    // The log line says who it would have gone to: that is how a preview shows where an email goes.
+    logDryRun("portal email", `to ${to.join(", ")} – "[Portal] ${subject} — ${accountName}" (${lines.length} lines)`);
     return;
   }
 
@@ -231,7 +236,7 @@ export async function sendPortalNotification({
 
   await resend.emails.send({
     from,
-    to: ["info@cleaningworldinc.com", "crm@cleaningworldinc.com"],
+    to,
     subject: `[Portal] ${subject} — ${accountName}`,
     text: body,
   });

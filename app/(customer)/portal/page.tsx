@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // The customer portal's home: the account's name and four giant buttons, one
 // tap each. Under them, the last things this customer sent and where each
 // one stands. Everything else is one tap further in (a date change under My
-// cleanings, a billing question under Contact us).
+// cleanings, the monthly price under My bill).
 export default async function PortalHomePage() {
   const { login, account, words } = await requireCustomer();
   const requests = await getMyRequests(account.accountId);
@@ -52,6 +52,9 @@ export default async function PortalHomePage() {
       ) : null}
 
       <div className="ui-actions-row">
+        <a href="/portal/billing" className="ui-btn ui-btn-second">
+          💳 {words.myBill}
+        </a>
         {login.accounts.length > 1 ? (
           <a href="/portal/locations" className="ui-btn ui-btn-second">
             {words.switchLocation}

@@ -4106,6 +4106,74 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   overflow-wrap: anywhere;
 }
 
+/* "My bill": the monthly price, big. */
+.ui-portal-price {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 22px 16px;
+  border: 3px solid var(--ui-green);
+  border-radius: 24px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.ui-portal-price-label {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ui-navy, #0c447c);
+}
+
+.ui-portal-price-amount {
+  font-size: 52px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--ui-green);
+  overflow-wrap: anywhere;
+}
+
+.ui-portal-price-note {
+  font-size: 18px;
+  color: var(--ui-muted, #52627a);
+}
+
+/* "Contact us": who to reach, and the two email addresses with what each is for. */
+.ui-portal-who {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ui-navy, #0c447c);
+}
+
+.ui-portal-emails {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-portal-emails a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 2px solid var(--ui-line);
+  border-radius: 16px;
+  background: #ffffff;
+  color: inherit;
+  text-decoration: none;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.ui-portal-emails a strong {
+  font-size: 20px;
+  color: var(--ui-navy, #0c447c);
+}
+
 .ui-portal-heading {
   margin: 8px 0 0;
   font-size: 22px;

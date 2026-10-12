@@ -1,6 +1,10 @@
-import { redirect } from "next/navigation";
+import { BillingForm } from "../request-forms";
+import { requireCustomer } from "../server";
 
-// The older portal's form. It lives at /portal/billing now.
-export default function PortalOldBillingPage() {
-  redirect("/portal/billing");
+export const dynamic = "force-dynamic";
+
+// The billing question form, one tap in from "My bill" (/portal/billing).
+export default async function PortalBillingQuestionPage() {
+  const { account } = await requireCustomer();
+  return <BillingForm accountName={account.accountName} />;
 }

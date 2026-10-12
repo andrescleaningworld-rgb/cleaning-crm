@@ -23,6 +23,7 @@ export type PortalHomeAccount = {
   status: string;
   managerName: string;
   managerPhone: string;
+  managerEmail: string;
   isTest: boolean;
 };
 
@@ -30,10 +31,10 @@ export async function getPortalHomeAccount(accountId: string): Promise<PortalHom
   const sql = getSql();
   const rows = (await sql.query(
     `SELECT a.id, a.account_name, a.address, a.city, a.zip, a.service_type, a.frequency, a.cleaning_days, a.status, a.manager_raw, a.is_test,
-            COALESCE(m.name, '') AS manager_name, COALESCE(m.phone, '') AS manager_phone
+            COALESCE(m.name, '') AS manager_name, COALESCE(m.phone, '') AS manager_phone, COALESCE(m.email, '') AS manager_email
      FROM accounts a
      LEFT JOIN LATERAL (
-       SELECT name, phone FROM managers
+       SELECT name, phone, email FROM managers
        WHERE (a.manager_id IS NOT NULL AND managers.id = a.manager_id)
           OR (a.manager_id IS NULL AND btrim(a.manager_raw) <> '' AND lower(btrim(managers.name)) = lower(btrim(a.manager_raw)))
        ORDER BY managers.id LIMIT 1
@@ -53,11 +54,27 @@ export async function getPortalHomeAccount(accountId: string): Promise<PortalHom
     status: text(r.status),
     managerName: text(r.manager_name) || text(r.manager_raw),
     managerPhone: text(r.manager_phone),
+    managerEmail: text(r.manager_email),
     isTest: r.is_test === true,
   };
 }
 
 // ─── The schedule as dates ───────────────────────────────────────────────────
+
+/**
+ * The monthly price of one account, for that account's own customer: "$1,560.00",
+ * or "" when no price is on file. It reads the account's price field and
+ * nothing else: never what the sub is paid, the margin, or any other number.
+ */
+export async function getMonthlyPrice(accountId: string): Promise<string> {
+  const rows = (await getSql().query(`SELECT monthly_revenue::text AS price, monthly_revenue_raw FROM accounts WHERE id = $1::text`, [accountId])) as { price: string | null; monthly_revenue_raw: string }[];
+  const row = rows[0];
+  if (!row) return "";
+  const typed = text(row.monthly_revenue_raw).replace(/[$,\s]/g, "");
+  const amount = row.price !== null ? Number(row.price) : typed !== "" ? Number(typed) : NaN;
+  if (!Number.isFinite(amount) || amount <= 0) return "";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+}
 
 export type PortalCleaning = { date: string; timeWindow: string; moved: boolean };
 

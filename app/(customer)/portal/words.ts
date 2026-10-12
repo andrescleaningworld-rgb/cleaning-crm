@@ -158,6 +158,19 @@ const en = {
   text: "Text",
   emailOffice: "Email",
   noPhone: "Email us and we will call you back.",
+  office: "Cleaning World office",
+  emailUs: "Email us",
+  billingEmail: "Billing",
+  serviceEmail: "Service",
+
+  // my bill
+  myBill: "My bill",
+  monthlyPrice: "Your monthly price",
+  perMonth: "per month",
+  noPrice: "We do not have your price here yet. Email us and we will tell you.",
+  billQuestions: "Questions about your bill?",
+  emailTo: (address: string) => `Email ${address}`,
+  writeBilling: "Or send us a billing question here",
 };
 
 export type PortalWords = typeof en;
@@ -304,6 +317,18 @@ const es: PortalWords = {
   text: "Texto",
   emailOffice: "Correo",
   noPhone: "Escríbanos y le llamaremos.",
+  office: "Oficina de Cleaning World",
+  emailUs: "Escríbanos",
+  billingEmail: "Facturación",
+  serviceEmail: "Servicio",
+
+  myBill: "Mi factura",
+  monthlyPrice: "Su precio mensual",
+  perMonth: "al mes",
+  noPrice: "Todavía no tenemos su precio aquí. Escríbanos y se lo decimos.",
+  billQuestions: "¿Preguntas sobre su factura?",
+  emailTo: (address: string) => `Escriba a ${address}`,
+  writeBilling: "O envíenos una pregunta de facturación aquí",
 };
 
 export const PORTAL_WORDS: Record<PortalLang, PortalWords> = { en, es };
