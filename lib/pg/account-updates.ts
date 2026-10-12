@@ -82,6 +82,12 @@ export async function listAccountUpdates(): Promise<AccountUpdateRow[]> {
   }));
 }
 
+/** The email addresses in what was typed in "Notify" (commas, semicolons or spaces between them). "No", "Yes" or a blank: none. */
+export function noticeRecipients(typed: string): string[] {
+  const found = typed.split(/[\s,;]+/).map((part) => part.trim()).filter((part) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(part));
+  return Array.from(new Set(found.map((address) => address.toLowerCase())));
+}
+
 /** "UPD-20261006101500": the same id Apps Script made, from the time in New York. */
 function newUpdateId(now = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -138,10 +144,14 @@ export async function addAccountUpdate(input: NewAccountUpdate): Promise<{ id: s
   }
   if (!id) throw new Error("The update could not be saved. Please try again.");
 
+  // The notice goes only to real email addresses typed in "Notify". The
+  // Change status sheet sends the word "No" there (it wants no notice), and
+  // that used to be handed to the mail sender as if it were an address.
+  const recipients = noticeRecipients(update.notifyEmail);
   let emailed = false;
-  if (update.notifyEmail) {
+  for (const to of recipients) {
     try {
-      emailed = await sendStaffNotification(update.notifyEmail, `Account update: ${update.accountName || "account"}`, [
+      const sent = await sendStaffNotification(to, `Account update: ${update.accountName || "account"}`, [
         `Account: ${update.accountName}`,
         `Date: ${update.date}`,
         `Type: ${update.updateType || "Update"}`,
@@ -149,6 +159,7 @@ export async function addAccountUpdate(input: NewAccountUpdate): Promise<{ id: s
         "",
         update.notes,
       ]);
+      emailed = emailed || sent;
     } catch (error) {
       console.error("[account-updates] notice email failed:", error instanceof Error ? error.message : error);
     }
