@@ -7,8 +7,9 @@ type Setting = { available: boolean; open: boolean; ready: { withEmail: number; 
 
 /**
  * "Portal open to customers". OFF means no real customer can log in, set a
- * password or be invited; only test accounts work. Shown only where the new
- * portal is running.
+ * password or be invited; only test accounts work. Its button shows only
+ * where the customer portal is switched on. The office phone number under it
+ * can be typed at any time, so it is ready before the portal opens.
  */
 export default function PortalOpenSetting() {
   const [setting, setSetting] = useState<Setting | null>(null);
@@ -71,31 +72,38 @@ export default function PortalOpenSetting() {
   }
 
   if (error && !setting) return <ErrorBox title={error} />;
-  if (!setting || !setting.available) return null;
+  if (!setting) return null;
 
   return (
     <>
-      <Card title="Portal open to customers" right={<StatusPill kind={setting.open ? "done" : "off"}>{setting.open ? "ON" : "OFF"}</StatusPill>}>
-        <p>
-          {setting.open
-            ? "Customers with an email on their account can set a password and log in."
-            : "OFF: no customer can log in, set a password or be invited. Only test accounts work."}
-        </p>
-        <p className="ui-muted">
-          {setting.ready.withEmail} of {setting.ready.total} accounts with portal access have an email. The others cannot log in until an email is added to the account.
-        </p>
-        <div className="ui-actions-row">
-          <BigButton kind={setting.open ? "danger" : "second"} onClick={() => setAsking(true)}>
-            {setting.open ? "Close the portal" : "Open the portal to customers"}
-          </BigButton>
-        </div>
-        {error ? <ErrorBox title={error} /> : null}
-      </Card>
+      {setting.available ? (
+        <Card title="Portal open to customers" right={<StatusPill kind={setting.open ? "done" : "off"}>{setting.open ? "ON" : "OFF"}</StatusPill>}>
+          <p>
+            {setting.open
+              ? "Customers with an email on their account can set a password and log in."
+              : "OFF: no customer can log in, set a password or be invited. Only test accounts work."}
+          </p>
+          <p className="ui-muted">
+            {setting.ready.withEmail} of {setting.ready.total} accounts with portal access have an email. The others cannot log in until an email is added to the account.
+          </p>
+          <div className="ui-actions-row">
+            <BigButton kind={setting.open ? "danger" : "second"} onClick={() => setAsking(true)}>
+              {setting.open ? "Close the portal" : "Open the portal to customers"}
+            </BigButton>
+          </div>
+          {error ? <ErrorBox title={error} /> : null}
+        </Card>
+      ) : (
+        // The customer portal is not switched on here yet: it is closed, and there is no button to open it.
+        <Card title="Portal open to customers" right={<StatusPill kind="off">OFF</StatusPill>}>
+          <p>The customer portal is closed. No customer can log in. It can be opened here once the portal is switched on.</p>
+        </Card>
+      )}
 
       <Card title="Office number customers see" right={<StatusPill kind={setting.officePhone ? "done" : "needs-you"}>{setting.officePhone ? "Set" : "Not set"}</StatusPill>}>
         <p>
-          Shown to every customer under &quot;Call or text us&quot;, with one button to call and one to text.
-          {setting.officePhone ? "" : " Until a number is typed here, that screen only offers email."}
+          Shown to customers under &quot;Contact us&quot;, with one button to call and one to text, when their account has no manager (or the manager has no phone on file).
+          {setting.officePhone ? "" : " Until a number is typed here, those customers only get email."}
         </p>
         <Field
           label="Office phone number"
