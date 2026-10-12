@@ -23,6 +23,8 @@ export type SubSchedule = {
   frequency: string;
   monthlyOccurrence: string;
   submittedVia: string;
+  /** On a cancelled account's schedule: the end date really stored (effectiveEnd is then the account's last cleaning day). */
+  storedEffectiveEnd?: string;
 };
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -53,7 +55,11 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
   const [occurrencePosition, setOccurrencePosition] = useState(targetOccurrence?.position ?? "");
   const [occurrenceWeekday, setOccurrenceWeekday] = useState(targetOccurrence?.weekday ?? "");
   const [effectiveStart, setEffectiveStart] = useState(target.effectiveStart);
-  const [effectiveEnd, setEffectiveEnd] = useState(target.effectiveEnd);
+  // A cancelled account's schedule reads as ending on its last cleaning day.
+  // This sheet edits the end date that is stored, so saving here never ends
+  // the schedule for good.
+  const endedByCancellation = target.storedEffectiveEnd !== undefined;
+  const [effectiveEnd, setEffectiveEnd] = useState(target.storedEffectiveEnd ?? target.effectiveEnd);
   const [effectiveDate, setEffectiveDate] = useState(todayISO());
   const [status, setStatus] = useState(target.status || "Active");
   const [submitting, setSubmitting] = useState(false);
@@ -241,7 +247,13 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
       ) : (
         <>
           <Field label="Effective start" type="date" value={effectiveStart} onChange={(e) => setEffectiveStart(e.target.value)} />
-          <Field label="Effective end" type="date" value={effectiveEnd} onChange={(e) => setEffectiveEnd(e.target.value)} />
+          <Field
+            label="Effective end"
+            hint={endedByCancellation ? `This account is cancelled, so its calendar stops on ${target.effectiveEnd}. This date is kept for when the account is active again.` : undefined}
+            type="date"
+            value={effectiveEnd}
+            onChange={(e) => setEffectiveEnd(e.target.value)}
+          />
         </>
       )}
 

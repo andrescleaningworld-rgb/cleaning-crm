@@ -14,6 +14,7 @@
 // boardReady() and treats "not ready" as "this feature is off".
 
 import { createHash, randomBytes, randomInt } from "node:crypto";
+import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 import {
   DEFAULT_BOARD_SETTINGS,
@@ -102,7 +103,7 @@ async function insertPaper(input: {
   square?: string;
 }): Promise<boolean> {
   const sql = getSql();
-  const since = input.since && !Number.isNaN(new Date(input.since).getTime()) ? new Date(input.since).toISOString() : null;
+  const since = timestampOrNull(input.since);
   const inserted = (await sql.query(
     `INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at, board_square)
      VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::timestamptz, now()), $9::jsonb, $10, COALESCE($8::timestamptz, now()), $11)

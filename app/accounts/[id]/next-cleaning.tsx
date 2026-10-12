@@ -4,7 +4,8 @@
 // account's schedule (Sub Schedules), its time window, then the sub and the
 // manager. Reads the same two lists the Sub Schedules calendar reads and
 // uses the same date rules (lib/scheduleRecurrence.ts), including skipped
-// and rescheduled dates. Read only.
+// and rescheduled dates. A cancelled account has no cleanings after its
+// final cleaning date (the "Change status" sheet). Read only.
 
 import { useEffect, useState } from "react";
 import { generateScheduleDates, isScheduleEffectivelyActive, parseISO, todayISO } from "@/lib/scheduleRecurrence";
@@ -32,7 +33,7 @@ type Next = { date: string; timeWindow: string } | null;
 
 const LOOK_AHEAD_DAYS = 62;
 
-function findNext(accountId: string, schedules: Schedule[], exceptions: Exception[]): Next {
+function findNext(accountId: string, schedules: Schedule[], exceptions: Exception[], finalCleaningDate: string): Next {
   const today = todayISO();
   const start = parseISO(today);
   const end = new Date(start);
@@ -55,7 +56,8 @@ function findNext(accountId: string, schedules: Schedule[], exceptions: Exceptio
     }
   }
   visits.sort((a, b) => a.date.localeCompare(b.date));
-  return visits[0] ?? null;
+  // Nothing after the final cleaning date, a rescheduled day included.
+  return visits.find((visit) => !finalCleaningDate || visit.date <= finalCleaningDate) ?? null;
 }
 
 function dayWords(iso: string): string {
@@ -76,6 +78,8 @@ export default function NextCleaning({
   sub,
   subCompany,
   manager,
+  cancelled = false,
+  finalCleaningDate = "",
 }: {
   accountId: string;
   /** The account's own "Cleaning Days" text, shown when no dated schedule is on file. */
@@ -84,6 +88,9 @@ export default function NextCleaning({
   sub: string;
   subCompany: string;
   manager: string;
+  cancelled?: boolean;
+  /** YYYY-MM-DD for a cancelled account that has a final cleaning date, else "". */
+  finalCleaningDate?: string;
 }) {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [next, setNext] = useState<Next>(null);
@@ -101,7 +108,7 @@ export default function NextCleaning({
         // The exceptions list is a refinement: without it the plain schedule still shows.
         const exceptions = exceptionsRes.ok ? (((await exceptionsRes.json()) as { exceptions?: Exception[] }).exceptions ?? []) : [];
         if (cancelled) return;
-        setNext(findNext(accountId, schedules, exceptions));
+        setNext(findNext(accountId, schedules, exceptions, finalCleaningDate));
         setState("ready");
       } catch {
         if (!cancelled) setState("failed");
@@ -111,15 +118,22 @@ export default function NextCleaning({
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [accountId, finalCleaningDate]);
 
   const days = cleaningDays && cleaningDays !== "Not provided" ? cleaningDays : "";
   const freq = frequency && frequency !== "Not provided" ? frequency : "";
+  // Cancelled and the final cleaning day has passed (or there never was one): there is nothing left to show.
+  const ended = cancelled && (finalCleaningDate === "" || finalCleaningDate < todayISO());
 
   return (
     <section className="ui-next" aria-label="Next cleaning">
       <p className="ui-next-label">Next cleaning</p>
-      {state === "loading" ? (
+      {ended ? (
+        <>
+          <p className="ui-next-day">No more cleanings</p>
+          <p className="ui-next-time">{finalCleaningDate ? `Cancelled. The final cleaning was ${dayWords(finalCleaningDate)}.` : "This account is cancelled."}</p>
+        </>
+      ) : state === "loading" ? (
         <p className="ui-next-day">Checking the schedule…</p>
       ) : next ? (
         <>
@@ -134,6 +148,11 @@ export default function NextCleaning({
           </p>
         </>
       )}
+      {finalCleaningDate && !ended ? (
+        <p className="ui-next-who">
+          <span className="ui-strong">Final cleaning:</span> {dayWords(finalCleaningDate)}
+        </p>
+      ) : null}
       <p className="ui-next-who">
         <span className="ui-strong">Sub:</span> {sub}
         {subCompany ? ` (${subCompany})` : ""}

@@ -833,6 +833,12 @@ export type SubSchedule = {
   // from submittedBy (the person's name). Pure metadata: nothing that
   // generates or evaluates schedule dates reads this field.
   submittedVia: string;
+  // Postgres only, and only on a cancelled account's schedule: there
+  // effectiveEnd is the account's last cleaning day (what the calendars
+  // use) and this is the end date actually stored, "" when it has none.
+  // The Sub Schedules sheet edits this one. See fetchSubSchedules in
+  // lib/pg/scheduling.ts.
+  storedEffectiveEnd?: string;
 };
 
 async function fetchSubScheduleRows(): Promise<string[][]> {

@@ -9,7 +9,7 @@
 // get the next number (where Sheets would have put them).
 
 import { getSql } from "@/lib/db";
-import { toISO } from "@/lib/dateUtils";
+import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { ComplaintInput } from "@/lib/googleSheets";
 
 type ComplaintRow = {
@@ -35,12 +35,6 @@ const COMPLAINT_COLUMNS =
 async function allComplaintRows(): Promise<ComplaintRow[]> {
   const sql = getSql();
   return (await sql.query(`SELECT ${COMPLAINT_COLUMNS} FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ComplaintRow[];
-}
-
-/** YYYY-MM-DD for the typed column, or null. */
-function toDay(text: string): string | null {
-  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(text ?? "").trim());
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null;
 }
 
 /* ---------- Apps Script getComplaints, rebuilt ---------- */
@@ -138,7 +132,7 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
       data.accountId,
       data.accountName,
       data.complaintDate,
-      toDay(data.complaintDate),
+      dateOrNull(data.complaintDate),
       data.issue,
       data.priority,
       data.complaintValidity,
@@ -146,7 +140,7 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
       data.reportedBy,
       data.assignedTo,
       data.lastFollowUpDate,
-      toDay(data.lastFollowUpDate),
+      dateOrNull(data.lastFollowUpDate),
       data.notes,
     ]
   );

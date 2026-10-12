@@ -31,6 +31,8 @@ import {
 import { getGoogleMapsUrl } from "../lib/backend";
 import { distanceInMiles, formatMiles } from "../lib/distance";
 import { useCustomerSearch, AutocompleteField } from "../sub-schedules/autocomplete";
+import CancellationFields from "../components/CancellationFields";
+import { cancellationNote, cancellationProblem } from "@/lib/cancellation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -787,6 +789,9 @@ export default function AccountsPage() {
   const [statusModalAccount, setStatusModalAccount] = useState<Account | null>(null);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
   const [statusReason, setStatusReason] = useState("");
+  // Asked only when the new status is Cancelled (see lib/cancellation.ts).
+  const [finalCleaningDate, setFinalCleaningDate] = useState("");
+  const [cancellationReason, setCancellationReason] = useState("");
   const [savingStatus, setSavingStatus] = useState(false);
   const [statusError, setStatusError] = useState("");
 
@@ -2274,6 +2279,8 @@ async function handleSaveTransferProposal() {
     setStatusModalAccount(account);
     setNewStatus(quickStatusOptions.includes(current as QuickStatusOption) ? (current as QuickStatusOption) : "Active");
     setStatusReason("");
+    setFinalCleaningDate("");
+    setCancellationReason("");
     setStatusError("");
   }
 
@@ -2282,7 +2289,16 @@ async function handleSaveTransferProposal() {
     setStatusModalAccount(null);
     setNewStatus("Active");
     setStatusReason("");
+    setFinalCleaningDate("");
+    setCancellationReason("");
     setStatusError("");
+  }
+
+  // What still has to be filled in before the status can be saved; "" when nothing.
+  // Cancelled asks for the final cleaning date and a reason, and for a note only when the reason is "Other".
+  // For every other status the note is optional, as its label says.
+  function statusProblem(): string {
+    return newStatus === "Cancelled" ? cancellationProblem({ finalCleaningDate, reason: cancellationReason, notes: statusReason }) : "";
   }
 
 
@@ -2290,8 +2306,10 @@ async function handleSaveTransferProposal() {
     if (!statusModalAccount) return;
 
     const cleanReason = statusReason.trim();
-    if (!cleanReason) {
-      setStatusError("Please add a reason/note for the status change.");
+    const cancelling = newStatus === "Cancelled";
+    const problem = statusProblem();
+    if (problem) {
+      setStatusError(problem);
       return;
     }
 
@@ -2309,7 +2327,7 @@ async function handleSaveTransferProposal() {
         body: JSON.stringify({
           action: "updateAccountFields",
           accountId,
-          fields: { status: newStatus },
+          fields: cancelling ? { status: newStatus, finalCleaningDate, cancellationReason } : { status: newStatus },
         }),
       });
 
@@ -2328,7 +2346,9 @@ async function handleSaveTransferProposal() {
       );
 
       // Attempt to save the history note — surface a specific message if it fails
-      const noteText = `Status changed from ${oldStatus} to ${newStatus}. Reason: ${cleanReason}`;
+      const noteText = cancelling
+        ? cancellationNote({ finalCleaningDate, reason: cancellationReason, notes: cleanReason })
+        : `Status changed from ${oldStatus} to ${newStatus}.${cleanReason ? ` Reason: ${cleanReason}` : ""}`;
       try {
         const noteResponse = await fetch("/api/account-updates", {
           method: "POST",
@@ -2379,8 +2399,9 @@ async function handleSaveTransferProposal() {
       void handleSaveStatusChange();
       return;
     }
-    if (!statusReason.trim()) {
-      setStatusError("Please add a reason/note for the status change.");
+    const problem = statusProblem();
+    if (problem) {
+      setStatusError(problem);
       return;
     }
     setStatusError("");
@@ -3236,10 +3257,19 @@ async function handleSaveTransferProposal() {
             </option>
           ))}
         </SelectField>
+        {newStatus === "Cancelled" ? (
+          <CancellationFields
+            finalCleaningDate={finalCleaningDate}
+            reason={cancellationReason}
+            disabled={savingStatus}
+            onFinalCleaningDate={setFinalCleaningDate}
+            onReason={setCancellationReason}
+          />
+        ) : null}
         <TextAreaField
-          label="Reason / history note"
+          label={newStatus === "Cancelled" ? "Notes" : "Reason / history note"}
           hint="This also creates an Account Update history note."
-          optional
+          optional={newStatus !== "Cancelled" || cancellationReason !== "Other"}
           rows={5}
           placeholder="Customer requested cancellation effective July 1. / Paused due to remodeling."
           value={statusReason}

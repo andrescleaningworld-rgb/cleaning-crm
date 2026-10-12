@@ -9,7 +9,7 @@
 // the side and never read here. Rows are read in sheet order (sheet_row).
 
 import { getSql } from "@/lib/db";
-import { toISO } from "@/lib/dateUtils";
+import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { CustomerVisit, ManagerVisit, ManagerVisitUpdateInput, VisitEditLogEntry, VisitEditLogInput } from "@/lib/googleSheets";
 
 type VisitRow = {
@@ -38,11 +38,13 @@ async function allVisitRows(): Promise<VisitRow[]> {
 
 /* ---------- typed-column helpers (never read back by the app) ---------- */
 
+// The shared rule first (lib/dateUtils.ts); a day written out in words
+// ("October 9, 2026") is still read, as before.
 function toDay(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const isoDay = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
-  if (isoDay) return `${isoDay[1]}-${isoDay[2]}-${isoDay[3]}`;
+  const day = dateOrNull(trimmed);
+  if (day) return day;
   const d = new Date(trimmed);
   return Number.isNaN(d.getTime()) ? null : toISO(d);
 }

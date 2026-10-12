@@ -11,6 +11,7 @@
 // not read or written here.
 
 import { getSql } from "@/lib/db";
+import { dateOrNull } from "@/lib/dateUtils";
 
 type SupplyRow = {
   supply_item: string;
@@ -54,15 +55,6 @@ function sheetStamp(now = new Date()): string {
       .map((p) => [p.type, p.value])
   );
   return `${parts.month}/${parts.day}/${parts.year} ${Number(parts.hour)}:${parts.minute}:${parts.second}`;
-}
-
-/** YYYY-MM-DD from "M/D/YYYY …" or "YYYY-MM-DD…"; null when the text is not a date. */
-function toDay(text: string): string | null {
-  const value = String(text ?? "").trim();
-  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(value);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(value);
-  return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
 }
 
 const text = (value: unknown) => String(value ?? "").trim();
@@ -234,7 +226,7 @@ export async function getSupplyOrdersShape(): Promise<SupplyOrderRow[]> {
   )) as OrderRow[];
   return rows.map((row) => ({
     rowNumber: row.sheet_row,
-    timestamp: toDay(row.timestamp_raw) ?? row.timestamp_raw.trim(),
+    timestamp: dateOrNull(row.timestamp_raw) ?? row.timestamp_raw.trim(),
     orderId: row.order_id.trim(),
     id: row.order_id.trim(),
     orderGroupId: row.order_group_id.trim(),
@@ -320,7 +312,7 @@ export async function createSupplyOrder(body: Record<string, unknown>): Promise<
     [
       base,
       order.timestamp,
-      toDay(order.timestamp),
+      dateOrNull(order.timestamp),
       text(body.orderGroupId),
       order.subcontractor,
       order.subcontractorEmail,
