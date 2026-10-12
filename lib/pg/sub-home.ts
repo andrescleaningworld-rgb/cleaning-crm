@@ -14,6 +14,16 @@ import { subStatus, type HandoffItem, type HandoffKind } from "@/lib/handoffs";
 import { generateScheduleDates, isScheduleEffectivelyActive, parseISO, todayISO } from "@/lib/scheduleRecurrence";
 import { handoffsReady, startHandoff } from "@/lib/pg/handoffs";
 
+/**
+ * PIN login for subs is OFF everywhere (Andres, October 12, 2026): a sub logs
+ * in with their email, exactly as before the new home, and the new home must
+ * not add a PIN or change the login. (Later subs get a user name and a
+ * password.) While this is false nobody can be sent a PIN setup link, an old
+ * link does nothing, and no phone is ever asked for a PIN. The PIN code and
+ * its tables stay, unused.
+ */
+export const SUB_PIN_LOGIN_ON = false;
+
 export const PIN_MAX_TRIES = 5;
 export const PIN_LOCK_MINUTES = 15;
 export const SETUP_LINK_DAYS = 7;

@@ -5,16 +5,19 @@
 //   POST login     the PIN on a remembered phone (5 wrong tries, then 15 minutes)
 //   POST forget    this phone forgets its sub (back to the email login)
 // The email login stays as it is, as the fallback. The PIN is never logged.
+//
+// TURNED OFF (SUB_PIN_LOGIN_ON in lib/pg/sub-home.ts): GET answers "not on"
+// and every POST is refused, so the sub portal only ever shows the email login.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSubPortalByEmail, subPortalOnPostgres } from "@/lib/data/sub-portal";
 import { firstNameOf, readSubDevice, readSubSession } from "@/lib/subDevice";
-import { checkPin, hasPin, isPin, setPin, setupLinkEmail, subHomeReady, markSetupLinkUsed } from "@/lib/pg/sub-home";
+import { checkPin, hasPin, isPin, setPin, setupLinkEmail, subHomeReady, markSetupLinkUsed, SUB_PIN_LOGIN_ON } from "@/lib/pg/sub-home";
 
 const refuse = (error: string, status = 400, extra: Record<string, unknown> = {}) => NextResponse.json({ success: false, error, ...extra }, { status });
 
 async function on() {
-  return subPortalOnPostgres() && (await subHomeReady());
+  return SUB_PIN_LOGIN_ON && subPortalOnPostgres() && (await subHomeReady());
 }
 
 /** The sub this email belongs to, when they may use the portal. */
