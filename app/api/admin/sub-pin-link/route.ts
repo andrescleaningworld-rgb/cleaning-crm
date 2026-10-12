@@ -2,6 +2,9 @@
 // Staff only (proxy.ts default gate). Outside production the link is also
 // returned, to be shown on screen: no text really goes out there
 // (OUTBOUND_DRY_RUN), and the test sub has a made-up phone.
+//
+// TURNED OFF (SUB_PIN_LOGIN_ON in lib/pg/sub-home.ts): subs log in with their
+// email only, so no setup link is made or texted.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
@@ -10,17 +13,17 @@ import { isNonProduction } from "@/lib/portalAuth";
 import { firstNameOf } from "@/lib/subDevice";
 import { sendSms } from "@/lib/sms";
 import { MOTTO } from "@/app/ui/words";
-import { createSetupLink, subHomeReady, SETUP_LINK_DAYS } from "@/lib/pg/sub-home";
+import { createSetupLink, subHomeReady, SETUP_LINK_DAYS, SUB_PIN_LOGIN_ON } from "@/lib/pg/sub-home";
 
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
 
 export async function GET() {
-  return NextResponse.json({ success: true, on: subPortalOnPostgres() && (await subHomeReady()) });
+  return NextResponse.json({ success: true, on: SUB_PIN_LOGIN_ON && subPortalOnPostgres() && (await subHomeReady()) });
 }
 
 export async function POST(request: NextRequest) {
   try {
-    if (!subPortalOnPostgres() || !(await subHomeReady())) return refuse("PIN login is not turned on here yet.", 409);
+    if (!SUB_PIN_LOGIN_ON || !subPortalOnPostgres() || !(await subHomeReady())) return refuse("PIN login is not turned on.", 409);
     const identity = await getAdminIdentity(request);
     if (!identity) return refuse("Log in first.", 401);
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
