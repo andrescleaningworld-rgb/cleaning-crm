@@ -791,12 +791,25 @@ export default function SubcontractorDetailPage() {
     const accountNames = new Set(
       subcontractorAccounts.map((account) => normalize(getAccountName(account)))
     );
+    // The same rule as the score: a complaint that has its sub saved belongs
+    // to the sub who had the account when it was filed, not to whoever has
+    // the account now. One without it counts for the account's sub of today.
+    const subEntries = subcontractors.map((sub) => ({
+      key: buildSubcontractorPerformanceKey(getCompanyName(sub), getValue(sub, "contactName", "ContactName", "Contact Name")),
+      company: normalizeSubName(getCompanyName(sub)),
+      contact: normalizeSubName(getValue(sub, "contactName", "ContactName", "Contact Name")),
+    }));
+    const thisSubKey = subcontractor
+      ? buildSubcontractorPerformanceKey(getCompanyName(subcontractor), getValue(subcontractor, "contactName", "ContactName", "Contact Name"))
+      : "";
 
     return complaintsData.filter((complaint) => {
+      const saved = (complaint as { subAtFiling?: string | null }).subAtFiling;
+      if (typeof saved === "string") return saved.trim() !== "" && resolveAssignedSubKey(saved, subEntries) === thisSubKey;
       const complaintAccount = normalize(getComplaintAccountName(complaint));
       return accountNames.has(complaintAccount);
     });
-  }, [complaintsData, subcontractorAccounts]);
+  }, [complaintsData, subcontractorAccounts, subcontractors, subcontractor]);
 
   const openComplaints = relatedComplaints.filter((complaint) => {
     const status = normalize(getComplaintStatus(complaint));
@@ -963,7 +976,7 @@ export default function SubcontractorDetailPage() {
         />
 
         <Card title="Recent Complaints">
-          <p className="ui-card-text">Complaints connected to this subcontractor’s current and past accounts.</p>
+          <p className="ui-card-text">Complaints filed while this subcontractor had the account.</p>
           <div style={{ marginTop: 12 }}>
             {relatedComplaints.length === 0 ? (
               <p className="ui-muted">No complaints found for this subcontractor.</p>

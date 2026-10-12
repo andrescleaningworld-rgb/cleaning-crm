@@ -129,7 +129,10 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
 
   const accountIds = new Set(accounts.map((a) => text(a.accountId)).filter(Boolean));
   const accountNames = new Set(accounts.map((a) => lower(a.accountName)).filter(Boolean));
-  const complaints = allComplaints.filter((c) => (text(c.accountId) !== "" && accountIds.has(text(c.accountId))) || (text(c.accountName) !== "" && accountNames.has(lower(c.accountName))));
+  const complaints = allComplaints
+    .filter((c) => (text(c.accountId) !== "" && accountIds.has(text(c.accountId))) || (text(c.accountName) !== "" && accountNames.has(lower(c.accountName))))
+    // Which sub had the account when a complaint was filed is for the office: a sub is never shown another sub's name.
+    .map((c) => ({ ...c, subAtFiling: null }));
 
   const inactive = new Set(["inactive", "discontinued", "no", "false", "disabled", "removed"]);
   const supplyItems = supplyRows
