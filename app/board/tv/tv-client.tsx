@@ -2,18 +2,25 @@
 
 // Office TV mode: ONE fixed screen, the size of the TV, that never scrolls.
 //
-//   top strip      logo, the three counts, the clock and date
-//   left (70%)     the pin board: only the squares that have notes
-//   right (30%)    today's cleanings, with a progress bar
-//   bottom strip   the company rule, in green, always there
+//   top strip      logo, the three counts, the "Today's cleanings" button,
+//                  the clock and date. Always there.
+//   middle         the pin board: only the squares that have notes, laid out
+//                  so each one is as big as it can be. With 4 squares or
+//                  fewer, today's cleanings sit in a column on the right;
+//                  with 5 or more the squares get the full width.
+//   bottom strip   the company rule, in green. Always there.
 //
-// A square (or the cleanings list) shows as many rows as fit. When there are
-// more, it shows "+N more" and turns to the next rows every 8 seconds, so
-// nothing is ever cut off. Late and stuck notes are red and come first.
+// A square shows its 3 oldest / most urgent notes, then "+N more". A click on
+// a square opens all of its notes in the middle; "Today's cleanings" in the
+// top strip opens today's cleanings there. Both have a big "Back to board"
+// button and go back by themselves after 60 seconds.
 //
-// Everything is sized from the real height of the screen (--u = 1% of it),
-// measured here, so it also fits a TV browser whose toolbar takes part of the
-// screen and one too old for newer CSS units. Nothing needs a click.
+// The picture keeps a 4% margin from every edge of the screen (a TV cuts off
+// its edges: overscan). Everything inside is sized from the picture itself
+// (--u = 1% of its height, or less on a screen narrower than a TV), measured
+// here, so it fits any screen, a TV browser whose toolbar takes part of it,
+// and one too old for newer CSS units. Nothing is ever scrolled or cut off:
+// a long name ends in "…".
 //
 // Full screen (no browser tabs or address bar) starts with the click on the
 // board's "TV Mode (Full Screen)" button. When it is not on (Esc was pressed,
@@ -60,10 +67,114 @@ const SHIFTS: [number, number][] = [
   [-4, -2],
 ];
 
-/** Row heights, in hundredths of the screen height (they match tv.module.css). */
+/** A list that was opened (a square, or today's cleanings) closes by itself after this long. */
+const BACK_MS = 60_000;
+/** The picture is a TV's shape, 16:9. On a narrower screen the width decides the size of everything. */
+const UNITS_WIDE = 177.8;
+
+/** Row heights, in units (they match tv.module.css). */
 const NOTE_ROW = 7.6;
 const CLEANING_ROW = 7.2;
 const ROW_GAP = 0.8;
+/** A square shows this many notes, then "+N more". */
+const SQUARE_NOTES = 3;
+/** A note in a square is never taller than MAX; three are not squeezed below MIN (fewer are shown then). */
+const NOTE_ROW_MAX = 13;
+const NOTE_ROW_MIN = 4.6;
+/** "+N more" takes this much of a note's height. */
+const MORE_PART = 0.55;
+/** In an opened list, a column is at least this wide. */
+const LIST_COLUMN = 52;
+/** With this many squares or fewer, today's cleanings show beside the board. */
+const SIDE_UP_TO = 4;
+
+/** The size of a box on the screen, kept up to date. */
+function useBoxSize(ready: unknown) {
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const measure = () => {
+      const width = box.current?.clientWidth ?? 0;
+      const height = box.current?.clientHeight ?? 0;
+      setSize((before) => (before.width === width && before.height === height ? before : { width, height }));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" || !box.current ? null : new ResizeObserver(measure);
+    if (observer && box.current) observer.observe(box.current);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, [ready]);
+  return { box, ...size };
+}
+
+/** How many squares go in each row, so that every square is as big as the space allows. */
+function squareRows(count: number, width: number, height: number): number[] {
+  if (count === 0) return [];
+  let columns = count <= 3 ? count : count === 4 ? 2 : count <= 9 ? 3 : 4;
+  if (width > 0 && height > 0) {
+    let best = 0;
+    for (let c = 1; c <= count; c++) {
+      // The biggest 1.6-wide card that fits one cell of a grid with c columns.
+      const fit = Math.min(width / c / 1.6, height / Math.ceil(count / c));
+      if (fit > best) {
+        best = fit;
+        columns = c;
+      }
+    }
+  }
+  const rows = Math.ceil(count / columns);
+  // The same number in every row, give or take one: a short last row would leave a hole.
+  return Array.from({ length: rows }, (_, index) => Math.floor(count / rows) + (index < count % rows ? 1 : 0));
+}
+
+/** The notes of one square: the first three, as tall as the square allows, then "+N more". */
+function SquareNotes<T>({ items, unit, keyOf, render }: { items: T[]; unit: number; keyOf: (item: T) => string; render: (item: T) => ReactNode }) {
+  const { box, height } = useBoxSize(unit);
+  const gap = ROW_GAP * unit;
+  const rowFor = (shown: number) => {
+    const more = items.length > shown;
+    return (height - gap * (shown - 1 + (more ? 1 : 0))) / (shown + (more ? MORE_PART : 0));
+  };
+  let shown = Math.min(SQUARE_NOTES, items.length);
+  while (shown > 1 && rowFor(shown) < NOTE_ROW_MIN * unit) shown--;
+  const row = Math.max(0, Math.min(NOTE_ROW_MAX * unit, rowFor(shown)));
+  const more = items.length - shown;
+  const ready = height > 0 && unit > 0;
+
+  return (
+    <div ref={box} className={styles.fitting} style={{ ["--row" as string]: `${row}px` }}>
+      {ready ? items.slice(0, shown).map((item) => <div key={keyOf(item)}>{render(item)}</div>) : null}
+      {ready && more > 0 ? <p className={styles.squareMore}>+{more} more</p> : null}
+    </div>
+  );
+}
+
+/**
+ * An opened list, in as many columns as fit. When there is more than one
+ * screen of it, it turns to the next one on every tick and says which.
+ */
+function Paged<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; unit: number; row: number; tick: number; keyOf: (item: T) => string; render: (item: T) => ReactNode }) {
+  const { box, width, height } = useBoxSize(unit);
+  const gap = ROW_GAP * unit;
+  const ready = width > 0 && height > 0 && unit > 0;
+  const columns = ready ? Math.max(1, Math.floor((width + gap) / (LIST_COLUMN * unit + gap))) : 1;
+  const rows = ready ? Math.max(1, Math.floor((height + gap) / (row * unit + gap))) : 1;
+  const perPage = columns * rows;
+  const pages = Math.max(1, Math.ceil(items.length / perPage));
+  const page = tick % pages;
+
+  return (
+    <div className={styles.paged} style={{ ["--row" as string]: `${row * unit}px` }}>
+      <div ref={box} className={styles.pagedGrid} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        {ready ? items.slice(page * perPage, (page + 1) * perPage).map((item) => <div key={keyOf(item)}>{render(item)}</div>) : null}
+      </div>
+      <p className={styles.pagedFoot}>{ready && pages > 1 ? `Screen ${page + 1} of ${pages}` : ""}</p>
+    </div>
+  );
+}
 
 /**
  * Shows as many rows as fit in the space it has. When there are more, the
@@ -116,7 +227,9 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const [tick, setTick] = useState(0);
   const [shift, setShift] = useState(0);
   const [unit, setUnit] = useState(0);
-  const root = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  // What the middle shows: "board", "cleanings" (today's cleanings), or the key of the square whose full list is open.
+  const [view, setView] = useState("board");
   // Full screen: on or not, whether this browser can do it when asked, and the F11 hint.
   const [full, setFull] = useState(true);
   const [canFull, setCanFull] = useState(false);
@@ -174,16 +287,25 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   }, [load]);
 
   const hasData = data !== null;
-  // One unit = 1% of the screen's real height (what is left under a TV browser's toolbar).
+  // One unit = 1% of the picture's real height (the screen less the safe margin, and less a TV browser's
+  // toolbar). On a screen narrower than a TV the width decides, so nothing runs off the sides.
   useLayoutEffect(() => {
     const measure = () => {
-      const height = root.current?.clientHeight || window.innerHeight;
-      setUnit(height / 100);
+      const height = stage.current?.clientHeight || window.innerHeight * 0.92;
+      const width = stage.current?.clientWidth || window.innerWidth * 0.92;
+      setUnit(Math.min(height / 100, width / UNITS_WIDE));
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [hasData, problem]);
+
+  // An opened list closes by itself, so the TV is never left on it.
+  useEffect(() => {
+    if (view === "board") return;
+    const timer = window.setTimeout(() => setView("board"), BACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [view]);
 
   // The page behind never scrolls while the TV screen is up.
   useEffect(() => {
@@ -296,6 +418,9 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     return all.filter((square) => square.papers.length > 0).map((square) => ({ ...square, papers: sorted(square.papers) }));
   }, [data, now]);
 
+  // The board's own space; the squares are laid out again whenever it or their number changes.
+  const board = useBoxSize(`${hasData}:${problem}:${view}:${squares.length}`);
+
   // Leaving TV mode also ends full screen.
   const exit =
     token || idle ? null : (
@@ -315,7 +440,12 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   }
 
   const count = squares.length;
-  const columns = count <= 3 ? Math.max(1, count) : count === 4 ? 2 : count <= 9 ? 3 : 4;
+  // A square that was open and has no notes any more: the board shows again.
+  const opened = squares.find((square) => square.key === view) ?? null;
+  const showing = view === "cleanings" ? "cleanings" : opened ? "square" : "board";
+  // Today's cleanings sit beside the board only while few squares are in use; after that the squares get the full width.
+  const sideShown = count <= SIDE_UP_TO;
+  const rows = squareRows(count, board.width, board.height);
   const cleaned = data ? data.cleanings.filter((cleaning) => cleaning.status === "cleaned").length : 0;
   const total = data ? data.cleanings.length : 0;
   // Still to do first, so what needs attention is on screen longest.
@@ -325,10 +455,55 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const day = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const [dx, dy] = SHIFTS[shift];
 
+  const renderNote = (paper: Paper) => {
+    const overdue = isOverdue(paper, now);
+    const stuck = data ? isOld(paper, data.settings, now) : false;
+    return (
+      <div className={`${styles.note} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${overdue || stuck ? styles.late : ""}`} data-late={overdue || stuck ? "1" : "0"}>
+        <p className={styles.noteType}>
+          {paperLabel(paper)}
+          {overdue ? ` · due ${dueLabel(paper.dueDate)}` : stuck ? ` · ${daysLabel(daysPinned(paper, now))}` : ""}
+          {paper.recordDone ? " · done ✓" : ""}
+        </p>
+        <p className={styles.noteName}>{paper.accountName || paperLabel(paper)}</p>
+        {overdue || stuck ? <span className={styles.lateCorner} aria-hidden="true" /> : null}
+      </div>
+    );
+  };
+  const renderCleaning = (cleaning: ListedCleaning) => (
+    <div className={`${styles.cleaning} ${styles[cleaning.status] ?? ""}`}>
+      <p className={styles.cleaningName}>{cleaning.accountName}</p>
+      <p className={styles.cleaningSub}>
+        {STATUS_LABEL[cleaning.status]}
+        {cleaning.sub ? ` · ${cleaning.sub}` : ""}
+      </p>
+    </div>
+  );
+  const progress = (
+    <>
+      <p className={styles.progressText} data-progress>
+        <strong>{cleaned}</strong> of {total} cleaned
+      </p>
+      <div className={styles.progressBar}>
+        <span style={{ width: `${total > 0 ? Math.round((cleaned / total) * 100) : 0}%` }} />
+      </div>
+    </>
+  );
+  const backButton = (
+    <button type="button" className={styles.back} onClick={() => setView("board")} data-tv-back>
+      Back to board
+    </button>
+  );
+  // The squares, row by row.
+  const squareRowList = rows.map((inRow, index) => {
+    const start = rows.slice(0, index).reduce((sum, value) => sum + value, 0);
+    return squares.slice(start, start + inRow);
+  });
+
   return (
-    <div ref={root} className={`${styles.tv} ${idle ? styles.idle : ""}`} style={{ ["--u" as string]: unit > 0 ? `${unit}px` : undefined }} data-tv-screen aria-live="off">
+    <div className={`${styles.tv} ${idle ? styles.idle : ""}`} style={{ ["--u" as string]: unit > 0 ? `${unit}px` : undefined }} data-tv-screen aria-live="off">
       <span className={styles.awake} aria-hidden="true" />
-      <div className={styles.stage} style={{ transform: `translate(${dx}px, ${dy}px)` }}>
+      <div ref={stage} className={styles.stage} style={{ transform: `translate(${dx}px, ${dy}px)` }}>
         <header className={styles.strip}>
           <div className={styles.brandBox}>
             {/* The same logo, on the same white tile, as the app's own top bar. */}
@@ -350,6 +525,17 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
               <span className={styles.counterNumber}>{data ? data.counters.doneToday : "–"}</span>
               <span className={styles.counterLabel}>Done today</span>
             </div>
+            {/* Opens today's cleanings in the middle of the screen; a second click closes them. */}
+            <button
+              type="button"
+              className={`${styles.counter} ${styles.counterButton} ${showing === "cleanings" ? styles.counterOn : ""}`}
+              onClick={() => setView(showing === "cleanings" ? "board" : "cleanings")}
+              aria-pressed={showing === "cleanings"}
+              data-count="cleanings"
+            >
+              <span className={styles.counterLabel}>Today&apos;s cleanings</span>
+              <span className={styles.counterSmall}>{data ? `${cleaned} of ${total} cleaned` : "–"}</span>
+            </button>
           </div>
           <div className={styles.clockBox}>
             <p className={styles.clock}>{clock}</p>
@@ -357,69 +543,69 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
           </div>
         </header>
 
-        <div className={styles.body}>
-          <section className={styles.board} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }} aria-label="Pin board">
-            {!data ? <p className={styles.empty}>{reconnecting ? "Reconnecting…" : "Loading the board"}</p> : null}
-            {data && count === 0 ? <p className={styles.empty}>Nothing pinned. All clear.</p> : null}
-            {squares.map((square) => (
-              <div key={square.key} className={styles.square} data-square={square.key}>
-                <div className={styles.squareHead}>
-                  <h2 className={styles.squareName}>{square.name}</h2>
-                  <span className={styles.squareCount}>{square.papers.length}</span>
-                </div>
-                <Fitting
-                  items={square.papers}
-                  unit={unit}
-                  row={NOTE_ROW}
-                  tick={tick}
-                  keyOf={(paper) => `${paper.kind}:${paper.itemId}`}
-                  render={(paper) => {
-                    const overdue = isOverdue(paper, now);
-                    const stuck = data ? isOld(paper, data.settings, now) : false;
-                    return (
-                      <div className={`${styles.note} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${overdue || stuck ? styles.late : ""}`} data-late={overdue || stuck ? "1" : "0"}>
-                        <p className={styles.noteType}>
-                          {paperLabel(paper)}
-                          {overdue ? ` · due ${dueLabel(paper.dueDate)}` : stuck ? ` · ${daysLabel(daysPinned(paper, now))}` : ""}
-                          {paper.recordDone ? " · done ✓" : ""}
-                        </p>
-                        <p className={styles.noteName}>{paper.accountName || paperLabel(paper)}</p>
-                        {overdue || stuck ? <span className={styles.lateCorner} aria-hidden="true" /> : null}
+        {showing === "board" ? (
+          <div className={`${styles.body} ${sideShown ? "" : styles.bodyWide}`} data-tv-side={sideShown ? "1" : "0"}>
+            <div ref={board.box} className={styles.board} role="region" aria-label="Pin board">
+              {!data ? <p className={styles.empty}>{reconnecting ? "Reconnecting…" : "Loading the board"}</p> : null}
+              {data && count === 0 ? <p className={styles.empty}>Nothing pinned. All clear.</p> : null}
+              {squareRowList.map((inRow, rowIndex) => (
+                <div key={rowIndex} className={styles.boardRow} style={{ gridTemplateColumns: `repeat(${inRow.length}, minmax(0, 1fr))` }}>
+                  {inRow.map((item) => (
+                    // The whole square works as one button: it opens the square's full list.
+                    <div
+                      key={item.key}
+                      role="button"
+                      tabIndex={0}
+                      className={styles.square}
+                      data-square={item.key}
+                      aria-label={`${item.name}: ${item.papers.length} pinned. Open the full list.`}
+                      onClick={() => setView(item.key)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setView(item.key);
+                      }}
+                    >
+                      <div className={styles.squareHead}>
+                        <h2 className={styles.squareName}>{item.name}</h2>
+                        <span className={styles.squareCount}>{item.papers.length}</span>
                       </div>
-                    );
-                  }}
-                />
-              </div>
-            ))}
-          </section>
-
-          <aside className={styles.side} aria-label="Today's cleanings">
-            <h2 className={styles.sideTitle}>Today&apos;s cleanings</h2>
-            <p className={styles.progressText} data-progress>
-              <strong>{cleaned}</strong> of {total} cleaned
-            </p>
-            <div className={styles.progressBar}>
-              <span style={{ width: `${total > 0 ? Math.round((cleaned / total) * 100) : 0}%` }} />
-            </div>
-            {data && total === 0 ? <p className={styles.empty}>No cleanings on the schedule today.</p> : null}
-            <Fitting
-              items={cleanings}
-              unit={unit}
-              row={CLEANING_ROW}
-              tick={tick}
-              keyOf={(cleaning) => cleaning.key}
-              render={(cleaning) => (
-                <div className={`${styles.cleaning} ${styles[cleaning.status] ?? ""}`}>
-                  <p className={styles.cleaningName}>{cleaning.accountName}</p>
-                  <p className={styles.cleaningSub}>
-                    {STATUS_LABEL[cleaning.status]}
-                    {cleaning.sub ? ` · ${cleaning.sub}` : ""}
-                  </p>
+                      <SquareNotes items={item.papers} unit={unit} keyOf={(paper) => `${paper.kind}:${paper.itemId}`} render={renderNote} />
+                    </div>
+                  ))}
                 </div>
-              )}
-            />
-          </aside>
-        </div>
+              ))}
+            </div>
+
+            {sideShown ? (
+              <aside className={styles.side} aria-label="Today's cleanings">
+                <h2 className={styles.sideTitle}>Today&apos;s cleanings</h2>
+                {progress}
+                {data && total === 0 ? <p className={styles.empty}>No cleanings on the schedule today.</p> : null}
+                <Fitting items={cleanings} unit={unit} row={CLEANING_ROW} tick={tick} keyOf={(cleaning) => cleaning.key} render={renderCleaning} />
+              </aside>
+            ) : null}
+          </div>
+        ) : (
+          // An opened list takes the middle of the screen; the top strip and the company rule stay.
+          <section className={`${styles.open} ${showing === "square" ? styles.openSquare : ""}`} aria-label={showing === "cleanings" ? "Today's cleanings" : (opened?.name ?? "")} data-tv-open={showing}>
+            <div className={styles.openHead}>
+              <div className={styles.openTitleBox}>
+                <h2 className={styles.openTitle}>{showing === "cleanings" ? "Today's cleanings" : opened?.name}</h2>
+                {showing === "cleanings" ? progress : <p className={styles.openCount}>{opened?.papers.length} pinned</p>}
+              </div>
+              {backButton}
+            </div>
+            {showing === "cleanings" ? (
+              <>
+                {data && total === 0 ? <p className={styles.empty}>No cleanings on the schedule today.</p> : null}
+                <Paged items={cleanings} unit={unit} row={CLEANING_ROW} tick={tick} keyOf={(cleaning) => cleaning.key} render={renderCleaning} />
+              </>
+            ) : (
+              <Paged items={opened?.papers ?? []} unit={unit} row={NOTE_ROW} tick={tick} keyOf={(paper) => `${paper.kind}:${paper.itemId}`} render={renderNote} />
+            )}
+          </section>
+        )}
 
         {/* The company rule: its own strip under the board, so it never covers a square. */}
         <footer className={styles.rule} data-tv-rule>

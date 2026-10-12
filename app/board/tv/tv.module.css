@@ -1,14 +1,18 @@
 /* Office TV mode: one fixed screen, read from across the room, nothing to tap.
  *
- * Every size is a number of --u, where 1u = 1% of the screen's real height.
- * tv-client.tsx measures it; until then (and on a browser where that fails)
- * it is 1vh. Where a size needs limits, a plain calc() comes first and a
- * clamp() after it, so a TV browser too old for clamp() still gets the size.
+ * The picture (.stage) keeps a 4% margin from every edge of the screen: a TV
+ * cuts its edges off (overscan), and nothing may touch them.
+ *
+ * Every size is a number of --u, where 1u = 1% of the picture's real height
+ * (less on a screen narrower than 16:9, where the width decides). tv-client.tsx
+ * measures it; until then (and on a browser where that fails) it is 0.92vh.
+ * No size is in fixed pixels, so the whole board shrinks and grows with the
+ * screen and is never scrolled or cut. A name that is too long ends in "…".
  * No "inset", no flex "gap": older TV browsers do not know them.
  */
 
 .tv {
-  --u: 1vh;
+  --u: 0.92vh;
   position: fixed;
   top: 0;
   left: 0;
@@ -26,14 +30,13 @@
   user-select: none;
 }
 
-/* The whole picture. It moves a few pixels every 10 minutes (burn-in); the padding leaves room for that. */
+/* The whole picture, 4% in from every edge. It moves a few pixels every 10 minutes (burn-in); the margin has room for that. */
 .stage {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  padding: calc(var(--u) * 1.2);
+  top: 4%;
+  left: 4%;
+  width: 92%;
+  height: 92%;
   box-sizing: border-box;
   display: grid;
   grid-template-rows: calc(var(--u) * 10) minmax(0, 1fr) calc(var(--u) * 9);
@@ -101,16 +104,18 @@
 .brand {
   margin: 0;
   font-size: calc(var(--u) * 3.6);
-  font-size: clamp(18px, calc(var(--u) * 3.6), 64px);
   font-weight: 800;
   line-height: 1.05;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .counters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  grid-column-gap: calc(var(--u) * 1.6);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-column-gap: calc(var(--u) * 1.4);
   min-width: 0;
 }
 
@@ -119,26 +124,72 @@
   align-items: center;
   justify-content: center;
   height: calc(var(--u) * 9);
-  padding: 0 calc(var(--u) * 1.6);
+  min-width: 0;
+  padding: 0 calc(var(--u) * 1.2);
+  box-sizing: border-box;
   border-radius: calc(var(--u) * 1.6);
   background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 
 .counterNumber {
-  margin-right: calc(var(--u) * 1.4);
-  font-size: calc(var(--u) * 7);
-  font-size: clamp(36px, calc(var(--u) * 7), 120px);
+  flex: none;
+  margin-right: calc(var(--u) * 1.2);
+  font-size: calc(var(--u) * 6.4);
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .counterLabel {
-  font-size: calc(var(--u) * 2.6);
-  font-size: clamp(16px, calc(var(--u) * 2.6), 44px);
+  min-width: 0;
+  overflow: hidden;
+  font-size: calc(var(--u) * 2.3);
   font-weight: 700;
   line-height: 1.1;
+}
+
+/* "Today's cleanings": the one thing in the strip that is pressed. White, so it reads as a button. */
+.counterButton {
+  flex-direction: column;
+  border: 0;
+  margin: 0;
+  background: #ffffff;
+  color: #0c447c;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.counterButton .counterLabel {
+  max-width: 100%;
+  font-size: calc(var(--u) * 2.5);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counterSmall {
+  max-width: 100%;
+  margin-top: calc(var(--u) * 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 1.9);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.counterOn {
+  background: #ffe27a;
+  color: #10233f;
+}
+
+.counterButton:focus-visible,
+.square:focus-visible,
+.back:focus-visible {
+  outline: calc(var(--u) * 0.6) solid #ffe27a;
+  outline-offset: calc(var(--u) * -0.6);
 }
 
 .counterBad {
@@ -150,6 +201,7 @@
 }
 
 .clockBox {
+  min-width: 0;
   text-align: right;
   white-space: nowrap;
 }
@@ -157,7 +209,6 @@
 .clock {
   margin: 0;
   font-size: calc(var(--u) * 6);
-  font-size: clamp(32px, calc(var(--u) * 6), 110px);
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -165,8 +216,9 @@
 
 .day {
   margin: calc(var(--u) * 0.4) 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: calc(var(--u) * 2.4);
-  font-size: clamp(16px, calc(var(--u) * 2.4), 40px);
   font-weight: 700;
 }
 
@@ -187,13 +239,26 @@
   overflow: hidden;
 }
 
-/* Left: the squares that have notes, sharing the space evenly. */
+/* 5 or more squares in use: no cleanings column, the squares get the full width. */
+.bodyWide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The squares that have notes: rows of equal height, and in each row the squares share the width evenly. */
 .board {
   display: grid;
   grid-auto-rows: minmax(0, 1fr);
-  grid-gap: calc(var(--u) * 1.2);
+  grid-row-gap: calc(var(--u) * 1.2);
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.boardRow {
+  display: grid;
+  grid-column-gap: calc(var(--u) * 1.2);
+  min-width: 0;
+  min-height: 0;
 }
 
 .empty {
@@ -216,6 +281,7 @@
   border-radius: calc(var(--u) * 1.6);
   background: #b98a52;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .squareHead {
@@ -232,7 +298,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: calc(var(--u) * 3.4);
-  font-size: clamp(18px, calc(var(--u) * 3.4), 60px);
   font-weight: 800;
   color: #ffffff;
   text-shadow: 0 1px 2px rgba(60, 35, 5, 0.6);
@@ -242,7 +307,6 @@
   flex: none;
   margin-left: calc(var(--u) * 1.2);
   font-size: calc(var(--u) * 6);
-  font-size: clamp(32px, calc(var(--u) * 6), 110px);
   font-weight: 800;
   line-height: 1;
   color: #ffffff;
@@ -261,11 +325,24 @@
   margin: 0 0 calc(var(--u) * 0.8);
 }
 
+/* "+N more" under a square's three notes. */
+.squareMore {
+  height: calc(var(--row) * 0.55);
+  margin: 0;
+  overflow: hidden;
+  line-height: calc(var(--row) * 0.55);
+  font-size: calc(var(--row) * 0.4);
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(60, 35, 5, 0.6);
+}
+
 .more {
   height: calc(var(--u) * 7.6);
   line-height: calc(var(--u) * 7.6);
   font-size: calc(var(--u) * 3);
-  font-size: clamp(16px, calc(var(--u) * 3), 52px);
   font-weight: 800;
   text-align: center;
   color: #ffffff;
@@ -278,15 +355,17 @@
   color: #10233f;
 }
 
-/* One note: the kind of paper, and the account. */
+/* One note: the kind of paper, and the account. Its height is --row (set where the notes are listed: a
+   square makes its three notes as tall as it has room for), and everything inside is a share of that. */
 .note {
   position: relative;
-  height: calc(var(--u) * 7.6);
-  padding: calc(var(--u) * 0.7) calc(var(--u) * 1.2);
+  height: var(--row);
+  padding: calc(var(--row) * 0.07) calc(var(--row) * 0.16);
   box-sizing: border-box;
-  border: calc(var(--u) * 0.4) solid transparent;
-  border-radius: calc(var(--u) * 0.8);
+  border: calc(var(--row) * 0.05) solid transparent;
+  border-radius: calc(var(--row) * 0.1);
   color: #10233f;
+  text-align: left;
   overflow: hidden;
 }
 
@@ -295,8 +374,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(var(--u) * 2.2);
-  font-size: clamp(14px, calc(var(--u) * 2.2), 38px);
+  font-size: calc(var(--row) * 0.26);
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: 0.04em;
@@ -309,8 +387,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: calc(var(--u) * 3);
-  font-size: clamp(18px, calc(var(--u) * 3), 52px);
+  font-size: calc(var(--row) * 0.36);
   font-weight: 800;
   line-height: 1.2;
 }
@@ -364,7 +441,7 @@
   width: 0;
   height: 0;
   border-style: solid;
-  border-width: 0 0 calc(var(--u) * 3) calc(var(--u) * 3);
+  border-width: 0 0 calc(var(--row) * 0.36) calc(var(--row) * 0.36);
   border-color: transparent transparent #c62828 transparent;
 }
 
@@ -390,21 +467,18 @@
 .sideTitle {
   margin: 0;
   font-size: calc(var(--u) * 3);
-  font-size: clamp(18px, calc(var(--u) * 3), 52px);
   font-weight: 800;
 }
 
 .progressText {
   margin: calc(var(--u) * 0.4) 0;
   font-size: calc(var(--u) * 3.4);
-  font-size: clamp(20px, calc(var(--u) * 3.4), 60px);
   font-weight: 700;
   line-height: 1.1;
 }
 
 .progressText strong {
   font-size: calc(var(--u) * 6.5);
-  font-size: clamp(34px, calc(var(--u) * 6.5), 116px);
   font-weight: 800;
 }
 
@@ -441,7 +515,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: calc(var(--u) * 3);
-  font-size: clamp(18px, calc(var(--u) * 3), 52px);
   font-weight: 800;
   line-height: 1.2;
 }
@@ -452,7 +525,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: calc(var(--u) * 2.2);
-  font-size: clamp(14px, calc(var(--u) * 2.2), 38px);
   font-weight: 700;
   line-height: 1.2;
 }
@@ -480,6 +552,125 @@
   background-color: #e6f1fb;
 }
 
+/* ---------- an opened list: one square's notes, or today's cleanings ---------- */
+
+/* It takes the middle of the screen; the top strip and the company rule stay where they are. */
+.open {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-row-gap: calc(var(--u) * 1.2);
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--u) * 1.6);
+  box-sizing: border-box;
+  border-radius: calc(var(--u) * 1.6);
+  background: #ffffff;
+  color: #10233f;
+  overflow: hidden;
+}
+
+.openSquare {
+  background: #b98a52;
+  color: #ffffff;
+}
+
+.open .empty {
+  grid-row: 2;
+}
+
+.openHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-column-gap: calc(var(--u) * 2);
+  align-items: center;
+  min-width: 0;
+}
+
+.openTitleBox {
+  min-width: 0;
+}
+
+.openTitle {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(var(--u) * 4.4);
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.openCount {
+  margin: calc(var(--u) * 0.4) 0 0;
+  font-size: calc(var(--u) * 2.8);
+  font-weight: 700;
+}
+
+.openHead .progressText {
+  font-size: calc(var(--u) * 2.8);
+}
+
+.openHead .progressText strong {
+  font-size: calc(var(--u) * 4.4);
+}
+
+.openHead .progressBar {
+  margin-bottom: 0;
+}
+
+/* The big way back. The list also closes by itself after a minute. */
+.back {
+  padding: calc(var(--u) * 2) calc(var(--u) * 4.5);
+  border: 0;
+  border-radius: calc(var(--u) * 2);
+  background: #0c447c;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: calc(var(--u) * 4.2);
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.openSquare .back {
+  background: #ffffff;
+  color: #0c447c;
+}
+
+.paged {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) calc(var(--u) * 3.2);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pagedGrid {
+  display: grid;
+  grid-auto-rows: var(--row);
+  grid-gap: calc(var(--u) * 0.8);
+  align-content: start;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pagedGrid > div {
+  min-width: 0;
+}
+
+.pagedFoot {
+  margin: 0;
+  overflow: hidden;
+  line-height: calc(var(--u) * 3.2);
+  font-size: calc(var(--u) * 2.2);
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
 /* ---------- bottom strip: the company rule ---------- */
 
 .rule {
@@ -501,7 +692,6 @@
   margin: 0;
   white-space: nowrap;
   font-size: calc(var(--u) * 6.2);
-  font-size: min(calc(var(--u) * 6.2), 3.7vw);
   font-weight: 800;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -533,7 +723,7 @@
 
 .hint {
   position: fixed;
-  top: calc(var(--u, 1vh) * 1);
+  top: 4.5%;
   left: 50%;
   z-index: 210;
   transform: translateX(-50%);
@@ -551,8 +741,8 @@
 
 .exit {
   position: fixed;
-  right: calc(var(--u, 1vh) * 1);
-  bottom: calc(var(--u, 1vh) * 0.6);
+  right: 4.5%;
+  bottom: 4.5%;
   z-index: 210;
   padding: 2px 10px;
   border-radius: 8px;
