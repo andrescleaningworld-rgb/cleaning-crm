@@ -1,6 +1,4 @@
-import { redirect } from "next/navigation";
 import { Screen } from "@/app/ui";
-import { newPortalOn } from "@/lib/portalSession";
 import { emailForToken } from "@/lib/pg/portal-auth";
 import { LangToggle } from "../portal-ui";
 import { portalWords } from "../server";
@@ -10,7 +8,6 @@ export const dynamic = "force-dynamic";
 
 // The page a "Set your password" link opens.
 export default async function PortalSetPasswordPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
-  if (!newPortalOn()) redirect("/portal/login");
   const token = (await searchParams).token ?? "";
   const email = await emailForToken(token);
   const { words } = await portalWords();

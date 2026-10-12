@@ -68,19 +68,22 @@ export function PortalLogoutButton() {
   );
 }
 
-/** One big button of the home screen: a picture, a few words, one tap. */
-export function PortalTile({ href, icon, label, detail }: { href: string; icon: string; label: string; detail?: string }) {
+/** One of the four giant buttons of the home screen: a big picture over a few words. */
+export function PortalBigTile({ href, icon, label, tip }: { href: string; icon: string; label: string; tip?: string }) {
   return (
-    <Link href={href} className="ui-tile">
-      <span className="ui-tile-icon" aria-hidden="true">
+    <Link href={href} className="ui-portal-tile" data-tip={tip}>
+      <span className="ui-portal-tile-icon" aria-hidden="true">
         {icon}
       </span>
-      <span className="ui-tile-words">
-        <span className="ui-tile-label">{label}</span>
-        {detail ? <span className="ui-tile-detail">{detail}</span> : null}
-      </span>
+      <span className="ui-portal-tile-label">{label}</span>
     </Link>
   );
+}
+
+/** Where something the customer sent stands: Received (blue), In progress (yellow), Done (green). */
+export function PortalStatus({ state }: { state: "received" | "working" | "done" }) {
+  const words = usePortalWords();
+  return <span className={`ui-portal-status ui-portal-status-${state}`}>{words.states[state]}</span>;
 }
 
 /** A password box with a show / hide eye button. */

@@ -12,8 +12,6 @@ const PUBLIC_PATHS = [
   "/login",
   "/portal",
   "/api/portal",
-  "/customer-portal",
-  "/api/customer-portal",
   "/subcontractor-portal",
   "/subcontractor-page",
   // Covers /api/login, /api/login/identities, and /api/login/setup-password

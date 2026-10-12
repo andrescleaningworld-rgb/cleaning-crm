@@ -1,4 +1,4 @@
-import { Card, Screen } from "@/app/ui";
+import { Screen } from "@/app/ui";
 import { getOfficePhone } from "@/lib/pg/portal-auth";
 import { getPortalHomeAccount } from "@/lib/pg/portal-home";
 import { LangToggle } from "../portal-ui";
@@ -8,9 +8,10 @@ export const dynamic = "force-dynamic";
 
 const OFFICE_EMAIL = "info@cleaningworldinc.com";
 
-// "Call or text us": the office number, the same for every customer (typed
-// in Settings → Customer Portal Access), one tap to call and one to text,
-// and the name of the account's manager when it has one.
+// "Contact us": three giant buttons, Call, Text and Email. The office number
+// is the same for every customer (typed in Settings → Customer Portal
+// Access). Under them, the name of the account's manager when it has one,
+// and the billing question form.
 export default async function PortalContactPage() {
   const { account, words } = await requireCustomer();
   const [details, officePhone] = await Promise.all([getPortalHomeAccount(account.accountId), getOfficePhone()]);
@@ -18,29 +19,39 @@ export default async function PortalContactPage() {
   const dial = digits.length === 10 ? `+1${digits}` : "";
 
   return (
-    <Screen title={words.contactTitle} subtitle={account.accountName} backHref="/portal" headerRight={<LangToggle />}>
-      {dial ? (
-        <Card title={words.officeNumber}>
-          <p className="ui-stat-value">{officePhone}</p>
-          <div className="ui-two">
-            <a href={`tel:${dial}`} className="ui-btn ui-btn-main">
-              📞 {words.call}
+    <Screen title={words.contactTitle} subtitle={dial ? officePhone : account.accountName} backHref="/portal" headerRight={<LangToggle />}>
+      {dial ? null : <p>{words.noPhone}</p>}
+      <nav className="ui-portal-tiles" aria-label={words.contactTitle}>
+        {dial ? (
+          <>
+            <a href={`tel:${dial}`} className="ui-portal-tile">
+              <span className="ui-portal-tile-icon" aria-hidden="true">
+                📞
+              </span>
+              <span className="ui-portal-tile-label">{words.call}</span>
             </a>
-            <a href={`sms:${dial}`} className="ui-btn ui-btn-second">
-              💬 {words.text}
+            <a href={`sms:${dial}`} className="ui-portal-tile">
+              <span className="ui-portal-tile-icon" aria-hidden="true">
+                💬
+              </span>
+              <span className="ui-portal-tile-label">{words.text}</span>
             </a>
-          </div>
-        </Card>
-      ) : (
-        <p>{words.noPhone}</p>
-      )}
+          </>
+        ) : null}
+        <a href={`mailto:${OFFICE_EMAIL}`} className="ui-portal-tile">
+          <span className="ui-portal-tile-icon" aria-hidden="true">
+            ✉️
+          </span>
+          <span className="ui-portal-tile-label">{words.emailOffice}</span>
+        </a>
+      </nav>
       {details?.managerName ? (
-        <Card title={words.yourManager}>
-          <p className="ui-strong">{details.managerName}</p>
-        </Card>
+        <p>
+          {words.yourManager}: <span className="ui-strong">{details.managerName}</span>
+        </p>
       ) : null}
-      <a href={`mailto:${OFFICE_EMAIL}`} className="ui-btn ui-btn-second">
-        ✉️ {words.emailOffice}
+      <a href="/portal/billing" className="ui-btn ui-btn-second">
+        💳 {words.billingQuestion}
       </a>
     </Screen>
   );

@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { Screen } from "@/app/ui";
 import { getPortalLogin } from "@/lib/portalAuth";
-import { newPortalOn } from "@/lib/portalSession";
 import { LangToggle, PortalLogoutButton } from "../portal-ui";
 import { portalWords } from "../server";
 import LocationList from "./list";
@@ -11,7 +10,6 @@ export const dynamic = "force-dynamic";
 // "Which location?": shown after login when one email opens several
 // accounts, and from "Switch location" on the home screen.
 export default async function PortalLocationsPage() {
-  if (!newPortalOn()) redirect("/portal/dashboard");
   const login = await getPortalLogin();
   if (!login) redirect("/portal/login");
   const { words } = await portalWords();

@@ -4048,3 +4048,155 @@ html[data-tv-mode] .cw-app-container > :not(main),
 html[data-tv-mode] body > div:not(.cw-app-shell) {
   display: none !important;
 }
+
+/* ---------- Customer portal (/portal): giant buttons, few words ----------
+   Phone first. The home screen is four square buttons, two by two, each a
+   big picture over two or three words. */
+
+.ui-portal-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 900px) {
+  .ui-portal-tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.ui-portal-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 168px;
+  padding: 16px 10px;
+  border: 3px solid transparent;
+  border-radius: 24px;
+  background: var(--ui-green);
+  color: #ffffff;
+  text-align: center;
+  text-decoration: none;
+  box-shadow: 0 4px 0 var(--ui-green-press);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ui-portal-tile:hover,
+.ui-portal-tile:focus-visible {
+  background: var(--ui-green-press);
+}
+
+.ui-portal-tile:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--ui-green-press);
+}
+
+.ui-portal-tile-icon {
+  font-size: 60px;
+  line-height: 1;
+}
+
+.ui-portal-tile-label {
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.ui-portal-heading {
+  margin: 8px 0 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ui-navy, #0c447c);
+}
+
+/* One thing the customer sent, on the home screen: what it was, the day, and where it stands. */
+.ui-portal-sent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-surface);
+}
+
+.ui-portal-sent-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 18px;
+}
+
+/* Received (blue), In progress (yellow), Done (green). */
+.ui-portal-status {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ui-portal-status-received {
+  background: #dcebff;
+  color: #0c447c;
+}
+
+.ui-portal-status-working {
+  background: #ffe9a8;
+  color: #6b4500;
+}
+
+.ui-portal-status-done {
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+}
+
+/* The big check on the "Got it!" screen. */
+.ui-portal-sent-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--ui-green);
+  color: #ffffff;
+  font-size: 60px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+/* "My cleanings": the next cleaning, large. */
+.ui-portal-next {
+  padding: 20px;
+  border-radius: 24px;
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+  text-align: center;
+}
+
+.ui-portal-next-label {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.ui-portal-next-day {
+  margin: 6px 0 0;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.ui-portal-next-window {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+}

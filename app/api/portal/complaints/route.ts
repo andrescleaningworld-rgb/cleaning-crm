@@ -24,7 +24,20 @@ export async function POST(request: NextRequest) {
   }
 
   const today = new Date().toLocaleDateString("en-US");
-  const photos = (body.photos ?? []).join(", ");
+  // Only photos this customer uploaded here (/api/portal/upload puts them
+  // under portal/<this account>/), never a link typed in from somewhere else.
+  const folder = `/portal/${session.accountId.replace(/[^A-Za-z0-9_-]/g, "_")}/`;
+  const photos = (Array.isArray(body.photos) ? body.photos : [])
+    .filter((url) => {
+      try {
+        const parsed = new URL(String(url));
+        return parsed.protocol === "https:" && parsed.hostname.endsWith(".public.blob.vercel-storage.com") && parsed.pathname.startsWith(folder);
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, 6)
+    .join(", ");
 
   try {
     await appendPortalRequest("portal-complaints", [

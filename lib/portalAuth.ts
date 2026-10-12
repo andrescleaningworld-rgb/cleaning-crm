@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
-import { newPortalOn, sessionOptions, type PortalSessionData } from "@/lib/portalSession";
+import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { accountsForEmail, type PortalAccount } from "@/lib/pg/portal-auth";
 
 /** True outside production: local dev and Vercel previews. A built app with no sign of being a preview counts as production. */
@@ -42,14 +42,12 @@ export async function getPortalLogin(): Promise<PortalLogin | null> {
 }
 
 /**
- * The account a portal request is for, or null when nobody is logged in.
- * Old portals: the account in the session cookie, as before. New portal:
- * the same, but only while the logged-in email still opens that account.
+ * The account a portal request is for, or null when nobody is logged in:
+ * the location picked at login, and only while the logged-in email still
+ * opens that account. Every portal route takes the account from here, never
+ * from what the browser sends, so a customer only ever reaches their own.
  */
 export async function requirePortalAccount(): Promise<{ accountId: string; accountName: string } | null> {
-  const session = await readPortalSession();
-  if (!session.accountId) return null;
-  if (!newPortalOn()) return { accountId: session.accountId, accountName: session.accountName ?? "" };
   const login = await getPortalLogin();
   return login?.current ? { accountId: login.current.accountId, accountName: login.current.accountName } : null;
 }
