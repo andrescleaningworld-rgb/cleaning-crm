@@ -1,8 +1,10 @@
 # Final report, October 11, 2026 (production steps)
 
+> **Correction, October 12, 2026.** Migrations 024 to 028 were **not** applied to production on October 11. They went to the practice database (`migration-dev`) instead. Production (`ep-old-unit-auedho5y`) still stopped at 023 until October 12, when 024 to 029 were applied to it together, after the backup branch `backup-before-029`. The lines below that are about these migrations have been corrected. The other "production" steps in this report (the Account Updates and Photos refreshes, the tips marked seen) were run in the same session and have not been re-checked against production.
+
 ## The short version
 
-- Production database is caught up: migrations 024 to 028 applied. (018 and 019 were already there.)
+- Migrations 024 to 028 were applied on October 11, but to the practice database (`migration-dev`), not to production. Production got them on October 12 (see the correction above). (018 and 019 were already there.)
 - **Account Updates** and **photo uploads** are switched to Postgres in production.
 - **All tips are marked seen** for your login.
 - **Not done:** Sub Transfer Proposals, because `docs/apps-script/Code.gs` is an empty file (0 bytes). It is the **only** thing that still calls Apps Script.
@@ -21,7 +23,7 @@ The live site is on version `5ab16e0`. Type check, lint (the usual 16) and build
 | Step | Result |
 | --- | --- |
 | Backup branch | `pre-finish-2026-10-11`, made by you. I could not see it from here; I went ahead on your word |
-| Migrations | Already applied: 001 to 023. Applied now: `024_photo_index`, `025_board_pin_types`, `026_tips_seen`, `027_supply_control`, `028_photos_blob`. All of them only add tables and columns |
+| Migrations | Already applied: 001 to 023. Applied on October 11 to the practice database (`migration-dev`), not to production: `024_photo_index`, `025_board_pin_types`, `026_tips_seen`, `027_supply_control`, `028_photos_blob`. Production got them on October 12. All of them only add tables and columns |
 | Account Updates refresh (updates only) | Sheet 193, production 193, they match. Newest rows (Sep 29, Oct 5, Oct 6) were already there. The full accounts import was not run |
 | `DATA_SOURCE_ACCOUNT_UPDATES=postgres` | Set in Production, redeployed |
 | Photos refresh (photos only) | Apps Script lists 3 photos, production has the same 3 |
@@ -46,7 +48,7 @@ Please do the two phone tests in section 5.
 
 **Photos.** Adding a photo to a complaint, or to an issue in the sub portal, now stores the file in Blob storage and its record in Postgres. The three old photos are still in Google Drive, untouched. The first time someone opens the Complaints page, the app copies them into Blob as well and shows the copies from then on. On the practice database all three copied and opened correctly.
 
-**Migrations 025, 026, 027 being there** also means:
+**Migrations 025, 026, 027 being there** (in production since October 12, not October 11) also means:
 
 - Settings, Pin Board: the "Pin to board" switches can now be saved.
 - Tips are remembered per person on every device.
@@ -103,7 +105,7 @@ To get there:
 | --- | --- |
 | `DATA_SOURCE_ACCOUNT_UPDATES` | Delete it in Vercel Production and redeploy. The app reads the sheet through Apps Script again. Updates saved in between stay in Postgres only (their id starts with `UPD-` and they have no sheet row); they would need re-typing |
 | `DATA_SOURCE_PHOTOS` | Delete it and redeploy. Uploads go to Drive through Apps Script again. Photos added in between stay in Blob and in Postgres, and would not show in the old list |
-| Migrations 024 to 028 | Nothing to undo; they only added tables and columns that are unused while their features are off. For a full rewind, restore from the Neon branch `pre-finish-2026-10-11` |
+| Migrations 024 to 028 | Nothing to undo; they only added tables and columns that are unused while their features are off. They reached production on October 12, so the backup from before them is the Neon branch `backup-before-029` |
 | Tips marked seen | Settings, Tips has no "show again", but the "?" on any screen shows its tips |
 
 ---
