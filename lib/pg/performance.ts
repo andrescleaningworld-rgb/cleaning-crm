@@ -30,7 +30,8 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
        FROM visits WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`
     ),
     sql.query(
-      `SELECT account_name, complaint_date_raw, priority, complaint_validity, status, resolution_date_raw, updated_at_raw
+      `SELECT account_name, complaint_date_raw, priority, complaint_validity, status, resolution_date_raw, updated_at_raw,
+              to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing
        FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`
     ),
     sql.query(`SELECT display_id_raw, contact_name, company_name FROM subcontractors ORDER BY source_row NULLS LAST, created_at, id`),
@@ -49,9 +50,16 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
         v.follow_up_needed, v.follow_up_date_old_raw, v.notes, v.created_at_raw, v.updated_at_raw, v.follow_up_date_raw,
       ])
     ),
-    // Complaints A:P — C account name, D date, F priority, G validity, H status, L resolution date, O updated at
+    // Complaints A:P — C account name, D date, F priority, G validity, H status, L resolution date, O updated at.
+    // Two more cells the sheet never had: Q = "1" when the complaint has its
+    // sub saved (migration 031), R = that sub's name. With Q set, the
+    // complaint counts for that sub and not for whoever has the account now.
     complaints.map((c) =>
-      row(16, { 2: c.account_name, 3: c.complaint_date_raw, 5: c.priority, 6: c.complaint_validity, 7: c.status, 11: c.resolution_date_raw, 14: c.updated_at_raw })
+      row(18, {
+        2: c.account_name, 3: c.complaint_date_raw, 5: c.priority, 6: c.complaint_validity, 7: c.status, 11: c.resolution_date_raw, 14: c.updated_at_raw,
+        16: c.sub_at_filing === null || c.sub_at_filing === undefined ? "" : "1",
+        17: c.sub_at_filing ?? "",
+      })
     ),
     // Subcontractors A:Z — A id, B contact, C company
     subs.map((s) => row(26, { 0: s.display_id_raw, 1: s.contact_name, 2: s.company_name }))

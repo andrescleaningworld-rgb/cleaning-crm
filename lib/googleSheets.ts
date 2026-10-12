@@ -3392,6 +3392,9 @@ const COMPLAINT_COL = {
   UPDATED_AT:          14, // O — set only by the close action; used as the resolution-date
                            // fallback for scoring when RESOLUTION_DATE is blank.
   // LAST_FOLLOW_UP:   15, // P — unused in every row observed; left blank
+  // Not sheet columns: only rows built from Postgres have them (lib/pg/performance.ts).
+  SUB_RECORDED:        16, // "1" = the sub who had the account when the complaint was filed is saved
+  SUB_AT_FILING:       17, // that sub, as it was written on the account
 } as const;
 
 export type ComplaintInput = {
@@ -3573,7 +3576,7 @@ const PERFORMANCE_SUBCONTRACTOR_COL = {
 function buildAccountAssignmentsBySubKey(
   accountRows: string[][],
   subRows: string[][]
-): { allBySubKey: Map<string, Set<string>>; activeCountBySubKey: Map<string, number> } {
+): { allBySubKey: Map<string, Set<string>>; activeCountBySubKey: Map<string, number>; subKeyOf: (raw: string) => string } {
   const subEntries = subRows.map((subRow) => {
     const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
     const contactName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.CONTACT_NAME] ?? "";
@@ -3608,7 +3611,18 @@ function buildAccountAssignmentsBySubKey(
     }
   }
 
-  return { allBySubKey, activeCountBySubKey };
+  // The same matching, for one name: which sub (if any) a Subcontractor text means.
+  const subKeyOf = (raw: string): string => {
+    if (!raw.trim()) return "";
+    let resolvedKey = resolveCache.get(raw);
+    if (resolvedKey === undefined) {
+      resolvedKey = resolveAssignedSubKey(raw, subEntries);
+      resolveCache.set(raw, resolvedKey);
+    }
+    return resolvedKey;
+  };
+
+  return { allBySubKey, activeCountBySubKey, subKeyOf };
 }
 
 function normalizeAccountName(value: unknown): string {
@@ -3858,7 +3872,7 @@ export function buildSubcontractorPerformanceMap(
   subRows: string[][]
 ): Map<string, SubcontractorPerformance> {
   const result = new Map<string, SubcontractorPerformance>();
-  const { allBySubKey, activeCountBySubKey } = buildAccountAssignmentsBySubKey(accountRows, subRows);
+  const { allBySubKey, activeCountBySubKey, subKeyOf } = buildAccountAssignmentsBySubKey(accountRows, subRows);
 
   for (const subRow of subRows) {
     const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
@@ -3891,6 +3905,10 @@ export function buildSubcontractorPerformanceMap(
 
     const relatedComplaints = complaintRows.filter((row) => {
       if (isExcludedComplaintValidity(row[COMPLAINT_COL.COMPLAINT_VALIDITY])) return false;
+      // A complaint that has its sub saved belongs to the sub who had the
+      // account when it was filed, whoever has the account now. (A sub that
+      // no longer matches anyone: it belongs to nobody, not to the new sub.)
+      if (row[COMPLAINT_COL.SUB_RECORDED] === "1") return subKeyOf(row[COMPLAINT_COL.SUB_AT_FILING] ?? "") === key;
       return assignedAccountNames.has(normalizeAccountName(row[COMPLAINT_COL.ACCOUNT_NAME]));
     });
 

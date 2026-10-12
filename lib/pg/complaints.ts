@@ -27,10 +27,14 @@ type ComplaintRow = {
   last_follow_up_date_raw: string;
   notes: string;
   sheet_row: number;
+  /** The account's sub when the complaint was filed; null = not recorded (migration 031). */
+  sub_at_filing: string | null;
 };
 
+// sub_at_filing is read through to_jsonb so the list still loads in a
+// database where migration 031 has not been applied yet (it is null there).
 const COMPLAINT_COLUMNS =
-  "complaint_id, account_id_raw, account_name, account_ref, complaint_date_raw, issue, priority, complaint_validity, status, reported_by, assigned_to, last_follow_up_date_raw, notes, sheet_row";
+  "complaint_id, account_id_raw, account_name, account_ref, complaint_date_raw, issue, priority, complaint_validity, status, reported_by, assigned_to, last_follow_up_date_raw, notes, sheet_row, to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing";
 
 async function allComplaintRows(): Promise<ComplaintRow[]> {
   const sql = getSql();
@@ -66,6 +70,7 @@ export type AppsScriptComplaint = {
   complaintValidity: string;
   manager: string;
   subcontractor: string;
+  subAtFiling: string | null;
   description: string;
   resolution: string;
   followUpDate: string;
@@ -93,6 +98,10 @@ export async function getComplaintsAppsScriptShape(): Promise<AppsScriptComplain
     complaintValidity: scriptText(r.complaint_validity),
     manager: scriptText(r.assigned_to),
     subcontractor: "",
+    // The sub who had the account when the complaint was filed (null = not
+    // recorded: it counts for the account's sub of today). The sub's page
+    // uses it; the score reads it in lib/pg/performance.ts.
+    subAtFiling: r.sub_at_filing,
     description: scriptText(r.issue),
     resolution: "",
     followUpDate: "",
@@ -112,7 +121,7 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
   const sql = getSql();
   // Two complaints saved in the same second share an ID in Sheets too; the
   // internal key gets a suffix so both rows can exist.
-  await sql.query(
+  const saved = (await sql.query(
     `WITH next AS (SELECT COALESCE(MAX(sheet_row), 1) + 1 AS n FROM complaints)
      INSERT INTO complaints (
        legacy_key, complaint_id, account_id_raw, account_name, account_ref,
@@ -126,7 +135,8 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
          (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
        ),
        $4::text, $5::date, $6::text, $7::text, $8::text, $9::text, $10::text, $11::text, $12::text, $13::date, $14::text, next.n
-     FROM next`,
+     FROM next
+     RETURNING id`,
     [
       id,
       data.accountId,
@@ -143,7 +153,22 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
       dateOrNull(data.lastFollowUpDate),
       data.notes,
     ]
-  );
+  )) as { id: string }[];
+
+  // The sub who has the account right now is saved on the complaint, so it
+  // stays this sub's complaint if the account changes subs later. Its own
+  // step, after the save: where migration 031 is not applied yet the column
+  // is not there, and the complaint must still be saved.
+  if (saved[0]) {
+    try {
+      await sql.query(
+        `UPDATE complaints c SET sub_at_filing = COALESCE((SELECT btrim(a.subcontractor_raw) FROM accounts a WHERE a.id = c.account_ref), '') WHERE c.id = $1`,
+        [saved[0].id]
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code !== "42703") console.error("[complaints] the sub was not saved on the complaint:", error instanceof Error ? error.message : error);
+    }
+  }
   return id;
 }
 

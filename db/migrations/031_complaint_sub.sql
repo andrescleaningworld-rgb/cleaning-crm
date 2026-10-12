@@ -1,0 +1,15 @@
+-- Complaints: the subcontractor who had the account when the complaint was
+-- filed. Postgres only. Nothing here is imported from or written to Google
+-- Sheets. It only adds one column. Idempotent. Never edit after applying.
+--
+-- Until now a complaint was counted against whoever has the account TODAY,
+-- so a complaint from before an account changed subs counted against the
+-- new sub. From now on each new complaint saves the account's sub at the
+-- moment it is filed, and the score and the sub's page use that.
+--
+--   sub_at_filing   the account's Subcontractor text when the complaint was
+--                   filed. '' = the account had no sub then.
+--                   NULL = not recorded (every complaint from before this):
+--                   it still counts against the account's sub of today,
+--                   until scripts/migrate/fix-complaint-subs.mts fills it in.
+ALTER TABLE complaints ADD COLUMN IF NOT EXISTS sub_at_filing TEXT;
