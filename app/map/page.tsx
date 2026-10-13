@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AccountLink from "../components/AccountLink";
 
 import "leaflet/dist/leaflet.css";
 import type { DivIcon } from "leaflet";
@@ -836,7 +837,7 @@ export default function MapPage() {
           <ul className="ui-list-plain" style={{ marginTop: 8, gap: 4 }}>
             {outOfServiceAreaAccounts.map((account) => (
               <li key={account.id}>
-                {account.name}
+                <AccountLink accountId={account.id} name={account.name} />
                 {account.address ? ` — ${account.address}` : ""}
               </li>
             ))}
@@ -1012,7 +1013,7 @@ export default function MapPage() {
             return (
               <Card
                 key={`${account.id}-${account.fullAddress}`}
-                title={account.name}
+                title={<AccountLink accountId={account.id} name={account.name} />}
                 right={isSelected ? <StatusPill kind="waiting">Selected</StatusPill> : undefined}
               >
                 <a href={mapsSearchUrl(account.fullAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">

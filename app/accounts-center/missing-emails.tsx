@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SearchBar, SkeletonList, StatusPill, showToast } from "@/app/ui";
+import AccountLink from "../components/AccountLink";
 
 type MissingAccount = {
   accountId: string;
@@ -123,7 +124,7 @@ export default function MissingEmails() {
             <ul className="ui-cardlist" aria-label="Accounts without an email">
               {shown.slice(0, 60).map((account) => (
                 <li key={account.accountId}>
-                  <Card title={account.accountName} right={<StatusPill kind={account.portalAccess ? "waiting" : "off"}>{account.portalAccess ? "Portal access on" : "No portal access"}</StatusPill>}>
+                  <Card title={<AccountLink known accountId={account.accountId} name={account.accountName} />} right={<StatusPill kind={account.portalAccess ? "waiting" : "off"}>{account.portalAccess ? "Portal access on" : "No portal access"}</StatusPill>}>
                     <p className="ui-muted">
                       {[account.contactName, account.phone, account.manager ? `Manager: ${account.manager}` : ""].filter(Boolean).join(" · ") || "No contact on file"}
                     </p>

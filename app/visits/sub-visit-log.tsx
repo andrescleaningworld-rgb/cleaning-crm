@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AccountLink from "../components/AccountLink";
 
 type AdminVisit = {
   sheetRow: number;
@@ -458,7 +459,7 @@ export default function SubVisitLog() {
                             {formatTime(v.arrivalTime)}
                           </span>
                         </div>
-                        <p className="mt-1.5 font-bold text-slate-900">{v.accountName || "—"}</p>
+                        <p className="mt-1.5 font-bold text-slate-900">{v.accountName ? <AccountLink name={v.accountName} /> : "—"}</p>
                         <p className="text-sm text-slate-500">{v.subName || "—"}{v.subEmail ? ` · ${v.subEmail}` : ""}</p>
                         {v.notes && (
                           <p className="mt-1 text-sm text-slate-600">{v.notes}</p>

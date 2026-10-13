@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -22,6 +21,7 @@ import {
   showToast,
 } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
+import AccountLink from "../components/AccountLink";
 import ToProcess, { handoffForUpdate, processedLine } from "./to-process";
 
 type RawAccount = {
@@ -606,7 +606,7 @@ function AccountUpdatesPageContent() {
           items={visibleUpdates}
           getKey={(update) => update.id}
           renderCard={(update) => (
-            <Card title={update.accountName}>
+            <Card title={<AccountLink accountId={update.accountId} name={update.accountName} />}>
               <p className="ui-card-text">
                 {update.date} · {update.updateType} · {update.manager}
               </p>
@@ -628,9 +628,7 @@ function AccountUpdatesPageContent() {
             {
               header: "Account",
               cell: (update) => (
-                <Link href={`/accounts/${update.accountId || createIdFromName(update.accountName)}`} className="ui-table-rowlink">
-                  {update.accountName}
-                </Link>
+                <AccountLink accountId={update.accountId} name={update.accountName} className="ui-table-rowlink" />
               ),
             },
             { header: "Type", cell: (update) => update.updateType },

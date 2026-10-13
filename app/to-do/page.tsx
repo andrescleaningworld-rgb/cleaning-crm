@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PinButton, PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../components/pin-to-board";
 import type { PinInfo } from "@/lib/boardPins";
+import AccountLink from "../components/AccountLink";
 import { CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
@@ -507,7 +508,7 @@ function ToDoCard({
           </div>
 
           <h3 className="ui-card-title">
-            {todo.accountName || `${todo.taskType || "Reminder"} (no account)`}
+            {todo.accountName ? <AccountLink accountId={todo.accountId} name={todo.accountName} /> : `${todo.taskType || "Reminder"} (no account)`}
           </h3>
 
           {todo.status === "Done" || todo.status === "Cancelled" ? null : (

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ChecklistTemplateEditor from "@/app/components/ChecklistTemplateEditor";
 import AccountHistory from "@/app/components/AccountHistory";
+import AccountLink from "@/app/components/AccountLink";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 
 type CrewLinkAccount = {
@@ -87,7 +88,9 @@ export default function CrewLinkHomePage() {
           </button>
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <h1 className="ui-screen-title">{selected.accountName}</h1>
+              <h1 className="ui-screen-title">
+                <AccountLink accountId={selected.accountId} name={selected.accountName} />
+              </h1>
               {selected.address ? <p className="ui-muted">{selected.address}</p> : null}
             </div>
             <Link href={`/accounts/${encodeURIComponent(selected.accountId)}`} className="ui-link">

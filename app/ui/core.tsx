@@ -337,7 +337,8 @@ export function Card({
   onClick,
   children,
 }: {
-  title?: string;
+  /** Text, or a link such as <AccountLink />. */
+  title?: ReactNode;
   /** Usually a <StatusPill />. */
   right?: ReactNode;
   href?: string;

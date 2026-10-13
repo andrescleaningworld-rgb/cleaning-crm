@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
+import AccountLink from "../components/AccountLink";
 import { useEffect, useMemo, useState } from "react";
 import {
   BigButton,
@@ -31,6 +31,7 @@ type Complaint = {
   rowNumber?: number | string;
   id?: string;
   date?: string;
+  accountId?: string;
   accountName?: string;
   complaintType?: string;
   priority?: string;
@@ -88,14 +89,6 @@ function clean(value: unknown): string {
 
 function normalize(value: unknown): string {
   return clean(value).toLowerCase();
-}
-
-function slugify(value: unknown): string {
-  return clean(value)
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 function formatDate(value: unknown): string {
@@ -598,9 +591,7 @@ export default function ComplaintsPage() {
   };
   const accountLink = (c: Complaint) =>
     clean(c.accountName) ? (
-      <Link href={`/accounts/${slugify(c.accountName)}`} className="ui-link">
-        {clean(c.accountName)}
-      </Link>
+      <AccountLink accountId={clean(c.accountId)} name={clean(c.accountName)} className="ui-link" />
     ) : (
       "No account"
     );
@@ -696,7 +687,7 @@ export default function ComplaintsPage() {
           items={filteredComplaints.map((complaint, index) => ({ complaint, index }))}
           getKey={({ complaint, index }) => `${complaint.id || "complaint"}-${index}`}
           renderCard={({ complaint }) => (
-            <Card title={clean(complaint.accountName) || "No account"} right={statusPill(complaint)}>
+            <Card title={<AccountLink accountId={clean(complaint.accountId)} name={clean(complaint.accountName) || "No account"} />} right={statusPill(complaint)}>
               <p className="ui-card-text">
                 {formatDate(complaint.date)}
                 {clean(complaint.complaintType) ? ` · ${clean(complaint.complaintType)}` : ""}

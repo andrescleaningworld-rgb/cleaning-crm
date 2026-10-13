@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
+import AccountLink from "../../components/AccountLink";
 
 type SubmissionSummary = {
   id: number;
@@ -308,7 +309,7 @@ export default function PorterChecklistSubmissionsPage() {
             >
               <div>
                 <p className="ui-strong">
-                  {submission.accountName} — {submission.locationName}
+                  <AccountLink nested accountId={submission.accountId} name={submission.accountName} /> — {submission.locationName}
                   {submission.tabName ? (
                     <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-base font-black text-blue-700">{submission.tabName}</span>
                   ) : null}

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, CHEER, Card, Counts, EmptyState, Field, Sheet, Tabs, showToast } from "@/app/ui";
 import SupplyOrderSheet from "../components/supply-order-sheet";
+import AccountLink from "../components/AccountLink";
 
 type ShelfItem = { id: number; name: string; category: string; unit: string; photoUrl: string; unitCost: number | null; vendor: string; shelfLocation: string; minLevel: number | null; shelfCount: number | null; low: boolean };
 type OrderLine = { rowNumber: number; orderId: string; groupId: string; day: string; accountName: string; item: string; quantity: number; unit: string; source: string; step: string; cost: number; orderedBy: string };
@@ -196,7 +197,9 @@ export default function SupplyControl() {
                     <p className="ui-strong">
                       {line.quantity} × {line.item}
                     </p>
-                    <p className="ui-card-text">{line.accountName}</p>
+                    <p className="ui-card-text">
+                      <AccountLink name={line.accountName} />
+                    </p>
                     <p className="ui-muted">
                       {line.source === "shelf" ? "From shelf" : "Buy / ship direct"} · {STEP_WORD[line.step] ?? line.step} · {dollars(line.cost)}
                       {line.orderedBy ? ` · ${line.orderedBy}` : ""}
@@ -231,7 +234,9 @@ export default function SupplyControl() {
             {data.spend.rows.map((row) => (
               <div key={`${row.accountId}|${row.accountName}`} className="ui-card-row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8, padding: "8px 0" }} data-spend-row={row.accountName}>
                 <div>
-                  <p className="ui-strong">{row.accountName}</p>
+                  <p className="ui-strong">
+                    <AccountLink accountId={row.accountId} name={row.accountName} />
+                  </p>
                   <p className="ui-muted">
                     {row.items} item{row.items === 1 ? "" : "s"}
                     {row.accountId ? ` · ${row.mode === "billed" ? "Billed to customer" : "Supplies included"}` : ""}
@@ -263,7 +268,12 @@ export default function SupplyControl() {
                 <strong>
                   {MOVE_WORD[move.kind] ?? move.kind} {Math.abs(move.qty)} × {move.itemName}
                 </strong>
-                {move.accountName ? ` · ${move.accountName}` : ""}
+                {move.accountName ? (
+                  <>
+                    {" · "}
+                    <AccountLink name={move.accountName} />
+                  </>
+                ) : null}
                 {move.staffName ? ` · ${move.staffName}` : ""} · {new Date(move.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </p>
             ))}

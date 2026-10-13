@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { APIProvider, Circle, InfoWindow, Map as GoogleMap, useMapsLibrary } from "@vis.gl/react-google-maps";
+import AccountLink from "../components/AccountLink";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
@@ -828,7 +829,7 @@ export default function CoverageMap() {
           <ul className="ui-list-plain" style={{ marginTop: 8, gap: 4 }}>
             {outOfServiceAreaAccounts.map((account) => (
               <li key={account.id}>
-                {account.name} — {account.fullAddress}
+                <AccountLink accountId={account.id} name={account.name} /> — {account.fullAddress}
               </li>
             ))}
           </ul>

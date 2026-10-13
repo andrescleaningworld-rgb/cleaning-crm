@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList } from "@/app/ui";
 import { EXTRA_JOBS_RULE, dayLabel, isDay, money, monthOf, todayDay, type PayRow } from "@/lib/extraJobs";
+import AccountLink from "../../components/AccountLink";
 import styles from "../extra-jobs.module.css";
 
 type State = "loading" | "off" | "failed" | "ready";
@@ -110,7 +111,9 @@ export default function ExtraJobsPayPage() {
                               </Link>
                             </td>
                             <td>{dayLabel(job.jobDate, false)}</td>
-                            <td>{job.accountName}</td>
+                            <td>
+                              <AccountLink accountId={job.accountId} name={job.accountName} />
+                            </td>
                             <td>{job.description}</td>
                             <td className={styles.amount}>{money(job.subPay)}</td>
                           </tr>

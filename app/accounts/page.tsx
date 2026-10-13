@@ -32,6 +32,7 @@ import { getGoogleMapsUrl } from "../lib/backend";
 import { distanceInMiles, formatMiles } from "../lib/distance";
 import { useCustomerSearch, AutocompleteField } from "../sub-schedules/autocomplete";
 import CancellationFields from "../components/CancellationFields";
+import AccountLink from "../components/AccountLink";
 import { cancellationNote, cancellationProblem } from "@/lib/cancellation";
 
 // ---------------------------------------------------------------------------
@@ -2943,7 +2944,7 @@ async function handleSaveTransferProposal() {
                           return (
                             <div key={`${normalizeText(account.accountId) || index}-${index}`} className="ui-stat">
                               <p className="ui-strong">
-                                {index + 1}. {account.accountName || "Unnamed Account"}
+                                {index + 1}. <AccountLink accountId={account.accountId} name={account.accountName || "Unnamed Account"} />
                               </p>
                               {mapsUrl !== "#" ? (
                                 <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="ui-link">
@@ -2976,7 +2977,9 @@ async function handleSaveTransferProposal() {
                       const accountId = getAccountId(account);
                       return (
                         <div key={`proposal-${accountId}`} className="ui-stat">
-                          <p className="ui-strong">{account.accountName || "Unnamed Account"}</p>
+                          <p className="ui-strong">
+                            <AccountLink known accountId={accountId} name={account.accountName || "Unnamed Account"} />
+                          </p>
                           <p className="ui-muted">{getProposalAddress(account) || "No address"}</p>
                           <p className="ui-muted">Days: {getProposalCleaningDays(account)}</p>
                           <p className="ui-muted">Keys / Alarm: {getKeysAlarmRequired(account)}</p>
@@ -3477,7 +3480,7 @@ function AccountCard({
           </label>
         ) : null}
         <h3 className="ui-acct-name">
-          <Link href={href}>{name}</Link>
+          <AccountLink known accountId={accountId} name={name} />
         </h3>
         <p className="ui-acct-line">
           {mapsUrl !== "#" ? (

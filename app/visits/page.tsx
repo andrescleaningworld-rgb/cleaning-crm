@@ -22,6 +22,7 @@ import {
   Tips,
   type StatusKind,
 } from "@/app/ui";
+import AccountLink from "../components/AccountLink";
 
 type Visit = {
   id?: string;
@@ -315,7 +316,7 @@ export default function VisitsPage() {
                 items={visibleVisits.map((visit, index) => ({ visit, index }))}
                 getKey={({ visit, index }) => `${visit.id || "visit"}-${index}`}
                 renderCard={({ visit }) => (
-                  <Card title={clean(visit.accountName) || "No account name"} right={conditionPill(visit)}>
+                  <Card title={<AccountLink accountId={clean(visit.accountId)} name={clean(visit.accountName) || "No account name"} />} right={conditionPill(visit)}>
                     <p className="ui-card-text">
                       {formatDate(visit.date) || "No date"} · {clean(visit.visitType) || "No type"} · {clean(visit.manager) || "No manager"}
                     </p>
@@ -332,17 +333,24 @@ export default function VisitsPage() {
                   </Card>
                 )}
                 columns={[
-                  { header: "Date", cell: ({ visit }) => <span className="ui-nowrap">{formatDate(visit.date) || "No date"}</span> },
                   {
-                    header: "Account",
+                    header: "Date",
                     cell: ({ visit }) =>
                       visit.id ? (
-                        <Link href={visitHref(visit)} className="ui-table-rowlink">
-                          {clean(visit.accountName) || "No account name"}
+                        <Link href={visitHref(visit)} className="ui-table-rowlink ui-nowrap">
+                          {formatDate(visit.date) || "No date"}
                         </Link>
                       ) : (
-                        <span className="ui-strong">{clean(visit.accountName) || "No account name"}</span>
+                        <span className="ui-nowrap">{formatDate(visit.date) || "No date"}</span>
                       ),
+                  },
+                  {
+                    header: "Account",
+                    cell: ({ visit }) => (
+                      <span className="ui-strong">
+                        <AccountLink accountId={clean(visit.accountId)} name={clean(visit.accountName) || "No account name"} className="ui-table-rowlink" />
+                      </span>
+                    ),
                   },
                   { header: "Visit Type", cell: ({ visit }) => clean(visit.visitType) || "None" },
                   { header: "Completed By", cell: ({ visit }) => clean(visit.manager) || "None" },

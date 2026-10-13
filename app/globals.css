@@ -1487,6 +1487,21 @@ button.ui-card:hover {
   overflow-wrap: anywhere;
 }
 
+/* An account name that opens the account (AccountLink): the same text as
+   around it, underlined only on hover. */
+.ui-account-link {
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ui-account-link:hover,
+.ui-account-link:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* Search box with its Search button: stacked on a phone, side by side when wide. */
 .ui-searchrow {
   display: flex;

@@ -5,6 +5,7 @@ import { CHEER, StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
 import OrderSteps from "./order-steps";
+import AccountLink from "../components/AccountLink";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
 
 type Account = {
@@ -1092,7 +1093,7 @@ export default function SupplyOrdersPage() {
 
                         <td className="px-4 py-3 align-top">
                           <div className="ui-strong">
-                            {order.accountName || "-"}
+                            {order.accountName ? <AccountLink accountId={order.accountId} name={order.accountName} /> : "-"}
                           </div>
 
                           {order.accountId ? (
@@ -1246,7 +1247,7 @@ export default function SupplyOrdersPage() {
                   Account
                 </p>
                 <p className="ui-strong">
-                  {selectedOrder.accountName || "-"}
+                  {selectedOrder.accountName ? <AccountLink accountId={selectedOrder.accountId} name={selectedOrder.accountName} /> : "-"}
                 </p>
                 {selectedOrder.accountId ? (
                   <p className="ui-muted">

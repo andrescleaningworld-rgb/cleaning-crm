@@ -14,6 +14,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AddPhotos from "./add-photos";
+import AccountLink from "../components/AccountLink";
 import { BigButton, Counts, EmptyState, ErrorBox, Field, PullToRefresh, Screen, SearchBar, Sheet, SkeletonList, Tips, showToast } from "@/app/ui";
 
 type Photo = {
@@ -183,7 +184,7 @@ function Viewer({ photos, index, onIndex, onClose, onStar }: { photos: Photo[]; 
         ) : null}
       </div>
       <div className="ph-viewer-info">
-        <p className="ph-viewer-account">{photo.accountName || "No account"}</p>
+        <p className="ph-viewer-account">{photo.accountName ? <AccountLink accountId={photo.accountId} name={photo.accountName} /> : "No account"}</p>
         <p>
           {photo.moment === "before" ? "Before · " : photo.moment === "after" ? "After · " : ""}
           {photo.kind}
@@ -374,7 +375,8 @@ function PhotosContent() {
           paired.add(sides.after[i].photo.id);
         }
       }
-      return { name: entry.name, total: entry.items.length, pairs, rest: entry.items.filter((item) => !paired.has(item.photo.id)) };
+      const first = entry.items[0]?.photo;
+      return { name: entry.name, accountId: first?.accountName ? first.accountId : "", isAccount: Boolean(first?.accountName), total: entry.items.length, pairs, rest: entry.items.filter((item) => !paired.has(item.photo.id)) };
     });
   }, [photos]);
 
@@ -478,7 +480,7 @@ function PhotosContent() {
             groups.map((entry) => (
               <section key={entry.name} className="ph-group" aria-label={entry.name}>
                 <div className="ui-card-row">
-                  <h2 className="ui-section-title">{entry.name}</h2>
+                  <h2 className="ui-section-title">{entry.isAccount ? <AccountLink accountId={entry.accountId} name={entry.name} /> : entry.name}</h2>
                   <span className="ui-muted">
                     {entry.total} photo{entry.total === 1 ? "" : "s"}
                   </span>

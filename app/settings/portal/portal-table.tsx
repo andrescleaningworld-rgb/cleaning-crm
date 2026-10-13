@@ -15,6 +15,7 @@ import {
   StatusPill,
   type StatusKind,
 } from "@/app/ui";
+import AccountLink from "../../components/AccountLink";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -269,7 +270,7 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
           items={filtered.map((account, idx) => ({ account, key: `${account.accountName}-${idx}` }))}
           getKey={(item) => item.key}
           renderCard={({ account }) => (
-            <Card title={account.accountName} right={<AccessBadge account={account} />}>
+            <Card title={<AccountLink accountId={account.mainAccountId} name={account.accountName} />} right={<AccessBadge account={account} />}>
               <p>{account.serviceType || "No service type"}</p>
               <p><StatusBadge status={account.accountStatus} /></p>
               <p>{code(account)}</p>
@@ -277,7 +278,12 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
             </Card>
           )}
           columns={[
-            { header: "Account Name", cell: ({ account }) => <span className="ui-strong">{account.accountName}</span> },
+            { header: "Account Name", cell: ({ account }) => (
+                <span className="ui-strong">
+                  <AccountLink accountId={account.mainAccountId} name={account.accountName} />
+                </span>
+              ),
+            },
             { header: "Service Type", cell: ({ account }) => account.serviceType || "No service type" },
             { header: "Status", cell: ({ account }) => <StatusBadge status={account.accountStatus} /> },
             { header: "Portal Code", cell: ({ account }) => code(account) },

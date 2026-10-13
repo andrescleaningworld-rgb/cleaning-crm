@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, Sheet, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
 import { EXTRA_JOB_COMMISSION_PERCENT, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
+import AccountLink from "../../components/AccountLink";
 import styles from "../extra-jobs.module.css";
 
 type State = "loading" | "off" | "missing" | "failed" | "ready";
@@ -132,7 +133,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
         <ErrorBox title="The extra job did not load." onRetry={() => void load()} />
       ) : (
         <>
-          <Card title={job.accountName} right={<StatusPill kind={done ? "done" : cancelled ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>}>
+          <Card title={<AccountLink accountId={job.accountId} name={job.accountName} />} right={<StatusPill kind={done ? "done" : cancelled ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>}>
             {cancelled ? (
               <p className={styles.cancelled} style={{ margin: "0 0 14px" }}>
                 Cancelled by {job.cancelledBy}, {friendlyDate(job.cancelledAt)}. Reason: {job.cancelReason}

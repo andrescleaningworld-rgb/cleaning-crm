@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import AccountLink from "../components/AccountLink";
 
 type AnyRow = Record<string, unknown>;
 
@@ -1338,7 +1339,7 @@ export default function ReportsPage() {
                             {safeDate(getStartDate(account))}
                           </td>
                           <td className="px-4 py-3 font-semibold text-gray-900">
-                            {getAccountName(account)}
+                            <AccountLink accountId={getValue(account, ["accountId", "Account ID", "id", "ID"])} name={getAccountName(account)} />
                           </td>
                           <td className="px-4 py-3">
                             {getAccountManager(account) || "-"}
@@ -1420,7 +1421,7 @@ export default function ReportsPage() {
                             {safeDate(getCancelledDate(account))}
                           </td>
                           <td className="px-4 py-3 font-semibold text-gray-900">
-                            {getAccountName(account)}
+                            <AccountLink accountId={getValue(account, ["accountId", "Account ID", "id", "ID"])} name={getAccountName(account)} />
                           </td>
                           <td className="px-4 py-3">
                             {getAccountManager(account) || "-"}
@@ -1509,12 +1510,15 @@ export default function ReportsPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 font-semibold text-gray-900">
-                            {getValue(complaint, [
-                              "account",
-                              "Account",
-                              "accountName",
-                              "Account Name",
-                            ]) || "-"}
+                            <AccountLink
+                              accountId={getValue(complaint, ["accountId", "Account ID"])}
+                              name={getValue(complaint, [
+                                "account",
+                                "Account",
+                                "accountName",
+                                "Account Name",
+                              ]) || "-"}
+                            />
                           </td>
                           <td className="px-4 py-3">
                             {getValue(complaint, [
@@ -1620,12 +1624,15 @@ export default function ReportsPage() {
                               ]) || "-"}
                             </td>
                             <td className="px-4 py-3 font-semibold text-gray-900">
-                              {getValue(sale, [
-                                "account",
-                                "Account",
-                                "accountName",
-                                "Account Name",
-                              ]) || "-"}
+                              <AccountLink
+                                accountId={getValue(sale, ["accountId", "Account ID"])}
+                                name={getValue(sale, [
+                                  "account",
+                                  "Account",
+                                  "accountName",
+                                  "Account Name",
+                                ]) || "-"}
+                              />
                             </td>
                             <td className="px-4 py-3">
                               {getValue(sale, [

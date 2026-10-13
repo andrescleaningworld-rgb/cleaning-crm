@@ -16,6 +16,7 @@ import {
   showToast,
   type StatusKind,
 } from "@/app/ui";
+import AccountLink from "../components/AccountLink";
 
 const TAB_LABELS: Record<string, string> = {
   "portal-complaints": "Complaint",
@@ -161,7 +162,7 @@ export default function SubmissionsView({ initial }: { initial: PortalSubmission
           getKey={key}
           renderCard={(s) => (
             <Card
-              title={s.accountName}
+              title={<AccountLink nested name={s.accountName} />}
               right={<StatusPill kind={STATUS_KINDS[s.status] ?? "off"}>{s.status}</StatusPill>}
               onClick={() => open(s)}
             >

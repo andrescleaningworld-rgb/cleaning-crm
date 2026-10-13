@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SubSchedule } from "./schedule-modal";
+import AccountLink from "../components/AccountLink";
 import type { SearchOption } from "./autocomplete";
 import {
   generateScheduleDates,
@@ -177,7 +178,9 @@ function VisitEntry({
   const accountName = resolveAccountName(visit.accountId);
   return (
     <button type="button" onClick={() => onJumpToAccount(visit.accountId, accountName)} className="ui-visit">
-      <span className="ui-strong">{accountName}</span>
+      <span className="ui-strong">
+        <AccountLink nested accountId={visit.accountId} name={accountName} />
+      </span>
       <span>
         {resolveTeamLeaderName(visit.subId)} · {visit.timeWindow || "No time window"}
       </span>

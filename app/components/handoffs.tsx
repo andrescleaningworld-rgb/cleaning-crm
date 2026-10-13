@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { BigButton, CHEER, ErrorBox, Field, Sheet, StatusPill, Stepper, showToast, undoable } from "@/app/ui";
+import AccountLink from "./AccountLink";
 import {
   KIND_LABEL,
   handoffHref,
@@ -206,9 +207,12 @@ export function HandoffCard({
   const late = isLate(item, settings);
   const { step } = stepOf(item, settings);
   const owner = step ? ownerLabel(step.owner, item) : "";
+  const shownTitle = item.title || item.accountName || KIND_LABEL[item.kind];
   const body = (
     <>
-      <span className="ui-acct-name">{item.title || item.accountName || KIND_LABEL[item.kind]}</span>
+      <span className="ui-acct-name">
+        {item.accountName && shownTitle === item.accountName ? <AccountLink nested={Boolean(href)} accountId={item.accountId} name={item.accountName} /> : shownTitle}
+      </span>
       <span className="ui-actions-row">
         {showKind ? <StatusPill kind="off">{KIND_LABEL[item.kind]}</StatusPill> : null}
         <WaitingPill item={item} settings={settings} />

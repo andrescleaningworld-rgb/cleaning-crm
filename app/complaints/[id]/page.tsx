@@ -19,11 +19,13 @@ import {
   type StatusKind,
 } from "@/app/ui";
 import { useParams } from "next/navigation";
+import AccountLink from "../../components/AccountLink";
 
 type Complaint = {
   rowNumber?: number | string;
   id?: string;
   date?: string;
+  accountId?: string;
   accountName?: string;
   complaintType?: string;
   priority?: string;
@@ -480,7 +482,7 @@ export default function ComplaintDetailPage() {
         />
       ) : (
         <div className="ui-print-view ui-screen-body">
-          <Card title={clean(complaint.accountName) || "No account"}>
+          <Card title={<AccountLink accountId={clean(complaint.accountId)} name={clean(complaint.accountName) || "No account"} />}>
             <div className="ui-actions-row" style={{ marginTop: 4 }}>
               <StatusPill kind={statusKind(complaint.status)}>{clean(complaint.status) || "Open"}</StatusPill>
               <StatusPill kind={priorityKind(priority)}>{priority ? `${priority} priority` : "No priority"}</StatusPill>

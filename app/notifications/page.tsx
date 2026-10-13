@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AccountLink from "../components/AccountLink";
 
 type SubPortalIssue = {
   rowNumber?: number;
@@ -147,7 +148,7 @@ export default function NotificationsPage() {
             </p>
 
             <h2 className="ui-card-title">
-              {cleanText(issue.accountName) || "Unknown Account"}
+              <AccountLink accountId={issue.accountId} name={cleanText(issue.accountName) || "Unknown Account"} />
             </h2>
 
             <p className="ui-strong">

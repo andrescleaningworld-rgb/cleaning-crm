@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BigButton, Card, CardList, EmptyState, ErrorBox, Screen, SearchBar, SelectField, SkeletonList } from "@/app/ui";
+import AccountLink from "../components/AccountLink";
 
 // Raw pass-through account shape — kept loose (index signature) so a save
 // can spread the full record back to /api/accounts without dropping fields
@@ -257,7 +258,7 @@ export default function AccountsCenterKeys() {
             const accountId = getAccountId(account);
             const isSaving = savingId === accountId;
             return (
-              <Card title={clean(account.accountName) || "No name"}>
+              <Card title={<AccountLink known accountId={accountId} name={clean(account.accountName) || "No name"} />}>
                 {rowErrors[accountId] ? <p className="ui-field-error">{rowErrors[accountId]}</p> : null}
                 <div className="ui-stack">
                   <div>
@@ -280,7 +281,9 @@ export default function AccountsCenterKeys() {
               header: "Account",
               cell: (account) => (
                 <>
-                  <p className="ui-strong">{clean(account.accountName) || "No name"}</p>
+                  <p className="ui-strong">
+                    <AccountLink known accountId={getAccountId(account)} name={clean(account.accountName) || "No name"} />
+                  </p>
                   {rowErrors[getAccountId(account)] ? <p className="ui-field-error">{rowErrors[getAccountId(account)]}</p> : null}
                 </>
               ),

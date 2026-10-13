@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { BigButton, Card, EmptyState, ErrorBox, LABELS, MoreMenu, Screen, SkeletonList } from "@/app/ui";
+import AccountLink from "../../components/AccountLink";
 
 type RawAccountUpdate = {
   id?: string;
@@ -229,9 +229,7 @@ export default function AccountUpdateDetailPage() {
             <div className="ui-detail">
               <dt>Account</dt>
               <dd>
-                <Link href={accountLink} className="ui-link">
-                  {update.accountName}
-                </Link>
+                <AccountLink accountId={update.accountId} name={update.accountName} className="ui-link" />
               </dd>
             </div>
             <div className="ui-detail">

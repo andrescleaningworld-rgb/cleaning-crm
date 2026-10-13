@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Field, Screen, SearchBar, SkeletonList, friendlyDate, showToast } from "@/app/ui";
 import { KIND_LABEL, type Paper } from "@/lib/board";
 import { postBoard } from "../board-client";
+import AccountLink from "../../components/AccountLink";
 import styles from "../board.module.css";
 
 type State = "loading" | "off" | "failed" | "ready";
@@ -107,7 +108,9 @@ export default function ArchiveClient() {
                 {papers.map((paper) => (
                   <div key={keyOf(paper)} className={styles.trayRow}>
                     <div>
-                      <p className="ui-strong">{paper.accountName || paper.title || KIND_LABEL[paper.kind]}</p>
+                      <p className="ui-strong">
+                        {paper.accountName ? <AccountLink accountId={paper.accountId} name={paper.accountName} /> : paper.title || KIND_LABEL[paper.kind]}
+                      </p>
                       <p className="ui-muted">
                         {KIND_LABEL[paper.kind]}
                         {paper.title && paper.title !== paper.accountName ? `: ${paper.title}` : ""}. Done {friendlyDate(paper.doneAt)}

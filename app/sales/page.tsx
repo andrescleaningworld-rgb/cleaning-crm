@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { StatusPill, type StatusKind } from "@/app/ui";
+import AccountLink from "../components/AccountLink";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -981,7 +982,9 @@ function SalesPageContent() {
                 Sale For
               </p>
               <p className="ui-stat-value">
-                {selectedAccountName || accountNameFromUrl || accountIdFromUrl}
+                <AccountLink accountId={selectedAccountId || accountIdFromUrl} name={selectedAccountName || accountNameFromUrl}>
+                  {selectedAccountName || accountNameFromUrl || accountIdFromUrl}
+                </AccountLink>
               </p>
             </div>
           )}
@@ -1306,12 +1309,11 @@ function SalesPageContent() {
                       </td>
 
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/accounts/${sale.accountId}`}
+                        <AccountLink
+                          accountId={sale.accountId}
+                          name={sale.accountName}
                           className="ui-link print:text-gray-900"
-                        >
-                          {sale.accountName}
-                        </Link>
+                        />
                       </td>
 
                       <td className="px-4 py-3 font-medium text-gray-900">

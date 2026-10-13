@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
 import MyWork from "../components/my-work";
+import AccountLink from "../components/AccountLink";
 import { BigButton, CHEER, Counts, EmptyState, ErrorBox, PullToRefresh, Screen, SkeletonList, StatusPill, Tile, Tips } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
@@ -482,6 +483,11 @@ function isToDoOverdue(row: AnyRow): boolean {
   return dueDate < today;
 }
 
+// The account a to-do, complaint or supply order is about (not the record's own ID).
+function getRecordAccountId(row: AnyRow): string {
+  return cleanText(getValue(row, ["accountId", "Account ID", "account_id"]));
+}
+
 function getToDoAccount(row: AnyRow): string {
   return cleanText(
     getValue(row, ["Account", "Account Name", "account", "accountName"])
@@ -885,7 +891,9 @@ export default function DashboardPage() {
                   return (
                     <li key={`todo-${id || index}`}>
                       <Link href={id ? `/to-do?id=${encodeURIComponent(id)}` : "/to-do"} className={`ui-acct ui-acct-link ${isToDoOverdue(todo) ? "ui-acct-problem" : ""}`.trim()}>
-                        <span className="ui-acct-name">{getToDoAccount(todo) || "No account"}</span>
+                        <span className="ui-acct-name">
+                          <AccountLink nested accountId={getRecordAccountId(todo)} name={getToDoAccount(todo) || "No account"} />
+                        </span>
                         <span className="ui-actions-row">
                           {isToDoOverdue(todo) ? <StatusPill kind="needs-you">Overdue</StatusPill> : <StatusPill kind="waiting">{getToDoStatus(todo) || "Open"}</StatusPill>}
                           <StatusPill kind="off">{getToDoTaskType(todo) || "Task"}</StatusPill>
@@ -976,7 +984,9 @@ export default function DashboardPage() {
                     return (
                       <li key={`complaint-${index}`}>
                         <Link href={id ? `/complaints/${encodeURIComponent(id)}` : "/complaints"} className={`ui-acct ui-acct-link ${open ? "ui-acct-problem" : ""}`.trim()}>
-                          <span className="ui-acct-name">{getRowAccountName(complaint) || "Unknown Account"}</span>
+                          <span className="ui-acct-name">
+                            <AccountLink nested accountId={getRecordAccountId(complaint)} name={getRowAccountName(complaint) || "Unknown Account"} />
+                          </span>
                           <span className="ui-actions-row">
                             <StatusPill kind={open ? "needs-you" : "done"}>{getComplaintStatus(complaint) || "Open"}</StatusPill>
                           </span>
@@ -1008,7 +1018,9 @@ export default function DashboardPage() {
                   {dashboard.recentSupplyOrders.map((order, index) => (
                     <li key={`supply-order-${index}`}>
                       <Link href="/supply-orders" className="ui-acct ui-acct-link">
-                        <span className="ui-acct-name">{getRowAccountName(order) || "Unknown Account"}</span>
+                        <span className="ui-acct-name">
+                          <AccountLink nested accountId={getRecordAccountId(order)} name={getRowAccountName(order) || "Unknown Account"} />
+                        </span>
                         <span className="ui-actions-row">
                           <StatusPill kind={isNewSupplyOrder(order) ? "waiting" : "off"}>{getSupplyOrderStatus(order) || "No status"}</StatusPill>
                         </span>

@@ -25,6 +25,7 @@ import {
 import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, type BoardData, type Paper } from "@/lib/board";
 import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
+import AccountLink from "../components/AccountLink";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
@@ -282,12 +283,16 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 {paperLabel(open)}
                 {open.badge ? `, ${open.badge}` : ""}
               </p>
-              <h2 className={styles.bigTitle}>{open.title || KIND_LABEL[open.kind]}</h2>
+              <h2 className={styles.bigTitle}>
+                {open.accountName && open.accountName === open.title ? <AccountLink accountId={open.accountId} name={open.accountName} /> : open.title || KIND_LABEL[open.kind]}
+              </h2>
               <dl className={styles.bigFacts}>
                 {open.accountName && open.accountName !== open.title ? (
                   <>
                     <dt>Account</dt>
-                    <dd>{open.accountName}</dd>
+                    <dd>
+                      <AccountLink accountId={open.accountId} name={open.accountName} />
+                    </dd>
                   </>
                 ) : null}
                 <dt>Who</dt>

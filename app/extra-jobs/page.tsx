@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
 import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
+import AccountLink from "../components/AccountLink";
 import styles from "./extra-jobs.module.css";
 
 type Tab = "setup" | "done" | "cancelled" | "all";
@@ -121,7 +122,9 @@ export default function ExtraJobsPage() {
                       </span>
                       <StatusPill kind={job.status === "done" ? "done" : job.status === "cancelled" ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>
                     </span>
-                    <span className={styles.jobName}>{job.accountName}</span>
+                    <span className={styles.jobName}>
+                      <AccountLink nested accountId={job.accountId} name={job.accountName} />
+                    </span>
                     <span className={styles.jobWhat}>{job.description}</span>
                     <span className={styles.jobFacts}>
                       {dayLabel(job.jobDate)} · {job.subName} · {money(job.customerPrice)}

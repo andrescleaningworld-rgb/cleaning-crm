@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
+import AccountLink from "../../components/AccountLink";
 import { parseISO } from "@/lib/dateUtils";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
 
@@ -300,12 +300,6 @@ export default function VisitDetailPage() {
     );
   }
 
-  const accountHref = linkedAccount
-    ? `/accounts/${encodeURIComponent(
-        linkedAccount.accountId || linkedAccount.id || linkedAccount.accountName || visit.accountName
-      )}`
-    : null;
-
   const latestEdit = editHistory[0];
 
   return (
@@ -332,16 +326,10 @@ export default function VisitDetailPage() {
           <div className="ui-detail">
             <dt>Account</dt>
             <dd>
-              {accountHref ? (
-                <Link href={accountHref} className="ui-link">
-                  {clean(visit.accountName) || "Unnamed Account"}
-                </Link>
-              ) : (
-                <>
-                  {clean(visit.accountName) || "Unnamed Account"}
-                  {accountLookupDone ? <span className="ui-muted"> (no matching account on file, so no link)</span> : null}
-                </>
-              )}
+              <AccountLink accountId={visit.accountId} name={clean(visit.accountName)} className="ui-link">
+                {clean(visit.accountName) || "Unnamed Account"}
+              </AccountLink>
+              {accountLookupDone && !linkedAccount ? <span className="ui-muted"> (no matching account on file, so no link)</span> : null}
             </dd>
           </div>
           <div className="ui-detail">

@@ -7,6 +7,7 @@
 // Accounts Center Team Hub tab and each account's own Team Hub tab.
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
+import AccountLink from "../components/AccountLink";
 
 type SubSite = {
   siteId: number;
@@ -61,7 +62,10 @@ function SubOpenItems({ subId, accountNames }: { subId: string; accountNames: Re
     <div className="space-y-2 border-t border-gray-100 p-3">
       {issues.map((issue) => (
         <div key={`issue-${issue.id}`} className="text-sm text-gray-700">
-          <span className="font-semibold">{accountNames[issue.accountId] ?? issue.accountId}</span> — {issue.siteLabel} · {issue.category}
+          <span className="font-semibold">
+            <AccountLink accountId={issue.accountId} name={accountNames[issue.accountId] ?? issue.accountId} />
+          </span>{" "}
+          — {issue.siteLabel} · {issue.category}
           {issue.note ? (
             <>
               {": "}
@@ -74,7 +78,10 @@ function SubOpenItems({ subId, accountNames }: { subId: string; accountNames: Re
       ))}
       {orders.map((order) => (
         <div key={`order-${order.id}`} className="text-sm text-gray-700">
-          <span className="font-semibold">{accountNames[order.accountId] ?? order.accountId}</span> — {order.siteLabel} · order ({order.lines.length} item{order.lines.length === 1 ? "" : "s"})
+          <span className="font-semibold">
+            <AccountLink accountId={order.accountId} name={accountNames[order.accountId] ?? order.accountId} />
+          </span>{" "}
+          — {order.siteLabel} · order ({order.lines.length} item{order.lines.length === 1 ? "" : "s"})
         </div>
       ))}
       {issues.length === 0 && orders.length === 0 && <p className="text-sm text-gray-500">Nothing open.</p>}
@@ -136,7 +143,9 @@ export default function SubCenterTeamHub() {
                 {sub.sites.map((site) => (
                   <li key={site.siteId} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm">
                     <div>
-                      <span className="font-semibold text-gray-900">{site.accountName}</span>
+                      <span className="font-semibold text-gray-900">
+                        <AccountLink accountId={site.accountId} name={site.accountName} />
+                      </span>
                       {site.siteLabel && site.siteLabel !== site.accountName && <span className="text-gray-500"> · {site.siteLabel}</span>}
                       <p className="text-xs text-gray-500">
                         {site.crews.map((c) => `${c.name}${c.active ? "" : " (inactive)"}`).join(", ")}
