@@ -15,6 +15,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useSearchParams } from "next/navigation";
 import AddPhotos from "./add-photos";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { BigButton, Counts, EmptyState, ErrorBox, Field, PullToRefresh, Screen, SearchBar, Sheet, SkeletonList, Tips, showToast } from "@/app/ui";
 
 type Photo = {
@@ -251,6 +252,8 @@ function PhotosContent() {
   const [typed, setTyped] = useState("");
   const [account, setAccount] = useState(params.get("account") ?? "");
   const accountId = params.get("accountId") ?? "";
+  // Opened from an account's page: a way back, for as long as that account is still the one showing.
+  const scope = useAccountScope();
   const [kind, setKind] = useState("");
   const [group, setGroup] = useState<"" | "problems" | "before-after">("");
   const [dateChoice, setDateChoice] = useState<DateChoice>("all");
@@ -405,6 +408,7 @@ function PhotosContent() {
         ) : undefined
       }
     >
+      {account && account === (params.get("account") ?? "") ? <AccountScopeBar scope={scope} what="photos" /> : null}
       <AddPhotos open={adding} onClose={() => setAdding(false)} onAdded={() => void refresh()} startAccount={account} />
       <Tips
         id="photos"

@@ -202,7 +202,8 @@ function AccountUpdatesPageContent() {
   const [errorMessage, setErrorMessage] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   // Layout only: the add form and the filters each open in a sheet.
-  const [showForm, setShowForm] = useState(false);
+  // "+ New update" on the account page's tile opens this list with the form already up (?add=1).
+  const [showForm, setShowForm] = useState(() => searchParams.get("add") === "1");
   const [showFilters, setShowFilters] = useState(false);
   // Handoffs: which updates the office still has to process, and who processed the rest.
   const handoffs = useHandoffs();

@@ -31,7 +31,8 @@ const STATUS_LABEL: Record<Status, string> = { new: "Sent", ordered: "Ordered", 
 const STATUS_KIND: Record<Status, StatusKind> = { new: "needs-you", ordered: "waiting", delivered: "done", cancelled: "off" };
 const isOpen = (order: Order) => order.status === "new" || order.status === "ordered";
 
-export default function CrewLinkOrders() {
+/** accountId: only that account's orders (the Supply Orders page opened from an account). "" = every account. */
+export default function CrewLinkOrders({ accountId = "" }: { accountId?: string }) {
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [showClosed, setShowClosed] = useState(false);
 
@@ -56,9 +57,11 @@ export default function CrewLinkOrders() {
     };
   }, [fetchOrders]);
 
-  if (!orders || orders.length === 0) return null;
-  const open = orders.filter(isOpen);
-  const closed = orders.filter((order) => !isOpen(order));
+  // A crew order carries the account's own ID, so this is a plain comparison.
+  const mine = orders && accountId ? orders.filter((order) => order.accountId.trim().toLowerCase() === accountId.trim().toLowerCase()) : orders;
+  if (!mine || mine.length === 0) return null;
+  const open = mine.filter(isOpen);
+  const closed = mine.filter((order) => !isOpen(order));
   const shown = showClosed ? [...open, ...closed] : open;
 
   return (

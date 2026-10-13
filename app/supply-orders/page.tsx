@@ -7,6 +7,7 @@ import SupplyOrderPrintView from "./supply-order-print-view";
 import OrderSteps from "./order-steps";
 import CrewLinkOrders from "./crew-orders";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
 
 type Account = {
@@ -400,7 +401,10 @@ function statusKind(statusValue?: string): StatusKind {
 }
 
 export default function SupplyOrdersPage() {
-  const [orders, setOrders] = useState<SupplyOrder[]>([]);
+  const [allOrders, setOrders] = useState<SupplyOrder[]>([]);
+  // Opened from an account's page (?accountId=): only that account's orders, with a way back.
+  const scope = useAccountScope();
+  const orders = useMemo(() => (scope.active ? allOrders.filter((order) => scope.matches(order.accountId, order.accountName)) : allOrders), [allOrders, scope]);
   // "Pin to board" (Settings -> Pin Board).
   const { info: pinInfo } = usePinInfo();
   const [loading, setLoading] = useState(true);
@@ -816,7 +820,8 @@ export default function SupplyOrdersPage() {
 
       <div className="supply-orders-page-content ui-screen-body">
         {/* Orders the crews sent from Crew Link, with "Edit order". Shows only when there are some. */}
-        <CrewLinkOrders />
+        <AccountScopeBar scope={scope} what="supply orders" />
+        <CrewLinkOrders accountId={scope.active ? scope.accountId : ""} />
 
         {/* Ordered -> Approved -> Bought -> Delivered, with who has each order now. */}
         <OrderSteps

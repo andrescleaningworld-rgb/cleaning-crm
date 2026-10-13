@@ -32,6 +32,7 @@ import CancellationFields from "../../components/CancellationFields";
 import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/cancellation";
 import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
+import AccountEverything from "./account-everything";
 import SupplyMode from "./supply-mode";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
@@ -1284,6 +1285,9 @@ export default function AccountDetailPage() {
                 data-tip="more"
               />
             </div>
+
+            {/* Visits, updates, extra jobs, complaints, supply orders, photos, to-dos and sales of this account, with how many. */}
+            <AccountEverything accountId={thisAccountId} accountName={accountName} />
 
             <QuickToDoSheet
               open={showToDo}

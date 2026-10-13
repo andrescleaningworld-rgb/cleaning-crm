@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { useEffect, useMemo, useState } from "react";
 import {
   BigButton,
@@ -252,7 +253,10 @@ function getComplaintPhotoCount(
 }
 
 export default function ComplaintsPage() {
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [allComplaints, setComplaints] = useState<Complaint[]>([]);
+  // Opened from an account's page (?accountId=): only that account's complaints, with a way back.
+  const scope = useAccountScope();
+  const complaints = useMemo(() => (scope.active ? allComplaints.filter((complaint) => scope.matches(complaint.accountId, complaint.accountName)) : allComplaints), [allComplaints, scope]);
   // "Pin to board" (Settings -> Pin Board).
   const { info: pinInfo } = usePinInfo();
   const [photos, setPhotos] = useState<ComplaintPhoto[]>([]);
@@ -619,6 +623,7 @@ export default function ComplaintsPage() {
         </BigButton>
       }
     >
+      <AccountScopeBar scope={scope} what="complaints" />
       {error && !selectedComplaint ? <ErrorBox title="That did not work." text={error} /> : null}
       {successMessage ? (
         <p className="ui-savestatus ui-savestatus-saved" role="status">

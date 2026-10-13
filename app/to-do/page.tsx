@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PinButton, PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../components/pin-to-board";
 import type { PinInfo } from "@/lib/boardPins";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
@@ -807,7 +808,10 @@ function ToDoCard({
 }
 
 export default function ToDoPage() {
-  const [todos, setTodos] = useState<ToDo[]>([]);
+  const [allTodos, setTodos] = useState<ToDo[]>([]);
+  // Opened from an account's page (?accountId=): only that account's to-dos, with a way back.
+  const scope = useAccountScope();
+  const todos = useMemo(() => (scope.active ? allTodos.filter((todo) => scope.matches(todo.accountId, todo.accountName)) : allTodos), [allTodos, scope]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [managers, setManagers] = useState<string[]>([]);
@@ -1490,6 +1494,7 @@ export default function ToDoPage() {
       <div className="todo-page-content ui-screen-body">
         <ShellTitle title="To-Do" backHref="/" />
         <h1 className="ui-screen-title">To-Do</h1>
+        <AccountScopeBar scope={scope} what="to-dos" />
         <Tips
           id="to-do"
           ready={!loading}

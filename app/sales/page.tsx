@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { StatusPill, type StatusKind } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -222,16 +223,20 @@ function SalesPageContent() {
   const accountIdFromUrl = searchParams.get("accountId") || "";
   const accountNameFromUrl = searchParams.get("account") || "";
 
-  const openedFromAccountDetail = Boolean(accountIdFromUrl || accountNameFromUrl);
+  // The Sales tile on the account page (?view=list): that account's sales, every date, with a way back.
+  const accountList = searchParams.get("view") === "list" && Boolean(accountIdFromUrl);
+  const scope = useAccountScope();
+  const openedFromAccountDetail = Boolean(accountIdFromUrl || accountNameFromUrl) && !accountList;
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
 
   const [searchText, setSearchText] = useState("");
+  // "" = every year / every quarter: how an account's own list starts.
   const [selectedYear, setSelectedYear] = useState(
-    String(new Date().getFullYear())
+    accountList ? "" : String(new Date().getFullYear())
   );
-  const [selectedQuarter, setSelectedQuarter] = useState(getCurrentQuarter());
+  const [selectedQuarter, setSelectedQuarter] = useState(accountList ? "" : getCurrentQuarter());
   const [selectedSalesperson, setSelectedSalesperson] = useState("All");
 
   const [accountSearchText, setAccountSearchText] = useState(accountNameFromUrl);
@@ -403,9 +408,11 @@ function SalesPageContent() {
 
     return sales
       .filter((sale) => {
-        const matchesAccountFromUrl = accountIdFromUrl
-          ? sale.accountId === accountIdFromUrl
-          : true;
+        const matchesAccountFromUrl = accountList
+          ? scope.matches(sale.accountId, sale.accountName)
+          : accountIdFromUrl
+            ? sale.accountId === accountIdFromUrl
+            : true;
 
         const saleYear = getYearFromDate(sale.saleDateRaw);
         const saleQuarter = getQuarterFromDate(sale.saleDateRaw);
@@ -450,6 +457,8 @@ function SalesPageContent() {
     sales,
     searchText,
     accountIdFromUrl,
+    accountList,
+    scope,
     selectedYear,
     selectedQuarter,
     selectedSalesperson,
@@ -681,6 +690,11 @@ function SalesPageContent() {
   return (
     <main className="ui-screen print:bg-white print:p-0">
       <div className="mx-auto max-w-7xl print:max-w-none">
+        {accountList ? (
+          <div className="print:hidden">
+            <AccountScopeBar scope={scope} what="sales" />
+          </div>
+        ) : null}
         <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between print:mb-4">
           <div>
             <h1 className="ui-screen-title">
@@ -695,7 +709,7 @@ function SalesPageContent() {
 
             {!openedFromAccountDetail && (
               <p className="ui-strong">
-                Showing {selectedQuarter} {selectedYear}
+                Showing {selectedQuarter || selectedYear ? `${selectedQuarter} ${selectedYear}`.trim() : "all dates"}
                 {selectedSalesperson !== "All"
                   ? ` for ${selectedSalesperson}`
                   : " for all salespeople"}
@@ -751,6 +765,7 @@ function SalesPageContent() {
                     onChange={(event) => setSelectedYear(event.target.value)}
                     className="ui-input w-full"
                   >
+                    {accountList ? <option value="">All years</option> : null}
                     {availableYears.map((year) => (
                       <option key={year} value={year}>
                         {year}
@@ -769,6 +784,7 @@ function SalesPageContent() {
                     onChange={(event) => setSelectedQuarter(event.target.value)}
                     className="ui-input w-full"
                   >
+                    {accountList ? <option value="">All quarters</option> : null}
                     <option value="Q1">Q1 - Jan to Mar</option>
                     <option value="Q2">Q2 - Apr to Jun</option>
                     <option value="Q3">Q3 - Jul to Sep</option>
@@ -823,7 +839,7 @@ function SalesPageContent() {
                   {filteredSales.length}
                 </p>
                 <p className="ui-muted">
-                  {selectedQuarter} {selectedYear}
+                  {selectedQuarter || selectedYear ? `${selectedQuarter} ${selectedYear}`.trim() : "All dates"}
                 </p>
               </div>
 

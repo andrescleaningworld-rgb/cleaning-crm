@@ -16,22 +16,24 @@ import { useEffect, useState, type ReactNode } from "react";
 
 type AccountRow = { accountId?: string | number; id?: string | number; accountName?: string };
 type AccountsResponse = { success?: boolean; accounts?: AccountRow[]; data?: AccountRow[] };
-type AccountIndex = { ids: Map<string, string>; idsByName: Map<string, string[]> };
+/** Every account: its ID (by the ID in small letters), its name, and which IDs carry each name. */
+export type AccountIndex = { ids: Map<string, string>; names: Map<string, string>; idsByName: Map<string, string[]> };
 
 const CACHE_TTL_MS = 60_000;
-const keyOf = (value: unknown) => String(value ?? "").trim().toLowerCase();
+export const keyOf = (value: unknown) => String(value ?? "").trim().toLowerCase();
 
 // One account list for every name on the screen, fetched only when a name
 // that needs checking is shown.
 let indexCache: { index: AccountIndex; expiresAt: number } | null = null;
 let indexPromise: Promise<AccountIndex> | null = null;
 
-function loadAccountIndex(): Promise<AccountIndex> {
+/** Also used by account-scope.tsx, so a list shown for one account follows the same rule as the links. */
+export function loadAccountIndex(): Promise<AccountIndex> {
   if (indexCache && Date.now() <= indexCache.expiresAt) return Promise.resolve(indexCache.index);
   if (indexPromise) return indexPromise;
 
   indexPromise = (async () => {
-    const index: AccountIndex = { ids: new Map(), idsByName: new Map() };
+    const index: AccountIndex = { ids: new Map(), names: new Map(), idsByName: new Map() };
     try {
       const response = await fetch("/api/accounts");
       const data = (await response.json()) as AccountsResponse;
@@ -40,6 +42,7 @@ function loadAccountIndex(): Promise<AccountIndex> {
         const id = String(account.accountId ?? account.id ?? "").trim();
         if (!id) continue;
         index.ids.set(keyOf(id), id);
+        index.names.set(keyOf(id), String(account.accountName ?? "").trim());
         const name = keyOf(account.accountName);
         if (!name) continue;
         const ids = index.idsByName.get(name) ?? [];

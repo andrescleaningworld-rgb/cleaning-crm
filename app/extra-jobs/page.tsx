@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
 import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import styles from "./extra-jobs.module.css";
 
 type Tab = "setup" | "done" | "cancelled" | "all";
@@ -17,7 +18,10 @@ type State = "loading" | "off" | "failed" | "ready";
 
 export default function ExtraJobsPage() {
   const [state, setState] = useState<State>("loading");
-  const [jobs, setJobs] = useState<ExtraJob[]>([]);
+  const [allJobs, setJobs] = useState<ExtraJob[]>([]);
+  // Opened from an account's page (?accountId=): only that account's jobs, with a way back.
+  const scope = useAccountScope();
+  const jobs = useMemo(() => (scope.active ? allJobs.filter((job) => scope.matches(job.accountId, job.accountName)) : allJobs), [allJobs, scope]);
   const [tab, setTab] = useState<Tab>("setup");
   const [search, setSearch] = useState("");
 
@@ -52,6 +56,7 @@ export default function ExtraJobsPage() {
 
   return (
     <Screen title="Extra Jobs">
+      <AccountScopeBar scope={scope} what="extra jobs" />
       <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>
 
       <div className={styles.topButtons}>

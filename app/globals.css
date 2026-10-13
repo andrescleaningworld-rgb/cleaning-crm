@@ -2949,6 +2949,72 @@ main.cw-page-card {
   overflow-wrap: anywhere;
 }
 
+/* "Everything for this account": an action tile with a number on it, and
+   under some of them a small "+ New" link. */
+.ui-counttile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ui-counttile > .ui-acttile {
+  flex: 1 1 auto;
+}
+
+.ui-counttile-count {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-counttile-open {
+  padding: 2px 12px;
+  border-radius: 999px;
+  background: var(--ui-bad);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.ui-counttile-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--ui-tap);
+  border: 2px solid var(--ui-green);
+  border-radius: var(--ui-r-control);
+  color: var(--ui-green-ink);
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.ui-counttile-new:hover {
+  background: var(--ui-green-soft);
+}
+
+/* Over a list opened for one account: the way back, and what is showing. */
+.ui-scopebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 2px solid var(--ui-green);
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green-soft);
+}
+
+.ui-scopebar-text {
+  margin: 0;
+  color: var(--ui-green-ink);
+  font-weight: 700;
+}
+
 /* The "Next cleaning" card at the top of an account. */
 .ui-next {
   padding: 16px;

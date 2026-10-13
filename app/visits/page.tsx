@@ -23,6 +23,7 @@ import {
   type StatusKind,
 } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
+import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 
 type Visit = {
   id?: string;
@@ -106,7 +107,10 @@ function getLoadedVisits(data: VisitsApiResponse | Visit[]): Visit[] {
 }
 
 export default function VisitsPage() {
-  const [visits, setVisits] = useState<Visit[]>([]);
+  const [allVisits, setVisits] = useState<Visit[]>([]);
+  // Opened from an account's page (?accountId=): only that account's visits, with a way back.
+  const scope = useAccountScope();
+  const visits = useMemo(() => (scope.active ? allVisits.filter((visit) => scope.matches(visit.accountId, visit.accountName)) : allVisits), [allVisits, scope]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -256,6 +260,7 @@ export default function VisitsPage() {
       backHref="/"
       headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: printAll }]} />}
     >
+      <AccountScopeBar scope={scope} what="visits" />
       {/* At the top, above the list, so it is seen without scrolling (it was
           in the bar at the bottom of the screen and was being missed). */}
       <Tips
