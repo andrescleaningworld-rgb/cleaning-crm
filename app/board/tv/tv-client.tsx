@@ -247,21 +247,33 @@ function Fitting<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; uni
 
 /* ---------- keeping the screen awake ----------
  *
- * A TV stick puts the screen to sleep when nobody touches the remote. Two
- * things keep it awake while the board is up, the way a video site does:
+ * A TV stick starts its screensaver when nobody touches the remote. Two
+ * things keep the screen awake while the board is up, the way a video site
+ * does:
  *
  *   1. the Screen Wake Lock, asked for again whenever the page comes back
  *      into view or the browser lets the lock go;
- *   2. a muted video that plays for ever. It is the size of the screen, sits
- *      behind everything and is the colour of the background, so it cannot
- *      be seen, and it has no sound. Its picture is made here (a tiny canvas
- *      that changes once a second): no file to download, so it keeps going
- *      when the Wi-Fi drops.
+ *   2. a real video that plays for ever: /board/tv/keep-awake.mp4, one minute
+ *      of the background's own blue with a silent sound track, looping. It
+ *      is small, sits in the bottom corner in the screen's margin and is all
+ *      but transparent, so it cannot be seen even by a TV that draws video on
+ *      its own layer, and it is muted. If that file cannot be played, a
+ *      picture made here (a tiny canvas that changes once a second) plays in
+ *      its place.
+ *
+ * A browser may refuse to start a video by itself. So both are also started
+ * by the first press on the remote, click or touch, and again by every later
+ * one. While the video is not playing, a small line at the bottom says
+ * "Press OK on the remote to keep the screen on"; it goes away once it plays.
  *
  * The video runs even when the wake lock was given: the lock alone was
  * already being asked for and the office Fire Stick still went to sleep.
- * Add ?wakeinfo=1 to the TV's address to see, in a corner, which of the two
- * is on. Nothing shows without it.
+ *
+ * In the TV's address:
+ *   ?wakeinfo=1    a corner line says which of the two is on
+ *   ?wakesound=1   after the first press, the video plays un-muted. Its sound
+ *                  track is silence, so nothing is heard; it is there to try
+ *                  on a stick that only counts a video with sound as playing.
  */
 
 type WakeLockLike = { release: () => Promise<void>; addEventListener?: (type: "release", listener: () => void) => void };
@@ -269,12 +281,19 @@ type LockState = "none" | "off" | "on";
 type VideoState = "none" | "off" | "on";
 /** A lock or a video that stopped is started again within this long. */
 const AWAKE_CHECK_MS = 15_000;
+/** The video gets this long to start by itself before the "Press OK" line shows. */
+const AWAKE_PROMPT_MS = 5_000;
+const AWAKE_VIDEO = "/board/tv/keep-awake.mp4";
+/** What wakes both up: any key on the remote, a click, a touch. */
+const AWAKE_GESTURES = ["keydown", "pointerdown", "click", "touchstart"] as const;
 
 function KeepAwake() {
   const video = useRef<HTMLVideoElement>(null);
   const [lockState, setLockState] = useState<LockState>("off");
   const [videoState, setVideoState] = useState<VideoState>("off");
   const [showInfo, setShowInfo] = useState(false);
+  // False for the first few seconds, so the "Press OK" line does not flash while the video starts by itself.
+  const [waited, setWaited] = useState(false);
 
   useEffect(() => {
     try {
@@ -282,6 +301,8 @@ function KeepAwake() {
     } catch {
       // No address to read: nothing is shown.
     }
+    const timer = window.setTimeout(() => setWaited(true), AWAKE_PROMPT_MS);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // 1. The Screen Wake Lock.
@@ -317,10 +338,12 @@ function KeepAwake() {
     void ask();
     const again = () => void ask();
     document.addEventListener("visibilitychange", again);
+    for (const gesture of AWAKE_GESTURES) window.addEventListener(gesture, again, { capture: true, passive: true });
     const check = window.setInterval(again, AWAKE_CHECK_MS);
     return () => {
       alive = false;
       document.removeEventListener("visibilitychange", again);
+      for (const gesture of AWAKE_GESTURES) window.removeEventListener(gesture, again, { capture: true });
       window.clearInterval(check);
       void lock?.release().catch(() => null);
     };
@@ -329,52 +352,108 @@ function KeepAwake() {
   // 2. The video nobody sees.
   useEffect(() => {
     const element = video.current;
-    const canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 16;
-    const context = canvas.getContext("2d");
-    const capture = (canvas as HTMLCanvasElement & { captureStream?: (frameRate?: number) => MediaStream }).captureStream;
-    if (!element || !context || typeof capture !== "function") {
+    if (!element) {
       setVideoState("none");
       return;
     }
-    // Two blues nobody can tell apart, one after the other: a picture that changes is a video that plays.
-    let flip = false;
-    const draw = () => {
-      flip = !flip;
-      context.fillStyle = flip ? "#0c447c" : "#0c447d";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-    };
-    draw();
-    let stream: MediaStream | null = null;
+    let wantSound = false;
     try {
-      stream = capture.call(canvas, 2);
-      element.muted = true;
-      element.defaultMuted = true;
-      element.srcObject = stream;
+      wantSound = new URLSearchParams(window.location.search).has("wakesound");
     } catch {
-      setVideoState("none");
-      return;
+      // No address to read: it stays muted.
     }
-    const play = () => {
-      if (document.visibilityState !== "visible" || !element.paused) return;
-      void element.play().catch(() => null);
+    let stream: MediaStream | null = null;
+    let frames = 0;
+    let lastTime = -1;
+
+    // The stand-in when the file cannot be played: a picture made here. Two
+    // blues nobody can tell apart, one after the other: a picture that
+    // changes is a video that plays.
+    const useCanvas = () => {
+      if (stream) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = 16;
+      canvas.height = 16;
+      const context = canvas.getContext("2d");
+      const capture = (canvas as HTMLCanvasElement & { captureStream?: (frameRate?: number) => MediaStream }).captureStream;
+      if (!context || typeof capture !== "function") return setVideoState("none");
+      let flip = false;
+      const draw = () => {
+        flip = !flip;
+        context.fillStyle = flip ? "#0c447c" : "#0c447d";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+      };
+      draw();
+      try {
+        stream = capture.call(canvas, 2);
+        element.removeAttribute("src");
+        element.srcObject = stream;
+        frames = window.setInterval(draw, 1_000);
+        play(false);
+      } catch {
+        setVideoState("none");
+      }
+    };
+
+    const play = (fromGesture: boolean) => {
+      if (document.visibilityState !== "visible") return;
+      // Only with ?wakesound=1, and only from a press: a browser never lets sound start by itself.
+      if (fromGesture && wantSound) {
+        element.muted = false;
+        element.volume = 0.05;
+      }
+      if (!element.paused) return;
+      void element.play().catch(() => {
+        // Not allowed with sound after all: muted is what the browser lets through.
+        if (!element.muted) {
+          element.muted = true;
+          void element.play().catch(() => null);
+        }
+      });
     };
     const report = () => setVideoState(element.paused ? "off" : "on");
+    const onGesture = () => play(true);
+    const onVisible = () => play(false);
+    // A file that ends starts again even where "loop" is not honoured.
+    const onEnded = () => {
+      element.currentTime = 0;
+      play(false);
+    };
+
+    element.muted = true;
+    element.defaultMuted = true;
+    element.loop = true;
     element.addEventListener("playing", report);
     element.addEventListener("pause", report);
-    play();
-    const frames = window.setInterval(draw, 1_000);
-    const check = window.setInterval(play, AWAKE_CHECK_MS);
-    document.addEventListener("visibilitychange", play);
+    element.addEventListener("ended", onEnded);
+    element.addEventListener("error", useCanvas);
+    element.src = AWAKE_VIDEO;
+    play(false);
+
+    // Started again when it stopped, or when it says it plays but the time stands still.
+    const check = window.setInterval(() => {
+      const stuck = !element.paused && element.currentTime === lastTime;
+      lastTime = element.currentTime;
+      if (stuck) {
+        setVideoState("off");
+        element.pause();
+      }
+      play(false);
+    }, AWAKE_CHECK_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    for (const gesture of AWAKE_GESTURES) window.addEventListener(gesture, onGesture, { capture: true, passive: true });
     return () => {
       window.clearInterval(frames);
       window.clearInterval(check);
-      document.removeEventListener("visibilitychange", play);
+      document.removeEventListener("visibilitychange", onVisible);
+      for (const gesture of AWAKE_GESTURES) window.removeEventListener(gesture, onGesture, { capture: true });
       element.removeEventListener("playing", report);
       element.removeEventListener("pause", report);
+      element.removeEventListener("ended", onEnded);
+      element.removeEventListener("error", useCanvas);
       element.pause();
       element.srcObject = null;
+      element.removeAttribute("src");
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, []);
@@ -382,7 +461,12 @@ function KeepAwake() {
   const word = { none: "not in this browser", off: "off", on: "on" };
   return (
     <>
-      <video ref={video} className={styles.awakeVideo} muted playsInline disablePictureInPicture disableRemotePlayback tabIndex={-1} aria-hidden="true" data-keep-awake />
+      <video ref={video} className={styles.awakeVideo} muted loop playsInline preload="auto" disablePictureInPicture disableRemotePlayback tabIndex={-1} aria-hidden="true" data-keep-awake />
+      {waited && videoState === "off" ? (
+        <p className={styles.awakePrompt} data-awake-prompt>
+          Press OK on the remote to keep the screen on
+        </p>
+      ) : null}
       {showInfo ? (
         <p className={styles.awakeInfo} data-awake-info>
           Awake: wake lock {word[lockState]} · video {word[videoState]}

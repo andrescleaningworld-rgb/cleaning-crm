@@ -61,18 +61,35 @@
   animation: tvAwake 4s linear infinite;
 }
 
-/* The video that keeps the screen awake (KeepAwake in tv-client.tsx). It is
-   the size of the screen because a browser only counts a video it could show;
-   it sits behind the board, is the colour of the background and is all but
-   transparent, so nothing of it is seen. */
+/* The video that keeps the screen awake (KeepAwake in tv-client.tsx). A real
+   box on the screen (a browser does not count a video with no size, or one
+   that is not displayed), but small, in the bottom corner inside the screen's
+   margin, the colour of the background and all but transparent: nothing of
+   it is seen, even on a TV that draws video on a layer of its own. */
 .awakeVideo {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  right: 0.5%;
+  bottom: 0.5%;
+  width: 64px;
+  height: 36px;
   object-fit: fill;
   opacity: 0.01;
+  pointer-events: none;
+}
+
+/* While the video is not playing: what to do about it. Gone once it plays. */
+.awakePrompt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.6%;
+  z-index: 5;
+  margin: 0;
+  font-size: calc(var(--u) * 2.2);
+  font-weight: 700;
+  text-align: center;
+  color: #ffffff;
+  opacity: 0.9;
   pointer-events: none;
 }
 
