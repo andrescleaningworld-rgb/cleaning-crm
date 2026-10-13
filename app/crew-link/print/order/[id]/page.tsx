@@ -20,7 +20,7 @@ type PrintOrder = {
   lines: { itemName: string; unit: string; qty: number }[];
 };
 
-type OrderResponse = { success?: boolean; error?: string; order?: PrintOrder; accountName?: string };
+type OrderResponse = { success?: boolean; error?: string; order?: PrintOrder; accountName?: string; edited?: { editedBy: string; editedAt: string } | null };
 
 // Same wording as the Accounts Center queue.
 const ORDER_STATUS_LABEL: Record<OrderStatus, string> = { new: "Sent", ordered: "Ordered", delivered: "Delivered", cancelled: "Cancelled" };
@@ -30,6 +30,8 @@ export default function CrewLinkPrintOrderPage() {
   const id = Number(params?.id);
   const [order, setOrder] = useState<PrintOrder | null>(null);
   const [accountName, setAccountName] = useState("");
+  // Set when staff changed the order after the crew sent it: the sheet shows the changed order and says so.
+  const [edited, setEdited] = useState<{ editedBy: string; editedAt: string } | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -43,6 +45,7 @@ export default function CrewLinkPrintOrderPage() {
         if (cancelled) return;
         setOrder(data.order);
         setAccountName(data.accountName || "");
+        setEdited(data.edited ?? null);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load this order.");
       }
@@ -67,6 +70,7 @@ export default function CrewLinkPrintOrderPage() {
         <PrintFact label="Ordered by" value={order.orderedBy ?? "Unknown"} />
         <PrintFact label="Sent" value={formatCrewDateTime(order.createdAt)} />
         <PrintFact label="Status" value={ORDER_STATUS_LABEL[order.status] ?? order.status} />
+        {edited ? <PrintFact label="Edited by" value={`${edited.editedBy || "Staff"}, ${formatCrewDateTime(edited.editedAt)}`} /> : null}
       </div>
 
       <table className="w-full border-collapse text-lg">

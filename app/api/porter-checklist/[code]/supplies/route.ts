@@ -11,6 +11,7 @@ import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { notifyNewSupplyOrder } from "@/lib/crewNotifications";
 import { getContentTranslations } from "@/lib/crewTranslations";
+import { pickedItemIdsForCrew } from "@/lib/pg/crew-supplies";
 
 async function loadEnabled(code: string) {
   const link = await resolveCrewLink(code);
@@ -26,10 +27,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const link = await loadEnabled(code);
     if (!link) return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
 
-    const [items, recentOrders] = await Promise.all([
+    const [catalog, recentOrders, picked] = await Promise.all([
       listSupplyItemsLibrary(true),
       listCrewLinkSupplyOrdersForAccount(link.template.accountId, 10),
+      pickedItemIdsForCrew(link.template.accountId),
     ]);
+    // The items picked for this account (Crew Link setup, "Pick supplies for
+    // this account"). Nothing picked, or all of it removed since: every
+    // active item, as before.
+    const own = picked ? catalog.filter((item) => picked.has(item.id)) : [];
+    const items = own.length > 0 ? own : catalog;
 
     const translations = await getContentTranslations([
       ...items.flatMap((i) => [i.name, i.unit]),

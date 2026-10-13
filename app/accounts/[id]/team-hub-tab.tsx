@@ -11,6 +11,7 @@
 // Customize instead of always being visible.
 import { useEffect, useState, useCallback } from "react";
 import TranslatedText from "../../components/TranslatedText";
+import { CrewOrderEdit, useEditMarks } from "../../components/crew-order-edit";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 
 type TeamHubSite = {
@@ -1092,6 +1093,9 @@ export function OrdersAndProblems({
   const [orders, setOrders] = useState<SupplyOrder[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
+  // Who edited which order ("Edited by ..."), asked again after every load.
+  const [loads, setLoads] = useState(0);
+  const editMarks = useEditMarks(orders.map((order) => order.id), loads);
   const query = site ? `siteId=${site.id}` : `crewLinkAccountId=${encodeURIComponent(crewLinkAccountId ?? "")}`;
   const sourceLabel = site ? "Team Hub" : "Crew Link";
 
@@ -1105,6 +1109,7 @@ export function OrdersAndProblems({
     setOrders(ordersData.orders ?? []);
     setIssues(issuesData.issues ?? []);
     setLoading(false);
+    setLoads((count) => count + 1);
   }, [query]);
 
   useEffect(() => {
@@ -1188,6 +1193,9 @@ export function OrdersAndProblems({
                       Cancel
                     </button>
                   )}
+                </div>
+                <div className="ui-actions-row" style={{ flexBasis: "100%" }}>
+                  <CrewOrderEdit orderId={order.id} status={order.status} mark={editMarks[order.id]} onSaved={() => void load()} />
                 </div>
               </div>
             ))}

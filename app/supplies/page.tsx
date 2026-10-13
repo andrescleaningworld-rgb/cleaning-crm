@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SupplyControl from "./supply-control";
+import SupplyCatalog from "./catalog";
 import {
   BigButton,
   Card,
@@ -17,6 +18,7 @@ import {
   Sheet,
   SkeletonList,
   StatusPill,
+  Tabs,
   PullToRefresh,
   TextAreaField,
   Tips,
@@ -273,7 +275,17 @@ function statusKind(statusValue: string): StatusKind {
   return "off";
 }
 
+const PAGE_TABS: { value: "stock" | "catalog"; label: string }[] = [
+  { value: "stock", label: "Supplies" },
+  { value: "catalog", label: "Catalog" },
+];
+
 export default function SuppliesPage() {
+  // "Catalog" is the list crews order from in Crew Link (catalog.tsx). /supplies?tab=catalog opens it.
+  const [pageTab, setPageTab] = useState<"stock" | "catalog">("stock");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "catalog") setPageTab("catalog");
+  }, []);
   const [supplies, setSupplies] = useState<SupplyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -509,6 +521,15 @@ export default function SuppliesPage() {
     </div>
   );
 
+  if (pageTab === "catalog") {
+    return (
+      <Screen title="Supplies" backHref="/">
+        <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the Crew Link catalog" />
+        <SupplyCatalog />
+      </Screen>
+    );
+  }
+
   return (
     <Screen
       title="Supplies"
@@ -538,6 +559,8 @@ export default function SuppliesPage() {
           showToast("Updated ✓");
         }}
       />
+
+      <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the Crew Link catalog" />
 
       {/* Supply control (the shelf, reorder, orders, spend): shows only where it is switched on. */}
       <SupplyControl />

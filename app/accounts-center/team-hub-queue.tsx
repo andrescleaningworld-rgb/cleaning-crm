@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
+import { CrewOrderEdit, useEditMarks } from "../components/crew-order-edit";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import { BigButton, Card, ErrorBox, Screen, SkeletonList, StatusPill } from "@/app/ui";
 
@@ -66,6 +67,9 @@ export default function TeamHubStaffQueue() {
   const [issues, setIssues] = useState<QueueIssue[]>([]);
   const [orders, setOrders] = useState<QueueOrder[]>([]);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  // Who edited which order ("Edited by ..."), asked again after every load.
+  const [loads, setLoads] = useState(0);
+  const editMarks = useEditMarks(orders.map((order) => order.id), loads);
 
   async function load() {
     setLoading(true);
@@ -77,6 +81,7 @@ export default function TeamHubStaffQueue() {
       setIssues(data.issues ?? []);
       setOrders(data.orders ?? []);
       setAccountNames(data.accountNamesById ?? {});
+      setLoads((count) => count + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load the Team Hub queue.");
     } finally {
@@ -210,6 +215,7 @@ export default function TeamHubStaffQueue() {
                     <BigButton kind="quiet" onClick={() => void advanceOrder(order.id, "cancelled")}>
                       Cancel
                     </BigButton>
+                    <CrewOrderEdit orderId={order.id} status={order.status} mark={editMarks[order.id]} onSaved={() => void load()} />
                   </div>
                 </div>
               ))}

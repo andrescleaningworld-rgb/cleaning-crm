@@ -13,7 +13,6 @@ import { useEffect, useState } from "react";
 
 type ChecklistItem = { id: number; area: string; text: string; defaultFrequency: "visit" | "weekly" | "monthly"; isNote: boolean; active: boolean };
 type RoundItem = { id: number; name: string; defaultIntervalMinutes: number; active: boolean };
-type SupplyItem = { id: number; name: string; unit: string; sortOrder: number; active: boolean; equipmentPartId: string | null };
 
 async function callLibraries(body: Record<string, unknown>) {
   const res = await fetch("/api/admin/team-hub/libraries", {
@@ -277,121 +276,11 @@ function RoundLibrarySection({ items, onChanged }: { items: RoundItem[]; onChang
   );
 }
 
-function SupplyLibrarySection({ items, onChanged }: { items: SupplyItem[]; onChanged: () => void }) {
-  const [name, setName] = useState("");
-  const [unit, setUnit] = useState("case");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editDraft, setEditDraft] = useState<{ name: string; unit: string } | null>(null);
-
-  async function handleAdd() {
-    if (!name.trim()) {
-      setError("Name is required.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await callLibraries({ type: "supply", action: "create", name: name.trim(), unit: unit.trim() || "unit", sortOrder: items.length, equipmentPartId: null });
-      setName("");
-      setUnit("case");
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add item.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleToggle(item: SupplyItem) {
-    try {
-      await callLibraries({ type: "supply", action: "setActive", id: item.id, active: !item.active });
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update item.");
-    }
-  }
-
-  async function handleSaveEdit() {
-    if (!editId || !editDraft) return;
-    try {
-      await callLibraries({ type: "supply", action: "update", id: editId, ...editDraft });
-      setEditId(null);
-      setEditDraft(null);
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save item.");
-    }
-  }
-
-  return (
-    <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-      <h2 className="text-xl font-bold text-gray-900">Team Hub Supply Items</h2>
-      <p className="mt-1 text-sm text-gray-600">
-        The catalog crews order from in &quot;Order supplies.&quot; Separate from the main Equipment/Supplies inventory on the{" "}
-        <Link href="/supplies" className="text-blue-700 hover:underline">Supplies page</Link>.
-      </p>
-
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Item name" className="rounded-lg border border-gray-300 px-3 py-2 md:col-span-2" />
-        <input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="Unit (e.g. case)" className="rounded-lg border border-gray-300 px-3 py-2" />
-      </div>
-      <button type="button" onClick={handleAdd} disabled={saving} className="mt-3 rounded-lg bg-blue-700 px-5 py-2.5 font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60">
-        {saving ? "Adding..." : "Add item"}
-      </button>
-      {error && <p className="mt-2 text-sm font-semibold text-red-700">{error}</p>}
-
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b bg-gray-50 text-gray-600">
-              <th className="px-3 py-2 font-semibold">Name</th>
-              <th className="px-3 py-2 font-semibold">Unit</th>
-              <th className="px-3 py-2 font-semibold">Status</th>
-              <th className="px-3 py-2 font-semibold">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id} className="border-b">
-                {editId === item.id && editDraft ? (
-                  <>
-                    <td className="px-3 py-2"><input value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} className="w-full rounded border border-gray-300 px-2 py-1" /></td>
-                    <td className="px-3 py-2"><input value={editDraft.unit} onChange={(e) => setEditDraft({ ...editDraft, unit: e.target.value })} className="w-24 rounded border border-gray-300 px-2 py-1" /></td>
-                    <td className="px-3 py-2"><StatusBadge active={item.active} /></td>
-                    <td className="px-3 py-2">
-                      <button type="button" onClick={handleSaveEdit} className="mr-3 font-semibold text-green-700 hover:underline">Save</button>
-                      <button type="button" onClick={() => { setEditId(null); setEditDraft(null); }} className="font-semibold text-gray-500 hover:underline">Cancel</button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="px-3 py-2 font-semibold text-gray-900">{item.name}</td>
-                    <td className="px-3 py-2 text-gray-500">{item.unit}</td>
-                    <td className="px-3 py-2"><StatusBadge active={item.active} /></td>
-                    <td className="px-3 py-2">
-                      <button type="button" onClick={() => { setEditId(item.id); setEditDraft({ name: item.name, unit: item.unit }); }} className="mr-3 font-semibold text-blue-700 hover:underline">Edit</button>
-                      <button type="button" onClick={() => handleToggle(item)} className="font-semibold text-blue-700 hover:underline">{item.active ? "Deactivate" : "Activate"}</button>
-                    </td>
-                  </>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {items.length === 0 && <div className="p-6 text-center text-gray-600">No supply items yet.</div>}
-      </div>
-    </section>
-  );
-}
-
 export default function TeamHubLibrariesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [rounds, setRounds] = useState<RoundItem[]>([]);
-  const [supplies, setSupplies] = useState<SupplyItem[]>([]);
 
   async function load() {
     setLoading(true);
@@ -402,7 +291,6 @@ export default function TeamHubLibrariesPage() {
       if (!res.ok || !data.success) throw new Error(data.error || "Failed to load libraries.");
       setChecklist(data.checklist ?? []);
       setRounds(data.rounds ?? []);
-      setSupplies(data.supplies ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load libraries.");
     } finally {
@@ -421,7 +309,7 @@ export default function TeamHubLibrariesPage() {
           <Link href="/settings" className="text-sm font-semibold text-blue-700 hover:underline">← Back to Settings</Link>
           <h1 className="mt-2 text-3xl font-bold text-gray-900">Team Hub Libraries</h1>
           <p className="mt-1 text-gray-600">
-            Company-wide checklist items, rounds, and supply items available to every Team Hub crew. Assign which ones a
+            Company-wide checklist items and rounds available to every Team Hub crew. Assign which ones a
             specific crew sees under that crew&apos;s Customize on its account page.
           </p>
         </div>
@@ -434,7 +322,14 @@ export default function TeamHubLibrariesPage() {
           <div className="grid gap-6">
             <ChecklistLibrarySection items={checklist} onChanged={load} />
             <RoundLibrarySection items={rounds} onChanged={load} />
-            <SupplyLibrarySection items={supplies} onChanged={load} />
+            {/* Supply items moved: one place only, the catalog on the Supplies page. */}
+            <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-bold text-gray-900">Supply items</h2>
+              <p className="mt-1 text-gray-600">Supply items are now in the catalog on the Supplies page.</p>
+              <Link href="/supplies?tab=catalog" className="ui-btn ui-btn-main mt-4 inline-flex">
+                Open the catalog
+              </Link>
+            </section>
           </div>
         )}
       </div>

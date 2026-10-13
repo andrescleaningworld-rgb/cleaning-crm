@@ -5,6 +5,7 @@ import { CHEER, StatusPill, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
 import OrderSteps from "./order-steps";
+import CrewLinkOrders from "./crew-orders";
 import AccountLink from "../components/AccountLink";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
 
@@ -814,6 +815,9 @@ export default function SupplyOrdersPage() {
       `}</style>
 
       <div className="supply-orders-page-content ui-screen-body">
+        {/* Orders the crews sent from Crew Link, with "Edit order". Shows only when there are some. */}
+        <CrewLinkOrders />
+
         {/* Ordered -> Approved -> Bought -> Delivered, with who has each order now. */}
         <OrderSteps
           orders={orders}

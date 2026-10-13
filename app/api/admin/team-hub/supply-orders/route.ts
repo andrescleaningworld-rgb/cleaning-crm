@@ -19,6 +19,7 @@ import { adjustEquipmentPartStock } from "@/lib/data/equipment";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
+import { editMarksFor } from "@/lib/pg/crew-supplies";
 
 export async function GET(request: NextRequest) {
   try {
@@ -32,8 +33,11 @@ export async function GET(request: NextRequest) {
       if (!order) return NextResponse.json({ success: false, error: "Order not found." }, { status: 404 });
       const accountId = order.crewLinkAccountId ?? (order.siteId !== null ? (await getTeamHubSiteById(order.siteId))?.accountId : null) ?? "";
       const account = accountId ? await lookupAccountSummary(accountId) : null;
+      // The lines above are already the edited ones; this says who edited it. Never stops the printout.
+      const edited = (await editMarksFor([order.id]).catch(() => ({}) as Awaited<ReturnType<typeof editMarksFor>>))[order.id] ?? null;
       return NextResponse.json({
         success: true,
+        edited,
         accountName: account?.accountName || accountId,
         order: {
           id: order.id,

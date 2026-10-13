@@ -16,6 +16,7 @@ import {
   type ChecklistTabDef,
 } from "@/lib/checklistTemplate";
 import CrewLinkShare from "@/app/components/CrewLinkShare";
+import AccountSupplies from "@/app/components/AccountSupplies";
 import { OrdersAndProblems } from "@/app/accounts/[id]/team-hub-tab";
 
 type TemplateApiResponse = {
@@ -511,6 +512,9 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
           <CrewLinkShare accountId={accountId} placeName={place} url={porterUrl} />
 
           {checklistNeeded ? <CrewTranslationsReview accountId={accountId} /> : null}
+
+          {/* Which catalog items this account's crew can order. */}
+          {supplyOrdersEnabled ? <AccountSupplies accountId={accountId} accountName={accountName} /> : null}
 
           {supplyOrdersEnabled || problemReportsEnabled ? (
             <OrdersAndProblems crewLinkAccountId={accountId} accountId={accountId} accountName={accountName} />
