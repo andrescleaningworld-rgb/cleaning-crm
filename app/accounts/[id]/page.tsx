@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BigButton,
   Card,
+  ConfirmSheet,
   ErrorBox,
   Field,
   Screen,
@@ -33,6 +34,7 @@ import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/
 import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
 import AccountEverything from "./account-everything";
+import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
@@ -308,6 +310,13 @@ export default function AccountDetailPage() {
   const normalizedUrlValue = normalizeValue(decodedAccountIdFromUrl);
 
   const [account, setAccount] = useState<Account | null>(null);
+  // True once the Contacts card is showing: Account Snapshot then leaves the contact to it.
+  const [contactsOn, setContactsOn] = useState(false);
+  // The main contact changed in the Contacts card: the Call tile and the rest of this page follow.
+  const followMainContact = useCallback((main: { name: string; phone: string; email: string }) => {
+    setAccount((current) => (current ? { ...current, contactPerson: main.name, contactName: main.name, phone: main.phone, contactPhone: main.phone, email: main.email, contactEmail: main.email } : current));
+  }, []);
+  const contactsReady = useCallback(() => setContactsOn(true), []);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   // Team Hub tab hidden 2026-09-24 (Crew Link replaces it) — the page
@@ -321,6 +330,10 @@ export default function AccountDetailPage() {
   const [emailDraft, setEmailDraft] = useState<string | null>(null);
   const [savingEmail, setSavingEmail] = useState(false);
   const [emailError, setEmailError] = useState("");
+  // "This changes who can log in to the customer portal": asked before the email of an account with portal access is changed.
+  const [emailPortalAsk, setEmailPortalAsk] = useState(false);
+  // Goes up after the email is saved here, so the Contacts card reads the main contact again.
+  const [contactsVersion, setContactsVersion] = useState(0);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
@@ -601,8 +614,15 @@ export default function AccountDetailPage() {
       ? matchedSubcontractor.companyName
       : "";
 
-  async function handleSaveCustomerEmail() {
+  async function handleSaveCustomerEmail(confirmed = false) {
     if (emailDraft === null || savingEmail) return;
+    // The account's email is its customer portal login: with portal access on, a different email needs a yes first.
+    const emailNow = contactEmail === "N/A" ? "" : contactEmail.trim().toLowerCase();
+    if (!confirmed && portalAccess === "YES" && emailDraft.trim().toLowerCase() !== emailNow) {
+      setEmailPortalAsk(true);
+      return;
+    }
+    setEmailPortalAsk(false);
     setSavingEmail(true);
     setEmailError("");
     try {
@@ -615,6 +635,7 @@ export default function AccountDetailPage() {
       if (!res.ok || !data.success) throw new Error(data.error || "Failed to save the email.");
       setAccount((current) => (current ? { ...current, email: data.email ?? "" } : current));
       setEmailDraft(null);
+      setContactsVersion((version) => version + 1);
     } catch (err) {
       setEmailError(err instanceof Error ? err.message : "Failed to save the email.");
     } finally {
@@ -1307,6 +1328,17 @@ export default function AccountDetailPage() {
               </BigButton>
             </Sheet>
 
+            <ConfirmSheet
+              open={emailPortalAsk}
+              title="This changes who can log in to the customer portal."
+              text={`${accountName} has customer portal access. The account's email is its login, so after this change a different email (or none) can log in.`}
+              confirmLabel="Yes, change it"
+              busy={savingEmail}
+              busyLabel="Saving…"
+              onConfirm={() => void handleSaveCustomerEmail(true)}
+              onCancel={() => setEmailPortalAsk(false)}
+            />
+
             <Sheet
               open={emailDraft !== null}
               title="Customer email"
@@ -1417,12 +1449,19 @@ export default function AccountDetailPage() {
                 </div>
               </Card>
 
+            {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
+            <AccountContacts key={contactsVersion} accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />
+
             <Card title="Account Snapshot">
               <p className="ui-card-text">Main operational details for this account.</p>
               <dl className="ui-details">
-                <Detail label="Contact Person" value={contactPerson} />
-                <Detail label="Phone" value={phoneLink} />
-                <Detail label="Email" value={contactEmail} />
+                {contactsOn ? null : (
+                  <>
+                    <Detail label="Contact Person" value={contactPerson} />
+                    <Detail label="Phone" value={phoneLink} />
+                    <Detail label="Email" value={contactEmail} />
+                  </>
+                )}
                 <Detail label="Start Date" value={startDate} />
                 <Detail label="Cleaning Days" value={cleaningDays} />
                 <Detail label="Frequency" value={cleaningFrequency} />

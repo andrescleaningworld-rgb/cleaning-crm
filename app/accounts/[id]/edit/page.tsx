@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import AccountContacts from "../../../components/AccountContacts";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, showToast, SkeletonList, TextAreaField } from "@/app/ui";
 import GoogleAddressAutocompleteInput, {
@@ -793,13 +794,22 @@ export default function EditAccountPage() {
           </div>
         </Card>
 
-        <Card title="Customer Contact">
-          <div style={sectionStyle}>
-            <Field label="Contact name" optional value={formData.contactName || ""} onChange={(event) => updateField("contactName", event.target.value)} />
-            <Field label="Phone" optional inputMode="tel" value={formData.phone || ""} onChange={(event) => updateField("phone", event.target.value)} />
-            <Field label="Email" optional inputMode="email" value={formData.email || ""} onChange={(event) => updateField("email", event.target.value)} />
-          </div>
-        </Card>
+        {/* Everyone on this account, with roles. The main contact is what the three fields below used to hold;
+            where contacts are not turned on yet, those three fields show as before. */}
+        <AccountContacts
+          accountId={String(formData.accountId || formData.id || "")}
+          accountName={formData.accountName || ""}
+          onMain={(main) => setFormData((current) => (current ? { ...current, contactName: main.name, phone: main.phone, email: main.email } : current))}
+          fallback={
+            <Card title="Customer Contact">
+              <div style={sectionStyle}>
+                <Field label="Contact name" optional value={formData.contactName || ""} onChange={(event) => updateField("contactName", event.target.value)} />
+                <Field label="Phone" optional inputMode="tel" value={formData.phone || ""} onChange={(event) => updateField("phone", event.target.value)} />
+                <Field label="Email" optional inputMode="email" value={formData.email || ""} onChange={(event) => updateField("email", event.target.value)} />
+              </div>
+            </Card>
+          }
+        />
 
         <Card title="Access Information">
           <div style={sectionStyle}>
