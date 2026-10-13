@@ -171,13 +171,14 @@ export async function POST(request: NextRequest) {
       if (!(await getPinTypes())[type].show) return refuse("Pin to board is switched off for that kind of record.", 409);
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
       const before = square ? await recordPaper(type, recordId).catch(() => null) : null;
-      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate) }, by);
+      // An account update's paper carries its notes; the other kinds send none.
+      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate), notes: clean(body.notes) }, by);
       if (!pinned) return refuse("That record was not found, so it was not pinned.", 404);
       if (square && before?.square !== square) {
         after(async () => {
           // A to-do just made for this manager already sent them the To-Do text.
           if (type === "todo" && (await toDoTextCoversSquare(recordId, square))) return;
-          await notifyBoardSquare({ square, byStaffId, paperId: `${type}-${recordId}`, title: clean(body.title), accountName: clean(body.accountName), origin, routeContext: "board/pinRecord" });
+          await notifyBoardSquare({ square, byStaffId, paperId: `${type}-${recordId}`, title: clean(body.title), accountName: clean(body.accountName), notes: clean(body.notes), origin, routeContext: "board/pinRecord" });
         });
       }
       return NextResponse.json({ success: true });

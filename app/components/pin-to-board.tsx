@@ -202,7 +202,9 @@ export function PinButton({
     setError("");
     setBusy(true);
     try {
-      await pinRecord({ type, square, ...record });
+      // An account update's paper says who it is for, like one made with "Put on the board".
+      const forWho = type === "update" ? { forWho: info?.managers.find((manager) => manager.id === square)?.name ?? OFFICE_LABEL } : {};
+      await pinRecord({ type, square, ...record, ...forWho });
       setJustPinned(true);
       setJustUnpinned(false);
       setOpen(false);

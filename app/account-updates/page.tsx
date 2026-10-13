@@ -22,7 +22,7 @@ import {
 } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
 import AccountLink from "../components/AccountLink";
-import { PutOnBoard, putUpdateOnBoard, usePinInfo, type PinChoice } from "../components/pin-to-board";
+import { PinButton, PutOnBoard, putUpdateOnBoard, usePinInfo, type PinChoice } from "../components/pin-to-board";
 import { OFFICE_SQUARE, squareForManager } from "@/lib/boardPins";
 import ToProcess, { handoffForUpdate, processedLine } from "./to-process";
 
@@ -209,11 +209,12 @@ function AccountUpdatesPageContent() {
 
   // "Put on the board" on the Add update form. The square follows the Manager
   // field until someone picks one by hand (null = still following).
-  const { info: pinInfo } = usePinInfo();
-  const [boardOn, setBoardOn] = useState(false);
+  const { info: pinInfo, reload: reloadPinInfo } = usePinInfo();
+  // null = not touched yet: it starts as Settings -> Pin Board -> Account Updates -> "Pinned by default" says.
+  const [boardOn, setBoardOn] = useState<boolean | null>(null);
   const [boardSquare, setBoardSquare] = useState<string | null>(null);
   const boardChoice: PinChoice = {
-    on: boardOn,
+    on: boardOn ?? pinInfo?.types.update?.pinned === true,
     square: boardSquare ?? (pinInfo ? squareForManager(pinInfo.managers, manager || selectedManager) : OFFICE_SQUARE),
   };
   const focusProcessId = searchParams.get("process") ?? "";
@@ -512,11 +513,13 @@ function AccountUpdatesPageContent() {
       if (pinInfo && boardChoice.on) {
         try {
           await putUpdateOnBoard(pinInfo, boardChoice.square, { id: newUpdate.id, updateType, accountId: selectedAccountId, accountName: selectedAccountName, notes });
+          // So the new update's button in the list says "On the board".
+          void reloadPinInfo();
         } catch {
           showToast("Update saved, but couldn't put it on the board.", "bad");
         }
       }
-      setBoardOn(false);
+      setBoardOn(null);
       setBoardSquare(null);
 
       setSavedMessage("Account update saved successfully.");
@@ -550,6 +553,16 @@ function AccountUpdatesPageContent() {
 
   // "To process" or "Processed ✓ by ..., day" on an update the office tracks.
   // Updates from before this feature have nothing to show.
+  // "Pin to board" on an update that is already saved: the same paper the form's "Put on the board" makes.
+  const pinButton = (update: AccountUpdate) => (
+    <PinButton
+      info={pinInfo}
+      type="update"
+      managerName={update.manager}
+      record={{ recordId: update.id, title: `${update.updateType}: ${update.accountName}`, accountId: update.accountId, accountName: update.accountName, notes: update.notes === "N/A" ? "" : update.notes }}
+    />
+  );
+
   const processStatus = (update: AccountUpdate) => {
     const item = handoffForUpdate(handoffs.items, update);
     if (!item) return null;
@@ -643,6 +656,7 @@ function AccountUpdatesPageContent() {
                 <BigButton kind="quiet" href={`/accounts/${update.accountId || createIdFromName(update.accountName)}`}>
                   Go to account
                 </BigButton>
+                {pinButton(update)}
               </div>
             </Card>
           )}
@@ -662,9 +676,12 @@ function AccountUpdatesPageContent() {
             {
               header: "Action",
               cell: (update) => (
-                <BigButton kind="second" href={`/account-updates/${encodeURIComponent(update.id)}`}>
-                  {LABELS.open}
-                </BigButton>
+                <div className="ui-actions-row">
+                  <BigButton kind="second" href={`/account-updates/${encodeURIComponent(update.id)}`}>
+                    {LABELS.open}
+                  </BigButton>
+                  {pinButton(update)}
+                </div>
               ),
             },
           ]}

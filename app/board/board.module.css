@@ -589,3 +589,119 @@ button.paper:hover {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* ---------- a full square: the pile ---------- */
+
+/* The papers that did not fit, as one stack: two paper edges peek out behind
+   the top sheet, one pin holds them, and the round badge says how many. It
+   takes one paper's place in the square. */
+.pile {
+  position: relative;
+  flex: 1 1 150px;
+  max-width: 240px;
+  min-height: 96px;
+  margin-bottom: 8px;
+  padding: 18px 12px 12px;
+  border: 0;
+  background: none;
+  color: #10233f;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button.pile {
+  cursor: pointer;
+}
+
+.pileSheet {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 4px 9px rgba(50, 30, 5, 0.38);
+}
+
+.pileSheet:nth-child(1) {
+  background: #fff3a0;
+  transform: rotate(-4deg) translate(-4px, 7px);
+}
+
+.pileSheet:nth-child(2) {
+  background: #d6e9ff;
+  transform: rotate(3deg) translate(5px, 5px);
+}
+
+.pileSheet:nth-child(3) {
+  background: #fffdf5;
+}
+
+button.pile:hover .pileSheet:nth-child(3) {
+  box-shadow: 0 7px 14px rgba(50, 30, 5, 0.45);
+}
+
+button.pile:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 4px;
+}
+
+.pileCount {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  height: 56px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #10233f;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pileWord {
+  position: relative;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.tv .pile {
+  flex-basis: 200px;
+  max-width: 320px;
+  min-height: 120px;
+}
+
+.tv .pileCount {
+  min-width: 76px;
+  height: 76px;
+  font-size: 32px;
+}
+
+.tv .pileWord {
+  font-size: 26px;
+}
+
+/* The sheet a tap on the pile opens: every paper of the square, one under the other, full width. */
+.pileList {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px 2px 4px;
+}
+
+.pileItem {
+  flex: none;
+  width: 100%;
+  max-width: none;
+  min-height: 76px;
+}

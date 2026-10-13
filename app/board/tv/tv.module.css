@@ -325,18 +325,84 @@
   margin: 0 0 calc(var(--u) * 0.8);
 }
 
-/* "+N more" under a square's three notes. */
-.squareMore {
+/* Under a square's three notes: the rest of them as one pile. Two paper edges
+   peek out behind the top sheet, one pin holds them, and the round badge says
+   how many. It is exactly as tall as the "+N more" line it replaces (0.55 of
+   a note), so what fits on the screen does not change. */
+.fitting > .squarePile {
+  margin: 0;
+}
+
+.squarePile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--row) * 0.12);
   height: calc(var(--row) * 0.55);
   margin: 0;
-  overflow: hidden;
-  line-height: calc(var(--row) * 0.55);
-  font-size: calc(var(--row) * 0.4);
-  font-weight: 800;
-  text-align: center;
+  color: #10233f;
   white-space: nowrap;
+}
+
+.pileSheet {
+  position: absolute;
+  top: 12%;
+  right: 3%;
+  bottom: 12%;
+  left: 3%;
+  border-radius: calc(var(--row) * 0.05);
+  background: #ffffff;
+  box-shadow: 0 calc(var(--row) * 0.02) calc(var(--row) * 0.06) rgba(50, 30, 5, 0.45);
+}
+
+.pileSheet:nth-child(1) {
+  background: #fff3a0;
+  transform: rotate(-1.2deg) translateY(10%);
+}
+
+.pileSheet:nth-child(2) {
+  background: #d6e9ff;
+  transform: rotate(1deg) translate(0.6%, 12%);
+}
+
+.pileSheet:nth-child(3) {
+  background: #fffdf5;
+}
+
+.pilePin {
+  position: absolute;
+  top: 4%;
+  left: 12%;
+  width: calc(var(--row) * 0.13);
+  height: calc(var(--row) * 0.13);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff9a8f, #d32f2f 58%, #8e1b1b);
+  box-shadow: 0 calc(var(--row) * 0.02) calc(var(--row) * 0.03) rgba(0, 0, 0, 0.45);
+}
+
+.pileCount {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: calc(var(--row) * 0.36);
+  height: calc(var(--row) * 0.36);
+  padding: 0 calc(var(--row) * 0.08);
+  border-radius: 999px;
+  background: #10233f;
   color: #ffffff;
-  text-shadow: 0 1px 2px rgba(60, 35, 5, 0.6);
+  font-size: calc(var(--row) * 0.24);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pileWord {
+  position: relative;
+  font-size: calc(var(--row) * 0.24);
+  font-weight: 800;
 }
 
 .more {

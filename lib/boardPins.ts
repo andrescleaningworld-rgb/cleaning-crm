@@ -26,22 +26,22 @@ export const PIN_TYPES: {
   { type: "supply", label: "Supply orders", one: "Supply order", available: true },
   { type: "visit", label: "Visits", one: "Visit", available: true },
   { type: "account", label: "Accounts", one: "Account", available: true },
-  // Account Updates and the New Account packet are still saved by Apps Script.
-  // Pinning one would need its record in Postgres first.
-  { type: "update", label: "Account Updates", one: "Account update", available: false },
+  { type: "update", label: "Account Updates", one: "Account update", available: true },
+  // The New Account packet is still saved by Apps Script. Pinning one would
+  // need its record in Postgres first.
   { type: "packet", label: "New Account packet", one: "New account packet", available: false },
 ];
 
 export const NOT_AVAILABLE_YET = "Available after tonight's update";
 
-/** To-dos start switched on (not pinned by default); everything else starts off. */
+/** To-dos and account updates start switched on (not pinned by default); everything else starts off. */
 export const DEFAULT_PIN_TYPES: PinTypes = {
   todo: { show: true, pinned: false },
   complaint: { show: false, pinned: false },
   supply: { show: false, pinned: false },
   visit: { show: false, pinned: false },
   account: { show: false, pinned: false },
-  update: { show: false, pinned: false },
+  update: { show: true, pinned: false },
   packet: { show: false, pinned: false },
 };
 

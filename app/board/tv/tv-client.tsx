@@ -147,7 +147,7 @@ function squareRows(count: number, width: number, height: number): number[] {
   return Array.from({ length: rows }, (_, index) => Math.floor(count / rows) + (index < count % rows ? 1 : 0));
 }
 
-/** The notes of one square: the first three, as tall as the square allows, then "+N more". */
+/** The notes of one square: the first three, as tall as the square allows, then the rest as a pile ("+N more"). */
 function SquareNotes<T>({ items, unit, keyOf, render }: { items: T[]; unit: number; keyOf: (item: T) => string; render: (item: T) => ReactNode }) {
   const { box, height } = useBoxSize(unit);
   const gap = ROW_GAP * unit;
@@ -164,7 +164,17 @@ function SquareNotes<T>({ items, unit, keyOf, render }: { items: T[]; unit: numb
   return (
     <div ref={box} className={styles.fitting} style={{ ["--row" as string]: `${row}px` }}>
       {ready ? items.slice(0, shown).map((item) => <div key={keyOf(item)}>{render(item)}</div>) : null}
-      {ready && more > 0 ? <p className={styles.squareMore}>+{more} more</p> : null}
+      {ready && more > 0 ? (
+        // The rest of the square's notes, as one pile. Only to look at: a click on the square opens them all.
+        <div className={styles.squarePile} data-pile>
+          <span className={styles.pileSheet} aria-hidden="true" />
+          <span className={styles.pileSheet} aria-hidden="true" />
+          <span className={styles.pileSheet} aria-hidden="true" />
+          <span className={styles.pilePin} aria-hidden="true" />
+          <span className={styles.pileCount}>+{more}</span>
+          <span className={styles.pileWord}>more</span>
+        </div>
+      ) : null}
     </div>
   );
 }

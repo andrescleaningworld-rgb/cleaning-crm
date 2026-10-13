@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { BigButton, Card, EmptyState, ErrorBox, LABELS, MoreMenu, Screen, SkeletonList } from "@/app/ui";
 import AccountLink from "../../components/AccountLink";
+import { PinButton, usePinInfo } from "../../components/pin-to-board";
 
 type RawAccountUpdate = {
   id?: string;
@@ -110,6 +111,8 @@ export default function AccountUpdateDetailPage() {
     return getParamId(params.id);
   }, [params.id]);
 
+  // "Pin to board" (Settings -> Pin Board).
+  const { info: pinInfo } = usePinInfo();
   const [updates, setUpdates] = useState<AccountUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -250,6 +253,16 @@ export default function AccountUpdateDetailPage() {
             </div>
           </dl>
         </Card>
+      </div>
+
+      {/* Outside the print view, so it never prints. The same paper the form's "Put on the board" makes. */}
+      <div className="ui-actions-row" style={{ marginTop: 12 }}>
+        <PinButton
+          info={pinInfo}
+          type="update"
+          managerName={update.manager}
+          record={{ recordId: update.id, title: `${update.updateType}: ${update.accountName}`, accountId: update.accountId, accountName: update.accountName, notes: update.notes === "N/A" ? "" : update.notes }}
+        />
       </div>
     </Screen>
   );

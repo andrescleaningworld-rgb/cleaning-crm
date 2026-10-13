@@ -224,6 +224,7 @@ export async function listPinnedRecords(): Promise<Partial<Record<PinType, strin
     todo: notes.filter((row) => row.type === "todo").map((row) => row.id),
     visit: notes.filter((row) => row.type === "visit").map((row) => row.id),
     account: notes.filter((row) => row.type === "account").map((row) => row.id),
+    update: notes.filter((row) => row.type === "update").map((row) => row.id),
     complaint: complaints.map((row) => row.id),
     supply: orders.map((row) => row.id),
   };

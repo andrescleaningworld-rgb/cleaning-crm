@@ -6,7 +6,8 @@
 // name and the kind of paper).
 
 import { Caveat } from "next/font/google";
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Sheet } from "@/app/ui";
 import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import styles from "./board.module.css";
 
@@ -72,6 +73,77 @@ export function paperClass(paper: Paper, settings: BoardSettings, now: Date): st
   return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""}`;
 }
 
+/* ---------- a full square: the papers that fit, then a pile ---------- */
+
+// A paper is at least this wide, with this gap beside it (.paper and .papers in board.module.css).
+const PAPER_WIDTH = 150;
+const PAPER_GAP = 10;
+
+/** How many papers fit in a square this wide: two rows of them, or four when only one fits across. */
+function papersThatFit(width: number): number {
+  const across = Math.max(1, Math.floor((width + PAPER_GAP) / (PAPER_WIDTH + PAPER_GAP)));
+  return across >= 2 ? across * 2 : 4;
+}
+
+/** Late and stuck papers first, then the oldest: the ones that stay in sight when a square is full. */
+function urgentFirst(list: Paper[], settings: BoardSettings, now: Date): Paper[] {
+  const late = (paper: Paper) => (isOverdue(paper, now) || isOld(paper, settings, now) ? 0 : 1);
+  return [...list].sort((a, b) => late(a) - late(b) || a.pinnedAt.localeCompare(b.pinnedAt));
+}
+
+/**
+ * The papers of one square. When they all fit they hang as they always did.
+ * When they do not, the most urgent ones hang and the rest are one pile.
+ */
+function SquarePapers({
+  list,
+  settings,
+  now,
+  renderPaper,
+  renderPile,
+}: {
+  list: Paper[];
+  settings: BoardSettings;
+  now: Date;
+  renderPaper: (paper: Paper) => ReactNode;
+  renderPile: (hidden: number) => ReactNode;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const next = box.current?.clientWidth ?? 0;
+      setWidth((before) => (before === next ? before : next));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" || !box.current ? null : new ResizeObserver(measure);
+    if (observer && box.current) observer.observe(box.current);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, []);
+
+  // Until the square is measured, everything hangs.
+  const fit = width > 0 ? papersThatFit(width) : list.length;
+  if (list.length <= fit) {
+    return (
+      <div ref={box} className={styles.papers}>
+        {list.map(renderPaper)}
+      </div>
+    );
+  }
+  // The pile takes one paper's place.
+  const shown = urgentFirst(list, settings, now).slice(0, fit - 1);
+  return (
+    <div ref={box} className={styles.papers}>
+      {shown.map(renderPaper)}
+      {renderPile(list.length - shown.length)}
+    </div>
+  );
+}
+
 type Pending = { paper: Paper; x: number; y: number; touch: boolean; timer: number | null };
 type Drag = { paper: Paper; x: number; y: number; over: string };
 
@@ -100,6 +172,8 @@ export default function BoardCanvas({
   const [drag, setDrag] = useState<Drag | null>(null);
   // TV mode: the paper someone tapped, shown bigger. Nothing else happens on a tap there.
   const [zoomed, setZoomed] = useState<Paper | null>(null);
+  // The square whose pile was tapped: all of its papers show in a sheet.
+  const [pile, setPile] = useState<{ key: string; name: string } | null>(null);
   const [now, setNow] = useState(() => new Date());
   const pending = useRef<Pending | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -235,6 +309,46 @@ export default function BoardCanvas({
     );
   }
 
+  // The papers of a square, by its key: "shared:<kind>" or "mgr:<Staff ID>".
+  const papersOf = (key: string) => (key.startsWith("mgr:") ? papersIn(papers, { manager: key.slice(4) }) : papersIn(papers, { shared: key.slice(7) as Paper["kind"] }));
+
+  // The pile at the bottom of a full square: paper edges peeking out, one pin, and how many are in it.
+  function renderPile(key: string, name: string, hidden: number, total: number) {
+    const face = (
+      <>
+        <span className={styles.pileSheet} aria-hidden="true" />
+        <span className={styles.pileSheet} aria-hidden="true" />
+        <span className={styles.pileSheet} aria-hidden="true" />
+        <span className={`${styles.pin} ${styles.pinRed}`} aria-hidden="true" />
+        <span className={styles.pileCount}>+{hidden}</span>
+        <span className={styles.pileWord}>more</span>
+      </>
+    );
+    if (tv || !onOpen) {
+      return (
+        <div key="pile" className={styles.pile} data-pile>
+          {face}
+        </div>
+      );
+    }
+    return (
+      <button
+        key="pile"
+        type="button"
+        className={styles.pile}
+        data-paper
+        data-pile
+        aria-label={`${hidden} more in ${name}. Show all ${total} papers.`}
+        onClick={() => {
+          if (Date.now() < skipClickUntil.current) return;
+          setPile({ key, name });
+        }}
+      >
+        {face}
+      </button>
+    );
+  }
+
   function renderSquare(key: string, name: string, list: Paper[], mine = false) {
     const canAdd = !tv && Boolean(onAdd);
     // A tap on a paper opens the paper; a tap anywhere else in the box adds something there.
@@ -255,7 +369,7 @@ export default function BoardCanvas({
           <h2 className={styles.squareName}>{name}</h2>
           <span className={styles.squareCount}>{list.length}</span>
         </div>
-        {list.length === 0 ? <p className={styles.emptySquare}>{canAdd ? "Tap to add" : "Nothing pinned"}</p> : <div className={styles.papers}>{list.map(renderPaper)}</div>}
+        {list.length === 0 ? <p className={styles.emptySquare}>{canAdd ? "Tap to add" : "Nothing pinned"}</p> : <SquarePapers list={list} settings={settings} now={now} renderPaper={renderPaper} renderPile={(hidden) => renderPile(key, name, hidden, list.length)} />}
         {/* Always some empty room at the bottom to tap, even in a full box. */}
         {canAdd ? (
           <button type="button" className={styles.addStrip} aria-label={`Add to ${name}`}>
@@ -285,6 +399,26 @@ export default function BoardCanvas({
           {managers.map((manager) => renderSquare(`mgr:${manager.id}`, manager.name, papersIn(papers, { manager: manager.id }), manager.id === mySquare))}
         </div>
       </div>
+      {/* Every paper of the square whose pile was tapped. A tap on one opens it like any paper. */}
+      <Sheet open={pile !== null} title={pile ? `${pile.name}: ${papersOf(pile.key).length} papers` : ""} onClose={() => setPile(null)} closeLabel="Close">
+        <div className={styles.pileList}>
+          {pile
+            ? urgentFirst(papersOf(pile.key), settings, now).map((paper) => (
+                <button
+                  key={paperKey(paper)}
+                  type="button"
+                  className={`${paperClass(paper, settings, now)} ${styles.pileItem}`}
+                  onClick={() => {
+                    setPile(null);
+                    onOpen?.(paper);
+                  }}
+                >
+                  <PaperFace paper={paper} settings={settings} now={now} />
+                </button>
+              ))
+            : null}
+        </div>
+      </Sheet>
       {drag ? (
         <div className={`${paperClass(drag.paper, settings, now)} ${styles.ghost}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
           <PaperFace paper={drag.paper} settings={settings} now={now} />
