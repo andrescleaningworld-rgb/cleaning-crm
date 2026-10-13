@@ -12,6 +12,7 @@ process.env.OUTBOUND_DRY_RUN = "1";
 process.env.DATA_SOURCE_ACCOUNTS = "postgres";
 
 const crew = await import("../../lib/pg/crew-supplies");
+const hub = await import("../../lib/teamHubDb");
 const { getSql } = await import("../../lib/db");
 const sql = getSql();
 
@@ -34,6 +35,7 @@ const OTHER = "zz-check-crew-supplies-2";
 const counts = async () => (await sql`SELECT (SELECT count(*)::int FROM supply_items) AS items, (SELECT count(*)::int FROM supply_orders) AS orders, (SELECT count(*)::int FROM supply_order_lines) AS lines`)[0] as { items: number; orders: number; lines: number };
 const before = await counts();
 let itemId = 0;
+let extraItemId = 0;
 let orderId = 0;
 
 try {
@@ -50,6 +52,22 @@ try {
   const kept = await crew.saveCatalogItem({ id: itemId, name: "ZZ check item 2", brand: "CheckBrand", productLine: "Line B", unit: "case" }, "check");
   check("edit with no new photo keeps the photo", kept!.photoUrl.endsWith("p.jpg"));
   check("edit of an unknown id answers null", (await crew.saveCatalogItem({ id: 2_000_000_000, name: "x", brand: "", productLine: "", unit: "" }, "check")) === null);
+
+  // ----- the type and the product code (migration 035) -----
+  check("migration 035 is in this database", await crew.catalogTypesReady());
+  check("an item starts with no type and no product code", kept!.category === "" && kept!.sku === "");
+  const typed = await crew.saveCatalogItem({ id: itemId, name: "ZZ check item 2", brand: "CheckBrand", productLine: "Line B", unit: "case", category: "  ZZ Check Type ", sku: " ZZ-123 " }, "check");
+  check("the type and the product code are saved, trimmed", typed!.category === "ZZ Check Type" && typed!.sku === "ZZ-123" && typed!.name === "ZZ check item 2" && typed!.photoUrl.endsWith("p.jpg"));
+  check("the catalog list carries them", (await crew.listCatalogItems(true)).some((item) => item.id === itemId && item.category === "ZZ Check Type" && item.sku === "ZZ-123"));
+  const withTypes = await crew.saveCatalogItem({ name: "ZZ check item 3", brand: "", productLine: "", unit: "box", category: "ZZ Check Type", sku: "ZZ-456" }, "check");
+  extraItemId = withTypes!.id;
+  check("a new item can be given both when it is added", withTypes!.category === "ZZ Check Type" && withTypes!.sku === "ZZ-456");
+  // What a crew is sent is built from this list (app/api/porter-checklist/[code]/supplies): no product code, no type.
+  const crewList = await hub.listSupplyItemsLibrary(true);
+  const crewItem = crewList.find((item) => item.id === itemId) as Record<string, unknown> | undefined;
+  check("the list the crew screen is built from has no product code and no type", Boolean(crewItem) && !("sku" in crewItem!) && !("category" in crewItem!) && !JSON.stringify(crewItem).includes("ZZ-123"));
+  await sql`DELETE FROM supply_items WHERE id = ${extraItemId}`;
+  extraItemId = 0;
 
   // ----- the list of one account -----
   const two = existing.slice(0, 2).map((item) => item.id);
@@ -115,6 +133,7 @@ try {
   // Take the test rows out again.
   if (orderId) await sql`DELETE FROM supply_orders WHERE id = ${orderId}`;
   await sql`DELETE FROM crew_link_account_supplies WHERE account_id IN (${ACCOUNT}, ${OTHER})`;
+  if (extraItemId) await sql`DELETE FROM supply_items WHERE id = ${extraItemId}`;
   if (itemId) await sql`DELETE FROM supply_items WHERE id = ${itemId}`;
 }
 

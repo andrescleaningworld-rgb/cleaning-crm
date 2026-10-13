@@ -9,6 +9,7 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import {
+  catalogTypesReady,
   crewSuppliesReady,
   editCrewOrder,
   editMarksFor,
@@ -35,7 +36,9 @@ export async function GET(request: NextRequest) {
 
     // Supplies page -> Catalog: every item, the removed ones too.
     if (view === "catalog") {
-      return NextResponse.json({ success: true, ready: true, items: await listCatalogItems(true) }, noStore);
+      // typesOn: the catalog has a type and a product code for each item (migration 035).
+      const [items, typesOn] = await Promise.all([listCatalogItems(true), catalogTypesReady()]);
+      return NextResponse.json({ success: true, ready: true, items, typesOn }, noStore);
     }
 
     // Crew Link setup -> "Pick supplies for this account".
@@ -110,7 +113,10 @@ export async function POST(request: NextRequest) {
       const id = body.id === undefined || body.id === null || body.id === "" ? undefined : Number(body.id);
       if (id !== undefined && !Number.isInteger(id)) return refuse("That item was not found.", 404);
       if (!clean(body.name)) return refuse("Write the item's name.");
-      const item = await saveCatalogItem({ id, name: clean(body.name), brand: clean(body.brand), productLine: clean(body.productLine), unit: clean(body.unit), photoUrl: clean(body.photoUrl) }, by);
+      const item = await saveCatalogItem(
+        { id, name: clean(body.name), brand: clean(body.brand), productLine: clean(body.productLine), unit: clean(body.unit), photoUrl: clean(body.photoUrl), category: clean(body.category), sku: clean(body.sku) },
+        by
+      );
       if (!item) return refuse("That item was not found.", 404);
       // The crews read item names in Spanish and Portuguese too.
       scheduleCrewTranslations();

@@ -1,19 +1,22 @@
 "use client";
 
 // Supplies -> Catalog: the one list crews order from in Crew Link. Each item
-// has a name, a brand, a product line, a unit and, if wanted, a photo. An
-// item that is removed is only hidden: crews stop seeing it and past orders
-// keep it. Which of these a given account's crew sees is picked on that
+// has a name, a brand, a product line, a unit and, if wanted, a photo. It
+// also has a type ("Toilet paper", "Hand soap"...), which the list is grouped
+// by, and our product code; the code is for staff only. An item that is
+// removed is only hidden: crews stop seeing it and past orders keep it. Which of these a given account's crew sees is picked on that
 // account's Crew Link setup ("Pick supplies for this account").
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Field, FilterChips, SearchBar, SelectField, Sheet, SkeletonList, showToast } from "@/app/ui";
 
-type Item = { id: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string; active: boolean };
-type Draft = { id?: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string };
+type Item = { id: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string; category: string; sku: string; active: boolean };
+type Draft = { id?: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string; category: string; sku: string };
 
 const UNITS = ["case", "box", "each", "gallon", "pack", "bag", "roll", "bottle"];
-const EMPTY: Draft = { name: "", brand: "", productLine: "", unit: "case", photoUrl: "" };
+const EMPTY: Draft = { name: "", brand: "", productLine: "", unit: "case", photoUrl: "", category: "", sku: "" };
+/** The heading over the items that have no type. Always the last group. */
+const NO_TYPE = "No type yet";
 
 async function post(body: Record<string, unknown> | FormData): Promise<Record<string, unknown>> {
   const response = await fetch("/api/admin/crew-supplies", body instanceof FormData ? { method: "POST", body } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -25,6 +28,8 @@ async function post(body: Record<string, unknown> | FormData): Promise<Record<st
 export default function SupplyCatalog() {
   const [state, setState] = useState<"loading" | "ready" | "off" | "failed">("loading");
   const [items, setItems] = useState<Item[]>([]);
+  // The catalog has types and product codes here (migration 035). Until then it is one plain list, as before.
+  const [typesOn, setTypesOn] = useState(false);
   const [search, setSearch] = useState("");
   const [shown, setShown] = useState<"active" | "removed">("active");
   const [brand, setBrand] = useState("");
@@ -37,10 +42,11 @@ export default function SupplyCatalog() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/admin/crew-supplies?view=catalog", { cache: "no-store" });
-      const body = (await response.json()) as { success?: boolean; ready?: boolean; items?: Item[] };
+      const body = (await response.json()) as { success?: boolean; ready?: boolean; items?: Item[]; typesOn?: boolean };
       if (!response.ok || body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
       setItems(body.items ?? []);
+      setTypesOn(body.typesOn === true);
       setState("ready");
     } catch {
       setState("failed");
@@ -57,9 +63,23 @@ export default function SupplyCatalog() {
     return items.filter((item) => {
       if (item.active !== (shown === "active")) return false;
       if (brand && item.brand !== brand) return false;
-      return !words || [item.name, item.brand, item.productLine].join(" ").toLowerCase().includes(words);
+      return !words || [item.name, item.brand, item.productLine, item.category, item.sku].join(" ").toLowerCase().includes(words);
     });
   }, [items, search, shown, brand]);
+  // Every type in use, for the form's suggestions, so the same type is not spelled two ways.
+  const types = useMemo(() => [...new Set(items.map((item) => item.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [items]);
+  // The list under its types, in ABC order; items with no type come last. One group with no heading where types are not on.
+  const groups = useMemo(() => {
+    if (!typesOn) return [{ type: "", items: list }];
+    const byType = new Map<string, Item[]>();
+    for (const item of list) {
+      const type = item.category || NO_TYPE;
+      byType.set(type, [...(byType.get(type) ?? []), item]);
+    }
+    return [...byType.entries()]
+      .sort(([a], [b]) => Number(a === NO_TYPE) - Number(b === NO_TYPE) || a.localeCompare(b))
+      .map(([type, entries]) => ({ type, items: entries }));
+  }, [list, typesOn]);
   const removedCount = items.filter((item) => !item.active).length;
 
   const startAdd = () => {
@@ -70,7 +90,7 @@ export default function SupplyCatalog() {
   const startEdit = (item: Item) => {
     setError("");
     setPhoto(null);
-    setDraft({ id: item.id, name: item.name, brand: item.brand, productLine: item.productLine, unit: item.unit, photoUrl: item.photoUrl });
+    setDraft({ id: item.id, name: item.name, brand: item.brand, productLine: item.productLine, unit: item.unit, photoUrl: item.photoUrl, category: item.category, sku: item.sku });
   };
 
   async function save() {
@@ -85,7 +105,7 @@ export default function SupplyCatalog() {
         upload.append("file", photo);
         photoUrl = String((await post(upload)).photoUrl ?? "");
       }
-      await post({ action: "saveItem", id: draft.id, name: draft.name, brand: draft.brand, productLine: draft.productLine, unit: draft.unit, photoUrl });
+      await post({ action: "saveItem", id: draft.id, name: draft.name, brand: draft.brand, productLine: draft.productLine, unit: draft.unit, photoUrl, category: draft.category, sku: draft.sku });
       showToast(draft.id === undefined ? "Added to the catalog ✓" : "Saved ✓");
       setDraft(null);
       await load();
@@ -123,7 +143,7 @@ export default function SupplyCatalog() {
         </BigButton>
       </div>
 
-      <SearchBar value={search} onChange={setSearch} label="Search the catalog" placeholder="Name, brand or product line" />
+      <SearchBar value={search} onChange={setSearch} label="Search the catalog" placeholder={typesOn ? "Name, brand, type or product code" : "Name, brand or product line"} />
       <FilterChips
         label="Show"
         value={shown}
@@ -145,7 +165,14 @@ export default function SupplyCatalog() {
       ) : null}
 
       {list.length === 0 ? <EmptyState title={shown === "active" ? "Nothing here" : "Nothing has been removed"} text={shown === "active" ? "Tap Add item, or change the search." : undefined} /> : null}
-      {list.map((item) => (
+      {groups.map((group) => (
+        <section key={group.type || "all"} className="ui-stack" aria-label={group.type || "Items"} data-catalog-type={group.type}>
+          {group.type ? (
+            <h2 className="ui-section-title" style={{ margin: 0 }}>
+              {group.type} <span className="ui-muted">({group.items.length})</span>
+            </h2>
+          ) : null}
+          {group.items.map((item) => (
         <div key={item.id} className="ui-card" data-catalog-item={item.id}>
           <div className="ui-card-row" style={{ justifyContent: "flex-start", gap: 12 }}>
             {item.photoUrl ? (
@@ -165,6 +192,7 @@ export default function SupplyCatalog() {
               </p>
               <p className="ui-muted" style={{ margin: 0 }}>
                 Unit: {item.unit}
+                {item.sku ? ` · Code: ${item.sku}` : ""}
               </p>
             </div>
           </div>
@@ -183,6 +211,8 @@ export default function SupplyCatalog() {
             )}
           </div>
         </div>
+          ))}
+        </section>
       ))}
 
       <Sheet
@@ -199,6 +229,27 @@ export default function SupplyCatalog() {
         {draft ? (
           <div className="ui-stack">
             <Field label="Name" maxLength={120} value={draft.name} disabled={busy} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Toilet paper" />
+            {typesOn ? (
+              <>
+                <Field
+                  label="Type"
+                  optional
+                  hint="What kind of supply it is. Items of the same type are listed together."
+                  maxLength={60}
+                  list="supply-catalog-types"
+                  value={draft.category}
+                  disabled={busy}
+                  onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+                  placeholder="Toilet paper"
+                />
+                <datalist id="supply-catalog-types">
+                  {types.map((type) => (
+                    <option key={type} value={type} />
+                  ))}
+                </datalist>
+                <Field label="Product code" optional hint="Our code for it. Crews never see this." maxLength={60} value={draft.sku} disabled={busy} onChange={(event) => setDraft({ ...draft, sku: event.target.value })} />
+              </>
+            ) : null}
             <Field label="Brand" optional maxLength={80} value={draft.brand} disabled={busy} onChange={(event) => setDraft({ ...draft, brand: event.target.value })} />
             <Field label="Product line" optional maxLength={80} value={draft.productLine} disabled={busy} onChange={(event) => setDraft({ ...draft, productLine: event.target.value })} />
             <SelectField label="Unit" value={draft.unit} disabled={busy} onChange={(event) => setDraft({ ...draft, unit: event.target.value })}>

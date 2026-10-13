@@ -40,6 +40,22 @@ export async function crewSuppliesReady(): Promise<boolean> {
   return ready;
 }
 
+/* ---------- is migration 035 in this database? ---------- */
+
+let typesReady = false;
+
+/** True once the catalog has a type and a product code for each item (migration 035). Until then both read as "" and are not saved. */
+export async function catalogTypesReady(): Promise<boolean> {
+  if (typesReady) return true;
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT count(*)::int AS n FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'supply_items' AND column_name IN ('category', 'sku')
+  `) as { n: number }[];
+  typesReady = rows[0]?.n === 2;
+  return typesReady;
+}
+
 /* ---------- the catalog ---------- */
 
 export type CatalogItem = {
@@ -49,11 +65,16 @@ export type CatalogItem = {
   productLine: string;
   unit: string;
   photoUrl: string;
+  /** The type it belongs to ("Toilet paper"...), for grouping. "" = no type yet. */
+  category: string;
+  /** Our product code. Staff side only: nothing a crew is sent carries it. */
+  sku: string;
   /** false = removed from the catalog (hidden). It is never deleted. */
   active: boolean;
 };
 
-type ItemRow = { id: number; name: string; brand: string | null; product_line: string | null; unit: string; photo_url: string | null; active: boolean };
+// category and sku are missing from the row where migration 035 is not in yet.
+type ItemRow = { id: number; name: string; brand: string | null; product_line: string | null; unit: string; photo_url: string | null; active: boolean; category?: string | null; sku?: string | null };
 
 const toItem = (row: ItemRow): CatalogItem => ({
   id: row.id,
@@ -62,13 +83,16 @@ const toItem = (row: ItemRow): CatalogItem => ({
   productLine: clean(row.product_line),
   unit: clean(row.unit),
   photoUrl: clean(row.photo_url),
+  category: clean(row.category),
+  sku: clean(row.sku),
   active: row.active === true,
 });
 
 export async function listCatalogItems(includeHidden: boolean): Promise<CatalogItem[]> {
   const sql = getSql();
+  // Every column, so the type and the product code come along once they exist.
   const rows = (await sql`
-    SELECT id, name, brand, product_line, unit, photo_url, active FROM supply_items
+    SELECT * FROM supply_items
     WHERE ${includeHidden} OR active
     ORDER BY lower(name), id
   `) as ItemRow[];
@@ -76,21 +100,28 @@ export async function listCatalogItems(includeHidden: boolean): Promise<CatalogI
 }
 
 /** Adds an item (no id) or changes one. Returns null when the id is not in the catalog. */
-export async function saveCatalogItem(input: { id?: number; name: string; brand: string; productLine: string; unit: string; photoUrl?: string }, by: string): Promise<CatalogItem | null> {
+export async function saveCatalogItem(input: { id?: number; name: string; brand: string; productLine: string; unit: string; photoUrl?: string; category?: string; sku?: string }, by: string): Promise<CatalogItem | null> {
   const name = clean(input.name).slice(0, 120);
   if (!name) throw new Error("Write the item's name.");
   const brand = clean(input.brand).slice(0, 80);
   const productLine = clean(input.productLine).slice(0, 80);
   const unit = clean(input.unit).slice(0, 30) || "each";
   const photo = clean(input.photoUrl);
+  const category = clean(input.category).slice(0, 60);
+  const sku = clean(input.sku).slice(0, 60);
   const sql = getSql();
+  // The type and the product code are saved by themselves, and only where the database has them (migration 035).
+  const saveTypes = async (id: number): Promise<ItemRow> => {
+    if (await catalogTypesReady()) await sql`UPDATE supply_items SET category = ${category}, sku = ${sku} WHERE id = ${id}`;
+    return ((await sql`SELECT * FROM supply_items WHERE id = ${id}`) as ItemRow[])[0];
+  };
   if (input.id === undefined) {
     const rows = (await sql`
       INSERT INTO supply_items (name, unit, sort_order, brand, product_line, photo_url, updated_by, updated_at)
       SELECT ${name}, ${unit}, COALESCE(MAX(sort_order), 0) + 1, ${brand}, ${productLine}, ${photo}, ${by}, now() FROM supply_items
-      RETURNING id, name, brand, product_line, unit, photo_url, active
-    `) as ItemRow[];
-    return toItem(rows[0]);
+      RETURNING id
+    `) as { id: number }[];
+    return toItem(await saveTypes(rows[0].id));
   }
   // A photo is only replaced when a new one came with the save.
   const rows = (await sql`
@@ -99,9 +130,9 @@ export async function saveCatalogItem(input: { id?: number; name: string; brand:
         photo_url = CASE WHEN ${photo} = '' THEN photo_url ELSE ${photo} END,
         updated_by = ${by}, updated_at = now()
     WHERE id = ${input.id}
-    RETURNING id, name, brand, product_line, unit, photo_url, active
-  `) as ItemRow[];
-  return rows[0] ? toItem(rows[0]) : null;
+    RETURNING id
+  `) as { id: number }[];
+  return rows[0] ? toItem(await saveTypes(rows[0].id)) : null;
 }
 
 /** Remove (hide) or put back. Nothing is deleted. */
