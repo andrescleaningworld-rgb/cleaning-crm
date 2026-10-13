@@ -3,7 +3,7 @@ import {
   findSubcontractorEmailByName,
   findSubcontractorPhoneByName,
 } from "@/app/api/subcontractors/route";
-import { sanitizeSmsText, sendSms } from "@/lib/sms";
+import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import {
   appendComplaint,
   closeComplaint,
@@ -634,7 +634,7 @@ export async function POST(request: NextRequest) {
           const rawMessage = [
             `New complaint: ${fields.accountName || "Account"}`,
             summary,
-            link,
+            smsLastLine(link, "sub"),
           ]
             .filter(Boolean)
             .join("\n");

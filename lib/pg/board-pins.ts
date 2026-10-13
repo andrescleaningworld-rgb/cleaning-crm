@@ -42,7 +42,7 @@ export async function savePinTypes(types: PinTypes, by: string): Promise<PinType
   return clean;
 }
 
-const noteItemId = (type: PinType, recordId: string) => `pin-${type}-${recordId}`;
+export const noteItemId = (type: PinType, recordId: string) => `pin-${type}-${recordId}`;
 
 /** Where each kind of record opens. */
 function recordHref(type: PinType, recordId: string): string {

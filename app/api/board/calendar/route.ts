@@ -1,11 +1,12 @@
 // Cleaning calendar API (/board/calendar). Staff only (proxy.ts default
 // gate). Postgres only; see lib/pg/cleanings.ts.
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { addDays, isDay, officeDay } from "@/lib/cleanings";
 import { boardReady } from "@/lib/pg/board";
-import { listCleanings, markCleaning, pinMissedCleaning } from "@/lib/pg/cleanings";
+import { notifyBoardSquare, paperOnBoard } from "@/lib/pg/board-sms";
+import { listCleanings, markCleaning, missedPaperId, pinMissedCleaning } from "@/lib/pg/cleanings";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
@@ -51,6 +52,16 @@ export async function POST(request: NextRequest) {
     // One tap: a missed cleaning goes up on the board as a to-do.
     if (action === "pinMissed") {
       const pinned = await pinMissedCleaning({ accountId, day, by });
+      if (pinned) {
+        // The paper went to the account manager's square: they get the board text (lib/pg/board-sms.ts).
+        const byStaffId = clean(identity.staffId);
+        const origin = new URL(request.url).origin;
+        after(async () => {
+          const paper = await paperOnBoard("note", missedPaperId(accountId, day)).catch(() => null);
+          if (!paper?.square) return;
+          await notifyBoardSquare({ square: paper.square, byStaffId, paperId: paper.itemId, title: paper.title, accountName: paper.accountName, origin, routeContext: "board/pinMissed" });
+        });
+      }
       return NextResponse.json({ success: true, pinned });
     }
 

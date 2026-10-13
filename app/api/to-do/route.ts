@@ -22,7 +22,7 @@ import {
   type ToDoCalendarInput,
 } from "@/lib/googleCalendar";
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
-import { sanitizeSmsText, sendSms } from "@/lib/sms";
+import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import { sendPush } from "@/lib/push";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
@@ -106,7 +106,7 @@ async function sendToDoNotification(
     .join(" - ");
   const link = `${origin}/to-do?id=${encodeURIComponent(id)}`;
 
-  const smsBody = [`${label}: ${title}, due ${input.dueDate}`, description, link]
+  const smsBody = [`${label}: ${title}, due ${input.dueDate}`, description, smsLastLine(link, "staff")]
     .filter(Boolean)
     .join("\n");
   const pushBody = description ? `Due ${input.dueDate} — ${description}` : `Due ${input.dueDate}`;
@@ -228,7 +228,7 @@ async function notifyManagerOfToDoBatch(
 
   const countLabel = `${ids.length} to-do${ids.length === 1 ? "" : "s"}`;
   const summary = `${countLabel}${accountsSummary ? ` (${accountsSummary})` : ""}, due ${dueDate}`;
-  const smsBody = [`${label}: ${summary}`, link].filter(Boolean).join("\n");
+  const smsBody = [`${label}: ${summary}`, smsLastLine(link, "staff")].filter(Boolean).join("\n");
 
   await Promise.all([
     sendToDoSms(firstId, manager, smsBody, routeContext),

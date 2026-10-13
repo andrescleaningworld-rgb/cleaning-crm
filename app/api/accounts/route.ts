@@ -3,7 +3,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorEmailByName, findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
-import { sanitizeSmsText, sendSms } from "@/lib/sms";
+import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import {
   setAccountChecklistNeeded,
   updateAccountFieldsDirect,
@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
               return;
             }
             const link = `${origin}/accounts/${encodeURIComponent(accountId)}`;
-            const rawMessage = [`New account assigned: ${accountName}`, address, link]
+            const rawMessage = [`New account assigned: ${accountName}`, address, smsLastLine(link, "sub")]
               .filter(Boolean)
               .join("\n");
             const message = sanitizeSmsText(rawMessage, Infinity);
@@ -691,7 +691,7 @@ export async function POST(request: NextRequest) {
             return;
           }
           const link = effectiveAccountId ? `${origin}/accounts/${encodeURIComponent(effectiveAccountId)}` : "";
-          const rawMessage = [`New account assigned: ${accountName}`, address, link]
+          const rawMessage = [`New account assigned: ${accountName}`, address, smsLastLine(link, "sub")]
             .filter(Boolean)
             .join("\n");
           const message = sanitizeSmsText(rawMessage, Infinity);

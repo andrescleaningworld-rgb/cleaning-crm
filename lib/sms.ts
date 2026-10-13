@@ -48,12 +48,55 @@ function redactUrls(text: string): string {
   return text.replace(/https?:\/\/\S+/gi, "[URL removed]");
 }
 
+// SMS_INCLUDE_LINKS=1 puts links back in texts. Default is off: Textbelt
+// refuses every text with a web address until the account is verified
+// ("ability to send URLs via text is limited to verified accounts"), so no
+// text carries a link until then.
+export function smsLinksOn(): boolean {
+  return process.env.SMS_INCLUDE_LINKS === "1";
+}
+
+const SMS_NO_LINK_LINE = {
+  staff: "Open the Cleaning World app to see it.",
+  // Subcontractors use the sub portal, not the staff pages.
+  sub: "Open your Cleaning World portal to see it.",
+} as const;
+
+/** The last line of a text: the link when links are on, a plain line when they are off. */
+export function smsLastLine(link: string, reader: keyof typeof SMS_NO_LINK_LINE): string {
+  return smsLinksOn() ? link : SMS_NO_LINK_LINE[reader];
+}
+
+// Safety net for sendSms: with links off, any web address still in a message
+// is taken out, so one forgotten link cannot get a text refused.
+// A web address: http(s)://..., www...., or a bare name such as
+// cleaningworld.com/page (but not the end of an email address).
+const WEB_ADDRESS = /(?:https?:\/\/|www\.)\S+|(?<![@\w.-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|co|us|app|info|biz)\b(?:\/\S*)?/gi;
+
+function hasLink(text: string): boolean {
+  return text.search(WEB_ADDRESS) !== -1;
+}
+
+function stripLinks(text: string): string {
+  return text
+    .replace(WEB_ADDRESS, "")
+    .split("\n")
+    .map((line) => line.replace(/ {2,}/g, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 export async function sendSms(
   phone: string,
-  message: string,
+  rawMessage: string,
   routeContext: string = "unknown"
 ): Promise<{ success: boolean; quotaRemaining?: number; textId?: string | number }> {
   const last4 = phone.slice(-4);
+  const strip = !smsLinksOn() && hasLink(rawMessage);
+  const message = strip ? stripLinks(rawMessage) : rawMessage;
+  if (strip) {
+    console.warn(`[sms] took a web address out of the message (${routeContext}): SMS_INCLUDE_LINKS is not on`);
+  }
 
   if (isOutboundDryRun()) {
     logDryRun("sms", `(${routeContext}) to ***${last4}: ${message}`);
@@ -88,6 +131,10 @@ export async function sendSms(
       textId?: string | number;
       error?: string;
     };
+
+    // Textbelt's whole reply. Web addresses are taken out first: its error
+    // text can hold a link with the key in it.
+    console.log(`[sms] textbelt reply (${routeContext}) http=${response.status}: ${redactUrls(JSON.stringify(data))}`);
 
     if (!data.success) {
       const safeError = data.error ? redactUrls(data.error) : "Textbelt returned success:false";

@@ -3,13 +3,14 @@
 // tables are not in this database yet, GET answers { ready: false } and the
 // page says so.
 
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
 import { NOTE_BOXES } from "@/lib/board";
-import { PIN_TYPES, isPinType, readPinTypes, type PinInfo } from "@/lib/boardPins";
-import { getPinTypes, listPinnedRecords, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
+import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "@/lib/boardPins";
+import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
+import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
 import {
   boardReady,
   connectTv,
@@ -32,6 +33,15 @@ import {
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
 const noStore = { headers: { "Cache-Control": "no-store" } };
+
+// The paper a record has on the board now, to tell "pinned into this square"
+// from "it was already there". A supply order's paper is not looked up (its
+// ID is worked out in SQL), so it counts as new.
+function recordPaper(type: PinType, recordId: string): Promise<PaperNow | null> {
+  if (type === "complaint") return paperOnBoard("complaint", recordId);
+  if (type === "supply") return Promise.resolve(null);
+  return paperOnBoard("note", noteItemId(type, recordId));
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,6 +112,9 @@ export async function POST(request: NextRequest) {
     const action = clean(body.action);
     const kind = clean(body.kind);
     const itemId = clean(body.itemId);
+    // For the text a manager gets when someone else puts a paper in their square (lib/pg/board-sms.ts).
+    const byStaffId = clean(identity.staffId);
+    const origin = new URL(request.url).origin;
 
     // "+ Pin something": a to-do. Extra jobs are not pinned by hand: they are set up on the Extra Jobs form and pin themselves.
     if (action === "pin") {
@@ -115,6 +128,9 @@ export async function POST(request: NextRequest) {
       if (!square && !inBox) return refuse("Pick whose square it goes in.");
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
       const id = await pinPaper({ text, accountId: clean(body.accountId), accountName: clean(body.accountName), square, by, notes: clean(body.notes), dueDate: clean(body.dueDate), box: square || box === "office" ? "" : box });
+      if (square) {
+        after(() => notifyBoardSquare({ square, byStaffId, paperId: id, title: text, accountName: clean(body.accountName), notes: clean(body.notes), origin, routeContext: "board/pin" }));
+      }
       return NextResponse.json({ success: true, itemId: id });
     }
 
@@ -122,7 +138,12 @@ export async function POST(request: NextRequest) {
       const square = clean(body.square);
       if (!kind || !itemId) return refuse("kind and itemId are required.");
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      // Where the paper hangs before the move: a move inside the same square sends no text.
+      const before = square ? await paperOnBoard(kind, itemId).catch(() => null) : null;
       if (!(await movePaper(kind, itemId, square))) return refuse("That paper is not on the board any more.", 404);
+      if (square && before && before.square !== square) {
+        after(() => notifyBoardSquare({ square, byStaffId, paperId: before.itemId, title: before.title, accountName: before.accountName, notes: before.notes, origin, routeContext: "board/move" }));
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -149,8 +170,16 @@ export async function POST(request: NextRequest) {
       if (!PIN_TYPES.find((entry) => entry.type === type)?.available) return refuse("That kind of record cannot be pinned yet.");
       if (!(await getPinTypes())[type].show) return refuse("Pin to board is switched off for that kind of record.", 409);
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      const before = square ? await recordPaper(type, recordId).catch(() => null) : null;
       const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate) }, by);
       if (!pinned) return refuse("That record was not found, so it was not pinned.", 404);
+      if (square && before?.square !== square) {
+        after(async () => {
+          // A to-do just made for this manager already sent them the To-Do text.
+          if (type === "todo" && (await toDoTextCoversSquare(recordId, square))) return;
+          await notifyBoardSquare({ square, byStaffId, paperId: `${type}-${recordId}`, title: clean(body.title), accountName: clean(body.accountName), origin, routeContext: "board/pinRecord" });
+        });
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -163,6 +192,13 @@ export async function POST(request: NextRequest) {
       if ((type !== "todo" && type !== "update") || !recordId) return refuse("type and recordId are required.");
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
       await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate), notes: clean(body.notes) }, by);
+      if (square) {
+        after(async () => {
+          // A to-do just made for this manager already sent them the To-Do text.
+          if (type === "todo" && (await toDoTextCoversSquare(recordId, square))) return;
+          await notifyBoardSquare({ square, byStaffId, paperId: `${type}-${recordId}`, title: clean(body.title), accountName: clean(body.accountName), notes: clean(body.notes), origin, routeContext: "board/pinNew" });
+        });
+      }
       return NextResponse.json({ success: true });
     }
 
