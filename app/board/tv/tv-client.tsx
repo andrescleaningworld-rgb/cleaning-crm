@@ -257,7 +257,7 @@ function Fitting<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; uni
  *      of the background's own blue with a silent sound track, looping. It
  *      is small, sits in the bottom corner in the screen's margin and is all
  *      but transparent, so it cannot be seen even by a TV that draws video on
- *      its own layer, and it is muted. If that file cannot be played, a
+ *      its own layer, and it makes no sound. If that file cannot be played, a
  *      picture made here (a tiny canvas that changes once a second) plays in
  *      its place.
  *
@@ -269,11 +269,18 @@ function Fitting<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; uni
  * The video runs even when the wake lock was given: the lock alone was
  * already being asked for and the office Fire Stick still went to sleep.
  *
+ * After the first press, the video plays un-muted: a stick may only count a
+ * video with sound as playing. Its sound track is silence, so nothing is
+ * heard. Until that press it is muted, which is all a browser lets start by
+ * itself.
+ *
+ * A corner line says which of the two is on. It shows by itself for the
+ * first two minutes after the page opens, then goes away, so nobody has to
+ * type an address on the TV to check.
+ *
  * In the TV's address:
- *   ?wakeinfo=1    a corner line says which of the two is on
- *   ?wakesound=1   after the first press, the video plays un-muted. Its sound
- *                  track is silence, so nothing is heard; it is there to try
- *                  on a stick that only counts a video with sound as playing.
+ *   ?wakeinfo=1    the corner line stays for good
+ *   ?wakesound=0   the video stays muted after a press too
  */
 
 type WakeLockLike = { release: () => Promise<void>; addEventListener?: (type: "release", listener: () => void) => void };
@@ -283,6 +290,8 @@ type VideoState = "none" | "off" | "on";
 const AWAKE_CHECK_MS = 15_000;
 /** The video gets this long to start by itself before the "Press OK" line shows. */
 const AWAKE_PROMPT_MS = 5_000;
+/** The corner line that says what is on shows by itself for this long after the page opens. */
+const AWAKE_INFO_MS = 2 * 60_000;
 const AWAKE_VIDEO = "/board/tv/keep-awake.mp4";
 /** What wakes both up: any key on the remote, a click, a touch. */
 const AWAKE_GESTURES = ["keydown", "pointerdown", "click", "touchstart"] as const;
@@ -291,18 +300,26 @@ function KeepAwake() {
   const video = useRef<HTMLVideoElement>(null);
   const [lockState, setLockState] = useState<LockState>("off");
   const [videoState, setVideoState] = useState<VideoState>("off");
-  const [showInfo, setShowInfo] = useState(false);
+  // The corner line: on for the first two minutes, and for good with ?wakeinfo=1.
+  const [justOpened, setJustOpened] = useState(true);
+  const [keepInfo, setKeepInfo] = useState(false);
+  const showInfo = justOpened || keepInfo;
   // False for the first few seconds, so the "Press OK" line does not flash while the video starts by itself.
   const [waited, setWaited] = useState(false);
 
   useEffect(() => {
     try {
-      setShowInfo(new URLSearchParams(window.location.search).has("wakeinfo"));
+      const asked = new URLSearchParams(window.location.search).get("wakeinfo");
+      setKeepInfo(asked !== null && asked !== "0");
     } catch {
-      // No address to read: nothing is shown.
+      // No address to read: the line goes away after the two minutes.
     }
     const timer = window.setTimeout(() => setWaited(true), AWAKE_PROMPT_MS);
-    return () => window.clearTimeout(timer);
+    const infoTimer = window.setTimeout(() => setJustOpened(false), AWAKE_INFO_MS);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(infoTimer);
+    };
   }, []);
 
   // 1. The Screen Wake Lock.
@@ -356,11 +373,12 @@ function KeepAwake() {
       setVideoState("none");
       return;
     }
-    let wantSound = false;
+    // Un-muted after a press unless the address says ?wakesound=0.
+    let wantSound = true;
     try {
-      wantSound = new URLSearchParams(window.location.search).has("wakesound");
+      wantSound = new URLSearchParams(window.location.search).get("wakesound") !== "0";
     } catch {
-      // No address to read: it stays muted.
+      // No address to read: the usual way.
     }
     let stream: MediaStream | null = null;
     let frames = 0;
@@ -397,7 +415,7 @@ function KeepAwake() {
 
     const play = (fromGesture: boolean) => {
       if (document.visibilityState !== "visible") return;
-      // Only with ?wakesound=1, and only from a press: a browser never lets sound start by itself.
+      // Only from a press: a browser never lets sound start by itself. (Not with ?wakesound=0.)
       if (fromGesture && wantSound) {
         element.muted = false;
         element.volume = 0.05;
