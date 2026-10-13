@@ -11,7 +11,7 @@ import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { notifyNewSupplyOrder } from "@/lib/crewNotifications";
 import { getContentTranslations } from "@/lib/crewTranslations";
-import { pickedItemIdsForCrew } from "@/lib/pg/crew-supplies";
+import { listCatalogItems, pickedItemIdsForCrew } from "@/lib/pg/crew-supplies";
 
 async function loadEnabled(code: string) {
   const link = await resolveCrewLink(code);
@@ -27,11 +27,14 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const link = await loadEnabled(code);
     if (!link) return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
 
-    const [catalog, recentOrders, picked] = await Promise.all([
+    const [catalog, recentOrders, picked, details] = await Promise.all([
       listSupplyItemsLibrary(true),
       listCrewLinkSupplyOrdersForAccount(link.template.accountId, 10),
       pickedItemIdsForCrew(link.template.accountId),
+      // Brand, photo and type for the cards. If they do not load, the cards show name and unit, as before.
+      listCatalogItems(false).catch(() => []),
     ]);
+    const detailOf = new Map(details.map((item) => [item.id, item]));
     // The items picked for this account (Crew Link setup, "Pick supplies for
     // this account"). Nothing picked, or all of it removed since: every
     // active item, as before.
@@ -39,14 +42,20 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const items = own.length > 0 ? own : catalog;
 
     const translations = await getContentTranslations([
-      ...items.flatMap((i) => [i.name, i.unit]),
+      ...items.flatMap((i) => [i.name, i.unit, detailOf.get(i.id)?.category ?? ""]).filter(Boolean),
       ...recentOrders.flatMap((o) => o.lines.map((l) => l.itemName)),
     ]);
 
     return NextResponse.json({
       success: true,
       translations,
-      items: items.map((i) => ({ itemId: i.id, name: i.name, unit: i.unit, instanceLabel: null })),
+      // Exactly what a crew is sent for an item, and nothing else: no product
+      // code, no price or cost, nothing about the account. Brand, photo and
+      // type are "" when the item has none.
+      items: items.map((i) => {
+        const detail = detailOf.get(i.id);
+        return { itemId: i.id, name: i.name, unit: i.unit, instanceLabel: null, brand: detail?.brand ?? "", photoUrl: detail?.photoUrl ?? "", type: detail?.category ?? "" };
+      }),
       recentOrders: recentOrders.map((o) => ({
         id: o.id,
         status: o.status,

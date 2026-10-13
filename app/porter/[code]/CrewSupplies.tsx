@@ -1,8 +1,11 @@
 "use client";
 
-// Crew Link "Supplies": big − / + per item from the shared supply list
-// (Settings), an "Other supplies not on the list" box, an optional note,
-// and one big "Send order". An order can be write-ins only, but never empty
+// Crew Link "Supplies": one big card per product (photo, name, brand, unit,
+// big − / +), grouped under the product's type, then an "Other supplies not
+// on the list" box, an optional note, and one big "Send order". The products
+// are the ones picked for this account (Supplies -> Catalog), or the whole
+// catalog when nothing is picked. A crew is never shown a product code, a
+// price or anything about the account. An order can be write-ins only, but never empty
 // (the server enforces the same rule). Same API as before:
 // GET/POST /api/porter-checklist/[code]/supplies.
 import { useCallback, useEffect, useState } from "react";
@@ -11,7 +14,8 @@ import { translated, type ContentTranslations } from "@/lib/translationKey";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 
-type SupplyItem = { itemId: number; name: string; unit: string };
+// brand, photoUrl and type are "" when the item has none.
+type SupplyItem = { itemId: number; name: string; unit: string; brand?: string; photoUrl?: string; type?: string };
 type OrderStatus = "new" | "ordered" | "delivered" | "cancelled";
 type RecentOrder = {
   id: number;
@@ -81,6 +85,18 @@ export default function CrewSupplies({
     setQuantities((prev) => ({ ...prev, [itemId]: Math.min(999, Math.max(0, (prev[itemId] ?? 0) + delta)) }));
   }
 
+  // The cards under their type, types in the order they first come up; items with no type last.
+  const groups: { type: string; items: SupplyItem[] }[] = [];
+  for (const item of items) {
+    const type = (item.type ?? "").trim();
+    const group = groups.find((entry) => entry.type === type);
+    if (group) group.items.push(item);
+    else groups.push({ type, items: [item] });
+  }
+  groups.sort((a, b) => Number(a.type === "") - Number(b.type === ""));
+  // A heading only helps when there is more than one kind of thing on the screen.
+  const showHeadings = groups.some((group) => group.type !== "");
+
   const lines = Object.entries(quantities)
     .map(([itemId, qty]) => ({ itemId: Number(itemId), qty }))
     .filter((line) => line.qty > 0);
@@ -118,17 +134,26 @@ export default function CrewSupplies({
     <div className="space-y-4">
       <WhoAndWhen s={s} lang={lang} name={name} onNameChange={onNameChange} />
 
-      {items.length > 0 ? (
-        <div className="divide-y divide-slate-100 rounded-2xl bg-white shadow-sm">
-          {items.map((item) => {
+      {groups.map((group) => (
+        <section key={group.type || "none"} className="space-y-3" data-supply-type={group.type}>
+          {showHeadings ? <h2 className="px-1 pt-1 text-xl font-black text-slate-900">{group.type ? tr(group.type) : s.supplies}</h2> : null}
+          {group.items.map((item) => {
             const qty = quantities[item.itemId] ?? 0;
             return (
-              <div key={item.itemId} className="flex min-h-[80px] items-center justify-between gap-3 px-4 py-3">
-                <span className="flex-1">
-                  <span className="block text-xl font-semibold text-slate-900">{tr(item.name)}</span>
-                  <span className="block text-lg text-slate-500">{tr(item.unit)}</span>
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
+              // One product. Later this card also gets a "How many left?" counter as another row under the − / +.
+              <div key={item.itemId} className={`rounded-2xl border-2 bg-white p-4 shadow-sm ${qty > 0 ? "border-blue-700" : "border-transparent"}`} data-supply-item={item.itemId}>
+                <div className="flex items-center gap-4">
+                  {item.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- a stored photo of the product, shown small
+                    <img src={item.photoUrl} alt="" loading="lazy" className="h-20 w-20 shrink-0 rounded-xl bg-slate-100 object-cover" />
+                  ) : null}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xl font-bold leading-tight text-slate-900">{tr(item.name)}</span>
+                    {item.brand ? <span className="block text-lg font-semibold text-slate-700">{item.brand}</span> : null}
+                    <span className="block text-lg text-slate-500">{tr(item.unit)}</span>
+                  </span>
+                </div>
+                <div className="mt-3 flex items-center justify-end gap-3">
                   <button
                     type="button"
                     onClick={() => adjust(item.itemId, -1)}
@@ -138,7 +163,7 @@ export default function CrewSupplies({
                   >
                     −
                   </button>
-                  <span className={`w-10 text-center text-2xl font-black ${qty > 0 ? "text-blue-700" : "text-slate-400"}`}>{qty}</span>
+                  <span className={`w-12 text-center text-3xl font-black ${qty > 0 ? "text-blue-700" : "text-slate-400"}`}>{qty}</span>
                   <button
                     type="button"
                     onClick={() => adjust(item.itemId, 1)}
@@ -151,8 +176,8 @@ export default function CrewSupplies({
               </div>
             );
           })}
-        </div>
-      ) : null}
+        </section>
+      ))}
 
       <label className="block rounded-2xl bg-white p-4 shadow-sm">
         <span className="text-lg font-bold text-slate-800">{s.otherSuppliesLabel}</span>

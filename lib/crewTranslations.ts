@@ -40,7 +40,8 @@ export async function collectCrewTexts(): Promise<string[]> {
     sql`SELECT sections_json FROM checklist_templates`,
     sql`SELECT area, text FROM hub_checklist_library WHERE active`,
     sql`SELECT name FROM hub_round_library WHERE active`,
-    sql`SELECT name, unit FROM supply_items WHERE active`,
+    // Every column: the type (category) is there once migration 035 is in.
+    sql`SELECT * FROM supply_items WHERE active`,
     sql`SELECT DISTINCT instance_label FROM hub_crew_items WHERE enabled AND instance_label IS NOT NULL`,
   ]);
   const out = new Set<string>();
@@ -57,6 +58,8 @@ export async function collectCrewTexts(): Promise<string[]> {
   for (const s of supplies) {
     out.add(translationKey(s.name as string));
     out.add(translationKey(s.unit as string));
+    // The heading the crew sees over a group of items.
+    out.add(translationKey((s.category as string | null | undefined) ?? ""));
   }
   for (const l of labels) out.add(translationKey(l.instance_label as string));
   out.delete("");
