@@ -83,6 +83,38 @@ export function PinSwitch({ info, type, value, onChange, disabled }: { info: Pin
 }
 
 /**
+ * "Put on the board" on the Add update form: a big green switch, and under it
+ * whose square the paper goes in. Renders nothing where the Pin Board is not
+ * turned on. An account update is hung with the board's own "pinNew" (the same
+ * call the board makes when a square is tapped), so it does not depend on the
+ * Settings -> Pin Board switches.
+ */
+export function PutOnBoard({ info, value, onChange, disabled }: { info: PinInfo | null; value: PinChoice; onChange: (value: PinChoice) => void; disabled?: boolean }) {
+  if (!info) return null;
+  return (
+    <div className="ui-stack" data-put-on-board>
+      <label className="ui-toggle">
+        <input type="checkbox" role="switch" checked={value.on} disabled={disabled} onChange={(event) => onChange({ ...value, on: event.target.checked })} />
+        <span>Put on the board</span>
+      </label>
+      {value.on ? <SquarePicker info={info} value={value.square} disabled={disabled} onChange={(square) => onChange({ ...value, square })} /> : null}
+    </div>
+  );
+}
+
+/** Hangs the paper of an account update that was just saved. Throws when the board did not take it. */
+export async function putUpdateOnBoard(info: PinInfo, square: string, update: { id: string; updateType: string; accountId: string; accountName: string; notes: string }): Promise<void> {
+  const forWho = info.managers.find((manager) => manager.id === square)?.name ?? OFFICE_LABEL;
+  const response = await fetch("/api/board", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "pinNew", type: "update", recordId: update.id, title: `${update.updateType}: ${update.accountName}`, accountId: update.accountId, accountName: update.accountName, square, forWho, dueDate: "", notes: update.notes.trim() }),
+  });
+  const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+  if (!response.ok || body.success !== true) throw new Error(body.error ?? "It was not pinned.");
+}
+
+/**
  * After a form saved its record: pins it when the switch was on. A pin that
  * fails never undoes the save; the person is told so they can use the button.
  */

@@ -1474,6 +1474,64 @@ button.ui-card:hover {
   accent-color: var(--ui-brand);
 }
 
+/* An on/off switch with its words: grey when off, green when on. */
+.ui-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--ui-tap);
+  padding: 4px 12px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ui-toggle input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 56px;
+  height: 32px;
+  margin: 0;
+  border-radius: 999px;
+  background: #8a97a6;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ui-toggle input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s;
+}
+
+.ui-toggle input:checked {
+  background: var(--ui-good);
+}
+
+.ui-toggle input:checked::after {
+  transform: translateX(24px);
+}
+
+.ui-toggle input:focus-visible {
+  outline: 3px solid var(--ui-brand);
+  outline-offset: 2px;
+}
+
+.ui-toggle input:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* A link inside text, still a full-size tap target. */
 .ui-link {
   display: inline-flex;

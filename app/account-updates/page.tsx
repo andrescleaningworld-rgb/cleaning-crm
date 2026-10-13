@@ -22,6 +22,8 @@ import {
 } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
 import AccountLink from "../components/AccountLink";
+import { PutOnBoard, putUpdateOnBoard, usePinInfo, type PinChoice } from "../components/pin-to-board";
+import { OFFICE_SQUARE, squareForManager } from "@/lib/boardPins";
 import ToProcess, { handoffForUpdate, processedLine } from "./to-process";
 
 type RawAccount = {
@@ -204,6 +206,16 @@ function AccountUpdatesPageContent() {
   const [showFilters, setShowFilters] = useState(false);
   // Handoffs: which updates the office still has to process, and who processed the rest.
   const handoffs = useHandoffs();
+
+  // "Put on the board" on the Add update form. The square follows the Manager
+  // field until someone picks one by hand (null = still following).
+  const { info: pinInfo } = usePinInfo();
+  const [boardOn, setBoardOn] = useState(false);
+  const [boardSquare, setBoardSquare] = useState<string | null>(null);
+  const boardChoice: PinChoice = {
+    on: boardOn,
+    square: boardSquare ?? (pinInfo ? squareForManager(pinInfo.managers, manager || selectedManager) : OFFICE_SQUARE),
+  };
   const focusProcessId = searchParams.get("process") ?? "";
   const [savedMessage, setSavedMessage] = useState("");
 
@@ -496,6 +508,17 @@ function AccountUpdatesPageContent() {
 
       setUpdates((currentUpdates) => [newUpdate, ...currentUpdates]);
 
+      // The update is saved. A pin that fails never undoes that.
+      if (pinInfo && boardChoice.on) {
+        try {
+          await putUpdateOnBoard(pinInfo, boardChoice.square, { id: newUpdate.id, updateType, accountId: selectedAccountId, accountName: selectedAccountName, notes });
+        } catch {
+          showToast("Update saved, but couldn't put it on the board.", "bad");
+        }
+      }
+      setBoardOn(false);
+      setBoardSquare(null);
+
       setSavedMessage("Account update saved successfully.");
       // With handoffs on, the office has it now; either way it is logged.
       showToast(handoffs.state === "ready" ? "Logged ✓ — sent to Office" : CHEER.logged);
@@ -758,6 +781,16 @@ function AccountUpdatesPageContent() {
           value={notifyEmail}
           onChange={(event) => setNotifyEmail(event.target.value)}
           placeholder="Optional email notification"
+        />
+
+        <PutOnBoard
+          info={pinInfo}
+          value={boardChoice}
+          disabled={isSaving}
+          onChange={(next) => {
+            setBoardOn(next.on);
+            if (next.square !== boardChoice.square) setBoardSquare(next.square);
+          }}
         />
 
         {saveMessage ? <ErrorBox title="The update was not saved." text={saveMessage} /> : null}
