@@ -61,6 +61,34 @@
   animation: tvAwake 4s linear infinite;
 }
 
+/* The video that keeps the screen awake (KeepAwake in tv-client.tsx). It is
+   the size of the screen because a browser only counts a video it could show;
+   it sits behind the board, is the colour of the background and is all but
+   transparent, so nothing of it is seen. */
+.awakeVideo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: 0.01;
+  pointer-events: none;
+}
+
+/* Only with ?wakeinfo=1 in the address: which way of staying awake is on. */
+.awakeInfo {
+  position: absolute;
+  left: 4%;
+  bottom: 0.6%;
+  z-index: 5;
+  margin: 0;
+  font-size: calc(var(--u) * 2);
+  font-weight: 700;
+  color: #ffffff;
+  opacity: 0.9;
+}
+
 @keyframes tvAwake {
   from {
     transform: translateX(0);

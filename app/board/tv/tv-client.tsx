@@ -245,6 +245,153 @@ function Fitting<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; uni
   );
 }
 
+/* ---------- keeping the screen awake ----------
+ *
+ * A TV stick puts the screen to sleep when nobody touches the remote. Two
+ * things keep it awake while the board is up, the way a video site does:
+ *
+ *   1. the Screen Wake Lock, asked for again whenever the page comes back
+ *      into view or the browser lets the lock go;
+ *   2. a muted video that plays for ever. It is the size of the screen, sits
+ *      behind everything and is the colour of the background, so it cannot
+ *      be seen, and it has no sound. Its picture is made here (a tiny canvas
+ *      that changes once a second): no file to download, so it keeps going
+ *      when the Wi-Fi drops.
+ *
+ * The video runs even when the wake lock was given: the lock alone was
+ * already being asked for and the office Fire Stick still went to sleep.
+ * Add ?wakeinfo=1 to the TV's address to see, in a corner, which of the two
+ * is on. Nothing shows without it.
+ */
+
+type WakeLockLike = { release: () => Promise<void>; addEventListener?: (type: "release", listener: () => void) => void };
+type LockState = "none" | "off" | "on";
+type VideoState = "none" | "off" | "on";
+/** A lock or a video that stopped is started again within this long. */
+const AWAKE_CHECK_MS = 15_000;
+
+function KeepAwake() {
+  const video = useRef<HTMLVideoElement>(null);
+  const [lockState, setLockState] = useState<LockState>("off");
+  const [videoState, setVideoState] = useState<VideoState>("off");
+  const [showInfo, setShowInfo] = useState(false);
+
+  useEffect(() => {
+    try {
+      setShowInfo(new URLSearchParams(window.location.search).has("wakeinfo"));
+    } catch {
+      // No address to read: nothing is shown.
+    }
+  }, []);
+
+  // 1. The Screen Wake Lock.
+  useEffect(() => {
+    const wakeLock = (navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<WakeLockLike> } }).wakeLock;
+    if (!wakeLock) {
+      setLockState("none");
+      return;
+    }
+    let lock: WakeLockLike | null = null;
+    let asking = false;
+    let alive = true;
+    const ask = async () => {
+      if (lock || asking || document.visibilityState !== "visible") return;
+      asking = true;
+      try {
+        const got = await wakeLock.request("screen");
+        if (!alive) return void got.release().catch(() => null);
+        lock = got;
+        setLockState("on");
+        // The browser lets it go when the page is hidden (and for its own reasons): ask again.
+        got.addEventListener?.("release", () => {
+          if (lock === got) lock = null;
+          if (alive) setLockState("off");
+        });
+      } catch {
+        // Refused: the video below keeps the screen awake.
+        if (alive) setLockState("off");
+      } finally {
+        asking = false;
+      }
+    };
+    void ask();
+    const again = () => void ask();
+    document.addEventListener("visibilitychange", again);
+    const check = window.setInterval(again, AWAKE_CHECK_MS);
+    return () => {
+      alive = false;
+      document.removeEventListener("visibilitychange", again);
+      window.clearInterval(check);
+      void lock?.release().catch(() => null);
+    };
+  }, []);
+
+  // 2. The video nobody sees.
+  useEffect(() => {
+    const element = video.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const context = canvas.getContext("2d");
+    const capture = (canvas as HTMLCanvasElement & { captureStream?: (frameRate?: number) => MediaStream }).captureStream;
+    if (!element || !context || typeof capture !== "function") {
+      setVideoState("none");
+      return;
+    }
+    // Two blues nobody can tell apart, one after the other: a picture that changes is a video that plays.
+    let flip = false;
+    const draw = () => {
+      flip = !flip;
+      context.fillStyle = flip ? "#0c447c" : "#0c447d";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    };
+    draw();
+    let stream: MediaStream | null = null;
+    try {
+      stream = capture.call(canvas, 2);
+      element.muted = true;
+      element.defaultMuted = true;
+      element.srcObject = stream;
+    } catch {
+      setVideoState("none");
+      return;
+    }
+    const play = () => {
+      if (document.visibilityState !== "visible" || !element.paused) return;
+      void element.play().catch(() => null);
+    };
+    const report = () => setVideoState(element.paused ? "off" : "on");
+    element.addEventListener("playing", report);
+    element.addEventListener("pause", report);
+    play();
+    const frames = window.setInterval(draw, 1_000);
+    const check = window.setInterval(play, AWAKE_CHECK_MS);
+    document.addEventListener("visibilitychange", play);
+    return () => {
+      window.clearInterval(frames);
+      window.clearInterval(check);
+      document.removeEventListener("visibilitychange", play);
+      element.removeEventListener("playing", report);
+      element.removeEventListener("pause", report);
+      element.pause();
+      element.srcObject = null;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  const word = { none: "not in this browser", off: "off", on: "on" };
+  return (
+    <>
+      <video ref={video} className={styles.awakeVideo} muted playsInline disablePictureInPicture disableRemotePlayback tabIndex={-1} aria-hidden="true" data-keep-awake />
+      {showInfo ? (
+        <p className={styles.awakeInfo} data-awake-info>
+          Awake: wake lock {word[lockState]} · video {word[videoState]}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export default function TvClient({ token, onDenied }: { token: string; onDenied?: () => void }) {
   const [data, setData] = useState<TvData | null>(null);
   const [problem, setProblem] = useState<"" | "off" | "denied">("");
@@ -442,31 +589,6 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     if (!(await enterFullScreen())) showHint();
   };
 
-  // Keep the screen awake. A browser that refuses still has the tiny moving dot (styles.awake).
-  useEffect(() => {
-    type Lock = { release: () => Promise<void> };
-    let lock: Lock | null = null;
-    let alive = true;
-    const ask = async () => {
-      try {
-        const wakeLock = (navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<Lock> } }).wakeLock;
-        if (!wakeLock || document.visibilityState !== "visible") return;
-        const got = await wakeLock.request("screen");
-        if (alive) lock = got;
-        else void got.release();
-      } catch {
-        // Refused: the moving dot keeps the screen busy.
-      }
-    };
-    void ask();
-    document.addEventListener("visibilitychange", ask);
-    return () => {
-      alive = false;
-      document.removeEventListener("visibilitychange", ask);
-      void lock?.release().catch(() => null);
-    };
-  }, []);
-
   // The squares that have notes, late and stuck notes first in each.
   const squares = useMemo(() => {
     if (!data) return [];
@@ -568,6 +690,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
 
   return (
     <div className={`${styles.tv} ${idle ? styles.idle : ""}`} style={{ ["--u" as string]: unit > 0 ? `${unit}px` : undefined }} data-tv-screen aria-live="off">
+      <KeepAwake />
       <span className={styles.awake} aria-hidden="true" />
       <div ref={stage} className={styles.stage} style={{ transform: `translate(${dx}px, ${dy}px)` }}>
         <header className={styles.strip}>
