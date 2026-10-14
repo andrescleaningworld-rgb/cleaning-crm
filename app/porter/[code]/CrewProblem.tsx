@@ -9,6 +9,7 @@ import { TEAM_HUB_STRINGS, type TeamHubLang } from "@/app/team-hub/teamHubString
 import { resizeImageForUpload } from "@/lib/imageResize";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
+import { useCrewLinkPreview } from "./preview";
 
 type Category = keyof (typeof TEAM_HUB_STRINGS)["en"]["issues"]["categories"];
 
@@ -49,6 +50,7 @@ export default function CrewProblem({
   const [photos, setPhotos] = useState<PendingPhoto[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const preview = useCrewLinkPreview();
 
   const noteMissing = category === "other" && !note.trim();
   const nameMissing = !name.trim();
@@ -79,6 +81,11 @@ export default function CrewProblem({
 
   async function send() {
     if (!category || noteMissing || nameMissing) return;
+    // Preview: no report and no photos are sent; the page shows "Preview only — not sent".
+    if (preview) {
+      photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+      return onSent();
+    }
     setSending(true);
     setError("");
     try {

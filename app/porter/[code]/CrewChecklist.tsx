@@ -11,6 +11,7 @@ import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 import { useState } from "react";
 import { translated, type ContentTranslations } from "@/lib/translationKey";
+import { useCrewLinkPreview } from "./preview";
 
 export type TabProgress = { checked: Record<string, boolean>; note: string; startedAt: string | null };
 
@@ -47,6 +48,7 @@ export default function CrewChecklist({
 }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const preview = useCrewLinkPreview();
   const tr = (text: string) => translated(translations, text, lang);
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
@@ -68,6 +70,8 @@ export default function CrewChecklist({
 
   async function send() {
     if (!tab || nameMissing) return;
+    // Preview: nothing is posted; the page shows "Preview only — not sent".
+    if (preview) return onSent(tab.id);
     setSending(true);
     setError("");
     try {

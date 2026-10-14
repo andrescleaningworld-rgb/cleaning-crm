@@ -391,6 +391,11 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
 
   const porterUrl =
     typeof window !== "undefined" && porterCode ? `${window.location.origin}/porter/${porterCode}` : "";
+  // "Close preview" comes back to this page.
+  const previewHref =
+    typeof window !== "undefined" && porterCode
+      ? `/crew-link/preview/${encodeURIComponent(porterCode)}?back=${encodeURIComponent(window.location.pathname + window.location.search)}`
+      : "";
 
   const place = locationName || accountName;
 
@@ -508,6 +513,20 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
               />
             </div>
           </div>
+
+          {/* The real crew screens, admin-only, where nothing sent is saved (app/crew-link/preview). */}
+          {previewHref ? (
+            <a
+              href={previewHref}
+              // The preview shows what is saved; unsaved checklist edits would be lost.
+              onClick={(event) => {
+                if (!okToLeaveTab()) event.preventDefault();
+              }}
+              className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-2xl bg-yellow-300 px-4 text-xl font-black text-slate-900 shadow-sm hover:bg-yellow-200"
+            >
+              <span className="text-2xl" aria-hidden="true">👀</span> See what the crew sees
+            </a>
+          ) : null}
 
           <CrewLinkShare accountId={accountId} placeName={place} url={porterUrl} />
 

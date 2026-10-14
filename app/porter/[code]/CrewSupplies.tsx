@@ -13,6 +13,7 @@ import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { translated, type ContentTranslations } from "@/lib/translationKey";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
+import { useCrewLinkPreview } from "./preview";
 
 // brand, photoUrl and type are "" when the item has none.
 type SupplyItem = { itemId: number; name: string; unit: string; brand?: string; photoUrl?: string; type?: string };
@@ -57,6 +58,7 @@ export default function CrewSupplies({
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const preview = useCrewLinkPreview();
 
   const load = useCallback(async () => {
     try {
@@ -106,6 +108,8 @@ export default function CrewSupplies({
 
   async function send() {
     if (!canSend) return;
+    // Preview: no order is made; the page shows "Preview only — not sent".
+    if (preview) return onSent();
     setSending(true);
     setError("");
     try {

@@ -18,6 +18,7 @@ import { BackButton, CenteredMessage, CrewHeader, SentScreen } from "./ui";
 import CrewChecklist, { type TabProgress } from "./CrewChecklist";
 import CrewSupplies from "./CrewSupplies";
 import CrewProblem from "./CrewProblem";
+import { PreviewNotSentScreen, useCrewLinkPreview } from "./preview";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
 
@@ -59,6 +60,8 @@ export default function CrewLinkPage() {
   const params = useParams<{ code: string }>();
   const code = typeof params?.code === "string" ? params.code : "";
   const [lang, setLang] = useTeamHubLang();
+  // Set only on the admin "See what the crew sees" page (./preview.tsx).
+  const preview = useCrewLinkPreview();
   const s = crewLinkStrings(lang);
 
   const [loading, setLoading] = useState(true);
@@ -144,7 +147,7 @@ export default function CrewLinkPage() {
 
   // Remember the name on this phone only once something is actually sent.
   function markSent() {
-    storeName((name ?? "").trim().slice(0, 80));
+    if (!preview) storeName((name ?? "").trim().slice(0, 80));
     setSent(true);
   }
 
@@ -229,7 +232,7 @@ export default function CrewLinkPage() {
         ) : null}
       </div>
 
-      {sent ? <SentScreen s={s} onDone={goToStart} /> : null}
+      {sent ? preview ? <PreviewNotSentScreen onDone={goToStart} onClose={preview.onClose} /> : <SentScreen s={s} onDone={goToStart} /> : null}
     </main>
   );
 }
