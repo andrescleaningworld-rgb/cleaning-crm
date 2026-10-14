@@ -4,6 +4,8 @@
 // Postgres only. Nothing here reads or writes Google Sheets or Apps Script.
 import { getSql } from "@/lib/db";
 import { createSupplyOrder } from "@/lib/pg/supplies";
+import { ACTIVE_ITEM } from "@/lib/pg/supply-active";
+import { syncCrewItem } from "@/lib/pg/supply-list";
 
 /* ---------- on / off ---------- */
 
@@ -115,8 +117,6 @@ type ShelfRow = {
   shelf_count: number | null;
 };
 
-const ACTIVE_ITEM = `btrim(supply_item) <> '' AND lower(btrim(status)) NOT IN ('inactive', 'removed') AND lower(btrim(active_raw)) NOT IN ('no', 'false', 'inactive', 'n', 'disabled', 'removed')`;
-
 function toShelf(row: ShelfRow): ShelfItem {
   const minLevel = row.min_level;
   const shelfCount = row.shelf_count;
@@ -171,6 +171,8 @@ export async function saveShelfItem(
       min_level = ${min}, shelf_count = COALESCE(${count}, shelf_count), updated_by = ${by}, updated_at = now()
     WHERE id = ${id}
   `;
+  // Its Crew Link face follows the product's unit and photo.
+  await syncCrewItem(id);
   if (count !== null && count !== before[0].shelf_count) {
     await sql`
       INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_name, unit_cost, staff_name, note)
@@ -262,7 +264,8 @@ export async function monthSpend(month: string): Promise<{ month: string; rows: 
     WITH spend AS (
       SELECT account_id, account_name, sum(-qty * COALESCE(unit_cost, 0)) AS amount, sum(-qty) AS items
       FROM supply_moves
-      WHERE kind IN ('take', 'return', 'pick') AND to_char(created_at AT TIME ZONE 'America/New_York', 'YYYY-MM') = ${m}
+      -- 'send': sent to a site from the office shelf (the two shelves, migration 038).
+      WHERE kind IN ('take', 'return', 'pick', 'send') AND to_char(created_at AT TIME ZONE 'America/New_York', 'YYYY-MM') = ${m}
       GROUP BY account_id, account_name
       UNION ALL
       SELECT COALESCE(account_ref, btrim(account_id_raw)), btrim(account_name), sum(COALESCE(unit_cost, 0) * NULLIF(regexp_replace(quantity_raw, '[^0-9]', '', 'g'), '')::int), sum(NULLIF(regexp_replace(quantity_raw, '[^0-9]', '', 'g'), '')::int)
@@ -453,7 +456,12 @@ export async function advanceOrderLine(rowNumber: number, toStep: string, by: st
     bought: ["delivered"],
   };
   if (!(allowed[line.step] ?? []).includes(toStep)) throw new Error("That step does not come next for this line.");
-  const item = (await sql`SELECT id, unit_cost::text FROM sub_supplies WHERE lower(btrim(supply_item)) = lower(${line.item}) ORDER BY id LIMIT 1`) as { id: string | number; unit_cost: string | null }[];
+  // The product by its ID (migration 038), else by name as before (older lines).
+  const byId = (await sql`
+    SELECT s.id, s.unit_cost::text FROM sub_supplies s
+    WHERE s.id = (SELECT to_jsonb(o) ->> 'supply_id' FROM sub_supply_orders o WHERE o.sheet_row = ${rowNumber})::bigint
+  `.catch(() => [])) as { id: string | number; unit_cost: string | null }[];
+  const item = byId.length > 0 ? byId : ((await sql`SELECT id, unit_cost::text FROM sub_supplies WHERE lower(btrim(supply_item)) = lower(${line.item}) ORDER BY id LIMIT 1`) as { id: string | number; unit_cost: string | null }[]);
   const statements = [
     sql`UPDATE sub_supply_orders SET step = ${toStep}, status = ${STATUS_OF_STEP[toStep]}, step_by = ${by}, step_at = now(), updated_at = now() WHERE sheet_row = ${rowNumber}`,
   ];

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import SupplyControl from "./supply-control";
-import SupplyCatalog from "./catalog";
+import Shelves from "./shelves";
+import CrewLinkFields from "./crew-link-fields";
 import {
   BigButton,
   Card,
@@ -275,16 +276,17 @@ function statusKind(statusValue: string): StatusKind {
   return "off";
 }
 
-const PAGE_TABS: { value: "stock" | "catalog"; label: string }[] = [
+// One supply list (migration 038): the products are the list crews order from too; there is no separate catalog.
+const PAGE_TABS: { value: "stock" | "shelves"; label: string }[] = [
   { value: "stock", label: "Supplies" },
-  { value: "catalog", label: "Catalog" },
+  { value: "shelves", label: "Shelves" },
 ];
 
 export default function SuppliesPage() {
-  // "Catalog" is the list crews order from in Crew Link (catalog.tsx). /supplies?tab=catalog opens it.
-  const [pageTab, setPageTab] = useState<"stock" | "catalog">("stock");
+  // "Shelves": the office shelf and every site's shelf (shelves.tsx). /supplies?tab=shelves opens it.
+  const [pageTab, setPageTab] = useState<"stock" | "shelves">("stock");
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("tab") === "catalog") setPageTab("catalog");
+    if (new URLSearchParams(window.location.search).get("tab") === "shelves") setPageTab("shelves");
   }, []);
   const [supplies, setSupplies] = useState<SupplyItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -521,11 +523,11 @@ export default function SuppliesPage() {
     </div>
   );
 
-  if (pageTab === "catalog") {
+  if (pageTab === "shelves") {
     return (
       <Screen title="Supplies" backHref="/">
-        <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the Crew Link catalog" />
-        <SupplyCatalog />
+        <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the shelves" />
+        <Shelves />
       </Screen>
     );
   }
@@ -560,7 +562,7 @@ export default function SuppliesPage() {
         }}
       />
 
-      <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the Crew Link catalog" />
+      <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the shelves" />
 
       {/* Supply control (the shelf, reorder, orders, spend): shows only where it is switched on. */}
       <SupplyControl />
@@ -725,6 +727,9 @@ export default function SuppliesPage() {
           <TextAreaField label="Notes" optional value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} rows={4} />
 
           {formError ? <ErrorBox title={formError} /> : null}
+
+          {/* What crews see of this product. Saved by itself. */}
+          {editing && Number(form.rowNumber) > 0 ? <CrewLinkFields rowNumber={Number(form.rowNumber)} /> : null}
         </div>
       </Sheet>
 

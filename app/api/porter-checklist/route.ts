@@ -19,6 +19,7 @@ import {
 import { logActivity } from "@/lib/activityLog";
 import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLink";
 import { getContentTranslations, sectionTexts } from "@/lib/crewTranslations";
+import { oneListReady } from "@/lib/pg/supply-list";
 
 export async function GET(request: NextRequest) {
   try {
@@ -65,6 +66,8 @@ export async function GET(request: NextRequest) {
       tabs,
       modules,
       translations,
+      // "Supplies arrived" and "Case empty" (migration 038), with supply orders on.
+      shelves: modules.supplyOrders && (await oneListReady()),
     });
   } catch (error) {
     return NextResponse.json(

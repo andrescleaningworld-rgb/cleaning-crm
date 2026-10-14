@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
 import OrderSteps from "./order-steps";
 import CrewLinkOrders from "./crew-orders";
+import Deliveries from "./deliveries";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
@@ -821,6 +822,8 @@ export default function SupplyOrdersPage() {
       <div className="supply-orders-page-content ui-screen-body">
         {/* Orders the crews sent from Crew Link, with "Edit order". Shows only when there are some. */}
         <AccountScopeBar scope={scope} what="supply orders" />
+        {/* The two shelves: what arrived short, what is ready to send, what is on its way. */}
+        <Deliveries accountId={scope.active ? scope.accountId : ""} />
         <CrewLinkOrders accountId={scope.active ? scope.accountId : ""} />
 
         {/* Ordered -> Approved -> Bought -> Delivered, with who has each order now. */}

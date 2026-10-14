@@ -1,7 +1,7 @@
 // Exercises lib/pg/crew-supplies.ts (migration 033) against the dev branch:
-// the catalog, the list of one account, and editing a sent order. It makes
-// its own test item, test account list and test order, checks them, and
-// removes them again. The real items and orders must come out untouched.
+// the list of one account, and editing a sent order. It makes its own test
+// items, test account list and test order, checks them, and removes them
+// again. The real items and orders must come out untouched.
 //   npx tsx scripts/migrate/check-crew-supplies.mts
 import { loadEnv } from "./lib/env.mjs";
 import { assertDevDatabase } from "./lib/guard.mjs";
@@ -12,7 +12,6 @@ process.env.OUTBOUND_DRY_RUN = "1";
 process.env.DATA_SOURCE_ACCOUNTS = "postgres";
 
 const crew = await import("../../lib/pg/crew-supplies");
-const hub = await import("../../lib/teamHubDb");
 const { getSql } = await import("../../lib/db");
 const sql = getSql();
 
@@ -35,51 +34,24 @@ const OTHER = "zz-check-crew-supplies-2";
 const counts = async () => (await sql`SELECT (SELECT count(*)::int FROM supply_items) AS items, (SELECT count(*)::int FROM supply_orders) AS orders, (SELECT count(*)::int FROM supply_order_lines) AS lines`)[0] as { items: number; orders: number; lines: number };
 const before = await counts();
 let itemId = 0;
-let extraItemId = 0;
 let orderId = 0;
+const testIds: number[] = [];
 
 try {
   check("migration 033 is in this database", await crew.crewSuppliesReady());
 
-  // ----- the catalog -----
-  const existing = await crew.listCatalogItems(false);
-  check("the catalog lists the items that were there", existing.length === before.items || existing.length > 0, `${existing.length} active`);
-  const made = await crew.saveCatalogItem({ name: "ZZ check item", brand: "CheckBrand", productLine: "Line A", unit: "gallon" }, "check");
-  itemId = made!.id;
-  check("add: name, brand, product line and unit are kept", made!.brand === "CheckBrand" && made!.productLine === "Line A" && made!.unit === "gallon" && made!.active);
-  const changed = await crew.saveCatalogItem({ id: itemId, name: "ZZ check item 2", brand: "CheckBrand", productLine: "Line B", unit: "case", photoUrl: "https://example.test/p.jpg" }, "check");
-  check("edit: the changes are kept", changed!.name === "ZZ check item 2" && changed!.productLine === "Line B" && changed!.photoUrl.endsWith("p.jpg"));
-  const kept = await crew.saveCatalogItem({ id: itemId, name: "ZZ check item 2", brand: "CheckBrand", productLine: "Line B", unit: "case" }, "check");
-  check("edit with no new photo keeps the photo", kept!.photoUrl.endsWith("p.jpg"));
-  check("edit of an unknown id answers null", (await crew.saveCatalogItem({ id: 2_000_000_000, name: "x", brand: "", productLine: "", unit: "" }, "check")) === null);
-
-  // ----- the type and the product code (migration 035) -----
-  check("migration 035 is in this database", await crew.catalogTypesReady());
-  check("an item starts with no type and no product code", kept!.category === "" && kept!.sku === "");
-  const typed = await crew.saveCatalogItem({ id: itemId, name: "ZZ check item 2", brand: "CheckBrand", productLine: "Line B", unit: "case", category: "  ZZ Check Type ", sku: " ZZ-123 " }, "check");
-  check("the type and the product code are saved, trimmed", typed!.category === "ZZ Check Type" && typed!.sku === "ZZ-123" && typed!.name === "ZZ check item 2" && typed!.photoUrl.endsWith("p.jpg"));
-  check("the catalog list carries them", (await crew.listCatalogItems(true)).some((item) => item.id === itemId && item.category === "ZZ Check Type" && item.sku === "ZZ-123"));
-  const withTypes = await crew.saveCatalogItem({ name: "ZZ check item 3", brand: "", productLine: "", unit: "box", category: "ZZ Check Type", sku: "ZZ-456" }, "check");
-  extraItemId = withTypes!.id;
-  check("a new item can be given both when it is added", withTypes!.category === "ZZ Check Type" && withTypes!.sku === "ZZ-456");
-  // What a crew is sent is built from this list (app/api/porter-checklist/[code]/supplies): no product code, no type.
-  const crewList = await hub.listSupplyItemsLibrary(true);
-  const crewItem = crewList.find((item) => item.id === itemId) as Record<string, unknown> | undefined;
-  check("the list the crew screen is built from has no product code and no type", Boolean(crewItem) && !("sku" in crewItem!) && !("category" in crewItem!) && !JSON.stringify(crewItem).includes("ZZ-123"));
-  await sql`DELETE FROM supply_items WHERE id = ${extraItemId}`;
-  extraItemId = 0;
+  // ----- test items -----
+  // Since migration 038 the products are the Supplies list (lib/pg/supply-list.ts,
+  // checked by check-one-supply-list.mts); the crew items here are made directly.
+  const makeItem = async (name: string) => ((await sql`INSERT INTO supply_items (name, unit, active, in_default_list) VALUES (${name}, 'case', true, false) RETURNING id`) as { id: number }[])[0].id;
+  itemId = await makeItem("ZZ check item");
+  const two = [await makeItem("ZZ check item A"), await makeItem("ZZ check item B")];
+  testIds.push(itemId, ...two);
+  const defaults = (await crew.listCatalogItems(false)).filter((item) => item.inDefaultList).length;
 
   // ----- the list of one account -----
-  const two = existing.slice(0, 2).map((item) => item.id);
-  // ----- the default list (migration 036) -----
-  const defaults = existing.filter((item) => item.inDefaultList).length;
-  check("migration 036 is in this database", await crew.defaultListReady());
   check("no list yet: the account has no picks of its own", (await crew.pickedItemIdsForCrew(ACCOUNT)) === null);
-  check("a new item is NOT on the default list", made!.inDefaultList === false);
-  check("no list yet: the crew gets the default list, not the whole catalog", (await crew.activeItemsForAccount(ACCOUNT)).length === defaults && (await crew.activeItemsForAccount(ACCOUNT)).every((item) => item.id !== itemId), `${defaults} of ${existing.length + 1} active`);
-  check("an item can be put on the default list", (await crew.setCatalogItemDefault(itemId, true, "check")) && (await crew.activeItemsForAccount(ACCOUNT)).some((item) => item.id === itemId));
-  check("and taken off it again", (await crew.setCatalogItemDefault(itemId, false, "check")) && (await crew.activeItemsForAccount(ACCOUNT)).length === defaults);
-  check("switching an unknown item answers false", (await crew.setCatalogItemDefault(2_000_000_000, true, "check")) === false);
+  check("no list yet: the crew gets the default list", (await crew.activeItemsForAccount(ACCOUNT)).length === defaults && (await crew.activeItemsForAccount(ACCOUNT)).every((item) => !testIds.includes(item.id)), `${defaults} on the default list`);
   await crew.setAccountSupplyIds(ACCOUNT, [...two, itemId], "check");
   check("picked items are saved", (await crew.getAccountSupplyIds(ACCOUNT)).length === two.length + 1);
   check("the crew sees only the picked items", (await crew.pickedItemIdsForCrew(ACCOUNT))?.size === two.length + 1 && (await crew.activeItemsForAccount(ACCOUNT)).length === two.length + 1);
@@ -87,12 +59,12 @@ try {
   const lists = await crew.listAccountsWithLists();
   check("accounts with a list are offered for copying", lists.some((entry) => entry.accountId === ACCOUNT && entry.count === two.length + 1) && lists.some((entry) => entry.accountId === OTHER));
 
-  // Remove (hide) the test item: it leaves the crew's list but is not deleted.
-  await crew.setCatalogItemActive(itemId, false, "check");
-  check("a removed item is hidden from the crew", (await crew.activeItemsForAccount(ACCOUNT)).every((item) => item.id !== itemId));
-  check("a removed item is still in the catalog (hidden)", (await crew.listCatalogItems(true)).some((item) => item.id === itemId && !item.active));
-  check("an account whose only pick was removed gets the default list again", (await crew.activeItemsForAccount(OTHER)).length === defaults);
-  await crew.setCatalogItemActive(itemId, true, "check");
+  // A hidden item leaves the crew's list but is not deleted.
+  await sql`UPDATE supply_items SET active = false WHERE id = ${itemId}`;
+  check("a hidden item is hidden from the crew", (await crew.activeItemsForAccount(ACCOUNT)).every((item) => item.id !== itemId));
+  check("a hidden item is still there", (await crew.listCatalogItems(true)).some((item) => item.id === itemId && !item.active));
+  check("an account whose only pick was hidden gets the default list again", (await crew.activeItemsForAccount(OTHER)).length === defaults);
+  await sql`UPDATE supply_items SET active = true WHERE id = ${itemId}`;
   await crew.setAccountSupplyIds(OTHER, [], "check");
   check("an emptied list is gone", (await crew.getAccountSupplyIds(OTHER)).length === 0);
 
@@ -134,14 +106,13 @@ try {
     }
     check("the refused edits changed nothing", (await crew.getCrewOrderDetail(orderId))!.lines[0].qty === 6);
   } else {
-    check("order editing (needs two catalog items in this database)", false, "not enough items to test with");
+    check("order editing (needs two test items)", false, "not enough items to test with");
   }
 } finally {
   // Take the test rows out again.
   if (orderId) await sql`DELETE FROM supply_orders WHERE id = ${orderId}`;
   await sql`DELETE FROM crew_link_account_supplies WHERE account_id IN (${ACCOUNT}, ${OTHER})`;
-  if (extraItemId) await sql`DELETE FROM supply_items WHERE id = ${extraItemId}`;
-  if (itemId) await sql`DELETE FROM supply_items WHERE id = ${itemId}`;
+  if (testIds.length) await sql`DELETE FROM supply_items WHERE id = ANY(${testIds}::int[])`;
 }
 
 const after = await counts();

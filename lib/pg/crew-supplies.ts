@@ -1,9 +1,10 @@
 // Crew Link supplies (migration 033):
 //
-//   the catalog        supply_items itself, the list crews order from, with a
-//                      brand, a product line and a photo. Shown on the
-//                      Supplies page ("Catalog"). An item that is removed is
-//                      only hidden: past orders keep it.
+//   the catalog        supply_items itself, the list crews order from. Since
+//                      migration 038 each item is the Crew Link face of a
+//                      Supplies product (lib/pg/supply-list.ts), managed from
+//                      the Supplies page; there is no separate catalog. An
+//                      item that is removed is only hidden: past orders keep it.
 //   a list per account crew_link_account_supplies: the catalog items picked
 //                      for one account's Crew Link. An account with nothing
 //                      picked sees the default list: the active items marked
@@ -39,42 +40,6 @@ export async function crewSuppliesReady(): Promise<boolean> {
   `) as { ok: boolean }[];
   ready = rows[0]?.ok === true;
   return ready;
-}
-
-/* ---------- is migration 035 in this database? ---------- */
-
-let typesReady = false;
-
-/** True once the catalog has a type and a product code for each item (migration 035). Until then both read as "" and are not saved. */
-export async function catalogTypesReady(): Promise<boolean> {
-  if (typesReady) return true;
-  const sql = getSql();
-  const rows = (await sql`
-    SELECT count(*)::int AS n FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'supply_items' AND column_name IN ('category', 'sku')
-  `) as { n: number }[];
-  typesReady = rows[0]?.n === 2;
-  return typesReady;
-}
-
-/* ---------- is migration 036 in this database? ---------- */
-
-let defaultReady = false;
-
-/**
- * True once the catalog has its default list (migration 036). Until then
- * every active item counts as on it, which is how it worked before: an
- * account with no list sees every active item.
- */
-export async function defaultListReady(): Promise<boolean> {
-  if (defaultReady) return true;
-  const sql = getSql();
-  const rows = (await sql`
-    SELECT count(*)::int AS n FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'supply_items' AND column_name = 'in_default_list'
-  `) as { n: number }[];
-  defaultReady = rows[0]?.n === 1;
-  return defaultReady;
 }
 
 /* ---------- the catalog ---------- */
@@ -122,57 +87,6 @@ export async function listCatalogItems(includeHidden: boolean): Promise<CatalogI
     ORDER BY lower(name), id
   `) as ItemRow[];
   return rows.map(toItem);
-}
-
-/** Adds an item (no id) or changes one. Returns null when the id is not in the catalog. */
-export async function saveCatalogItem(input: { id?: number; name: string; brand: string; productLine: string; unit: string; photoUrl?: string; category?: string; sku?: string }, by: string): Promise<CatalogItem | null> {
-  const name = clean(input.name).slice(0, 120);
-  if (!name) throw new Error("Write the item's name.");
-  const brand = clean(input.brand).slice(0, 80);
-  const productLine = clean(input.productLine).slice(0, 80);
-  const unit = clean(input.unit).slice(0, 30) || "each";
-  const photo = clean(input.photoUrl);
-  const category = clean(input.category).slice(0, 60);
-  const sku = clean(input.sku).slice(0, 60);
-  const sql = getSql();
-  // The type and the product code are saved by themselves, and only where the database has them (migration 035).
-  const saveTypes = async (id: number): Promise<ItemRow> => {
-    if (await catalogTypesReady()) await sql`UPDATE supply_items SET category = ${category}, sku = ${sku} WHERE id = ${id}`;
-    return ((await sql`SELECT * FROM supply_items WHERE id = ${id}`) as ItemRow[])[0];
-  };
-  if (input.id === undefined) {
-    const rows = (await sql`
-      INSERT INTO supply_items (name, unit, sort_order, brand, product_line, photo_url, updated_by, updated_at)
-      SELECT ${name}, ${unit}, COALESCE(MAX(sort_order), 0) + 1, ${brand}, ${productLine}, ${photo}, ${by}, now() FROM supply_items
-      RETURNING id
-    `) as { id: number }[];
-    return toItem(await saveTypes(rows[0].id));
-  }
-  // A photo is only replaced when a new one came with the save.
-  const rows = (await sql`
-    UPDATE supply_items
-    SET name = ${name}, unit = ${unit}, brand = ${brand}, product_line = ${productLine},
-        photo_url = CASE WHEN ${photo} = '' THEN photo_url ELSE ${photo} END,
-        updated_by = ${by}, updated_at = now()
-    WHERE id = ${input.id}
-    RETURNING id
-  `) as { id: number }[];
-  return rows[0] ? toItem(await saveTypes(rows[0].id)) : null;
-}
-
-/** Remove (hide) or put back. Nothing is deleted. */
-export async function setCatalogItemActive(id: number, active: boolean, by: string): Promise<boolean> {
-  const sql = getSql();
-  const rows = (await sql`UPDATE supply_items SET active = ${active}, updated_by = ${by}, updated_at = now() WHERE id = ${id} RETURNING id`) as unknown[];
-  return rows.length > 0;
-}
-
-/** Puts an item on the default list, or takes it off. False when there is no such item, or no default list here yet. */
-export async function setCatalogItemDefault(id: number, on: boolean, by: string): Promise<boolean> {
-  if (!(await defaultListReady())) return false;
-  const sql = getSql();
-  const rows = (await sql`UPDATE supply_items SET in_default_list = ${on}, updated_by = ${by}, updated_at = now() WHERE id = ${id} RETURNING id`) as unknown[];
-  return rows.length > 0;
 }
 
 /* ---------- the list of one account ---------- */

@@ -218,6 +218,15 @@ export const SUB_WORDS: Record<
     problem: string;
     extraJob: string;
     supplies: string;
+    // The two shelves (migration 038): Supplies arrived, Case empty.
+    arrived: string;
+    caseEmpty: string;
+    nothingOnTheWay: string;
+    fixShort: string;
+    ordered: (n: number) => string;
+    confirm: string;
+    emptyHint: string;
+    shelfEmpty: string;
     myRequests: string;
     waiting: (count: number) => string;
     more: string;
@@ -266,6 +275,14 @@ export const SUB_WORDS: Record<
     problem: "Problem",
     extraJob: "Extra job",
     supplies: "Supplies",
+    arrived: "Supplies arrived",
+    caseEmpty: "Case empty",
+    nothingOnTheWay: "Nothing on its way to this site right now.",
+    fixShort: "Short or missing? Fix it with − and +.",
+    ordered: (n) => `Ordered ${n}`,
+    confirm: "Confirm",
+    emptyHint: "Tap once for each empty case.",
+    shelfEmpty: "Nothing on this site's shelf yet. It fills up when supplies arrive.",
     myRequests: "My requests",
     waiting: (count) => `${count} waiting`,
     more: "More",
@@ -313,6 +330,14 @@ export const SUB_WORDS: Record<
     problem: "Problema",
     extraJob: "Trabajo extra",
     supplies: "Suministros",
+    arrived: "Llegaron los suministros",
+    caseEmpty: "Caja vacía",
+    nothingOnTheWay: "No hay nada en camino a este sitio ahora.",
+    fixShort: "¿Falta algo? Corrígelo con − y +.",
+    ordered: (n) => `Pedidos ${n}`,
+    confirm: "Confirmar",
+    emptyHint: "Toca una vez por cada caja vacía.",
+    shelfEmpty: "Todavía no hay nada en este sitio. Se llena cuando llegan los suministros.",
     myRequests: "Mis pedidos",
     waiting: (count) => `${count} en espera`,
     more: "Más",
@@ -360,6 +385,14 @@ export const SUB_WORDS: Record<
     problem: "Problema",
     extraJob: "Trabalho extra",
     supplies: "Materiais",
+    arrived: "Os materiais chegaram",
+    caseEmpty: "Caixa vazia",
+    nothingOnTheWay: "Nada a caminho deste local agora.",
+    fixShort: "Faltou algo? Corrija com − e +.",
+    ordered: (n) => `Pedidos ${n}`,
+    confirm: "Confirmar",
+    emptyHint: "Toque uma vez para cada caixa vazia.",
+    shelfEmpty: "Ainda não há nada neste local. Enche quando os materiais chegam.",
     myRequests: "Meus pedidos",
     waiting: (count) => `${count} em espera`,
     more: "Mais",

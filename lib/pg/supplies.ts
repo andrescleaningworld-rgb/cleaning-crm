@@ -12,6 +12,7 @@
 
 import { getSql } from "@/lib/db";
 import { dateOrNull } from "@/lib/dateUtils";
+import { resolveSupplyId, syncCrewItemByRow } from "@/lib/pg/supply-list";
 
 type SupplyRow = {
   supply_item: string;
@@ -157,6 +158,8 @@ export async function updateSupplyItem(body: SupplyBody, updatedBy = ""): Promis
       )) as unknown[])
     : [];
   if (updated.length === 0) throw new Error("Could not find supply item to update.");
+  // Its Crew Link face (migration 038) follows the product's unit, photo, type and code.
+  await syncCrewItemByRow(row!);
 }
 
 /** Takes an item off the active list. Nothing is deleted. */
@@ -171,6 +174,8 @@ export async function deactivateSupplyItem(body: SupplyBody, updatedBy = ""): Pr
       )) as unknown[])
     : [];
   if (updated.length === 0) throw new Error("Could not find supply item to remove.");
+  // Taken off the list: crews stop seeing it too.
+  await syncCrewItemByRow(row!);
 }
 
 // ─── Supply orders ───────────────────────────────────────────────────────────
@@ -328,6 +333,10 @@ export async function createSupplyOrder(body: Record<string, unknown>): Promise<
       order.status,
     ]
   )) as { order_id: string; sheet_row: number }[];
+  // One list (migration 038): the line points at the Supplies product, by ID.
+  // The product the screen sent ("SUP-<row>"), else the one whose name matches exactly; a write-in has none.
+  const supplyId = await resolveSupplyId({ supplyId: body.supplyId, supplyItem: supplyItem });
+  if (supplyId !== null) await sql`UPDATE sub_supply_orders SET supply_id = ${supplyId} WHERE sheet_row = ${rows[0].sheet_row}`;
   return { ...order, orderId: rows[0].order_id, rowNumber: rows[0].sheet_row };
 }
 

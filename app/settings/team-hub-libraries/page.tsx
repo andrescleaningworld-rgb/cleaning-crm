@@ -322,12 +322,12 @@ export default function TeamHubLibrariesPage() {
           <div className="grid gap-6">
             <ChecklistLibrarySection items={checklist} onChanged={load} />
             <RoundLibrarySection items={rounds} onChanged={load} />
-            {/* Supply items moved: one place only, the catalog on the Supplies page. */}
+            {/* Supply items moved: one place only, the Supplies list. */}
             <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
               <h2 className="text-xl font-bold text-gray-900">Supply items</h2>
-              <p className="mt-1 text-gray-600">Supply items are now in the catalog on the Supplies page.</p>
-              <Link href="/supplies?tab=catalog" className="ui-btn ui-btn-main mt-4 inline-flex">
-                Open the catalog
+              <p className="mt-1 text-gray-600">Supply items are the products on the Supplies page.</p>
+              <Link href="/supplies" className="ui-btn ui-btn-main mt-4 inline-flex">
+                Open Supplies
               </Link>
             </section>
           </div>

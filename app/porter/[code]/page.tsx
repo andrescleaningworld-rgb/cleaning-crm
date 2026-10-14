@@ -18,6 +18,8 @@ import { BackButton, CenteredMessage, CrewHeader, SentScreen } from "./ui";
 import CrewChecklist, { type TabProgress } from "./CrewChecklist";
 import CrewSupplies from "./CrewSupplies";
 import CrewProblem from "./CrewProblem";
+import CrewArrived from "./CrewArrived";
+import CrewEmpty from "./CrewEmpty";
 import { PreviewNotSentScreen, useCrewLinkPreview } from "./preview";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
@@ -32,9 +34,13 @@ type LoadResponse = {
   modules?: Modules;
   // ES/PT for tab names, sections and items (English when missing).
   translations?: ContentTranslations;
+  /** "Supplies arrived" and "Case empty" are here (migration 038, supply orders on). */
+  shelves?: boolean;
 };
 
-type Feature = "checklist" | "supplies" | "problem";
+type Feature = "checklist" | "supplies" | "problem" | "arrived" | "empty";
+
+const FEATURE_ICON: Record<Feature, string> = { checklist: "✅", supplies: "🛒", problem: "⚠️", arrived: "📦", empty: "🗑" };
 type Screen = "home" | Feature;
 
 const NAME_STORAGE_KEY = "crew-link-name";
@@ -72,6 +78,7 @@ export default function CrewLinkPage() {
   const [translations, setTranslations] = useState<ContentTranslations>({});
   // Older API responses (before Crew Link) had no modules — treat as checklist-only.
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
+  const [shelves, setShelves] = useState(false);
 
   const [name, setName] = useState<string | null>(null); // null = not read from the phone yet
   const [screen, setScreen] = useState<Screen>("home");
@@ -105,6 +112,7 @@ export default function CrewLinkPage() {
         // Older API responses (before tabs) had only `sections` — one tab.
         setTabs(data.tabs ?? [{ id: 0, name: "", sections: data.sections ?? [] }]);
         if (data.modules) setModules(data.modules);
+        setShelves(data.shelves === true);
         setTranslations(data.translations ?? {});
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this link.");
@@ -123,6 +131,7 @@ export default function CrewLinkPage() {
     ...(modules.checklist ? (["checklist"] as const) : []),
     ...(modules.supplyOrders ? (["supplies"] as const) : []),
     ...(modules.problemReports ? (["problem"] as const) : []),
+    ...(shelves ? (["arrived", "empty"] as const) : []),
   ];
   const onlyFeature = features.length === 1 ? features[0] : null;
   const rootScreen: Screen = onlyFeature ?? "home";
@@ -172,9 +181,9 @@ export default function CrewLinkPage() {
                 className="flex min-h-[120px] items-center gap-5 rounded-3xl bg-white px-6 text-left text-3xl font-black text-slate-900 shadow-sm active:bg-gray-100"
               >
                 <span className="text-6xl" aria-hidden="true">
-                  {feature === "checklist" ? "✅" : feature === "supplies" ? "📦" : "⚠️"}
+                  {FEATURE_ICON[feature]}
                 </span>
-                {feature === "checklist" ? s.checklist : feature === "supplies" ? s.supplies : s.problem}
+                {feature === "checklist" ? s.checklist : feature === "supplies" ? s.supplies : feature === "problem" ? s.problem : feature === "arrived" ? s.arrived : s.caseEmpty}
               </button>
             ))}
           </div>
@@ -218,6 +227,20 @@ export default function CrewLinkPage() {
             onSent={markSent}
           />
         ) : null}
+
+        {currentScreen === "arrived" ? (
+          <CrewArrived
+            key={sent ? "sent" : "open"}
+            apiBase={`/api/porter-checklist/${encodeURIComponent(code)}`}
+            s={s}
+            lang={lang}
+            name={name}
+            onNameChange={setName}
+            onSent={markSent}
+          />
+        ) : null}
+
+        {currentScreen === "empty" ? <CrewEmpty apiBase={`/api/porter-checklist/${encodeURIComponent(code)}`} s={s} lang={lang} name={name} onNameChange={setName} /> : null}
 
         {currentScreen === "problem" ? (
           <CrewProblem

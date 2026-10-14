@@ -9,14 +9,15 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { MOTTO, SUB_WORDS, type UiLang } from "@/app/ui/words";
+import SubShelf from "./sub-shelf";
 import { ShellTitle, TileIconSvg, type TileIcon } from "@/app/ui";
 
 export type HomeAccount = { accountId?: string; id?: string; accountName?: string; address?: string };
-export type HomeSupply = { supplyItem?: string; name?: string; category?: string; unit?: string };
+export type HomeSupply = { supplyItem?: string; name?: string; category?: string; unit?: string; rowNumber?: number };
 type TodaySite = { accountId: string; accountName: string; address: string; timeWindow: string; done: boolean };
 type SubRequest = { kind: string; title: string; detail: string; status: "received" | "approved" | "done"; date: string };
 type HomeData = { on: boolean; firstName: string; today: TodaySite[]; requests: SubRequest[]; waiting: number };
-type View = "home" | "photos" | "problem" | "extra" | "supplies" | "requests" | "sent";
+type View = "home" | "photos" | "problem" | "extra" | "supplies" | "requests" | "sent" | "arrived" | "empty";
 type Site = { accountId: string; accountName: string; address: string };
 
 const LANG_KEY = "cwSubLang";
@@ -134,10 +135,10 @@ const supplyEmoji = (name: string, category: string) => SUPPLY_EMOJI.find(([patt
 
 /* ---------- small pieces ---------- */
 
-function BigTile({ icon, label, tone, onClick }: { icon: TileIcon; label: string; tone: "green" | "red" | "light"; onClick: () => void }) {
+function BigTile({ icon, emoji, label, tone, onClick }: { icon?: TileIcon; emoji?: string; label: string; tone: "green" | "red" | "light"; onClick: () => void }) {
   return (
     <button type="button" className={`sub-big sub-big-${tone}`} onClick={onClick}>
-      <TileIconSvg name={icon} />
+      {icon ? <TileIconSvg name={icon} /> : <span className="text-5xl leading-none" aria-hidden="true">{emoji}</span>}
       <span>{label}</span>
     </button>
   );
@@ -256,6 +257,8 @@ export default function SimpleHome({
   const [sentPhotos, setSentPhotos] = useState(0);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [otherItem, setOtherItem] = useState("");
+  // "Supplies arrived" and "Case empty" (migration 038): shown once the server says they are here.
+  const [shelvesOn, setShelvesOn] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const onReadyRef = useRef(onReady);
   useEffect(() => {
@@ -278,6 +281,17 @@ export default function SimpleHome({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/subcontractor-portal/shelf", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { success?: boolean; on?: boolean }) => alive && setShelvesOn(body.success === true && body.on === true))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   if (!home || !home.on) return null;
 
@@ -352,10 +366,10 @@ export default function SimpleHome({
     send(async () => {
       if (!site) return;
       const orderGroupId = `SOG-${Date.now()}`;
-      const lines: { name: string; quantity: number; category: string; unit: string; other: boolean }[] = [];
+      const lines: { name: string; quantity: number; category: string; unit: string; other: boolean; rowNumber?: number }[] = [];
       for (const supply of supplies) {
         const name = String(supply.supplyItem ?? supply.name ?? "");
-        if (name && (cart[name] ?? 0) > 0) lines.push({ name, quantity: cart[name], category: String(supply.category ?? ""), unit: String(supply.unit ?? ""), other: false });
+        if (name && (cart[name] ?? 0) > 0) lines.push({ name, quantity: cart[name], category: String(supply.category ?? ""), unit: String(supply.unit ?? ""), other: false, rowNumber: supply.rowNumber });
       }
       if (otherItem.trim()) lines.push({ name: otherItem.trim(), quantity: 1, category: "Other", unit: "", other: true });
       for (const line of lines) {
@@ -365,6 +379,8 @@ export default function SimpleHome({
           accountId: site.accountId,
           accountName: site.accountName,
           supplyItem: line.name,
+          // The product itself (one supply list, by ID); a write-in has none.
+          supplyId: line.rowNumber ? `SUP-${line.rowNumber}` : "",
           category: line.category,
           description: line.other ? line.name : "",
           itemDescription: line.other ? line.name : "",
@@ -469,6 +485,12 @@ export default function SimpleHome({
             <BigTile icon="problem" label={words.problem} tone="red" onClick={() => open("problem")} />
             <BigTile icon="todo" label={words.extraJob} tone="light" onClick={() => open("extra")} />
             <BigTile icon="box" label={words.supplies} tone="light" onClick={() => open("supplies")} />
+            {shelvesOn ? (
+              <>
+                <BigTile emoji="📦" label={words.arrived} tone="green" onClick={() => open("arrived")} />
+                <BigTile emoji="🗑" label={words.caseEmpty} tone="light" onClick={() => open("empty")} />
+              </>
+            ) : null}
           </div>
 
           <button type="button" className="sub-row" onClick={() => setView("requests")}>
@@ -628,6 +650,10 @@ export default function SimpleHome({
           {status}
           {sendButton(cartCount > 0 ? `${words.send} (${cartCount})` : words.send, () => void sendSupplies(), !site || cartCount === 0)}
         </section>
+      ) : null}
+
+      {view === "arrived" || view === "empty" ? (
+        <SubShelf mode={view} sites={sites} words={words} header={header(view === "arrived" ? words.arrived : words.caseEmpty)} onConfirmed={() => setView("sent")} />
       ) : null}
 
       {view === "requests" ? (
