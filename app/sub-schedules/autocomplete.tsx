@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, useId } from "react";
+import { useEffect, useMemo, useRef, useState, useId, type KeyboardEvent } from "react";
 
-export type SearchOption = { id: string; label: string; manager?: string };
+/** `detail` is an optional second line under the label (e.g. the address). */
+export type SearchOption = { id: string; label: string; manager?: string; detail?: string };
 
 export const SEARCH_DEBOUNCE_MS = 200;
 
@@ -118,8 +119,16 @@ type AutocompleteFieldProps = {
   onSelect: (option: SearchOption) => void;
   onClear: () => void;
   className?: string;
+  /** How many letters before the list opens. Default 2. */
+  minChars?: number;
+  /** Shown when nothing matches. Default "No matches." */
+  emptyText?: string;
+  /** A small line under the label, like the other fields' hints. */
+  hint?: string;
 };
 
+// Arrow keys move through the list, Enter picks, Esc closes the list (and only
+// the list: inside a Sheet the Sheet stays open). A tap or click picks too.
 export function AutocompleteField({
   label,
   placeholder,
@@ -131,53 +140,151 @@ export function AutocompleteField({
   onSelect,
   onClear,
   className,
+  minChars = 2,
+  emptyText = "No matches.",
+  hint,
 }: AutocompleteFieldProps) {
   const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [active, setActive] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const inputId = useId();
-  const showDropdown = focused && !selected && query.trim().length >= 2;
+  const listId = `${inputId}-list`;
+  const showDropdown = focused && !dismissed && !selected && query.trim().length >= minChars;
+  const canPick = showDropdown && !loading && options.length > 0;
+
+  // The highlighted match; typing starts it back at the top (see onChange).
+  const current = Math.min(active, Math.max(options.length - 1, 0));
+
+  // Keep the highlighted match in view while arrowing through a long list.
+  useEffect(() => {
+    if (!canPick) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-index="${current}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [current, canPick]);
+
+  function pick(option: SearchOption) {
+    onSelect(option);
+    setDismissed(false);
+  }
+
+  function clear() {
+    onClear();
+    setDismissed(false);
+    // The input comes back in place of the picked name; put the cursor in it.
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!showDropdown) {
+        setDismissed(false);
+        return;
+      }
+      if (!canPick) return;
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      setActive((current + step + options.length) % options.length);
+    } else if (event.key === "Enter") {
+      if (!canPick) return;
+      event.preventDefault();
+      pick(options[current]);
+    } else if (event.key === "Escape") {
+      if (!showDropdown) return;
+      // Stops a surrounding <dialog> from closing on the same Esc.
+      event.preventDefault();
+      event.stopPropagation();
+      setDismissed(true);
+    }
+  }
 
   return (
     <div className={`ui-field ${className ?? ""}`} style={{ position: "relative" }}>
       <label className="ui-label" htmlFor={inputId}>
         {label}
       </label>
+      {hint ? (
+        <span className="ui-hint" id={`${inputId}-hint`}>
+          {hint}
+        </span>
+      ) : null}
       {selected ? (
         <div className="ui-picker-option" style={{ cursor: "default" }}>
-          <span className="ui-strong" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-            {selected.label}
+          <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+            <span className="ui-strong">{selected.label}</span>
+            {selected.detail ? (
+              <span className="ui-muted" style={{ display: "block", fontSize: "0.9em" }}>
+                {selected.detail}
+              </span>
+            ) : null}
           </span>
-          <button type="button" onClick={onClear} className="ui-btn ui-btn-quiet ui-btn-icon" aria-label={`Clear ${label}`}>
+          <button type="button" onClick={clear} className="ui-btn ui-btn-quiet ui-btn-icon" aria-label={`Clear ${label}`}>
             ×
           </button>
         </div>
       ) : (
         <input
+          ref={inputRef}
           id={inputId}
           type="text"
           value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
+          onChange={(e) => {
+            onQueryChange(e.target.value);
+            setDismissed(false);
+            setActive(0);
+          }}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
+          onKeyDown={onKeyDown}
           placeholder={placeholder}
           autoComplete="off"
           className="ui-input"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={showDropdown}
+          aria-controls={listId}
+          aria-activedescendant={canPick ? `${listId}-${current}` : undefined}
+          aria-describedby={hint ? `${inputId}-hint` : undefined}
         />
       )}
 
       {showDropdown && (
-        <div className="ui-picker-list ui-autocomplete-list">
+        <div ref={listRef} id={listId} role="listbox" aria-label={label} className="ui-picker-list ui-autocomplete-list">
           {loading ? (
             <p className="ui-muted" style={{ padding: "10px 14px", margin: 0 }}>
               Searching…
             </p>
           ) : options.length === 0 ? (
             <p className="ui-muted" style={{ padding: "10px 14px", margin: 0 }}>
-              No matches.
+              {emptyText}
             </p>
           ) : (
-            options.map((option) => (
-              <button key={option.id} type="button" onMouseDown={() => onSelect(option)} className="ui-picker-option">
-                <span style={{ minWidth: 0, textAlign: "left", overflowWrap: "anywhere" }}>{option.label}</span>
+            options.map((option, index) => (
+              <button
+                key={option.id}
+                id={`${listId}-${index}`}
+                data-index={index}
+                type="button"
+                role="option"
+                aria-selected={index === current}
+                tabIndex={-1}
+                style={index === current ? { borderColor: "var(--ui-brand)", background: "var(--ui-brand-soft)" } : undefined}
+                onMouseDown={(event) => {
+                  // Picks before the input's blur closes the list.
+                  event.preventDefault();
+                  pick(option);
+                }}
+                onMouseEnter={() => setActive(index)}
+                className="ui-picker-option"
+              >
+                <span style={{ minWidth: 0, textAlign: "left", overflowWrap: "anywhere" }}>
+                  {option.label}
+                  {option.detail ? (
+                    <span className="ui-muted" style={{ display: "block", fontSize: "0.9em", fontWeight: 400 }}>
+                      {option.detail}
+                    </span>
+                  ) : null}
+                </span>
               </button>
             ))
           )}

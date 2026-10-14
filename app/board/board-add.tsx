@@ -11,7 +11,8 @@
 // The to-do and the account update are saved by their own APIs, exactly as
 // from their own pages; this only also hangs the paper in the box.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { AutocompleteField, type SearchOption } from "@/app/sub-schedules/autocomplete";
 import { BigButton, CHEER, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
 import type { BoardManager } from "@/lib/board";
 
@@ -20,7 +21,36 @@ export type AddTarget =
   | { kind: "update" }
   | { kind: "note"; box: string; boxName: string };
 
-type AccountOption = { id: string; name: string };
+type AccountOption = { id: string; name: string; address: string; city: string };
+
+// How many matches the account search shows under the field.
+const ACCOUNT_MATCHES = 8;
+
+// The key a picked account is held by (the same value the old dropdown used).
+const accountKey = (entry: AccountOption) => `${entry.id}|${entry.name}`;
+
+function accountSearchOption(entry: AccountOption): SearchOption {
+  const town = entry.city && !entry.address.toLowerCase().includes(entry.city.toLowerCase()) ? entry.city : "";
+  return { id: accountKey(entry), label: entry.name, detail: [entry.address, town].filter(Boolean).join(", ") };
+}
+
+/** Accounts whose name, address or town has the typed words anywhere in it; names that start with them first. */
+function matchAccounts(accounts: AccountOption[], query: string): SearchOption[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const rank = (entry: AccountOption) => {
+    const name = entry.name.toLowerCase();
+    if (name.startsWith(q)) return 0;
+    if (name.includes(q)) return 1;
+    return `${entry.address} ${entry.city}`.toLowerCase().includes(q) ? 2 : -1;
+  };
+  return accounts
+    .map((entry) => ({ entry, rank: rank(entry) }))
+    .filter((match) => match.rank >= 0)
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, ACCOUNT_MATCHES)
+    .map((match) => accountSearchOption(match.entry));
+}
 
 const UPDATE_TYPES = ["Service Change", "Price Change", "Missed Visit", "Sub replacement", "Supplies", "Extra Service", "Approved", "Ongoing", "Other"];
 // The same kinds the To-Do page offers.
@@ -52,6 +82,7 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
   const [accounts, setAccounts] = useState<AccountOption[] | null>(null);
   const [accountsFailed, setAccountsFailed] = useState(false);
   const [accountId, setAccountId] = useState("");
+  const [accountQuery, setAccountQuery] = useState("");
   const [title, setTitle] = useState("");
   const [type, setType] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -67,6 +98,7 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
   useEffect(() => {
     if (!kind) return;
     setAccountId("");
+    setAccountQuery("");
     setTitle("");
     setType(kind === "update" ? "Other" : "Visit");
     setDueDate("");
@@ -85,7 +117,12 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
         if (!alive) return;
         const rows = (data.accounts ?? data.data ?? [])
           .filter((row) => !/cancel/i.test(pick(row, ["status", "Status"])))
-          .map((row) => ({ id: pick(row, ["accountId", "id", "Account ID"]), name: pick(row, ["accountName", "Account Name", "name"]) }))
+          .map((row) => ({
+            id: pick(row, ["accountId", "id", "Account ID"]),
+            name: pick(row, ["accountName", "Account Name", "name"]),
+            address: pick(row, ["address", "Address"]),
+            city: pick(row, ["city", "City"]),
+          }))
           .filter((row) => row.name)
           .sort((a, b) => a.name.localeCompare(b.name));
         setAccounts(rows);
@@ -97,7 +134,8 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
     };
   }, [needsAccounts, accounts]);
 
-  const account = accounts?.find((entry) => `${entry.id}|${entry.name}` === accountId) ?? null;
+  const account = accounts?.find((entry) => accountKey(entry) === accountId) ?? null;
+  const accountMatches = useMemo(() => (accounts && !account ? matchAccounts(accounts, accountQuery) : []), [accounts, account, accountQuery]);
 
   async function save() {
     if (!target) return;
@@ -144,14 +182,26 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
   }
 
   const accountField = (label: string) => (
-    <SelectField label={label} value={accountId} onChange={(event) => setAccountId(event.target.value)} hint={accountsFailed ? "The account list did not load. Close this and try again." : accounts ? undefined : "Loading the accounts…"}>
-      <option value="">Pick an account</option>
-      {(accounts ?? []).map((entry) => (
-        <option key={`${entry.id}|${entry.name}`} value={`${entry.id}|${entry.name}`}>
-          {entry.name}
-        </option>
-      ))}
-    </SelectField>
+    <AutocompleteField
+      label={label}
+      placeholder="Type a name, street or town"
+      hint={accountsFailed ? "The account list did not load. Close this and try again." : accounts ? undefined : "Loading the accounts…"}
+      query={accountQuery}
+      onQueryChange={setAccountQuery}
+      options={accountMatches}
+      loading={!accounts && !accountsFailed}
+      selected={account ? accountSearchOption(account) : null}
+      onSelect={(option) => {
+        setAccountId(option.id);
+        setAccountQuery(option.label);
+      }}
+      onClear={() => {
+        setAccountId("");
+        setAccountQuery("");
+      }}
+      minChars={1}
+      emptyText="No accounts found"
+    />
   );
 
   const heading = !target ? "" : target.kind === "todo" ? `New to-do for ${target.manager.name}` : target.kind === "update" ? "New account update" : `New note in ${target.boxName}`;

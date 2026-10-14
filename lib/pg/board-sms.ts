@@ -11,6 +11,7 @@
 import { getSql } from "@/lib/db";
 import { PAPER_KINDS, type PaperKind } from "@/lib/board";
 import { appendSmsLog } from "@/lib/data/todos";
+import { listBoardManagers } from "@/lib/pg/board";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -68,6 +69,12 @@ export function boardSmsText(paper: { title: string; accountName: string; notes?
  * Texts the manager whose square a paper just landed in. Nothing is sent when
  * the paper went to a shared square, or when the manager put it there
  * themselves.
+ *
+ * Only a person's square texts: the square must be one of the board's managers
+ * (listBoardManagers, the same list the board draws its squares from). Shared
+ * boxes (New accepted, Extra jobs, Complaints, Supplies, Office) have no square,
+ * and staff rows that are not a person ("CW") are not on that list; both stop
+ * here, before the SMS service or the SMS log is touched.
  */
 export async function notifyBoardSquare(input: {
   square: string;
@@ -87,6 +94,7 @@ export async function notifyBoardSquare(input: {
   let phone = "";
   let name = "";
   try {
+    if (!(await listBoardManagers()).some((manager) => manager.id === square)) return;
     const sql = getSql();
     const rows = (await sql`
       SELECT s.name, COALESCE(m.phone, '') AS phone
