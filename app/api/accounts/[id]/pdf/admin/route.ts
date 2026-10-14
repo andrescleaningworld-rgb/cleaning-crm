@@ -227,6 +227,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
     const monthlyPay = formatMoney(account.subcontractorPay ?? account.monthlySubcontractorPay);
     const hasKey = cleanText(account.hasKey);
     const alarmInfo = cleanText(account.alarmInfo) || cleanText(account.alarmCode);
+    const accessInfo = cleanText(account.keyAlarmAccessInfo);
+    // "Notes for Sub" (migration 037). The internal "notes" never go on the Team Leader PDF.
+    const notesForSub = cleanText(account.notesForSub);
     const scope = cleanText(account.scope) || cleanText(account.scopeOfWork);
     const manager = cleanText(account.manager);
 
@@ -261,6 +264,8 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       monthlyPay,
       hasKey,
       alarmInfo,
+      accessInfo,
+      notesForSub,
       scope,
       manager,
       generatedDate,

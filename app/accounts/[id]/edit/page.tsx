@@ -43,6 +43,8 @@ type Account = {
   cleaningDays?: string;
   scopeOfWork?: string;
   notes?: string;
+  // Printed on both account PDFs; "notes" stays internal (office only).
+  notesForSub?: string;
   checklistNeeded?: string;
 };
 
@@ -879,7 +881,8 @@ export default function EditAccountPage() {
 
         <Card title="Notes">
           <div style={sectionStyle}>
-            <TextAreaField label="Notes" optional rows={5} value={formData.notes || ""} onChange={(event) => updateField("notes", event.target.value)} />
+            <TextAreaField label="Internal notes" hint="Office only. Shown on the Admin PDF, never on the Team Leader PDF." optional rows={5} value={formData.notes || ""} onChange={(event) => updateField("notes", event.target.value)} />
+            <TextAreaField label="Notes for Sub" hint="What the subcontractor should know. Printed on the Team Leader PDF and the Admin PDF." optional rows={4} value={formData.notesForSub || ""} onChange={(event) => updateField("notesForSub", event.target.value)} />
           </div>
         </Card>
 

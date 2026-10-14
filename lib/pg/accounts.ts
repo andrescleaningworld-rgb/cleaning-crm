@@ -196,6 +196,23 @@ function cancellationWrite(
   return { sets, before, after };
 }
 
+/* ---------- Notes for Sub (migration 037; not a sheet column) ---------- */
+
+// What the subcontractor should know, printed on both account PDFs. The
+// "notes" sheet column stays the office's internal notes.
+function notesForSubWrite(current: AccountRow, fields: Record<string, unknown>): { sets: [column: string, value: string][]; before: Record<string, string>; after: Record<string, string> } {
+  if (fields.notesForSub === undefined) return { sets: [], before: {}, after: {} };
+  const value = String(fields.notesForSub ?? "").trim();
+  // Before migration 037 the column is not there: nothing to save unless something was typed.
+  if (!("notes_for_sub" in current)) {
+    if (value) throw new Error("Notes for Sub cannot be saved until its database update has run. Nothing was saved. Empty Notes for Sub and save again.");
+    return { sets: [], before: {}, after: {} };
+  }
+  const had = text(current, "notes_for_sub");
+  if (value === had) return { sets: [], before: {}, after: {} };
+  return { sets: [["notes_for_sub", value]], before: { "Notes for Sub": had }, after: { "Notes for Sub": value } };
+}
+
 /* ---------- typed values kept next to the text ---------- */
 
 export const toMoney = (raw: string): string | null => {
@@ -446,9 +463,12 @@ export async function updateAccountFieldsDirect(
   const cancellation = cancellationWrite(current, resolvedFields, writes);
   Object.assign(before, cancellation.before);
   Object.assign(after, cancellation.after);
+  const notesForSub = notesForSubWrite(current, resolvedFields);
+  Object.assign(before, notesForSub.before);
+  Object.assign(after, notesForSub.after);
 
   const { assignments, params } = writes.length > 0 ? await buildAccountWrite(current, writes) : { assignments: [] as string[], params: [] as unknown[] };
-  for (const [column, value] of cancellation.sets) {
+  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets]) {
     params.push(value);
     assignments.push(`${column} = $${params.length}`);
   }
@@ -701,6 +721,8 @@ function toAppsScriptAccount(row: AccountRow, action: AppsScriptAccountsAction):
     cleaningDays: held(row, 5),
     scopeOfWork: held(row, 14),
     notes: held(row, 15),
+    // Migration 037 (not a sheet column). "" until it runs.
+    notesForSub: text(row, "notes_for_sub"),
   };
 }
 

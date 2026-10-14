@@ -1,0 +1,11 @@
+-- Accounts: "Notes for Sub". Postgres only. Nothing here is imported from or
+-- written to Google Sheets. It only adds one column: nothing is removed or
+-- changed. Idempotent. Never edit after applying.
+--
+--   notes_for_sub   what the subcontractor should know about the account.
+--                   Typed on the account's Edit page and printed on both
+--                   account PDFs (Team Leader and Admin). '' = none.
+--
+-- The existing `notes` column stays the office's internal notes: it is never
+-- printed on the Team Leader PDF, which is handed to subcontractors.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS notes_for_sub TEXT NOT NULL DEFAULT '';

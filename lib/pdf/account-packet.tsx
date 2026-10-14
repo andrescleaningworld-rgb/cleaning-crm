@@ -27,13 +27,21 @@ const COLORS = {
 // @react-pdf/renderer's standard-14 fonts are selected by fontFamily name
 // directly (not via a separate fontWeight prop) — "Helvetica-Bold" is a
 // distinct built-in font, not a style variant of "Helvetica".
+const PAGE_MARGIN = 36;
+
 const styles = StyleSheet.create({
+  // A long Access Info or Notes runs onto more pages. These margins keep the
+  // text off the paper's edge there (printers cut it off). Page 1 looks as
+  // before: the header and footer are pulled back out to the edges below.
   page: {
     fontFamily: "Helvetica",
     fontSize: 10,
     color: COLORS.value,
+    paddingTop: PAGE_MARGIN,
+    paddingBottom: PAGE_MARGIN,
   },
   header: {
+    marginTop: -PAGE_MARGIN,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -132,7 +140,8 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.border,
     marginHorizontal: 36,
     paddingTop: 12,
-    paddingBottom: 26,
+    // The page margin is the space under the footer now (it was 26 here).
+    paddingBottom: 0,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
@@ -172,6 +181,22 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// A block of free text that may be long. Unlike Section it may break across
+// pages, so nothing is ever cut off; the title is not left alone at the
+// bottom of a page. Empty shows "None".
+function TextSection({ title, text }: { title: string; text: string }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle} minPresenceAhead={40}>
+        {title}
+      </Text>
+      <View style={styles.scopeBox}>
+        <Text style={styles.scopeText}>{text || "None"}</Text>
+      </View>
+    </View>
+  );
+}
+
 export type AccountPacketData = {
   accountName: string;
   address: string;
@@ -181,6 +206,10 @@ export type AccountPacketData = {
   monthlyPay: string;
   hasKey: string;
   alarmInfo: string;
+  /** The account's "Key / Alarm / Access Info". */
+  accessInfo: string;
+  /** "Notes for Sub" (migration 037). The account's internal notes are never in this PDF. */
+  notesForSub: string;
   scope: string;
   manager: string;
   generatedDate: string;
@@ -227,6 +256,9 @@ export function AccountPacketDocument(data: AccountPacketData) {
               <Field label="Cleaning Schedule" value={data.cleaningSchedule} />
             </View>
           </Section>
+
+          <TextSection title="Access Info" text={data.accessInfo} />
+          <TextSection title="Notes for Sub" text={data.notesForSub} />
 
           <Section title="Team Leader Assignment">
             <View style={styles.fieldGrid}>

@@ -34,13 +34,23 @@ const COLORS = {
   bannerText: "#991b1b",
 };
 
+const PAGE_MARGIN = 36;
+// A third of an inch: still clear of what printers cannot print, and it lets a typical account fit on one page.
+const PAGE_MARGIN_BOTTOM = 24;
+
 const styles = StyleSheet.create({
+  // A long Access Info or Notes runs onto more pages. These margins keep the
+  // text off the paper's edge there (printers cut it off). Page 1 looks as
+  // before: the header and footer are pulled back out to the edges below.
   page: {
     fontFamily: "Helvetica",
     fontSize: 10,
     color: COLORS.value,
+    paddingTop: PAGE_MARGIN,
+    paddingBottom: PAGE_MARGIN_BOTTOM,
   },
   header: {
+    marginTop: -PAGE_MARGIN,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -110,7 +120,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
   },
   section: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   sectionTitle: {
     fontFamily: "Helvetica-Bold",
@@ -120,8 +130,15 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    paddingBottom: 6,
-    marginBottom: 12,
+    paddingBottom: 5,
+    marginBottom: 8,
+  },
+  notesRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  notesColumn: {
+    width: "47%",
   },
   fieldGrid: {
     flexDirection: "row",
@@ -130,7 +147,12 @@ const styles = StyleSheet.create({
   },
   field: {
     width: "47%",
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  // Four across: Account Overview and Account Snapshot.
+  fieldQuarter: {
+    width: "23%",
+    marginBottom: 8,
   },
   fieldLabel: {
     fontFamily: "Helvetica-Bold",
@@ -149,7 +171,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.scopeBorder,
     borderRadius: 6,
-    padding: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
   textBoxText: {
     fontSize: 10.5,
@@ -162,7 +185,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 36,
     marginTop: 4,
     paddingTop: 10,
-    paddingBottom: 16,
+    // The page margin is the space under the footer now (it was 16 here).
+    paddingBottom: 0,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
@@ -184,9 +208,9 @@ const styles = StyleSheet.create({
   },
 });
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, quarter = false }: { label: string; value: string; quarter?: boolean }) {
   return (
-    <View style={styles.field}>
+    <View style={quarter ? styles.fieldQuarter : styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <Text style={styles.fieldValue}>{value || "N/A"}</Text>
     </View>
@@ -196,8 +220,26 @@ function Field({ label, value }: { label: string; value: string }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionTitle} minPresenceAhead={40}>
+        {title}
+      </Text>
       {children}
+    </View>
+  );
+}
+
+// A block of free text that may be long: it may break across pages so
+// nothing is cut off, and its title is not left alone at the bottom of a
+// page. Empty shows "None".
+function TextSection({ title, text }: { title: string; text: string }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle} minPresenceAhead={40}>
+        {title}
+      </Text>
+      <View style={styles.textBox}>
+        <Text style={styles.textBoxText}>{text || "None"}</Text>
+      </View>
     </View>
   );
 }
@@ -214,6 +256,10 @@ export type AccountPacketAdminData = {
   monthlyPay: string;
   hasKey: string;
   alarmInfo: string;
+  /** The account's "Key / Alarm / Access Info". */
+  accessInfo: string;
+  /** "Notes for Sub" (migration 037), the same text the Team Leader PDF prints. */
+  notesForSub: string;
   scope: string;
   manager: string;
   generatedDate: string;
@@ -269,21 +315,42 @@ export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
         <View style={styles.body}>
           <Section title="Account Overview">
             <View style={styles.fieldGrid}>
-              <Field label="Account Status" value={data.accountStatus} />
-              <Field label="Subcontractor Company" value={data.subcontractorCompany} />
-              <Field label="Monthly Revenue" value={data.monthlyRevenue} />
-              <Field label="Est. Gross Margin" value={grossMarginDisplay} />
+              <Field quarter label="Account Status" value={data.accountStatus} />
+              <Field quarter label="Sub Company" value={data.subcontractorCompany} />
+              <Field quarter label="Monthly Revenue" value={data.monthlyRevenue} />
+              <Field quarter label="Est. Gross Margin" value={grossMarginDisplay} />
             </View>
           </Section>
 
           <Section title="Account Snapshot">
             <View style={styles.fieldGrid}>
-              <Field label="Account Name" value={data.accountName} />
-              <Field label="Address" value={data.address} />
-              <Field label="Start Date" value={data.startDate} />
-              <Field label="Cleaning Schedule" value={data.cleaningSchedule} />
+              <Field quarter label="Account Name" value={data.accountName} />
+              <Field quarter label="Address" value={data.address} />
+              <Field quarter label="Start Date" value={data.startDate} />
+              <Field quarter label="Cleaning Schedule" value={data.cleaningSchedule} />
             </View>
           </Section>
+
+          {/* One Access section (Has Key, Alarm Info, and the Key / Alarm / Access Info text) and the two notes side by side, so a typical account stays on one page. */}
+          <Section title="Access">
+            <View style={styles.fieldGrid}>
+              <Field label="Has Key" value={data.hasKey} />
+              <Field label="Alarm Info" value={data.alarmInfo} />
+            </View>
+            <Text style={styles.fieldLabel}>Key / Alarm / Access Info</Text>
+            <View style={styles.textBox}>
+              <Text style={styles.textBoxText}>{data.accessInfo || "None"}</Text>
+            </View>
+          </Section>
+
+          <View style={styles.notesRow}>
+            <View style={styles.notesColumn}>
+              <TextSection title="Notes for Sub" text={data.notesForSub} />
+            </View>
+            <View style={styles.notesColumn}>
+              <TextSection title="Internal Notes" text={data.notes} />
+            </View>
+          </View>
 
           <Section title="Team Leader Assignment">
             <View style={styles.fieldGrid}>
@@ -292,27 +359,15 @@ export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
             </View>
           </Section>
 
-          <Section title="Access">
-            <View style={styles.fieldGrid}>
-              <Field label="Has Key" value={data.hasKey} />
-              <Field label="Alarm Info" value={data.alarmInfo} />
-            </View>
-          </Section>
-
           <Section title="Scope of Work">
             <View style={styles.textBox}>
               <Text style={styles.textBoxText}>{data.scope || "N/A"}</Text>
             </View>
           </Section>
-
-          <Section title="Notes">
-            <View style={styles.textBox}>
-              <Text style={styles.textBoxText}>{data.notes || "N/A"}</Text>
-            </View>
-          </Section>
         </View>
 
-        <View style={styles.footer}>
+        {/* Never split: the whole footer moves to the next page if it does not fit. */}
+        <View style={styles.footer} wrap={false}>
           <View>
             <Text style={styles.footerCompany}>Cleaning World Inc.</Text>
             <Text style={styles.footerLine}>90 Burlews Ct, Hackensack, NJ 07601</Text>
