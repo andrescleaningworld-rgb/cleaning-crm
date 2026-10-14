@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, SelectField, Sheet, showToast } from "@/app/ui";
+import { NOTE_BOXES, SHARED_SQUARES } from "@/lib/board";
 import { OFFICE_LABEL, OFFICE_SQUARE, squareForManager, type PinInfo, type PinRequest, type PinType } from "@/lib/boardPins";
 
 /** What is switched on, the squares, and what is pinned now. null = the Pin Board is not turned on here (or did not answer). */
@@ -65,6 +66,33 @@ function SquarePicker({ info, value, onChange, disabled }: { info: PinInfo; valu
         </option>
       ))}
     </SelectField>
+  );
+}
+
+/** One square a record can be pinned to: a manager's square, Office, or a shared box. */
+export type BoardSpot = { key: string; label: string; square: string; box: string; person: boolean };
+
+/** Every square a pinned record can hang in: the managers' squares, Office, and the shared boxes a note can go in. */
+export function boardSpots(info: PinInfo): BoardSpot[] {
+  const boxLabel = (box: string) => SHARED_SQUARES.find((entry) => entry.kind === box)?.label ?? box;
+  return [
+    ...info.managers.map((manager) => ({ key: `m:${manager.id}`, label: manager.name, square: manager.id, box: "", person: true })),
+    { key: "office", label: OFFICE_LABEL, square: OFFICE_SQUARE, box: "", person: false },
+    ...NOTE_BOXES.map((box) => ({ key: `box:${box}`, label: boxLabel(box), square: OFFICE_SQUARE, box, person: false })),
+  ];
+}
+
+/** The squares as big buttons: one tap picks one. */
+export function SquareTiles({ info, onPick, disabled, busyKey }: { info: PinInfo; onPick: (spot: BoardSpot) => void; disabled?: boolean; busyKey?: string }) {
+  return (
+    <div className="ui-stack" data-square-tiles>
+      {boardSpots(info).map((spot) => (
+        <BigButton key={spot.key} kind="second" disabled={disabled} busy={busyKey === spot.key} busyLabel="Pinning…" onClick={() => onPick(spot)}>
+          {spot.person ? "👤 " : "🗂 "}
+          {spot.label}
+        </BigButton>
+      ))}
+    </div>
   );
 }
 

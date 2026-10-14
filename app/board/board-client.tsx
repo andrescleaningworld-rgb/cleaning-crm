@@ -330,6 +330,12 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
             <div className={styles.sheetButtons}>
               {open.href ? <BigButton onClick={() => openDetails(open)}>Open full details</BigButton> : null}
+              {/* A pinned account: the Print PDF file, made fresh when tapped (new tab, so the board stays open). */}
+              {open.pdfHref ? (
+                <a className="ui-btn ui-btn-second" href={open.pdfHref} target="_blank" rel="noopener">
+                  <span>📄 Open PDF</span>
+                </a>
+              ) : null}
               <BigButton kind="second" onClick={() => printNotes(`note=${encodeURIComponent(`${open.kind}:${open.itemId}`)}`)}>
                 Print
               </BigButton>

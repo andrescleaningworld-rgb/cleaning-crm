@@ -83,8 +83,16 @@ export type PinRequest = {
   accountName?: string;
   /** "" = Office. */
   square: string;
+  /** With square "": the shared box it hangs in instead of Office ("account", "complaint", "supply"; lib/board.ts NOTE_BOXES). */
+  box?: string;
   /** Printed on the paper: who it is for, and when it is due (YYYY-MM-DD). */
   forWho?: string;
+  /**
+   * "printPdf": pinned from an account's Print PDF button. Saved on the paper
+   * (data.from), and that path pins an account even when Settings -> Pin Board
+   * -> Accounts is off. Every other pin follows the setting.
+   */
+  from?: "printPdf";
   /** A few more words for the paper (the note typed with it). */
   notes?: string;
   dueDate?: string;

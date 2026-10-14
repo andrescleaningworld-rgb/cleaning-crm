@@ -86,7 +86,9 @@ export async function pinRecord(request: PinRequest, by: string): Promise<boolea
   if (request.type === "todo" || request.type === "visit" || request.type === "account" || request.type === "update") {
     const one = PIN_TYPES.find((entry) => entry.type === request.type)!.one;
     const dueDate = /^\d{4}-\d{2}-\d{2}/.test(request.dueDate ?? "") ? (request.dueDate as string).slice(0, 10) : "";
-    const data = { notes: (request.notes ?? "").trim().slice(0, 1000), recordType: request.type, recordId, label: one, href: recordHref(request.type, recordId), forWho: (request.forWho ?? "").trim().slice(0, 80), dueDate };
+    // A paper with no square hangs in Office, or in the shared box it was pinned to (the route checks the box).
+    const box = square ? "" : (request.box ?? "").trim();
+    const data = { notes: (request.notes ?? "").trim().slice(0, 1000), recordType: request.type, recordId, label: one, href: recordHref(request.type, recordId), forWho: (request.forWho ?? "").trim().slice(0, 80), dueDate, box, ...(request.from === "printPdf" ? { from: "printPdf" } : {}) };
     await sql.query(
       `INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
        VALUES ('note', $1, $2, $3, $4, '', 'pinned', $5::jsonb, $6, now(), $7)

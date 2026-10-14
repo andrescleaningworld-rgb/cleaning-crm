@@ -48,6 +48,7 @@ function forTv(paper: Paper): Paper {
     doneBy: "",
     progress: null,
     href: "",
+    pdfHref: "",
   };
 }
 

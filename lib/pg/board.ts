@@ -381,6 +381,13 @@ function paperHref(row: PaperRow): string {
   return accountId ? `/accounts/${encodeURIComponent(accountId)}` : "";
 }
 
+/** A pinned account ("Pin to board" on the account, or Print PDF -> Pin to board): the Admin (office) PDF Print PDF makes. Blanked for the TV (app/api/board/tv). */
+function paperPdfHref(row: PaperRow): string {
+  const accountId = clean(row.account_id);
+  if (row.kind !== "note" || clean(row.data?.recordType) !== "account" || !accountId) return "";
+  return `/api/accounts/${encodeURIComponent(accountId)}/pdf/admin`;
+}
+
 function paperDetail(row: PaperRow): string {
   const data = row.data ?? {};
   if (row.kind === "supply") return [clean(data.items), clean(data.subcontractor) ? `Ordered by ${clean(data.subcontractor)}` : ""].filter(Boolean).join(". ");
@@ -418,6 +425,7 @@ function toPaper(row: PaperRow): Paper {
     doneBy: row.board_done_by ?? "",
     progress: row.kind === "account" ? countChecklistProgress(checklistItems(row.checklist_items)) : null,
     href: paperHref(row),
+    pdfHref: paperPdfHref(row),
     forWho: clean(row.data?.forWho),
     dueDate: clean(row.data?.dueDate),
     recordDone: clean(row.data?.recordDoneOn) !== "",

@@ -48,6 +48,8 @@ export type Paper = {
   progress: { done: number; total: number } | null;
   /** The real record this paper opens. "" = the paper is all there is (a note). */
   href: string;
+  /** A pinned account: its Admin (office) PDF, made fresh each time it is opened (no stored file). "" = none, and always "" on the TV. */
+  pdfHref: string;
   /** A pinned record: who it is for and when it is due (YYYY-MM-DD). "" when not known. */
   forWho: string;
   dueDate: string;

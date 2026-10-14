@@ -37,6 +37,7 @@ import AccountEverything from "./account-everything";
 import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
+import PrintOrPinSheet from "./print-or-pin";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
@@ -338,6 +339,8 @@ export default function AccountDetailPage() {
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
   const [showPdfModal, setShowPdfModal] = useState(false);
+  // Print PDF first asks: print, pin to the board, or both. Works whatever Settings -> Pin Board -> Accounts says.
+  const [showPrintChoice, setShowPrintChoice] = useState(false);
   // Which variant is currently being fetched/printed, if any — also doubles
   // as the "an action is in flight" flag that disables both choice buttons.
   const [printingVariant, setPrintingVariant] = useState<"teamLeader" | "admin" | null>(null);
@@ -351,7 +354,7 @@ export default function AccountDetailPage() {
   // New accounts board: this account's place on it, if it is on it.
   const handoffs = useHandoffs();
   // Pin Board: the "Pin to board" button (only where accounts are switched on in Settings -> Pin Board).
-  const { info: pinInfo } = usePinInfo();
+  const { info: pinInfo, reload: reloadPinInfo } = usePinInfo();
 
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [newStatus, setNewStatus] = useState<QuickStatusOption>("Active");
@@ -1393,7 +1396,7 @@ export default function AccountDetailPage() {
                 <BigButton kind="second" icon="plus" href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
                   Add sale
                 </BigButton>
-                <BigButton kind="second" onClick={openPdfModal}>
+                <BigButton kind="second" onClick={() => (pinInfo ? setShowPrintChoice(true) : openPdfModal())}>
                   Print PDF
                 </BigButton>
                 <BigButton kind="second" busy={sendingPacket} busyLabel="Sending packet…" onClick={() => void handleSendNewAccountPacket()}>
@@ -1613,6 +1616,17 @@ export default function AccountDetailPage() {
               />
               {statusError ? <ErrorBox title="The status was not changed." text={statusError} onRetry={requestStatusSave} /> : null}
             </Sheet>
+
+            {pinInfo ? (
+              <PrintOrPinSheet
+                open={showPrintChoice}
+                info={pinInfo}
+                account={{ id: thisAccountId, name: accountName }}
+                onClose={() => setShowPrintChoice(false)}
+                onPrint={openPdfModal}
+                onPinned={() => void reloadPinInfo()}
+              />
+            ) : null}
 
             <Sheet
               open={showPdfModal}

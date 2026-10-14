@@ -168,11 +168,16 @@ export async function POST(request: NextRequest) {
       const square = clean(body.square);
       if (!isPinType(type) || !recordId) return refuse("type and recordId are required.");
       if (!PIN_TYPES.find((entry) => entry.type === type)?.available) return refuse("That kind of record cannot be pinned yet.");
-      if (!(await getPinTypes())[type].show) return refuse("Pin to board is switched off for that kind of record.", 409);
+      // An account pinned from its Print PDF button goes up whatever the Accounts switch says; everything else follows it.
+      const fromPrintPdf = type === "account" && clean(body.from) === "printPdf";
+      if (!fromPrintPdf && !(await getPinTypes())[type].show) return refuse("Pin to board is switched off for that kind of record.", 409);
       if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
       const before = square ? await recordPaper(type, recordId).catch(() => null) : null;
       // An account update's paper carries its notes; the other kinds send none.
-      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, forWho: clean(body.forWho), dueDate: clean(body.dueDate), notes: clean(body.notes) }, by);
+      // No square: Office, or one of the shared boxes a note can hang in.
+      const box = clean(body.box);
+      if (box && (square || !(NOTE_BOXES as readonly string[]).includes(box))) return refuse("That box cannot take this paper.");
+      const pinned = await pinRecord({ type, recordId, title: clean(body.title), accountId: clean(body.accountId), accountName: clean(body.accountName), square, box, forWho: clean(body.forWho), dueDate: clean(body.dueDate), notes: clean(body.notes), ...(fromPrintPdf ? { from: "printPdf" as const } : {}) }, by);
       if (!pinned) return refuse("That record was not found, so it was not pinned.", 404);
       if (square && before?.square !== square) {
         after(async () => {
