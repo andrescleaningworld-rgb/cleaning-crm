@@ -71,8 +71,15 @@ try {
 
   // ----- the list of one account -----
   const two = existing.slice(0, 2).map((item) => item.id);
-  check("no list yet: the crew sees the whole catalog", (await crew.pickedItemIdsForCrew(ACCOUNT)) === null);
-  check("no list yet: every active item can be ordered", (await crew.activeItemsForAccount(ACCOUNT)).length === existing.length + 1);
+  // ----- the default list (migration 036) -----
+  const defaults = existing.filter((item) => item.inDefaultList).length;
+  check("migration 036 is in this database", await crew.defaultListReady());
+  check("no list yet: the account has no picks of its own", (await crew.pickedItemIdsForCrew(ACCOUNT)) === null);
+  check("a new item is NOT on the default list", made!.inDefaultList === false);
+  check("no list yet: the crew gets the default list, not the whole catalog", (await crew.activeItemsForAccount(ACCOUNT)).length === defaults && (await crew.activeItemsForAccount(ACCOUNT)).every((item) => item.id !== itemId), `${defaults} of ${existing.length + 1} active`);
+  check("an item can be put on the default list", (await crew.setCatalogItemDefault(itemId, true, "check")) && (await crew.activeItemsForAccount(ACCOUNT)).some((item) => item.id === itemId));
+  check("and taken off it again", (await crew.setCatalogItemDefault(itemId, false, "check")) && (await crew.activeItemsForAccount(ACCOUNT)).length === defaults);
+  check("switching an unknown item answers false", (await crew.setCatalogItemDefault(2_000_000_000, true, "check")) === false);
   await crew.setAccountSupplyIds(ACCOUNT, [...two, itemId], "check");
   check("picked items are saved", (await crew.getAccountSupplyIds(ACCOUNT)).length === two.length + 1);
   check("the crew sees only the picked items", (await crew.pickedItemIdsForCrew(ACCOUNT))?.size === two.length + 1 && (await crew.activeItemsForAccount(ACCOUNT)).length === two.length + 1);
@@ -84,7 +91,7 @@ try {
   await crew.setCatalogItemActive(itemId, false, "check");
   check("a removed item is hidden from the crew", (await crew.activeItemsForAccount(ACCOUNT)).every((item) => item.id !== itemId));
   check("a removed item is still in the catalog (hidden)", (await crew.listCatalogItems(true)).some((item) => item.id === itemId && !item.active));
-  check("an account whose only pick was removed sees the whole catalog again", (await crew.activeItemsForAccount(OTHER)).length === existing.length);
+  check("an account whose only pick was removed gets the default list again", (await crew.activeItemsForAccount(OTHER)).length === defaults);
   await crew.setCatalogItemActive(itemId, true, "check");
   await crew.setAccountSupplyIds(OTHER, [], "check");
   check("an emptied list is gone", (await crew.getAccountSupplyIds(OTHER)).length === 0);

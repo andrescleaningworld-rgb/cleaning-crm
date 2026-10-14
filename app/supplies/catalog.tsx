@@ -4,13 +4,15 @@
 // has a name, a brand, a product line, a unit and, if wanted, a photo. It
 // also has a type ("Toilet paper", "Hand soap"...), which the list is grouped
 // by, and our product code; the code is for staff only. An item that is
-// removed is only hidden: crews stop seeing it and past orders keep it. Which of these a given account's crew sees is picked on that
+// removed is only hidden: crews stop seeing it and past orders keep it.
+// "Default list" on an item means a crew at an account with no list of its
+// own can order it; with it off, only the accounts it was picked for see it. Which of these a given account's crew sees is picked on that
 // account's Crew Link setup ("Pick supplies for this account").
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Field, FilterChips, SearchBar, SelectField, Sheet, SkeletonList, showToast } from "@/app/ui";
 
-type Item = { id: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string; category: string; sku: string; active: boolean };
+type Item = { id: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string; category: string; sku: string; inDefaultList: boolean; active: boolean };
 type Draft = { id?: number; name: string; brand: string; productLine: string; unit: string; photoUrl: string; category: string; sku: string };
 
 const UNITS = ["case", "box", "each", "gallon", "pack", "bag", "roll", "bottle"];
@@ -31,7 +33,9 @@ export default function SupplyCatalog() {
   // The catalog has types and product codes here (migration 035). Until then it is one plain list, as before.
   const [typesOn, setTypesOn] = useState(false);
   const [search, setSearch] = useState("");
-  const [shown, setShown] = useState<"active" | "removed">("active");
+  const [shown, setShown] = useState<"active" | "default" | "removed">("active");
+  // The catalog has its default list here (migration 036). Until then the switch and the filter are not shown.
+  const [defaultOn, setDefaultOn] = useState(false);
   const [brand, setBrand] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
@@ -42,11 +46,12 @@ export default function SupplyCatalog() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/admin/crew-supplies?view=catalog", { cache: "no-store" });
-      const body = (await response.json()) as { success?: boolean; ready?: boolean; items?: Item[]; typesOn?: boolean };
+      const body = (await response.json()) as { success?: boolean; ready?: boolean; items?: Item[]; typesOn?: boolean; defaultOn?: boolean };
       if (!response.ok || body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
       setItems(body.items ?? []);
       setTypesOn(body.typesOn === true);
+      setDefaultOn(body.defaultOn === true);
       setState("ready");
     } catch {
       setState("failed");
@@ -61,7 +66,9 @@ export default function SupplyCatalog() {
   const list = useMemo(() => {
     const words = search.trim().toLowerCase();
     return items.filter((item) => {
-      if (item.active !== (shown === "active")) return false;
+      // "Default" = what a crew with no list of its own sees: in the catalog and on the default list.
+      if (item.active !== (shown !== "removed")) return false;
+      if (shown === "default" && !item.inDefaultList) return false;
       if (brand && item.brand !== brand) return false;
       return !words || [item.name, item.brand, item.productLine, item.category, item.sku].join(" ").toLowerCase().includes(words);
     });
@@ -81,6 +88,7 @@ export default function SupplyCatalog() {
       .map(([type, entries]) => ({ type, items: entries }));
   }, [list, typesOn]);
   const removedCount = items.filter((item) => !item.active).length;
+  const defaultCount = items.filter((item) => item.active && item.inDefaultList).length;
 
   const startAdd = () => {
     setError("");
@@ -113,6 +121,18 @@ export default function SupplyCatalog() {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function setDefault(item: Item, on: boolean) {
+    // The switch moves at once; it goes back if the save fails.
+    setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, inDefaultList: on } : entry)));
+    try {
+      await post({ action: "setDefault", id: item.id, on });
+      showToast(on ? "On the default list ✓" : "Off the default list. Only the accounts it is picked for see it.");
+    } catch (err) {
+      setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, inDefaultList: !on } : entry)));
+      showToast(err instanceof Error ? err.message : "That did not save. Try again.", "bad");
     }
   }
 
@@ -150,6 +170,7 @@ export default function SupplyCatalog() {
         onChange={setShown}
         options={[
           { value: "active", label: `In the catalog (${items.length - removedCount})` },
+          ...(defaultOn ? [{ value: "default" as const, label: `Default (${defaultCount})` }] : []),
           { value: "removed", label: `Removed (${removedCount})` },
         ]}
       />
@@ -164,7 +185,12 @@ export default function SupplyCatalog() {
         </SelectField>
       ) : null}
 
-      {list.length === 0 ? <EmptyState title={shown === "active" ? "Nothing here" : "Nothing has been removed"} text={shown === "active" ? "Tap Add item, or change the search." : undefined} /> : null}
+      {defaultOn && shown === "default" ? (
+        <p className="ui-muted" style={{ margin: 0 }}>
+          What a crew sees at an account with no list of its own.
+        </p>
+      ) : null}
+      {list.length === 0 ? <EmptyState title={shown === "removed" ? "Nothing has been removed" : "Nothing here"} text={shown === "removed" ? undefined : "Tap Add item, or change the search."} /> : null}
       {groups.map((group) => (
         <section key={group.type || "all"} className="ui-stack" aria-label={group.type || "Items"} data-catalog-type={group.type}>
           {group.type ? (
@@ -196,6 +222,12 @@ export default function SupplyCatalog() {
               </p>
             </div>
           </div>
+          {defaultOn ? (
+            <label className="ui-toggle" style={{ marginTop: 12 }}>
+              <input type="checkbox" role="switch" checked={item.inDefaultList} onChange={(event) => void setDefault(item, event.target.checked)} />
+              <span>Default list</span>
+            </label>
+          ) : null}
           <div className="ui-actions-row" style={{ marginTop: 12 }}>
             <BigButton kind="second" onClick={() => startEdit(item)}>
               Edit

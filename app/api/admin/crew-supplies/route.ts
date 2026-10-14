@@ -11,6 +11,7 @@ import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import {
   catalogTypesReady,
   crewSuppliesReady,
+  defaultListReady,
   editCrewOrder,
   editMarksFor,
   getAccountSupplyIds,
@@ -21,6 +22,7 @@ import {
   saveCatalogItem,
   setAccountSupplyIds,
   setCatalogItemActive,
+  setCatalogItemDefault,
 } from "@/lib/pg/crew-supplies";
 
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -37,8 +39,9 @@ export async function GET(request: NextRequest) {
     // Supplies page -> Catalog: every item, the removed ones too.
     if (view === "catalog") {
       // typesOn: the catalog has a type and a product code for each item (migration 035).
-      const [items, typesOn] = await Promise.all([listCatalogItems(true), catalogTypesReady()]);
-      return NextResponse.json({ success: true, ready: true, items, typesOn }, noStore);
+      // defaultOn: the catalog has its default list (migration 036).
+      const [items, typesOn, defaultOn] = await Promise.all([listCatalogItems(true), catalogTypesReady(), defaultListReady()]);
+      return NextResponse.json({ success: true, ready: true, items, typesOn, defaultOn }, noStore);
     }
 
     // Crew Link setup -> "Pick supplies for this account".
@@ -126,6 +129,13 @@ export async function POST(request: NextRequest) {
     if (action === "setActive") {
       const id = Number(body.id);
       if (!Number.isInteger(id) || !(await setCatalogItemActive(id, body.active === true, by))) return refuse("That item was not found.", 404);
+      return NextResponse.json({ success: true });
+    }
+
+    // On or off the default list: what a crew at an account with no list of its own can order.
+    if (action === "setDefault") {
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || !(await setCatalogItemDefault(id, body.on === true, by))) return refuse("That item was not found.", 404);
       return NextResponse.json({ success: true });
     }
 

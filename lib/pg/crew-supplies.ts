@@ -6,7 +6,8 @@
 //                      only hidden: past orders keep it.
 //   a list per account crew_link_account_supplies: the catalog items picked
 //                      for one account's Crew Link. An account with nothing
-//                      picked keeps seeing every active item.
+//                      picked sees the default list: the active items marked
+//                      in_default_list (migration 036), not the whole catalog.
 //   editing an order   staff can change an order a crew already sent while it
 //                      is New or Ordered. The order as the crew sent it is
 //                      kept (supply_orders.original_request) and every edit
@@ -56,6 +57,26 @@ export async function catalogTypesReady(): Promise<boolean> {
   return typesReady;
 }
 
+/* ---------- is migration 036 in this database? ---------- */
+
+let defaultReady = false;
+
+/**
+ * True once the catalog has its default list (migration 036). Until then
+ * every active item counts as on it, which is how it worked before: an
+ * account with no list sees every active item.
+ */
+export async function defaultListReady(): Promise<boolean> {
+  if (defaultReady) return true;
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT count(*)::int AS n FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'supply_items' AND column_name = 'in_default_list'
+  `) as { n: number }[];
+  defaultReady = rows[0]?.n === 1;
+  return defaultReady;
+}
+
 /* ---------- the catalog ---------- */
 
 export type CatalogItem = {
@@ -69,12 +90,14 @@ export type CatalogItem = {
   category: string;
   /** Our product code. Staff side only: nothing a crew is sent carries it. */
   sku: string;
+  /** On the default list: a crew at an account with no list of its own can order it (when it is also active). */
+  inDefaultList: boolean;
   /** false = removed from the catalog (hidden). It is never deleted. */
   active: boolean;
 };
 
 // category and sku are missing from the row where migration 035 is not in yet.
-type ItemRow = { id: number; name: string; brand: string | null; product_line: string | null; unit: string; photo_url: string | null; active: boolean; category?: string | null; sku?: string | null };
+type ItemRow = { id: number; name: string; brand: string | null; product_line: string | null; unit: string; photo_url: string | null; active: boolean; category?: string | null; sku?: string | null; in_default_list?: boolean | null };
 
 const toItem = (row: ItemRow): CatalogItem => ({
   id: row.id,
@@ -85,6 +108,8 @@ const toItem = (row: ItemRow): CatalogItem => ({
   photoUrl: clean(row.photo_url),
   category: clean(row.category),
   sku: clean(row.sku),
+  // No such column yet (before migration 036): every item counts as on the default list, as it always did.
+  inDefaultList: row.in_default_list !== false,
   active: row.active === true,
 });
 
@@ -142,6 +167,14 @@ export async function setCatalogItemActive(id: number, active: boolean, by: stri
   return rows.length > 0;
 }
 
+/** Puts an item on the default list, or takes it off. False when there is no such item, or no default list here yet. */
+export async function setCatalogItemDefault(id: number, on: boolean, by: string): Promise<boolean> {
+  if (!(await defaultListReady())) return false;
+  const sql = getSql();
+  const rows = (await sql`UPDATE supply_items SET in_default_list = ${on}, updated_by = ${by}, updated_at = now() WHERE id = ${id} RETURNING id`) as unknown[];
+  return rows.length > 0;
+}
+
 /* ---------- the list of one account ---------- */
 
 export async function getAccountSupplyIds(accountId: string): Promise<number[]> {
@@ -176,18 +209,20 @@ export async function listAccountsWithLists(): Promise<{ accountId: string; acco
 }
 
 /**
- * What the crew at this account can order: the items picked for it, or every
- * active item when nothing is picked (or everything picked has been removed).
+ * What the crew at this account can order: the items picked for it. With
+ * nothing picked (or everything picked removed since), the default list: the
+ * active items marked for it. That can be empty.
  */
 export async function activeItemsForAccount(accountId: string): Promise<CatalogItem[]> {
   const all = await listCatalogItems(false);
-  if (!accountId) return all;
+  const defaults = all.filter((item) => item.inDefaultList);
+  if (!accountId) return defaults;
   const picked = new Set(await getAccountSupplyIds(accountId));
   const own = all.filter((item) => picked.has(item.id));
-  return own.length > 0 ? own : all;
+  return own.length > 0 ? own : defaults;
 }
 
-/** The same rule, as ids, for the crew's own screen. Null = no list of its own (show everything). Never throws. */
+/** The account's own picks, as ids, for the crew's own screen. Null = no list of its own (the crew gets the default list). Never throws. */
 export async function pickedItemIdsForCrew(accountId: string): Promise<Set<number> | null> {
   try {
     if (!(await crewSuppliesReady())) return null;

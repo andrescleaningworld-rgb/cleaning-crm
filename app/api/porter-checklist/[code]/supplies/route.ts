@@ -36,10 +36,13 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     ]);
     const detailOf = new Map(details.map((item) => [item.id, item]));
     // The items picked for this account (Crew Link setup, "Pick supplies for
-    // this account"). Nothing picked, or all of it removed since: every
-    // active item, as before.
+    // this account"). Nothing picked, or all of it removed since: the default
+    // list (Supplies -> Catalog, "Default list"), which can be empty; the
+    // "Other supplies" box is always there. Where the default list is not in
+    // the database yet, or the details did not load, every active item
+    // counts as on it, as before.
     const own = picked ? catalog.filter((item) => picked.has(item.id)) : [];
-    const items = own.length > 0 ? own : catalog;
+    const items = own.length > 0 ? own : catalog.filter((item) => detailOf.get(item.id)?.inDefaultList !== false);
 
     const translations = await getContentTranslations([
       ...items.flatMap((i) => [i.name, i.unit, detailOf.get(i.id)?.category ?? ""]).filter(Boolean),

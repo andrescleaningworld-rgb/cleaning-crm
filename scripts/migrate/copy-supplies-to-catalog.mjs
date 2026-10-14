@@ -20,8 +20,10 @@
 // NOT copied: cost, vendor, shelf location, shelf counts, minimum levels.
 // Dispensers are left out: they are equipment, not something a crew reorders.
 //
-// Every copied product arrives REMOVED (hidden): no crew sees it until staff
-// tap "Put back" on it in Supplies -> Catalog. Run twice, it adds nothing:
+// Every copied product arrives REMOVED (hidden) and NOT on the default list
+// (migration 036: a new item is off it unless someone switches it on). So no
+// crew sees it, and when staff tap "Put back" on it in Supplies -> Catalog
+// it still shows only to the accounts it is picked for. Run twice, it adds nothing:
 // a product whose code is already in the catalog is skipped.
 import { getSql } from "./lib/pg.mjs";
 
@@ -180,6 +182,7 @@ console.log(`\nTo copy: ${todo.length}. Skipped: ${plan.length - todo.length}. W
 
 if (apply && todo.length > 0) {
   // One transaction: all of them or none. They arrive hidden (active = false), after the items already there.
+  // in_default_list is not named: its default is false (off the default list), and it may not exist before migration 036.
   await sql.transaction(
     todo.map(
       (item, index) => sql`
@@ -195,4 +198,7 @@ if (apply) {
   const after = (await sql`SELECT count(*)::int AS items, count(*) FILTER (WHERE active)::int AS active FROM supply_items`)[0];
   const untouched = (await sql`SELECT count(*)::int AS n FROM sub_supplies`)[0].n;
   console.log(`\nCatalog after: ${after.items} items (${after.active} that crews can see). Copied: ${after.items - before.items}. Supplies list still has ${untouched} products.`);
+  // Where there is a default list (migration 036): none of the copied products may be on it.
+  const copied = (await sql`SELECT to_jsonb(s) AS row FROM supply_items s WHERE s.updated_by = 'copied from the Supplies list'`).map((entry) => entry.row);
+  if (copied.some((row) => "in_default_list" in row)) console.log(`Copied products on the default list: ${copied.filter((row) => row.in_default_list === true).length} (must be 0).`);
 }
