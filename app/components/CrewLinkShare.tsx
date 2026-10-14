@@ -10,7 +10,7 @@
 //   building name and a huge QR code.
 // The QR code is made in the browser by the `qrcode` package — no outside
 // service ever sees the link.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import QRCode from "qrcode";
 
 function isPhoneOrTablet(): boolean {
@@ -21,7 +21,43 @@ export function crewLinkTextMessage(placeName: string, url: string): string {
   return `Crew Link — ${placeName}\nOpen this on your phone / Ábrelo en tu teléfono:\n${url}`;
 }
 
-export default function CrewLinkShare({ accountId, placeName, url }: { accountId: string; placeName: string; url: string }) {
+export type ShareMethod = "text" | "copy" | "print";
+
+/**
+ * The same buttons serve other links too (the sub portal invite,
+ * app/subcontractors/[id]/invite-to-portal.tsx). Every option below has a
+ * default that is exactly Crew Link's behavior.
+ */
+type ShareOptions = {
+  /** The text the Messages app opens with. Default: the Crew Link message. */
+  message?: string;
+  /** What Copy copies, and its button label. Default: the link, "Copy link". */
+  copyText?: string;
+  copyLabel?: string;
+  /** The printable page, and its button label. Default: the Crew Link QR sign. */
+  printHref?: string;
+  printLabel?: string;
+  /** The line under the QR code on a computer. */
+  qrNote?: string;
+  /** Told when a button is used (to record it). */
+  onShare?: (method: ShareMethod) => void;
+  /** More buttons in the same row (e.g. Email). */
+  children?: ReactNode;
+};
+
+export default function CrewLinkShare({
+  accountId = "",
+  placeName,
+  url,
+  message,
+  copyText,
+  copyLabel = "Copy link",
+  printHref,
+  printLabel = "Print QR sign",
+  qrNote = "The link opens on your phone. From there, tap Share and send it to your crew by text.",
+  onShare,
+  children,
+}: { accountId?: string; placeName: string; url: string } & ShareOptions) {
   const [isPhone, setIsPhone] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState("");
@@ -48,18 +84,20 @@ export default function CrewLinkShare({ accountId, placeName, url }: { accountId
   }, [showQr, url]);
 
   async function copyLink() {
+    const text = copyText ?? url;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.prompt("Copy this link:", url);
+      window.prompt("Copy this:", text);
     }
+    onShare?.("copy");
   }
 
   // "sms:?&body=" opens the Messages app with the text filled in on both
   // iPhone and Android, with no phone number (the user picks the contact).
-  const smsHref = `sms:?&body=${encodeURIComponent(crewLinkTextMessage(placeName, url))}`;
+  const smsHref = `sms:?&body=${encodeURIComponent(message ?? crewLinkTextMessage(placeName, url))}`;
   const buttonClass =
     "flex min-h-[64px] w-full items-center justify-center gap-3 rounded-2xl px-4 text-lg font-bold shadow-sm disabled:opacity-50";
 
@@ -67,15 +105,18 @@ export default function CrewLinkShare({ accountId, placeName, url }: { accountId
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${children ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
         {isPhone ? (
-          <a href={smsHref} className={`${buttonClass} bg-green-600 text-white hover:bg-green-500`}>
+          <a href={smsHref} onClick={() => onShare?.("text")} className={`${buttonClass} bg-green-600 text-white hover:bg-green-500`}>
             <span className="text-2xl" aria-hidden="true">💬</span> Text the link
           </a>
         ) : (
           <button
             type="button"
-            onClick={() => setShowQr((prev) => !prev)}
+            onClick={() => {
+              if (!showQr) onShare?.("text");
+              setShowQr((prev) => !prev);
+            }}
             aria-expanded={showQr}
             className={`${buttonClass} bg-green-600 text-white hover:bg-green-500`}
           >
@@ -83,16 +124,18 @@ export default function CrewLinkShare({ accountId, placeName, url }: { accountId
           </button>
         )}
         <button type="button" onClick={copyLink} className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}>
-          <span className="text-2xl" aria-hidden="true">{copied ? "✅" : "📋"}</span> {copied ? "Copied!" : "Copy link"}
+          <span className="text-2xl" aria-hidden="true">{copied ? "✅" : "📋"}</span> {copied ? "Copied!" : copyLabel}
         </button>
         <a
-          href={`/crew-link/print/${encodeURIComponent(accountId)}`}
+          href={printHref ?? `/crew-link/print/${encodeURIComponent(accountId)}`}
           target="_blank"
           rel="noopener"
+          onClick={() => onShare?.("print")}
           className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}
         >
-          <span className="text-2xl" aria-hidden="true">🖨️</span> Print QR sign
+          <span className="text-2xl" aria-hidden="true">🖨️</span> {printLabel}
         </a>
+        {children}
       </div>
 
       {showQr && !isPhone ? (
@@ -104,9 +147,7 @@ export default function CrewLinkShare({ accountId, placeName, url }: { accountId
           ) : (
             <div className="flex h-64 w-64 items-center justify-center rounded-xl bg-white text-slate-400">…</div>
           )}
-          <p className="max-w-sm text-base text-green-900">
-            The link opens on your phone. From there, tap Share and send it to your crew by text.
-          </p>
+          <p className="max-w-sm text-base text-green-900">{qrNote}</p>
         </div>
       ) : null}
     </div>

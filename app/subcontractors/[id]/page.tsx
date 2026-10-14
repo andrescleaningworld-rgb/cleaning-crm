@@ -28,6 +28,7 @@ import {
   resolveAssignedSubKey,
   buildSubcontractorPerformanceKey,
 } from "@/lib/subAccountMatching";
+import InviteToPortal from "./invite-to-portal";
 
 type AnyRow = Record<string, unknown>;
 
@@ -913,6 +914,10 @@ export default function SubcontractorDetailPage() {
         </div>
 
         {error ? <ErrorBox title="Some of this page did not load." text={error} onRetry={() => void loadData()} /> : null}
+
+        <div className="sub-detail-print-hide">
+          <InviteToPortal subId={getSubId(subcontractor)} subName={getCompanyName(subcontractor)} email={form.email} onEditSub={() => setEditing(true)} />
+        </div>
 
         <div className="sub-detail-print-hide ui-stats">
           <StatCard label="Active Accounts" value={String(currentAccounts.length)} />
