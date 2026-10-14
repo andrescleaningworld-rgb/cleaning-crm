@@ -1,15 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { CHEER, StatusPill, type StatusKind } from "@/app/ui";
+import { CHEER } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import SupplyOrderPrintView from "./supply-order-print-view";
-import OrderSteps from "./order-steps";
-import CrewLinkOrders from "./crew-orders";
+import OrderCards, { type OrderSummary } from "./order-cards";
 import Deliveries from "./deliveries";
-import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
-import { PinButton, usePinInfo } from "../components/pin-to-board";
+import { ORDER_STATUSES, canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 
 type Account = {
   accountId?: string;
@@ -74,16 +72,6 @@ type StatusUpdateResponse = {
   rowNumber?: number;
 };
 
-const ORDER_STATUS_OPTIONS = [
-  "New",
-  "Needs Review",
-  "Approved",
-  "Pending / In Progress",
-  "Completed",
-  "Denied",
-  "Cancelled",
-];
-
 const DELIVERY_FILTER_OPTIONS = [
   "All",
   "Pick Up",
@@ -136,28 +124,6 @@ function getLoadedOrders(data: SupplyOrdersResponse): SupplyOrder[] {
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
-}
-
-function normalizeStatus(statusValue?: string) {
-  const status = cleanText(statusValue);
-
-  if (!status) return "New";
-
-  const lower = status.toLowerCase();
-
-  if (lower === "pending" || lower === "in progress") {
-    return "Pending / In Progress";
-  }
-
-  if (lower === "complete" || lower === "done" || lower === "closed") {
-    return "Completed";
-  }
-
-  if (lower === "canceled") {
-    return "Cancelled";
-  }
-
-  return status;
 }
 
 function getOrderDescription(order: SupplyOrder) {
@@ -368,53 +334,17 @@ function parseOrderDate(order: SupplyOrder) {
   return parsed;
 }
 
-function isNewOrNeedsReview(order: SupplyOrder) {
-  const status = normalizeStatus(order.status).toLowerCase();
-
-  return status === "new" || status === "needs review";
-}
-
-function isApprovedOrder(order: SupplyOrder) {
-  const status = normalizeStatus(order.status).toLowerCase();
-
-  return status === "approved";
-}
-
-function isPendingOrder(order: SupplyOrder) {
-  const status = normalizeStatus(order.status).toLowerCase();
-
-  return status === "pending / in progress";
-}
-
-function isCompletedOrder(order: SupplyOrder) {
-  const status = normalizeStatus(order.status).toLowerCase();
-
-  return status === "completed";
-}
-
-function statusKind(statusValue?: string): StatusKind {
-  const status = normalizeStatus(statusValue).toLowerCase();
-
-  if (status === "completed" || status === "approved") return "done";
-  if (status === "pending / in progress") return "waiting";
-  if (status === "needs review" || status === "denied" || status === "cancelled") return "needs-you";
-  return "off";
-}
-
 export default function SupplyOrdersPage() {
   const [allOrders, setOrders] = useState<SupplyOrder[]>([]);
   // Opened from an account's page (?accountId=): only that account's orders, with a way back.
   const scope = useAccountScope();
   const orders = useMemo(() => (scope.active ? allOrders.filter((order) => scope.matches(order.accountId, order.accountName)) : allOrders), [allOrders, scope]);
-  // "Pin to board" (Settings -> Pin Board).
-  const { info: pinInfo } = usePinInfo();
   const [loading, setLoading] = useState(true);
   // ?order= from My work on the Dashboard: that order's step card is brought into view.
   const [focusOrderId, setFocusOrderId] = useState("");
   useEffect(() => {
     setFocusOrderId(new URLSearchParams(window.location.search).get("order") ?? "");
   }, []);
-  const [updatingOrderKey, setUpdatingOrderKey] = useState("");
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -422,8 +352,6 @@ export default function SupplyOrdersPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [deliveryFilter, setDeliveryFilter] = useState("All");
   const [dateSort, setDateSort] = useState("Newest First");
-
-  const [selectedOrder, setSelectedOrder] = useState<SupplyOrder | null>(null);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   // Off-screen print-only view (see .supply-order-print-view below), null
@@ -626,156 +554,24 @@ export default function SupplyOrdersPage() {
     return () => window.removeEventListener("afterprint", handleAfterPrint);
   }, []);
 
-  async function updateOrderStatus(order: SupplyOrder, newStatus: string) {
-    const oldStatus = normalizeStatus(order.status);
-    const orderKey =
-      order.orderId ||
-      String(order.rowNumber || "") ||
-      `${order.accountName}-${order.supplyItem}`;
-
-    try {
-      setError("");
-      setSuccessMessage("");
-      setUpdatingOrderKey(orderKey);
-
-      setOrders((currentOrders) =>
-        currentOrders.map((currentOrder) => {
-          const currentKey =
-            currentOrder.orderId ||
-            String(currentOrder.rowNumber || "") ||
-            `${currentOrder.accountName}-${currentOrder.supplyItem}`;
-
-          if (currentKey !== orderKey) return currentOrder;
-
-          return {
-            ...currentOrder,
-            status: newStatus,
-          };
-        })
-      );
-
-      const response = await fetch("/api/supply-orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "updateSupplyOrderStatus",
-          rowNumber: order.rowNumber,
-          orderId: order.orderId,
-          status: newStatus,
-        }),
-      });
-
-      const data = (await response.json()) as StatusUpdateResponse;
-
-      if (!response.ok || data.success === false) {
-        throw new Error(
-          data.error || data.message || "Failed to update supply order status."
-        );
-      }
-
-      setSelectedOrder((currentSelected) => {
-        if (!currentSelected) return currentSelected;
-
-        const selectedKey =
-          currentSelected.orderId ||
-          String(currentSelected.rowNumber || "") ||
-          `${currentSelected.accountName}-${currentSelected.supplyItem}`;
-
-        if (selectedKey !== orderKey) return currentSelected;
-
-        return {
-          ...currentSelected,
-          status: newStatus,
-        };
-      });
-
-      setSuccessMessage("Supply order status updated.");
-    } catch (err) {
-      setOrders((currentOrders) =>
-        currentOrders.map((currentOrder) => {
-          const currentKey =
-            currentOrder.orderId ||
-            String(currentOrder.rowNumber || "") ||
-            `${currentOrder.accountName}-${currentOrder.supplyItem}`;
-
-          if (currentKey !== orderKey) return currentOrder;
-
-          return {
-            ...currentOrder,
-            status: oldStatus,
-          };
-        })
-      );
-
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      setUpdatingOrderKey("");
-    }
+  /** Saves one order line's Status and shows it at once. Throws when it did not save. */
+  async function saveItemStatus(order: SupplyOrder, newStatus: string) {
+    const status = canonicalOrderStatus(newStatus);
+    const response = await fetch("/api/supply-orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "updateSupplyOrderStatus", rowNumber: order.rowNumber, orderId: order.orderId, status }),
+    });
+    const data = (await response.json().catch(() => ({}))) as StatusUpdateResponse;
+    if (!response.ok || data.success === false) throw new Error(data.error || data.message || "The status did not save. Try again.");
+    setOrders((current) =>
+      current.map((row) => ((order.orderId && row.orderId === order.orderId) || (!order.orderId && row.rowNumber === order.rowNumber) ? { ...row, status } : row))
+    );
   }
 
-  const filteredOrders = useMemo(() => {
-    const safeOrders = Array.isArray(orders) ? orders : [];
-    const q = search.toLowerCase().trim();
+  // The top numbers count orders (one per card), not order lines.
+  const [summary, setSummary] = useState<OrderSummary>({ total: 0, newOrReview: 0, approved: 0, pending: 0, completed: 0 });
 
-    let results = safeOrders.filter((order) => {
-      const status = normalizeStatus(order.status);
-      const deliveryMode = cleanText(order.deliveryMode);
-
-      const matchesSearch =
-        !q ||
-        [
-          order.timestamp,
-          order.orderId,
-          order.orderGroupId,
-          order.subcontractor,
-          order.subcontractorEmail,
-          order.accountName,
-          order.accountId,
-          order.supplyItem,
-          order.category,
-          order.description,
-          order.itemDescription,
-          order.quantity,
-          order.unit,
-          order.deliveryMode,
-          order.status,
-          order.notes,
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(q);
-
-      const matchesStatus =
-        statusFilter === "All" || status === statusFilter;
-
-      const matchesDelivery =
-        deliveryFilter === "All" || deliveryMode === deliveryFilter;
-
-      return matchesSearch && matchesStatus && matchesDelivery;
-    });
-
-    results = [...results].sort((a, b) => {
-      const dateA = parseOrderDate(a);
-      const dateB = parseOrderDate(b);
-
-      if (dateSort === "Oldest First") {
-        return dateA - dateB;
-      }
-
-      return dateB - dateA;
-    });
-
-    return results;
-  }, [orders, search, statusFilter, deliveryFilter, dateSort]);
-
-  const safeOrders = Array.isArray(orders) ? orders : [];
-
-  const newOrNeedsReviewCount = safeOrders.filter(isNewOrNeedsReview).length;
-  const approvedCount = safeOrders.filter(isApprovedOrder).length;
-  const pendingOrdersCount = safeOrders.filter(isPendingOrder).length;
-  const completedOrdersCount = safeOrders.filter(isCompletedOrder).length;
 
   return (
     <main className="ui-screen">
@@ -824,21 +620,6 @@ export default function SupplyOrdersPage() {
         <AccountScopeBar scope={scope} what="supply orders" />
         {/* The two shelves: what arrived short, what is ready to send, what is on its way. */}
         <Deliveries accountId={scope.active ? scope.accountId : ""} />
-        <CrewLinkOrders accountId={scope.active ? scope.accountId : ""} />
-
-        {/* Ordered -> Approved -> Bought -> Delivered, with who has each order now. */}
-        <OrderSteps
-          orders={orders}
-          loading={loading}
-          focusId={focusOrderId}
-          onLocalStatus={(changed, status) =>
-            setOrders((current) =>
-              current.map((order) =>
-                (changed.orderId && order.orderId === changed.orderId) || (!changed.orderId && order.rowNumber === changed.rowNumber) ? { ...order, status } : order
-              )
-            )
-          }
-        />
 
         <section className="ui-card">
           <div className="ui-stack">
@@ -950,7 +731,7 @@ export default function SupplyOrdersPage() {
               <p className="ui-muted">
                 Total Orders
               </p>
-              <p className="ui-stat-value">{safeOrders.length}</p>
+              <p className="ui-stat-value">{summary.total}</p>
             </div>
 
             <div className="ui-stat">
@@ -958,7 +739,7 @@ export default function SupplyOrdersPage() {
                 New / Review
               </p>
               <p className="ui-stat-value">
-                {newOrNeedsReviewCount}
+                {summary.newOrReview}
               </p>
             </div>
 
@@ -967,7 +748,7 @@ export default function SupplyOrdersPage() {
                 Approved
               </p>
               <p className="ui-stat-value">
-                {approvedCount}
+                {summary.approved}
               </p>
             </div>
 
@@ -976,7 +757,7 @@ export default function SupplyOrdersPage() {
                 Pending
               </p>
               <p className="ui-stat-value">
-                {pendingOrdersCount}
+                {summary.pending}
               </p>
             </div>
 
@@ -985,7 +766,7 @@ export default function SupplyOrdersPage() {
                 Completed
               </p>
               <p className="ui-stat-value">
-                {completedOrdersCount}
+                {summary.completed}
               </p>
             </div>
           </div>
@@ -1004,7 +785,7 @@ export default function SupplyOrdersPage() {
               className="ui-input w-full"
             >
               <option value="All">All statuses</option>
-              {ORDER_STATUS_OPTIONS.map((status) => (
+              {ORDER_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {status}
                 </option>
@@ -1034,328 +815,21 @@ export default function SupplyOrdersPage() {
           </div>
         </section>
 
-        <section className="ui-card">
-          <div className="ui-card-row">
-            <h2 className="ui-card-title">Orders</h2>
-            <p className="ui-muted">
-              {filteredOrders.length} shown
-            </p>
-          </div>
-
-          {loading ? (
-            <p className="ui-muted">Loading supply orders...</p>
-          ) : filteredOrders.length === 0 ? (
-            <div className="ui-stat">
-              <p className="ui-strong">
-                No supply orders found.
-              </p>
-              <p className="ui-muted">
-                Submitted subcontractor supply orders will appear here.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="ui-table w-full">
-                <thead>
-                  <tr className="border-b bg-slate-50">
-                    <th className="px-4 py-3">Date</th>
-                    <th className="px-4 py-3">Subcontractor</th>
-                    <th className="px-4 py-3">Account</th>
-                    <th className="px-4 py-3">Supply</th>
-                    <th className="px-4 py-3">Qty</th>
-                    <th className="px-4 py-3">Delivery</th>
-                    <th className="px-4 py-3">
-                      Status / Approval
-                    </th>
-                    <th className="px-4 py-3">Notes</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {filteredOrders.map((order, index) => {
-                    const status = normalizeStatus(order.status);
-                    const orderKey =
-                      order.orderId ||
-                      String(order.rowNumber || "") ||
-                      `${order.accountName}-${order.supplyItem}-${index}`;
-                    const isUpdating = updatingOrderKey === orderKey;
-                    const description = getOrderDescription(order);
-
-                    return (
-                      <tr
-                        key={orderKey}
-                        onClick={() => setSelectedOrder(order)}
-                        className="cursor-pointer border-b last:border-b-0 hover:bg-slate-50"
-                      >
-                        <td className="whitespace-nowrap px-4 py-3 align-top">
-                          {order.timestamp || "-"}
-                        </td>
-
-                        <td className="px-4 py-3 align-top">
-                          <div className="ui-strong">
-                            {order.subcontractor || "-"}
-                          </div>
-
-                          {order.subcontractorEmail ? (
-                            <div className="ui-muted">
-                              {order.subcontractorEmail}
-                            </div>
-                          ) : null}
-                        </td>
-
-                        <td className="px-4 py-3 align-top">
-                          <div className="ui-strong">
-                            {order.accountName ? <AccountLink accountId={order.accountId} name={order.accountName} /> : "-"}
-                          </div>
-
-                          {order.accountId ? (
-                            <div className="ui-muted">
-                              {order.accountId}
-                            </div>
-                          ) : null}
-                        </td>
-
-                        <td className="min-w-[240px] px-4 py-3 align-top">
-                          <div className="ui-strong">
-                            {order.supplyItem || "-"}
-                          </div>
-
-                          {order.category ? (
-                            <div className="ui-strong">
-                              {order.category}
-                            </div>
-                          ) : null}
-
-                          {description ? (
-                            <div>
-                              {description}
-                            </div>
-                          ) : null}
-
-                          {order.orderId ? (
-                            <div className="ui-muted">
-                              {order.orderId}
-                            </div>
-                          ) : null}
-                          {order.orderId ? (
-                            <div className="no-print" style={{ marginTop: 6 }} onClick={(event) => event.stopPropagation()}>
-                              <PinButton info={pinInfo} type="supply" record={{ recordId: order.orderId, title: order.accountName || "Supply order", accountName: order.accountName || "" }} />
-                            </div>
-                          ) : null}
-                        </td>
-
-                        <td className="whitespace-nowrap px-4 py-3 align-top">
-                          {order.quantity || "-"}
-                          {order.unit ? ` ${order.unit}` : ""}
-                        </td>
-
-                        <td className="px-4 py-3 align-top">
-                          {order.deliveryMode || "-"}
-                        </td>
-
-                        <td
-                          className="min-w-[210px] px-4 py-3 align-top"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          <select
-                            value={status}
-                            disabled={isUpdating}
-                            onChange={(event) =>
-                              updateOrderStatus(order, event.target.value)
-                            }
-                            className="ui-input w-full"
-                          >
-                            {ORDER_STATUS_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
-
-                          {isUpdating ? (
-                            <p className="ui-muted">
-                              Saving...
-                            </p>
-                          ) : (
-                            <StatusPill kind={statusKind(status)}>{status}</StatusPill>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3 align-top">
-                          {order.notes || "-"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        {/* One card per order (Crew Link and sub portal), its big button, and the sticky bar for many at once. */}
+        <OrderCards
+          orders={orders}
+          loading={loading}
+          focusId={focusOrderId}
+          accountId={scope.active ? scope.accountId : ""}
+          search={search}
+          statusFilter={statusFilter}
+          deliveryFilter={deliveryFilter}
+          newestFirst={dateSort !== "Oldest First"}
+          onItemStatus={saveItemStatus}
+          onChanged={loadOrders}
+          onSummary={setSummary}
+        />
       </div>
-
-      {selectedOrder ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="ui-card ui-stack w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <div className="ui-card-row">
-              <div>
-                <p className="ui-strong">
-                  Supply Order Detail
-                </p>
-                <h3 className="ui-card-title">
-                  {selectedOrder.supplyItem || "Supply Order"}
-                </h3>
-                <p className="ui-muted">
-                  {selectedOrder.orderId || "No order ID"}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedOrder(null)}
-                className="ui-btn ui-btn-second"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="ui-two">
-              <div className="ui-stat">
-                <p className="ui-muted">
-                  Date
-                </p>
-                <p className="ui-strong">
-                  {selectedOrder.timestamp || "-"}
-                </p>
-              </div>
-
-              <div className="ui-stat">
-                <p className="ui-muted">
-                  Status / Approval
-                </p>
-                <p className="mt-2">
-                  <StatusPill kind={statusKind(selectedOrder.status)}>
-                    {normalizeStatus(selectedOrder.status)}
-                  </StatusPill>
-                </p>
-              </div>
-
-              <div className="ui-stat">
-                <p className="ui-muted">
-                  Subcontractor
-                </p>
-                <p className="ui-strong">
-                  {selectedOrder.subcontractor || "-"}
-                </p>
-                {selectedOrder.subcontractorEmail ? (
-                  <p className="ui-muted">
-                    {selectedOrder.subcontractorEmail}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="ui-stat">
-                <p className="ui-muted">
-                  Account
-                </p>
-                <p className="ui-strong">
-                  {selectedOrder.accountName ? <AccountLink accountId={selectedOrder.accountId} name={selectedOrder.accountName} /> : "-"}
-                </p>
-                {selectedOrder.accountId ? (
-                  <p className="ui-muted">
-                    {selectedOrder.accountId}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="ui-stat sm:col-span-2">
-                <p className="ui-muted">
-                  Supply Item
-                </p>
-                <p className="ui-strong">
-                  {selectedOrder.supplyItem || "-"}
-                </p>
-
-                {selectedOrder.category ? (
-                  <p className="ui-strong">
-                    {selectedOrder.category}
-                  </p>
-                ) : null}
-
-                {getOrderDescription(selectedOrder) ? (
-                  <p className="ui-muted">
-                    {getOrderDescription(selectedOrder)}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="ui-stat">
-                <p className="ui-muted">
-                  Quantity
-                </p>
-                <p className="ui-strong">
-                  {selectedOrder.quantity || "-"}
-                  {selectedOrder.unit ? ` ${selectedOrder.unit}` : ""}
-                </p>
-              </div>
-
-              <div className="ui-stat">
-                <p className="ui-muted">
-                  Delivery Mode
-                </p>
-                <p className="ui-strong">
-                  {selectedOrder.deliveryMode || "-"}
-                </p>
-              </div>
-
-              <div className="ui-stat sm:col-span-2">
-                <p className="ui-muted">
-                  Notes
-                </p>
-                <p className="ui-muted">
-                  {selectedOrder.notes || "-"}
-                </p>
-              </div>
-            </div>
-
-            <div className="ui-card">
-              <p className="ui-strong">
-                Admin Approval
-              </p>
-
-              <div className="ui-stack">
-                <select
-                  value={normalizeStatus(selectedOrder.status)}
-                  onChange={(event) =>
-                    updateOrderStatus(selectedOrder, event.target.value)
-                  }
-                  className="ui-input w-full"
-                >
-                  {ORDER_STATUS_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedOrder(null)}
-                  className="ui-btn ui-btn-second"
-                >
-                  Done
-                </button>
-              </div>
-
-              <p className="ui-muted">
-                Approved means the office reviewed and accepted the order.
-                Denied means the order should not be processed. Completed means
-                the order has been fulfilled.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {printGroup && printGroup.items.length > 0 ? (
         <SupplyOrderPrintView

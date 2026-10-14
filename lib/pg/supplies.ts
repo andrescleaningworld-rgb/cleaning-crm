@@ -13,6 +13,7 @@
 import { getSql } from "@/lib/db";
 import { dateOrNull } from "@/lib/dateUtils";
 import { resolveSupplyId, syncCrewItemByRow } from "@/lib/pg/supply-list";
+import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 
 type SupplyRow = {
   supply_item: string;
@@ -290,7 +291,8 @@ export async function createSupplyOrder(body: Record<string, unknown>): Promise<
     unit: text(body.unit),
     deliveryMode: text(body.deliveryMode),
     notes: text(body.notes),
-    status: text(body.status) || "New",
+    // One of the seven Status words (lib/supplyOrderStatus.ts).
+    status: canonicalOrderStatus(text(body.status) || "New"),
   };
 
   const sql = getSql();
@@ -352,8 +354,10 @@ export async function markSupplyOrderEmail(rowNumber: number, sentTo: string, st
 
 /** Changes the status of one order row, found by its row number, else by its order id. */
 export async function updateSupplyOrderStatus(body: Record<string, unknown>): Promise<{ orderId: string; status: string }> {
-  const status = text(body.status) || text(body.orderStatus);
-  if (!status) throw new Error("Status is required.");
+  // Saved as one of the seven Status words (lib/supplyOrderStatus.ts), so the page's dropdown and badge always agree.
+  const given = text(body.status) || text(body.orderStatus);
+  if (!given) throw new Error("Status is required.");
+  const status = canonicalOrderStatus(given);
   const rowNumber = Number(body.rowNumber);
   const orderId = text(body.orderId) || text(body.id);
   const sql = getSql();

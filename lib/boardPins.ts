@@ -7,7 +7,7 @@
 // paper that points at it. Unpinning or Done on the board changes the paper
 // only.
 
-export type PinType = "todo" | "complaint" | "supply" | "visit" | "account" | "update" | "packet";
+export type PinType = "todo" | "complaint" | "supply" | "visit" | "account" | "update" | "packet" | "order";
 
 export type PinTypeSetting = { show: boolean; pinned: boolean };
 
@@ -30,6 +30,9 @@ export const PIN_TYPES: {
   // The New Account packet is still saved by Apps Script. Pinning one would
   // need its record in Postgres first.
   { type: "packet", label: "New Account packet", one: "New account packet", available: false },
+  // A whole supply order (Crew Link or sub portal), from its card on the Supply Orders page.
+  // The paper's button opens the printable order, made fresh each time.
+  { type: "order", label: "Supply order cards", one: "Supply order", available: true },
 ];
 
 export const NOT_AVAILABLE_YET = "Available after tonight's update";
@@ -43,6 +46,8 @@ export const DEFAULT_PIN_TYPES: PinTypes = {
   account: { show: false, pinned: false },
   update: { show: true, pinned: false },
   packet: { show: false, pinned: false },
+  // On from the start: the order cards' "Pin to board" button.
+  order: { show: true, pinned: false },
 };
 
 export const isPinType = (value: string): value is PinType => PIN_TYPES.some((entry) => entry.type === value);

@@ -5,6 +5,7 @@
 // use it directly.
 
 import { ONBOARDING_CHECKLIST_SECTIONS, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
+import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 
 export type HandoffKind = "account" | "update" | "order" | "issue" | "extra";
 export type OwnerRole = "office" | "manager" | "sub";
@@ -72,7 +73,8 @@ export const ORDER_STATUS_FOR_STEP: Record<string, string> = {
 
 /** The step an order is on, read from its existing Status. "" = not in the flow (denied, cancelled). */
 export function orderStepFromStatus(status: string): string {
-  const clean = String(status ?? "").trim().toLowerCase();
+  // Older and other words ("Picked", "Bought", "Delivered") first become one of the seven (lib/supplyOrderStatus.ts).
+  const clean = canonicalOrderStatus(status).toLowerCase();
   if (!clean || clean === "new" || clean.includes("review")) return "ordered";
   if (clean.includes("approved")) return "approved";
   if (clean.includes("progress") || clean.includes("pending")) return "bought";

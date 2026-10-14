@@ -437,7 +437,9 @@ export async function createControlledOrder(input: {
   return { groupId, approved, total, lines: lines.length };
 }
 
-const STATUS_OF_STEP: Record<string, string> = { ordered: "New", approved: "Approved", picked: "Picked", bought: "Bought", delivered: "Delivered" };
+// Only words the Supply Orders page's Status list knows (lib/supplyOrderStatus.ts). "Picked", "Bought"
+// and "Delivered" used to be saved here, and the page showed "New" in the dropdown next to "Delivered".
+const STATUS_OF_STEP: Record<string, string> = { ordered: "New", approved: "Approved", picked: "Pending / In Progress", bought: "Pending / In Progress", delivered: "Completed" };
 
 /**
  * Moves one order line to its next step. Picking a shelf line takes it off
