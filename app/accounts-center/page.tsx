@@ -8,13 +8,14 @@ import AccountUpdatesPage from "../account-updates/page";
 import RecentActivitySummary from "./recent-activity";
 import AccountsCenterKeys from "./keys";
 import MissingEmails from "./missing-emails";
+import TimeOnSiteFill from "./time-on-site-fill";
 import NewAccountsBoard from "./new-accounts";
 import TeamHubStaffQueue from "./team-hub-queue";
 import { Tabs } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
 import { SubScoreAlertsCard } from "../components/sub-score-alerts";
 
-type CenterTab = "all" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails";
+type CenterTab = "all" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails" | "time";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
@@ -26,6 +27,7 @@ const TABS: { value: CenterTab; label: string }[] = [
   { value: "updates", label: "Updates" },
   { value: "keys", label: "Keys" },
   { value: "emails", label: "Missing emails" },
+  { value: "time", label: "Time on site" },
   { value: "team-hub", label: "Crew Link" },
 ];
 
@@ -38,6 +40,7 @@ function getStoredTab(): CenterTab {
     stored === "complaints" ||
     stored === "updates" ||
     stored === "keys" ||
+    stored === "time" ||
     stored === "team-hub"
     ? stored
     : "all";
@@ -58,7 +61,7 @@ export default function AccountsCenterPage() {
     // "See problem" on an account card opens the Crew Link tab: by link
     // (?tab=team-hub) from elsewhere, or by this event when already here.
     const wanted = new URLSearchParams(window.location.search).get("tab");
-    if (wanted === "team-hub" || wanted === "new" || wanted === "updates") setActiveTab(wanted);
+    if (wanted === "team-hub" || wanted === "new" || wanted === "updates" || wanted === "time") setActiveTab(wanted);
     const onTab = (event: Event) => {
       if ((event as CustomEvent<string>).detail === "team-hub") setActiveTab("team-hub");
     };
@@ -114,6 +117,7 @@ export default function AccountsCenterPage() {
       {activeTab === "updates" && <AccountUpdatesPage />}
       {activeTab === "keys" && <AccountsCenterKeys />}
       {activeTab === "emails" && <MissingEmails />}
+      {activeTab === "time" && <TimeOnSiteFill />}
       {activeTab === "team-hub" && <TeamHubStaffQueue />}
     </div>
   );
