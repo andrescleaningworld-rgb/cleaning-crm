@@ -6,10 +6,15 @@
 //   1. Received from vendor (office)   adds to the office shelf.
 //   2. Sent to site (office)           takes from the office shelf; the
 //                                      delivery waits for the crew.
-//   3. Supplies arrived (crew)         the items pre-filled, -/+ for short or
-//                                      missing, Confirm: adds what came to the
-//                                      site shelf, marks the order Delivered,
-//                                      and flags anything short to the office
+//   3. Supplies arrived (crew)         per item, the ordered amount pre-filled,
+//                                      -/+ to change it. Only what came goes on
+//                                      the site shelf. Less came: the rest stays
+//                                      on its way as a back order (migration
+//                                      039) until the crew confirms it or the
+//                                      office cancels it; the order is Back
+//                                      order until then, Delivered after. More
+//                                      came: the extra goes on the shelf too.
+//                                      Any difference is flagged to the office
 //                                      (Supply Orders page, an email, and a
 //                                      paper in the Pin Board's Supply orders
 //                                      square; it is not a person's square, so
@@ -19,11 +24,13 @@
 // Every change is a supply_moves row (who, when, how many). Crew Link orders
 // (supply_orders) and sub-portal orders (sub_supply_orders) both arrive this
 // way; a delivery (supply_deliveries) ties a send and an arrival together.
+// A back order is its own delivery row (back_of = the delivery it is the
+// rest of; source_ref = the order's ref + "#back<that id>").
 
 import { getSql } from "@/lib/db";
 import { sendInternalNotification } from "@/lib/email";
 import { boardReady, pinPaper } from "@/lib/pg/board";
-import { listProducts, type Product } from "@/lib/pg/supply-list";
+import { listProducts, oneListReady, type Product } from "@/lib/pg/supply-list";
 import { lookupAccountSummaries } from "@/lib/teamHubAccountLookup";
 
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -33,6 +40,33 @@ const count = (value: unknown, max = 999): number | null => {
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 && n <= max ? n : null;
 };
+
+/* ---------- turned on ---------- */
+
+let ready = false;
+
+/**
+ * True once this database has the two shelves (migration 038) and back
+ * orders (migration 039). Until then the shelf screens stay hidden, so they
+ * never run half of the new rules.
+ */
+export async function shelvesReady(): Promise<boolean> {
+  if (ready) return true;
+  if (!(await oneListReady())) return false;
+  try {
+    const rows = (await getSql()`
+      SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'supply_deliveries' AND column_name = 'back_of') AS ok
+    `) as { ok: boolean }[];
+    ready = rows[0]?.ok === true;
+  } catch {
+    ready = false;
+  }
+  return ready;
+}
+
+/** A back order's source_ref: the order's ref, then "#back<id>". This gives the order's own ref. */
+const BACK = "#back";
+const orderRef = (sourceRef: string) => clean(sourceRef).split(BACK)[0];
 
 /* ---------- colors ---------- */
 
@@ -119,7 +153,10 @@ export type Waiting = {
   /** "d:<delivery>", "crew:<order>" or "sub:<group>". */
   key: string;
   source: "crew-order" | "sub-order" | "office";
+  /** The order's ref (a back order's too). */
   ref: string;
+  /** The rest of a delivery that came short. */
+  backOrder: boolean;
   accountId: string;
   accountName: string;
   /** When it was ordered, or sent (office). */
@@ -129,22 +166,22 @@ export type Waiting = {
   lines: WaitLine[];
 };
 
-type DeliveryRow = { id: string | number; account_id: string; account_name: string; source: Waiting["source"]; source_ref: string; lines: WaitLine[]; sent_at: string | Date | null; created_at: string | Date };
+type DeliveryRow = { id: string | number; account_id: string; account_name: string; source: Waiting["source"]; source_ref: string; back_of: string | number | null; lines: WaitLine[]; sent_at: string | Date | null; created_at: string | Date };
 
 const OPEN_SUB_STATUS = `lower(btrim(status)) NOT IN ('completed', 'delivered', 'cancelled', 'canceled', 'denied')`;
 const SUB_GROUP = `COALESCE(NULLIF(btrim(order_group_id), ''), btrim(order_id))`;
 
 /**
  * Everything on its way to sites, or to one site: deliveries the office sent
- * that are not confirmed yet, and open orders (Crew Link and sub portal) that
- * were not sent from the office shelf (ordered or shipped direct).
+ * that are not confirmed yet, back orders, and open orders (Crew Link and sub
+ * portal) that were not sent from the office shelf (ordered or shipped direct).
  */
 export async function waiting(accountId?: string): Promise<Waiting[]> {
   const sql = getSql();
   const one = clean(accountId);
   const [deliveries, crewOrders, subLines, products] = await Promise.all([
-    sql`SELECT id, account_id, account_name, source, source_ref, lines, sent_at, created_at FROM supply_deliveries
-        WHERE arrived_at IS NULL AND (${one} = '' OR account_id = ${one}) ORDER BY created_at` as unknown as Promise<DeliveryRow[]>,
+    sql`SELECT id, account_id, account_name, source, source_ref, back_of, lines, sent_at, created_at FROM supply_deliveries
+        WHERE arrived_at IS NULL AND cancelled_at IS NULL AND (${one} = '' OR account_id = ${one}) ORDER BY created_at` as unknown as Promise<DeliveryRow[]>,
     sql`SELECT o.id, o.crew_link_account_id, o.created_at FROM supply_orders o
         WHERE o.crew_link_account_id IS NOT NULL AND o.status IN ('new', 'ordered') AND (${one} = '' OR o.crew_link_account_id = ${one})
           AND NOT EXISTS (SELECT 1 FROM supply_deliveries d WHERE d.source = 'crew-order' AND d.source_ref = o.id::text)
@@ -167,7 +204,8 @@ export async function waiting(accountId?: string): Promise<Waiting[]> {
   const list: Waiting[] = deliveries.map((row) => ({
     key: `d:${row.id}`,
     source: row.source,
-    ref: row.source_ref,
+    ref: orderRef(row.source_ref),
+    backOrder: row.back_of !== null,
     accountId: row.account_id,
     accountName: clean(row.account_name),
     at: iso(row.sent_at ?? row.created_at),
@@ -187,6 +225,7 @@ export async function waiting(accountId?: string): Promise<Waiting[]> {
         key: `crew:${order.id}`,
         source: "crew-order",
         ref: String(order.id),
+        backOrder: false,
         accountId: order.crew_link_account_id,
         accountName: names.get(order.crew_link_account_id)?.accountName || order.crew_link_account_id,
         at: iso(order.created_at),
@@ -204,7 +243,7 @@ export async function waiting(accountId?: string): Promise<Waiting[]> {
   const groups = new Map<string, Waiting>();
   for (const row of subLines) {
     const key = `sub:${row.grp}`;
-    const entry = groups.get(key) ?? { key, source: "sub-order" as const, ref: row.grp, accountId: row.account_id, accountName: row.account_name, at: iso(row.created_at), sentAt: "", lines: [] };
+    const entry = groups.get(key) ?? { key, source: "sub-order" as const, ref: row.grp, backOrder: false, accountId: row.account_id, accountName: row.account_name, at: iso(row.created_at), sentAt: "", lines: [] };
     const supplyId = row.supply_id === null ? null : Number(row.supply_id);
     entry.lines.push({ supplyId, name: named(supplyId, row.supply_item), unit: row.unit, qty: qtyOf(row.quantity_raw) || 1 });
     groups.set(key, entry);
@@ -239,7 +278,7 @@ export async function sendToSite(input: { key?: string; accountId?: string; acco
       if (product && qty) lines.push({ supplyId: product.id, name: product.crewName, unit: product.unit, qty });
     }
     if (lines.length === 0) throw new Error("Pick what you are sending.");
-    entry = { key: "", source: "office", ref: "", accountId, accountName: clean(input.accountName), at: "", sentAt: "", lines };
+    entry = { key: "", source: "office", ref: "", backOrder: false, accountId, accountName: clean(input.accountName), at: "", sentAt: "", lines };
   }
 
   const shelfLines = entry.lines.filter((line): line is WaitLine & { supplyId: number } => line.supplyId !== null && line.qty > 0);
@@ -291,31 +330,74 @@ export async function sendToSite(input: { key?: string; accountId?: string; acco
 
 export type ArrivedLine = WaitLine & { got: number };
 
+/** The order is open again (back order) or done; the same words as sendToSite and the sub portal use. */
+function orderStatus(sql: ReturnType<typeof getSql>, source: Waiting["source"], ref: string, outcome: "back-order" | "delivered" | "cancelled", by: string) {
+  if (source === "crew-order") {
+    const status = outcome === "back-order" ? "ordered" : outcome;
+    return [sql`UPDATE supply_orders SET status = ${status}, updated_at = now() WHERE id = ${Number(ref)} AND status IN ('new', 'ordered')`];
+  }
+  if (source === "sub-order") {
+    if (outcome === "back-order") {
+      return [sql.query(`UPDATE sub_supply_orders SET status = 'Pending / In Progress', updated_at = now() WHERE ${SUB_GROUP} = $1::text AND lower(btrim(status)) IN ('new', 'approved', 'needs review')`, [ref])];
+    }
+    return [
+      sql.query(
+        `UPDATE sub_supply_orders SET status = $3::text, step = CASE WHEN line_source <> '' AND $3::text = 'Completed' THEN 'delivered' ELSE step END, step_by = $2::text, step_at = now(), updated_at = now()
+         WHERE ${SUB_GROUP} = $1::text AND ${OPEN_SUB_STATUS}`,
+        [ref, by, outcome === "delivered" ? "Completed" : "Cancelled"]
+      ),
+    ];
+  }
+  return [];
+}
+
 /**
  * The crew confirms what came. `got` is per line, in the same order as the
- * waiting entry's lines. What came goes on the site shelf; the order is
- * Delivered; anything short is flagged to the office.
+ * waiting entry's lines. What came goes on the site shelf, extra too. Less
+ * came: the rest is a new back order waiting for the crew, and the order
+ * stays open (Back order); otherwise the order is Delivered. Any difference
+ * is flagged to the office.
  */
-export async function confirmArrival(input: { accountId: string; key: string; got: number[]; by: string }): Promise<{ short: ArrivedLine[] }> {
+export async function confirmArrival(input: { accountId: string; key: string; got: number[]; by: string }): Promise<{ short: ArrivedLine[]; extra: ArrivedLine[] }> {
   const entry = (await waiting(input.accountId)).find((item) => item.key === input.key);
   if (!entry) throw new Error("That delivery is not waiting any more.");
-  const arrived: ArrivedLine[] = entry.lines.map((line, index) => ({ ...line, got: Math.min(count(input.got[index]) ?? line.qty, 999) }));
+  const arrived: ArrivedLine[] = entry.lines.map((line, index) => ({ ...line, got: count(input.got[index]) ?? line.qty }));
   const short = arrived.filter((line) => line.got < line.qty);
+  const extra = arrived.filter((line) => line.got > line.qty);
   const sql = getSql();
   const by = clean(input.by).slice(0, 80) || "Crew";
 
   const statements = [];
   if (entry.key.startsWith("d:")) {
     statements.push(sql`
-      UPDATE supply_deliveries SET arrived = ${JSON.stringify(arrived)}::jsonb, arrived_by = ${by}, arrived_at = now(), short = ${short.length > 0}
+      UPDATE supply_deliveries SET arrived = ${JSON.stringify(arrived)}::jsonb, arrived_by = ${by}, arrived_at = now(), short = ${short.length > 0}, extra = ${extra.length > 0}
       WHERE id = ${Number(entry.key.slice(2))} AND arrived_at IS NULL
     `);
   } else {
     statements.push(sql`
-      INSERT INTO supply_deliveries (account_id, account_name, source, source_ref, lines, arrived, arrived_by, arrived_at, short)
-      VALUES (${entry.accountId}, ${entry.accountName}, ${entry.source}, ${entry.ref}, ${JSON.stringify(entry.lines)}::jsonb, ${JSON.stringify(arrived)}::jsonb, ${by}, now(), ${short.length > 0})
-      ON CONFLICT (source, source_ref) WHERE source <> 'office' DO UPDATE SET arrived = EXCLUDED.arrived, arrived_by = EXCLUDED.arrived_by, arrived_at = EXCLUDED.arrived_at, short = EXCLUDED.short
+      INSERT INTO supply_deliveries (account_id, account_name, source, source_ref, lines, arrived, arrived_by, arrived_at, short, extra)
+      VALUES (${entry.accountId}, ${entry.accountName}, ${entry.source}, ${entry.ref}, ${JSON.stringify(entry.lines)}::jsonb, ${JSON.stringify(arrived)}::jsonb, ${by}, now(), ${short.length > 0}, ${extra.length > 0})
+      ON CONFLICT (source, source_ref) WHERE source <> 'office' DO UPDATE SET arrived = EXCLUDED.arrived, arrived_by = EXCLUDED.arrived_by, arrived_at = EXCLUDED.arrived_at, short = EXCLUDED.short, extra = EXCLUDED.extra
     `);
+  }
+  if (short.length > 0) {
+    // The rest stays on its way: a back order of what did not come, sent (or not) like the delivery it is the rest of.
+    const rest: WaitLine[] = short.map((line) => ({ supplyId: line.supplyId, name: line.name, unit: line.unit, qty: line.qty - line.got }));
+    const lines = JSON.stringify(rest);
+    // Once per delivery: a second tap never makes a second back order.
+    statements.push(
+      entry.key.startsWith("d:")
+        ? sql`
+            INSERT INTO supply_deliveries (account_id, account_name, source, source_ref, lines, sent_by, sent_at, back_of)
+            SELECT account_id, account_name, source, ${entry.ref} || ${BACK} || id::text, ${lines}::jsonb, sent_by, sent_at, id FROM supply_deliveries p
+            WHERE id = ${Number(entry.key.slice(2))} AND NOT EXISTS (SELECT 1 FROM supply_deliveries b WHERE b.back_of = p.id)
+          `
+        : sql`
+            INSERT INTO supply_deliveries (account_id, account_name, source, source_ref, lines, sent_by, sent_at, back_of)
+            SELECT account_id, account_name, source, ${entry.ref} || ${BACK} || id::text, ${lines}::jsonb, sent_by, sent_at, id FROM supply_deliveries p
+            WHERE source = ${entry.source} AND source_ref = ${entry.ref} AND back_of IS NULL AND NOT EXISTS (SELECT 1 FROM supply_deliveries b WHERE b.back_of = p.id)
+          `
+    );
   }
   for (const line of arrived) {
     if (line.supplyId === null || line.got <= 0) continue;
@@ -326,49 +408,157 @@ export async function confirmArrival(input: { accountId: string; key: string; go
       `,
       sql`
         INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, staff_name, order_id, note)
-        VALUES (${line.supplyId}, ${line.name}, ${line.got}, 'arrive', ${entry.accountId}, ${entry.accountName}, ${by}, ${entry.ref}, ${line.got < line.qty ? `Arrived ${line.got} of ${line.qty}` : "Arrived"})
+        VALUES (${line.supplyId}, ${line.name}, ${line.got}, 'arrive', ${entry.accountId}, ${entry.accountName}, ${by}, ${entry.ref}, ${line.got === line.qty ? "Arrived" : `Arrived ${line.got} of ${line.qty}`})
       `
     );
   }
-  if (entry.source === "crew-order") statements.push(sql`UPDATE supply_orders SET status = 'delivered', updated_at = now() WHERE id = ${Number(entry.ref)} AND status IN ('new', 'ordered')`);
-  if (entry.source === "sub-order") {
-    statements.push(
-      sql.query(
-        `UPDATE sub_supply_orders SET status = 'Completed', step = CASE WHEN line_source <> '' THEN 'delivered' ELSE step END, step_by = $2::text, step_at = now(), updated_at = now()
-         WHERE ${SUB_GROUP} = $1::text AND ${OPEN_SUB_STATUS}`,
-        [entry.ref, by]
-      )
-    );
-  }
+  statements.push(...orderStatus(sql, entry.source, entry.ref, short.length > 0 ? "back-order" : "delivered", by));
   await sql.transaction(statements);
-  if (short.length > 0) await flagShort(entry, short, by);
-  return { short };
+  if (short.length > 0 || extra.length > 0) await flagDifferent(entry, [...short, ...extra], by);
+  return { short, extra };
 }
 
-const shortText = (line: ArrivedLine) => `${line.name}: ${line.got} of ${line.qty}${line.unit ? ` ${line.unit}` : ""}${line.got === 0 ? " (missing)" : ""}`;
+/** "Gloves: 3 of 5 box (2 on back order)" or "Gloves: 7 of 5 box (2 extra)". */
+const differentText = (line: ArrivedLine) =>
+  `${line.name}: ${line.got} of ${line.qty}${line.unit ? ` ${line.unit}` : ""} (${line.got < line.qty ? `${line.qty - line.got} on back order` : `${line.got - line.qty} extra`})`;
+
+const differentTitle = (short: boolean, extra: boolean) => (short && extra ? "Arrived short and extra" : short ? "Arrived short" : "Arrived extra");
 
 /** The office hears about it: an email, and a paper in the Pin Board's Supply orders square. Never throws. */
-async function flagShort(entry: Waiting, short: ArrivedLine[], by: string): Promise<void> {
-  const lines = short.map(shortText);
+async function flagDifferent(entry: Waiting, lines: ArrivedLine[], by: string): Promise<void> {
+  const title = `${differentTitle(lines.some((line) => line.got < line.qty), lines.some((line) => line.got > line.qty))}: ${entry.accountName}`;
+  const texts = lines.map(differentText);
   try {
-    await sendInternalNotification(`Short delivery: ${entry.accountName}`, [
-      `${by} confirmed a delivery at ${entry.accountName}. Something was short or missing:`,
+    await sendInternalNotification(title, [
+      `${by} confirmed a delivery at ${entry.accountName}. What came was different from the order:`,
       "",
-      ...lines.map((line) => `- ${line}`),
+      ...texts.map((line) => `- ${line}`),
       "",
-      "See it on the Supply Orders page.",
+      "Anything short stays on its way as a back order. See it on the Supply Orders page.",
     ]);
   } catch (error) {
-    console.error("[shelves] short email:", error instanceof Error ? error.message : error);
+    console.error("[shelves] different email:", error instanceof Error ? error.message : error);
   }
   try {
     if (await boardReady()) {
       // The Supply orders square is not a person's square: no text goes out.
-      await pinPaper({ text: `Short delivery: ${entry.accountName}`, accountId: entry.accountId, accountName: entry.accountName, square: "", by, notes: lines.join("; ").slice(0, 900), box: "supply" });
+      await pinPaper({ text: title, accountId: entry.accountId, accountName: entry.accountName, square: "", by, notes: texts.join("; ").slice(0, 900), box: "supply" });
     }
   } catch (error) {
-    console.error("[shelves] short paper:", error instanceof Error ? error.message : error);
+    console.error("[shelves] different paper:", error instanceof Error ? error.message : error);
   }
+}
+
+/* ---------- the office: cancel a back-ordered item ---------- */
+
+export type CancelChoice = "shelf" | "lost";
+
+/**
+ * What the site's spend already counts for one of this back-ordered item, or
+ * null when it counts nothing (lib/pg/supply-control.ts monthSpend): sent from
+ * our shelf is a 'send' at the product's cost; a sub-portal line bought for it
+ * counts once it is bought or delivered, at that line's cost. A Crew Link
+ * order bought direct and never sent from our shelf is in no spend.
+ */
+async function siteCharge(
+  row: { source: Waiting["source"]; sent_at: string | Date | null },
+  ref: string,
+  supplyId: number,
+  productCost: string | null,
+  outcome: "delivered" | "cancelled" | ""
+): Promise<string | null> {
+  if (row.sent_at) return productCost ?? "0";
+  if (row.source !== "sub-order" || !ref) return null;
+  const lines = (await getSql().query(
+    `SELECT unit_cost::text AS unit_cost, step FROM sub_supply_orders
+     WHERE ${SUB_GROUP} = $1::text AND supply_id = $2 AND line_source = 'buy' ORDER BY sheet_row LIMIT 1`,
+    [ref, supplyId]
+  )) as { unit_cost: string | null; step: string }[];
+  const line = lines[0];
+  // Closing the order as Delivered marks its lines delivered (orderStatus), so it counts from then.
+  if (!line || !(line.step === "bought" || line.step === "delivered" || outcome === "delivered")) return null;
+  return line.unit_cost ?? "0";
+}
+
+/**
+ * Takes one item off a back order. "shelf": it never left us, so it goes back
+ * on the office shelf (the send undone: a 'send' move with a plus quantity,
+ * which also takes it off the site's spend). "lost": nothing comes back. It is
+ * a Cleaning World loss, never the customer's: a 'lost' move (with its cost)
+ * shows it in the history and is not in any site's spend, and when the site
+ * was already charged for it (sent from our shelf, or a sub-portal line
+ * bought for it) a 'send' with a plus quantity takes that charge off again.
+ * A back order with nothing left is closed, and so is its order: Delivered if
+ * anything came, Cancelled if nothing did.
+ */
+export async function cancelBackOrder(input: { key: string; index: number; choice: CancelChoice; by: string }): Promise<{ closed: boolean }> {
+  const sql = getSql();
+  const id = input.key.startsWith("d:") ? Number(input.key.slice(2)) : NaN;
+  if (!Number.isInteger(id)) throw new Error("That back order is not here any more. Refresh the page.");
+  if (input.choice !== "shelf" && input.choice !== "lost") throw new Error("Pick: put back on our shelf, or lost.");
+  const rows = (await sql`
+    SELECT id, account_id, account_name, source, source_ref, lines, sent_at FROM supply_deliveries
+    WHERE id = ${id} AND back_of IS NOT NULL AND arrived_at IS NULL AND cancelled_at IS NULL
+  `) as { id: string | number; account_id: string; account_name: string; source: Waiting["source"]; source_ref: string; lines: WaitLine[]; sent_at: string | Date | null }[];
+  const row = rows[0];
+  const lines = Array.isArray(row?.lines) ? row.lines : [];
+  const line = lines[input.index];
+  if (!row || !line) throw new Error("That back order is not here any more. Refresh the page.");
+  const rest = lines.filter((_, index) => index !== input.index);
+  const closed = rest.length === 0;
+  const ref = orderRef(row.source_ref);
+  const by = clean(input.by).slice(0, 80) || "Office";
+  const cancelled = { ...line, choice: input.choice, by, at: new Date().toISOString() };
+  const product = line.supplyId === null ? [] : ((await sql`SELECT supply_item, unit_cost::text FROM sub_supplies WHERE id = ${line.supplyId}`) as { supply_item: string; unit_cost: string | null }[]);
+
+  // Only if the back order is still the one the office saw: nobody confirmed or changed it meanwhile.
+  const taken = (await sql`
+    UPDATE supply_deliveries SET lines = ${JSON.stringify(rest)}::jsonb, cancelled = cancelled || ${JSON.stringify([cancelled])}::jsonb, cancelled_at = ${closed ? new Date().toISOString() : null}
+    WHERE id = ${id} AND arrived_at IS NULL AND cancelled_at IS NULL AND lines = ${JSON.stringify(lines)}::jsonb
+    RETURNING id
+  `) as { id: string | number }[];
+  if (taken.length === 0) throw new Error("That back order just changed. Refresh the page.");
+
+  // The order is closed with the back order: Delivered if anything came, Cancelled if nothing did.
+  let outcome: "delivered" | "cancelled" | "" = "";
+  if (closed && ref) {
+    const came = (await sql`
+      SELECT EXISTS (
+        SELECT 1 FROM supply_deliveries d, jsonb_array_elements(COALESCE(d.arrived, '[]'::jsonb)) a
+        WHERE d.source = ${row.source} AND split_part(d.source_ref, ${BACK}, 1) = ${ref} AND (a->>'got')::int > 0
+      ) AS came
+    `) as { came: boolean }[];
+    outcome = came[0]?.came ? "delivered" : "cancelled";
+  }
+
+  const statements = [];
+  if (line.supplyId !== null && product.length > 0) {
+    const name = clean(product[0].supply_item) || line.name;
+    if (input.choice === "shelf") {
+      statements.push(
+        sql`UPDATE sub_supplies SET shelf_count = COALESCE(shelf_count, 0) + ${line.qty}, updated_by = ${by}, updated_at = now() WHERE id = ${line.supplyId}`,
+        sql`
+          INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note)
+          VALUES (${line.supplyId}, ${name}, ${line.qty}, 'send', ${row.account_id}, ${row.account_name}, ${product[0].unit_cost}, ${by}, ${ref}, 'Back order cancelled: put back on our shelf')
+        `
+      );
+    } else {
+      statements.push(sql`
+        INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note)
+        VALUES (${line.supplyId}, ${name}, ${line.qty}, 'lost', ${row.account_id}, ${row.account_name}, ${product[0].unit_cost}, ${by}, ${ref}, 'Back order cancelled: lost / never coming. Cleaning World loss, not billed to the customer')
+      `);
+      const charged = await siteCharge(row, ref, line.supplyId, product[0].unit_cost, outcome);
+      if (charged !== null) {
+        statements.push(sql`
+          INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note)
+          VALUES (${line.supplyId}, ${name}, ${line.qty}, 'send', ${row.account_id}, ${row.account_name}, ${charged}, ${by}, ${ref}, 'Lost back order taken off the customer''s supplies')
+        `);
+      }
+    }
+  }
+  if (outcome) statements.push(...orderStatus(sql, row.source, ref, outcome, by));
+  if (statements.length > 0) await sql.transaction(statements);
+  return { closed };
 }
 
 /* ---------- 4. Case empty ---------- */
@@ -390,24 +580,28 @@ export async function caseEmpty(input: { accountId: string; supplyId: number; by
   return { qty: rows[0].qty };
 }
 
-/* ---------- the office: what arrived short ---------- */
+/* ---------- the office: what arrived different ---------- */
 
-export type ShortDelivery = { id: number; accountId: string; accountName: string; source: string; ref: string; by: string; at: string; lines: string[] };
+export type DifferentDelivery = { id: number; accountId: string; accountName: string; source: string; ref: string; by: string; at: string; short: boolean; extra: boolean; title: string; lines: string[] };
 
-export async function shortDeliveries(limit = 20): Promise<ShortDelivery[]> {
+/** The newest deliveries that came short or with extra, newest first. */
+export async function differentDeliveries(limit = 20): Promise<DifferentDelivery[]> {
   const rows = (await getSql()`
-    SELECT id, account_id, account_name, source, source_ref, arrived, arrived_by, arrived_at FROM supply_deliveries
-    WHERE short ORDER BY arrived_at DESC LIMIT ${Math.min(100, Math.max(1, limit))}
-  `) as { id: string | number; account_id: string; account_name: string; source: string; source_ref: string; arrived: ArrivedLine[] | null; arrived_by: string; arrived_at: string | Date }[];
+    SELECT id, account_id, account_name, source, source_ref, arrived, arrived_by, arrived_at, short, extra FROM supply_deliveries
+    WHERE short OR extra ORDER BY arrived_at DESC LIMIT ${Math.min(100, Math.max(1, limit))}
+  `) as { id: string | number; account_id: string; account_name: string; source: string; source_ref: string; arrived: ArrivedLine[] | null; arrived_by: string; arrived_at: string | Date; short: boolean; extra: boolean }[];
   return rows.map((row) => ({
     id: Number(row.id),
     accountId: row.account_id,
     accountName: clean(row.account_name),
     source: row.source,
-    ref: row.source_ref,
+    ref: orderRef(row.source_ref),
     by: clean(row.arrived_by),
     at: iso(row.arrived_at),
-    lines: (row.arrived ?? []).filter((line) => line.got < line.qty).map(shortText),
+    short: row.short,
+    extra: row.extra,
+    title: differentTitle(row.short, row.extra),
+    lines: (row.arrived ?? []).filter((line) => line.got !== line.qty).map(differentText),
   }));
 }
 
@@ -415,7 +609,7 @@ export async function shortDeliveries(limit = 20): Promise<ShortDelivery[]> {
 
 export type CrewShelfView = {
   shelf: { supplyId: number; name: string; unit: string; photoUrl: string; qty: number; level: Level }[];
-  waiting: { key: string; at: string; sent: boolean; lines: { name: string; unit: string; qty: number }[] }[];
+  waiting: { key: string; at: string; sent: boolean; backOrder: boolean; lines: { name: string; unit: string; qty: number }[] }[];
 };
 
 /** One site's shelf and what is on its way there, with no product codes (staff only) and no costs. */
@@ -423,6 +617,6 @@ export async function crewShelfView(accountId: string): Promise<CrewShelfView> {
   const [shelves, onTheWay] = await Promise.all([siteShelves(accountId), waiting(accountId)]);
   return {
     shelf: (shelves[0]?.tiles ?? []).map((item) => ({ supplyId: item.supplyId, name: item.name, unit: item.unit, photoUrl: item.photoUrl, qty: item.qty ?? 0, level: item.level })),
-    waiting: onTheWay.map((entry) => ({ key: entry.key, at: entry.at, sent: entry.sentAt !== "", lines: entry.lines.map((line) => ({ name: line.name, unit: line.unit, qty: line.qty })) })),
+    waiting: onTheWay.map((entry) => ({ key: entry.key, at: entry.at, sent: entry.sentAt !== "", backOrder: entry.backOrder, lines: entry.lines.map((line) => ({ name: line.name, unit: line.unit, qty: line.qty })) })),
   };
 }

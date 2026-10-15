@@ -2,17 +2,19 @@
 
 // The sub portal's "📦 Supplies arrived" and "🗑 Case empty" (lib/pg/shelves.ts,
 // app/api/subcontractor-portal/shelf). Pick the site, then:
-//   arrived   what is on its way, items pre-filled; − / + for short or
-//             missing; Confirm puts what came on the site's shelf
+//   arrived   what is on its way, items pre-filled with what was ordered;
+//             "All arrived", or − / + then "Confirm what arrived". Only what
+//             came goes on the site's shelf; anything short stays on its way
+//             (a back order), extra goes on the shelf too
 //   empty     the site's shelf, big photo and count; one tap = one empty case
 // The same as Crew Link's two screens, in the portal's own look.
 import { useEffect, useState, type ReactNode } from "react";
-import { BigStepper } from "@/app/porter/[code]/CrewArrived";
+import { BigStepper, asOrdered, rowTone } from "@/app/porter/[code]/CrewArrived";
 import { SUB_WORDS } from "@/app/ui/words";
 
 type Site = { accountId: string; accountName: string };
 type Line = { name: string; unit: string; qty: number };
-type Waiting = { key: string; at: string; lines: Line[] };
+type Waiting = { key: string; at: string; backOrder?: boolean; lines: Line[] };
 type ShelfItem = { supplyId: number; name: string; unit: string; photoUrl: string; qty: number };
 
 const API = "/api/subcontractor-portal/shelf";
@@ -125,16 +127,17 @@ export default function SubShelf({
                     setGot(entry.lines.map((line) => line.qty));
                   }}
                 >
-                  <span>📦 {entry.lines.map((line) => `${line.qty} ${line.name}`).join(", ")}</span>
+                  <span>{entry.backOrder ? `⏳ ${words.backOrder}: ` : "📦 "}{entry.lines.map((line) => `${line.qty} ${line.name}`).join(", ")}</span>
                   <span aria-hidden="true">›</span>
                 </button>
               ))
             : null}
           {open ? (
             <>
+              {open.backOrder ? <p className="ui-strong">⏳ {words.backOrder}</p> : null}
               <p className="ui-strong">{words.fixShort}</p>
               {open.lines.map((line, index) => (
-                <div key={`${line.name}-${index}`} className={`flex items-center justify-between gap-3 rounded-3xl p-4 ${got[index] < line.qty ? "bg-amber-100" : "bg-white"}`}>
+                <div key={`${line.name}-${index}`} className={`flex items-center justify-between gap-3 rounded-3xl p-4 ${rowTone(line.qty, got[index])}`}>
                   <div className="min-w-0">
                     <p className="text-xl font-black">{line.name}</p>
                     <p className="ui-muted" style={{ margin: 0 }}>
@@ -153,7 +156,7 @@ export default function SubShelf({
                   if (await post({ action: "arrive", key: open.key, got })) onConfirmed();
                 }}
               >
-                <span>{busy ? words.sending : `✓ ${words.confirm}`}</span>
+                <span>{busy ? words.sending : `✓ ${asOrdered(open.lines, got) ? words.allArrived : words.confirmWhatCame}`}</span>
               </button>
             </>
           ) : null}

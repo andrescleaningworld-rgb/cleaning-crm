@@ -225,6 +225,9 @@ export const SUB_WORDS: Record<
     fixShort: string;
     ordered: (n: number) => string;
     confirm: string;
+    allArrived: string;
+    confirmWhatCame: string;
+    backOrder: string;
     emptyHint: string;
     shelfEmpty: string;
     myRequests: string;
@@ -278,9 +281,12 @@ export const SUB_WORDS: Record<
     arrived: "Supplies arrived",
     caseEmpty: "Case empty",
     nothingOnTheWay: "Nothing on its way to this site right now.",
-    fixShort: "Short or missing? Fix it with − and +.",
+    fixShort: "Different? Fix it with − and +.",
     ordered: (n) => `Ordered ${n}`,
     confirm: "Confirm",
+    allArrived: "All arrived",
+    confirmWhatCame: "Confirm what arrived",
+    backOrder: "The rest, on its way",
     emptyHint: "Tap once for each empty case.",
     shelfEmpty: "Nothing on this site's shelf yet. It fills up when supplies arrive.",
     myRequests: "My requests",
@@ -333,9 +339,12 @@ export const SUB_WORDS: Record<
     arrived: "Llegaron los suministros",
     caseEmpty: "Caja vacía",
     nothingOnTheWay: "No hay nada en camino a este sitio ahora.",
-    fixShort: "¿Falta algo? Corrígelo con − y +.",
+    fixShort: "¿Llegó diferente? Corrígelo con − y +.",
     ordered: (n) => `Pedidos ${n}`,
     confirm: "Confirmar",
+    allArrived: "Llegó todo",
+    confirmWhatCame: "Confirmar lo que llegó",
+    backOrder: "Lo que falta, en camino",
     emptyHint: "Toca una vez por cada caja vacía.",
     shelfEmpty: "Todavía no hay nada en este sitio. Se llena cuando llegan los suministros.",
     myRequests: "Mis pedidos",
@@ -388,9 +397,12 @@ export const SUB_WORDS: Record<
     arrived: "Os materiais chegaram",
     caseEmpty: "Caixa vazia",
     nothingOnTheWay: "Nada a caminho deste local agora.",
-    fixShort: "Faltou algo? Corrija com − e +.",
+    fixShort: "Chegou diferente? Corrija com − e +.",
     ordered: (n) => `Pedidos ${n}`,
     confirm: "Confirmar",
+    allArrived: "Chegou tudo",
+    confirmWhatCame: "Confirmar o que chegou",
+    backOrder: "O que faltou, a caminho",
     emptyHint: "Toque uma vez para cada caixa vazia.",
     shelfEmpty: "Ainda não há nada neste local. Enche quando os materiais chegam.",
     myRequests: "Meus pedidos",

@@ -11,7 +11,10 @@
 // crew's "📦 Supplies arrived" marks it Delivered. "Change items one by one"
 // opens the lines (Status per line; Edit order for Crew Link). Tick cards for
 // the sticky bar: the same three actions for many orders at once, after
-// "Do this for X orders?". Anything that arrived short is red on its card.
+// "Do this for X orders?". Anything that arrived different (short or extra)
+// is red on its card; what came short is "⏳ Back order" on it, with Cancel
+// per item, until the crew confirms the rest or the office cancels it
+// (back-order.tsx).
 // 🖨 Print opens a clean printable order (app/supply-orders/print), and
 // 📌 Pin to board puts it on the board with the same square picker as an
 // account's Print PDF; both work for one card or every ticked card.
@@ -23,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AccountLink from "../components/AccountLink";
 import { CrewOrderEdit } from "../components/crew-order-edit";
+import { BackOrderBox, DifferentBox, type BackOrderLine } from "./back-order";
 import { HandoffCard, postHandoff, useHandoffs } from "../components/handoffs";
 import { orderForSync } from "../components/my-work";
 import { SquareTiles, pinIsOn, pinRecord, usePinInfo, type BoardSpot } from "../components/pin-to-board";
@@ -59,8 +63,8 @@ type CrewOrder = {
   editedBy: string;
   editedAt: string;
 };
-type Waiting = { key: string; source: "crew-order" | "sub-order" | "office"; ref: string; sentAt: string };
-type Short = { source: string; ref: string; lines: string[] };
+type Waiting = { key: string; source: "crew-order" | "sub-order" | "office"; ref: string; sentAt: string; backOrder?: boolean; lines: BackOrderLine[] };
+type Different = { id: number; source: string; ref: string; title: string; lines: string[] };
 
 type Item = { itemId: string; text: string; delivery: string; status: string; step: string; row?: SubOrder };
 type Card = {
@@ -79,7 +83,10 @@ type Card = {
   /** Shelves keys this order can be sent with (not sent yet). */
   sendKeys: string[];
   sent: boolean;
-  short: string[];
+  /** What a crew confirmed different from the order (short or extra). */
+  different: Different[];
+  /** What came short and is still on its way. */
+  backOrders: Waiting[];
   late: boolean;
   mine: boolean;
   search: string;
@@ -156,7 +163,7 @@ export default function OrderCards({
   const { info: pinInfo } = usePinInfo();
   const [crewOrders, setCrewOrders] = useState<CrewOrder[]>([]);
   const [waiting, setWaiting] = useState<Waiting[]>([]);
-  const [short, setShort] = useState<Short[]>([]);
+  const [different, setDifferent] = useState<Different[]>([]);
   const [quick, setQuick] = useState<"all" | "late" | "mine">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState("");
@@ -173,11 +180,11 @@ export default function OrderCards({
         .catch(() => ({})) as Promise<{ success?: boolean; ready?: boolean; orders?: CrewOrder[] }>,
       fetch("/api/shelves", { cache: "no-store" })
         .then((response) => response.json())
-        .catch(() => ({})) as Promise<{ success?: boolean; ready?: boolean; waiting?: Waiting[]; short?: Short[] }>,
+        .catch(() => ({})) as Promise<{ success?: boolean; ready?: boolean; waiting?: Waiting[]; different?: Different[] }>,
     ]);
     setCrewOrders(crew.success && crew.ready ? (crew.orders ?? []) : []);
     setWaiting(shelves.success && shelves.ready ? (shelves.waiting ?? []) : []);
-    setShort(shelves.success && shelves.ready ? (shelves.short ?? []) : []);
+    setDifferent(shelves.success && shelves.ready ? (shelves.different ?? []) : []);
   }, []);
 
   useEffect(() => {
@@ -271,7 +278,8 @@ export default function OrderCards({
         status: items.find((item) => item.step === step)?.status ?? items[0].status,
         sendKeys: mineWaiting.filter((entry) => !entry.sentAt).map((entry) => entry.key),
         sent,
-        short: short.filter((entry) => entry.source === "sub-order" && refs.includes(entry.ref)).flatMap((entry) => entry.lines),
+        different: different.filter((entry) => entry.source === "sub-order" && refs.includes(entry.ref)),
+        backOrders: mineWaiting.filter((entry) => entry.backOrder),
         ...lateOrMine(items.map((item) => item.itemId), sent),
         search: [first.accountName, first.accountId, first.subcontractor, first.timestamp, ...rows.flatMap((row) => [row.orderId, row.orderGroupId, row.supplyItem, row.category, row.description, row.quantity, row.unit, row.deliveryMode, row.status, row.notes])]
           .map(clean)
@@ -302,13 +310,14 @@ export default function OrderCards({
         crew: order,
         sendKeys: entries.filter((entry) => !entry.sentAt).map((entry) => entry.key),
         sent,
-        short: short.filter((entry) => entry.source === "crew-order" && entry.ref === String(order.id)).flatMap((entry) => entry.lines),
+        different: different.filter((entry) => entry.source === "crew-order" && entry.ref === String(order.id)),
+        backOrders: entries.filter((entry) => entry.backOrder),
         ...lateOrMine([itemId], sent),
         search: [order.accountName, order.accountId, order.orderedBy, "crew link", order.otherItems, ...order.lines.map((line) => line.itemName), status].join(" ").toLowerCase(),
       });
     }
     return out;
-  }, [handoffs, orders, crewOrders, waiting, short]);
+  }, [handoffs, orders, crewOrders, waiting, different]);
 
   // Search, delivery mode and account first; then In progress / Late / Waiting on me, or a Status.
   const matching = useMemo(() => {
@@ -478,7 +487,9 @@ export default function OrderCards({
                 </label>
                 <span className="flex flex-wrap items-center gap-2">
                   {card.late ? <StatusPill kind="needs-you">Late</StatusPill> : null}
-                  <StatusPill kind={card.sent ? "waiting" : statusKind(card.status)}>{card.sent && card.step === "bought" ? "🚚 On the way" : stepLabel}</StatusPill>
+                  <StatusPill kind={card.sent || card.backOrders.length > 0 ? "waiting" : statusKind(card.status)}>
+                    {card.backOrders.length > 0 ? "⏳ Back order" : card.sent && card.step === "bought" ? "🚚 On the way" : stepLabel}
+                  </StatusPill>
                 </span>
               </div>
               <p className="ui-muted" style={{ margin: "2px 0 8px" }}>
@@ -492,19 +503,13 @@ export default function OrderCards({
                   </li>
                 ))}
               </ul>
-              {card.short.length > 0 ? (
-                <div className="mt-2 rounded-2xl border-2 border-red-400 bg-red-50 p-3" data-order-short>
-                  <p className="font-black text-red-800" style={{ margin: 0 }}>
-                    ⚠️ Arrived short
-                  </p>
-                  {card.short.map((line) => (
-                    <p key={line} className="font-bold text-red-800" style={{ margin: 0 }}>
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
-              {card.sent && card.step === "bought" ? <p className="ui-muted">Sent. The crew confirms with Supplies arrived.</p> : null}
+              {card.different.map((entry) => (
+                <DifferentBox key={entry.id} title={entry.title} lines={entry.lines} />
+              ))}
+              {card.backOrders.map((entry) => (
+                <BackOrderBox key={entry.key} entryKey={entry.key} lines={entry.lines} onChanged={() => void Promise.all([loadExtras(), onChanged()])} />
+              ))}
+              {card.sent && card.step === "bought" && card.backOrders.length === 0 ? <p className="ui-muted">Sent. The crew confirms with Supplies arrived.</p> : null}
               {action ? (
                 <button
                   type="button"

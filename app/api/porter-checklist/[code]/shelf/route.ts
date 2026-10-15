@@ -12,14 +12,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { getContentTranslations } from "@/lib/crewTranslations";
-import { caseEmpty, confirmArrival, crewShelfView } from "@/lib/pg/shelves";
-import { oneListReady } from "@/lib/pg/supply-list";
+import { caseEmpty, confirmArrival, crewShelfView, shelvesReady } from "@/lib/pg/shelves";
 
 type Context = { params: Promise<{ code: string }> };
 
 async function loadEnabled(code: string) {
   const link = await resolveCrewLink(code);
-  return link && link.modules.supplyOrders && (await oneListReady()) ? link : null;
+  return link && link.modules.supplyOrders && (await shelvesReady()) ? link : null;
 }
 
 export async function GET(_request: NextRequest, { params }: Context) {
@@ -54,7 +53,7 @@ export async function POST(request: NextRequest, { params }: Context) {
     try {
       if (body.action === "arrive") {
         const result = await confirmArrival({ accountId, key: String(body.key ?? ""), got: (Array.isArray(body.got) ? body.got : []).map((n) => Number(n)), by });
-        return NextResponse.json({ success: true, short: result.short.length });
+        return NextResponse.json({ success: true, short: result.short.length, extra: result.extra.length });
       }
       if (body.action === "empty") {
         const result = await caseEmpty({ accountId, supplyId: Number(body.supplyId), by });

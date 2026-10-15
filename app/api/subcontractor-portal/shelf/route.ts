@@ -9,8 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSubPortalByEmail } from "@/lib/data/sub-portal";
 import { readSubSession } from "@/lib/subDevice";
-import { caseEmpty, confirmArrival, crewShelfView } from "@/lib/pg/shelves";
-import { oneListReady } from "@/lib/pg/supply-list";
+import { caseEmpty, confirmArrival, crewShelfView, shelvesReady } from "@/lib/pg/shelves";
 
 const clean = (value: unknown, max = 200) => String(value ?? "").trim().slice(0, max);
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
@@ -27,7 +26,7 @@ async function subFor(request: NextRequest, accountId: string): Promise<{ name: 
 
 export async function GET(request: NextRequest) {
   try {
-    if (!(await oneListReady())) return NextResponse.json({ success: true, on: false });
+    if (!(await shelvesReady())) return NextResponse.json({ success: true, on: false });
     const accountId = clean(request.nextUrl.searchParams.get("accountId"));
     const sub = await subFor(request, accountId);
     if (!sub) return refuse("Not logged in.", 401);
@@ -43,7 +42,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!(await oneListReady())) return refuse("Not available here yet.", 409);
+    if (!(await shelvesReady())) return refuse("Not available here yet.", 409);
     const body = (await request.json().catch(() => ({}))) as { action?: string; accountId?: string; key?: string; got?: unknown[]; supplyId?: unknown };
     const accountId = clean(body.accountId);
     const sub = await subFor(request, accountId);
@@ -52,7 +51,7 @@ export async function POST(request: NextRequest) {
     try {
       if (body.action === "arrive") {
         const result = await confirmArrival({ accountId, key: clean(body.key), got: (Array.isArray(body.got) ? body.got : []).map((n) => Number(n)), by: sub.name });
-        return NextResponse.json({ success: true, short: result.short.length });
+        return NextResponse.json({ success: true, short: result.short.length, extra: result.extra.length });
       }
       if (body.action === "empty") {
         const result = await caseEmpty({ accountId, supplyId: Number(body.supplyId), by: sub.name });

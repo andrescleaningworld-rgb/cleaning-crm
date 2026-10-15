@@ -29,7 +29,7 @@ type Tab = "shelf" | "reorder" | "orders" | "spend";
 
 const dollars = (value: number) => `$${value.toFixed(2)}`;
 const STEP_WORD: Record<string, string> = { ordered: "Ordered", approved: "Approved", picked: "Picked", bought: "Bought", delivered: "Delivered" };
-const MOVE_WORD: Record<string, string> = { take: "Took", return: "Returned", pick: "Picked", receive: "Received", count: "Count", set: "Count set" };
+const MOVE_WORD: Record<string, string> = { take: "Took", return: "Returned", pick: "Picked", receive: "Received", count: "Count", set: "Count set", lost: "Lost (Cleaning World loss):" };
 
 async function post(body: Record<string, unknown> | FormData): Promise<Record<string, unknown>> {
   const response = await fetch("/api/supply-control", body instanceof FormData ? { method: "POST", body } : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -267,6 +267,7 @@ export default function SupplyControl() {
               <p key={move.id} className="ui-card-text" style={{ padding: "4px 0" }}>
                 <strong>
                   {MOVE_WORD[move.kind] ?? move.kind} {Math.abs(move.qty)} × {move.itemName}
+                  {move.kind === "lost" && move.cost > 0 ? ` · ${dollars(move.cost)}` : ""}
                 </strong>
                 {move.accountName ? (
                   <>

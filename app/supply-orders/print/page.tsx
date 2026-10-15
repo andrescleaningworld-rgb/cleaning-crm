@@ -2,7 +2,7 @@
 
 // A clean printable supply order: account, address, date, who ordered, the
 // items with quantity and delivery mode, the status, and anything that
-// arrived short. One or many: /supply-orders/print?o=<order>&o=<order>, each
+// arrived different (short or extra). One or many: /supply-orders/print?o=<order>&o=<order>, each
 // order on its own page. Opened from an order card's 🖨 Print, the sticky
 // bar, or a pinned paper's "📄 Open order" (lib/pg/board-pins.ts), so it is
 // always made fresh. Staff only (not in proxy.ts's public paths). The same
@@ -47,12 +47,12 @@ export default function SupplyOrderPrintPage() {
         const [subs, crew, shelves, accounts] = await Promise.all([
           getJson<{ supplyOrders?: SubOrder[] }>("/api/supply-orders"),
           getJson<{ orders?: CrewOrder[] }>("/api/admin/crew-supplies?view=orders"),
-          getJson<{ short?: Short[] }>("/api/shelves"),
+          getJson<{ different?: Short[] }>("/api/shelves"),
           getJson<{ accounts?: Account[] }>("/api/accounts"),
         ]);
         const subRows = subs.supplyOrders ?? [];
         const crewOrders = crew.orders ?? [];
-        const shortList = shelves.short ?? [];
+        const shortList = shelves.different ?? [];
         const accountList = accounts.accounts ?? [];
         const made: PrintOrder[] = [];
         for (const key of keys) {
@@ -171,7 +171,7 @@ export default function SupplyOrderPrintPage() {
             ) : null}
             {order.short.length > 0 ? (
               <div className="rounded-xl border-2 border-black p-3">
-                <p className="font-black">⚠ Arrived short</p>
+                <p className="font-black">⚠ Arrived different from the order</p>
                 {order.short.map((line) => (
                   <p key={line}>{line}</p>
                 ))}

@@ -1,9 +1,12 @@
 "use client";
 
 // Crew Link "📦 Supplies arrived" (lib/pg/shelves.ts): what is on its way to
-// this site, items pre-filled. − / + fixes anything short or missing; Confirm
-// puts what came on the site shelf and marks the order Delivered. The office
-// hears about anything short. In preview nothing is posted.
+// this site, each item pre-filled with what was ordered. The normal case is
+// one tap on "All arrived". − / + changes an item; the button then says
+// "Confirm what arrived". Only what came goes on the site shelf; anything
+// short stays on its way here as "The rest, on its way" (a back order), extra
+// goes on the shelf too, and the office hears about any difference. In
+// preview nothing is posted.
 import { useEffect, useState } from "react";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { translated, type ContentTranslations } from "@/lib/translationKey";
@@ -13,7 +16,13 @@ import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 import { useCrewLinkPreview } from "./preview";
 
 type Line = { name: string; unit: string; qty: number };
-type Waiting = { key: string; at: string; lines: Line[] };
+type Waiting = { key: string; at: string; backOrder?: boolean; lines: Line[] };
+
+/** True while every item still says what was ordered: the button is "All arrived". */
+export const asOrdered = (lines: Line[], got: number[]) => lines.every((line, index) => (got[index] ?? line.qty) === line.qty);
+
+/** A row that differs from the order: amber when less came, blue when more. */
+export const rowTone = (ordered: number, got: number | undefined) => (got === undefined || got === ordered ? "bg-white" : got < ordered ? "bg-amber-100" : "bg-sky-100");
 
 export function BigStepper({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   const button = "flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-slate-200 text-4xl font-black active:bg-slate-300 disabled:opacity-40";
@@ -118,10 +127,10 @@ export default function CrewArrived({
               className="flex min-h-[96px] w-full items-center gap-4 rounded-3xl bg-white px-5 text-left shadow-sm active:bg-gray-100"
             >
               <span className="text-5xl" aria-hidden="true">
-                📦
+                {entry.backOrder ? "⏳" : "📦"}
               </span>
               <span>
-                <span className="block text-2xl font-black text-slate-900">{formatCrewDateTime(entry.at)}</span>
+                <span className="block text-2xl font-black text-slate-900">{entry.backOrder ? s.backOrder : formatCrewDateTime(entry.at)}</span>
                 <span className="block text-lg text-slate-600">{entry.lines.map((line) => `${line.qty} ${tr(line.name)}`).join(", ")}</span>
               </span>
             </button>
@@ -130,9 +139,10 @@ export default function CrewArrived({
 
       {open ? (
         <>
+          {open.backOrder ? <p className="px-1 text-2xl font-black text-slate-900">⏳ {s.backOrder}</p> : null}
           <p className="px-1 text-xl font-bold text-slate-700">{s.fixShort}</p>
           {open.lines.map((line, index) => (
-            <div key={`${line.name}-${index}`} className={`flex items-center justify-between gap-3 rounded-3xl p-4 shadow-sm ${got[index] < line.qty ? "bg-amber-100" : "bg-white"}`}>
+            <div key={`${line.name}-${index}`} className={`flex items-center justify-between gap-3 rounded-3xl p-4 shadow-sm ${rowTone(line.qty, got[index])}`}>
               <div className="min-w-0">
                 <p className="text-2xl font-black text-slate-900">{tr(line.name)}</p>
                 <p className="text-lg text-slate-600">
@@ -144,7 +154,7 @@ export default function CrewArrived({
             </div>
           ))}
           <ErrorBox message={error} />
-          <SendBar label={`✓ ${s.confirm}`} busyLabel={s.sending} busy={sending} disabled={!name.trim()} onClick={() => void confirm()} hint={!name.trim() ? s.writeYourName : undefined} />
+          <SendBar label={`✓ ${asOrdered(open.lines, got) ? s.allArrived : s.confirmWhatCame}`} busyLabel={s.sending} busy={sending} disabled={!name.trim()} onClick={() => void confirm()} hint={!name.trim() ? s.writeYourName : undefined} />
         </>
       ) : null}
     </div>

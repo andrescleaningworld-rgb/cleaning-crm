@@ -1,5 +1,5 @@
-// Exercises one supply list and the two shelves (migration 038:
-// lib/pg/supply-list.ts, lib/pg/shelves.ts) against the dev branch. It uses a
+// Exercises one supply list and the two shelves (migrations 038 and 039:
+// lib/pg/supply-list.ts, lib/pg/shelves.ts, back orders) against the dev branch. It uses a
 // made-up account, two real products, its own test orders, and takes every
 // test row out again: the office shelf counts, products, orders and moves
 // that were there must come out exactly as they were.
@@ -16,6 +16,7 @@ const list = await import("../../lib/pg/supply-list");
 const shelves = await import("../../lib/pg/shelves");
 const crew = await import("../../lib/pg/crew-supplies");
 const supplies = await import("../../lib/pg/supplies");
+const control = await import("../../lib/pg/supply-control");
 const { getSql } = await import("../../lib/db");
 const sql = getSql();
 
@@ -57,6 +58,8 @@ const crewBefore = new Set(((await sql`SELECT sub_supply_id FROM supply_items WH
 type ItemSnap = { id: number; name: string; brand: string; active: boolean; in_default_list: boolean; unit: string; photo_url: string; category: string; sku: string; updated_by: string; updated_at: string | null };
 const itemsBefore = (await sql`SELECT id, name, brand, active, in_default_list, unit, photo_url, category, sku, updated_by, updated_at::text FROM supply_items WHERE sub_supply_id = ANY(${[p1.id, p2.id]}::bigint[])`) as ItemSnap[];
 let crewOrderId = 0;
+// p2 gets a made-up cost for the lost check (most dev products have none); put back in finally.
+let p2CostBefore: { id: number; cost: string | null } | null = null;
 
 try {
   // ----- one list: picks -----
@@ -109,24 +112,49 @@ try {
   const sent = waiting.find((entry) => entry.source === "crew-order" && entry.ref === String(crewOrderId));
   check("🚚 it now waits as sent, for the crew", Boolean(sent?.sentAt) && sent!.key.startsWith("d:"));
 
-  // ----- 3. Supplies arrived (one short) -----
+  // ----- 3. Supplies arrived (one short: a back order) -----
+  const crewStatus = async () => ((await sql`SELECT status FROM supply_orders WHERE id = ${crewOrderId}`) as { status: string }[])[0].status;
   const got = sent!.lines.map((line) => (line.supplyId === p2.id ? line.qty - 1 : line.qty));
   const arrived = await shelves.confirmArrival({ accountId: ACCOUNT, key: sent!.key, got, by: "ZZ Crew" });
-  check("📦 a short item is reported", arrived.short.length === 1 && arrived.short[0].supplyId === p2.id);
+  check("📦 a short item is reported", arrived.short.length === 1 && arrived.short[0].supplyId === p2.id && arrived.extra.length === 0);
   const site = async (id: number) => ((await sql`SELECT qty FROM site_shelf WHERE account_id = ${ACCOUNT} AND supply_id = ${id}`) as { qty: number }[])[0]?.qty ?? 0;
-  check("📦 what came is on the site shelf", (await site(p1.id)) === lineFor(p1.id) && (await site(p2.id)) === lineFor(p2.id) - 1);
-  check("📦 the Crew Link order is Delivered", ((await sql`SELECT status FROM supply_orders WHERE id = ${crewOrderId}`) as { status: string }[])[0].status === "delivered");
-  check("📦 the office sees it on the short list", (await shelves.shortDeliveries()).some((entry) => entry.accountId === ACCOUNT && entry.lines.length === 1));
+  check("📦 only what came is on the site shelf", (await site(p1.id)) === lineFor(p1.id) && (await site(p2.id)) === lineFor(p2.id) - 1);
+  check("📦 the Crew Link order is not Delivered yet (Back order)", (await crewStatus()) === "ordered");
+  check("📦 the office sees it as different (short)", (await shelves.differentDeliveries()).some((entry) => entry.accountId === ACCOUNT && entry.short && !entry.extra && entry.lines.length === 1 && entry.lines[0].includes("1 on back order")));
   const paper = (await sql`SELECT count(*)::int AS n FROM handoff_items WHERE account_id = ${ACCOUNT} AND board_pinned_at IS NOT NULL AND COALESCE(board_square, '') = '' AND data->>'box' = 'supply'`)[0] as { n: number };
   console.log(`info  Pin Board paper in the Supply orders square: ${paper.n} (0 when the board is switched off here)`);
   check("📦 a confirmed delivery is not waiting any more", !(await shelves.waiting(ACCOUNT)).some((entry) => entry.key === sent!.key));
+  const back = (await shelves.waiting(ACCOUNT)).find((entry) => entry.backOrder && entry.source === "crew-order");
+  check("⏳ the missing 1 waits as a back order of the same order", Boolean(back) && back!.ref === String(crewOrderId) && back!.lines.length === 1 && back!.lines[0].supplyId === p2.id && back!.lines[0].qty === 1 && Boolean(back!.sentAt));
+  check("⏳ the crew sees it on its way", (await shelves.crewShelfView(ACCOUNT)).waiting.some((entry) => entry.key === back!.key && entry.backOrder));
+  check("⏳ a second tap on the same delivery does nothing", await rejects(() => shelves.confirmArrival({ accountId: ACCOUNT, key: sent!.key, got, by: "ZZ Crew" })));
 
-  // ----- the sub-portal order arrives in full (it was never sent from the shelf) -----
+  // ----- the back order arrives, with one extra -----
+  const p2Before = await site(p2.id);
+  const late = await shelves.confirmArrival({ accountId: ACCOUNT, key: back!.key, got: [2], by: "ZZ Crew" });
+  check("📦 extra is reported", late.extra.length === 1 && late.short.length === 0);
+  check("📦 the extra goes on the site shelf too", (await site(p2.id)) === p2Before + 2);
+  check("📦 now the Crew Link order is Delivered", (await crewStatus()) === "delivered");
+  check("📦 the office sees it as different (extra)", (await shelves.differentDeliveries()).some((entry) => entry.accountId === ACCOUNT && entry.extra && entry.title === "Arrived extra" && entry.lines[0].includes("1 extra")));
+  check("📦 no new back order after a full one", !(await shelves.waiting(ACCOUNT)).some((entry) => entry.backOrder && entry.source === "crew-order"));
+
+  // ----- the sub-portal order: one item never came, then "Lost / never coming" -----
   const siteA = await site(p1.id);
   const subEntry = (await shelves.waiting(ACCOUNT)).find((entry) => entry.key === "sub:ZZ-CHECK-GROUP")!;
-  await shelves.confirmArrival({ accountId: ACCOUNT, key: subEntry.key, got: subEntry.lines.map((line) => line.qty), by: "ZZ Sub" });
-  check("📦 a sub-portal order: everything on the site shelf", (await site(p1.id)) === siteA + 1);
-  check("📦 the sub-portal order lines are Completed", ((await sql`SELECT count(*)::int AS n FROM sub_supply_orders WHERE order_group_id = 'ZZ-CHECK-GROUP' AND status <> 'Completed'`)[0] as { n: number }).n === 0);
+  await shelves.confirmArrival({ accountId: ACCOUNT, key: subEntry.key, got: subEntry.lines.map((line) => (line.supplyId === p2.id ? 0 : line.qty)), by: "ZZ Sub" });
+  check("📦 a sub-portal order: what came is on the site shelf", (await site(p1.id)) === siteA + 1);
+  const subOpen = async () => ((await sql`SELECT count(*)::int AS n FROM sub_supply_orders WHERE order_group_id = 'ZZ-CHECK-GROUP' AND status <> 'Completed'`)[0] as { n: number }).n;
+  check("⏳ the sub-portal order is not Completed while something is on back order", (await subOpen()) > 0);
+  const subBack = (await shelves.waiting(ACCOUNT)).find((entry) => entry.backOrder && entry.source === "sub-order");
+  check("⏳ the sub-portal back order waits", Boolean(subBack) && subBack!.ref === "ZZ-CHECK-GROUP" && subBack!.lines[0].supplyId === p2.id);
+  check("⏳ cancel needs a real choice", await rejects(() => shelves.cancelBackOrder({ key: subBack!.key, index: 0, choice: "maybe" as "lost", by: "check" })));
+  const officeLost = await office(p2.id);
+  const lost = await shelves.cancelBackOrder({ key: subBack!.key, index: 0, choice: "lost", by: "check" });
+  check("✗ lost: the back order is closed", lost.closed && !(await shelves.waiting(ACCOUNT)).some((entry) => entry.key === subBack!.key));
+  check("✗ lost: the office shelf does not change", (await office(p2.id)) === officeLost);
+  check("✗ lost: the move is kept", ((await sql`SELECT count(*)::int AS n FROM supply_moves WHERE account_id = ${ACCOUNT} AND kind = 'lost'`)[0] as { n: number }).n === 1);
+  check("✗ lost: the sub-portal order is Completed (something came)", (await subOpen()) === 0);
+  check("✗ a cancelled back order cannot be cancelled again", await rejects(() => shelves.cancelBackOrder({ key: subBack!.key, index: 0, choice: "lost", by: "check" })));
 
   // ----- 4. Case empty -----
   const siteNow = await site(p1.id);
@@ -139,15 +167,47 @@ try {
   const officeSend = (await shelves.waiting(ACCOUNT)).find((entry) => entry.source === "office");
   check("🚚 a send with no order waits for the crew", Boolean(officeSend) && officeSend!.lines[0].supplyId === p2.id);
 
+  // ----- nothing of it came, then "Put back on our shelf" -----
+  const p2Site = await site(p2.id);
+  await shelves.confirmArrival({ accountId: ACCOUNT, key: officeSend!.key, got: [0], by: "ZZ Crew" });
+  check("📦 nothing came: nothing goes on the site shelf", (await site(p2.id)) === p2Site);
+  const officeBack = (await shelves.waiting(ACCOUNT)).find((entry) => entry.backOrder && entry.source === "office");
+  check("⏳ an office send that came short waits as a back order", Boolean(officeBack) && officeBack!.lines[0].qty === 1);
+  const officeShelfBefore = await office(p2.id);
+  const back2 = await shelves.cancelBackOrder({ key: officeBack!.key, index: 0, choice: "shelf", by: "check" });
+  check("📥 put back: it is on the office shelf again", back2.closed && (await office(p2.id)) === officeShelfBefore + 1);
+  check("📥 put back: the back order is closed", !(await shelves.waiting(ACCOUNT)).some((entry) => entry.key === officeBack!.key));
+
+  // ----- sent from our shelf, never came, "Lost / never coming": a Cleaning World loss, not the customer's -----
+  const spend = async () => (await control.monthSpend("")).rows.find((entry) => entry.accountId === ACCOUNT)?.amount ?? 0;
+  p2CostBefore = { id: p2.id, cost: ((await sql`SELECT unit_cost::text AS cost FROM sub_supplies WHERE id = ${p2.id}`) as { cost: string | null }[])[0].cost };
+  await sql`UPDATE sub_supplies SET unit_cost = 2.50 WHERE id = ${p2.id}`;
+  const spendBefore = await spend();
+  await shelves.sendToSite({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, lines: [{ supplyId: p2.id, qty: 2 }], by: "check" });
+  const spendSent = await spend();
+  const lostSend = (await shelves.waiting(ACCOUNT)).find((entry) => entry.source === "office" && !entry.backOrder)!;
+  await shelves.confirmArrival({ accountId: ACCOUNT, key: lostSend.key, got: [0], by: "ZZ Crew" });
+  const lostBack = (await shelves.waiting(ACCOUNT)).find((entry) => entry.backOrder && entry.source === "office")!;
+  const officeBeforeLost = await office(p2.id);
+  await shelves.cancelBackOrder({ key: lostBack.key, index: 0, choice: "lost", by: "check" });
+  console.log(`info  site spend this month: ${spendBefore} before the send, ${spendSent} sent, ${await spend()} after lost`);
+  check("✗ lost: sending it charged the customer", spendSent === spendBefore + 5);
+  check("✗ lost: the customer's spend is back to before the send", (await spend()) === spendBefore);
+  check("✗ lost: the office shelf does not get it back", (await office(p2.id)) === officeBeforeLost);
+  const p2Cost = ((await sql`SELECT unit_cost::text AS cost FROM sub_supplies WHERE id = ${p2.id}`) as { cost: string | null }[])[0].cost;
+  const lossMove = (await sql`SELECT qty, unit_cost::text AS unit_cost FROM supply_moves WHERE account_id = ${ACCOUNT} AND kind = 'lost' AND supply_id = ${p2.id} ORDER BY id DESC LIMIT 1`) as { qty: number; unit_cost: string | null }[];
+  check("✗ lost: the history keeps it as a Cleaning World loss, with its cost", lossMove[0]?.qty === 2 && lossMove[0].unit_cost === p2Cost);
+
   // ----- what crews and the office see -----
   const view = await shelves.crewShelfView(ACCOUNT);
-  check("the crew view has the site shelf and what is on its way", view.shelf.length === 2 && view.waiting.length >= 1);
+  check("the crew view has the site shelf", view.shelf.length === 2);
   check("the crew view carries no product code", !JSON.stringify(view).includes(p1.code) || p1.code === p1.crewName);
   check("colors: red 0, yellow 1, green 2+", shelves.siteLevel(0) === "red" && shelves.siteLevel(1) === "yellow" && shelves.siteLevel(2) === "green");
   check("office colors: red at or below the minimum, yellow up to twice", shelves.officeLevel(3, 3) === "red" && shelves.officeLevel(6, 3) === "yellow" && shelves.officeLevel(7, 3) === "green" && shelves.officeLevel(null, 3) === "none");
   check("the office sees this site's shelf", (await shelves.siteShelves()).some((entry) => entry.accountId === ACCOUNT && entry.tiles.length === 2));
 } finally {
   // Take every test row out again.
+  if (p2CostBefore) await sql`UPDATE sub_supplies SET unit_cost = ${p2CostBefore.cost}::numeric WHERE id = ${p2CostBefore.id}`;
   await sql`DELETE FROM supply_deliveries WHERE account_id = ${ACCOUNT}`;
   await sql`DELETE FROM site_shelf WHERE account_id = ${ACCOUNT}`;
   await sql`DELETE FROM supply_moves WHERE account_id = ${ACCOUNT} OR (staff_name = 'check' AND note = 'Received from vendor')`;
