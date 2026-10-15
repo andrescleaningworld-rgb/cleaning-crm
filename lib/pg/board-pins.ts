@@ -17,7 +17,7 @@
 
 import { getSql } from "@/lib/db";
 import { PIN_TYPES, readPinTypes, type PinRequest, type PinType, type PinTypes } from "@/lib/boardPins";
-import { SUB_ORDER_GROUPS } from "@/lib/pg/board";
+import { subOrderGroups } from "@/lib/pg/board";
 
 /** The settings column comes with migration 025. Until it is applied, the defaults are used and nothing can be saved. */
 export async function pinSettingsReady(): Promise<boolean> {
@@ -124,7 +124,7 @@ export async function pinRecord(request: PinRequest, by: string): Promise<boolea
        SELECT 'supply', g.item_id, COALESCE(NULLIF(g.account_name, ''), 'Supply order'), g.account_id, g.account_name, g.manager, 'open', g.since,
               jsonb_build_object('items', left(g.items, 600), 'count', g.lines::text, 'subcontractor', g.subcontractor, 'orderId', g.order_id),
               g.subcontractor, now(), $2
-       FROM (${SUB_ORDER_GROUPS}) g
+       FROM (${await subOrderGroups()}) g
        WHERE g.item_id = (SELECT ${ORDER_PAPER_ID} FROM sub_supply_orders o WHERE btrim(o.order_id) = $1 OR o.sheet_row::text = $1 LIMIT 1)
        ON CONFLICT (kind, item_id) DO UPDATE SET ${REPIN}
        RETURNING item_id`,

@@ -39,6 +39,7 @@ import { boardReady, pinPaper } from "@/lib/pg/board";
 import { editCrewOrder, getCrewOrderDetail } from "@/lib/pg/crew-supplies";
 import { createSupplyOrder } from "@/lib/pg/supplies";
 import { ensureCrewItem, listProducts, oneListReady, type Product } from "@/lib/pg/supply-list";
+import { notDeleted, orderDeleteReady } from "@/lib/pg/supply-deleted";
 import { lookupAccountSummaries } from "@/lib/teamHubAccountLookup";
 
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -227,18 +228,23 @@ const SUB_GROUP = `COALESCE(NULLIF(btrim(order_group_id), ''), btrim(order_id))`
 export async function waiting(accountId?: string): Promise<Waiting[]> {
   const sql = getSql();
   const one = clean(accountId);
+  // A deleted order (migration 041) is never on its way.
+  const [crewKept, subKept] = await Promise.all([notDeleted("o"), notDeleted("o")]);
   const [deliveries, crewOrders, subLines, products] = await Promise.all([
     sql`SELECT id, account_id, account_name, source, source_ref, back_of, fill, lines, sent_at, created_at FROM supply_deliveries
         WHERE arrived_at IS NULL AND cancelled_at IS NULL AND (${one} = '' OR account_id = ${one}) ORDER BY created_at` as unknown as Promise<DeliveryRow[]>,
-    sql`SELECT o.id, o.crew_link_account_id, o.created_at FROM supply_orders o
-        WHERE o.crew_link_account_id IS NOT NULL AND o.status = 'ordered' AND (${one} = '' OR o.crew_link_account_id = ${one})
-          AND NOT EXISTS (SELECT 1 FROM supply_deliveries d WHERE d.source = 'crew-order' AND d.source_ref = o.id::text)
-        ORDER BY o.created_at` as unknown as Promise<{ id: number; crew_link_account_id: string; created_at: string | Date }[]>,
+    sql.query(
+      `SELECT o.id, o.crew_link_account_id, o.created_at FROM supply_orders o
+       WHERE o.crew_link_account_id IS NOT NULL AND o.status = 'ordered' AND ($1::text = '' OR o.crew_link_account_id = $1::text) AND ${crewKept}
+         AND NOT EXISTS (SELECT 1 FROM supply_deliveries d WHERE d.source = 'crew-order' AND d.source_ref = o.id::text)
+       ORDER BY o.created_at`,
+      [one]
+    ) as unknown as Promise<{ id: number; crew_link_account_id: string; created_at: string | Date }[]>,
     sql.query(
       `SELECT ${SUB_GROUP} AS grp, COALESCE(account_ref, btrim(account_id_raw)) AS account_id, btrim(account_name) AS account_name,
               supply_id, btrim(supply_item) AS supply_item, btrim(unit) AS unit, quantity_raw, created_at
        FROM sub_supply_orders o
-       WHERE ${LEGACY_SUB_ON_WAY} AND COALESCE(account_ref, btrim(account_id_raw)) <> '' AND btrim(account_name) <> 'Shelf restock'
+       WHERE ${LEGACY_SUB_ON_WAY} AND ${subKept} AND COALESCE(account_ref, btrim(account_id_raw)) <> '' AND btrim(account_name) <> 'Shelf restock'
          AND ($1::text = '' OR COALESCE(account_ref, btrim(account_id_raw)) = $1::text)
          AND NOT EXISTS (SELECT 1 FROM supply_deliveries d WHERE d.source = 'sub-order' AND d.source_ref = ${SUB_GROUP})
        ORDER BY created_at, sheet_row`,
@@ -645,6 +651,58 @@ export async function declineOrder(input: { order: OrderPick; by: string }): Pro
       sql.query(`UPDATE sub_supply_orders SET status = 'Denied', step_by = $2::text, step_at = now(), updated_at = now() WHERE ${SUB_GROUP} = ANY($1::text[]) AND ${OPEN_SUB_STATUS}`, [order.refs, input.by])
     );
   await sql.transaction(statements);
+}
+
+/* ---------- 🗑 Delete order (migration 041) ---------- */
+
+export const DELETE_REASONS = ["Duplicate", "Test", "Old, already handled", "Entered by mistake", "Other"] as const;
+export type DeleteReason = (typeof DELETE_REASONS)[number];
+
+/**
+ * 🗑 Delete order: a soft delete. Its rows stay, marked deleted with who and
+ * why; Supply Orders and the Pin Board leave it out from then on, and a
+ * delivery still waiting for it goes too. Not when any of it already moved
+ * stock (taken from the warehouse, picked up, or confirmed arrived): then the
+ * rest is cancelled instead. Gives back the reason as written, for the
+ * activity log.
+ */
+export async function deleteOrder(input: { order: OrderPick; reason: string; note: string; by: string }): Promise<{ reason: string }> {
+  const order = cleanPick(input.order);
+  if (!(await orderDeleteReady())) throw new Error("Deleting orders is not turned on here yet.");
+  const reason = DELETE_REASONS.find((entry) => entry === clean(input.reason));
+  if (!reason) throw new Error("Pick why it is deleted.");
+  const note = clean(input.note).slice(0, 200);
+  if (reason === "Other" && note.length < 3) throw new Error("Write a short note: why is it deleted?");
+  const written = note ? `${reason}: ${note}` : reason;
+  const sql = getSql();
+
+  // The order's own line ids too: older moves name a line, not the group.
+  const lineIds =
+    order.source === "sub-order"
+      ? ((await sql.query(`SELECT btrim(order_id) AS id FROM sub_supply_orders WHERE ${SUB_GROUP} = ANY($1::text[])`, [order.refs])) as { id: string }[]).map((row) => row.id).filter(Boolean)
+      : [];
+  const refs = [...order.refs, ...lineIds];
+  const moved = (await sql`
+    SELECT 1 FROM supply_deliveries
+    WHERE source = ${order.source} AND split_part(source_ref, ${BACK}, 1) = ANY(${order.refs}::text[]) AND (sent_at IS NOT NULL OR arrived_at IS NOT NULL)
+    UNION ALL
+    SELECT 1 FROM supply_moves WHERE order_id = ANY(${refs}::text[]) AND kind IN ('pick', 'send', 'arrive')
+    LIMIT 1
+  `) as unknown[];
+  if (moved.length > 0) throw new Error("Part of this order already moved stock (taken, picked up or arrived), so it cannot be deleted. Cancel what is left instead.");
+
+  const statements = [
+    sql`UPDATE supply_deliveries SET cancelled_at = now() WHERE source = ${order.source} AND split_part(source_ref, ${BACK}, 1) = ANY(${order.refs}::text[]) AND arrived_at IS NULL AND cancelled_at IS NULL`,
+  ];
+  if (order.source === "crew-order") {
+    statements.push(sql`UPDATE supply_orders SET deleted_at = now(), deleted_by = ${input.by}, deleted_reason = ${written}, updated_at = now() WHERE id = ${Number(order.refs[0])} AND deleted_at IS NULL`);
+  } else {
+    statements.push(
+      sql.query(`UPDATE sub_supply_orders SET deleted_at = now(), deleted_by = $2::text, deleted_reason = $3::text, updated_at = now() WHERE ${SUB_GROUP} = ANY($1::text[]) AND deleted_at IS NULL`, [order.refs, input.by, written])
+    );
+  }
+  await sql.transaction(statements);
+  return { reason: written };
 }
 
 /** ✓ Picked up: the sub took it from the warehouse. Warehouse down, site up, the order Delivered. */

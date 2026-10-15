@@ -18,9 +18,12 @@
 //   Delivered
 //
 // What arrived short or extra is red on its card; what came short is
-// "⏳ Back order" on it, with Cancel per item (back-order.tsx). Tick cards for
-// the sticky bar: Decline or one way to fill, for many at once, after "Do
-// this for X orders?". 🖨 Print opens a clean printable order
+// "⏳ Back order" on it, with Cancel per item (back-order.tsx). Tap a card
+// (anywhere but its buttons) to pick it; the bar at the bottom shows only
+// while something is picked: Print, Pin, a way to fill, Decline or Delete,
+// for many at once, after "Do this for X orders?". 🗑 Delete order asks why
+// (DeleteSheet) and hides the order from Supply Orders and the Pin Board; not
+// once any of it moved stock (lib/pg/shelves.ts deleteOrder). 🖨 Print opens a clean printable order
 // (app/supply-orders/print), 📌 Pin to board puts it on the board.
 //
 // The step tracking stays one item per order line (handoff_items, kind
@@ -33,7 +36,7 @@ import AccountLink from "../components/AccountLink";
 import { HandoffCard, postHandoff, useHandoffs } from "../components/handoffs";
 import { orderForSync } from "../components/my-work";
 import { SquareTiles, pinIsOn, pinRecord, usePinInfo, type BoardSpot } from "../components/pin-to-board";
-import { ConfirmSheet, Counts, EmptyState, Sheet, StatusPill, Tips, showToast, type StatusKind } from "@/app/ui";
+import { BigButton, ConfirmSheet, Counts, EmptyState, Field, Sheet, StatusPill, Tips, showToast, type StatusKind } from "@/app/ui";
 import { ORDER_STEPS, isLate, isMine, orderStepFromStatus, type HandoffItem } from "@/lib/handoffs";
 import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
@@ -188,6 +191,8 @@ export default function OrderCards({
   const [approving, setApproving] = useState<Card | null>(null);
   const [confirm, setConfirm] = useState<{ action: Bulk; cards: Card[] } | null>(null);
   const [pickingUp, setPickingUp] = useState<Card | null>(null);
+  // 🗑 Delete order: the cards waiting for a reason.
+  const [deleting, setDeleting] = useState<Card[] | null>(null);
   // "📌 Pin to board": the orders waiting for a square to be picked.
   const [pinning, setPinning] = useState<Card[] | null>(null);
   const [pinBusy, setPinBusy] = useState("");
@@ -444,6 +449,29 @@ export default function OrderCards({
     }
   }
 
+  /** 🗑 Delete order, for each card, with the reason picked. A card whose stock already moved says so and stays. */
+  async function deleteCards(list: Card[], reason: string, note: string) {
+    setBusy("delete");
+    const done: Card[] = [];
+    for (const card of list) {
+      try {
+        await postShelves({ action: "delete", order: card.order, reason, note });
+        done.push(card);
+      } catch (error) {
+        showToast(`${card.accountName || "Order"}: ${error instanceof Error ? error.message : "It was not deleted."}`, "bad");
+      }
+    }
+    setDeleting(null);
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const card of done) next.delete(card.key);
+      return next;
+    });
+    await afterChange(done, "");
+    setBusy("");
+    if (done.length > 0) showToast(`🗑 Deleted: ${done.length} order${done.length === 1 ? "" : "s"}`);
+  }
+
   /** Pins each order to the square picked. A manager is texted only for their own square (the board's rule). */
   async function pinOrders(list: Card[], spot: BoardSpot) {
     setPinBusy(spot.key);
@@ -516,7 +544,19 @@ export default function OrderCards({
           const itemIds = [...new Set(card.items.map((item) => item.itemId))].join(" ");
           const pill = card.backOrders.length > 0 ? "⏳ Back order" : card.step === "bought" && card.delivery?.fill ? `${FILL_WORDS[card.delivery.fill].icon} ${stepLabel}` : stepLabel;
           return (
-            <article key={card.key} className={`ui-card ${card.late ? "border-2 border-red-400" : ""}`} data-order-card={card.key} data-order-items={itemIds} data-order-step={card.step}>
+            <article
+              key={card.key}
+              className={`ui-card cursor-pointer ${card.late ? "border-2 border-red-400" : ""} ${selected.has(card.key) ? "ring-4 ring-blue-500" : ""}`}
+              data-order-card={card.key}
+              data-order-items={itemIds}
+              data-order-step={card.step}
+              data-selected={selected.has(card.key) ? "yes" : undefined}
+              onClick={(event) => {
+                // Its buttons, links and boxes do their own thing; anywhere else picks the card.
+                if ((event.target as HTMLElement).closest("button, a, input, select, textarea, label, summary, dialog")) return;
+                toggle(card.key);
+              }}
+            >
               <div className="ui-card-row" style={{ alignItems: "flex-start" }}>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-6 w-6" checked={selected.has(card.key)} onChange={() => toggle(card.key)} aria-label={`Select the order for ${card.accountName}`} />
@@ -597,6 +637,9 @@ export default function OrderCards({
                     📌 Pin to board
                   </button>
                 ) : null}
+                <button type="button" className="ui-btn ui-btn-second" disabled={busy !== ""} onClick={() => setDeleting([card])} data-order-delete>
+                  🗑 Delete order
+                </button>
               </div>
               <HandoffDetail card={card} items={handoffs.items} settings={handoffs.settings} />
             </article>
@@ -618,6 +661,15 @@ export default function OrderCards({
                 📌 Pin ({picked.length})
               </button>
             ) : null}
+            <button
+              type="button"
+              disabled={busy !== ""}
+              onClick={() => setDeleting(picked)}
+              className="min-h-[56px] rounded-2xl bg-white px-2 text-base font-black text-red-700 ring-2 ring-red-300 disabled:opacity-50"
+              data-bulk-delete
+            >
+              🗑 Delete ({picked.length})
+            </button>
             {(["vendor", "pickup", "deliver", "decline"] as Bulk[]).map((bulk) => {
               const list = pickedFor(bulk);
               return (
@@ -648,6 +700,8 @@ export default function OrderCards({
           if (card) void afterChange([card], result === "approved" ? "approved" : "bought");
         }}
       />
+
+      <DeleteSheet cards={deleting} busy={busy === "delete"} onCancel={() => setDeleting(null)} onDelete={(reason, note) => deleting && void deleteCards(deleting, reason, note)} />
 
       <ConfirmSheet
         open={pickingUp !== null}
@@ -696,5 +750,64 @@ function HandoffDetail({ card, items, settings }: { card: Card; items: HandoffIt
     <div className="mt-2" data-order-handoff>
       <HandoffCard item={row} settings={settings} detail="" />
     </div>
+  );
+}
+
+const DELETE_REASONS = ["Duplicate", "Test", "Old, already handled", "Entered by mistake", "Other"];
+
+/** 🗑 Delete order: "Why?" in big quick picks; Other needs a short note. */
+function DeleteSheet({ cards, busy, onCancel, onDelete }: { cards: Card[] | null; busy: boolean; onCancel: () => void; onDelete: (reason: string, note: string) => void }) {
+  const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!cards) return;
+    // Each opening starts with nothing picked.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setReason("");
+    setNote("");
+    setError("");
+  }, [cards]);
+
+  function go() {
+    if (!reason) return setError("Pick why.");
+    if (reason === "Other" && note.trim().length < 3) return setError("Write a short note.");
+    onDelete(reason, note.trim());
+  }
+
+  const many = (cards?.length ?? 0) > 1;
+  return (
+    <Sheet
+      open={cards !== null}
+      title={many ? `🗑 Delete ${cards?.length} orders?` : `🗑 Delete the order for ${cards?.[0]?.accountName || "this account"}?`}
+      text="It leaves Supply Orders and the Pin Board. The record is kept. Why?"
+      onClose={() => (busy ? undefined : onCancel())}
+      busy={busy}
+      actions={
+        <BigButton kind="danger" busy={busy} busyLabel="Deleting…" onClick={go}>
+          🗑 Delete
+        </BigButton>
+      }
+    >
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-delete-reasons>
+        {DELETE_REASONS.map((entry) => (
+          <button
+            key={entry}
+            type="button"
+            aria-pressed={reason === entry}
+            onClick={() => {
+              setReason(entry);
+              setError("");
+            }}
+            className={`min-h-[64px] rounded-2xl px-4 text-xl font-black ${reason === entry ? "bg-red-700 text-white" : "bg-white text-slate-900 ring-2 ring-slate-300"}`}
+          >
+            {entry}
+          </button>
+        ))}
+      </div>
+      {reason === "Other" ? <Field label="Why?" value={note} onChange={(event) => setNote(event.target.value)} placeholder="A short note" /> : null}
+      {error ? <p className="ui-field-error">{error}</p> : null}
+    </Sheet>
   );
 }

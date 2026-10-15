@@ -19,6 +19,7 @@
 import { getSql } from "@/lib/db";
 import { getSupplyOrderById, getTeamHubSiteById, type TeamHubSupplyOrderStatus } from "@/lib/teamHubDb";
 import { lookupAccountSummaries } from "@/lib/teamHubAccountLookup";
+import { notDeleted } from "@/lib/pg/supply-deleted";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const iso = (value: unknown) => (value instanceof Date ? value.toISOString() : value ? String(value) : "");
@@ -197,11 +198,13 @@ export async function editMarksFor(orderIds: number[]): Promise<Record<number, E
 /** Crew Link orders, newest first, for the Supply Orders page. */
 export async function listCrewLinkOrders(limit = 100): Promise<CrewOrder[]> {
   const sql = getSql();
-  const rows = (await sql`
-    SELECT id, crew_link_account_id, status, reporter_name, created_at, note, other_items, edited_by, edited_at
-    FROM supply_orders WHERE crew_link_account_id IS NOT NULL
-    ORDER BY created_at DESC LIMIT ${limit}
-  `) as { id: number; crew_link_account_id: string; status: TeamHubSupplyOrderStatus; reporter_name: string | null; created_at: string | Date; note: string | null; other_items: string | null; edited_by: string | null; edited_at: string | Date | null }[];
+  // Deleted orders (migration 041) are left out.
+  const rows = (await sql.query(
+    `SELECT id, crew_link_account_id, status, reporter_name, created_at, note, other_items, edited_by, edited_at
+     FROM supply_orders WHERE crew_link_account_id IS NOT NULL AND ${await notDeleted("")}
+     ORDER BY created_at DESC LIMIT $1`,
+    [limit]
+  )) as { id: number; crew_link_account_id: string; status: TeamHubSupplyOrderStatus; reporter_name: string | null; created_at: string | Date; note: string | null; other_items: string | null; edited_by: string | null; edited_at: string | Date | null }[];
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
   const [lineRows, names] = await Promise.all([

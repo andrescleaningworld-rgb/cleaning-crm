@@ -10,6 +10,7 @@
 //   POST approve { order, lines, add, fill }      ✓ Approve (fill "" = choose later)
 //   POST fill { order, fill }                     How do we fill it?
 //   POST decline { order }                        ✗ Decline
+//   POST delete { order, reason, note }           🗑 Delete order (soft; not once stock moved)
 //   POST pickedUp { key }                         ✓ Picked up (sub at the warehouse)
 //   POST cancelBack { key, index, choice }        a back-ordered item cancelled: "shelf" or "lost"
 //   POST cameIn { lines, vendor, ownerAccountId, ownerAccountName }   + Stock came in
@@ -19,8 +20,8 @@
 //
 //   `order` = { source: "crew-order" | "sub-order", refs: [...] }.
 //
-// Approve (with what it changed), Decline and the fill choice each write a
-// line in the activity log (Settings -> Activity log), entity "supply-order".
+// Approve (with what it changed), Decline, Delete (with the reason) and the
+// fill choice each write a line in the activity log (Settings -> Activity log), entity "supply-order".
 //
 // Until migrations 038 to 040 are in this database GET answers { ready: false }.
 
@@ -35,6 +36,7 @@ import {
   cancelBackOrder,
   chooseFill,
   declineOrder,
+  deleteOrder,
   differentDeliveries,
   officeShelf,
   orderAccountName,
@@ -68,14 +70,14 @@ const FILL_WORDS: Record<Fill, string> = { vendor: "Vendor ships to site", picku
 type Identity = NonNullable<Awaited<ReturnType<typeof getAdminIdentity>>>;
 
 /** One activity-log line for an order: "<account>: <what happened>". Never stops the save. */
-async function logOrder(identity: Identity, order: OrderPick, detail: string) {
+async function logOrder(identity: Identity, order: OrderPick, detail: string, action: "update" | "delete" = "update") {
   if (!identity.accountId) return;
   const accountName = await orderAccountName(order);
   await logActivity({
     actorAccountId: identity.accountId,
     actorRole: identity.role ?? "manager",
     actorName: identity.name || "",
-    action: "update",
+    action,
     entityType: "supply-order",
     entityId: (order.source === "crew-order" ? `crew-${order.refs[0]}` : order.refs.join(",")).slice(0, 200),
     detail: `${accountName ? `${accountName}: ` : ""}${detail}`.slice(0, 500),
@@ -140,6 +142,12 @@ export async function POST(request: NextRequest) {
         const order = orderOf(body.order);
         await declineOrder({ order, by });
         await logOrder(identity, order, "Declined");
+        return NextResponse.json({ success: true });
+      }
+      if (action === "delete") {
+        const order = orderOf(body.order);
+        const result = await deleteOrder({ order, reason: clean(body.reason), note: clean(body.note), by });
+        await logOrder(identity, order, `Deleted. Why: ${result.reason}`, "delete");
         return NextResponse.json({ success: true });
       }
       if (action === "pickedUp") {

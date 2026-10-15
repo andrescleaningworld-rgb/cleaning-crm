@@ -17,6 +17,7 @@ const shelves = await import("../../lib/pg/shelves");
 const crew = await import("../../lib/pg/crew-supplies");
 const supplies = await import("../../lib/pg/supplies");
 const control = await import("../../lib/pg/supply-control");
+const board = await import("../../lib/pg/board");
 const { getSql } = await import("../../lib/db");
 const sql = getSql();
 
@@ -206,6 +207,19 @@ try {
   const call = await shelves.orderForSub({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, sub: "ZZ Sub", lines: [{ supplyId: p2.id, qty: 2 }], note: "ZZ called", by: "check" });
   check("📞 a manager's order for a sub lands Approved, with its product", (await subStatuses(call.groupId)) === "Approved" && ((await sql`SELECT supply_id FROM sub_supply_orders WHERE order_group_id = ${call.groupId}`)[0] as { supply_id: string | number }).supply_id == p2.id);
   check("📞 it needs the sub", await rejects(() => shelves.orderForSub({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, sub: "", lines: [{ supplyId: p2.id, qty: 1 }], note: "", by: "check" })));
+
+  // ----- 🗑 Delete order (migration 041) -----
+  await supplies.createSupplyOrder({ supplyItem: p1.code, quantity: "1", accountName: ACCOUNT_NAME, accountId: ACCOUNT, orderGroupId: "ZZ-CHECK-GROUP-4", subcontractor: "ZZ Sub", status: "New" });
+  const dupe = { source: "sub-order" as const, refs: ["ZZ-CHECK-GROUP-4"] };
+  check("🗑 Other needs a short note", await rejects(() => shelves.deleteOrder({ order: dupe, reason: "Other", note: "", by: "check" })));
+  check("🗑 a reason is needed", await rejects(() => shelves.deleteOrder({ order: dupe, reason: "Because", note: "", by: "check" })));
+  const deleted = await shelves.deleteOrder({ order: dupe, reason: "Duplicate", note: "", by: "check" });
+  const deletedRow = (await sql`SELECT deleted_at IS NOT NULL AS gone, deleted_by, deleted_reason FROM sub_supply_orders WHERE order_group_id = 'ZZ-CHECK-GROUP-4'`)[0] as { gone: boolean; deleted_by: string; deleted_reason: string };
+  check("🗑 a new order is deleted: the row stays, with who and why", deleted.reason === "Duplicate" && deletedRow.gone && deletedRow.deleted_by === "check" && deletedRow.deleted_reason === "Duplicate");
+  check("🗑 it is gone from Supply Orders", !(await supplies.getSupplyOrdersShape()).some((row) => row.orderGroupId === "ZZ-CHECK-GROUP-4"));
+  check("🗑 it is gone from the Pin Board", !((await sql.query(`SELECT item_id FROM (${await board.subOrderGroups()}) g WHERE g.item_id = 'sub-ZZ-CHECK-GROUP-4'`)) as unknown[]).length);
+  check("🗑 an order that already moved stock cannot be deleted", await rejects(() => shelves.deleteOrder({ order: crewOrder, reason: "Test", note: "", by: "check" })));
+  check("🗑 a picked-up order cannot be deleted either", await rejects(() => shelves.deleteOrder({ order: typed, reason: "Old, already handled", note: "", by: "check" })));
 
   // ----- Site stock: + Add delivery, a corrected count -----
   const beforeAdd = await site(p1.id);

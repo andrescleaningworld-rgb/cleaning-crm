@@ -27,6 +27,7 @@ import {
 } from "@/lib/board";
 import { ACCOUNT_DONE_STEP, currentOnboardingSection } from "@/lib/handoffs";
 import { extraJobsReady } from "@/lib/pg/extra-jobs";
+import { notDeleted } from "@/lib/pg/supply-deleted";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 
 let ready: boolean | null = null;
@@ -207,7 +208,7 @@ async function runSync(): Promise<void> {
     SELECT 'supply', g.item_id, COALESCE(NULLIF(g.account_name, ''), 'Supply order'), g.account_id, g.account_name, g.manager, 'open', g.since,
            jsonb_build_object('items', left(g.items, 600), 'count', g.lines::text, 'subcontractor', g.subcontractor, 'orderId', g.order_id),
            g.subcontractor, g.since
-    FROM (${SUB_ORDER_GROUPS}) g
+    FROM (${await subOrderGroups()}) g
     WHERE g.open
     ON CONFLICT (kind, item_id) DO NOTHING
   `);
@@ -219,13 +220,14 @@ async function runSync(): Promise<void> {
       data = h.data || jsonb_build_object('items', left(g.items, 600), 'count', g.lines::text),
       board_done_at = CASE WHEN h.board_done_by = 'Closed in Supply Orders' THEN NULL ELSE h.board_done_at END,
       board_done_by = CASE WHEN h.board_done_by = 'Closed in Supply Orders' THEN '' ELSE h.board_done_by END
-    FROM (${SUB_ORDER_GROUPS}) g
+    FROM (${await subOrderGroups()}) g
     WHERE h.kind = 'supply' AND h.item_id = g.item_id AND g.open
       AND (h.data->>'count' IS DISTINCT FROM g.lines::text OR h.board_done_by = 'Closed in Supply Orders')
   `);
 
   // 5. Supply orders a crew placed from the Crew Link or the Team Hub.
-  await sql`
+  const crewNotDeleted = await notDeleted("o");
+  await sql.query(`
     INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
     SELECT 'supply', 'crew-' || o.id::text, COALESCE(NULLIF(btrim(a.account_name), ''), 'Supply order'),
            COALESCE(o.crew_link_account_id, s.account_id, ''), COALESCE(btrim(a.account_name), ''),
@@ -243,9 +245,9 @@ async function runSync(): Promise<void> {
       SELECT count(*) AS lines, string_agg(sl.qty::text || ' ' || si.name, ', ' ORDER BY si.name) AS items
       FROM supply_order_lines sl JOIN supply_items si ON si.id = sl.item_id WHERE sl.order_id = o.id
     ) l ON true
-    WHERE o.status IN ('new', 'ordered')
+    WHERE o.status IN ('new', 'ordered') AND ${crewNotDeleted}
     ON CONFLICT (kind, item_id) DO NOTHING
-  `;
+  `);
 
   // 6. Take down what was finished where it lives. "Closed there" is who.
   await sql`
@@ -266,8 +268,8 @@ async function runSync(): Promise<void> {
     UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Closed in Supply Orders'
     WHERE h.kind = 'supply' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
       AND (
-        (h.item_id LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM supply_orders o WHERE 'crew-' || o.id::text = h.item_id AND o.status IN ('new', 'ordered')))
-        OR (h.item_id NOT LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM (${SUB_ORDER_GROUPS}) g WHERE g.item_id = h.item_id AND g.open))
+        (h.item_id LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM supply_orders o WHERE 'crew-' || o.id::text = h.item_id AND o.status IN ('new', 'ordered') AND ${crewNotDeleted}))
+        OR (h.item_id NOT LIKE 'crew-%' AND NOT EXISTS (SELECT 1 FROM (${await subOrderGroups()}) g WHERE g.item_id = h.item_id AND g.open))
       )
   `);
   await syncExtraJobs();
@@ -328,8 +330,8 @@ const LINE_OPEN = `(
 // The sub portal's supply orders, one row per order instead of one per line.
 // One order = the lines that share an Order Group ID. The lines saved so far
 // have none, so without it one order = what one sub ordered for one account
-// on one day.
-export const SUB_ORDER_GROUPS = `
+// on one day. Deleted orders (migration 041) are left out: subOrderGroups().
+const SUB_ORDER_GROUPS = `
   SELECT 'sub-' || COALESCE(
            NULLIF(btrim(o.order_group_id), ''),
            md5(o.ordered_on::text || '|' || lower(btrim(COALESCE(NULLIF(btrim(o.subcontractor_email), ''), o.subcontractor))) || '|' || lower(btrim(o.account_name))),
@@ -348,7 +350,13 @@ export const SUB_ORDER_GROUPS = `
   FROM sub_supply_orders o
   LEFT JOIN accounts a ON a.id = o.account_ref
   LEFT JOIN managers m ON m.id = a.manager_id
+  WHERE __NOT_DELETED__
   GROUP BY 1`;
+
+/** SUB_ORDER_GROUPS without deleted lines (where migration 041 is in). */
+export async function subOrderGroups(): Promise<string> {
+  return SUB_ORDER_GROUPS.replace("__NOT_DELETED__", await notDeleted("o"));
+}
 
 /* ---------- reading the board ---------- */
 

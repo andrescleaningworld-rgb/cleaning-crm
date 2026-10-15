@@ -14,6 +14,7 @@ import { getSql } from "@/lib/db";
 import { dateOrNull } from "@/lib/dateUtils";
 import { resolveSupplyId, syncCrewItemByRow } from "@/lib/pg/supply-list";
 import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
+import { notDeleted } from "@/lib/pg/supply-deleted";
 
 type SupplyRow = {
   supply_item: string;
@@ -222,13 +223,13 @@ export type SupplyOrderRow = {
   notes: string;
 };
 
-/** The getSupplyOrders list: one row per ordered item, newest first. */
+/** The getSupplyOrders list: one row per ordered item, newest first. Deleted orders (migration 041) are left out. */
 export async function getSupplyOrdersShape(): Promise<SupplyOrderRow[]> {
   const sql = getSql();
   const rows = (await sql.query(
     `SELECT timestamp_raw, order_id, order_group_id, subcontractor, subcontractor_email, account_name, account_id_raw, supply_item,
             category, description, quantity_raw, unit, delivery_mode, status, notes, sheet_row
-     FROM sub_supply_orders ORDER BY sheet_row DESC`
+     FROM sub_supply_orders WHERE ${await notDeleted("")} ORDER BY sheet_row DESC`
   )) as OrderRow[];
   return rows.map((row) => ({
     rowNumber: row.sheet_row,
