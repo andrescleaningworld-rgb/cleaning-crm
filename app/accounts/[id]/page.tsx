@@ -29,6 +29,7 @@ import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
+import TimeOnSiteDetail from "./time-on-site";
 import CancellationFields from "../../components/CancellationFields";
 import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/cancellation";
 import SitePhotos from "./site-photos";
@@ -1259,6 +1260,7 @@ export default function AccountDetailPage() {
                   <Detail label="Start Date" value={startDate} />
                   <Detail label="Cleaning Days" value={cleaningDays} />
                   <Detail label="Frequency" value={cleaningFrequency} />
+                  <TimeOnSiteDetail accountId={getAccountId(account, rawAccountIdFromUrl)} />
                   <Detail label="CW Pay" value={formatMoney(account.monthlyRevenue)} />
                   <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
                   <Detail label="Has Key" value={account.hasKey || "N/A"} />
