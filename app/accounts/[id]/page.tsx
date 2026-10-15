@@ -1259,6 +1259,7 @@ export default function AccountDetailPage() {
                   <Detail label="Start Date" value={startDate} />
                   <Detail label="Cleaning Days" value={cleaningDays} />
                   <Detail label="Frequency" value={cleaningFrequency} />
+                  <Detail label="CW Pay" value={formatMoney(account.monthlyRevenue)} />
                   <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
                   <Detail label="Has Key" value={account.hasKey || "N/A"} />
                   <Detail label="Alarm Info" value={alarmInfo || "N/A"} />
