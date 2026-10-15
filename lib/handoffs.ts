@@ -58,9 +58,10 @@ export type StepDef = {
 // (New -> Approved -> Pending / In Progress -> Completed), so every list,
 // filter and email that reads Status keeps working.
 export const ORDER_STEPS: StepDef[] = [
-  { key: "ordered", label: "Ordered", owner: "manager", todo: "The manager checks the order and approves it.", button: "Approve order" },
-  { key: "approved", label: "Approved", owner: "office", todo: "The office buys the supplies.", button: "Mark bought" },
-  { key: "bought", label: "Bought", owner: "office", todo: "The office gets the supplies to the account.", button: "Mark delivered" },
+  // Supply Orders (lib/pg/shelves.ts): Approve or Decline, then "How do we fill it?", then the crew confirms (or Picked up).
+  { key: "ordered", label: "New", owner: "manager", todo: "Approve or decline the order.", button: "Approve" },
+  { key: "approved", label: "Approved", owner: "office", todo: "Pick how we fill it: vendor ships, sub picks up, or we deliver.", button: "How do we fill it?" },
+  { key: "bought", label: "On its way", owner: "office", todo: "It gets to the site; the crew confirms on Supplies arrived (or the office taps Picked up).", button: "" },
   { key: "delivered", label: "Delivered", owner: "", todo: "", button: "" },
 ];
 

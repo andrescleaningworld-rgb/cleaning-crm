@@ -5,6 +5,8 @@
 //                                 other accounts' lists to copy from
 //   GET  view=accountList&accountId   another account's picks (product ids)
 //   GET  view=product&rowNumber   one product's Crew Link fields (Supplies -> Edit)
+//   GET  view=products            every product in use, for the office's pickers
+//                                 (Approve, + Stock came in, Order for a sub, Site stock)
 //   POST setPicks { accountId, supplyIds }
 //   POST saveCrew { rowNumber, crewName, brand, inDefaultList }
 //
@@ -52,6 +54,10 @@ export async function GET(request: NextRequest) {
         { success: true, ready: true, products: products.map(forPicker), pickedIds, others: others.filter((other) => other.accountId !== accountId) },
         noStore
       );
+    }
+
+    if (view === "products") {
+      return NextResponse.json({ success: true, ready: true, products: (await listProducts(false)).map(forPicker) }, noStore);
     }
 
     if (view === "accountList") {

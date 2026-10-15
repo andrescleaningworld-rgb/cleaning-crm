@@ -1,10 +1,9 @@
 "use client";
 
-// Phase 6 (docs/team-hub-spec.md): admin CRUD for the three company-wide
-// Team Hub libraries — hub_checklist_library, hub_round_library, and
-// supply_items (Team Hub's own catalog, unrenamed per §2 of the spec — NOT
-// the Sheets-backed Equipment/Supplies inventory /supplies manages).
-// Phase 0 only ever read these three tables; this is the first place an
+// Phase 6 (docs/team-hub-spec.md): admin CRUD for the two company-wide crew
+// libraries — hub_checklist_library and hub_round_library. Supply items are
+// the products on the Supplies page (one list), so this page only links there.
+// Phase 0 only ever read these tables; this is the first place an
 // admin can add/edit/deactivate them. No delete — an item can already be
 // referenced by a crew's item picker or past run history, so "remove" is
 // always Deactivate, same convention every other Team Hub admin entity uses.

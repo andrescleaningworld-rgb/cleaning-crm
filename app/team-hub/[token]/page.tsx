@@ -11,7 +11,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import ChecklistView from "./ChecklistView";
 import RoundsView from "./RoundsView";
-import SuppliesView from "./SuppliesView";
 import IssueReportView from "./IssueReportView";
 import LangToggle from "./LangToggle";
 import PinKeypad from "@/app/components/PinKeypad";
@@ -40,8 +39,9 @@ type SessionResponse = {
 
 const MAX_PIN_LENGTH = 6;
 
-type OpenableModule = "checklist" | "rounds" | "issues" | "supplies";
-const OPENABLE_MODULES = new Set<string>(["checklist", "rounds", "issues", "supplies"]);
+// Supplies are ordered from Crew Link now (Team Hub supply ordering was removed with the one supplies system).
+type OpenableModule = "checklist" | "rounds" | "issues";
+const OPENABLE_MODULES = new Set<string>(["checklist", "rounds", "issues"]);
 
 const INSTALL_HINT_DISMISSED_KEY = "team-hub-install-hint-dismissed";
 
@@ -169,8 +169,6 @@ export default function TeamHubPage() {
               <RoundsView token={token} lang={lang} onBack={() => setOpenModule(null)} />
             ) : openModule === "issues" ? (
               <IssueReportView token={token} lang={lang} onBack={() => setOpenModule(null)} workerName={session.worker?.firstName} />
-            ) : openModule === "supplies" ? (
-              <SuppliesView token={token} lang={lang} onBack={() => setOpenModule(null)} workerName={session.worker?.firstName} />
             ) : (
               <TodayScreen
                 token={token}
@@ -353,7 +351,7 @@ function TodayScreen({
         <p className="mt-2 text-lg text-slate-500">{s.today.noModules}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3">
-          {modules.map((moduleName) => {
+          {modules.filter((moduleName) => moduleName !== "supplies").map((moduleName) => {
             const openable = OPENABLE_MODULES.has(moduleName);
             const label = s.modules[moduleName as keyof typeof s.modules] ?? moduleName;
             const status = statusByModule[moduleName];

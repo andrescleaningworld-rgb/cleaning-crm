@@ -11,7 +11,6 @@
 // Customize instead of always being visible.
 import { useEffect, useState, useCallback } from "react";
 import TranslatedText from "../../components/TranslatedText";
-import { CrewOrderEdit, useEditMarks } from "../../components/crew-order-edit";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 
 type TeamHubSite = {
@@ -1041,20 +1040,6 @@ function AddAnotherCrew({ siteId, onChanged }: { siteId: number; onChanged: () =
 
 // ─── Orders & Problems (Phase 4) ────────────────────────────────────────
 
-type SupplyOrderLine = { itemName: string; unit: string; qty: number };
-type SupplyOrder = {
-  id: number;
-  status: "new" | "ordered" | "delivered" | "cancelled";
-  note: string;
-  noteEnglish: string | null;
-  noteLanguage: string | null;
-  workerFirstName: string | null;
-  createdAt: string;
-  lines: SupplyOrderLine[];
-  // Crew Link write-in ("Other supplies not on the list").
-  otherItems: string | null;
-};
-
 type Issue = {
   id: number;
   category: string;
@@ -1069,16 +1054,11 @@ type Issue = {
   photos: string[];
 };
 
-const ORDER_STATUS_STYLES: Record<SupplyOrder["status"], string> = {
-  new: "bg-blue-100 text-blue-800",
-  ordered: "bg-amber-100 text-amber-800",
-  delivered: "bg-green-100 text-green-800",
-  cancelled: "bg-slate-200 text-slate-600",
-};
-
 // Used for a Team Hub site (site) and, on the account page's Crew Link
-// section, for that account's Crew Link rows (crewLinkAccountId) — same
-// one-tap status, photos, English-first notes and "Promote to complaint".
+// section, for that account's Crew Link rows (crewLinkAccountId) — one-tap
+// status, photos, English-first notes and "Promote to complaint" for the
+// problems the crews sent. Their supply orders are in the one Supply Orders
+// inbox (lib/pg/shelves.ts); this links there.
 export function OrdersAndProblems({
   site,
   crewLinkAccountId,
@@ -1090,26 +1070,16 @@ export function OrdersAndProblems({
   accountId: string;
   accountName: string;
 }) {
-  const [orders, setOrders] = useState<SupplyOrder[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
-  // Who edited which order ("Edited by ..."), asked again after every load.
-  const [loads, setLoads] = useState(0);
-  const editMarks = useEditMarks(orders.map((order) => order.id), loads);
   const query = site ? `siteId=${site.id}` : `crewLinkAccountId=${encodeURIComponent(crewLinkAccountId ?? "")}`;
   const sourceLabel = site ? "Team Hub" : "Crew Link";
 
   const load = useCallback(async () => {
-    const [ordersRes, issuesRes] = await Promise.all([
-      fetch(`/api/admin/team-hub/supply-orders?${query}`, { cache: "no-store" }),
-      fetch(`/api/admin/team-hub/issues?${query}`, { cache: "no-store" }),
-    ]);
-    const ordersData = await ordersRes.json();
+    const issuesRes = await fetch(`/api/admin/team-hub/issues?${query}`, { cache: "no-store" });
     const issuesData = await issuesRes.json();
-    setOrders(ordersData.orders ?? []);
     setIssues(issuesData.issues ?? []);
     setLoading(false);
-    setLoads((count) => count + 1);
   }, [query]);
 
   useEffect(() => {
@@ -1117,15 +1087,6 @@ export function OrdersAndProblems({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
-
-  async function setOrderStatus(id: number, status: SupplyOrder["status"]) {
-    await fetch("/api/admin/team-hub/supply-orders", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-    await load();
-  }
 
   async function setIssueStatus(id: number, status: Issue["status"]) {
     await fetch("/api/admin/team-hub/issues", {
@@ -1137,70 +1098,14 @@ export function OrdersAndProblems({
   }
 
   if (loading) return null;
-  if (orders.length === 0 && issues.length === 0) return null;
 
   return (
     <section className="rounded-2xl bg-white p-5 shadow-sm space-y-5">
       <div>
         <h3 className="text-base font-bold text-slate-900">Supply orders</h3>
-        {orders.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-500">No orders yet.</p>
-        ) : (
-          <div className="mt-2 divide-y divide-gray-100">
-            {orders.map((order) => (
-              <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
-                <div>
-                  {order.lines.length > 0 && (
-                    <p className="text-sm text-slate-800">{order.lines.map((l) => `${l.itemName} x${l.qty}`).join(", ")}</p>
-                  )}
-                  {order.otherItems && (
-                    <p className="mt-0.5 rounded-md bg-amber-50 px-2 py-1 text-sm text-amber-900">
-                      <span className="font-bold">Other supplies:</span> {order.otherItems}
-                    </p>
-                  )}
-                  <p className="text-xs text-slate-500">
-                    {order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}
-                    {order.note ? (
-                      <>
-                        {" · "}
-                        <TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${ORDER_STATUS_STYLES[order.status]}`}>{order.status}</span>
-                  <a
-                    href={`/crew-link/print/order/${order.id}`}
-                    target="_blank"
-                    rel="noopener"
-                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    🖨️ Print
-                  </a>
-                  {order.status === "new" && (
-                    <button type="button" onClick={() => setOrderStatus(order.id, "ordered")} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                      Mark Ordered
-                    </button>
-                  )}
-                  {order.status === "ordered" && (
-                    <button type="button" onClick={() => setOrderStatus(order.id, "delivered")} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                      Mark Delivered
-                    </button>
-                  )}
-                  {(order.status === "new" || order.status === "ordered") && (
-                    <button type="button" onClick={() => setOrderStatus(order.id, "cancelled")} className="text-xs font-semibold text-slate-400 hover:text-slate-600">
-                      Cancel
-                    </button>
-                  )}
-                </div>
-                <div className="ui-actions-row" style={{ flexBasis: "100%" }}>
-                  <CrewOrderEdit orderId={order.id} status={order.status} mark={editMarks[order.id]} onSaved={() => void load()} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <a href={`/supply-orders?accountId=${encodeURIComponent(accountId)}`} className="mt-2 inline-block rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          Open the orders for this account in Supply Orders
+        </a>
       </div>
 
       <div>
@@ -1614,7 +1519,8 @@ function VisibilitySetup({ crewId }: { crewId: number }) {
             ))}
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {/* Supply items are not picked here: crews order the products picked for the account (Crew Link setup). */}
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <LibraryPicker
               title="Checklist items"
               items={libraries.checklist}
@@ -1628,13 +1534,6 @@ function VisibilitySetup({ crewId }: { crewId: number }) {
               labelKey="name"
               isEnabled={(id) => isEnabled("round", id)}
               onToggle={(id) => toggleItem("round", id)}
-            />
-            <LibraryPicker
-              title="Supply items"
-              items={libraries.supplies}
-              labelKey="name"
-              isEnabled={(id) => isEnabled("supply", id)}
-              onToggle={(id) => toggleItem("supply", id)}
             />
           </div>
         </>
@@ -1718,12 +1617,6 @@ function PreviewAsCrew({
         ))}
       </ul>
 
-      <p className="mt-3 text-sm font-semibold text-slate-900">Supply items</p>
-      <ul className="list-inside list-disc text-sm text-slate-600">
-        {enabledNames("supply", libraries.supplies, "name").map((t, i) => (
-          <li key={i}>{t}</li>
-        ))}
-      </ul>
     </div>
   );
 }

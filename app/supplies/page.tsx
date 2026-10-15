@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import SupplyControl from "./supply-control";
 import Shelves from "./shelves";
 import CrewLinkFields from "./crew-link-fields";
 import {
@@ -278,15 +277,16 @@ function statusKind(statusValue: string): StatusKind {
 
 // One supply list (migration 038): the products are the list crews order from too; there is no separate catalog.
 const PAGE_TABS: { value: "stock" | "shelves"; label: string }[] = [
-  { value: "stock", label: "Supplies" },
-  { value: "shelves", label: "Shelves" },
+  { value: "shelves", label: "🏬 Warehouse and sites" },
+  { value: "stock", label: "Products" },
 ];
 
 export default function SuppliesPage() {
-  // "Shelves": the office shelf and every site's shelf (shelves.tsx). /supplies?tab=shelves opens it.
-  const [pageTab, setPageTab] = useState<"stock" | "shelves">("stock");
+  // "Warehouse and sites" (shelves.tsx) opens first; "Products" is the list itself. /supplies?tab=products opens the list.
+  const [pageTab, setPageTab] = useState<"stock" | "shelves">("shelves");
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("tab") === "shelves") setPageTab("shelves");
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "products" || tab === "stock") setPageTab("stock");
   }, []);
   const [supplies, setSupplies] = useState<SupplyItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -526,7 +526,7 @@ export default function SuppliesPage() {
   if (pageTab === "shelves") {
     return (
       <Screen title="Supplies" backHref="/">
-        <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the shelves" />
+        <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Warehouse or products" />
         <Shelves />
       </Screen>
     );
@@ -562,10 +562,7 @@ export default function SuppliesPage() {
         }}
       />
 
-      <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Supplies or the shelves" />
-
-      {/* Supply control (the shelf, reorder, orders, spend): shows only where it is switched on. */}
-      <SupplyControl />
+      <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Warehouse or products" />
 
       {/* At a glance: tap a number to see those supplies. */}
       <Counts

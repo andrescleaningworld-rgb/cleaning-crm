@@ -36,6 +36,7 @@ import PhotosLink from "./photos-link";
 import AccountEverything from "./account-everything";
 import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
+import SiteStock from "./site-stock";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
@@ -1433,6 +1434,9 @@ export default function AccountDetailPage() {
                 <SupplyMode accountId={thisAccountId} accountName={accountName} />
                 <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
               </div>
+
+              {/* What is at this site, + Add delivery, a corrected count, and its history. */}
+              <SiteStock accountId={thisAccountId} accountName={accountName} />
 
               <Card title="Money">
                 <div className="ui-stats">

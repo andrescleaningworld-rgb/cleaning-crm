@@ -52,7 +52,7 @@ Please do the two phone tests in section 5.
 
 - Settings, Pin Board: the "Pin to board" switches can now be saved.
 - Tips are remembered per person on every device.
-- Supply control only needs `FEATURE_SUPPLY_CONTROL=1` to turn on (see the supplies report).
+- Supply control only needs `FEATURE_SUPPLY_CONTROL=1` to turn on (see the supplies report). *Update, October 15, 2026: that switch is gone; supplies turn on with migrations 038 to 040 (see the update at the top of the supplies report).*
 
 ---
 

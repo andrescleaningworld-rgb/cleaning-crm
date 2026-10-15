@@ -1,9 +1,8 @@
 // Public, no-login route (proxy.ts PUBLIC_PATHS already covers
 // "/api/porter-checklist") — Crew Link "Order supplies"
 // (docs/crew-link-spec.md). Gated by the link's porter_code and its
-// supply-orders switch; rate-limited per code. Same response shapes as the
-// Team Hub supplies route so app/team-hub/[token]/SuppliesView.tsx is reused
-// as-is. Never returns account ids or other accounts' data.
+// supply-orders switch; rate-limited per code. The orders land in the Supply
+// Orders inbox (lib/pg/shelves.ts). Never returns account ids or other accounts' data.
 import { NextRequest, NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { listSupplyItemsLibrary, createCrewLinkSupplyOrder, listCrewLinkSupplyOrdersForAccount } from "@/lib/teamHubDb";

@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
     if (!accountId || !sub.mine) return refuse("That site is not one of yours.", 403);
     try {
       if (body.action === "arrive") {
-        const result = await confirmArrival({ accountId, key: clean(body.key), got: (Array.isArray(body.got) ? body.got : []).map((n) => Number(n)), by: sub.name });
+        const result = await confirmArrival({ accountId, key: clean(body.key), got: (Array.isArray(body.got) ? body.got : []).map((n) => Number(n)), by: sub.name, source: "sub-portal" });
         return NextResponse.json({ success: true, short: result.short.length, extra: result.extra.length });
       }
       if (body.action === "empty") {
-        const result = await caseEmpty({ accountId, supplyId: Number(body.supplyId), by: sub.name });
+        const result = await caseEmpty({ accountId, supplyId: Number(body.supplyId), by: sub.name, source: "sub-portal" });
         return NextResponse.json({ success: true, qty: result.qty });
       }
     } catch (error) {

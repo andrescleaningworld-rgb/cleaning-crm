@@ -82,9 +82,9 @@ export default function HowItWorksPage() {
   ];
   const order: Box[] = [
     { label: "Orders supplies", who: "Sub" },
-    { label: "Approve order", who: who(ORDER_STEPS[0].owner) },
-    { label: "Mark bought", who: who(ORDER_STEPS[1].owner) },
-    { label: "Mark delivered", who: who(ORDER_STEPS[2].owner) },
+    { label: "Approve or decline", who: who(ORDER_STEPS[0].owner) },
+    { label: "How do we fill it?", who: who(ORDER_STEPS[1].owner) },
+    { label: "Supplies arrived", who: "Crew" },
   ];
 
   return (

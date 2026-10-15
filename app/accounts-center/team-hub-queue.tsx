@@ -1,19 +1,16 @@
 "use client";
 
-// Phase 6 (docs/team-hub-spec.md): staff queue — open Team Hub problems and
-// supply orders across EVERY account, not just one (the Phase 4 admin UI on
-// each account's own Team Hub tab is scoped to that one account). Reuses
-// the existing per-issue/per-order admin actions
-// (/api/admin/team-hub/issues, /api/admin/team-hub/supply-orders) — those
-// already work by id regardless of which site/account the row belongs to.
-// Crew Link rows (docs/crew-link-spec.md) share this one queue; they're
-// tagged "Crew Link" and link to the account page instead of its Team Hub tab.
+// Phase 6 (docs/team-hub-spec.md): staff queue — open problems the crews
+// sent, across EVERY account. Reuses the per-issue admin action
+// (/api/admin/team-hub/issues). Crew Link rows (docs/crew-link-spec.md) share
+// this one queue; they're tagged "Crew Link" and link to the account page.
+// Supply orders are not here: every order is in the one Supply Orders inbox
+// (lib/pg/shelves.ts), and this queue links there.
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
-import { CrewOrderEdit, useEditMarks } from "../components/crew-order-edit";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
-import { BigButton, Card, ErrorBox, Screen, SkeletonList, StatusPill } from "@/app/ui";
+import { BigButton, Card, ErrorBox, Screen, SkeletonList } from "@/app/ui";
 
 type QueueSource = "team-hub" | "crew-link";
 
@@ -42,34 +39,12 @@ type QueueIssue = {
   photos: string[];
 };
 
-type QueueOrder = {
-  id: number;
-  source: QueueSource;
-  accountId: string;
-  siteLabel: string;
-  crewName: string;
-  status: "new" | "ordered" | "delivered" | "cancelled";
-  note: string;
-  noteEnglish: string | null;
-  noteLanguage: string | null;
-  workerFirstName: string | null;
-  createdAt: string;
-  lines: { itemName: string; unit: string; qty: number }[];
-  // Crew Link write-in ("Other supplies not on the list").
-  otherItems: string | null;
-};
-
-const ORDER_STATUS_LABEL: Record<QueueOrder["status"], string> = { new: "Sent", ordered: "Ordered", delivered: "Delivered", cancelled: "Cancelled" };
-
 export default function TeamHubStaffQueue() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [issues, setIssues] = useState<QueueIssue[]>([]);
-  const [orders, setOrders] = useState<QueueOrder[]>([]);
+  const [openOrders, setOpenOrders] = useState(0);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
-  // Who edited which order ("Edited by ..."), asked again after every load.
-  const [loads, setLoads] = useState(0);
-  const editMarks = useEditMarks(orders.map((order) => order.id), loads);
 
   async function load() {
     setLoading(true);
@@ -79,9 +54,8 @@ export default function TeamHubStaffQueue() {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || "Failed to load the Team Hub queue.");
       setIssues(data.issues ?? []);
-      setOrders(data.orders ?? []);
+      setOpenOrders(Array.isArray(data.orders) ? data.orders.length : 0);
       setAccountNames(data.accountNamesById ?? {});
-      setLoads((count) => count + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load the Team Hub queue.");
     } finally {
@@ -108,23 +82,8 @@ export default function TeamHubStaffQueue() {
     }
   }
 
-  async function advanceOrder(id: number, status: QueueOrder["status"]) {
-    try {
-      const res = await fetch("/api/admin/team-hub/supply-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "setStatus", id, status }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "Failed.");
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update order.");
-    }
-  }
-
   return (
-    <Screen title="Crew Link" subtitle="Open problems and supply orders sent by the crews.">
+    <Screen title="Crew Link" subtitle="Open problems sent by the crews. Their supply orders are in Supply Orders.">
       {error ? <ErrorBox title="That did not work." text={error} onRetry={() => void load()} /> : null}
 
       {loading ? (
@@ -169,58 +128,9 @@ export default function TeamHubStaffQueue() {
             </div>
           </Card>
 
-          <Card title={`Open Supply Orders (${orders.length})`}>
-            <div className="ui-stack">
-              {orders.map((order) => (
-                <div key={order.id} className="ui-stat">
-                  <div className="ui-card-row">
-                    <Link href={accountHref(order.accountId, order.source)} className="ui-table-rowlink">
-                      {accountNames[order.accountId] ?? order.accountId}
-                    </Link>
-                    <StatusPill kind="waiting">{ORDER_STATUS_LABEL[order.status]}</StatusPill>
-                  </div>
-                  <p className="ui-muted">{sourceLine(order)}</p>
-                  <ul className="ui-list-plain" style={{ marginTop: 4 }}>
-                    {order.lines.map((line, i) => (
-                      <li key={i}>
-                        {line.qty} × {line.itemName} ({line.unit})
-                      </li>
-                    ))}
-                  </ul>
-                  {order.otherItems && (
-                    <p style={{ margin: "4px 0 0" }}>
-                      <span className="ui-strong">Other supplies:</span> {order.otherItems}
-                    </p>
-                  )}
-                  {order.note && (
-                    <p className="ui-muted" style={{ fontStyle: "italic" }}>
-                      &quot;<TranslatedText original={order.note} english={order.noteEnglish} language={order.noteLanguage} />&quot;
-                    </p>
-                  )}
-                  <p className="ui-muted">
-                    {order.workerFirstName ?? "Unknown"} · {formatCrewDateTime(order.createdAt)}
-                  </p>
-                  <div className="ui-actions-row" style={{ marginTop: 8 }}>
-                    {order.status === "new" && (
-                      <BigButton kind="second" onClick={() => void advanceOrder(order.id, "ordered")}>
-                        Mark Ordered
-                      </BigButton>
-                    )}
-                    <BigButton kind="second" onClick={() => void advanceOrder(order.id, "delivered")}>
-                      Mark Delivered
-                    </BigButton>
-                    <a href={`/crew-link/print/order/${order.id}`} target="_blank" rel="noopener" className="ui-btn ui-btn-second">
-                      Print
-                    </a>
-                    <BigButton kind="quiet" onClick={() => void advanceOrder(order.id, "cancelled")}>
-                      Cancel
-                    </BigButton>
-                    <CrewOrderEdit orderId={order.id} status={order.status} mark={editMarks[order.id]} onSaved={() => void load()} />
-                  </div>
-                </div>
-              ))}
-              {orders.length === 0 && <p className="ui-muted">No open supply orders.</p>}
-            </div>
+          <Card title="Supply orders">
+            <p className="ui-muted">Every supply order, from crews, subs and managers, is approved and filled in Supply Orders.</p>
+            <BigButton href="/supply-orders">{openOrders > 0 ? `Supply Orders (${openOrders} from crews)` : "Supply Orders"}</BigButton>
           </Card>
         </>
       )}

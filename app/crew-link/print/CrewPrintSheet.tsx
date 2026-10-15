@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 
 // globals.css hides everything when printing (body * { visibility: hidden })
 // and re-shows only a page's own opt-in container — .crew-print-view is that
-// container here, same contract as .todo-print-view / .supply-order-print-view.
+// container here, same contract as .todo-print-view.
 export function CrewPrintStyles() {
   return (
     <style>{`

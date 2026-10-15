@@ -1,39 +1,44 @@
 "use client";
 
-// Supply Orders -> one card per order (lib/supplyOrderStatus.ts, lib/pg/shelves.ts):
+// Supply Orders -> one card per order, from anywhere: a Crew Link order, a
+// sub-portal order (its lines, same order group; older lines: same account,
+// sub and time), or an order a manager entered for a sub. The same orders are
+// in the Pin Board's Supply orders square. The order moves on the server
+// (lib/pg/shelves.ts, POST /api/shelves):
 //
-//   a sub-portal order   its lines (same order group; older lines: same account,
-//                        sub and time), each still its own order row
-//   a Crew Link order    one order with its lines
+//   New            ✓ Approve (approve-sheet.tsx: change numbers, match a
+//                  typed-in line to a product, add items, then how we fill
+//                  it) or ✗ Decline
+//   Approved       "How do we fill it?": 🚚 Vendor ships to site / 🏬 Sub picks
+//                  up / 🚐 We deliver (the sub's own Pick Up / Deliver choice
+//                  is marked)
+//   On its way     vendor or we deliver: the crew confirms on Supplies
+//                  arrived; a pick-up: ✓ Picked up here. We deliver waits for
+//                  the tablet (Supply Check -> For an account) first.
+//   Delivered
 //
-// The card says the step of its least-advanced item. Its big button moves the
-// whole order one step: ✓ Approve -> 🛒 Mark bought -> 🚚 Sent to site. The
-// crew's "📦 Supplies arrived" marks it Delivered. "Change items one by one"
-// opens the lines (Status per line; Edit order for Crew Link). Tick cards for
-// the sticky bar: the same three actions for many orders at once, after
-// "Do this for X orders?". Anything that arrived different (short or extra)
-// is red on its card; what came short is "⏳ Back order" on it, with Cancel
-// per item, until the crew confirms the rest or the office cancels it
-// (back-order.tsx).
-// 🖨 Print opens a clean printable order (app/supply-orders/print), and
-// 📌 Pin to board puts it on the board with the same square picker as an
-// account's Print PDF; both work for one card or every ticked card.
+// What arrived short or extra is red on its card; what came short is
+// "⏳ Back order" on it, with Cancel per item (back-order.tsx). Tick cards for
+// the sticky bar: Decline or one way to fill, for many at once, after "Do
+// this for X orders?". 🖨 Print opens a clean printable order
+// (app/supply-orders/print), 📌 Pin to board puts it on the board.
 //
 // The step tracking stays one item per order line (handoff_items, kind
 // "order"; a Crew Link order is "crew-<id>"), so the In progress / Late /
-// Waiting on me counts, My work and the dashboard keep working as before.
+// Waiting on me counts, My work and the dashboard keep working: after every
+// change the cards tell it the new step (syncOrders).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AccountLink from "../components/AccountLink";
-import { CrewOrderEdit } from "../components/crew-order-edit";
-import { BackOrderBox, DifferentBox, type BackOrderLine } from "./back-order";
 import { HandoffCard, postHandoff, useHandoffs } from "../components/handoffs";
 import { orderForSync } from "../components/my-work";
 import { SquareTiles, pinIsOn, pinRecord, usePinInfo, type BoardSpot } from "../components/pin-to-board";
 import { ConfirmSheet, Counts, EmptyState, Sheet, StatusPill, Tips, showToast, type StatusKind } from "@/app/ui";
-import { ORDER_STATUS_FOR_STEP, ORDER_STEPS, isLate, isMine, orderStepFromStatus, type HandoffItem } from "@/lib/handoffs";
-import { ORDER_STATUSES, canonicalOrderStatus } from "@/lib/supplyOrderStatus";
+import { ORDER_STEPS, isLate, isMine, orderStepFromStatus, type HandoffItem } from "@/lib/handoffs";
+import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
+import ApproveSheet, { FILL_WORDS, FillButtons, postShelves, type FillChoice, type OrderPick } from "./approve-sheet";
+import { BackOrderBox, DifferentBox, type BackOrderLine } from "./back-order";
 
 export type SubOrder = Record<string, unknown> & {
   rowNumber?: number;
@@ -63,13 +68,15 @@ type CrewOrder = {
   editedBy: string;
   editedAt: string;
 };
-type Waiting = { key: string; source: "crew-order" | "sub-order" | "office"; ref: string; sentAt: string; backOrder?: boolean; lines: BackOrderLine[] };
+type Waiting = { key: string; source: "crew-order" | "sub-order" | "office"; ref: string; sentAt: string; backOrder?: boolean; fill?: FillChoice | ""; lines: BackOrderLine[] };
 type Different = { id: number; source: string; ref: string; title: string; lines: string[] };
 
 type Item = { itemId: string; text: string; delivery: string; status: string; step: string; row?: SubOrder };
 type Card = {
   key: string;
   source: "sub" | "crew";
+  /** What the server knows the order by. */
+  order: OrderPick;
   accountId: string;
   accountName: string;
   orderedBy: string;
@@ -79,10 +86,10 @@ type Card = {
   /** The least-advanced step of its items. "" = out of the flow (denied, cancelled). */
   step: string;
   status: string;
-  crew?: CrewOrder;
-  /** Shelves keys this order can be sent with (not sent yet). */
-  sendKeys: string[];
-  sent: boolean;
+  /** The order's own delivery (not a back order), once it is approved and filled. */
+  delivery: Waiting | null;
+  /** The sub's own choice on the portal, as a way to fill it. */
+  suggested: FillChoice | "";
   /** What a crew confirmed different from the order (short or extra). */
   different: Different[];
   /** What came short and is still on its way. */
@@ -94,14 +101,17 @@ type Card = {
 
 export type OrderSummary = { total: number; newOrReview: number; approved: number; pending: number; completed: number };
 
-type Action = "approved" | "bought" | "send";
-const ACTION_LABEL: Record<Action, string> = { approved: "✓ Approve", bought: "🛒 Mark bought", send: "🚚 Sent to site" };
-/** What the card's button does on each step. */
-const ACTION_FOR_STEP: Record<string, Action> = { ordered: "approved", approved: "bought", bought: "send" };
-const STEP_INDEX = new Map(ORDER_STEPS.map((step, index) => [step.key, index]));
+type Bulk = "decline" | FillChoice;
+const BULK_LABEL: Record<Bulk, string> = {
+  decline: "✗ Decline",
+  vendor: `${FILL_WORDS.vendor.icon} ${FILL_WORDS.vendor.label}`,
+  pickup: `${FILL_WORDS.pickup.icon} ${FILL_WORDS.pickup.label}`,
+  deliver: `${FILL_WORDS.deliver.icon} ${FILL_WORDS.deliver.label}`,
+};
 const STEP_LABEL = new Map(ORDER_STEPS.map((step) => [step.key, step.label]));
 const CREW_STEP: Record<CrewOrder["status"], string> = { new: "ordered", ordered: "bought", delivered: "delivered", cancelled: "" };
 const CREW_STATUS: Record<CrewOrder["status"], string> = { new: "New", ordered: "Pending / In Progress", delivered: "Completed", cancelled: "Cancelled" };
+const STEP_INDEX = new Map(ORDER_STEPS.map((step, index) => [step.key, index]));
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const crewItemId = (id: number) => `crew-${id}`;
@@ -111,6 +121,7 @@ const parseDate = (text: string) => {
   const ms = Date.parse(text);
   return Number.isNaN(ms) ? 0 : ms;
 };
+const suggestedFill = (deliveryMode: string): FillChoice | "" => (/pick/i.test(deliveryMode) ? "pickup" : /deliver/i.test(deliveryMode) ? "deliver" : "");
 
 export function statusKind(status: string): StatusKind {
   const lower = canonicalOrderStatus(status).toLowerCase();
@@ -120,12 +131,22 @@ export function statusKind(status: string): StatusKind {
   return "off";
 }
 
-// Same rule as the page's PO picker: lines sent together share orderGroupId;
+// Same rule as the print page: lines sent together share orderGroupId;
 // older lines fall back to the same account + sub + time.
 export function orderGroupKey(order: SubOrder): string {
   const groupId = clean(order.orderGroupId);
   if (groupId) return `group:${groupId}`;
   return `fallback:${clean(order.accountName).toLowerCase()}|${clean(order.subcontractor).toLowerCase()}|${clean(order.timestamp)}`;
+}
+
+/** What the card says while the order is on its way. */
+function onTheWayText(card: Card): string {
+  const delivery = card.delivery;
+  if (!delivery) return "The crew confirms on Supplies arrived.";
+  if (delivery.fill === "pickup") return `${FILL_WORDS.pickup.icon} Waiting for the sub at the warehouse.`;
+  if (delivery.fill === "deliver" && !delivery.sentAt) return `${FILL_WORDS.deliver.icon} Ready to go: take it on the tablet (Supply Check → For an account).`;
+  if (delivery.fill === "deliver") return `${FILL_WORDS.deliver.icon} On the way. The crew confirms on Supplies arrived.`;
+  return `${FILL_WORDS.vendor.icon} The vendor ships it. The crew confirms on Supplies arrived.`;
 }
 
 export default function OrderCards({
@@ -137,7 +158,6 @@ export default function OrderCards({
   statusFilter,
   deliveryFilter,
   newestFirst,
-  onItemStatus,
   onChanged,
   onSummary,
 }: {
@@ -152,8 +172,6 @@ export default function OrderCards({
   statusFilter: string;
   deliveryFilter: string;
   newestFirst: boolean;
-  /** Changes one line's Status (the page's own save). */
-  onItemStatus: (order: SubOrder, status: string) => Promise<void>;
   /** Something changed on the server: the page reloads its order list. */
   onChanged: () => Promise<void> | void;
   /** The top numbers: how many ORDERS (not lines) are in each status. */
@@ -167,7 +185,9 @@ export default function OrderCards({
   const [quick, setQuick] = useState<"all" | "late" | "mine">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState("");
-  const [confirm, setConfirm] = useState<{ action: Action; cards: Card[] } | null>(null);
+  const [approving, setApproving] = useState<Card | null>(null);
+  const [confirm, setConfirm] = useState<{ action: Bulk; cards: Card[] } | null>(null);
+  const [pickingUp, setPickingUp] = useState<Card | null>(null);
   // "📌 Pin to board": the orders waiting for a square to be picked.
   const [pinning, setPinning] = useState<Card[] | null>(null);
   const [pinBusy, setPinBusy] = useState("");
@@ -191,9 +211,20 @@ export default function OrderCards({
     void loadExtras();
   }, [loadExtras]);
 
+  /** The step tracking for these orders, from what the cards now say. */
+  const syncFor = useCallback(
+    (list: { itemId: string; step: string; seed: Record<string, unknown> }[]) => {
+      if (list.length === 0) return Promise.resolve();
+      return postHandoff({ action: "syncOrders", orders: list.map((entry) => ({ ...entry.seed, itemId: entry.itemId, step: entry.step })) })
+        .then(() => handoffs.reload())
+        .catch(() => {});
+    },
+    [handoffs]
+  );
+
   // Line the step tracking up with the orders, once per load: sub-portal lines
-  // from their Status (as before), Crew Link orders only forward (their own
-  // status has no Approved or Bought), closed when delivered or cancelled.
+  // from their Status, Crew Link orders only forward (their own status has no
+  // Approved), closed when delivered or cancelled.
   useEffect(() => {
     if (handoffs.state !== "ready" || loading || synced.current) return;
     synced.current = true;
@@ -233,10 +264,6 @@ export default function OrderCards({
   const cards = useMemo<Card[]>(() => {
     if (handoffs.state !== "ready") return [];
     const tracked = new Map(handoffs.items.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
-    const stepOfItem = (itemId: string, fallback: string) => {
-      const row = tracked.get(itemId);
-      return row && !row.doneAt ? row.step : fallback;
-    };
     const lateOrMine = (itemIds: string[], sent: boolean) => {
       const rows = itemIds.map((id) => tracked.get(id)).filter((row): row is HandoffItem => Boolean(row && !row.doneAt));
       return { late: rows.some((row) => isLate(row, handoffs.settings)), mine: !sent && rows.some((row) => isMine(row, handoffs.settings, handoffs.me)) };
@@ -246,6 +273,7 @@ export default function OrderCards({
       if (inFlow.length === 0) return "";
       return inFlow.reduce((low, item) => ((STEP_INDEX.get(item.step) ?? 0) < (STEP_INDEX.get(low) ?? 0) ? item.step : low), inFlow[0].step);
     };
+    const differentFor = (source: string, refs: string[]) => different.filter((entry) => entry.source === source && refs.includes(entry.ref));
 
     const out: Card[] = [];
     const groups = new Map<string, SubOrder[]>();
@@ -258,16 +286,17 @@ export default function OrderCards({
       const items: Item[] = rows.map((row) => {
         const sync = orderForSync(row);
         const status = canonicalOrderStatus(row.status);
-        return { itemId: sync.itemId, text: `${clean(row.quantity)}${row.unit ? ` ${clean(row.unit)}` : ""} × ${clean(row.supplyItem)}`, delivery: clean(row.deliveryMode), status, step: stepOfItem(sync.itemId, orderStepFromStatus(status)), row };
+        return { itemId: sync.itemId, text: `${clean(row.quantity)}${row.unit ? ` ${clean(row.unit)}` : ""} × ${clean(row.supplyItem)}`, delivery: clean(row.deliveryMode), status, step: orderStepFromStatus(status), row };
       });
       // The shelves know a sub order by its group (or, for an older line, its own order id).
       const refs = [...new Set(rows.map((row) => clean(row.orderGroupId) || clean(row.orderId)).filter(Boolean))];
       const mineWaiting = waiting.filter((entry) => entry.source === "sub-order" && refs.includes(entry.ref));
-      const sent = mineWaiting.some((entry) => entry.sentAt);
+      const delivery = mineWaiting.find((entry) => !entry.backOrder) ?? null;
       const step = leastStep(items);
       out.push({
         key,
         source: "sub",
+        order: { source: "sub-order", refs },
         accountId: clean(first.accountId),
         accountName: clean(first.accountName),
         orderedBy: clean(first.subcontractor),
@@ -276,11 +305,14 @@ export default function OrderCards({
         items,
         step,
         status: items.find((item) => item.step === step)?.status ?? items[0].status,
-        sendKeys: mineWaiting.filter((entry) => !entry.sentAt).map((entry) => entry.key),
-        sent,
-        different: different.filter((entry) => entry.source === "sub-order" && refs.includes(entry.ref)),
+        delivery,
+        suggested: suggestedFill(clean(first.deliveryMode)),
+        different: differentFor("sub-order", refs),
         backOrders: mineWaiting.filter((entry) => entry.backOrder),
-        ...lateOrMine(items.map((item) => item.itemId), sent),
+        ...lateOrMine(
+          items.map((item) => item.itemId),
+          Boolean(delivery)
+        ),
         search: [first.accountName, first.accountId, first.subcontractor, first.timestamp, ...rows.flatMap((row) => [row.orderId, row.orderGroupId, row.supplyItem, row.category, row.description, row.quantity, row.unit, row.deliveryMode, row.status, row.notes])]
           .map(clean)
           .join(" ")
@@ -290,12 +322,13 @@ export default function OrderCards({
     for (const order of crewOrders) {
       const itemId = crewItemId(order.id);
       const status = CREW_STATUS[order.status];
-      const step = stepOfItem(itemId, CREW_STEP[order.status]);
+      const step = CREW_STEP[order.status];
       const entries = waiting.filter((entry) => entry.source === "crew-order" && entry.ref === String(order.id));
-      const sent = entries.some((entry) => entry.sentAt);
+      const delivery = entries.find((entry) => !entry.backOrder) ?? null;
       out.push({
         key: itemId,
         source: "crew",
+        order: { source: "crew-order", refs: [String(order.id)] },
         accountId: order.accountId,
         accountName: order.accountName,
         orderedBy: order.orderedBy,
@@ -307,12 +340,11 @@ export default function OrderCards({
         ],
         step,
         status,
-        crew: order,
-        sendKeys: entries.filter((entry) => !entry.sentAt).map((entry) => entry.key),
-        sent,
-        different: different.filter((entry) => entry.source === "crew-order" && entry.ref === String(order.id)),
+        delivery,
+        suggested: "",
+        different: differentFor("crew-order", [String(order.id)]),
         backOrders: entries.filter((entry) => entry.backOrder),
-        ...lateOrMine([itemId], sent),
+        ...lateOrMine([itemId], Boolean(delivery)),
         search: [order.accountName, order.accountId, order.orderedBy, "crew link", order.otherItems, ...order.lines.map((line) => line.itemName), status].join(" ").toLowerCase(),
       });
     }
@@ -329,7 +361,7 @@ export default function OrderCards({
         (deliveryFilter === "All" || card.items.some((item) => item.delivery === deliveryFilter))
     );
   }, [cards, search, deliveryFilter, accountId]);
-  const inProgress = matching.filter((card) => card.step !== "" && card.step !== "delivered");
+  const inProgress = matching.filter((card) => (card.step !== "" && card.step !== "delivered") || card.backOrders.length > 0);
 
   // One count per order, by the status of its item furthest behind (the account
   // the page is opened for only; search and filters do not change them).
@@ -362,35 +394,24 @@ export default function OrderCards({
 
   if (handoffs.state !== "ready") return null;
 
-  const actionOf = (card: Card): Action | null => {
-    const action = ACTION_FOR_STEP[card.step];
-    if (!action) return null;
-    if (action === "send" && (card.sent || card.sendKeys.length === 0)) return null;
-    return action;
-  };
+  /** The step tracking entries for one card, at its new step ("" = closed). */
+  const trackingFor = (card: Card, step: string) =>
+    card.source === "crew"
+      ? [{ itemId: card.key, step, seed: { title: card.accountName || "Supply order", accountId: card.accountId, accountName: card.accountName, createdBy: card.orderedBy, data: { items: card.items.map((item) => item.text).join(", "), subcontractor: "Crew Link" } } }]
+      : card.items.filter((item) => item.row).map((item) => ({ itemId: item.itemId, step, seed: orderForSync(item.row!) as Record<string, unknown> }));
 
-  /** Moves one order one step. Returns false when it could not. */
-  async function act(card: Card, action: Action): Promise<boolean> {
+  /** After a change: reload everything and move the step tracking. */
+  async function afterChange(list: Card[], step: string) {
+    await Promise.all([loadExtras(), onChanged()]);
+    await syncFor(list.flatMap((card) => trackingFor(card, step)));
+  }
+
+  /** Decline or one way to fill, for one card. Returns false when it could not. */
+  async function act(card: Card, action: Bulk): Promise<boolean> {
     try {
-      if (action === "send") {
-        for (const key of card.sendKeys) {
-          const response = await fetch("/api/shelves", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send", key }) });
-          const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
-          if (!response.ok || !body.success) throw new Error(body.error || "It was not sent.");
-        }
-        return true;
-      }
-      // Approve / Mark bought: the items on the card's step move one step on.
-      const toStep = action;
-      if (card.source === "crew") {
-        const seed = { step: card.step, title: card.accountName || "Supply order", accountId: card.accountId, accountName: card.accountName, createdBy: card.orderedBy };
-        await postHandoff({ action: "advance", kind: "order", itemId: card.key, toStep, seed });
-        return true;
-      }
-      for (const item of card.items.filter((entry) => entry.step === card.step && entry.row)) {
-        await onItemStatus(item.row!, ORDER_STATUS_FOR_STEP[toStep]);
-        await postHandoff({ action: "advance", kind: "order", itemId: item.itemId, toStep, seed: orderForSync(item.row!) });
-      }
+      if (action === "decline") await postShelves({ action: "decline", order: card.order });
+      else if (card.step === "ordered") await postShelves({ action: "approve", order: card.order, lines: [], add: [], fill: action });
+      else await postShelves({ action: "fill", order: card.order, fill: action });
       return true;
     } catch (error) {
       showToast(`${card.accountName}: ${error instanceof Error ? error.message : "That did not save."}`, "bad");
@@ -398,14 +419,29 @@ export default function OrderCards({
     }
   }
 
-  async function run(action: Action, list: Card[]) {
+  async function run(action: Bulk, list: Card[]) {
     setBusy(action);
-    let done = 0;
-    for (const card of list) if (await act(card, action)) done++;
-    await Promise.all([handoffs.reload(), loadExtras(), onChanged()]);
+    const done: Card[] = [];
+    for (const card of list) if (await act(card, action)) done.push(card);
+    await afterChange(done, action === "decline" ? "" : "bought");
     setSelected(new Set());
     setBusy("");
-    if (done > 0) showToast(`${ACTION_LABEL[action]}: ${done} order${done === 1 ? "" : "s"} ✓`);
+    if (done.length > 0) showToast(`${BULK_LABEL[action]}: ${done.length} order${done.length === 1 ? "" : "s"} ✓`);
+  }
+
+  async function pickUp(card: Card) {
+    if (!card.delivery) return;
+    setBusy("pickup");
+    try {
+      await postShelves({ action: "pickedUp", key: card.delivery.key });
+      setPickingUp(null);
+      showToast(`${card.accountName}: picked up ✓`);
+      await afterChange([card], "delivered");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "That did not save.", "bad");
+    } finally {
+      setBusy("");
+    }
   }
 
   /** Pins each order to the square picked. A manager is texted only for their own square (the board's rule). */
@@ -437,7 +473,8 @@ export default function OrderCards({
   const canPin = pinInfo !== null && pinIsOn(pinInfo, "order");
 
   const picked = shown.filter((card) => selected.has(card.key));
-  const pickedFor = (action: Action) => picked.filter((card) => actionOf(card) === action);
+  /** Who a bulk button works for: new or approved orders (a Crew Link order is new until it is filled). */
+  const pickedFor = (action: Bulk) => picked.filter((card) => card.step === "ordered" || (card.step === "approved" && (action !== "decline" || !card.delivery)));
   const toggle = (key: string) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -449,10 +486,10 @@ export default function OrderCards({
   return (
     <section className="ui-screen-body no-print" aria-label="Supply orders" data-order-cards>
       <Tips
-        id="order-cards"
+        id="order-cards-inbox"
         steps={[
-          { target: '[data-tip="order-counts"]', text: "One card per order. It goes: Approve, Mark bought, Sent to site. The crew taps Supplies arrived." },
-          { target: '[data-tip="order-list"]', text: "Tick several cards to do the same step for all of them at once." },
+          { target: '[data-tip="order-counts"]', text: "One card per order, from anywhere. Approve or decline; then pick how we fill it. The crew confirms on Supplies arrived." },
+          { target: '[data-tip="order-list"]', text: "Tick several cards to decline them, or fill them the same way, at once." },
         ]}
       />
       {statusFilter === "All" ? (
@@ -471,15 +508,15 @@ export default function OrderCards({
         {!loading && shown.length === 0 ? (
           <EmptyState
             title={statusFilter !== "All" ? "No orders with that status." : quick === "late" ? "Nothing is late ✓" : quick === "mine" ? "Nothing is waiting on you ✓" : "No orders in progress ✓"}
-            text={statusFilter !== "All" ? "Pick All statuses to see the orders in progress." : "New orders from subs and crews show up here."}
+            text={statusFilter !== "All" ? "Pick All statuses to see the orders in progress." : "New orders from subs, crews and managers show up here."}
           />
         ) : null}
         {shown.map((card) => {
-          const action = actionOf(card);
           const stepLabel = card.step === "" ? card.status : STEP_LABEL.get(card.step) ?? card.step;
           const itemIds = [...new Set(card.items.map((item) => item.itemId))].join(" ");
+          const pill = card.backOrders.length > 0 ? "⏳ Back order" : card.step === "bought" && card.delivery?.fill ? `${FILL_WORDS[card.delivery.fill].icon} ${stepLabel}` : stepLabel;
           return (
-            <article key={card.key} className={`ui-card ${card.late ? "border-2 border-red-400" : ""}`} data-order-card={card.key} data-order-items={itemIds}>
+            <article key={card.key} className={`ui-card ${card.late ? "border-2 border-red-400" : ""}`} data-order-card={card.key} data-order-items={itemIds} data-order-step={card.step}>
               <div className="ui-card-row" style={{ alignItems: "flex-start" }}>
                 <label className="flex items-center gap-2">
                   <input type="checkbox" className="h-6 w-6" checked={selected.has(card.key)} onChange={() => toggle(card.key)} aria-label={`Select the order for ${card.accountName}`} />
@@ -487,9 +524,7 @@ export default function OrderCards({
                 </label>
                 <span className="flex flex-wrap items-center gap-2">
                   {card.late ? <StatusPill kind="needs-you">Late</StatusPill> : null}
-                  <StatusPill kind={card.sent || card.backOrders.length > 0 ? "waiting" : statusKind(card.status)}>
-                    {card.backOrders.length > 0 ? "⏳ Back order" : card.sent && card.step === "bought" ? "🚚 On the way" : stepLabel}
-                  </StatusPill>
+                  <StatusPill kind={card.step === "bought" || card.backOrders.length > 0 ? "waiting" : statusKind(card.status)}>{pill}</StatusPill>
                 </span>
               </div>
               <p className="ui-muted" style={{ margin: "2px 0 8px" }}>
@@ -509,17 +544,50 @@ export default function OrderCards({
               {card.backOrders.map((entry) => (
                 <BackOrderBox key={entry.key} entryKey={entry.key} lines={entry.lines} onChanged={() => void Promise.all([loadExtras(), onChanged()])} />
               ))}
-              {card.sent && card.step === "bought" && card.backOrders.length === 0 ? <p className="ui-muted">Sent. The crew confirms with Supplies arrived.</p> : null}
-              {action ? (
+
+              {card.step === "ordered" ? (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    disabled={busy !== ""}
+                    onClick={() => setApproving(card)}
+                    className="min-h-[64px] rounded-2xl bg-green-600 px-4 text-xl font-black text-white shadow-sm active:scale-[0.98] disabled:opacity-50"
+                    data-order-approve
+                  >
+                    ✓ Approve
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy !== ""}
+                    onClick={() => setConfirm({ action: "decline", cards: [card] })}
+                    className="min-h-[64px] rounded-2xl bg-white px-4 text-xl font-black text-red-700 ring-2 ring-red-300 active:scale-[0.98] disabled:opacity-50"
+                    data-order-decline
+                  >
+                    ✗ Decline
+                  </button>
+                </div>
+              ) : null}
+              {card.step === "approved" && !card.delivery ? (
+                <div className="mt-3 ui-stack">
+                  <p className="ui-strong" style={{ margin: 0 }}>
+                    How do we fill it?
+                  </p>
+                  <FillButtons suggested={card.suggested} busy={busy} onPick={(fill) => void run(fill, [card])} />
+                </div>
+              ) : null}
+              {card.step === "bought" && card.backOrders.length === 0 ? <p className="ui-muted">{onTheWayText(card)}</p> : null}
+              {card.step === "bought" && card.delivery?.fill === "pickup" ? (
                 <button
                   type="button"
                   disabled={busy !== ""}
-                  onClick={() => void run(action, [card])}
-                  className="mt-3 flex min-h-[64px] w-full items-center justify-center gap-2 rounded-2xl bg-blue-700 px-4 text-xl font-black text-white shadow-sm active:scale-[0.98] disabled:opacity-50"
+                  onClick={() => setPickingUp(card)}
+                  className="mt-2 flex min-h-[64px] w-full items-center justify-center rounded-2xl bg-green-600 px-4 text-xl font-black text-white shadow-sm active:scale-[0.98] disabled:opacity-50"
+                  data-order-picked-up
                 >
-                  {busy === action ? "Saving…" : ACTION_LABEL[action]}
+                  ✓ Picked up
                 </button>
               ) : null}
+
               <div className="ui-actions-row" style={{ marginTop: 8 }}>
                 <a href={printHref([card.key])} target="_blank" rel="noopener" className="ui-btn ui-btn-second" data-order-print>
                   🖨 Print
@@ -530,39 +598,6 @@ export default function OrderCards({
                   </button>
                 ) : null}
               </div>
-              <details className="mt-2">
-                <summary className="cursor-pointer font-bold">Change items one by one</summary>
-                <div className="ui-stack" style={{ marginTop: 8 }}>
-                  {card.source === "crew" && card.crew ? (
-                    <div className="ui-actions-row">
-                      <CrewOrderEdit
-                        orderId={card.crew.id}
-                        status={card.crew.status}
-                        mark={card.crew.editedAt ? { editedBy: card.crew.editedBy, editedAt: card.crew.editedAt } : undefined}
-                        onSaved={() => void loadExtras()}
-                      />
-                      <a href={`/crew-link/print/order/${card.crew.id}`} target="_blank" rel="noopener" className="ui-btn ui-btn-second">
-                        Print
-                      </a>
-                    </div>
-                  ) : (
-                    card.items.map((item, index) =>
-                      item.row ? (
-                        <ItemStatus key={`${item.itemId}-${index}`} item={item} onChange={async (status) => {
-                          setBusy("item");
-                          try {
-                            await onItemStatus(item.row!, status);
-                            await handoffs.reload();
-                          } finally {
-                            setBusy("");
-                          }
-                        }} disabled={busy !== ""} />
-                      ) : null
-                    )
-                  )}
-                  {card.items.length > 1 ? <p className="ui-muted">The card shows the step of the item furthest behind.</p> : null}
-                </div>
-              </details>
               <HandoffDetail card={card} items={handoffs.items} settings={handoffs.settings} />
             </article>
           );
@@ -574,7 +609,7 @@ export default function OrderCards({
           <p className="ui-strong" style={{ margin: "0 0 8px" }}>
             {picked.length} selected →
           </p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <a href={printHref(picked.map((card) => card.key))} target="_blank" rel="noopener" className="flex min-h-[56px] items-center justify-center rounded-2xl bg-white px-2 text-base font-black text-slate-900 ring-2 ring-slate-300">
               🖨 Print ({picked.length})
             </a>
@@ -583,7 +618,7 @@ export default function OrderCards({
                 📌 Pin ({picked.length})
               </button>
             ) : null}
-            {(["approved", "bought", "send"] as Action[]).map((bulk) => {
+            {(["vendor", "pickup", "deliver", "decline"] as Bulk[]).map((bulk) => {
               const list = pickedFor(bulk);
               return (
                 <button
@@ -591,9 +626,9 @@ export default function OrderCards({
                   type="button"
                   disabled={list.length === 0 || busy !== ""}
                   onClick={() => setConfirm({ action: bulk, cards: list })}
-                  className="min-h-[56px] rounded-2xl bg-blue-700 px-2 text-base font-black text-white disabled:bg-slate-300 disabled:text-slate-500"
+                  className={`min-h-[56px] rounded-2xl px-2 text-base font-black disabled:bg-slate-300 disabled:text-slate-500 ${bulk === "decline" ? "bg-white text-red-700 ring-2 ring-red-300" : "bg-blue-700 text-white"}`}
                 >
-                  {ACTION_LABEL[bulk]}
+                  {BULK_LABEL[bulk]}
                   {list.length > 0 ? ` (${list.length})` : ""}
                 </button>
               );
@@ -601,6 +636,29 @@ export default function OrderCards({
           </div>
         </div>
       ) : null}
+
+      <ApproveSheet
+        order={approving?.order ?? null}
+        title={approving?.accountName || "Supply order"}
+        suggested={approving?.suggested ?? ""}
+        onClose={() => setApproving(null)}
+        onDone={(result) => {
+          const card = approving;
+          setApproving(null);
+          if (card) void afterChange([card], result === "approved" ? "approved" : "bought");
+        }}
+      />
+
+      <ConfirmSheet
+        open={pickingUp !== null}
+        title={pickingUp ? `Picked up: ${pickingUp.accountName}?` : ""}
+        text="It comes off the warehouse and goes on the site's stock. The order is Delivered."
+        confirmLabel="✓ Picked up"
+        busy={busy !== ""}
+        busyLabel="Saving…"
+        onConfirm={() => pickingUp && void pickUp(pickingUp)}
+        onCancel={() => setPickingUp(null)}
+      />
 
       <Sheet
         open={pinning !== null}
@@ -614,9 +672,9 @@ export default function OrderCards({
 
       <ConfirmSheet
         open={confirm !== null}
-        title={confirm ? `Do this for ${confirm.cards.length} order${confirm.cards.length === 1 ? "" : "s"}?` : ""}
-        text={confirm ? `${ACTION_LABEL[confirm.action]}: ${confirm.cards.map((card) => card.accountName || "No account").join(", ")}` : ""}
-        confirmLabel={confirm ? ACTION_LABEL[confirm.action] : ""}
+        title={confirm ? (confirm.cards.length === 1 && confirm.action === "decline" ? `Decline the order for ${confirm.cards[0].accountName || "this account"}?` : `Do this for ${confirm.cards.length} order${confirm.cards.length === 1 ? "" : "s"}?`) : ""}
+        text={confirm ? `${BULK_LABEL[confirm.action]}: ${confirm.cards.map((card) => card.accountName || "No account").join(", ")}` : ""}
+        confirmLabel={confirm ? BULK_LABEL[confirm.action] : ""}
         busy={busy !== ""}
         busyLabel="Saving…"
         onConfirm={async () => {
@@ -630,29 +688,10 @@ export default function OrderCards({
   );
 }
 
-/** One line's Status: the dropdown and the badge read the same word. */
-function ItemStatus({ item, onChange, disabled }: { item: Item; onChange: (status: string) => Promise<void>; disabled: boolean }) {
-  // A word that is none of the seven is shown as it is, in both places.
-  const options = (ORDER_STATUSES as readonly string[]).includes(item.status) ? ORDER_STATUSES : [...ORDER_STATUSES, item.status];
-  return (
-    <div className="flex flex-wrap items-center gap-2" data-item-status={item.itemId}>
-      <span className="min-w-0 flex-1">{item.text}</span>
-      <select value={item.status} disabled={disabled} onChange={(event) => void onChange(event.target.value)} className="ui-input" style={{ maxWidth: 220 }}>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-      <StatusPill kind={statusKind(item.status)}>{item.status}</StatusPill>
-    </div>
-  );
-}
-
 /** Who has the order now and since when, as the step cards showed it (the first open item's tracking). */
 function HandoffDetail({ card, items, settings }: { card: Card; items: HandoffItem[]; settings: Parameters<typeof HandoffCard>[0]["settings"] }) {
   const row = items.find((item) => item.kind === "order" && !item.doneAt && card.items.some((entry) => entry.itemId === item.itemId) && item.step === card.step);
-  if (!row || card.sent) return null;
+  if (!row || card.step === "bought") return null;
   return (
     <div className="mt-2" data-order-handoff>
       <HandoffCard item={row} settings={settings} detail="" />

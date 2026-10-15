@@ -1,6 +1,7 @@
-// Admin-only (proxy.ts default admin gate). Phase 6: CRUD for the three
-// company-wide Team Hub libraries (hub_checklist_library, hub_round_library,
-// supply_items) — Phase 0 only read them. No delete: an item can be
+// Admin-only (proxy.ts default admin gate). Phase 6: CRUD for the two
+// company-wide crew libraries (hub_checklist_library, hub_round_library) —
+// Phase 0 only read them. Supply items are the products on the Supplies page
+// now (lib/pg/supply-list.ts), so they are not edited here. No delete: an item can be
 // referenced by a live hub_crew_items row or past run history, so "remove"
 // is always setActive(false), same convention every other Team Hub admin
 // entity uses. No Sheets reads/writes in this file.
@@ -15,26 +16,18 @@ import {
   createRoundLibraryItem,
   updateRoundLibraryItem,
   setRoundLibraryItemActive,
-  listSupplyItemsLibrary,
-  createSupplyLibraryItem,
-  updateSupplyLibraryItem,
-  setSupplyLibraryItemActive,
 } from "@/lib/teamHubDb";
 
-type LibraryType = "checklist" | "round" | "supply";
+type LibraryType = "checklist" | "round";
 
 function isLibraryType(value: unknown): value is LibraryType {
-  return value === "checklist" || value === "round" || value === "supply";
+  return value === "checklist" || value === "round";
 }
 
 export async function GET() {
   try {
-    const [checklist, rounds, supplies] = await Promise.all([
-      listChecklistLibrary(false),
-      listRoundLibrary(false),
-      listSupplyItemsLibrary(false),
-    ]);
-    return NextResponse.json({ success: true, checklist, rounds, supplies });
+    const [checklist, rounds] = await Promise.all([listChecklistLibrary(false), listRoundLibrary(false)]);
+    return NextResponse.json({ success: true, checklist, rounds });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to load libraries." },
@@ -48,7 +41,7 @@ async function handlePost(request: NextRequest) {
     const body = await request.json();
     const type = body.type;
     if (!isLibraryType(type)) {
-      return NextResponse.json({ success: false, error: 'type must be "checklist", "round", or "supply".' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'type must be "checklist" or "round".' }, { status: 400 });
     }
     const action = String(body.action ?? "");
 
@@ -63,24 +56,12 @@ async function handlePost(request: NextRequest) {
         const item = await createChecklistLibraryItem({ area, text, defaultFrequency, isNote: Boolean(body.isNote) });
         return NextResponse.json({ success: true, item });
       }
-      if (type === "round") {
-        const name = String(body.name ?? "").trim();
-        const defaultIntervalMinutes = Number(body.defaultIntervalMinutes);
-        if (!name || !Number.isInteger(defaultIntervalMinutes) || defaultIntervalMinutes <= 0) {
-          return NextResponse.json({ success: false, error: "name and a positive defaultIntervalMinutes are required." }, { status: 400 });
-        }
-        const item = await createRoundLibraryItem({ name, defaultIntervalMinutes });
-        return NextResponse.json({ success: true, item });
-      }
-      // supply
       const name = String(body.name ?? "").trim();
-      const unit = String(body.unit ?? "").trim() || "unit";
-      const sortOrder = Number.isInteger(Number(body.sortOrder)) ? Number(body.sortOrder) : 0;
-      const equipmentPartId = body.equipmentPartId ? String(body.equipmentPartId).trim() : null;
-      if (!name) {
-        return NextResponse.json({ success: false, error: "name is required." }, { status: 400 });
+      const defaultIntervalMinutes = Number(body.defaultIntervalMinutes);
+      if (!name || !Number.isInteger(defaultIntervalMinutes) || defaultIntervalMinutes <= 0) {
+        return NextResponse.json({ success: false, error: "name and a positive defaultIntervalMinutes are required." }, { status: 400 });
       }
-      const item = await createSupplyLibraryItem({ name, unit, sortOrder, equipmentPartId });
+      const item = await createRoundLibraryItem({ name, defaultIntervalMinutes });
       return NextResponse.json({ success: true, item });
     }
 
@@ -100,19 +81,9 @@ async function handlePost(request: NextRequest) {
         if (!item) return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
         return NextResponse.json({ success: true, item });
       }
-      if (type === "round") {
-        const item = await updateRoundLibraryItem(id, {
-          name: typeof body.name === "string" ? body.name.trim() : undefined,
-          defaultIntervalMinutes: Number.isInteger(Number(body.defaultIntervalMinutes)) ? Number(body.defaultIntervalMinutes) : undefined,
-        });
-        if (!item) return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
-        return NextResponse.json({ success: true, item });
-      }
-      const item = await updateSupplyLibraryItem(id, {
+      const item = await updateRoundLibraryItem(id, {
         name: typeof body.name === "string" ? body.name.trim() : undefined,
-        unit: typeof body.unit === "string" ? body.unit.trim() : undefined,
-        sortOrder: Number.isInteger(Number(body.sortOrder)) ? Number(body.sortOrder) : undefined,
-        equipmentPartId: body.equipmentPartId !== undefined ? (body.equipmentPartId ? String(body.equipmentPartId).trim() : null) : undefined,
+        defaultIntervalMinutes: Number.isInteger(Number(body.defaultIntervalMinutes)) ? Number(body.defaultIntervalMinutes) : undefined,
       });
       if (!item) return NextResponse.json({ success: false, error: "Item not found." }, { status: 404 });
       return NextResponse.json({ success: true, item });
@@ -121,8 +92,7 @@ async function handlePost(request: NextRequest) {
     if (action === "setActive") {
       const active = Boolean(body.active);
       if (type === "checklist") await setChecklistLibraryItemActive(id, active);
-      else if (type === "round") await setRoundLibraryItemActive(id, active);
-      else await setSupplyLibraryItemActive(id, active);
+      else await setRoundLibraryItemActive(id, active);
       return NextResponse.json({ success: true });
     }
 
@@ -135,7 +105,7 @@ async function handlePost(request: NextRequest) {
   }
 }
 
-// Library items / rounds / supply items changed → ES/PT for the new texts (after the response; lib/crewTranslations.ts).
+// Library items / rounds changed → ES/PT for the new texts (after the response; lib/crewTranslations.ts).
 export async function POST(request: NextRequest) {
   const response = await handlePost(request);
   if (response.ok) scheduleCrewTranslations();

@@ -459,56 +459,6 @@ export async function listSupplyItemsLibrary(activeOnly: boolean): Promise<Suppl
   });
 }
 
-function rowToSupplyLibraryItem(row: Record<string, unknown>): SupplyLibraryItem {
-  return {
-    id: row.id as number,
-    name: row.name as string,
-    unit: row.unit as string,
-    sortOrder: row.sort_order as number,
-    active: row.active as boolean,
-    equipmentPartId: (row.equipment_part_id as string | null) ?? null,
-  };
-}
-
-// Company-wide Team Hub supply catalog (this table, unrenamed per §2 of the
-// spec) — NOT the Sheets-backed Equipment/Supplies inventory app/supplies
-// manages; equipmentPartId is the only link between the two, and it stays a
-// plain TEXT reference (never an FK — see the CREATE TABLE comment).
-export async function createSupplyLibraryItem(input: { name: string; unit: string; sortOrder: number; equipmentPartId: string | null }): Promise<SupplyLibraryItem> {
-  const sql = getSql();
-  const rows = await sql`
-    INSERT INTO supply_items (name, unit, sort_order, equipment_part_id)
-    VALUES (${input.name}, ${input.unit}, ${input.sortOrder}, ${input.equipmentPartId})
-    RETURNING *
-  `;
-  return rowToSupplyLibraryItem(rows[0] as Record<string, unknown>);
-}
-
-export async function updateSupplyLibraryItem(
-  id: number,
-  input: Partial<{ name: string; unit: string; sortOrder: number; equipmentPartId: string | null }>
-): Promise<SupplyLibraryItem | null> {
-  const sql = getSql();
-  const existingRows = await sql`SELECT * FROM supply_items WHERE id = ${id} LIMIT 1`;
-  if (existingRows.length === 0) return null;
-  const existing = existingRows[0] as Record<string, unknown>;
-  const name = input.name ?? (existing.name as string);
-  const unit = input.unit ?? (existing.unit as string);
-  const sortOrder = input.sortOrder ?? (existing.sort_order as number);
-  const equipmentPartId = input.equipmentPartId !== undefined ? input.equipmentPartId : ((existing.equipment_part_id as string | null) ?? null);
-  const rows = await sql`
-    UPDATE supply_items SET name = ${name}, unit = ${unit}, sort_order = ${sortOrder}, equipment_part_id = ${equipmentPartId}
-    WHERE id = ${id}
-    RETURNING *
-  `;
-  return rowToSupplyLibraryItem(rows[0] as Record<string, unknown>);
-}
-
-export async function setSupplyLibraryItemActive(id: number, active: boolean): Promise<void> {
-  const sql = getSql();
-  await sql`UPDATE supply_items SET active = ${active} WHERE id = ${id}`;
-}
-
 // ─── hub_crew_items (visibility picker) ─────────────────────────────────
 
 export type TeamHubCrewItem = {
@@ -778,30 +728,6 @@ export type TeamHubSupplyCrewItem = {
   unit: string;
   equipmentPartId: string | null;
 };
-
-export async function listEnabledTeamHubSupplyItemsForCrew(crewId: number): Promise<TeamHubSupplyCrewItem[]> {
-  const sql = getSql();
-  const rows = await sql`
-    SELECT ci.id AS crew_item_id, ci.sort_order, ci.instance_label,
-           si.id AS item_id, si.name, si.unit, si.equipment_part_id
-    FROM hub_crew_items ci
-    JOIN supply_items si ON si.id = ci.item_id
-    WHERE ci.crew_id = ${crewId} AND ci.item_type = 'supply' AND ci.enabled = true
-    ORDER BY ci.sort_order ASC, ci.id ASC
-  `;
-  return rows.map((r) => {
-    const row = r as Record<string, unknown>;
-    return {
-      crewItemId: row.crew_item_id as number,
-      sortOrder: row.sort_order as number,
-      instanceLabel: (row.instance_label as string | null) ?? null,
-      itemId: row.item_id as number,
-      name: row.name as string,
-      unit: row.unit as string,
-      equipmentPartId: (row.equipment_part_id as string | null) ?? null,
-    };
-  });
-}
 
 // Shared crew-item ownership check used by both the checklist run-item
 // upsert and the round check-in — item_id isn't an FK (see above), so this
@@ -1334,71 +1260,6 @@ async function getSupplyOrderLines(orderIds: number[]): Promise<Map<number, Team
   return map;
 }
 
-// Validates every line's itemId against THIS crew's own enabled supply
-// items (not the global catalog) — same defense-in-depth reasoning as
-// upsertTeamHubChecklistRunItem/recordTeamHubRoundCheck.
-export async function createTeamHubSupplyOrder(input: {
-  siteId: number;
-  crewId: number;
-  workerId: number;
-  note: string;
-  lines: { itemId: number; qty: number }[];
-}): Promise<TeamHubSupplyOrder> {
-  const allowed = await listEnabledTeamHubSupplyItemsForCrew(input.crewId);
-  const allowedIds = new Set(allowed.map((i) => i.itemId));
-
-  const lines = input.lines
-    .filter((l) => Number.isInteger(l.itemId) && allowedIds.has(l.itemId) && Number.isInteger(l.qty) && l.qty > 0)
-    .map((l) => ({ itemId: l.itemId, qty: Math.min(l.qty, 999) }));
-
-  if (lines.length === 0) {
-    throw new Error("Add at least one item before sending.");
-  }
-
-  const note = input.note.trim().slice(0, 1000);
-  const sql = getSql();
-  const rows = await sql`
-    INSERT INTO supply_orders (site_id, crew_id, worker_id, note) VALUES (${input.siteId}, ${input.crewId}, ${input.workerId}, ${note})
-    RETURNING *
-  `;
-  const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
-
-  for (const line of lines) {
-    await sql`INSERT INTO supply_order_lines (order_id, item_id, qty) VALUES (${order.id}, ${line.itemId}, ${line.qty})`;
-  }
-  order.lines = lines.map((l) => {
-    const item = allowed.find((i) => i.itemId === l.itemId)!;
-    return { itemId: l.itemId, itemName: item.name, unit: item.unit, qty: l.qty, equipmentPartId: item.equipmentPartId };
-  });
-  return order;
-}
-
-export async function listRecentTeamHubSupplyOrdersForCrew(crewId: number, limit = 10): Promise<TeamHubSupplyOrder[]> {
-  const sql = getSql();
-  const rows = await sql`SELECT * FROM supply_orders WHERE crew_id = ${crewId} ORDER BY created_at DESC LIMIT ${limit}`;
-  const orders = rows.map((r) => rowToSupplyOrder(r as Record<string, unknown>));
-  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
-  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
-  return orders;
-}
-
-// Admin: every order for one site (across all its crews).
-export async function listTeamHubSupplyOrdersForSite(siteId: number, limit = 200): Promise<TeamHubSupplyOrder[]> {
-  const sql = getSql();
-  const rows = await sql`
-    SELECT so.*, w.first_name AS worker_first_name
-    FROM supply_orders so
-    LEFT JOIN hub_workers w ON w.id = so.worker_id
-    WHERE so.site_id = ${siteId}
-    ORDER BY so.created_at DESC
-    LIMIT ${limit}
-  `;
-  const orders = rows.map((r) => rowToSupplyOrder(r as Record<string, unknown>));
-  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
-  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
-  return orders;
-}
-
 // Admin: one order by id, Team Hub or Crew Link (the printable order page).
 export async function getSupplyOrderById(orderId: number): Promise<TeamHubSupplyOrder | null> {
   const sql = getSql();
@@ -1409,20 +1270,6 @@ export async function getSupplyOrderById(orderId: number): Promise<TeamHubSupply
     WHERE so.id = ${orderId}
     LIMIT 1
   `;
-  if (rows.length === 0) return null;
-  const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
-  const linesByOrderId = await getSupplyOrderLines([order.id]);
-  order.lines = linesByOrderId.get(order.id) ?? [];
-  return order;
-}
-
-// Returns the updated order WITH lines (the caller — the admin route —
-// needs the lines' equipmentPartId to decide what to decrement in
-// Equipment when status becomes 'delivered'; that Sheets call happens in
-// the route, not here — this file never imports lib/googleSheets.ts).
-export async function setTeamHubSupplyOrderStatus(orderId: number, status: TeamHubSupplyOrderStatus): Promise<TeamHubSupplyOrder | null> {
-  const sql = getSql();
-  const rows = await sql`UPDATE supply_orders SET status = ${status}, updated_at = now() WHERE id = ${orderId} RETURNING *`;
   if (rows.length === 0) return null;
   const order = rowToSupplyOrder(rows[0] as Record<string, unknown>);
   const linesByOrderId = await getSupplyOrderLines([order.id]);

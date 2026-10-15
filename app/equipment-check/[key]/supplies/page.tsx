@@ -1,12 +1,18 @@
 "use client";
 
-// Supply Check, on the same shop tablet, link and staff PINs as Equipment
-// Check: name + PIN -> where is it going (a site or Office use) -> picture
-// grid with big − / + -> Done. Stock drops and the site is charged (the
-// server does that; no money is shown here). "Returned" puts items back.
-// Once a week it first asks to count five items.
+// Supply Check ("I'm taking supplies"), on the same shop tablet, link and
+// staff PINs as Equipment Check: name + PIN -> taking or bringing back ->
+// what is it for:
 //
-// Behind FEATURE_SUPPLY_CONTROL: when it is off, this page says so.
+//   🏢 An account      orders ready to go ("We deliver") first: tap one,
+//                      ✓ Taken. Or pick the account and the items. It leaves
+//                      the warehouse now; the site gets it when the crew
+//                      confirms Supplies arrived.
+//   🧽 In-house job    an open Extra Job, or type the job's name
+//   🚐 Van / general
+//
+// -> picture grid with big − / + -> Done. Once a week it first asks to count
+// five items. No money is ever shown here. English / Español / Português.
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -17,8 +23,13 @@ import { useTeamHubLang, type TeamHubLang } from "@/app/team-hub/teamHubStrings"
 type Person = { staffId: string; name: string; isNew: boolean };
 type Item = { id: number; name: string; unit: string; photoUrl: string; shelfCount: number | null; shelfLocation: string };
 type Site = { id: string; name: string };
+type Ready = { key: string; accountId: string; accountName: string; lines: { name: string; unit: string; qty: number }[] };
+type Job = { id: string; label: string; date: string };
 type CountAsk = { supplyId: number; name: string; photoUrl: string; unit: string; shelfLocation: string };
-type Home = { name: string; officeUse: string; items: Item[]; sites: Site[]; count: { week: string; asks: CountAsk[] } | null };
+type Home = { name: string; officeUse: string; items: Item[]; sites: Site[]; ready: Ready[]; jobs: Job[]; count: { week: string; asks: CountAsk[] } | null };
+
+/** What the items are for. */
+type Target = { for: "account"; site: Site } | { for: "job"; jobId: string; jobName: string } | { for: "van" } | { for: "return" };
 
 type Screen =
   | { kind: "loading" }
@@ -26,8 +37,11 @@ type Screen =
   | { kind: "people" }
   | { kind: "pin"; person: Person }
   | { kind: "count" }
-  | { kind: "where" }
-  | { kind: "grid"; site: Site; mode: "take" | "return" }
+  | { kind: "for" }
+  | { kind: "account" }
+  | { kind: "job" }
+  | { kind: "ready"; order: Ready }
+  | { kind: "grid"; target: Target }
   | { kind: "done"; items: number; mode: "take" | "return" | "count" };
 
 const WORDS = {
@@ -43,11 +57,20 @@ const WORDS = {
     locked: "Too many tries. Wait a few minutes or ask your office.",
     newPin: "Create your PIN in Equipment Check first.",
     notYou: "Not you?",
-    where: "Where is it going?",
-    office: "Office use",
-    search: "Find a site",
-    taking: "Taking",
-    returning: "Returned",
+    taking: "I'm taking",
+    returning: "Bringing back",
+    whatFor: "What is it for?",
+    forAccount: "An account",
+    forJob: "In-house job",
+    forVan: "Van / general",
+    readyToGo: "Ready to go",
+    taken: "✓ Taken",
+    pickAccount: "Which account?",
+    pickJob: "Which job?",
+    typeJob: "Or type the job",
+    next: "Next",
+    noJobs: "No open jobs.",
+    search: "Find an account",
     whatTake: "What are you taking?",
     whatReturn: "What are you bringing back?",
     onShelf: (n: number) => `${n} on shelf`,
@@ -81,11 +104,20 @@ const WORDS = {
     locked: "Demasiados intentos. Espera unos minutos o pregunta en tu oficina.",
     newPin: "Primero crea tu PIN en Revisión de equipo.",
     notYou: "¿No eres tú?",
-    where: "¿A dónde va?",
-    office: "Uso de oficina",
-    search: "Buscar un sitio",
     taking: "Me llevo",
     returning: "Devuelvo",
+    whatFor: "¿Para qué es?",
+    forAccount: "Una cuenta",
+    forJob: "Trabajo interno",
+    forVan: "Van / general",
+    readyToGo: "Listo para llevar",
+    taken: "✓ Me lo llevo",
+    pickAccount: "¿Qué cuenta?",
+    pickJob: "¿Qué trabajo?",
+    typeJob: "O escribe el trabajo",
+    next: "Siguiente",
+    noJobs: "No hay trabajos abiertos.",
+    search: "Buscar una cuenta",
     whatTake: "¿Qué te llevas?",
     whatReturn: "¿Qué devuelves?",
     onShelf: (n: number) => `${n} en el estante`,
@@ -107,10 +139,56 @@ const WORDS = {
     equipment: "Equipo",
     noItems: "Todavía no hay suministros. Pregunta en tu oficina.",
   },
+  pt: {
+    title: "Controle de materiais",
+    motto: "Se não está no app, não existe!",
+    loading: "Carregando…",
+    off: "Ainda não está ativado. Pergunte no escritório.",
+    linkOff: "Este link não está mais ativo. Peça o novo no escritório.",
+    who: "Quem é você?",
+    pin: "Digite seu PIN",
+    wrongPin: "PIN errado. Tente de novo.",
+    locked: "Tentativas demais. Espere uns minutos ou pergunte no escritório.",
+    newPin: "Crie seu PIN primeiro em Verificação de equipamento.",
+    notYou: "Não é você?",
+    taking: "Estou levando",
+    returning: "Devolvendo",
+    whatFor: "É para quê?",
+    forAccount: "Uma conta",
+    forJob: "Trabalho interno",
+    forVan: "Van / geral",
+    readyToGo: "Pronto para levar",
+    taken: "✓ Levei",
+    pickAccount: "Qual conta?",
+    pickJob: "Qual trabalho?",
+    typeJob: "Ou escreva o trabalho",
+    next: "Próximo",
+    noJobs: "Nenhum trabalho aberto.",
+    search: "Procurar uma conta",
+    whatTake: "O que você está levando?",
+    whatReturn: "O que você está devolvendo?",
+    onShelf: (n: number) => `${n} na prateleira`,
+    done: "Pronto",
+    saving: "Salvando…",
+    nothing: "Toque + no que você leva.",
+    saved: "Salvo! Obrigado",
+    savedCount: "Contagem salva! Obrigado",
+    items: (n: number) => `${n} ${n === 1 ? "item" : "itens"}`,
+    again: "Mais",
+    signOut: "Sair",
+    back: "Voltar",
+    countTitle: "Contagem semanal",
+    countText: "Conte estes 5 itens na prateleira.",
+    countSave: "Salvar contagem",
+    later: "Depois",
+    error: "Não salvou. Tente de novo.",
+    noSignal: "Sem sinal. Tente de novo.",
+    equipment: "Equipamento",
+    noItems: "Ainda não há materiais. Pergunte no escritório.",
+  },
 };
 
-// Portuguese speakers get the Spanish words until Portuguese is written.
-const wordsFor = (lang: TeamHubLang) => (lang === "en" ? WORDS.en : WORDS.es);
+const wordsFor = (lang: TeamHubLang) => WORDS[lang] ?? WORDS.en;
 
 const DONE_MS = 4000;
 const IDLE_MS = 2 * 60 * 1000;
@@ -124,6 +202,7 @@ export default function SupplyCheckPage() {
   const w = wordsFor(lang);
 
   const [screen, setScreen] = useState<Screen>({ kind: "loading" });
+  const [mode, setMode] = useState<"take" | "return">("take");
   const [people, setPeople] = useState<Person[]>([]);
   const [linkOff, setLinkOff] = useState(false);
   const [home, setHome] = useState<Home | null>(null);
@@ -140,12 +219,13 @@ export default function SupplyCheckPage() {
           setPeople(list.people ?? []);
           return setScreen({ kind: "people" });
         }
-        const data = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<Home>;
+        const data = (await response.json()) as { success?: boolean; ready?: boolean; ready_to_go?: Ready[] } & Partial<Omit<Home, "ready">>;
         if (data.ready === false) return setScreen({ kind: "off" });
         if (!response.ok || data.success !== true) throw new Error("failed");
-        const next: Home = { name: data.name ?? "", officeUse: data.officeUse ?? "Office use", items: data.items ?? [], sites: data.sites ?? [], count: data.count ?? null };
+        const next: Home = { name: data.name ?? "", officeUse: data.officeUse ?? "", items: data.items ?? [], sites: data.sites ?? [], ready: data.ready_to_go ?? [], jobs: data.jobs ?? [], count: data.count ?? null };
         setHome(next);
-        setScreen(next.count && next.count.asks.length > 0 && afterSignIn ? { kind: "count" } : { kind: "where" });
+        setMode("take");
+        setScreen(next.count && next.count.asks.length > 0 && afterSignIn ? { kind: "count" } : { kind: "for" });
       } catch {
         setMessage(w.noSignal);
       }
@@ -188,6 +268,11 @@ export default function SupplyCheckPage() {
     const timer = window.setTimeout(() => void signOut(), DONE_MS);
     return () => window.clearTimeout(timer);
   }, [kind, signOut]);
+
+  const finished = (items: number, how: "take" | "return") => {
+    setMessage("");
+    setScreen({ kind: "done", items, mode: how });
+  };
 
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col" data-supply-check={kind}>
@@ -244,28 +329,36 @@ export default function SupplyCheckPage() {
             }}
           />
         ) : !home ? null : screen.kind === "count" && home.count ? (
-          <CountScreen
+          <CountScreen w={w} asks={home.count.asks} apiBase={apiBase} onLater={() => setScreen({ kind: "for" })} onSaved={() => setScreen({ kind: "done", items: 0, mode: "count" })} onError={setMessage} />
+        ) : screen.kind === "for" ? (
+          <ForScreen
             w={w}
-            asks={home.count.asks}
-            apiBase={apiBase}
-            onLater={() => setScreen({ kind: "where" })}
-            onSaved={() => setScreen({ kind: "done", items: 0, mode: "count" })}
-            onError={setMessage}
+            mode={mode}
+            readyCount={home.ready.length}
+            onMode={(next) => {
+              setMode(next);
+              if (next === "return") setScreen({ kind: "grid", target: { for: "return" } });
+            }}
+            onPick={(target) => setScreen(target === "account" ? { kind: "account" } : target === "job" ? { kind: "job" } : { kind: "grid", target: { for: "van" } })}
+            onSignOut={() => void signOut()}
           />
-        ) : screen.kind === "where" ? (
-          <WhereScreen w={w} home={home} onPick={(site, mode) => setScreen({ kind: "grid", site, mode })} onSignOut={() => void signOut()} />
+        ) : screen.kind === "account" ? (
+          <AccountScreen w={w} home={home} onBack={() => setScreen({ kind: "for" })} onReady={(order) => setScreen({ kind: "ready", order })} onSite={(site) => setScreen({ kind: "grid", target: { for: "account", site } })} />
+        ) : screen.kind === "job" ? (
+          <JobScreen w={w} jobs={home.jobs} onBack={() => setScreen({ kind: "for" })} onPick={(jobId, jobName) => setScreen({ kind: "grid", target: { for: "job", jobId, jobName } })} />
+        ) : screen.kind === "ready" ? (
+          <ReadyScreen w={w} order={screen.order} apiBase={apiBase} onBack={() => setScreen({ kind: "account" })} onSaved={(items) => finished(items, "take")} onError={setMessage} />
         ) : screen.kind === "grid" ? (
           <GridScreen
             w={w}
             home={home}
-            site={screen.site}
-            mode={screen.mode}
+            target={screen.target}
             apiBase={apiBase}
-            onBack={() => setScreen({ kind: "where" })}
-            onSaved={(items) => {
-              setMessage("");
-              setScreen({ kind: "done", items, mode: screen.mode });
+            onBack={() => {
+              setMode("take");
+              setScreen(screen.target.for === "account" ? { kind: "account" } : screen.target.for === "job" ? { kind: "job" } : { kind: "for" });
             }}
+            onSaved={(items) => finished(items, screen.target.for === "return" ? "return" : "take")}
             onError={setMessage}
           />
         ) : screen.kind === "done" ? (
@@ -353,10 +446,46 @@ function PinPad({ w, person, apiBase, onBack, onIn }: { w: Words; person: Person
   );
 }
 
-/* ---------- where is it going ---------- */
+/* ---------- taking or bringing back; what is it for ---------- */
 
-function WhereScreen({ w, home, onPick, onSignOut }: { w: Words; home: Home; onPick: (site: Site, mode: "take" | "return") => void; onSignOut: () => void }) {
-  const [mode, setMode] = useState<"take" | "return">("take");
+function ForScreen({ w, mode, readyCount, onMode, onPick, onSignOut }: { w: Words; mode: "take" | "return"; readyCount: number; onMode: (mode: "take" | "return") => void; onPick: (target: "account" | "job" | "van") => void; onSignOut: () => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <button type="button" aria-pressed={mode === "take"} onClick={() => onMode("take")} className={`${BIG} ${mode === "take" ? "bg-[#0C447C] text-white" : "bg-white text-slate-700"}`}>
+          {w.taking}
+        </button>
+        <button type="button" aria-pressed={mode === "return"} onClick={() => onMode("return")} className={`${BIG} ${mode === "return" ? "bg-[#0C447C] text-white" : "bg-white text-slate-700"}`}>
+          ↩ {w.returning}
+        </button>
+      </div>
+      <h1 className="text-3xl font-bold text-slate-900">{w.whatFor}</h1>
+      <button type="button" data-for="account" onClick={() => onPick("account")} className={`${BIG} flex w-full items-center justify-center gap-3 bg-white text-slate-900 active:bg-gray-100`}>
+        🏢 {w.forAccount}
+        {readyCount > 0 ? <span className="rounded-full bg-[#3B6D11] px-3 py-1 text-lg text-white">📦 {readyCount}</span> : null}
+      </button>
+      <button type="button" data-for="job" onClick={() => onPick("job")} className={`${BIG} w-full bg-white text-slate-900 active:bg-gray-100`}>
+        🧽 {w.forJob}
+      </button>
+      <button type="button" data-for="van" onClick={() => onPick("van")} className={`${BIG} w-full bg-[#EAF3DE] text-[#27500A] active:opacity-90`}>
+        🚐 {w.forVan}
+      </button>
+      <button type="button" onClick={onSignOut} className="min-h-[56px] w-full rounded-2xl bg-white text-xl font-bold text-slate-600 active:bg-gray-100">
+        {w.signOut}
+      </button>
+    </div>
+  );
+}
+
+function BackButton({ w, onBack }: { w: Words; onBack: () => void }) {
+  return (
+    <button type="button" onClick={onBack} className="min-h-[56px] rounded-2xl bg-white px-5 text-xl font-bold text-slate-700 shadow-sm active:bg-gray-100">
+      ← {w.back}
+    </button>
+  );
+}
+
+function AccountScreen({ w, home, onBack, onReady, onSite }: { w: Words; home: Home; onBack: () => void; onReady: (order: Ready) => void; onSite: (site: Site) => void }) {
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -365,35 +494,89 @@ function WhereScreen({ w, home, onPick, onSignOut }: { w: Words; home: Home; onP
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <button type="button" aria-pressed={mode === "take"} onClick={() => setMode("take")} className={`${BIG} ${mode === "take" ? "bg-[#0C447C] text-white" : "bg-white text-slate-700"}`}>
-          {w.taking}
-        </button>
-        <button type="button" aria-pressed={mode === "return"} onClick={() => setMode("return")} className={`${BIG} ${mode === "return" ? "bg-[#0C447C] text-white" : "bg-white text-slate-700"}`}>
-          ↩ {w.returning}
-        </button>
-      </div>
-      <h1 className="text-3xl font-bold text-slate-900">{w.where}</h1>
-      <button type="button" data-site="office" onClick={() => onPick({ id: "", name: home.officeUse }, mode)} className={`${BIG} w-full bg-[#EAF3DE] text-[#27500A] active:opacity-90`}>
-        🏢 {w.office}
-      </button>
-      <input
-        type="search"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder={w.search}
-        aria-label={w.search}
-        className="min-h-[64px] w-full rounded-2xl border-2 border-slate-300 bg-white px-4 text-2xl"
-      />
+      <BackButton w={w} onBack={onBack} />
+      {home.ready.length > 0 ? (
+        <div className="space-y-3" data-ready-to-go>
+          <h1 className="text-3xl font-bold text-slate-900">📦 {w.readyToGo}</h1>
+          {home.ready.map((order) => (
+            <button key={order.key} type="button" onClick={() => onReady(order)} className="flex min-h-[88px] w-full flex-col items-start justify-center rounded-2xl bg-[#EAF3DE] px-4 py-3 text-left shadow-sm active:opacity-90">
+              <span className="text-2xl font-black text-[#27500A]">{order.accountName}</span>
+              <span className="text-lg text-slate-700">{order.lines.map((line) => `${line.qty} ${line.name}`).join(", ")}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <h1 className="text-3xl font-bold text-slate-900">{w.pickAccount}</h1>
+      <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={w.search} aria-label={w.search} className="min-h-[64px] w-full rounded-2xl border-2 border-slate-300 bg-white px-4 text-2xl" />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {shown.map((site) => (
-          <button key={`${site.id}|${site.name}`} type="button" data-site={site.id} onClick={() => onPick(site, mode)} className={`${BIG} bg-white px-4 text-left text-xl text-slate-900 active:bg-gray-100`}>
+          <button key={`${site.id}|${site.name}`} type="button" data-site={site.id} onClick={() => onSite(site)} className={`${BIG} bg-white px-4 text-left text-xl text-slate-900 active:bg-gray-100`}>
             {site.name}
           </button>
         ))}
       </div>
-      <button type="button" onClick={onSignOut} className="min-h-[56px] w-full rounded-2xl bg-white text-xl font-bold text-slate-600 active:bg-gray-100">
-        {w.signOut}
+    </div>
+  );
+}
+
+function JobScreen({ w, jobs, onBack, onPick }: { w: Words; jobs: Job[]; onBack: () => void; onPick: (jobId: string, jobName: string) => void }) {
+  const [typed, setTyped] = useState("");
+  return (
+    <div className="space-y-4">
+      <BackButton w={w} onBack={onBack} />
+      <h1 className="text-3xl font-bold text-slate-900">{w.pickJob}</h1>
+      {jobs.length === 0 ? <p className="text-xl text-slate-500">{w.noJobs}</p> : null}
+      <div className="grid grid-cols-1 gap-3">
+        {jobs.map((job) => (
+          <button key={job.id} type="button" data-job={job.id} onClick={() => onPick(job.id, job.label)} className={`${BIG} bg-white px-4 text-left text-xl text-slate-900 active:bg-gray-100`}>
+            {job.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xl font-bold text-slate-700">{w.typeJob}</p>
+      <div className="flex gap-3">
+        <input value={typed} onChange={(event) => setTyped(event.target.value)} aria-label={w.typeJob} placeholder="Strip & wax, carpet…" className="min-h-[64px] min-w-0 flex-1 rounded-2xl border-2 border-slate-300 bg-white px-4 text-2xl" />
+        <button type="button" disabled={!typed.trim()} onClick={() => onPick("", typed.trim())} className={`${BIG} bg-[#0C447C] px-5 text-white disabled:opacity-40`}>
+          {w.next}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReadyScreen({ w, order, apiBase, onBack, onSaved, onError }: { w: Words; order: Ready; apiBase: string; onBack: () => void; onSaved: (items: number) => void; onError: (message: string) => void }) {
+  const [saving, setSaving] = useState(false);
+  async function take() {
+    setSaving(true);
+    try {
+      const response = await fetch(`${apiBase}/supplies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "take", for: "account", key: order.key }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; items?: number; error?: string };
+      if (!response.ok || data.success !== true) return onError(data.error || w.error);
+      onSaved(data.items ?? 0);
+    } catch {
+      onError(w.noSignal);
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="space-y-4">
+      <BackButton w={w} onBack={onBack} />
+      <p className="text-xl font-bold text-[#0C447C]">📦 {w.readyToGo}</p>
+      <h1 className="text-3xl font-bold text-slate-900">{order.accountName}</h1>
+      <ul className="space-y-2">
+        {order.lines.map((line, index) => (
+          <li key={`${line.name}-${index}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white p-4 shadow-sm">
+            <span className="text-2xl font-bold text-slate-900">{line.name}</span>
+            <span className="text-4xl font-black text-slate-900">
+              {line.qty}
+              {line.unit ? <span className="ml-2 text-lg font-semibold text-slate-500">{line.unit}</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button type="button" disabled={saving} onClick={() => void take()} className={`${BIG} w-full bg-[#3B6D11] text-white active:opacity-90 disabled:opacity-60`}>
+        {saving ? w.saving : w.taken}
       </button>
     </div>
   );
@@ -413,8 +596,7 @@ function Photo({ url }: { url: string }) {
 function GridScreen({
   w,
   home,
-  site,
-  mode,
+  target,
   apiBase,
   onBack,
   onSaved,
@@ -422,8 +604,7 @@ function GridScreen({
 }: {
   w: Words;
   home: Home;
-  site: Site;
-  mode: "take" | "return";
+  target: Target;
   apiBase: string;
   onBack: () => void;
   onSaved: (items: number) => void;
@@ -433,6 +614,7 @@ function GridScreen({
   const [saving, setSaving] = useState(false);
   const total = Object.values(picked).reduce((sum, qty) => sum + qty, 0);
   const change = (id: number, by: number) => setPicked((current) => ({ ...current, [id]: Math.max(0, Math.min(99, (current[id] ?? 0) + by)) }));
+  const heading = target.for === "account" ? target.site.name : target.for === "job" ? `🧽 ${target.jobName}` : target.for === "van" ? `🚐 ${w.forVan}` : `↩ ${w.returning}`;
 
   async function save() {
     if (total === 0) return onError(w.nothing);
@@ -441,7 +623,15 @@ function GridScreen({
       const lines = Object.entries(picked)
         .filter(([, qty]) => qty > 0)
         .map(([id, qty]) => ({ supplyId: Number(id), qty }));
-      const response = await fetch(`${apiBase}/supplies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: mode, accountId: site.id, accountName: site.name, lines }) });
+      const body =
+        target.for === "return"
+          ? { action: "return", lines }
+          : target.for === "account"
+            ? { action: "take", for: "account", accountId: target.site.id, accountName: target.site.name, lines }
+            : target.for === "job"
+              ? { action: "take", for: "job", jobId: target.jobId, jobName: target.jobName, lines }
+              : { action: "take", for: "van", lines };
+      const response = await fetch(`${apiBase}/supplies`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = (await response.json().catch(() => ({}))) as { success?: boolean; items?: number; error?: string };
       if (!response.ok || data.success !== true) return onError(data.error || w.error);
       onSaved(data.items ?? total);
@@ -454,11 +644,9 @@ function GridScreen({
 
   return (
     <div className="space-y-4 pb-28">
-      <button type="button" onClick={onBack} className="min-h-[56px] rounded-2xl bg-white px-5 text-xl font-bold text-slate-700 shadow-sm active:bg-gray-100">
-        ← {w.back}
-      </button>
-      <p className="text-xl font-bold text-[#0C447C]">{site.name}</p>
-      <h1 className="text-3xl font-bold text-slate-900">{mode === "take" ? w.whatTake : w.whatReturn}</h1>
+      <BackButton w={w} onBack={onBack} />
+      <p className="text-xl font-bold text-[#0C447C]">{heading}</p>
+      <h1 className="text-3xl font-bold text-slate-900">{target.for === "return" ? w.whatReturn : w.whatTake}</h1>
       {home.items.length === 0 ? <p className="text-xl text-slate-500">{w.noItems}</p> : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {home.items.map((item) => {

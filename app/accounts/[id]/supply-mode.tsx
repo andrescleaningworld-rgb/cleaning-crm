@@ -1,8 +1,9 @@
 "use client";
 
-// On an account's page (FEATURE_SUPPLY_CONTROL): "Order supplies" for this
-// site, and whether its supplies are included in the price or billed to the
-// customer. Draws nothing when supply control is off.
+// On an account's page: "Order supplies" for this site (an order for its
+// sub, from a call or text; it goes in the Supply Orders inbox), and whether
+// its supplies are included in the price or billed to the customer. Draws
+// nothing where the supplies system is not in this database yet.
 
 import { useEffect, useState } from "react";
 import { BigButton, showToast } from "@/app/ui";

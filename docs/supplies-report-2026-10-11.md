@@ -1,5 +1,7 @@
 # Supplies report, October 11, 2026
 
+> **Update, October 15, 2026:** the switch `FEATURE_SUPPLY_CONTROL` is gone. Supply control is now part of one supplies system (migrations 038 to 040, `lib/pg/shelves.ts`): it is on wherever those migrations are in the database, and off (hidden) where they are not. Its own order steps (From shelf / Buy, Picked, Bought), "Small orders approve themselves", "Make purchase order" and the PO PDF were replaced by the one Supply Orders inbox (Approve or Decline, then "How do we fill it?"). The Shelf / Reorder / Spend parts are now Supplies → **Warehouse and sites**. The steps below are kept as they were written on October 11.
+
 Supply control is built, tested here, merged, and **off in production**. Nothing changes for anyone until you turn it on.
 
 - **Preview (practice data, no real emails or texts):** https://cleaning-crm-git-featu-39597f-andrescleaningworld-rgbs-projects.vercel.app
@@ -57,7 +59,9 @@ The tablet is in English and Spanish, has the motto at the bottom, and never sho
 3. In Vercel, Production: add `FEATURE_SUPPLY_CONTROL=1`. Redeploy.
 4. Open Supplies. The Shelf, Reorder, Orders and Spend tabs are at the top.
 
-**To turn it off:** delete `FEATURE_SUPPLY_CONTROL` and redeploy. The new parts disappear and the Supplies page is as it is today. Counts and logs stay in the database for when you turn it back on.
+(Since October 15 there is no switch: apply migrations 039 and 040 with the code instead. The `FEATURE_SUPPLY_CONTROL` setting in Vercel is no longer read and can be deleted.)
+
+**To turn it off (October 11 version):** delete `FEATURE_SUPPLY_CONTROL` and redeploy. The new parts disappear and the Supplies page is as it is today. Counts and logs stay in the database for when you turn it back on.
 
 ---
 

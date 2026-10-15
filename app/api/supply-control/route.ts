@@ -1,29 +1,13 @@
-// Supply control for staff: the shelf, the red Reorder list, orders by step,
-// this month's spend per site, and the settings. Staff only (proxy.ts
-// default gate). Behind FEATURE_SUPPLY_CONTROL; when it is off, or this
-// database has not had its update, GET answers { ready: false } and the
-// screens keep working exactly as before.
+// The warehouse for staff (lib/pg/supply-control.ts): each product's
+// warehouse facts and count, the red Reorder list, this month's spend per
+// site, and the history. Staff only (proxy.ts default gate). Orders are the
+// Supply Orders inbox (/api/shelves). Until this database has the supplies
+// system, GET answers { ready: false }.
 
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getAdminIdentity } from "@/lib/adminSession";
-import {
-  advanceOrderLine,
-  createControlledOrder,
-  getAccountSupplyMode,
-  getSupplySettings,
-  listMoves,
-  listOrderLines,
-  listShelf,
-  markInvoiced,
-  monthSpend,
-  moveFromShelf,
-  reorderItem,
-  saveShelfItem,
-  saveSupplySettings,
-  setAccountSupplyMode,
-  supplyControlReady,
-} from "@/lib/pg/supply-control";
+import { getAccountSupplyMode, listMoves, listShelf, markInvoiced, monthSpend, moveFromShelf, saveShelfItem, setAccountSupplyMode, supplyControlReady } from "@/lib/pg/supply-control";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
@@ -42,13 +26,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, ready: true, mode: accountId ? await getAccountSupplyMode(accountId) : "included" }, noStore);
     }
 
-    // The item list only: for the 3-tap order sheet.
-    if (view === "items") return NextResponse.json({ success: true, ready: true, shelf: await listShelf() }, noStore);
-
     const month = clean(request.nextUrl.searchParams.get("month"));
-    const [shelf, orders, spend, settings, moves] = await Promise.all([listShelf(), listOrderLines(), monthSpend(month), getSupplySettings(), listMoves(40)]);
+    const [shelf, spend, moves] = await Promise.all([listShelf(), monthSpend(month), listMoves(60)]);
     return NextResponse.json(
-      { success: true, ready: true, shelf, reorder: shelf.filter((item) => item.low), orders, spend, settings, moves, isOwner: identity?.role === "owner", me: identity?.name ?? "" },
+      { success: true, ready: true, shelf, reorder: shelf.filter((item) => item.low), spend, moves, isOwner: identity?.role === "owner", me: identity?.name ?? "" },
       noStore
     );
   } catch (error) {
@@ -59,7 +40,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    if (!(await supplyControlReady())) return refuse("Supply control is not turned on here yet.", 409);
+    if (!(await supplyControlReady())) return refuse("This is not turned on here yet.", 409);
     const identity = await getAdminIdentity(request);
     if (!identity) return refuse("Log in first.", 401);
     const by = identity.name ?? "";
@@ -92,33 +73,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // A manager orders for a site (an order that came by text or call), or the office does.
-    if (action === "order") {
-      const lines = (Array.isArray(body.lines) ? body.lines : []).map((line) => {
-        const entry = (line ?? {}) as Record<string, unknown>;
-        return { supplyId: Number(entry.supplyId), qty: Number(entry.qty), source: entry.source === "buy" ? ("buy" as const) : ("shelf" as const) };
-      });
-      const made = await createControlledOrder({ accountId: clean(body.accountId), accountName: clean(body.accountName), lines, orderedBy: by, notes: clean(body.notes) });
-      return NextResponse.json({ success: true, ...made });
-    }
-
-    if (action === "advance") {
-      const toStep = clean(body.step);
-      // Approving is the office's (owner's) call; the other steps are whoever does the work.
-      if (toStep === "approved" && identity.role !== "owner") return refuse("Only the owner can approve an order.", 403);
-      const line = await advanceOrderLine(Number(body.rowNumber), toStep, by);
-      return NextResponse.json({ success: true, line });
-    }
-
-    if (action === "reorder") {
-      const made = await reorderItem(Number(body.id), by);
-      return NextResponse.json({ success: true, ...made });
-    }
-
     // The office takes or returns items without the tablet (rare; the tablet is the normal way).
     if (action === "take" || action === "return") {
       const lines = (Array.isArray(body.lines) ? body.lines : []).map((line) => ({ supplyId: Number((line as Record<string, unknown>)?.supplyId), qty: Number((line as Record<string, unknown>)?.qty) }));
-      const moved = await moveFromShelf({ kind: action, lines, accountId: clean(body.accountId), accountName: clean(body.accountName), staffId: clean(identity.staffId), staffName: by });
+      const moved = await moveFromShelf({ kind: action, lines, accountId: clean(body.accountId), accountName: clean(body.accountName), staffId: clean(identity.staffId), staffName: by, source: "office" });
       return NextResponse.json({ success: true, ...moved });
     }
 
@@ -131,11 +89,6 @@ export async function POST(request: NextRequest) {
     if (action === "markInvoiced") {
       await markInvoiced(clean(body.accountId), clean(body.month), Number(body.amount) || 0, body.on !== false, by);
       return NextResponse.json({ success: true });
-    }
-
-    if (action === "saveSettings") {
-      if (identity.role !== "owner") return refuse("Only the owner can change this.", 403);
-      return NextResponse.json({ success: true, settings: await saveSupplySettings(body.autoApproveAmount, by) });
     }
 
     return refuse("Unknown action.");

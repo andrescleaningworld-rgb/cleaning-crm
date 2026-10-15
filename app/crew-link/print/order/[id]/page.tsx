@@ -39,7 +39,7 @@ export default function CrewLinkPrintOrderPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/admin/team-hub/supply-orders?id=${id}`, { cache: "no-store" });
+        const res = await fetch(`/api/admin/crew-supplies?view=print&id=${id}`, { cache: "no-store" });
         const data = (await res.json()) as OrderResponse;
         if (!res.ok || data.success === false || !data.order) throw new Error(data.error || "Could not load this order.");
         if (cancelled) return;

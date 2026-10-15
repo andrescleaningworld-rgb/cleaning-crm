@@ -39,7 +39,7 @@ const MAX_PHOTOS = 5;
 
 type PendingPhoto = { id: string; blob: Blob; previewUrl: string };
 
-// apiBase: see SuppliesView — lets Crew Link reuse this screen.
+// apiBase lets Crew Link reuse this screen against its own public route.
 export default function IssueReportView({
   token,
   lang,

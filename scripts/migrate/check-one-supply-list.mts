@@ -83,37 +83,57 @@ try {
   check("a sub order line with the product sent gets that product's ID", Number(await idOf(byRow.rowNumber)) === p1.id);
   check("a write-in line has no product", (await idOf(writeIn.rowNumber)) === null);
 
-  // ----- 1. Received from vendor -----
+  // ----- + Stock came in (migration 040) -----
   const office = async (id: number) => ((await sql`SELECT shelf_count FROM sub_supplies WHERE id = ${id}`) as { shelf_count: number | null }[])[0].shelf_count ?? 0;
+  const held = async (id: number) => ((await sql`SELECT warehouse_qty FROM site_shelf WHERE account_id = ${ACCOUNT} AND supply_id = ${id}`) as { warehouse_qty: number }[])[0]?.warehouse_qty ?? 0;
+  const atSite = async (id: number) => ((await sql`SELECT qty FROM site_shelf WHERE account_id = ${ACCOUNT} AND supply_id = ${id}`) as { qty: number }[])[0]?.qty ?? 0;
+  check("migrations 039 and 040 are in this database", await shelves.shelvesReady());
   const startA = await office(p1.id);
-  await shelves.receivedFromVendor(p1.id, 10, "check");
-  check("📥 Received adds to the office shelf", (await office(p1.id)) === startA + 10);
-  check("📥 needs a number from 1 up", await rejects(() => shelves.receivedFromVendor(p1.id, 0, "check")));
+  await shelves.stockCameIn({ lines: [{ supplyId: p1.id, qty: 10 }], vendor: "ZZ Vendor", by: "check" });
+  check("📥 Stock came in adds to the warehouse", (await office(p1.id)) === startA + 10);
+  check("📥 needs something that came in", await rejects(() => shelves.stockCameIn({ lines: [{ supplyId: p1.id, qty: 0 }], vendor: "", by: "check" })));
+  const officeP2 = await office(p2.id);
+  await shelves.stockCameIn({ lines: [{ supplyId: p2.id, qty: 1 }], vendor: "", ownerAccountId: ACCOUNT, ownerAccountName: ACCOUNT_NAME, by: "check" });
+  check("🏷 bought for a customer: kept at the warehouse for them", (await held(p2.id)) === 1 && (await office(p2.id)) === officeP2);
+  check("🏷 it is not at their site yet", (await atSite(p2.id)) === 0 && !(await shelves.siteShelves(ACCOUNT))[0]?.tiles.some((tile) => tile.supplyId === p2.id));
 
-  // ----- a Crew Link order -----
+  // ----- a Crew Link order: New, then ✓ Approve + 🚐 We deliver -----
   const [itemA, itemB] = [...crewIds];
   crewOrderId = ((await sql`INSERT INTO supply_orders (crew_link_account_id, reporter_name, note) VALUES (${ACCOUNT}, 'ZZ Crew', '') RETURNING id`) as { id: number }[])[0].id;
   await sql`INSERT INTO supply_order_lines (order_id, item_id, qty) VALUES (${crewOrderId}, ${itemA}, 3), (${crewOrderId}, ${itemB}, 2)`;
+  const crewStatus = async () => ((await sql`SELECT status FROM supply_orders WHERE id = ${crewOrderId}`) as { status: string }[])[0].status;
   let waiting = await shelves.waiting(ACCOUNT);
-  const crewKey = `crew:${crewOrderId}`;
-  // The order as it waits now, before it moves on.
-  const ordered = new Map((waiting.find((entry) => entry.key === crewKey)?.lines ?? []).map((line) => [line.supplyId, line.qty]));
+  check("a new Crew Link order is not on its way yet (it needs approving)", !waiting.some((entry) => entry.source === "crew-order" && entry.ref === String(crewOrderId)));
+  check("a new sub-portal order is not on its way either", !waiting.some((entry) => entry.ref === "ZZ-CHECK-GROUP"));
+  const crewOrder = { source: "crew-order" as const, refs: [String(crewOrderId)] };
+  const sheet = await shelves.approveSheet(crewOrder);
+  check("✓ the Approve sheet shows the crew's lines, with their products", sheet.lines.length === 2 && sheet.lines.every((line) => line.supplyId === p1.id || line.supplyId === p2.id));
+  check("✓ a Crew Link order needs a way to fill it", await rejects(() => shelves.approveOrder({ order: crewOrder, lines: [], add: [], fill: "", by: "check" })));
+  await shelves.approveOrder({ order: crewOrder, lines: sheet.lines.map((line) => ({ lineId: line.lineId, qty: line.supplyId === p1.id ? line.qty + 1 : line.qty, supplyId: line.supplyId })), add: [], fill: "deliver", by: "check" });
+  check("✓ approved: the Crew Link order is Ordered", (await crewStatus()) === "ordered");
+  check("✓ a changed number is an edit, written down", ((await sql`SELECT count(*)::int AS n FROM supply_order_edits WHERE order_id = ${crewOrderId}`)[0] as { n: number }).n === 1);
+  check("✓ an approved order cannot be approved twice", await rejects(() => shelves.approveOrder({ order: crewOrder, lines: [], add: [], fill: "vendor", by: "check" })));
+  waiting = await shelves.waiting(ACCOUNT);
+  const ready = waiting.find((entry) => entry.source === "crew-order" && entry.ref === String(crewOrderId))!;
+  const ordered = new Map((ready?.lines ?? []).map((line) => [line.supplyId, line.qty]));
   const lineFor = (supplyId: number) => ordered.get(supplyId) ?? 0;
-  check("an open Crew Link order waits for the site", waiting.some((entry) => entry.key === crewKey && entry.lines.length === 2 && !entry.sentAt));
-  check("the sub-portal order (2 product lines) waits too", waiting.some((entry) => entry.key === "sub:ZZ-CHECK-GROUP" && entry.lines.length === 2));
+  check("🚐 We deliver: it waits for the tablet, not the crew", ready?.fill === "deliver" && !ready.sentAt && !(await shelves.crewShelfView(ACCOUNT)).waiting.some((entry) => entry.key === ready.key));
+  check("✓ the new number is on the delivery", lineFor(p1.id) === 4);
 
-  // ----- 2. Sent to site -----
+  // ----- taken on the tablet -----
   const officeA = await office(p1.id);
-  await shelves.sendToSite({ key: crewKey, by: "check" });
-  check("🚚 Sent to site takes it off the office shelf", (await office(p1.id)) === Math.max(officeA - lineFor(p1.id), 0));
-  check("🚚 the Crew Link order shows Ordered", ((await sql`SELECT status FROM supply_orders WHERE id = ${crewOrderId}`) as { status: string }[])[0].status === "ordered");
-  check("🚚 the same order cannot be sent twice", await rejects(() => shelves.sendToSite({ key: crewKey, by: "check" })));
+  const heldBefore = await held(p2.id);
+  const officeB = await office(p2.id);
+  await shelves.sendToSite({ key: ready.key, by: "check", source: "tablet" });
+  check("🚐 taken on the tablet: off the warehouse", (await office(p1.id)) === Math.max(officeA - lineFor(p1.id), 0));
+  check("🏷 their own stock at the warehouse goes first", (await held(p2.id)) === Math.max(heldBefore - lineFor(p2.id), 0) && (await office(p2.id)) === Math.max(officeB - Math.max(lineFor(p2.id) - heldBefore, 0), 0));
+  check("🚐 the same order cannot be taken twice", await rejects(() => shelves.sendToSite({ key: ready.key, by: "check" })));
   waiting = await shelves.waiting(ACCOUNT);
   const sent = waiting.find((entry) => entry.source === "crew-order" && entry.ref === String(crewOrderId));
-  check("🚚 it now waits as sent, for the crew", Boolean(sent?.sentAt) && sent!.key.startsWith("d:"));
+  check("🚚 now it waits for the crew", Boolean(sent?.sentAt) && (await shelves.crewShelfView(ACCOUNT)).waiting.some((entry) => entry.key === sent!.key));
+  check("📝 the history knows it was the tablet", ((await sql`SELECT count(*)::int AS n FROM supply_moves WHERE account_id = ${ACCOUNT} AND kind = 'send' AND source = 'tablet'`)[0] as { n: number }).n > 0);
 
   // ----- 3. Supplies arrived (one short: a back order) -----
-  const crewStatus = async () => ((await sql`SELECT status FROM supply_orders WHERE id = ${crewOrderId}`) as { status: string }[])[0].status;
   const got = sent!.lines.map((line) => (line.supplyId === p2.id ? line.qty - 1 : line.qty));
   const arrived = await shelves.confirmArrival({ accountId: ACCOUNT, key: sent!.key, got, by: "ZZ Crew" });
   check("📦 a short item is reported", arrived.short.length === 1 && arrived.short[0].supplyId === p2.id && arrived.extra.length === 0);
@@ -138,9 +158,17 @@ try {
   check("📦 the office sees it as different (extra)", (await shelves.differentDeliveries()).some((entry) => entry.accountId === ACCOUNT && entry.extra && entry.title === "Arrived extra" && entry.lines[0].includes("1 extra")));
   check("📦 no new back order after a full one", !(await shelves.waiting(ACCOUNT)).some((entry) => entry.backOrder && entry.source === "crew-order"));
 
-  // ----- the sub-portal order: one item never came, then "Lost / never coming" -----
+  // ----- the sub-portal order: approved now, filled later (vendor ships) -----
+  const subOrder = { source: "sub-order" as const, refs: ["ZZ-CHECK-GROUP"] };
+  const subStatuses = async (group: string) => ((await sql`SELECT DISTINCT status FROM sub_supply_orders WHERE order_group_id = ${group}`) as { status: string }[]).map((row) => row.status).sort().join(",");
+  await shelves.approveOrder({ order: subOrder, lines: [], add: [], fill: "", by: "check" });
+  check("✓ a sub-portal order can be approved now and filled later", (await subStatuses("ZZ-CHECK-GROUP")) === "Approved" && !(await shelves.waiting(ACCOUNT)).some((entry) => entry.ref === "ZZ-CHECK-GROUP"));
+  await shelves.chooseFill({ order: subOrder, fill: "vendor", by: "check" });
+  const subEntry = (await shelves.waiting(ACCOUNT)).find((entry) => entry.source === "sub-order" && entry.ref === "ZZ-CHECK-GROUP" && !entry.backOrder)!;
+  check("🚚 Vendor ships: the order is on its way, and the crew sees it at once", (await subStatuses("ZZ-CHECK-GROUP")) === "Pending / In Progress" && subEntry?.fill === "vendor" && (await shelves.crewShelfView(ACCOUNT)).waiting.some((entry) => entry.key === subEntry.key));
+
+  // ----- one item never came, then "Lost / never coming" -----
   const siteA = await site(p1.id);
-  const subEntry = (await shelves.waiting(ACCOUNT)).find((entry) => entry.key === "sub:ZZ-CHECK-GROUP")!;
   await shelves.confirmArrival({ accountId: ACCOUNT, key: subEntry.key, got: subEntry.lines.map((line) => (line.supplyId === p2.id ? 0 : line.qty)), by: "ZZ Sub" });
   check("📦 a sub-portal order: what came is on the site shelf", (await site(p1.id)) === siteA + 1);
   const subOpen = async () => ((await sql`SELECT count(*)::int AS n FROM sub_supply_orders WHERE order_group_id = 'ZZ-CHECK-GROUP' AND status <> 'Completed'`)[0] as { n: number }).n;
@@ -155,6 +183,37 @@ try {
   check("✗ lost: the move is kept", ((await sql`SELECT count(*)::int AS n FROM supply_moves WHERE account_id = ${ACCOUNT} AND kind = 'lost'`)[0] as { n: number }).n === 1);
   check("✗ lost: the sub-portal order is Completed (something came)", (await subOpen()) === 0);
   check("✗ a cancelled back order cannot be cancelled again", await rejects(() => shelves.cancelBackOrder({ key: subBack!.key, index: 0, choice: "lost", by: "check" })));
+
+  // ----- a typed-in line matched to a product; 🏬 the sub picks it up -----
+  const typed = { source: "sub-order" as const, refs: ["ZZ-CHECK-GROUP-2"] };
+  const typedSheet = await shelves.approveSheet(typed);
+  check("✓ the Approve sheet shows a typed-in line, with no product yet", typedSheet.lines.length === 1 && typedSheet.lines[0].supplyId === null && typedSheet.lines[0].label === "zz test");
+  const typedApproved = await shelves.approveOrder({ order: typed, lines: [{ lineId: typedSheet.lines[0].lineId, qty: 2, supplyId: p1.id }], add: [], fill: "pickup", by: "check" });
+  check("✓ Approve says what it changed (for the activity log)", typedApproved.changes.includes("zz test: 1 -> 2") && typedApproved.changes.some((change) => change.startsWith("zz test: product ")));
+  check("✓ the typed-in line now points at the product, with the new number", Number(await idOf(writeIn.rowNumber)) === p1.id && ((await sql`SELECT quantity_raw FROM sub_supply_orders WHERE sheet_row = ${writeIn.rowNumber}`)[0] as { quantity_raw: string }).quantity_raw === "2");
+  const pick = (await shelves.waiting(ACCOUNT)).find((entry) => entry.ref === "ZZ-CHECK-GROUP-2")!;
+  check("🏬 a pick-up waits for the office, not the crew", pick?.fill === "pickup" && !(await shelves.crewShelfView(ACCOUNT)).waiting.some((entry) => entry.key === pick.key));
+  const pickOffice = await office(p1.id);
+  const pickSite = await site(p1.id);
+  await shelves.pickedUp({ key: pick.key, by: "check" });
+  check("✓ Picked up: off the warehouse, onto the site", (await office(p1.id)) === Math.max(pickOffice - 2, 0) && (await site(p1.id)) === pickSite + 2);
+  check("✓ Picked up: the order is Completed", (await subStatuses("ZZ-CHECK-GROUP-2")) === "Completed");
+
+  // ----- ✗ Decline; a manager's order for a sub -----
+  await supplies.createSupplyOrder({ supplyItem: p1.code, quantity: "1", accountName: ACCOUNT_NAME, accountId: ACCOUNT, orderGroupId: "ZZ-CHECK-GROUP-3", subcontractor: "ZZ Sub", status: "New" });
+  await shelves.declineOrder({ order: { source: "sub-order", refs: ["ZZ-CHECK-GROUP-3"] }, by: "check" });
+  check("✗ Decline: the order is Denied", (await subStatuses("ZZ-CHECK-GROUP-3")) === "Denied");
+  const call = await shelves.orderForSub({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, sub: "ZZ Sub", lines: [{ supplyId: p2.id, qty: 2 }], note: "ZZ called", by: "check" });
+  check("📞 a manager's order for a sub lands Approved, with its product", (await subStatuses(call.groupId)) === "Approved" && ((await sql`SELECT supply_id FROM sub_supply_orders WHERE order_group_id = ${call.groupId}`)[0] as { supply_id: string | number }).supply_id == p2.id);
+  check("📞 it needs the sub", await rejects(() => shelves.orderForSub({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, sub: "", lines: [{ supplyId: p2.id, qty: 1 }], note: "", by: "check" })));
+
+  // ----- Site stock: + Add delivery, a corrected count -----
+  const beforeAdd = await site(p1.id);
+  await shelves.addSiteDelivery({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, lines: [{ supplyId: p1.id, qty: 3 }], note: "ZZ dropped off", by: "check" });
+  check("+ Add delivery puts it on the site", (await site(p1.id)) === beforeAdd + 3);
+  check("a corrected count needs a reason", await rejects(() => shelves.setSiteCount({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, supplyId: p1.id, qty: 1, reason: "", by: "check" })));
+  await shelves.setSiteCount({ accountId: ACCOUNT, accountName: ACCOUNT_NAME, supplyId: p1.id, qty: 1, reason: "ZZ counted on site", by: "check" });
+  check("a corrected count is saved, with its reason in the history", (await site(p1.id)) === 1 && ((await sql`SELECT count(*)::int AS n FROM supply_moves WHERE account_id = ${ACCOUNT} AND kind = 'site-set' AND source = 'office' AND note LIKE '%ZZ counted on site%'`)[0] as { n: number }).n === 1);
 
   // ----- 4. Case empty -----
   const siteNow = await site(p1.id);
@@ -210,8 +269,9 @@ try {
   if (p2CostBefore) await sql`UPDATE sub_supplies SET unit_cost = ${p2CostBefore.cost}::numeric WHERE id = ${p2CostBefore.id}`;
   await sql`DELETE FROM supply_deliveries WHERE account_id = ${ACCOUNT}`;
   await sql`DELETE FROM site_shelf WHERE account_id = ${ACCOUNT}`;
-  await sql`DELETE FROM supply_moves WHERE account_id = ${ACCOUNT} OR (staff_name = 'check' AND note = 'Received from vendor')`;
+  await sql`DELETE FROM supply_moves WHERE account_id = ${ACCOUNT} OR (staff_name = 'check' AND kind = 'receive')`;
   await sql`DELETE FROM sub_supply_orders WHERE account_id_raw = ${ACCOUNT}`;
+  if (crewOrderId) await sql`DELETE FROM supply_order_edits WHERE order_id = ${crewOrderId}`;
   if (crewOrderId) await sql`DELETE FROM supply_orders WHERE id = ${crewOrderId}`;
   await sql`DELETE FROM crew_link_account_supplies WHERE account_id = ${ACCOUNT}`;
   await sql`DELETE FROM handoff_items WHERE account_id = ${ACCOUNT}`;
