@@ -2398,6 +2398,7 @@ export default function SubcontractorPortalPage() {
             </section>
 
             <div className={activePortalView === "schedule" ? "block" : "hidden"}>
+              <a href="/subcontractor-portal/time-on-site" className="ui-btn ui-btn-second mb-4 w-full">⏱ How long each cleaning takes</a>
               <SubScheduleTab accounts={activeAccounts} subcontractor={subcontractor} />
             </div>
 

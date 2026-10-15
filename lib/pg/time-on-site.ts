@@ -145,3 +145,40 @@ export async function listTimeOnSite(): Promise<TimeOnSiteListItem[]> {
     hasSchedule: row.has_schedule,
   }));
 }
+
+/* ---------- the sub's own answer (sub portal) ---------- */
+
+export type SubTimeOnSiteItem = { accountId: string; accountName: string; minutes: number; source: TimeOnSite["source"]; waiting: boolean };
+
+// The sub signed in by email: their subcontractor row, only when exactly one matches.
+const SUB_BY_EMAIL = `(SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM subcontractors WHERE btrim($1) <> '' AND lower(btrim(email)) = lower(btrim($1)))`;
+
+/** The active accounts of the sub with this email, for their portal. */
+export async function listTimeOnSiteForSub(email: string): Promise<SubTimeOnSiteItem[]> {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `SELECT id, account_name, minutes_on_site, minutes_on_site_source, sub_minutes_on_site
+     FROM accounts
+     WHERE id IS NOT NULL AND is_test = false AND status_key = 'active' AND subcontractor_id = ${SUB_BY_EMAIL}
+     ORDER BY lower(account_name)`,
+    [email]
+  )) as { id: string; account_name: string; minutes_on_site: number; minutes_on_site_source: string; sub_minutes_on_site: number | null }[];
+  return rows.map((row) => ({
+    accountId: row.id,
+    accountName: row.account_name,
+    // While their answer waits for the office, the sub sees their own answer.
+    minutes: row.sub_minutes_on_site ?? row.minutes_on_site,
+    source: toTimeOnSiteSource(row.minutes_on_site_source),
+    waiting: row.sub_minutes_on_site !== null,
+  }));
+}
+
+/** True when the account is an active account of the sub with this email. */
+export async function subHasAccount(email: string, accountId: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `SELECT 1 FROM accounts WHERE id = btrim($2) AND is_test = false AND status_key = 'active' AND subcontractor_id = ${SUB_BY_EMAIL}`,
+    [email, accountId]
+  )) as unknown[];
+  return rows.length > 0;
+}

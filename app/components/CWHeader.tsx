@@ -78,6 +78,7 @@ const SUBCONTRACTOR_GROUPS: NavGroup[] = [
     items: [
       { href: "/subcontractor-portal", label: "Home", icon: "home" },
       { href: "/subcontractor-portal/equipment", label: "Equipment", icon: "equipment" },
+      { href: "/subcontractor-portal/time-on-site", label: "Time at each place", icon: "visit" },
     ],
   },
 ];
