@@ -172,8 +172,32 @@ export default function CWHeader() {
   // changes on every such navigation, giving a reliable re-check point
   // without needing a full reload.
   useEffect(() => {
+    const stored = getStoredRole();
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRole(getStoredRole());
+    setRole(stored);
+    if (stored === "admin" || pathname === "/login") return;
+
+    // No staff note in this browser (storage cleared, a home-screen app with
+    // its own storage, or a sub signed in or logged out here) while the staff
+    // sign-in is still good: ask the server, and when it says staff, that
+    // wins and the note is written back so it is there next time. Customers
+    // and subs keep their portals as they are.
+    let cancelled = false;
+    fetch("/api/session-role")
+      .then((response) => response.json())
+      .then((data: { isAdmin?: boolean }) => {
+        if (cancelled || data.isAdmin !== true) return;
+        try {
+          window.localStorage.setItem("cwRole", "admin");
+        } catch {
+          // Private mode: the menu still shows on this page.
+        }
+        setRole("admin");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [pathname]);
 
   useEffect(() => {
@@ -282,6 +306,10 @@ export default function CWHeader() {
     }
   }
   const backHref = fromBoard ? "/board" : shell.backHref || (shell.onBack ? "" : fallbackBack);
+  // The logo, "Cleaning World" and the Home button all go home. Never on the
+  // office TV (/board/tv), which stays clean with no buttons.
+  const isTv = pathname === "/board/tv" || pathname.startsWith("/board/tv/");
+  const canGoHome = mounted && role !== null && !isLogin && !isTv;
 
   function toggleCollapsed() {
     const next = !collapsed;
@@ -363,7 +391,7 @@ export default function CWHeader() {
           {/* cw-emblem.png is the emblem with no empty margin (276x180). The
               box never shrinks, and the image keeps its own proportions. */}
           {/* The logo goes home: the Board for staff, their own portal for a sub or a customer. */}
-          {mounted && role && !isLogin ? (
+          {canGoHome ? (
             <Link href={home} className="cw-topbar-logo" aria-label="Home">
               <Image src="/cw-emblem.png" alt="" width={276} height={180} priority unoptimized className="h-full w-full object-contain" />
             </Link>
@@ -374,7 +402,13 @@ export default function CWHeader() {
           )}
 
           <div className="cw-topbar-names">
-            <p className="cw-topbar-brand">Cleaning World</p>
+            {canGoHome ? (
+              <Link href={home} className="cw-topbar-brand cw-topbar-brand-link">
+                Cleaning World
+              </Link>
+            ) : (
+              <p className="cw-topbar-brand">Cleaning World</p>
+            )}
             <h1 className="cw-topbar-page">{pageName}</h1>
           </div>
 
@@ -400,6 +434,13 @@ export default function CWHeader() {
                 ?
               </Link>
             ))}
+
+          {canGoHome && !isHome ? (
+            <Link href={home} className="cw-topbar-btn" title="Home">
+              <HomeIcon />
+              <span className="cw-topbar-home-word">Home</span>
+            </Link>
+          ) : null}
         </div>
       </header>
 
@@ -466,6 +507,14 @@ function BackArrow() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M15 5l-7 7 7 7" />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={SIDE_ICONS.home} />
     </svg>
   );
 }
