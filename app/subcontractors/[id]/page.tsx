@@ -29,6 +29,7 @@ import {
   buildSubcontractorPerformanceKey,
 } from "@/lib/subAccountMatching";
 import InviteToPortal from "./invite-to-portal";
+import CrewsDetail from "./crews";
 
 type AnyRow = Record<string, unknown>;
 
@@ -958,6 +959,7 @@ export default function SubcontractorDetailPage() {
             <Detail label="Areas Serviced" value={form.areasServiced} />
             <Detail label="Services Provided" value={form.servicesProvided} />
             <Detail label="Employee Capacity" value={form.employeeCapacity} />
+            <CrewsDetail subId={pageId} />
             <Detail label="Insurance Expiration" value={niceDate(form.insuranceExpiration)} />
             <Detail label="Status" value={form.status} />
             <Detail label="Notes" value={form.notes} full />

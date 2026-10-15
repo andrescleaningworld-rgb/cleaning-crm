@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { APIProvider, Circle, InfoWindow, Map as GoogleMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import AccountLink from "../components/AccountLink";
+import WhoIsFree from "./who-is-free";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
@@ -843,6 +844,9 @@ export default function CoverageMap() {
           closestSubs={closestSubs}
           isGeocodingAccounts={geocodingProgress !== null}
         />
+
+        {/* The spot picked above is where the new job is. */}
+        <WhoIsFree point={searchPoint} />
 
         <div style={{ height: "68vh", minHeight: 460, width: "100%", overflow: "hidden", borderRadius: 16, border: "2px solid var(--ui-line)" }}>
           {isLoading ? (
