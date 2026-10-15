@@ -143,24 +143,32 @@ function SubSchedulesPageInner() {
   const [exceptionToDelete, setExceptionToDelete] = useState<ScheduleException | null>(null);
   const [deletingException, setDeletingException] = useState(false);
 
-  // Deep-link support for the Subs list page's "Add Schedule" action
-  // (/sub-schedules?subId=<email>&addSchedule=1) — resolved against the
-  // subcontractor list once it's loaded, since the URL only carries the id.
+  // Deep-link support for "Add Schedule" from elsewhere: the Subs list page
+  // (/sub-schedules?subId=<email>&addSchedule=1) and the "No schedule" tile
+  // and banner (…&accountId=<id>, subId when the account has a sub) —
+  // resolved once the subcontractor and account lists are loaded, since the
+  // URL only carries the ids.
   const searchParams = useSearchParams();
   const deepLinkHandledRef = useRef(false);
+  const selectCustomer = customer.select;
   useEffect(() => {
     if (deepLinkHandledRef.current) return;
     if (searchParams.get("addSchedule") !== "1") return;
     const subId = searchParams.get("subId");
-    if (!subId || allTeamLeaders.length === 0) return;
+    const accountId = searchParams.get("accountId");
+    if (!subId && !accountId) return;
+    if (subId && allTeamLeaders.length === 0) return;
+    if (accountId && allAccountOptions.length === 0) return;
     deepLinkHandledRef.current = true;
-    const match = allTeamLeaders.find((r) => normalizeForMatch(r.id) === normalizeForMatch(subId));
+    const match = subId ? allTeamLeaders.find((r) => normalizeForMatch(r.id) === normalizeForMatch(subId)) : undefined;
     if (match) {
       setSelectedTeamLeader({ id: match.id, label: formatTeamLeaderLabel(match) });
       setTeamLeaderQuery(formatTeamLeaderLabel(match));
     }
+    const account = accountId ? allAccountOptions.find((option) => option.id === accountId) : undefined;
+    if (account) selectCustomer(account);
     setAddScheduleModalOpen(true);
-  }, [searchParams, allTeamLeaders]);
+  }, [searchParams, allTeamLeaders, allAccountOptions, selectCustomer]);
 
   useEffect(() => {
     setAdminName(getStoredAdminName());

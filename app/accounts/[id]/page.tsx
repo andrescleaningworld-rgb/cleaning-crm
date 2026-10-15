@@ -30,6 +30,7 @@ import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
 import TimeOnSiteDetail from "./time-on-site";
+import { NoScheduleBanner } from "../../components/no-schedule";
 import CancellationFields from "../../components/CancellationFields";
 import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/cancellation";
 import SitePhotos from "./site-photos";
@@ -1227,6 +1228,8 @@ export default function AccountDetailPage() {
             backHref="/accounts"
             onEdit={() => router.push(`/accounts/${accountIdForUrl}/edit`)}
           >
+            {/* Active and no Sub Schedule: Coverage cannot count it. Nothing shows otherwise. */}
+            <NoScheduleBanner accountId={getAccountId(account, rawAccountIdFromUrl)} />
             <Tips
               id="account"
               steps={[

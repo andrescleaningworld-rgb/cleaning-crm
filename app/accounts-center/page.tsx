@@ -14,6 +14,7 @@ import TeamHubStaffQueue from "./team-hub-queue";
 import { Tabs } from "@/app/ui";
 import { useHandoffs } from "../components/handoffs";
 import { SubScoreAlertsCard } from "../components/sub-score-alerts";
+import { NoScheduleTile } from "../components/no-schedule";
 
 type CenterTab = "all" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails" | "time";
 
@@ -98,6 +99,8 @@ export default function AccountsCenterPage() {
     <div className="ui-screen">
       {/* A sub's score dropped below 6: who and why, one tap away. Nothing shows when there is none. */}
       <SubScoreAlertsCard />
+      {/* Active accounts with no Sub Schedule. Nothing shows when there are none. */}
+      <NoScheduleTile />
       <Tabs label="Accounts Center sections" tabs={tabs} value={activeTab} onChange={handleTabChange} />
 
       {activeTab === "all" && (
