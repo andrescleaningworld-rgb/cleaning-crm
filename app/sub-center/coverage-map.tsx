@@ -767,6 +767,13 @@ export default function CoverageMap() {
     return findClosestSubs(searchPoint, geocodedServiceAreaAccounts, CLOSEST_SUB_COUNT);
   }, [searchPoint, geocodedServiceAreaAccounts]);
 
+  // The same positions, by Account ID, for "Who's free?": both boxes measure from the same places.
+  const accountPoints = useMemo(() => {
+    const points: Record<string, [number, number]> = {};
+    for (const account of geocodedServiceAreaAccounts) points[account.id] = [account.latitude as number, account.longitude as number];
+    return points;
+  }, [geocodedServiceAreaAccounts]);
+
   if (!GOOGLE_MAPS_API_KEY) {
     return (
       <div className="ui-card ui-strong">
@@ -846,7 +853,7 @@ export default function CoverageMap() {
         />
 
         {/* The spot picked above is where the new job is. */}
-        <WhoIsFree point={searchPoint} />
+        <WhoIsFree point={searchPoint} points={accountPoints} />
 
         <div style={{ height: "68vh", minHeight: 460, width: "100%", overflow: "hidden", borderRadius: 16, border: "2px solid var(--ui-line)" }}>
           {isLoading ? (

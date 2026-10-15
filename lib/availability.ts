@@ -13,7 +13,13 @@
 //   🟢 Free:  it fits with 30 minutes to spare on both sides (beyond travel).
 //   🟡 Tight: it fits, but with less than that.
 //   🔴 Busy:  it does not fit.
-// The worst week counts, and the card says how many weeks were busy or tight.
+// Each chosen day gets its own answer (the worst of its weeks, with how many
+// weeks were busy or tight); the sub's colour is the worst of the days.
+//
+// Map positions: Coverage sends the positions its map uses ("Find closest
+// subcontractors": addresses looked up, only inside the service area), so
+// both boxes measure from the same places. Without them, the positions saved
+// on the accounts are used.
 
 import { generateScheduleDates, isScheduleEffectivelyActive, parseISO, toISO } from "@/lib/scheduleRecurrence";
 import { formatClock, parseClock, windowHours } from "@/lib/schedule-time";
@@ -48,36 +54,49 @@ export type AvailabilitySchedule = {
 export type AvailabilitySub = {
   subId: string;
   name: string;
+  /** The person, as typed on the accounts ("Find closest" lists subs by it). */
+  contactName: string;
   crews: number;
   schedules: AvailabilitySchedule[];
   /** Active accounts of this sub with no live schedule: not counted. */
   unscheduled: number;
-  /** Map positions of the sub's active accounts, for "how far". */
-  accountPoints: Point[];
+  /** The sub's active accounts and their map positions, for "how far". */
+  accounts: { accountId: string; point: Point | null }[];
 };
 
-export type NewJob = { weekday: string; start: number; minutes: number; point: Point | null };
+export type NewJob = { days: string[]; start: number; minutes: number; point: Point | null };
 
 export type DayCleaning = { accountName: string; start: number; end: number; exact: boolean; estimated: boolean; minutesOnSite: number };
 
-export type SubAvailability = {
-  subId: string;
-  name: string;
-  crews: number;
+export type DayAvailability = {
+  weekday: string;
   status: Availability;
   busyWeeks: number;
   tightWeeks: number;
   weeks: number;
-  /** Miles from the new job to the sub's nearest account; null without a spot or positions. */
-  distanceMiles: number | null;
-  /** That weekday's cleanings in the worst week, as laid out. */
+  /** That weekday's cleanings in its worst week, as laid out. */
   day: DayCleaning[];
   /** The date the day line is for. */
   dayDate: string;
+};
+
+export type SubAvailability = {
+  subId: string;
+  name: string;
+  contactName: string;
+  crews: number;
+  /** The worst of the days. */
+  status: Availability;
+  /** Miles from the new job to the sub's nearest account; null without a spot or positions. */
+  distanceMiles: number | null;
+  /** One per chosen day, in the order of the week. */
+  days: DayAvailability[];
   unscheduled: number;
 };
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/** The days in the order the office reads a week. */
+export const WEEK_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export function haversineMiles(a: Point, b: Point): number {
   const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -166,7 +185,7 @@ function shareOut(jobs: Job[], crews: number): { crews: Job[][]; late: Set<strin
 }
 
 // Does the new job fit, with this much spare before and after it?
-function fits(crews: Job[][], late: Set<string>, job: NewJob, spare: number): Job[] | null {
+function fits(crews: Job[][], late: Set<string>, job: { start: number; minutes: number; point: Point | null }, spare: number): Job[] | null {
   const block: Job = { key: "__new__", earliest: job.start - spare, latest: job.start - spare, duration: job.minutes + 2 * spare, point: job.point, isNew: true };
   for (const list of crews) {
     for (let position = 0; position <= list.length; position += 1) {
@@ -188,8 +207,11 @@ function dayLine(crews: Job[][], late: Set<string>): DayCleaning[] {
   return line.sort((a, b) => a.start - b.start);
 }
 
-export function checkSub(sub: AvailabilitySub, job: NewJob, dates: string[], eveningEnds: number): SubAvailability {
-  const order: Availability[] = ["free", "tight", "busy"];
+const ORDER: Availability[] = ["free", "tight", "busy"];
+const worse = (a: Availability, b: Availability) => (ORDER.indexOf(b) > ORDER.indexOf(a) ? b : a);
+
+/** One weekday for one sub, over the given dates (that weekday in the next weeks). */
+export function checkDay(sub: AvailabilitySub, job: { start: number; minutes: number; point: Point | null }, weekday: string, dates: string[], eveningEnds: number): DayAvailability {
   let worst: Availability = "free";
   let worstDay: DayCleaning[] = [];
   let worstDate = dates[0] ?? "";
@@ -206,35 +228,51 @@ export function checkSub(sub: AvailabilitySub, job: NewJob, dates: string[], eve
     const status: Availability = fits(crews, late, job, SPARE_MINUTES) ? "free" : fits(crews, late, job, 0) ? "tight" : "busy";
     if (status === "busy") busyWeeks += 1;
     if (status === "tight") tightWeeks += 1;
-    if (index === 0 || order.indexOf(status) > order.indexOf(worst)) {
+    if (index === 0 || ORDER.indexOf(status) > ORDER.indexOf(worst)) {
       worst = status;
       worstDay = dayLine(crews, late);
       worstDate = date;
     }
   });
 
-  const distances = job.point ? sub.accountPoints.map((point) => haversineMiles(job.point as Point, point)) : [];
+  return { weekday, status: worst, busyWeeks, tightWeeks, weeks: dates.length, day: worstDay, dayDate: worstDate };
+}
+
+// The map's positions in place of the saved ones: an account the map has no
+// position for has none here either (travel to it counts as 15 minutes).
+function withPoints(sub: AvailabilitySub, points: Map<string, Point>): AvailabilitySub {
+  const at = (accountId: string) => points.get(accountId) ?? null;
   return {
-    subId: sub.subId,
-    name: sub.name,
-    crews: sub.crews,
-    status: worst,
-    busyWeeks,
-    tightWeeks,
-    weeks: dates.length,
-    distanceMiles: distances.length > 0 ? Math.min(...distances) : null,
-    day: worstDay,
-    dayDate: worstDate,
-    unscheduled: sub.unscheduled,
+    ...sub,
+    schedules: sub.schedules.map((schedule) => ({ ...schedule, point: at(schedule.accountId) })),
+    accounts: sub.accounts.map((account) => ({ ...account, point: at(account.accountId) })),
   };
 }
 
-/** Every sub, Free first, then Tight, then Busy; nearest first within each. */
-export function checkAll(subs: AvailabilitySub[], job: NewJob, today: Date, eveningEnds: number): SubAvailability[] {
-  const dates = nextDates(job.weekday, today);
+/**
+ * Every sub for the chosen days: Free first, then Tight, then Busy, nearest
+ * first within each. points: the map's positions by Account ID, when sent.
+ */
+export function checkAll(subs: AvailabilitySub[], job: NewJob, today: Date, eveningEnds: number, points?: Map<string, Point>): SubAvailability[] {
+  const days = WEEK_ORDER.filter((weekday) => job.days.includes(weekday));
+  const datesByDay = new Map(days.map((weekday) => [weekday, nextDates(weekday, today)]));
   const rank: Record<Availability, number> = { free: 0, tight: 1, busy: 2 };
   return subs
-    .map((sub) => checkSub(sub, job, dates, eveningEnds))
+    .map((original) => {
+      const sub = points ? withPoints(original, points) : original;
+      const perDay = days.map((weekday) => checkDay(sub, job, weekday, datesByDay.get(weekday) ?? [], eveningEnds));
+      const distances = job.point ? sub.accounts.flatMap((account) => (account.point ? [haversineMiles(job.point as Point, account.point)] : [])) : [];
+      return {
+        subId: sub.subId,
+        name: sub.name,
+        contactName: sub.contactName,
+        crews: sub.crews,
+        status: perDay.reduce<Availability>((all, day) => worse(all, day.status), "free"),
+        distanceMiles: distances.length > 0 ? Math.min(...distances) : null,
+        days: perDay,
+        unscheduled: sub.unscheduled,
+      };
+    })
     .sort((a, b) => rank[a.status] - rank[b.status] || (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity) || a.name.localeCompare(b.name));
 }
 

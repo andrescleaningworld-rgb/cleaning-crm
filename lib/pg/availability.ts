@@ -52,7 +52,7 @@ export async function saveCrews(subId: string, crews: number): Promise<number | 
   return rows[0]?.crews ?? null;
 }
 
-type AccountRow = { id: string; account_name: string; sub_id: string | null; latitude: number | null; longitude: number | null; minutes: string | null; source: string | null };
+type AccountRow = { id: string; account_name: string; sub_id: string | null; sub_raw: string; latitude: number | null; longitude: number | null; minutes: string | null; source: string | null };
 type SubRow = { id: string; name: string; crews: string | null };
 type ScheduleRow = {
   account_key: string;
@@ -72,7 +72,7 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
   const sql = getSql();
   const [accounts, subs, schedules] = (await Promise.all([
     sql.query(`
-      SELECT a.id, a.account_name, a.subcontractor_id AS sub_id, a.latitude, a.longitude,
+      SELECT a.id, a.account_name, a.subcontractor_id AS sub_id, btrim(a.subcontractor_raw) AS sub_raw, a.latitude, a.longitude,
         to_jsonb(a)->>'minutes_on_site' AS minutes, to_jsonb(a)->>'minutes_on_site_source' AS source
       FROM accounts a
       WHERE a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active'`),
@@ -105,7 +105,7 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
     if (!entry) {
       const row = subs.find((sub) => sub.id === subId);
       if (!row) return null;
-      entry = { subId, name: row.name, crews: Math.max(1, Number(row.crews) || 1), schedules: [], unscheduled: 0, accountPoints: [] };
+      entry = { subId, name: row.name, contactName: "", crews: Math.max(1, Number(row.crews) || 1), schedules: [], unscheduled: 0, accounts: [] };
       bySub.set(subId, entry);
     }
     return entry;
@@ -141,9 +141,18 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
     if (!account.sub_id) continue;
     const sub = subFor(account.sub_id);
     if (!sub) continue;
-    const point = pointOf(account);
-    if (point) sub.accountPoints.push(point);
+    sub.accounts.push({ accountId: account.id, point: pointOf(account) });
     if (!scheduled.has(account.id)) sub.unscheduled += 1;
+  }
+
+  // The name typed on the sub's accounts (e.g. "Vicky"): the name "Find
+  // closest subcontractors" lists them by. The most used one wins.
+  for (const sub of bySub.values()) {
+    const counts = new Map<string, number>();
+    for (const account of accounts) {
+      if (account.sub_id === sub.subId && account.sub_raw) counts.set(account.sub_raw, (counts.get(account.sub_raw) ?? 0) + 1);
+    }
+    sub.contactName = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
   }
 
   return Array.from(bySub.values());
