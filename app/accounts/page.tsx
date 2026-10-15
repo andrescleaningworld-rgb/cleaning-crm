@@ -33,6 +33,7 @@ import { distanceInMiles, formatMiles } from "../lib/distance";
 import { useCustomerSearch, AutocompleteField } from "../sub-schedules/autocomplete";
 import CancellationFields from "../components/CancellationFields";
 import AccountLink from "../components/AccountLink";
+import PrintAccounts, { type PrintRow } from "./print-accounts";
 import { cancellationNote, cancellationProblem } from "@/lib/cancellation";
 
 // ---------------------------------------------------------------------------
@@ -832,6 +833,8 @@ export default function AccountsPage() {
   const [quickToDoError, setQuickToDoError] = useState("");
 
   const [showFilters, setShowFilters] = useState(false);
+  // More -> Print: "Choose columns", then the table (print-accounts.tsx).
+  const [showPrint, setShowPrint] = useState(false);
 
   // Redesign: what the three counts, the chips, the card's three dots and
   // the money switch need.
@@ -1259,6 +1262,30 @@ export default function AccountsPage() {
       return account._latitudeNum == null || account._longitudeNum == null;
     }).length;
   }, [accounts, nearAccountRef, nonLocationFilterParams]);
+
+  // More -> Print: every account the filters show now, one text per column.
+  const printRows = useMemo<PrintRow[]>(
+    () =>
+      filteredAccounts.map((account) => ({
+        name: normalizeText(account.accountName),
+        address: getProposalAddress(account),
+        sub: getSubDisplayLabel(account._subDisplay) || normalizeText(account.subcontractor),
+        manager: normalizeText(account.manager),
+        frequency: normalizeText(account.cleaningDays) || account._frequencyText || "",
+        status: normalizeText(account.status),
+        price: formatMoney(account.monthlyRevenue),
+        subPay: formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay),
+        margin: (account._monthlyRevenueNum ?? 0) > 0 ? `${formatMoney(account._grossMarginNum)} (${account._grossMarginPercent ?? 0}%)` : "",
+        startDate: formatDate(account.accountStartDate),
+        contact: normalizeText(account.contactName),
+        phone: normalizeText(account.phone),
+        email: normalizeText(account.email),
+        service: normalizeText(account.serviceType),
+        health: normalizeText(account.accountHealth),
+        keys: getKeysAlarmRequired(account),
+      })),
+    [filteredAccounts]
+  );
 
   const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
 
@@ -2475,11 +2502,17 @@ async function handleSaveTransferProposal() {
             { label: transferMode ? "Close transfer" : "Transfer proposal", onSelect: toggleTransferMode },
             { label: bulkToDoMode ? "Cancel selection" : "Create to-dos for multiple", icon: "plus", onSelect: toggleBulkToDoMode },
             ...(hasSearched ? [{ label: "Print sub account list", onSelect: handlePrintSubcontractorAccountList }] : []),
-            { label: LABELS.print, onSelect: () => window.print() },
+            { label: LABELS.print, onSelect: () => setShowPrint(true) },
           ]}
         />
       }
     >
+      <PrintAccounts
+        open={showPrint}
+        onClose={() => setShowPrint(false)}
+        rows={printRows}
+        summary={`${printRows.length} account${printRows.length === 1 ? "" : "s"}${filtersOn || nonLocationFilterParams.cleanSearch ? " (filtered)" : ""}`}
+      />
       <Tips
         id="accounts"
         ready={hasSearched && !loading && !transferMode && visibleAccounts.length > 0}

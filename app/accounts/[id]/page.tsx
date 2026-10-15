@@ -1244,7 +1244,39 @@ export default function AccountDetailPage() {
               manager={account.manager || ""}
               cancelled={isCancelledStatus(account.status)}
               finalCleaningDate={isCancelledStatus(account.status) ? account.finalCleaningDate || "" : ""}
-            />
+            >
+              {/* The Snapshot and the More button live in the banner. */}
+              <div className="ui-next-snapshot" data-account-snapshot>
+                <p className="ui-next-label">Snapshot</p>
+                <dl className="ui-details">
+                  {contactsOn ? null : (
+                    <>
+                      <Detail label="Contact Person" value={contactPerson} />
+                      <Detail label="Phone" value={phoneLink} />
+                      <Detail label="Email" value={contactEmail} />
+                    </>
+                  )}
+                  <Detail label="Start Date" value={startDate} />
+                  <Detail label="Cleaning Days" value={cleaningDays} />
+                  <Detail label="Frequency" value={cleaningFrequency} />
+                  <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
+                  <Detail label="Has Key" value={account.hasKey || "N/A"} />
+                  <Detail label="Alarm Info" value={alarmInfo || "N/A"} />
+                  <Detail label="Address" value={addressLink} full />
+                </dl>
+              </div>
+              <div className="account-detail-print-hide" style={{ marginTop: 12 }}>
+                <BigButton
+                  kind="second"
+                  onClick={() => setShowMore((value) => !value)}
+                  aria-expanded={showMore}
+                  aria-controls="account-more"
+                  data-tip="more"
+                >
+                  {showMore ? "Less" : "More"}
+                </BigButton>
+              </div>
+            </NextCleaning>
 
             {onboardingHandoff && !onboardingHandoff.doneAt ? (
               <div className="account-detail-print-hide">
@@ -1301,14 +1333,6 @@ export default function AccountDetailPage() {
               <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}`} />
               <Tile icon="money" label="+ Extra job" href={`/extra-jobs/new?accountId=${accountIdForUrl}`} />
               <Tile icon="key" label="Keys and alarm" onClick={() => setShowKeys(true)} />
-              <Tile
-                icon="more"
-                label={showMore ? "Less" : "More"}
-                onClick={() => setShowMore((value) => !value)}
-                aria-expanded={showMore}
-                aria-controls="account-more"
-                data-tip="more"
-              />
             </div>
 
             {/* Visits, updates, extra jobs, complaints, supply orders, photos, to-dos and sales of this account, with how many. */}
@@ -1458,26 +1482,6 @@ export default function AccountDetailPage() {
 
             {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
             <AccountContacts key={contactsVersion} accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />
-
-            <Card title="Account Snapshot">
-              <p className="ui-card-text">Main operational details for this account.</p>
-              <dl className="ui-details">
-                {contactsOn ? null : (
-                  <>
-                    <Detail label="Contact Person" value={contactPerson} />
-                    <Detail label="Phone" value={phoneLink} />
-                    <Detail label="Email" value={contactEmail} />
-                  </>
-                )}
-                <Detail label="Start Date" value={startDate} />
-                <Detail label="Cleaning Days" value={cleaningDays} />
-                <Detail label="Frequency" value={cleaningFrequency} />
-                <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
-                <Detail label="Has Key" value={account.hasKey || "N/A"} />
-                <Detail label="Alarm Info" value={alarmInfo || "N/A"} />
-                <Detail label="Address" value={addressLink} full />
-              </dl>
-            </Card>
 
             <Card title="Notes">
               <p className="ui-card-text">Internal account notes.</p>

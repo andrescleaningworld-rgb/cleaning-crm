@@ -1640,6 +1640,25 @@ button.ui-card:hover {
   .ui-print-view .no-print {
     display: none !important;
   }
+
+  /* A sheet made only for paper (app/components/print-sheet.tsx) sits
+     straight on <body>. While it prints, the hidden screen behind it takes
+     no room, so there are no blank pages after it. */
+  body.ui-printing-sheet > *:not(.ui-print-sheet) {
+    display: none !important;
+  }
+
+  .ui-print-sheet {
+    display: block;
+    position: static;
+  }
+}
+
+/* On screen the sheet is never seen. */
+@media screen {
+  .ui-print-sheet {
+    display: none;
+  }
 }
 
 /* Calendar pieces (Sub Schedules → Full Calendar). */
@@ -3047,6 +3066,18 @@ main.cw-page-card {
 .ui-next-who {
   margin: 0;
   color: var(--ui-ink);
+}
+
+/* The account's Snapshot, at the bottom of the banner (app/accounts/[id]/page.tsx). */
+.ui-next-snapshot {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ui-navy) 25%, transparent);
+  color: var(--ui-ink);
+}
+
+.ui-next-snapshot .ui-details {
+  margin-top: 6px;
 }
 
 .ui-section-title {

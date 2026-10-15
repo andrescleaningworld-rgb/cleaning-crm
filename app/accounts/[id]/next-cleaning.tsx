@@ -5,9 +5,11 @@
 // manager. Reads the same two lists the Sub Schedules calendar reads and
 // uses the same date rules (lib/scheduleRecurrence.ts), including skipped
 // and rescheduled dates. A cancelled account has no cleanings after its
-// final cleaning date (the "Change status" sheet). Read only.
+// final cleaning date (the "Change status" sheet). Read only. The account
+// page puts its Snapshot and its More button at the bottom of this banner
+// (children).
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { generateScheduleDates, isScheduleEffectivelyActive, parseISO, todayISO } from "@/lib/scheduleRecurrence";
 
 type Schedule = {
@@ -80,6 +82,7 @@ export default function NextCleaning({
   manager,
   cancelled = false,
   finalCleaningDate = "",
+  children,
 }: {
   accountId: string;
   /** The account's own "Cleaning Days" text, shown when no dated schedule is on file. */
@@ -91,6 +94,8 @@ export default function NextCleaning({
   cancelled?: boolean;
   /** YYYY-MM-DD for a cancelled account that has a final cleaning date, else "". */
   finalCleaningDate?: string;
+  /** Shown at the bottom of the banner (the account page: its Snapshot and More button). */
+  children?: ReactNode;
 }) {
   const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
   const [next, setNext] = useState<Next>(null);
@@ -160,6 +165,7 @@ export default function NextCleaning({
       <p className="ui-next-who">
         <span className="ui-strong">Manager:</span> {manager || "Unassigned"}
       </p>
+      {children}
     </section>
   );
 }
