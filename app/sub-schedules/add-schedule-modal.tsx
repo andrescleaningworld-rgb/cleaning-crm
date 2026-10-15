@@ -4,11 +4,22 @@ import { useMemo, useState } from "react";
 import { todayISO } from "@/lib/scheduleRecurrence";
 import { AutocompleteField, useDebounce, type SearchOption } from "./autocomplete";
 import { BigButton, ErrorBox, SelectField, Sheet } from "@/app/ui";
+import PlusMinus from "@/app/components/plus-minus";
+import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock, windowForStartTime } from "@/lib/schedule-time";
 
 type TeamLeaderRecord = { id: string; companyName: string; contactName: string };
 
-type Occurrence = { position: string; weekday: string; timeWindow: string };
-const EMPTY_OCCURRENCE: Occurrence = { position: "", weekday: "", timeWindow: "" };
+type Occurrence = { position: string; weekday: string; timeWindow: string; start: number };
+const EMPTY_OCCURRENCE: Occurrence = { position: "", weekday: "", timeWindow: "", start: DEFAULT_START_TIME };
+
+// The fifth chip next to the four windows: an appointment at an exact time.
+const EXACT = "Exact";
+
+/** What one day sends: its window, or for an exact time the window it falls in plus the time. */
+function entryTime(windowId: string, start: number): { timeWindow: string; scheduleType?: string; startTime?: string } {
+  if (windowId !== EXACT) return { timeWindow: windowId };
+  return { timeWindow: windowForStartTime(start), scheduleType: "appointment", startTime: toClock(start) };
+}
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const POSITIONS = ["1st", "2nd", "3rd", "4th", "Last"];
@@ -86,6 +97,7 @@ export default function AddScheduleModal({
   const [frequency, setFrequency] = useState("");
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [dayWindows, setDayWindows] = useState<Record<string, string>>({});
+  const [dayStarts, setDayStarts] = useState<Record<string, number>>({});
   const [occurrence1, setOccurrence1] = useState<Occurrence>(EMPTY_OCCURRENCE);
   const [occurrence2, setOccurrence2] = useState<Occurrence>(EMPTY_OCCURRENCE);
   const [submitting, setSubmitting] = useState(false);
@@ -141,16 +153,16 @@ export default function AddScheduleModal({
     const effectiveStart = frequency === "AS_NEEDED" ? "" : todayISO();
     const effectiveEnd = frequency === "AS_NEEDED" ? "" : yearEndISO();
 
-    type SubmitEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
+    type SubmitEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string; scheduleType?: string; startTime?: string };
     let entries: SubmitEntry[];
     if (frequency === "WEEKLY" || frequency === "BIWEEKLY") {
-      entries = selectedDays.map((day) => ({ dayOfWeek: day, timeWindow: dayWindows[day] }));
+      entries = selectedDays.map((day) => ({ dayOfWeek: day, ...entryTime(dayWindows[day], dayStarts[day] ?? DEFAULT_START_TIME) }));
     } else if (frequency === "MONTHLY_1X") {
-      entries = [{ monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, timeWindow: occurrence1.timeWindow }];
+      entries = [{ monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, ...entryTime(occurrence1.timeWindow, occurrence1.start) }];
     } else if (frequency === "MONTHLY_2X") {
       entries = [
-        { monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, timeWindow: occurrence1.timeWindow },
-        { monthlyOccurrence: `${occurrence2.position}:${occurrence2.weekday}`, timeWindow: occurrence2.timeWindow },
+        { monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, ...entryTime(occurrence1.timeWindow, occurrence1.start) },
+        { monthlyOccurrence: `${occurrence2.position}:${occurrence2.weekday}`, ...entryTime(occurrence2.timeWindow, occurrence2.start) },
       ];
     } else {
       entries = [];
@@ -259,6 +271,9 @@ export default function AddScheduleModal({
             <div key={day}>
               <p className="ui-label">Time window for {day}</p>
               <TimeWindowChips label={`Time window for ${day}`} value={dayWindows[day] ?? ""} onChange={(id) => setWindowForDay(day, id)} />
+              {dayWindows[day] === EXACT ? (
+                <StartTimePicker label={`Start time on ${day}`} value={dayStarts[day] ?? DEFAULT_START_TIME} onChange={(start) => setDayStarts((prev) => ({ ...prev, [day]: start }))} />
+              ) : null}
             </div>
           ))}
         </>
@@ -289,6 +304,19 @@ function TimeWindowChips({ label, value, onChange }: { label: string; value: str
           {w.label} <span style={{ fontWeight: 500 }}>({w.hours})</span>
         </button>
       ))}
+      <button type="button" onClick={() => onChange(EXACT)} className="ui-chip" aria-pressed={value === EXACT}>
+        📌 Exact time
+      </button>
+    </div>
+  );
+}
+
+// An appointment's start time: big − / + in half hours.
+function StartTimePicker({ label, value, onChange }: { label: string; value: number; onChange: (start: number) => void }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <p className="ui-label">Starts at</p>
+      <PlusMinus value={value} onChange={onChange} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label={label} format={formatClock} />
     </div>
   );
 }
@@ -322,6 +350,7 @@ function OccurrencePicker({
         ))}
       </SelectField>
       <TimeWindowChips label={`Time window, ${label}`} value={value.timeWindow} onChange={(id) => onChange({ ...value, timeWindow: id })} />
+      {value.timeWindow === EXACT ? <StartTimePicker label={`Start time, ${label}`} value={value.start} onChange={(start) => onChange({ ...value, start })} /> : null}
     </fieldset>
   );
 }

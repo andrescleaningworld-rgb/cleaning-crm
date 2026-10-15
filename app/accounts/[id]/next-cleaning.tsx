@@ -11,11 +11,14 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { generateScheduleDates, isScheduleEffectivelyActive, parseISO, todayISO } from "@/lib/scheduleRecurrence";
+import { describeScheduleTime } from "@/lib/schedule-time";
 
 type Schedule = {
   accountId: string;
   dayOfWeek: string;
   timeWindow: string;
+  scheduleType?: string;
+  startTime?: string;
   effectiveStart: string;
   effectiveEnd: string;
   status: string;
@@ -49,7 +52,7 @@ function findNext(accountId: string, schedules: Schedule[], exceptions: Exceptio
     if (schedule.accountId !== accountId || !isScheduleEffectivelyActive(schedule, today)) continue;
     for (const date of generateScheduleDates(schedule, start, end)) {
       // Skipped dates drop out; rescheduled dates come back below on their new day.
-      if (!skipped.has(date)) visits.push({ date, timeWindow: schedule.timeWindow });
+      if (!skipped.has(date)) visits.push({ date, timeWindow: describeScheduleTime(schedule) });
     }
   }
   for (const ex of mine) {

@@ -4,6 +4,8 @@ import { FormEvent, useState } from "react";
 import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
 import { todayISO } from "@/lib/dateUtils";
 import { BigButton, ErrorBox, Field, SelectField, Sheet } from "@/app/ui";
+import PlusMinus from "@/app/components/plus-minus";
+import { DEFAULT_START_TIME, formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock, windowForStartTime } from "@/lib/schedule-time";
 
 export type SubSchedule = {
   sheetRow: number;
@@ -25,10 +27,15 @@ export type SubSchedule = {
   submittedVia: string;
   /** On a cancelled account's schedule: the end date really stored (effectiveEnd is then the account's last cleaning day). */
   storedEffectiveEnd?: string;
+  /** "appointment" with an exact startTime ("19:00"), else a time window. */
+  scheduleType?: string;
+  startTime?: string;
 };
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const TIME_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"];
+// Picked in the time list instead of a window: an appointment at an exact time.
+const EXACT = "Exact";
 const POSITIONS = ["1st", "2nd", "3rd", "4th", "Last"];
 const FREQUENCIES: { id: string; label: string }[] = [
   { id: "WEEKLY", label: "Weekly" },
@@ -51,7 +58,12 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
 
   const [frequency, setFrequency] = useState(target.frequency);
   const [dayOfWeek, setDayOfWeek] = useState(target.dayOfWeek);
-  const [timeWindow, setTimeWindow] = useState(target.timeWindow);
+  const targetStart = target.scheduleType === "appointment" ? parseClock(target.startTime) : null;
+  const [timeWindow, setTimeWindow] = useState(targetStart !== null ? EXACT : target.timeWindow);
+  const [start, setStart] = useState(targetStart ?? DEFAULT_START_TIME);
+  // What is sent: an exact time also carries the window it falls in.
+  const isExact = timeWindow === EXACT;
+  const sentWindow = isExact ? windowForStartTime(start) : timeWindow;
   const [occurrencePosition, setOccurrencePosition] = useState(targetOccurrence?.position ?? "");
   const [occurrenceWeekday, setOccurrenceWeekday] = useState(targetOccurrence?.weekday ?? "");
   const [effectiveStart, setEffectiveStart] = useState(target.effectiveStart);
@@ -78,7 +90,9 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
   const patternChanged =
     frequency !== target.frequency ||
     dayOfWeek !== target.dayOfWeek ||
-    timeWindow !== target.timeWindow ||
+    sentWindow !== target.timeWindow ||
+    isExact !== (targetStart !== null) ||
+    (isExact && start !== targetStart) ||
     monthlyOccurrence !== target.monthlyOccurrence;
 
   async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
@@ -122,9 +136,11 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
             newPattern: {
               frequency,
               dayOfWeek: frequency === "WEEKLY" || frequency === "BIWEEKLY" ? dayOfWeek : "",
-              timeWindow: frequency === "AS_NEEDED" ? "" : timeWindow,
+              timeWindow: frequency === "AS_NEEDED" ? "" : sentWindow,
               monthlyOccurrence,
               status,
+              scheduleType: isExact && frequency !== "AS_NEEDED" ? "appointment" : "window",
+              startTime: isExact && frequency !== "AS_NEEDED" ? toClock(start) : "",
             },
           }),
         });
@@ -188,13 +204,7 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
               </option>
             ))}
           </SelectField>
-          <SelectField label="Time window" value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
-            {TIME_WINDOWS.map((w) => (
-              <option key={w} value={w}>
-                {w}
-              </option>
-            ))}
-          </SelectField>
+          <TimeSelect value={timeWindow} onChange={setTimeWindow} start={start} onStartChange={setStart} />
         </>
       )}
 
@@ -216,14 +226,7 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
               </option>
             ))}
           </SelectField>
-          <SelectField label="Time window" value={timeWindow} onChange={(e) => setTimeWindow(e.target.value)}>
-            <option value="">Select...</option>
-            {TIME_WINDOWS.map((w) => (
-              <option key={w} value={w}>
-                {w}
-              </option>
-            ))}
-          </SelectField>
+          <TimeSelect value={timeWindow} onChange={setTimeWindow} start={start} onStartChange={setStart} />
         </>
       )}
 
@@ -265,5 +268,28 @@ export default function ScheduleModal({ target, accountName, adminName, onClose,
 
       {error ? <ErrorBox title="The schedule was not saved." text={error} /> : null}
     </Sheet>
+  );
+}
+
+// The time window, or "📌 Exact time" with big − / + for the start time.
+function TimeSelect({ value, onChange, start, onStartChange }: { value: string; onChange: (value: string) => void; start: number; onStartChange: (start: number) => void }) {
+  return (
+    <>
+      <SelectField label="Time" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Select...</option>
+        {TIME_WINDOWS.map((w) => (
+          <option key={w} value={w}>
+            {w}
+          </option>
+        ))}
+        <option value={EXACT}>📌 Exact time</option>
+      </SelectField>
+      {value === EXACT ? (
+        <div>
+          <p className="ui-label">Starts at</p>
+          <PlusMinus value={start} onChange={onStartChange} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time" format={formatClock} />
+        </div>
+      ) : null}
+    </>
   );
 }

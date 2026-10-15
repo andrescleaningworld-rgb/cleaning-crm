@@ -7,8 +7,15 @@ import {
 } from "@/lib/data/scheduling";
 import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, validateScheduleEntries, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
 import { sendSubcontractorNotification } from "@/lib/email";
+import { formatClock, parseClock } from "@/lib/schedule-time";
 
-type CreateScheduleEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
+type CreateScheduleEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string; scheduleType?: string; startTime?: string };
+
+// The time of one entry for the email: "7:00 pm" for an exact time, else the window.
+const entryTime = (e: CreateScheduleEntry) => {
+  const start = parseClock(e.startTime);
+  return e.scheduleType === "appointment" && start !== null ? formatClock(start) : e.timeWindow || "-";
+};
 
 // Mirrors describeEntries in app/api/subcontractor-schedules/route.ts.
 function describeCreateEntries(frequency: string, entries: CreateScheduleEntry[]): string {
@@ -16,11 +23,11 @@ function describeCreateEntries(frequency: string, entries: CreateScheduleEntry[]
     return entries
       .map((e) => {
         const [position, weekday] = (e.monthlyOccurrence ?? "").split(":");
-        return `${position || "-"} ${weekday || "-"} (${e.timeWindow || "-"})`;
+        return `${position || "-"} ${weekday || "-"} (${entryTime(e)})`;
       })
       .join(", ");
   }
-  return entries.map((e) => `${e.dayOfWeek || "-"} (${e.timeWindow || "-"})`).join(", ");
+  return entries.map((e) => `${e.dayOfWeek || "-"} (${entryTime(e)})`).join(", ");
 }
 
 export async function GET() {
@@ -114,6 +121,8 @@ export async function POST(request: NextRequest) {
       frequency?: string;
       monthlyOccurrence?: string;
       status?: string;
+      scheduleType?: string;
+      startTime?: string;
     };
   };
   try {
@@ -166,6 +175,8 @@ export async function POST(request: NextRequest) {
           submittedVia: "Admin",
           frequency,
           monthlyOccurrence: entry.monthlyOccurrence?.trim() ?? "",
+          scheduleType: entry.scheduleType,
+          startTime: entry.startTime?.trim(),
         });
         scheduleIds.push(id);
       }
@@ -234,6 +245,9 @@ export async function POST(request: NextRequest) {
   if (frequency !== "AS_NEEDED" && !newPattern.timeWindow?.trim()) {
     return NextResponse.json({ error: "newPattern.timeWindow is required unless frequency is As Needed" }, { status: 400 });
   }
+  if (newPattern.scheduleType === "appointment" && parseClock(newPattern.startTime) === null) {
+    return NextResponse.json({ error: "An exact-time cleaning needs its start time" }, { status: 400 });
+  }
 
   try {
     const result = await applySchedulePatternChange(
@@ -244,6 +258,8 @@ export async function POST(request: NextRequest) {
         frequency,
         monthlyOccurrence: newPattern.monthlyOccurrence?.trim() ?? "",
         status: newPattern.status?.trim(),
+        scheduleType: newPattern.scheduleType,
+        startTime: newPattern.startTime?.trim(),
       },
       effectiveDate,
       lastEditedBy

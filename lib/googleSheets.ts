@@ -839,6 +839,10 @@ export type SubSchedule = {
   // The Sub Schedules sheet edits this one. See fetchSubSchedules in
   // lib/pg/scheduling.ts.
   storedEffectiveEnd?: string;
+  // Postgres only (migration 042): "appointment" with an exact start time
+  // ("19:00"), else a plain time window. Sheets rows are all windows.
+  scheduleType?: string;
+  startTime?: string;
 };
 
 async function fetchSubScheduleRows(): Promise<string[][]> {
@@ -898,6 +902,9 @@ export async function appendSubSchedule(data: {
   submittedVia: string;
   frequency?: string;
   monthlyOccurrence?: string;
+  // Postgres only; the Sheets tab has no column for them and ignores them.
+  scheduleType?: string;
+  startTime?: string;
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const rand = Math.random().toString(36).slice(2, 6);
@@ -991,6 +998,9 @@ export async function applySchedulePatternChange(
     frequency: string;
     monthlyOccurrence: string;
     status?: string;
+    // Postgres only; ignored here.
+    scheduleType?: string;
+    startTime?: string;
   },
   effectiveDate: string,
   editedBy: string

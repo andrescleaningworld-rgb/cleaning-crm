@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
+import { describeScheduleTime } from "@/lib/schedule-time";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
 import AddScheduleModal from "./add-schedule-modal";
 import FullCalendar from "./full-calendar";
@@ -532,7 +533,7 @@ function SubSchedulesPageInner() {
                   <Card title={resolveAccountName(s.accountId)} right={scheduleStatus(s)}>
                     <p className="ui-card-text">{resolveTeamLeaderName(s.subId)}</p>
                     <p className="ui-card-text">
-                      {describeFrequency(s)} · {describeDayOrOccurrence(s)} · {s.timeWindow || "No time window"}
+                      {describeFrequency(s)} · {describeDayOrOccurrence(s)} · {describeScheduleTime(s) || "No time window"}
                     </p>
                     <p className="ui-card-text">{effectiveText(s)}</p>
                     <p className="ui-card-text">Submitted by {submittedText(s)}</p>
@@ -543,7 +544,7 @@ function SubSchedulesPageInner() {
                   { header: "Customer", cell: (s) => <span className="ui-strong">{resolveAccountName(s.accountId)}</span> },
                   { header: "Subcontractor", cell: (s) => resolveTeamLeaderName(s.subId) },
                   { header: "Day / Occurrence", cell: (s) => describeDayOrOccurrence(s) },
-                  { header: "Window", cell: (s) => s.timeWindow || "None" },
+                  { header: "Window", cell: (s) => describeScheduleTime(s) || "None" },
                   { header: "Frequency", cell: (s) => describeFrequency(s) },
                   { header: "Effective", cell: (s) => effectiveText(s) },
                   { header: "Status", cell: (s) => scheduleStatus(s) },

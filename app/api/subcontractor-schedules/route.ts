@@ -75,8 +75,20 @@ export async function POST(request: NextRequest) {
     // submission case).
     const superseded = await supersedeActiveSubSchedulesForSub(accountId, subId, submittedBy);
 
+    // The portal form has no exact times. A day the sub sends back unchanged
+    // (same day, same window) keeps the exact time the office set on it.
+    const keptAppointment = (entry: ScheduleEntry) =>
+      superseded.find(
+        (row) =>
+          row.scheduleType === "appointment" &&
+          row.timeWindow === (entry.timeWindow?.trim() ?? "") &&
+          row.dayOfWeek === (entry.dayOfWeek?.trim() ?? "") &&
+          row.monthlyOccurrence === (entry.monthlyOccurrence?.trim() ?? "")
+      );
+
     const scheduleIds: string[] = [];
     for (const entry of rowsToCreate) {
+      const kept = keptAppointment(entry);
       const id = await appendSubSchedule({
         accountId,
         subId,
@@ -90,6 +102,8 @@ export async function POST(request: NextRequest) {
         submittedVia: "Sub Portal",
         frequency,
         monthlyOccurrence: entry.monthlyOccurrence?.trim() ?? "",
+        scheduleType: kept?.scheduleType,
+        startTime: kept?.startTime,
       });
       scheduleIds.push(id);
     }

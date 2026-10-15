@@ -16,6 +16,7 @@ import { addDays, officeDay } from "@/lib/cleanings";
 import { cancelledLastDays } from "@/lib/pg/accounts";
 import type { ScheduleException, SubcontractorVisitWithRow, SubSchedule } from "@/lib/googleSheets";
 import { dateOrNull, timestampOrNull } from "@/lib/dateUtils";
+import { parseClock, toClock, toScheduleType } from "@/lib/schedule-time";
 
 // The next row number for a table: after the last row, never before row 2
 // (row 1 is the header in Sheets).
@@ -159,6 +160,9 @@ type ScheduleRow = {
   monthly_occurrence: string;
   submitted_via: string;
   sheet_row: number;
+  // Migration 042; missing before it is applied.
+  schedule_type?: string;
+  start_time?: string | null;
 };
 
 // The last day a cancelled account has cleanings: its final cleaning date,
@@ -220,6 +224,8 @@ function toSubSchedule(r: ScheduleRow): SubSchedule {
     monthlyOccurrence: r.monthly_occurrence,
     // Historical rows predate this column: blank means "Sub Portal".
     submittedVia: r.submitted_via.trim() || "Sub Portal",
+    scheduleType: toScheduleType(r.schedule_type),
+    startTime: r.start_time ? toClock(parseClock(r.start_time) ?? 0) : "",
   };
 }
 
@@ -236,6 +242,8 @@ export async function appendSubSchedule(data: {
   submittedVia: string;
   frequency?: string;
   monthlyOccurrence?: string;
+  scheduleType?: string;
+  startTime?: string;
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const rand = Math.random().toString(36).slice(2, 6);
@@ -274,7 +282,21 @@ export async function appendSubSchedule(data: {
       data.submittedVia,
     ]
   );
+  await saveAppointment(scheduleId, data.scheduleType, data.startTime);
   return scheduleId;
+}
+
+// An appointment's exact start time, on the row just added. Its own step, so
+// a database without migration 042 still saves the schedule (as a window).
+async function saveAppointment(scheduleId: string, scheduleType: string | undefined, startTime: string | undefined): Promise<void> {
+  const start = parseClock(startTime);
+  if (toScheduleType(scheduleType) !== "appointment" || start === null) return;
+  const sql = getSql();
+  try {
+    await sql.query(`UPDATE sub_schedules SET schedule_type = 'appointment', start_time = $2::time WHERE schedule_id = $1`, [scheduleId, toClock(start)]);
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42703") throw error;
+  }
 }
 
 // SubmittedBy/SubmittedDate/ScheduleID/AccountID/SubID are intentionally not
@@ -327,6 +349,8 @@ export async function applySchedulePatternChange(
     frequency: string;
     monthlyOccurrence: string;
     status?: string;
+    scheduleType?: string;
+    startTime?: string;
   },
   effectiveDate: string,
   editedBy: string
@@ -368,6 +392,9 @@ export async function applySchedulePatternChange(
     submittedVia: current.submittedVia,
     frequency: newPattern.frequency,
     monthlyOccurrence: newPattern.monthlyOccurrence,
+    // Not sent: the new row keeps the old one's appointment time.
+    scheduleType: newPattern.scheduleType ?? current.scheduleType,
+    startTime: newPattern.startTime ?? current.startTime,
   });
 
   return { scheduleId: newScheduleId, accountId: current.accountId, subId: current.subId };
