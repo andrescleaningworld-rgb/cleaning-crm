@@ -41,6 +41,7 @@ import SupplyMode from "./supply-mode";
 import SiteStock from "./site-stock";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
+import WelcomePacketSheet from "../../components/welcome-packet-sheet";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
@@ -338,6 +339,9 @@ export default function AccountDetailPage() {
   const [emailPortalAsk, setEmailPortalAsk] = useState(false);
   // Goes up after the email is saved here, so the Contacts card reads the main contact again.
   const [contactsVersion, setContactsVersion] = useState(0);
+  // The customer Welcome Packet sheet. The version goes up after a send, so the checklist and History read again.
+  const [showWelcomePacket, setShowWelcomePacket] = useState(false);
+  const [welcomeVersion, setWelcomeVersion] = useState(0);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
@@ -1430,8 +1434,11 @@ export default function AccountDetailPage() {
                 <BigButton kind="second" onClick={() => (pinInfo ? setShowPrintChoice(true) : openPdfModal())}>
                   Print PDF
                 </BigButton>
-                <BigButton kind="second" busy={sendingPacket} busyLabel="Sending packet…" onClick={() => void handleSendNewAccountPacket()}>
-                  Send new account packet
+                <BigButton kind="second" busy={sendingPacket} busyLabel="Sending sub packet…" onClick={() => void handleSendNewAccountPacket()}>
+                  Send Sub Packet
+                </BigButton>
+                <BigButton kind="second" onClick={() => setShowWelcomePacket(true)}>
+                  Send Customer Welcome Packet
                 </BigButton>
                 <BigButton
                   kind="second"
@@ -1514,6 +1521,7 @@ export default function AccountDetailPage() {
 
             <section className="ui-card account-detail-print-hide">
               <OnboardingChecklist
+                key={welcomeVersion}
                 accountId={getAccountId(account, rawAccountIdFromUrl)}
                 accountName={accountName}
                 manager={account.manager}
@@ -1539,8 +1547,16 @@ export default function AccountDetailPage() {
 
             {/* Every save: who, when, and each field's old → new value. */}
             <div className="account-detail-print-hide">
-              <AccountHistory accountId={getAccountId(account, rawAccountIdFromUrl)} />
+              <AccountHistory key={welcomeVersion} accountId={getAccountId(account, rawAccountIdFromUrl)} />
             </div>
+
+            <WelcomePacketSheet
+              open={showWelcomePacket}
+              accountId={thisAccountId}
+              accountName={accountName}
+              onClose={() => setShowWelcomePacket(false)}
+              onSent={() => setWelcomeVersion((version) => version + 1)}
+            />
 
             </div>
 

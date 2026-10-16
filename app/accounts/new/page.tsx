@@ -3,6 +3,7 @@
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, StatusPill, TextAreaField, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import WelcomePacketSheet from "@/app/components/welcome-packet-sheet";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
@@ -239,6 +240,9 @@ export default function NewAccountPage() {
   const [saving, setSaving] = useState(false);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [error, setError] = useState("");
+  // Set once the account is saved: the screen then offers "Send Customer Welcome Packet".
+  const [saved, setSaved] = useState<{ id: string; name: string } | null>(null);
+  const [showWelcomePacket, setShowWelcomePacket] = useState(false);
   const [subSuggestions, setSubSuggestions] = useState<SubSuggestions | null>(null);
   const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
   const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
@@ -445,9 +449,15 @@ export default function NewAccountPage() {
       // A "Checklist Needed" warning is not a failure: the account is saved.
       showToast(data.checklistFlagWarning || "Account saved", data.checklistFlagWarning ? "bad" : "good");
 
-      setTimeout(() => {
-        router.push("/accounts");
-      }, 800);
+      // With the new account's ID the screen stays, to offer the Welcome Packet;
+      // without one (the old Sheets path) it goes back to the list as before.
+      if (data.accountId) {
+        setSaved({ id: data.accountId, name: accountPayload.accountName });
+      } else {
+        setTimeout(() => {
+          router.push("/accounts");
+        }, 800);
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -460,6 +470,26 @@ export default function NewAccountPage() {
   }
 
   const sectionStyle = { display: "flex", flexDirection: "column", gap: 16, marginTop: 12 } as const;
+
+  if (saved) {
+    return (
+      <Screen title="Account saved" subtitle={saved.name} backHref="/accounts">
+        <Card title={`✓ ${saved.name} is saved`}>
+          <div style={sectionStyle}>
+            <p className="ui-card-text">Send the customer their Welcome Packet now: the team, the two visits before the first cleaning, and the policies.</p>
+            <BigButton onClick={() => setShowWelcomePacket(true)}>Send Customer Welcome Packet</BigButton>
+            <BigButton kind="second" href={`/accounts/${encodeURIComponent(saved.id)}`}>
+              Open the account
+            </BigButton>
+            <BigButton kind="quiet" href="/accounts">
+              Back to accounts
+            </BigButton>
+          </div>
+        </Card>
+        <WelcomePacketSheet open={showWelcomePacket} accountId={saved.id} accountName={saved.name} onClose={() => setShowWelcomePacket(false)} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen

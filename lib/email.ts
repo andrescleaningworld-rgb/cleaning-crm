@@ -150,9 +150,23 @@ export async function sendInternalNotification(
 // proposal to a subcontractor, and the office notice when they answer).
 // Sent exactly as written: no line is added. Same provider and the same
 // dry-run switch as every other email. `fromName` is the sender's name.
-export async function sendHtmlEmail(input: { to: string[]; subject: string; text: string; html: string; fromName?: string }): Promise<boolean> {
+// `cc`, `replyTo` and `attachments` are optional (the customer welcome packet
+// uses them: a copy to the office, answers go to the account manager, the PDF).
+export async function sendHtmlEmail(input: {
+  to: string[];
+  subject: string;
+  text: string;
+  html: string;
+  fromName?: string;
+  cc?: string[];
+  replyTo?: string;
+  attachments?: EmailAttachment[];
+}): Promise<boolean> {
+  const cc = input.cc?.length ? input.cc : undefined;
+  const replyTo = input.replyTo || undefined;
+  const attachments = input.attachments?.length ? input.attachments : undefined;
   if (isOutboundDryRun()) {
-    logDryRun("email", `to ${input.to.join(", ")} – "${input.subject}" (HTML, ${input.html.length} characters)`);
+    logDryRun("email", `to ${input.to.join(", ")}${cc ? ` cc ${cc.join(", ")}` : ""} – "${input.subject}" (HTML, ${input.html.length} characters, ${attachments?.length ?? 0} attachments)`);
     return true;
   }
   const provider = (process.env.EMAIL_PROVIDER || "gmail").trim().toLowerCase();
@@ -160,7 +174,16 @@ export async function sendHtmlEmail(input: { to: string[]; subject: string; text
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) return false;
     const address = process.env.RESEND_FROM ?? "onboarding@resend.dev";
-    const result = await new Resend(apiKey).emails.send({ from: input.fromName && !address.includes("<") ? `${input.fromName} <${address}>` : address, to: input.to, subject: input.subject, text: input.text, html: input.html });
+    const result = await new Resend(apiKey).emails.send({
+      from: input.fromName && !address.includes("<") ? `${input.fromName} <${address}>` : address,
+      to: input.to,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+      ...(cc ? { cc } : {}),
+      ...(replyTo ? { replyTo } : {}),
+      ...(attachments ? { attachments } : {}),
+    });
     if (result.error) throw new Error(`Resend rejected the send: ${result.error.message}`);
     return true;
   }
@@ -172,6 +195,9 @@ export async function sendHtmlEmail(input: { to: string[]; subject: string; text
     subject: input.subject,
     text: input.text,
     html: input.html,
+    ...(cc ? { cc: cc.join(", ") } : {}),
+    ...(replyTo ? { replyTo } : {}),
+    ...(attachments ? { attachments } : {}),
   });
   return true;
 }

@@ -17,6 +17,9 @@ export type OnboardingSectionDef = {
   items: OnboardingItemDef[];
 };
 
+/** "Welcome packet sent to customer" (section 6). */
+export const WELCOME_PACKET_ITEM = "contact.welcomePacketSent";
+
 // Mirrors the 7 sections of the "New Account Onboarding Checklist" PDF.
 // Keys are stable identifiers persisted in the ItemsJson column — renaming a
 // label here is safe, changing a key is not (it would orphan any already-
@@ -76,6 +79,8 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingSectionDef[] = [
       { key: "contact.primaryContactConfirmed", label: "Primary contact name/phone/email confirmed and saved" },
       { key: "contact.portalAccessSetup", label: "Customer portal access set up/login shared (if applicable)" },
       { key: "contact.billingConfirmed", label: "Billing/invoicing details confirmed" },
+      // Ticked by itself when the packet is sent (app/api/accounts/[id]/welcome-packet).
+      { key: WELCOME_PACKET_ITEM, label: "Welcome packet sent to customer" },
     ],
   },
   {
