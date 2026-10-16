@@ -1,0 +1,447 @@
+/* Overview dashboard: big, plain and high contrast, for a reader who wants to
+   know in 10 seconds how things are. Body text 18px or more, big numbers 40px
+   or more, tap targets 56px or more, one idea per card. */
+
+.page {
+  font-size: 18px;
+  line-height: 1.5;
+  color: var(--ui-ink);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------- top row: title line + Print ---------- */
+
+.topRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.printButton {
+  min-height: 56px;
+  min-width: 160px;
+  font-size: 20px;
+}
+
+/* ---------- "How are we doing?" ---------- */
+
+.summary {
+  background: var(--ui-surface);
+  border: 2px solid var(--ui-line);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.summaryTitle,
+.boxTitle {
+  margin: 0 0 12px;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.summaryList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summaryList li {
+  font-size: 21px;
+  line-height: 1.45;
+}
+
+/* ---------- "Needs attention" ---------- */
+
+.attention {
+  background: var(--ui-surface);
+  border: 2px solid var(--ui-line);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.attentionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.attentionItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 2px solid var(--ui-line-soft);
+}
+
+.attentionText {
+  flex: 1 1 260px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.seeIt {
+  min-height: 56px;
+  min-width: 140px;
+  font-size: 20px;
+}
+
+.allGood {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--ui-good);
+}
+
+/* ---------- traffic lights: a word and a shape, never color alone ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.badgeSymbol {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.good {
+  color: #2f570d;
+  background: #eaf3de;
+}
+
+.watch {
+  color: #6b4100;
+  background: #fff1c2;
+}
+
+.problem {
+  color: #9c1f18;
+  background: #fce7e5;
+}
+
+.unknown {
+  color: var(--ui-muted);
+  background: var(--ui-off-soft);
+}
+
+/* ---------- sections: closed until tapped ---------- */
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.section {
+  background: var(--ui-surface);
+  border: 2px solid var(--ui-line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.sectionHead {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px 16px;
+  width: 100%;
+  min-height: 88px;
+  padding: 18px 20px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sectionHead:focus-visible {
+  outline: 3px solid var(--ui-navy, #0c447c);
+  outline-offset: -3px;
+}
+
+.sectionName {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.headline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  grid-column: 1 / -1;
+}
+
+.bigNumber {
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.headlineWords {
+  font-size: 20px;
+  color: var(--ui-ink);
+}
+
+.openHint {
+  grid-column: 1 / -1;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ui-navy, #0c447c);
+}
+
+.sectionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 4px 20px 24px;
+  border-top: 2px solid var(--ui-line-soft);
+}
+
+/* ---------- one idea per card ---------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  padding: 18px;
+  border-radius: 14px;
+  border: 2px solid var(--ui-line-soft);
+  background: #fbfcfe;
+}
+
+.cardWord {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+/* The real term, small and gray, under the plain word. */
+.realTerm {
+  margin: 2px 0 0;
+  font-size: 16px;
+  color: #5b6472;
+}
+
+.cardNumber {
+  margin: 8px 0 0;
+  font-size: 44px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.cardLine {
+  margin: 6px 0 0;
+  font-size: 18px;
+}
+
+.note {
+  margin: 0;
+  font-size: 18px;
+  color: #3d4757;
+}
+
+.nameList {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 19px;
+  line-height: 1.7;
+}
+
+.nameList a {
+  color: var(--ui-navy, #0c447c);
+  font-weight: 700;
+}
+
+/* ---------- plain bar chart ---------- */
+
+.chart {
+  margin: 0;
+}
+
+.chartTitle {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+  align-items: end;
+  height: 240px;
+  padding: 0 4px;
+  border-bottom: 2px solid #7a8496;
+}
+
+.barCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 0;
+}
+
+.barValue {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.bar {
+  display: block;
+  width: min(56px, 80%);
+  background: #1f63a8;
+  border-radius: 4px 4px 0 0;
+}
+
+/* This month is not over: striped, so it does not read like a finished month. */
+.barNow {
+  background: repeating-linear-gradient(135deg, #1f63a8 0 6px, #8fb1d6 6px 10px);
+}
+
+.barLabels {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+  padding: 8px 4px 0;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.chartCaption {
+  margin: 14px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.chartNote {
+  margin: 4px 0 0;
+  font-size: 16px;
+  color: #5b6472;
+}
+
+/* ---------- print: the summary, Needs attention and each section's headline, on one page ---------- */
+
+.printOnly {
+  display: none;
+}
+
+@media print {
+  .page {
+    font-size: 12pt;
+  }
+  .noPrint,
+  .sectionBody,
+  .openHint {
+    display: none !important;
+  }
+  .printOnly {
+    display: block;
+  }
+  .summary,
+  .attention,
+  .section {
+    border-width: 1px;
+    padding: 8pt 10pt;
+    break-inside: avoid;
+  }
+  .stack,
+  .sections {
+    gap: 8pt;
+  }
+  .summaryTitle,
+  .boxTitle {
+    font-size: 15pt;
+    margin-bottom: 4pt;
+  }
+  .summaryList li,
+  .attentionText {
+    font-size: 12pt;
+  }
+  .attentionItem {
+    padding: 4pt 0;
+    border: 0;
+  }
+  .seeIt {
+    display: none !important;
+  }
+  .sectionHead {
+    min-height: 0;
+    padding: 4pt 0;
+  }
+  .sectionName {
+    font-size: 13pt;
+  }
+  .bigNumber {
+    font-size: 18pt;
+  }
+  .headlineWords {
+    font-size: 12pt;
+  }
+  .badge {
+    min-height: 0;
+    font-size: 11pt;
+    padding: 2pt 8pt;
+    border-width: 1px;
+  }
+}
+
+/* ---------- the six counters: big numbers, big labels ---------- */
+
+.counters :global(.ui-count) {
+  min-height: 120px;
+}
+
+.counters :global(.ui-count-number) {
+  font-size: 44px;
+  line-height: 1.1;
+}
+
+.counters :global(.ui-count-label) {
+  font-size: 18px;
+}
+
+.counters :global(.ui-count-note) {
+  font-size: 16px;
+}
+
+.counters :global(.ui-counts) {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
