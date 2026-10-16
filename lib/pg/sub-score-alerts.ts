@@ -77,7 +77,7 @@ async function reasonsFor(subId: string, performance: { score: number; openCompl
   const complaints = (await getSql()`
     SELECT btrim(c.account_name) AS account_name, btrim(c.priority) AS priority, c.complaint_date::text AS day, c.status
     FROM complaints c JOIN accounts a ON a.id = c.account_ref
-    WHERE a.subcontractor_id = ${subId}
+    WHERE a.subcontractor_id = ${subId} AND (to_jsonb(a)->>'deleted_at') IS NULL
       AND lower(btrim(c.complaint_validity)) NOT IN ('no', 'not valid', 'invalid', 'notvalid')
       AND c.complaint_date >= current_date - 90
     ORDER BY c.complaint_date DESC LIMIT 5

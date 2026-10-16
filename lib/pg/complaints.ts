@@ -9,6 +9,7 @@
 // get the next number (where Sheets would have put them).
 
 import { getSql } from "@/lib/db";
+import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { ComplaintInput } from "@/lib/googleSheets";
 
@@ -38,7 +39,7 @@ const COMPLAINT_COLUMNS =
 
 async function allComplaintRows(): Promise<ComplaintRow[]> {
   const sql = getSql();
-  return (await sql.query(`SELECT ${COMPLAINT_COLUMNS} FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ComplaintRow[];
+  return (await sql.query(`SELECT ${COMPLAINT_COLUMNS} FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as ComplaintRow[];
 }
 
 /* ---------- Apps Script getComplaints, rebuilt ---------- */
@@ -132,7 +133,7 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
        $1::text, $2::text, $3::text,
        COALESCE(
          (SELECT id FROM accounts WHERE id = btrim($2::text) LIMIT 1),
-         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
        ),
        $4::text, $5::date, $6::text, $7::text, $8::text, $9::text, $10::text, $11::text, $12::text, $13::date, $14::text, next.n
      FROM next

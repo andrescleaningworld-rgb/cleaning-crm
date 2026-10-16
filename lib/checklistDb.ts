@@ -55,7 +55,13 @@ export async function getTemplateByAccountId(accountId: string): Promise<Checkli
 
 export async function getTemplateByPorterCode(porterCode: string): Promise<ChecklistTemplateRow | null> {
   const sql = getSql();
-  const rows = await sql`SELECT * FROM checklist_templates WHERE porter_code = ${porterCode} LIMIT 1`;
+  // A deleted account's Crew Link stops working (migration 044); it works again after Restore.
+  const rows = await sql`
+    SELECT t.* FROM checklist_templates t
+    WHERE t.porter_code = ${porterCode}
+      AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = t.account_id AND (to_jsonb(a)->>'deleted_at') IS NOT NULL)
+    LIMIT 1
+  `;
   return rows.length > 0 ? rowToTemplate(rows[0] as Record<string, unknown>) : null;
 }
 

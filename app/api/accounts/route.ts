@@ -54,6 +54,11 @@ const ALLOWED_GET_ACTIONS = new Set([
   "mapAccounts",
 ]);
 
+/** Clears every cached account list (after a delete or restore: app/api/accounts/[id]/delete, app/api/admin/deleted-accounts). */
+export async function invalidateAccountLists(): Promise<void> {
+  await Promise.all(Array.from(ALLOWED_GET_ACTIONS).map((cachedAction) => invalidateCached(`accounts:${cachedAction}`)));
+}
+
 // Exported so app/api/accounts/[id]/pdf/route.ts can reuse the exact same
 // fetch/cache/error-handling path (and the same getOrFetch cache key) rather
 // than maintaining a second, possibly-drifting copy of "how to read accounts

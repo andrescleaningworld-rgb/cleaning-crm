@@ -95,6 +95,7 @@ export async function accountsForEmail(email: string): Promise<PortalAccount[]> 
      WHERE a.id IS NOT NULL
        AND lower(btrim(a.email)) = $1::text
        AND a.status_key NOT IN ('cancelled', 'canceled')
+       AND (to_jsonb(a)->>'deleted_at') IS NULL
        AND (a.is_test OR $2::boolean)
        AND EXISTS (SELECT 1 FROM portal_access p WHERE p.account_ref = a.id AND upper(btrim(p.portal_access)) = 'YES')
      ORDER BY lower(a.account_name), a.pk`,

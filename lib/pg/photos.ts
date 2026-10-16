@@ -112,7 +112,7 @@ export async function addPhoto(input: Record<string, unknown>): Promise<{ photoI
       INSERT INTO photos (legacy_key, timestamp_raw, taken_on, photo_id, account_id_raw, account_name, account_ref, source_type, source_id, uploaded_by, user_role, file_name, blob_url, notes, status, sheet_row)
       SELECT ${"pg-" + candidate}, ${day}, ${day}::date, ${candidate}, ${accountId}, ${accountName},
              COALESCE((SELECT id FROM accounts WHERE ${accountId} <> '' AND id = ${accountId} LIMIT 1),
-                      (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE ${accountName} <> '' AND lower(btrim(account_name)) = lower(${accountName}))),
+                      (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND ${accountName} <> '' AND lower(btrim(account_name)) = lower(${accountName}))),
              ${clean(input.sourceType)}, ${clean(input.sourceId)}, ${clean(input.uploadedBy)}, ${clean(input.userRole)}, ${fileName.slice(0, 200)}, ${blob.url}, ${clean(input.notes).slice(0, 2000)}, 'Active',
              (SELECT COALESCE(max(sheet_row), 1) + 1 FROM photos)
       ON CONFLICT DO NOTHING

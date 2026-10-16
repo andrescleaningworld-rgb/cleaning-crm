@@ -29,8 +29,8 @@ export type AccountSummary = {
   sales: Count;
 };
 
-// A real account, as the staff screens list them (test accounts are left out, like /api/accounts does).
-const REAL = `NOT COALESCE(a.is_test, false)`;
+// A real account, as the staff screens list them (test and deleted accounts are left out, like /api/accounts does).
+const REAL = `NOT COALESCE(a.is_test, false) AND (to_jsonb(a)->>'deleted_at') IS NULL`;
 
 /** SQL for "this row belongs to the account". $1 = the account's ID, $2 = its name in small letters, $3 = that name is no other account's. */
 const belongs = (idColumn: string, nameColumn: string) => `
@@ -46,7 +46,7 @@ export async function getAccountSummary(accountId: string): Promise<AccountSumma
   if (!id) return null;
   const me = (await sql.query(
     `SELECT btrim(a.account_name) AS name,
-            (SELECT count(*)::int FROM accounts b WHERE lower(btrim(b.account_name)) = lower(btrim(a.account_name)) AND NOT COALESCE(b.is_test, false)) AS same_name
+            (SELECT count(*)::int FROM accounts b WHERE lower(btrim(b.account_name)) = lower(btrim(a.account_name)) AND NOT COALESCE(b.is_test, false) AND (to_jsonb(b)->>'deleted_at') IS NULL) AS same_name
      FROM accounts a WHERE lower(btrim(a.id)) = lower($1) LIMIT 1`,
     [id]
   )) as { name: string; same_name: number }[];

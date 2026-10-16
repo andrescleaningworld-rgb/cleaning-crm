@@ -19,6 +19,7 @@ import {
   type OnboardingRule,
 } from "@/lib/handoffs";
 import type { OnboardingChecklistItems } from "@/lib/onboardingChecklist";
+import { handoffLive } from "@/lib/pg/account-live";
 
 let ready: boolean | null = null;
 
@@ -115,7 +116,7 @@ export async function listHandoffs(): Promise<HandoffItem[]> {
   // 'complaint', 'supply' and 'note' rows, and the 'extra' rows that mirror a real extra job ("job-<id>"),
   // are Pin Board papers only (lib/pg/board.ts); they have no steps here.
   const rows = (await sql.query(
-    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'supply', 'note') AND NOT (i.kind = 'extra' AND i.item_id LIKE 'job-%') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') ORDER BY i.step_since ASC`
+    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'supply', 'note') AND NOT (i.kind = 'extra' AND i.item_id LIKE 'job-%') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') AND ${handoffLive("i")} ORDER BY i.step_since ASC`
   )) as Row[];
   return rows.map(toItem);
 }

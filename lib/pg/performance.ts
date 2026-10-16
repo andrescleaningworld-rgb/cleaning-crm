@@ -4,6 +4,7 @@
 // from the tables, with each value in the column position the rules expect.
 
 import { getSql } from "@/lib/db";
+import { accountLive, HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { buildSubcontractorPerformanceMap, type SubcontractorPerformance } from "@/lib/googleSheets";
 
 /** A sheet-like row: the given values at their column positions, "" elsewhere. */
@@ -23,16 +24,16 @@ function cutTrailingBlanks(cells: unknown[]): string[] {
 export async function getSubcontractorPerformanceMap(): Promise<Map<string, SubcontractorPerformance>> {
   const sql = getSql();
   const [accounts, visits, complaints, subs] = (await Promise.all([
-    sql.query(`SELECT account_name, subcontractor_raw, status FROM accounts WHERE NOT is_test ORDER BY source_row NULLS LAST, pk`),
+    sql.query(`SELECT account_name, subcontractor_raw, status FROM accounts WHERE NOT is_test AND ${accountLive("accounts")} ORDER BY source_row NULLS LAST, pk`),
     sql.query(
       `SELECT visit_id, account_id_raw, account_name, visit_date_raw, visit_type, completed_by, condition_raw, follow_up_needed,
               follow_up_date_old_raw, notes, created_at_raw, updated_at_raw, follow_up_date_raw
-       FROM visits WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`
+       FROM visits WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`
     ),
     sql.query(
       `SELECT account_name, complaint_date_raw, priority, complaint_validity, status, resolution_date_raw, updated_at_raw,
               to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing
-       FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`
+       FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`
     ),
     sql.query(`SELECT display_id_raw, contact_name, company_name FROM subcontractors ORDER BY source_row NULLS LAST, created_at, id`),
   ])) as Record<string, string>[][];

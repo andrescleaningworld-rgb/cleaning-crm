@@ -9,6 +9,7 @@
 // the side and never read here. Rows are read in sheet order (sheet_row).
 
 import { getSql } from "@/lib/db";
+import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { CustomerVisit, ManagerVisit, ManagerVisitUpdateInput, VisitEditLogEntry, VisitEditLogInput } from "@/lib/googleSheets";
 
@@ -33,7 +34,7 @@ const VISIT_COLUMNS =
 
 async function allVisitRows(): Promise<VisitRow[]> {
   const sql = getSql();
-  return (await sql.query(`SELECT ${VISIT_COLUMNS} FROM visits WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as VisitRow[];
+  return (await sql.query(`SELECT ${VISIT_COLUMNS} FROM visits WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as VisitRow[];
 }
 
 /* ---------- typed-column helpers (never read back by the app) ---------- */
@@ -297,7 +298,7 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
        ids.vid, ids.vid,
        CASE WHEN btrim($2::text) = '' THEN '' ELSE 'ACC-' || upper(to_hex(next.n + 100000)) END,
        $2::text,
-       (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($2::text) <> '' AND lower(btrim(account_name)) = lower(btrim($2::text))),
+       (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($2::text) <> '' AND lower(btrim(account_name)) = lower(btrim($2::text))),
        $3::text, $4::date, $5::text, $6::text, $7::text, $8::numeric, $9::text, $10::text,
        $11::text, $12::timestamptz, $11::text, $12::timestamptz, $13::text, $14::date, next.n
      FROM next, taken, LATERAL (SELECT CASE WHEN taken.c = 0 THEN $1::text ELSE $1::text || '-' || (taken.c + 1)::text END AS vid) ids

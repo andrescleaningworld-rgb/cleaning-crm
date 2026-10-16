@@ -10,6 +10,7 @@
 // the next row number, where Sheets would have put them.
 
 import { getSql } from "@/lib/db";
+import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { DEFAULT_TO_DO_PRIORITY, normalizeToDoPriority } from "@/lib/toDoPriority";
 import type * as sheets from "@/lib/googleSheets";
 import type {
@@ -50,7 +51,7 @@ const TODO_COLUMNS =
 
 async function allToDoRows(): Promise<ToDoRow[]> {
   const sql = getSql();
-  return (await sql.query(`SELECT ${TODO_COLUMNS} FROM todos WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ToDoRow[];
+  return (await sql.query(`SELECT ${TODO_COLUMNS} FROM todos WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as ToDoRow[];
 }
 
 /* ---------- Reads ---------- */
@@ -122,7 +123,7 @@ const INSERT_TODO = `
     $6::text, $7::text,
     COALESCE(
       (SELECT id FROM accounts WHERE btrim($7::text) <> '' AND id = btrim($7::text) LIMIT 1),
-      (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($6::text) <> '' AND lower(btrim(account_name)) = lower(btrim($6::text)))
+      (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($6::text) <> '' AND lower(btrim(account_name)) = lower(btrim($6::text)))
     ),
     $8::text, $9::text, $10::text, $11::text, $12::text,
     $13::text, $14::text, $15::text, $16::text, base.n + $17::int

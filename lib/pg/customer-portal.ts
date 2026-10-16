@@ -148,7 +148,7 @@ export async function enablePortalAccount(accountName: string, phone: string, ac
      SELECT 'pg-row-' || next.n::text, $1::text, $2::text,
        COALESCE(
          (SELECT id FROM accounts WHERE btrim($1::text) <> '' AND id = btrim($1::text) LIMIT 1),
-         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($2::text) <> '' AND lower(btrim(account_name)) = lower(btrim($2::text)))
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($2::text) <> '' AND lower(btrim(account_name)) = lower(btrim($2::text)))
        ),
        $3::text, $4::text, 'YES', next.n
      FROM next`,
@@ -291,7 +291,7 @@ export async function appendPortalRequest(tab: PortalTab, values: string[]): Pro
      SELECT 'pg-' || $1::text || ':row-' || next.n::text, $1::text, $2::text, $3::text,
        COALESCE(
          (SELECT id FROM accounts WHERE btrim($2::text) <> '' AND id = btrim($2::text) LIMIT 1),
-         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
        ),
        $4::text, $5::date, $6::text, $7::text, $8::text, $9::text, $10::text, $11::text, next.n
      FROM next`,

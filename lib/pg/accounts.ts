@@ -8,6 +8,7 @@
 // never includes any of them.
 
 import { getSql } from "@/lib/db";
+import { accountLive } from "@/lib/pg/account-live";
 import type {
   AccountFieldsUpdateResult,
   AccountSummary,
@@ -111,7 +112,8 @@ const text = (row: AccountRow, column: string) => String(row[column] ?? "");
 
 export async function fetchAccountRows(): Promise<AccountRow[]> {
   const sql = getSql();
-  return (await sql.query(`SELECT * FROM accounts WHERE NOT is_test ORDER BY ${SHEET_ORDER}`)) as AccountRow[];
+  // Deleted accounts (migration 044) are left out of every list, like test accounts.
+  return (await sql.query(`SELECT * FROM accounts WHERE NOT is_test AND ${accountLive("accounts")} ORDER BY ${SHEET_ORDER}`)) as AccountRow[];
 }
 
 /* ---------- cancellation details (migration 029; not sheet columns) ---------- */
@@ -401,7 +403,7 @@ export async function getAccountSummaryById(accountId: string): Promise<AccountS
   const targetId = accountId.trim();
   if (!targetId) return null;
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM accounts WHERE btrim(id) = $1 ORDER BY ${SHEET_ORDER} LIMIT 1`, [targetId])) as AccountRow[];
+  const rows = (await sql.query(`SELECT * FROM accounts WHERE btrim(id) = $1 AND ${accountLive("accounts")} ORDER BY ${SHEET_ORDER} LIMIT 1`, [targetId])) as AccountRow[];
   return rows.length ? toSummary(rows[0]) : null;
 }
 
@@ -410,7 +412,7 @@ export async function getAccountSummariesByIds(accountIds: string[]): Promise<Ma
   const result = new Map<string, AccountSummary>();
   if (targetIds.length === 0) return result;
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM accounts WHERE btrim(id) = ANY($1::text[]) ORDER BY ${SHEET_ORDER}`, [targetIds])) as AccountRow[];
+  const rows = (await sql.query(`SELECT * FROM accounts WHERE btrim(id) = ANY($1::text[]) AND ${accountLive("accounts")} ORDER BY ${SHEET_ORDER}`, [targetIds])) as AccountRow[];
   for (const row of rows) result.set(text(row, "id").trim(), toSummary(row));
   return result;
 }
