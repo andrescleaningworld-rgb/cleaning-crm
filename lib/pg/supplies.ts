@@ -312,7 +312,7 @@ export async function createSupplyOrder(body: Record<string, unknown>): Promise<
        $7::text, $8::text,
        COALESCE(
          (SELECT id FROM accounts WHERE btrim($8::text) <> '' AND id = btrim($8::text) LIMIT 1),
-         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($7::text) <> '' AND lower(btrim(account_name)) = lower(btrim($7::text)))
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($7::text) <> '' AND lower(btrim(account_name)) = lower(btrim($7::text)))
        ),
        $9::text, $10::text, $11::text, $12::text, $13::text, $14::text, $15::text, $16::text, next.n
      FROM next, taken

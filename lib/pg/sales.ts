@@ -87,7 +87,7 @@ export async function appendSale(data: SaleInput): Promise<string> {
        $1::text, $2::text, $3::text,
        COALESCE(
          (SELECT id FROM accounts WHERE btrim($2::text) <> '' AND id = btrim($2::text) LIMIT 1),
-         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
        ),
        $4::text, $5::date, $6::text, $7::text, $8::text,
        $9::text, $10::numeric, $11::text, $12::numeric, $13::text, $14::numeric,

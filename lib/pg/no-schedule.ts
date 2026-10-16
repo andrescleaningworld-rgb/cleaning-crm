@@ -25,7 +25,7 @@ const LIVE_SCHEDULE = `
       AND (ss.effective_end IS NULL OR ss.effective_end >= current_date)
   )`;
 
-const ACTIVE = `a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active'`;
+const ACTIVE = `a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active' AND (to_jsonb(a)->>'deleted_at') IS NULL`;
 
 /** Every active account with no schedule, sorted by sub, then account. */
 export async function listAccountsWithoutSchedule(): Promise<NoScheduleAccount[]> {

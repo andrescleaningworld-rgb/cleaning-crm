@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       const sql = getSql();
       const rows = (await sql`
         SELECT id, account_name FROM accounts
-        WHERE id IS NOT NULL AND btrim(account_name) <> '' AND status_key <> 'cancelled'
+        WHERE id IS NOT NULL AND btrim(account_name) <> '' AND status_key <> 'cancelled' AND (to_jsonb(accounts)->>'deleted_at') IS NULL
         ORDER BY lower(account_name)
       `) as { id: string; account_name: string }[];
       return NextResponse.json({ success: true, accounts: rows.map((row) => ({ id: row.id, name: row.account_name.trim() })) }, noStore);

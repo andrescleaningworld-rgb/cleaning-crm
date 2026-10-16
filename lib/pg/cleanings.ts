@@ -48,7 +48,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
       FROM accounts a
       LEFT JOIN managers m ON m.id = a.manager_id
       LEFT JOIN subcontractors s ON s.id = a.subcontractor_id
-      WHERE a.id IS NOT NULL AND (a.status_key <> 'cancelled' OR a.id = ANY(${leaving}::text[]))
+      WHERE a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND (a.status_key <> 'cancelled' OR a.id = ANY(${leaving}::text[]))
     `,
     sql`
       SELECT COALESCE(s.account_ref, btrim(s.account_id)) AS account_id, s.frequency, s.recurring, s.day_of_week, s.monthly_occurrence,
@@ -74,7 +74,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
     sql`
       SELECT COALESCE(v.account_ref, a.id, '') AS account_id, v.visit_date::text AS day
       FROM subcontractor_visits v
-      LEFT JOIN accounts a ON v.account_ref IS NULL AND lower(btrim(a.account_name)) = lower(btrim(v.account_name))
+      LEFT JOIN accounts a ON v.account_ref IS NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND lower(btrim(a.account_name)) = lower(btrim(v.account_name))
       WHERE v.visit_date BETWEEN ${from}::date AND ${last}::date
     `,
     sql`

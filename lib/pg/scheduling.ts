@@ -12,6 +12,7 @@
 // back as an entry with every field empty; here it is simply gone.
 
 import { getSql } from "@/lib/db";
+import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { addDays, officeDay } from "@/lib/cleanings";
 import { cancelledLastDays } from "@/lib/pg/accounts";
 import type { ScheduleException, SubcontractorVisitWithRow, SubSchedule } from "@/lib/googleSheets";
@@ -67,7 +68,7 @@ const rowToVisit = (r: VisitRow): SubcontractorVisitWithRow => ({
 
 async function allVisits(): Promise<SubcontractorVisitWithRow[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM subcontractor_visits WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as VisitRow[];
+  const rows = (await sql.query(`SELECT * FROM subcontractor_visits WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as VisitRow[];
   return rows.map(rowToVisit);
 }
 
@@ -200,7 +201,7 @@ export async function fetchSubSchedules(): Promise<SubSchedule[]> {
 // cleaning date is never written into a schedule by accident.
 async function storedSubSchedules(): Promise<{ schedule: SubSchedule; accountId: string }[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM sub_schedules WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ScheduleRow[];
+  const rows = (await sql.query(`SELECT * FROM sub_schedules WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as ScheduleRow[];
   return rows.map((r) => ({ accountId: (r.account_ref ?? r.account_id).trim(), schedule: toSubSchedule(r) }));
 }
 
@@ -446,7 +447,7 @@ type ExceptionRow = {
 
 export async function fetchScheduleExceptions(): Promise<ScheduleException[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM schedule_exceptions WHERE account_ref IS NULL OR account_ref NOT IN (SELECT id FROM accounts WHERE is_test AND id IS NOT NULL) ORDER BY sheet_row`)) as ExceptionRow[];
+  const rows = (await sql.query(`SELECT * FROM schedule_exceptions WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as ExceptionRow[];
   const lastDayOf = await lastDayByAccount();
   return rows.map((r) => {
     // A cleaning moved to a day after a cancelled account's last day does not

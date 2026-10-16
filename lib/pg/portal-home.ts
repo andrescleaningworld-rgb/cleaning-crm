@@ -39,7 +39,7 @@ export async function getPortalHomeAccount(accountId: string): Promise<PortalHom
           OR (a.manager_id IS NULL AND btrim(a.manager_raw) <> '' AND lower(btrim(managers.name)) = lower(btrim(a.manager_raw)))
        ORDER BY managers.id LIMIT 1
      ) m ON true
-     WHERE a.id = $1::text`,
+     WHERE a.id = $1::text AND (to_jsonb(a)->>'deleted_at') IS NULL`,
     [accountId]
   )) as Record<string, unknown>[];
   const r = rows[0];

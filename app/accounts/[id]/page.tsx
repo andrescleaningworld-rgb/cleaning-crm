@@ -42,6 +42,7 @@ import SiteStock from "./site-stock";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
 import WelcomePacketSheet from "../../components/welcome-packet-sheet";
+import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
@@ -342,6 +343,7 @@ export default function AccountDetailPage() {
   // The customer Welcome Packet sheet. The version goes up after a send, so the checklist and History read again.
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
   const [welcomeVersion, setWelcomeVersion] = useState(0);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
   const [packetError, setPacketError] = useState("");
@@ -1470,6 +1472,9 @@ export default function AccountDetailPage() {
                 <PhotosLink accountId={thisAccountId} accountName={accountName} />
                 <SupplyMode accountId={thisAccountId} accountName={accountName} />
                 <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
+                <BigButton kind="danger" onClick={() => setShowDeleteAccount(true)}>
+                  Delete account
+                </BigButton>
               </div>
 
               {/* What is at this site, + Add delivery, a corrected count, and its history. */}
@@ -1556,6 +1561,17 @@ export default function AccountDetailPage() {
               accountName={accountName}
               onClose={() => setShowWelcomePacket(false)}
               onSent={() => setWelcomeVersion((version) => version + 1)}
+            />
+
+            <DeleteAccountSheet
+              open={showDeleteAccount}
+              accountId={thisAccountId}
+              onClose={() => setShowDeleteAccount(false)}
+              onDeleted={(name) => {
+                setShowDeleteAccount(false);
+                showToast(`${name} deleted. Settings → Deleted accounts can restore it.`);
+                router.push("/accounts");
+              }}
             />
 
             </div>

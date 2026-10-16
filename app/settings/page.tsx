@@ -871,6 +871,7 @@ export default function SettingsPage() {
           <Tile icon="status" label="Equipment Categories and Staff" href="/settings/equipment-categories" />
           {isOwner ? <Tile icon="visit" label="Activity Log" detail="Who changed what" href="/settings/activity-log" /> : null}
           <Tile icon="print" label="Logs" detail="Account update history" href="/settings/logs" />
+          <Tile icon="problem" label="Deleted accounts" detail="Who deleted what, and Restore" href="/settings/deleted-accounts" />
         </div>
 
         <TipsToggle />

@@ -75,7 +75,7 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
       SELECT a.id, a.account_name, a.subcontractor_id AS sub_id, btrim(a.subcontractor_raw) AS sub_raw, a.latitude, a.longitude,
         to_jsonb(a)->>'minutes_on_site' AS minutes, to_jsonb(a)->>'minutes_on_site_source' AS source
       FROM accounts a
-      WHERE a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active'`),
+      WHERE a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active' AND (to_jsonb(a)->>'deleted_at') IS NULL`),
     sql.query(`
       SELECT s.id, COALESCE(NULLIF(btrim(s.company_name), ''), NULLIF(btrim(s.contact_name), ''), s.id) AS name, to_jsonb(s)->>'crews' AS crews
       FROM subcontractors s`),

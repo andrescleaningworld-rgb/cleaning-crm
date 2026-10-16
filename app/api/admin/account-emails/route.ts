@@ -24,11 +24,11 @@ export async function GET() {
       `SELECT a.id, a.account_name, a.status, a.contact_name, a.phone, a.manager_raw,
               EXISTS (SELECT 1 FROM portal_access p WHERE p.account_ref = a.id AND upper(btrim(p.portal_access)) = 'YES') AS portal_access
        FROM accounts a
-       WHERE NOT a.is_test AND a.id IS NOT NULL AND btrim(a.email) = '' AND a.status_key NOT IN ('cancelled', 'canceled')
+       WHERE NOT a.is_test AND a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND btrim(a.email) = '' AND a.status_key NOT IN ('cancelled', 'canceled')
        ORDER BY lower(a.account_name), a.pk`
     )) as { id: string; account_name: string; status: string; contact_name: string; phone: string; manager_raw: string; portal_access: boolean }[];
     const totals = (await sql.query(
-      `SELECT count(*)::int AS total FROM accounts WHERE NOT is_test AND id IS NOT NULL AND status_key NOT IN ('cancelled', 'canceled')`
+      `SELECT count(*)::int AS total FROM accounts WHERE NOT is_test AND id IS NOT NULL AND (to_jsonb(accounts)->>'deleted_at') IS NULL AND status_key NOT IN ('cancelled', 'canceled')`
     )) as { total: number }[];
     return NextResponse.json({
       available: true,

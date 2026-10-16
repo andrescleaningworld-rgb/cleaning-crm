@@ -101,7 +101,7 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
   if (!subcontractor || !subId) return null;
 
   const [linked, allAccounts, allComplaints, supplyRows, lastDays] = await Promise.all([
-    sql.query(`SELECT source_row, COALESCE(id, '') AS id FROM accounts WHERE subcontractor_id = $1::text`, [subId]) as unknown as Promise<
+    sql.query(`SELECT source_row, COALESCE(id, '') AS id FROM accounts WHERE subcontractor_id = $1::text AND (to_jsonb(accounts)->>'deleted_at') IS NULL`, [subId]) as unknown as Promise<
       { source_row: number | null; id: string }[]
     >,
     getAccountsAppsScriptShape("getAccounts"),
@@ -277,7 +277,7 @@ export async function submitSubPortalIssue(issue: Record<string, unknown>): Prom
        $6::text, $7::text,
        COALESCE(
          (SELECT id FROM accounts WHERE btrim($6::text) <> '' AND id = btrim($6::text) LIMIT 1),
-         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE btrim($7::text) <> '' AND lower(btrim(account_name)) = lower(btrim($7::text)))
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($7::text) <> '' AND lower(btrim(account_name)) = lower(btrim($7::text)))
        ),
        $8::text, $9::text, $10::text, $11::text, $12::text, next.n
      FROM next, taken

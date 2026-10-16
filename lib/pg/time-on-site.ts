@@ -65,7 +65,7 @@ export async function getTimeOnSite(accountId: string): Promise<TimeOnSite | nul
 /** Every account's time on site, by Account ID. */
 export async function timeOnSiteByAccount(): Promise<Map<string, TimeOnSite>> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT ${TIME_COLUMNS} FROM accounts WHERE id IS NOT NULL AND is_test = false`)) as TimeRow[];
+  const rows = (await sql.query(`SELECT ${TIME_COLUMNS} FROM accounts WHERE id IS NOT NULL AND is_test = false AND (to_jsonb(accounts)->>'deleted_at') IS NULL`)) as TimeRow[];
   return new Map(rows.map((row) => [row.id, toTimeOnSite(row)]));
 }
 
@@ -133,7 +133,7 @@ export async function listTimeOnSite(): Promise<TimeOnSiteListItem[]> {
       ) AS has_schedule
     FROM accounts a
     LEFT JOIN subcontractors s ON s.id = a.subcontractor_id
-    WHERE a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active'
+    WHERE a.id IS NOT NULL AND a.is_test = false AND a.status_key = 'active' AND (to_jsonb(a)->>'deleted_at') IS NULL
     ORDER BY lower(btrim(a.subcontractor_raw)), lower(a.account_name)
   `)) as (TimeRow & { account_name: string; cleaning_days: string; frequency: string; sub_name: string; has_schedule: boolean })[];
   return rows.map((row) => ({
@@ -159,7 +159,7 @@ export async function listTimeOnSiteForSub(email: string): Promise<SubTimeOnSite
   const rows = (await sql.query(
     `SELECT id, account_name, minutes_on_site, minutes_on_site_source, sub_minutes_on_site
      FROM accounts
-     WHERE id IS NOT NULL AND is_test = false AND status_key = 'active' AND subcontractor_id = ${SUB_BY_EMAIL}
+     WHERE id IS NOT NULL AND is_test = false AND status_key = 'active' AND (to_jsonb(accounts)->>'deleted_at') IS NULL AND subcontractor_id = ${SUB_BY_EMAIL}
      ORDER BY lower(account_name)`,
     [email]
   )) as { id: string; account_name: string; minutes_on_site: number; minutes_on_site_source: string; sub_minutes_on_site: number | null }[];
@@ -177,7 +177,7 @@ export async function listTimeOnSiteForSub(email: string): Promise<SubTimeOnSite
 export async function subHasAccount(email: string, accountId: string): Promise<boolean> {
   const sql = getSql();
   const rows = (await sql.query(
-    `SELECT 1 FROM accounts WHERE id = btrim($2) AND is_test = false AND status_key = 'active' AND subcontractor_id = ${SUB_BY_EMAIL}`,
+    `SELECT 1 FROM accounts WHERE id = btrim($2) AND is_test = false AND status_key = 'active' AND (to_jsonb(accounts)->>'deleted_at') IS NULL AND subcontractor_id = ${SUB_BY_EMAIL}`,
     [email, accountId]
   )) as unknown[];
   return rows.length > 0;

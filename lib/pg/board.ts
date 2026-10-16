@@ -28,6 +28,7 @@ import {
 import { ACCOUNT_DONE_STEP, currentOnboardingSection } from "@/lib/handoffs";
 import { extraJobsReady } from "@/lib/pg/extra-jobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
+import { handoffLive } from "@/lib/pg/account-live";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 
 let ready: boolean | null = null;
@@ -169,6 +170,7 @@ async function runSync(): Promise<void> {
     WHERE c.completed_at IS NULL
       AND btrim(c.account_id) <> ''
       AND COALESCE(a.status_key, '') <> 'cancelled'
+      AND (to_jsonb(a)->>'deleted_at') IS NULL
       AND NOT EXISTS (SELECT 1 FROM handoff_items h WHERE h.kind = 'account' AND h.item_id = c.account_id)
   `) as ChecklistRow[];
   for (const row of checklists) {
@@ -245,7 +247,7 @@ async function runSync(): Promise<void> {
       SELECT count(*) AS lines, string_agg(sl.qty::text || ' ' || si.name, ', ' ORDER BY si.name) AS items
       FROM supply_order_lines sl JOIN supply_items si ON si.id = sl.item_id WHERE sl.order_id = o.id
     ) l ON true
-    WHERE o.status IN ('new', 'ordered') AND ${crewNotDeleted}
+    WHERE o.status IN ('new', 'ordered') AND ${crewNotDeleted} AND (to_jsonb(a)->>'deleted_at') IS NULL
     ON CONFLICT (kind, item_id) DO NOTHING
   `);
 
@@ -350,7 +352,7 @@ const SUB_ORDER_GROUPS = `
   FROM sub_supply_orders o
   LEFT JOIN accounts a ON a.id = o.account_ref
   LEFT JOIN managers m ON m.id = a.manager_id
-  WHERE __NOT_DELETED__
+  WHERE __NOT_DELETED__ AND (to_jsonb(a)->>'deleted_at') IS NULL
   GROUP BY 1`;
 
 /** SUB_ORDER_GROUPS without deleted lines (where migration 041 is in). */
@@ -446,7 +448,7 @@ const SELECT_PAPER = `
          i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items
   FROM handoff_items i
   LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
-  WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL})`;
+  WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}`;
 
 /**
  * Everything still pinned (oldest first) and the Done tray: the papers
@@ -484,7 +486,7 @@ export async function listArchive(input: { doneDays: number; search?: string; da
   const offset = Math.max(0, Math.round(input.offset ?? 0));
   const [rows, count] = await Promise.all([
     sql.query(`${SELECT_PAPER}${where} ORDER BY i.board_done_at DESC, i.item_id LIMIT 101 OFFSET ${offset}`, params),
-    sql.query(`SELECT count(*)::int AS n FROM handoff_items i WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL})${where}`, params),
+    sql.query(`SELECT count(*)::int AS n FROM handoff_items i WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}${where}`, params),
   ]);
   const list = rows as PaperRow[];
   return { papers: list.slice(0, 100).map(toPaper), more: list.length > 100, total: (count as { n: number }[])[0]?.n ?? 0 };

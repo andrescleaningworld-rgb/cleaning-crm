@@ -180,7 +180,7 @@ export async function getFormChoices(me: string): Promise<FormChoices> {
              btrim(concat_ws(', ', NULLIF(btrim(a.address), ''), NULLIF(btrim(a.city), ''))) AS address,
              (a.status_key = 'active') AS active
       FROM accounts a LEFT JOIN managers m ON m.id = a.manager_id
-      WHERE a.id IS NOT NULL AND btrim(a.account_name) <> '' AND a.status_key <> 'cancelled'
+      WHERE a.id IS NOT NULL AND btrim(a.account_name) <> '' AND a.status_key <> 'cancelled' AND (to_jsonb(a)->>'deleted_at') IS NULL
       ORDER BY (a.status_key = 'active') DESC, lower(btrim(a.account_name))
     `,
     sql`

@@ -194,7 +194,8 @@ export async function getTeamHubCrewById(id: number): Promise<TeamHubCrew | null
 // returns a crew when both the crew AND its site are active, so a revoked
 // crew or a deactivated Team Hub site both read identically to "no such
 // link" (same no-distinguishing-signal reasoning as the archived Site
-// Supply Link's getActiveSiteLinkByToken).
+// Supply Link's getActiveSiteLinkByToken). A site whose account is deleted
+// (migration 044) reads the same way, until the account is restored.
 export async function getActiveTeamHubCrewByToken(token: string): Promise<{ crew: TeamHubCrew; site: TeamHubSite } | null> {
   const sql = getSql();
   const rows = await sql`
@@ -205,6 +206,7 @@ export async function getActiveTeamHubCrewByToken(token: string): Promise<{ crew
     FROM hub_crews
     JOIN hub_sites ON hub_sites.id = hub_crews.site_id
     WHERE hub_crews.token = ${token} AND hub_crews.active = true AND hub_sites.active = true
+      AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = hub_sites.account_id AND (to_jsonb(a)->>'deleted_at') IS NOT NULL)
     LIMIT 1
   `;
   if (rows.length === 0) return null;

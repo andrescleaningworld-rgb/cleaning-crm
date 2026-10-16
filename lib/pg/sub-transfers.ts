@@ -133,7 +133,7 @@ export async function createSubTransferProposal(body: Body): Promise<Record<stri
         VALUES (${`pg-${proposalId}-${stamp}-${index + 1}`}, ${proposalId}, ${createdAt}, 'Draft', ${newSubcontractor}, ${newSubcontractorEmail},
           (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM subcontractors WHERE ${newSubcontractorEmail} <> '' AND lower(btrim(email)) = lower(${newSubcontractorEmail})),
           ${account.accountName},
-          (SELECT CASE WHEN count(*) = 1 THEN min(pk) END FROM accounts WHERE ${account.accountName} <> '' AND lower(btrim(account_name)) = lower(${account.accountName})),
+          (SELECT CASE WHEN count(*) = 1 THEN min(pk) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND ${account.accountName} <> '' AND lower(btrim(account_name)) = lower(${account.accountName})),
           ${account.address}, ${account.cleaningDays}, ${account.scope}, ${account.keysAlarm}, ${account.proposedMonthlyPay}, ${String(account.proposedMonthlyPay)}, ${notes})
       `
     )

@@ -19,7 +19,7 @@ async function readiness() {
   const rows = (await sql.query(
     `SELECT count(*) FILTER (WHERE btrim(a.email) <> '')::int AS with_email, count(*)::int AS total
      FROM accounts a
-     WHERE NOT a.is_test AND a.id IS NOT NULL AND a.status_key NOT IN ('cancelled', 'canceled')
+     WHERE NOT a.is_test AND a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND a.status_key NOT IN ('cancelled', 'canceled')
        AND EXISTS (SELECT 1 FROM portal_access p WHERE p.account_ref = a.id AND upper(btrim(p.portal_access)) = 'YES')`
   )) as { with_email: number; total: number }[];
   return { withEmail: rows[0]?.with_email ?? 0, total: rows[0]?.total ?? 0 };
