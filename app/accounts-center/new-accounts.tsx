@@ -5,7 +5,7 @@
 // days left. Red when late. A card opens the account on its checklist.
 
 import { useMemo, useState } from "react";
-import { BigButton, Counts, EmptyState, ErrorBox, PullToRefresh, Screen, SkeletonList, Tips, showToast } from "@/app/ui";
+import { AddButton, BigButton, Counts, EmptyState, ErrorBox, PullToRefresh, Screen, SkeletonList, Tips, showToast } from "@/app/ui";
 import { isLate, isMine, sortForWork } from "@/lib/handoffs";
 import { HandoffCard, handoffCardHref, useHandoffs } from "../components/handoffs";
 
@@ -22,7 +22,12 @@ export default function NewAccountsBoard() {
   const shown = quick === "late" ? late : quick === "mine" ? mine : accounts;
 
   return (
-    <Screen title="New accounts" subtitle="Every new account, the step it is on, and who has it." backHref="/">
+    <Screen
+      title="New accounts"
+      subtitle="Every new account, the step it is on, and who has it."
+      backHref="/"
+      addAction={<AddButton href="/accounts/new">Add a new account</AddButton>}
+    >
       <Tips
         id="new-accounts"
         ready={handoffs.state === "ready"}
@@ -38,12 +43,6 @@ export default function NewAccountsBoard() {
           showToast("Updated ✓");
         }}
       />
-      <div className="print:hidden">
-        <BigButton kind="second" icon="plus" href="/accounts/new" className="w-full">
-          Add a new account
-        </BigButton>
-      </div>
-
       {handoffs.state === "off" ? (
         <EmptyState title="Not turned on here yet" text="The New accounts board works once this database has the handoff tables." />
       ) : handoffs.state === "failed" ? (

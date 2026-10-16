@@ -18,7 +18,7 @@
 // load), `fallback` shows instead: the screen's old three fields.
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { BigButton, Card, ConfirmSheet, Field, SelectField, Sheet, StatusPill, TextAreaField, showToast } from "@/app/ui";
+import { AddBar, AddButton, BigButton, Card, ConfirmSheet, Field, SelectField, Sheet, StatusPill, TextAreaField, showToast } from "@/app/ui";
 
 export type Contact = { id: number | null; name: string; role: string; phone: string; email: string; notes: string; isMain: boolean };
 
@@ -166,6 +166,11 @@ export default function AccountContacts({
     >
       <Card title={single ? "Contact" : "Contacts"}>
         <div className="ui-stack">
+          <div className="account-detail-print-hide">
+            <AddBar>
+              <AddButton onClick={startAdd}>Add contact</AddButton>
+            </AddBar>
+          </div>
           {contacts.length === 0 ? <p className="ui-muted">No contact on file.</p> : null}
 
           {single ? (
@@ -217,11 +222,8 @@ export default function AccountContacts({
             ))
           )}
 
-          <div className="ui-actions-row account-detail-print-hide">
-            <BigButton icon="plus" kind="second" onClick={startAdd}>
-              Add contact
-            </BigButton>
-            {single ? (
+          {single ? (
+            <div className="ui-actions-row account-detail-print-hide">
               <BigButton
                 kind="quiet"
                 onClick={() => {
@@ -231,8 +233,8 @@ export default function AccountContacts({
               >
                 Remove
               </BigButton>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       </Card>
 

@@ -3,6 +3,8 @@
 // every component in every state: /design-preview (staff only).
 
 export {
+  AddBar,
+  AddButton,
   BigButton,
   Card,
   CardList,

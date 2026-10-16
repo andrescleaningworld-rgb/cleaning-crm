@@ -16,7 +16,7 @@ import { useSearchParams } from "next/navigation";
 import AddPhotos from "./add-photos";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
-import { BigButton, Counts, EmptyState, ErrorBox, Field, PullToRefresh, Screen, SearchBar, Sheet, SkeletonList, Tips, showToast } from "@/app/ui";
+import { AddButton, BigButton, Counts, EmptyState, ErrorBox, Field, PullToRefresh, Screen, SearchBar, Sheet, SkeletonList, Tips, showToast } from "@/app/ui";
 
 type Photo = {
   id: number;
@@ -400,13 +400,7 @@ function PhotosContent() {
       title="Photos"
       subtitle="Every photo in the app, by account, issue and date."
       backHref="/"
-      action={
-        state === "ready" ? (
-          <BigButton icon="plus" onClick={() => setAdding(true)}>
-            Add photos
-          </BigButton>
-        ) : undefined
-      }
+      addAction={state === "ready" ? <AddButton onClick={() => setAdding(true)}>Add photos</AddButton> : undefined}
     >
       {account && account === (params.get("account") ?? "") ? <AccountScopeBar scope={scope} what="photos" /> : null}
       <AddPhotos open={adding} onClose={() => setAdding(false)} onAdded={() => void refresh()} startAccount={account} />
@@ -417,7 +411,7 @@ function PhotosContent() {
           { target: '[data-tip="counts"]', text: "Every photo in the app is here. Tap a number to see only those." },
           { target: '[data-tip="chips"]', text: "Narrow it down by account, by issue or by date." },
           { target: ".ph-thumb", text: "Tap a photo to see it full screen. Swipe left or right for the next one." },
-          { target: ".ui-actionbar .ui-btn-main", text: "Have photos on your phone or in Google Drive? Tap Add photos to put them here." },
+          { target: ".ui-page-add .ui-btn-main", text: "Have photos on your phone or in Google Drive? Tap Add photos to put them here." },
         ]}
       />
       <PullToRefresh

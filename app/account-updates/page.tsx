@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -587,16 +588,15 @@ function AccountUpdatesPageContent() {
           : "Track account notes, service changes, missed cleanings, price changes, and important updates."
       }
       backHref={openedFromAccountDetail ? accountHref : "/accounts"}
-      action={
-        <BigButton
-          icon="plus"
+      addAction={
+        <AddButton
           onClick={() => {
             setSaveMessage("");
             setShowForm(true);
           }}
         >
           Add update
-        </BigButton>
+        </AddButton>
       }
     >
       {errorMessage ? <ErrorBox title="Something did not load." text={errorMessage} /> : null}

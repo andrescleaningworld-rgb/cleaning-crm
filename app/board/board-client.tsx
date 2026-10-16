@@ -6,6 +6,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AddButton,
   BigButton,
   CHEER,
   EmptyState,
@@ -209,7 +210,18 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   };
 
   return (
-    <Screen title="Pin Board">
+    <Screen
+      title="Pin Board"
+      addAction={
+        state !== "loading" && state !== "off" && state !== "failed" && data ? (
+          <>
+            <AddButton onClick={() => setPinning(true)}>Pin something</AddButton>
+            {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
+            <AddButton href="/extra-jobs/new?from=board">Extra job</AddButton>
+          </>
+        ) : undefined
+      }
+    >
       <p className={styles.motto}>{MOTTO.en}</p>
       <Tabs tabs={BOARD_TABS} value={tab} onChange={changeTab} label="Pin Board views" />
 
@@ -225,20 +237,13 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             📺 TV Mode (Full Screen)
           </BigButton>
 
-          <div className={styles.actions}>
-            <BigButton icon="plus" onClick={() => setPinning(true)}>
-              Pin something
-            </BigButton>
-            {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
-            <BigButton icon="plus" href="/extra-jobs/new?from=board">
-              Extra job
-            </BigButton>
-            {data.me.isOwner ? (
+          {data.me.isOwner ? (
+            <div className={styles.actions}>
               <BigButton kind="second" onClick={() => setTvOpen(true)}>
                 Show on TV
               </BigButton>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           {tab === "board" ? (
             <>

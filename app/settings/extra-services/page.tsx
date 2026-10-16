@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -381,11 +382,7 @@ export default function ExtraServicesSettingsPage() {
           : `Services customers can ask for in the portal · ${activeCount} active`
       }
       backHref="/settings"
-      action={
-        <BigButton icon="plus" onClick={() => setFormFor("new")}>
-          Add service
-        </BigButton>
-      }
+      addAction={<AddButton onClick={() => setFormFor("new")}>Add service</AddButton>}
     >
       <p className="ui-muted">
         Customers see active services, lowest sort order first. Hiding a service keeps its details so you can show it
@@ -408,12 +405,7 @@ export default function ExtraServicesSettingsPage() {
       ) : services.length === 0 ? (
         <EmptyState
           title="No services yet"
-          text="Add the first specialty service customers can ask for."
-          action={
-            <BigButton kind="second" icon="plus" onClick={() => setFormFor("new")}>
-              Add service
-            </BigButton>
-          }
+          text="Tap Add service at the top to add the first specialty service customers can ask for."
         />
       ) : (
         <CardList

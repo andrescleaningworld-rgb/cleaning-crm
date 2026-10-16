@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { StatusPill, type StatusKind } from "@/app/ui";
+import { BigButton, StatusPill, type StatusKind } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -264,6 +264,8 @@ function SalesPageContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  // The Add Sale form opens from "Add sale" in the header. Opened from an account, this page is that form, so it starts open.
+  const [showSaleForm, setShowSaleForm] = useState(openedFromAccountDetail);
 
   const [payPeriodYear, setPayPeriodYear] = useState(() => getCurrentPayPeriod().year);
   const [payPeriodMonth, setPayPeriodMonth] = useState(() => getCurrentPayPeriod().month);
@@ -719,6 +721,11 @@ function SalesPageContent() {
 
           <div className="flex flex-col gap-3 md:flex-row print:hidden">
             {!openedFromAccountDetail && (
+              <BigButton icon={showSaleForm ? undefined : "plus"} aria-expanded={showSaleForm} onClick={() => setShowSaleForm((open) => !open)}>
+                {showSaleForm ? "Close the form" : "Add sale"}
+              </BigButton>
+            )}
+            {!openedFromAccountDetail && (
               <button
                 type="button"
                 onClick={handlePrint}
@@ -747,248 +754,8 @@ function SalesPageContent() {
           </section>
         )}
 
-        {!openedFromAccountDetail && (
-          <>
-            <section className="ui-card print:hidden">
-              <h2 className="ui-card-title">
-                Quarterly Commission Filter
-              </h2>
-
-              <div className="mt-4 grid gap-4 md:grid-cols-4">
-                <div>
-                  <label className="ui-label">
-                    Year
-                  </label>
-
-                  <select
-                    value={selectedYear}
-                    onChange={(event) => setSelectedYear(event.target.value)}
-                    className="ui-input w-full"
-                  >
-                    {accountList ? <option value="">All years</option> : null}
-                    {availableYears.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="ui-label">
-                    Quarter
-                  </label>
-
-                  <select
-                    value={selectedQuarter}
-                    onChange={(event) => setSelectedQuarter(event.target.value)}
-                    className="ui-input w-full"
-                  >
-                    {accountList ? <option value="">All quarters</option> : null}
-                    <option value="Q1">Q1 - Jan to Mar</option>
-                    <option value="Q2">Q2 - Apr to Jun</option>
-                    <option value="Q3">Q3 - Jul to Sep</option>
-                    <option value="Q4">Q4 - Oct to Dec</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="ui-label">
-                    Salesperson
-                  </label>
-
-                  <select
-                    value={selectedSalesperson}
-                    onChange={(event) =>
-                      setSelectedSalesperson(event.target.value)
-                    }
-                    className="ui-input w-full"
-                  >
-                    {availableSalespeople.map((person) => (
-                      <option key={person} value={person}>
-                        {person === "All" ? "All Salespeople" : person}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="sales-search"
-                    className="ui-label"
-                  >
-                    Search Inside Filter
-                  </label>
-
-                  <input
-                    id="sales-search"
-                    type="text"
-                    value={searchText}
-                    onChange={(event) => setSearchText(event.target.value)}
-                    placeholder="Search account, service, status..."
-                    className="ui-input w-full"
-                  />
-                </div>
-              </div>
-            </section>
-
-            <div className="mb-6 grid gap-4 md:grid-cols-4 print:grid-cols-4 print:gap-3">
-              <div className="ui-card print:p-3 print:shadow-none">
-                <p className="ui-muted">Sales Showing</p>
-                <p className="ui-stat-value">
-                  {filteredSales.length}
-                </p>
-                <p className="ui-muted">
-                  {selectedQuarter || selectedYear ? `${selectedQuarter} ${selectedYear}`.trim() : "All dates"}
-                </p>
-              </div>
-
-              <div className="ui-card print:p-3 print:shadow-none">
-                <p className="ui-muted">Sales Total</p>
-                <p className="ui-stat-value">
-                  {formatMoney(totalSalesAmount)}
-                </p>
-              </div>
-
-              <div className="ui-card print:p-3 print:shadow-none">
-                <p className="ui-muted">Commission Due</p>
-                <p className="ui-stat-value">
-                  {formatMoney(totalCommissionAmount)}
-                </p>
-              </div>
-
-              <div className="ui-card print:p-3 print:shadow-none">
-                <p className="ui-muted">Payment Status</p>
-                <p className="ui-stat-value">
-                  {pendingSales} Pending
-                </p>
-                <p className="ui-muted">{paidSales} paid</p>
-              </div>
-            </div>
-
-            <section className="ui-card print:shadow-none">
-              <div className="mb-4">
-                <h2 className="ui-card-title">
-                  Commission Summary by Salesperson
-                </h2>
-                <p className="ui-muted print:hidden">
-                  This section updates based on the selected year, quarter, and
-                  salesperson filter.
-                </p>
-              </div>
-
-              {salesByPerson.length === 0 ? (
-                <div className="ui-stat">
-                  No commissions found for this filter.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="ui-table w-full print:text-xs">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3 font-semibold">Salesperson</th>
-                        <th className="px-4 py-3 font-semibold">Sales Count</th>
-                        <th className="px-4 py-3 font-semibold">Sales Total</th>
-                        <th className="px-4 py-3 font-semibold">
-                          Commission Due
-                        </th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {salesByPerson.map((person) => (
-                        <tr key={person.soldBy} className="border-b">
-                          <td className="px-4 py-3 font-semibold text-gray-900">
-                            {person.soldBy}
-                          </td>
-                          <td className="px-4 py-3 text-gray-700">
-                            {person.salesCount}
-                          </td>
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {formatMoney(person.totalSales)}
-                          </td>
-                          <td className="px-4 py-3 font-bold text-gray-900">
-                            {formatMoney(person.totalCommission)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <section className="ui-card print:shadow-none">
-              <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="ui-card-title">Pay Period Total</h2>
-                  <p className="ui-muted print:hidden">
-                    Per salesperson: one-time commissions landing in this month, plus recurring
-                    commissions whose date range covers it (prorated for partial months).
-                    Independent of the year/quarter filter above.
-                  </p>
-                </div>
-
-                <div className="flex gap-3 print:hidden">
-                  <select
-                    value={payPeriodMonth}
-                    onChange={(event) => setPayPeriodMonth(Number(event.target.value))}
-                    className="ui-input"
-                  >
-                    {MONTH_NAMES.map((name, index) => (
-                      <option key={name} value={index + 1}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={payPeriodYear}
-                    onChange={(event) => setPayPeriodYear(Number(event.target.value))}
-                    className="ui-input"
-                  >
-                    {availableYears.map((year) => (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {payPeriodTotals.length === 0 ? (
-                <div className="ui-stat">
-                  No commissions land in {MONTH_NAMES[payPeriodMonth - 1]} {payPeriodYear}.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="ui-table w-full print:text-xs">
-                    <thead>
-                      <tr className="border-b bg-gray-50 text-gray-600">
-                        <th className="px-4 py-3 font-semibold">Salesperson</th>
-                        <th className="px-4 py-3 font-semibold">One-Time</th>
-                        <th className="px-4 py-3 font-semibold">Recurring</th>
-                        <th className="px-4 py-3 font-semibold">Pay Period Total</th>
-                      </tr>
-                    </thead>
-
-                    <tbody>
-                      {payPeriodTotals.map((person) => (
-                        <tr key={person.soldBy} className="border-b">
-                          <td className="px-4 py-3 font-semibold text-gray-900">{person.soldBy}</td>
-                          <td className="px-4 py-3 text-gray-700">{formatMoney(person.oneTimeTotal)}</td>
-                          <td className="px-4 py-3 text-gray-700">{formatMoney(person.recurringTotal)}</td>
-                          <td className="px-4 py-3 font-bold text-gray-900">{formatMoney(person.total)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-          </>
-        )}
-
+        {/* "Add sale" in the header opens this form (always open when this page was opened from an account to add a sale). */}
+        {showSaleForm ? (
         <section className="ui-card print:hidden">
           <h2 className="ui-card-title">Add Sale</h2>
 
@@ -1283,6 +1050,250 @@ function SalesPageContent() {
             </div>
           </form>
         </section>
+        ) : null}
+
+        {!openedFromAccountDetail && (
+          <>
+            <section className="ui-card print:hidden">
+              <h2 className="ui-card-title">
+                Quarterly Commission Filter
+              </h2>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-4">
+                <div>
+                  <label className="ui-label">
+                    Year
+                  </label>
+
+                  <select
+                    value={selectedYear}
+                    onChange={(event) => setSelectedYear(event.target.value)}
+                    className="ui-input w-full"
+                  >
+                    {accountList ? <option value="">All years</option> : null}
+                    {availableYears.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="ui-label">
+                    Quarter
+                  </label>
+
+                  <select
+                    value={selectedQuarter}
+                    onChange={(event) => setSelectedQuarter(event.target.value)}
+                    className="ui-input w-full"
+                  >
+                    {accountList ? <option value="">All quarters</option> : null}
+                    <option value="Q1">Q1 - Jan to Mar</option>
+                    <option value="Q2">Q2 - Apr to Jun</option>
+                    <option value="Q3">Q3 - Jul to Sep</option>
+                    <option value="Q4">Q4 - Oct to Dec</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="ui-label">
+                    Salesperson
+                  </label>
+
+                  <select
+                    value={selectedSalesperson}
+                    onChange={(event) =>
+                      setSelectedSalesperson(event.target.value)
+                    }
+                    className="ui-input w-full"
+                  >
+                    {availableSalespeople.map((person) => (
+                      <option key={person} value={person}>
+                        {person === "All" ? "All Salespeople" : person}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="sales-search"
+                    className="ui-label"
+                  >
+                    Search Inside Filter
+                  </label>
+
+                  <input
+                    id="sales-search"
+                    type="text"
+                    value={searchText}
+                    onChange={(event) => setSearchText(event.target.value)}
+                    placeholder="Search account, service, status..."
+                    className="ui-input w-full"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <div className="mb-6 grid gap-4 md:grid-cols-4 print:grid-cols-4 print:gap-3">
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Sales Showing</p>
+                <p className="ui-stat-value">
+                  {filteredSales.length}
+                </p>
+                <p className="ui-muted">
+                  {selectedQuarter || selectedYear ? `${selectedQuarter} ${selectedYear}`.trim() : "All dates"}
+                </p>
+              </div>
+
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Sales Total</p>
+                <p className="ui-stat-value">
+                  {formatMoney(totalSalesAmount)}
+                </p>
+              </div>
+
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Commission Due</p>
+                <p className="ui-stat-value">
+                  {formatMoney(totalCommissionAmount)}
+                </p>
+              </div>
+
+              <div className="ui-card print:p-3 print:shadow-none">
+                <p className="ui-muted">Payment Status</p>
+                <p className="ui-stat-value">
+                  {pendingSales} Pending
+                </p>
+                <p className="ui-muted">{paidSales} paid</p>
+              </div>
+            </div>
+
+            <section className="ui-card print:shadow-none">
+              <div className="mb-4">
+                <h2 className="ui-card-title">
+                  Commission Summary by Salesperson
+                </h2>
+                <p className="ui-muted print:hidden">
+                  This section updates based on the selected year, quarter, and
+                  salesperson filter.
+                </p>
+              </div>
+
+              {salesByPerson.length === 0 ? (
+                <div className="ui-stat">
+                  No commissions found for this filter.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="ui-table w-full print:text-xs">
+                    <thead>
+                      <tr className="border-b bg-gray-50 text-gray-600">
+                        <th className="px-4 py-3 font-semibold">Salesperson</th>
+                        <th className="px-4 py-3 font-semibold">Sales Count</th>
+                        <th className="px-4 py-3 font-semibold">Sales Total</th>
+                        <th className="px-4 py-3 font-semibold">
+                          Commission Due
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {salesByPerson.map((person) => (
+                        <tr key={person.soldBy} className="border-b">
+                          <td className="px-4 py-3 font-semibold text-gray-900">
+                            {person.soldBy}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700">
+                            {person.salesCount}
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-900">
+                            {formatMoney(person.totalSales)}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-gray-900">
+                            {formatMoney(person.totalCommission)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="ui-card print:shadow-none">
+              <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="ui-card-title">Pay Period Total</h2>
+                  <p className="ui-muted print:hidden">
+                    Per salesperson: one-time commissions landing in this month, plus recurring
+                    commissions whose date range covers it (prorated for partial months).
+                    Independent of the year/quarter filter above.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 print:hidden">
+                  <select
+                    value={payPeriodMonth}
+                    onChange={(event) => setPayPeriodMonth(Number(event.target.value))}
+                    className="ui-input"
+                  >
+                    {MONTH_NAMES.map((name, index) => (
+                      <option key={name} value={index + 1}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={payPeriodYear}
+                    onChange={(event) => setPayPeriodYear(Number(event.target.value))}
+                    className="ui-input"
+                  >
+                    {availableYears.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {payPeriodTotals.length === 0 ? (
+                <div className="ui-stat">
+                  No commissions land in {MONTH_NAMES[payPeriodMonth - 1]} {payPeriodYear}.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="ui-table w-full print:text-xs">
+                    <thead>
+                      <tr className="border-b bg-gray-50 text-gray-600">
+                        <th className="px-4 py-3 font-semibold">Salesperson</th>
+                        <th className="px-4 py-3 font-semibold">One-Time</th>
+                        <th className="px-4 py-3 font-semibold">Recurring</th>
+                        <th className="px-4 py-3 font-semibold">Pay Period Total</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {payPeriodTotals.map((person) => (
+                        <tr key={person.soldBy} className="border-b">
+                          <td className="px-4 py-3 font-semibold text-gray-900">{person.soldBy}</td>
+                          <td className="px-4 py-3 text-gray-700">{formatMoney(person.oneTimeTotal)}</td>
+                          <td className="px-4 py-3 text-gray-700">{formatMoney(person.recurringTotal)}</td>
+                          <td className="px-4 py-3 font-bold text-gray-900">{formatMoney(person.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
 
         {!openedFromAccountDetail && (
           <section className="ui-card print:rounded-none print:border print:shadow-none">

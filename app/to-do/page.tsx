@@ -6,7 +6,7 @@ import { PinButton, PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinCh
 import type { PinInfo } from "@/lib/boardPins";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
-import { CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
+import { AddBar, BigButton, CHEER, Counts, PullToRefresh, ShellTitle, StatusPill, Tips, showToast, undoable, type StatusKind } from "@/app/ui";
 import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
@@ -1494,6 +1494,11 @@ export default function ToDoPage() {
       <div className="todo-page-content ui-screen-body">
         <ShellTitle title="To-Do" backHref="/" />
         <h1 className="ui-screen-title">To-Do</h1>
+        <AddBar>
+          <BigButton icon={showForm ? undefined : "plus"} className="no-print" data-tip="add" aria-expanded={showForm} onClick={() => setShowForm((value) => !value)}>
+            {showForm ? "Close the form" : "Add to-do"}
+          </BigButton>
+        </AddBar>
         <AccountScopeBar scope={scope} what="to-dos" />
         <Tips
           id="to-do"
@@ -1558,10 +1563,6 @@ export default function ToDoPage() {
             {overdueOnly ? "Showing only overdue · tap for all pending" : `Show only the ${overdueCount} overdue`}
           </button>
         ) : null}
-
-        <button type="button" className="ui-btn ui-btn-main no-print" data-tip="add" aria-expanded={showForm} onClick={() => setShowForm((value) => !value)}>
-          {showForm ? "Close the form" : "+ Add to-do"}
-        </button>
 
         {quotaWarning !== null && !quotaBannerDismissed ? (
           <div className="ui-card ui-stack no-print">

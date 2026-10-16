@@ -6,6 +6,7 @@ import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { useEffect, useMemo, useState } from "react";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -617,11 +618,7 @@ export default function ComplaintsPage() {
     <Screen
       title="Complaints"
       backHref="/"
-      action={
-        <BigButton icon="plus" href="/complaints/new">
-          Add complaint
-        </BigButton>
-      }
+      addAction={<AddButton href="/complaints/new">Add complaint</AddButton>}
     >
       <AccountScopeBar scope={scope} what="complaints" />
       {error && !selectedComplaint ? <ErrorBox title="That did not work." text={error} /> : null}
@@ -637,7 +634,7 @@ export default function ComplaintsPage() {
         steps={[
           { target: '[data-tip="counts"]', text: "Tap a number to see only those complaints." },
           { target: '[data-tip="open"]', text: "Tap Open to read a complaint and its photos." },
-          { target: ".ui-actionbar .ui-btn-main", text: "Tap Add complaint to log a new one." },
+          { target: ".ui-page-add .ui-btn-main", text: "Tap Add complaint to log a new one." },
         ]}
       />
       <PullToRefresh
@@ -679,12 +676,7 @@ export default function ComplaintsPage() {
       ) : filteredComplaints.length === 0 ? (
         <EmptyState
           title={quick === "open" ? "No open complaints" : "No complaints here"}
-          text={quick === "open" ? "Nothing needs you. Tap Add complaint to log a new one." : "Tap Clear filters to see them all, or Add complaint to log one."}
-          action={
-            <BigButton kind="second" icon="plus" href="/complaints/new">
-              Add complaint
-            </BigButton>
-          }
+          text={quick === "open" ? "Nothing needs you. Tap Add complaint at the top to log a new one." : "Tap Clear filters to see them all, or Add complaint at the top to log one."}
         />
       ) : (
         <CardList

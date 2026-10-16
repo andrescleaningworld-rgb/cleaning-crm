@@ -7,6 +7,7 @@
 // adjustEquipmentPartStock in lib/googleSheets.ts, per the standing rule).
 import { useEffect, useState } from "react";
 import type { EquipmentPart } from "../types";
+import { AddButton } from "@/app/ui";
 import { BigButton, EquipmentShell, ErrorNote } from "../ui";
 
 type PartDraft = {
@@ -255,7 +256,11 @@ export default function EquipmentPartsPage() {
     .sort((a, b) => Number(b.lowStock) - Number(a.lowStock) || a.partName.localeCompare(b.partName));
 
   return (
-    <EquipmentShell back={{ href: "/equipment", label: "Equipment" }} title="Parts & stock">
+    <EquipmentShell
+      back={{ href: "/equipment", label: "Equipment" }}
+      title="Parts & stock"
+      addAction={adding ? undefined : <AddButton onClick={() => setAdding(true)}>Add a part</AddButton>}
+    >
       {adding ? (
         <AddPartForm
           onAdded={async () => {
@@ -264,9 +269,7 @@ export default function EquipmentPartsPage() {
           }}
           onCancel={() => setAdding(false)}
         />
-      ) : (
-        <BigButton icon="➕" label="Add a part" tone="green" onClick={() => setAdding(true)} className="w-full" />
-      )}
+      ) : null}
 
       <input
         type="search"

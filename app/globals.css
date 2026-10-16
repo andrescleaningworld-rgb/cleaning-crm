@@ -4531,3 +4531,56 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   font-size: 20px;
   font-weight: 700;
 }
+
+/* ---------- Add buttons: always at the top of the page ----------
+   Screen's addAction and <AddBar /> (app/ui/core.tsx). Full width under the
+   title on a phone; top right on desktop. Always the green main button. */
+.ui-screen-header {
+  flex-wrap: wrap;
+}
+
+.ui-page-add {
+  order: 3;
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ui-page-add .ui-btn {
+  width: 100%;
+}
+
+.ui-page-add .ui-btn-main {
+  background: var(--ui-green);
+  color: #ffffff;
+}
+
+.ui-page-add .ui-btn-main:hover:not(:disabled) {
+  background: var(--ui-green-press);
+}
+
+.ui-page-add-bar {
+  margin-bottom: 12px;
+}
+
+@media (min-width: 640px) {
+  .ui-page-add {
+    order: 0;
+    flex: 0 0 auto;
+    flex-direction: row;
+    margin-left: auto;
+  }
+  .ui-page-add .ui-btn {
+    width: auto;
+  }
+  .ui-page-add-bar {
+    justify-content: flex-end;
+  }
+}
+
+@media print {
+  .ui-page-add {
+    display: none;
+  }
+}

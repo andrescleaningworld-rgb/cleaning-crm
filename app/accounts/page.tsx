@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { TransfersTabContext } from "./transfers-tab";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -765,7 +767,9 @@ export default function AccountsPage() {
   const [maxSubPayFilter, setMaxSubPayFilter] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("Account Name");
 
-  const [transferMode, setTransferMode] = useState(false);
+  // Accounts Center → Transfers opens this screen straight on the transfer proposal builder.
+  const inTransfersTab = useContext(TransfersTabContext);
+  const [transferMode, setTransferMode] = useState(inTransfersTab);
   const [selectedTransferAccountIds, setSelectedTransferAccountIds] = useState<string[]>([]);
   const [transferSourceSubcontractorFilter, setTransferSourceSubcontractorFilter] = useState("All");
   const [transferAccountSearch, setTransferAccountSearch] = useState("");
@@ -1426,15 +1430,6 @@ export default function AccountsPage() {
   // Transfer proposal helpers
   // -------------------------------------------------------------------------
 
-  function toggleTransferMode() {
-    setTransferMode((current) => !current);
-    setTransferMessage("");
-    setTransferError("");
-    // Mutually exclusive with bulk-to-do selection — both repurpose the
-    // same row-checkbox UI for a different bulk action.
-    setBulkToDoMode(false);
-    setSelectedBulkToDoIds(new Set());
-  }
 
   function toggleBulkToDoMode() {
     setBulkToDoMode((current) => !current);
@@ -1442,7 +1437,7 @@ export default function AccountsPage() {
     setShowBulkToDoForm(false);
     setBulkToDoError("");
     setBulkToDoSuccess("");
-    setTransferMode(false);
+    setTransferMode(inTransfersTab);
   }
 
   function toggleBulkToDoAccount(account: Account) {
@@ -1678,7 +1673,8 @@ export default function AccountsPage() {
 
   function cancelTransferProposal() {
     clearTransferProposal();
-    setTransferMode(false);
+    // In the Transfers tab the builder is the whole screen: Cancel only clears it.
+    setTransferMode(inTransfersTab);
   }
 
   function getTransferDestinationSubcontractor() {
@@ -2499,13 +2495,16 @@ async function handleSaveTransferProposal() {
           items={[
             { label: filtersOn ? `Filter and sort (${filtersOn} on)` : "Filter and sort", onSelect: () => setShowFilters(true) },
             { label: "Clear filters", onSelect: clearFilters },
-            { label: transferMode ? "Close transfer" : "Transfer proposal", onSelect: toggleTransferMode },
-            { label: bulkToDoMode ? "Cancel selection" : "Create to-dos for multiple", icon: "plus", onSelect: toggleBulkToDoMode },
+            // "Transfer proposal" is its own tab now (Accounts Center → Transfers).
+            ...(inTransfersTab
+              ? []
+              : [{ label: bulkToDoMode ? "Cancel selection" : "Create to-dos for multiple", icon: "plus" as const, onSelect: toggleBulkToDoMode }]),
             ...(hasSearched ? [{ label: "Print sub account list", onSelect: handlePrintSubcontractorAccountList }] : []),
             { label: LABELS.print, onSelect: () => setShowPrint(true) },
           ]}
         />
       }
+      addAction={inTransfersTab ? undefined : <AddButton href="/accounts/new">Add account</AddButton>}
     >
       <PrintAccounts
         open={showPrint}
@@ -2522,13 +2521,6 @@ async function handleSaveTransferProposal() {
           { target: '[data-tip="card-more"]', text: "Tap the three dots for Call, To-do and more. On a phone you can also swipe a card to the left." },
         ]}
       />
-      {/* "Add account" sits at the top of the page, like "Add visit" on Visits. */}
-      <div className="print:hidden">
-        <BigButton icon="plus" href="/accounts/new" className="w-full">
-          Add account
-        </BigButton>
-      </div>
-
       {error ? <ErrorBox title="Something did not load." text={error} onRetry={handleSearch} /> : null}
       {subcontractorWarning ? <ErrorBox title="Some subcontractor details did not load." text={subcontractorWarning} /> : null}
 

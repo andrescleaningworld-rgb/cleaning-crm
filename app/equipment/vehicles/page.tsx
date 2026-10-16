@@ -7,7 +7,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Vehicle, VehicleServiceItem, VehicleServiceLog } from "@/lib/vehiclesDb";
-import { BigButton, EquipmentPhoto, EquipmentShell, ErrorNote } from "../ui";
+import { AddButton } from "@/app/ui";
+import { EquipmentPhoto, EquipmentShell, ErrorNote } from "../ui";
 import { DUE_STYLE, DueDot, formatMiles, lastServiceText, oilDue, useStaffList } from "./vehicleUi";
 
 export default function VehiclesPage() {
@@ -46,8 +47,11 @@ export default function VehiclesPage() {
   );
 
   return (
-    <EquipmentShell back={{ href: "/equipment", label: "Equipment" }} title="Vehicles">
-      <BigButton icon="➕" label="Add vehicle" tone="green" href="/equipment/vehicles/new" className="w-full" />
+    <EquipmentShell
+      back={{ href: "/equipment", label: "Equipment" }}
+      title="Vehicles"
+      addAction={<AddButton href="/equipment/vehicles/new">Add vehicle</AddButton>}
+    >
 
       <input
         type="search"

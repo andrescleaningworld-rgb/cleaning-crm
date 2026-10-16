@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Shelves from "./shelves";
 import CrewLinkFields from "./crew-link-fields";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -541,18 +542,14 @@ export default function SuppliesPage() {
           {newSupplyOrdersCount > 0 ? `Supply Orders (${newSupplyOrdersCount})` : "Supply Orders"}
         </BigButton>
       }
-      action={
-        <BigButton icon="plus" onClick={startAdd}>
-          Add Supply
-        </BigButton>
-      }
+      addAction={<AddButton onClick={startAdd}>Add Supply</AddButton>}
     >
       <Tips
         id="supplies"
         ready={!loading}
         steps={[
           { target: '[data-tip="counts"]', text: "Tap a number to see only those supplies. Red means stock is low." },
-          { target: ".ui-actionbar .ui-btn-main", text: "Tap Add Supply to add something subs can order." },
+          { target: ".ui-page-add .ui-btn-main", text: "Tap Add Supply to add something subs can order." },
         ]}
       />
       <PullToRefresh

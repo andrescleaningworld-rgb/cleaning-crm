@@ -108,7 +108,7 @@ export default function ToProcess({ handoffs, focusId }: { handoffs: HandoffsSta
         steps={[
           { target: '[data-tip="process-counts"]', text: "When a manager adds an update, it lands here for the Office to enter." },
           { target: '[data-tip="process-list"]', text: "Oldest first. Red means it has waited too long. Tap Mark processed when it is entered." },
-          { target: ".ui-actionbar .ui-btn-main", text: "Managers: tap Add update. You will see \"Processed ✓\" on it when the Office is done." },
+          { target: ".ui-page-add .ui-btn-main", text: "Managers: tap Add update. You will see \"Processed ✓\" on it when the Office is done." },
         ]}
       />
       <Counts

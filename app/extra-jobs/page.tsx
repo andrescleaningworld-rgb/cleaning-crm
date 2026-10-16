@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
+import { AddButton, BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
 import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
@@ -55,14 +55,11 @@ export default function ExtraJobsPage() {
   const shown = searching ? jobs.filter((job) => jobMatches(job, search)) : tab === "all" ? jobs : jobs.filter((job) => job.status === tab);
 
   return (
-    <Screen title="Extra Jobs">
+    <Screen title="Extra Jobs" addAction={<AddButton href="/extra-jobs/new">Extra job</AddButton>}>
       <AccountScopeBar scope={scope} what="extra jobs" />
       <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>
 
       <div className={styles.topButtons}>
-        <BigButton icon="plus" href="/extra-jobs/new">
-          Extra job
-        </BigButton>
         <BigButton kind="second" href="/extra-jobs/pay">
           Extra jobs to pay
         </BigButton>

@@ -16,6 +16,7 @@ import {
   type SearchOption,
 } from "./autocomplete";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -433,15 +434,11 @@ function SubSchedulesPageInner() {
     <Screen
       title="Sub Schedules"
       subtitle="Manage recurring subcontractor schedules and one-off schedule exceptions."
-      action={
+      addAction={
         adminTab === "schedules" ? (
-          <BigButton icon="plus" onClick={() => setAddScheduleModalOpen(true)}>
-            Add schedule
-          </BigButton>
+          <AddButton onClick={() => setAddScheduleModalOpen(true)}>Add schedule</AddButton>
         ) : adminTab === "exceptions" ? (
-          <BigButton icon="plus" onClick={() => setExceptionModal("new")}>
-            New exception
-          </BigButton>
+          <AddButton onClick={() => setExceptionModal("new")}>New exception</AddButton>
         ) : undefined
       }
     >

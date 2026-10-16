@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AccountLink from "../components/AccountLink";
+import { AddButton } from "@/app/ui";
 
 type AdminVisit = {
   sheetRow: number;
@@ -288,13 +289,7 @@ export default function SubVisitLog() {
             Visits logged by subcontractors from the portal.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => { setAddOpen(true); setAddError(""); setAddFields(EMPTY_ADD); }}
-          className="rounded-xl bg-blue-700 px-5 py-3 text-sm font-bold text-white hover:bg-blue-800"
-        >
-          + Add Visit
-        </button>
+        <AddButton onClick={() => { setAddOpen(true); setAddError(""); setAddFields(EMPTY_ADD); }}>Add Visit</AddButton>
       </div>
 
       {actionMsg && (

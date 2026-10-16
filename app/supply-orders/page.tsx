@@ -8,7 +8,7 @@
 // Printing is the card's 🖨 Print (app/supply-orders/print).
 
 import Link from "next/link";
-import { CHEER } from "@/app/ui";
+import { AddBar, AddButton, CHEER } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import OrderCards, { type OrderSummary, type SubOrder } from "./order-cards";
 import Deliveries from "./deliveries";
@@ -67,6 +67,11 @@ export default function SupplyOrdersPage() {
   return (
     <main className="ui-screen">
       <div className="ui-screen-body">
+        <AddBar>
+          <AddButton onClick={() => setOrdering(true)} data-order-for-sub>
+            Order for a sub (call or text)
+          </AddButton>
+        </AddBar>
         <AccountScopeBar scope={scope} what="supply orders" />
         {/* What arrived different, and what the office sent with no order. */}
         <Deliveries key={version} accountId={scope.active ? scope.accountId : ""} />
@@ -79,9 +84,6 @@ export default function SupplyOrdersPage() {
               <p className="ui-muted">Every order, from crews, subs and managers. Approve or decline, then pick how we fill it.</p>
               <p className="ui-cheer">{CHEER.order}</p>
             </div>
-            <button type="button" onClick={() => setOrdering(true)} className="min-h-[64px] w-full rounded-2xl bg-blue-700 px-4 text-xl font-black text-white shadow-sm active:scale-[0.98]" data-order-for-sub>
-              + Order for a sub (call or text)
-            </button>
             <div className="ui-actions-row">
               <button type="button" onClick={() => void loadOrders()} disabled={loading} className="ui-btn ui-btn-second">
                 {loading ? "Refreshing..." : "Refresh"}

@@ -63,10 +63,21 @@ export function StatusChip({ status }: { status: SimpleStatus }) {
 // The page frame is the app-wide one (app/ui Screen): same title, back arrow
 // and type as every other redesigned screen. What is inside the frame keeps
 // this area's own big-button look.
-export function EquipmentShell({ back, title, children }: { back?: { href: string; label: string }; title: string; children: ReactNode }) {
+export function EquipmentShell({
+  back,
+  title,
+  addAction,
+  children,
+}: {
+  back?: { href: string; label: string };
+  title: string;
+  /** The page's "Add …" button (<AddButton />): at the top, like every other page. */
+  addAction?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     // Every page has a back arrow in the navy bar; the equipment home goes back to the Dashboard.
-    <Screen title={title} backHref={back?.href ?? "/"}>
+    <Screen title={title} backHref={back?.href ?? "/"} addAction={addAction}>
       {children}
     </Screen>
   );

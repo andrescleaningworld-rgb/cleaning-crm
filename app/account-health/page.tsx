@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  AddButton,
   BigButton,
   Card,
   EmptyState,
@@ -315,16 +316,15 @@ export default function AccountHealthPage() {
       title="Account Health"
       subtitle="Track account condition, improvement plans, follow-up dates, and problem accounts before they get worse."
       headerRight={<MoreMenu items={[{ label: LABELS.print, onSelect: () => window.print() }]} />}
-      action={
-        <BigButton
-          icon="plus"
+      addAction={
+        <AddButton
           onClick={() => {
             setFormError("");
             setShowForm(true);
           }}
         >
           Add health item
-        </BigButton>
+        </AddButton>
       }
     >
       <div className="ui-print-view ui-screen-body">

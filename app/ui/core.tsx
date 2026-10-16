@@ -84,6 +84,7 @@ export function Screen({
   backHref,
   onBack,
   headerRight,
+  addAction,
   action,
   secondaryAction,
   onEdit,
@@ -96,6 +97,8 @@ export function Screen({
   onBack?: () => void;
   /** Usually a <MoreMenu />. */
   headerRight?: ReactNode;
+  /** The screen's "Add …" button(s): <AddButton />. Top right on desktop, full width under the title on a phone. */
+  addAction?: ReactNode;
   /** The one main action: a <BigButton />. */
   action?: ReactNode;
   secondaryAction?: ReactNode;
@@ -142,6 +145,7 @@ export function Screen({
           <h1 className="ui-screen-title">{title}</h1>
           {subtitle ? <p className="ui-screen-subtitle">{subtitle}</p> : null}
         </div>
+        {addAction ? <div className="ui-page-add">{addAction}</div> : null}
         {headerRight}
       </header>
       <div className="ui-screen-body">{children}</div>
@@ -202,6 +206,21 @@ export function BigButton({
       {content}
     </button>
   );
+}
+
+/* ---------- Add buttons: always at the top of the page ---------- */
+
+/** An "Add …" button: the green main button with a plus. Goes in Screen's addAction or an <AddBar />. */
+export function AddButton(props: Omit<BigButtonProps, "kind" | "icon">) {
+  return <BigButton {...props} kind="main" icon="plus" />;
+}
+
+/**
+ * The top of a page that does not use <Screen />: its Add button(s), top
+ * right on desktop, full width on a phone. The same look as Screen's addAction.
+ */
+export function AddBar({ children }: { children: ReactNode }) {
+  return <div className="ui-page-add ui-page-add-bar">{children}</div>;
 }
 
 /* ---------- Field ---------- */

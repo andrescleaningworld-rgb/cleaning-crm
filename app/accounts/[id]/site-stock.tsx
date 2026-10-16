@@ -13,7 +13,7 @@
 // where the supplies system is not in this database yet.
 
 import { useCallback, useEffect, useState } from "react";
-import { BigButton, Card, Field, Sheet, showToast } from "@/app/ui";
+import { AddBar, AddButton, BigButton, Card, Field, Sheet, showToast } from "@/app/ui";
 import { HistoryList, ShelfTile, type Move } from "../../supplies/shelves";
 import { PickLines, Stepper, useSupplyProducts, type PickLine } from "../../components/supply-pick";
 
@@ -59,14 +59,16 @@ export default function SiteStock({ accountId, accountName }: { accountId: strin
   return (
     <Card title="📦 Site stock">
       <div className="ui-stack" data-site-stock>
-        {tiles.length === 0 ? <p className="ui-muted">Nothing counted at this site yet. It fills in when a crew confirms Supplies arrived, or with + Add delivery.</p> : null}
+        <AddBar>
+          <AddButton onClick={() => setAdding(true)}>Add delivery</AddButton>
+        </AddBar>
+        {tiles.length === 0 ? <p className="ui-muted">Nothing counted at this site yet. It fills in when a crew confirms Supplies arrived, or with Add delivery.</p> : null}
         <div className={GRID}>
           {tiles.map((tile) => (
             <ShelfTile key={tile.supplyId} tile={tile} onClick={() => setFixing(tile)} />
           ))}
         </div>
         <div className="ui-actions-row">
-          <BigButton onClick={() => setAdding(true)}>+ Add delivery</BigButton>
           <BigButton kind="second" href={`/supply-orders?accountId=${encodeURIComponent(accountId)}`}>
             Supply orders
           </BigButton>

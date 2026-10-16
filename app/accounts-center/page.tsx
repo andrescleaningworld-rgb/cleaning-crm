@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AccountsPage from "../accounts/page";
+import { TransfersTabContext } from "../accounts/transfers-tab";
 import VisitsPage from "../visits/page";
 import ComplaintsPage from "../complaints/page";
 import AccountUpdatesPage from "../account-updates/page";
@@ -16,12 +17,13 @@ import { useHandoffs } from "../components/handoffs";
 import { SubScoreAlertsCard } from "../components/sub-score-alerts";
 import { NoScheduleTile } from "../components/no-schedule";
 
-type CenterTab = "all" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails" | "time";
+type CenterTab = "all" | "transfers" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails" | "time";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
 const TABS: { value: CenterTab; label: string }[] = [
   { value: "all", label: "All accounts" },
+  { value: "transfers", label: "Transfers" },
   { value: "new", label: "New accounts" },
   { value: "visits", label: "Visits" },
   { value: "complaints", label: "Complaints" },
@@ -36,6 +38,7 @@ function getStoredTab(): CenterTab {
   if (typeof window === "undefined") return "all";
   const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
   return stored === "all" ||
+    stored === "transfers" ||
     stored === "new" ||
     stored === "visits" ||
     stored === "complaints" ||
@@ -113,6 +116,12 @@ export default function AccountsCenterPage() {
           </button>
           {showRecent ? <RecentActivitySummary /> : null}
         </>
+      )}
+      {/* The transfer proposal builder (it was "Transfer proposal" in the Accounts More menu). */}
+      {activeTab === "transfers" && (
+        <TransfersTabContext.Provider value={true}>
+          <AccountsPage />
+        </TransfersTabContext.Provider>
       )}
       {activeTab === "new" && (handoffsOn ? <NewAccountsBoard /> : <AccountsPage />)}
       {activeTab === "visits" && <VisitsPage />}

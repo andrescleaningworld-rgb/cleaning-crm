@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BigButton, Counts, EmptyState, ErrorBox, MOTTO, Screen, SelectField, Sheet, SkeletonList, Tabs, showToast } from "@/app/ui";
+import { AddButton, BigButton, Counts, EmptyState, ErrorBox, MOTTO, Screen, SelectField, Sheet, SkeletonList, Tabs, showToast } from "@/app/ui";
 import {
   PROOF_LABEL,
   STATUS_LABEL,
@@ -197,7 +197,10 @@ export default function CalendarClient() {
   }, [view, range]);
 
   return (
-    <Screen title="Cleaning calendar">
+    <Screen
+      title="Cleaning calendar"
+      addAction={office.on && state !== "off" && state !== "failed" ? <AddButton onClick={() => setAdding(true)}>Add to calendar</AddButton> : undefined}
+    >
       <p className={boardStyles.motto}>{MOTTO.en}</p>
       <Tabs tabs={BOARD_TABS} value="calendar" onChange={changeTab} label="Pin Board views" />
 
@@ -261,13 +264,6 @@ export default function CalendarClient() {
             <span className={`${styles.swatch} ${styles.extra}`} /> Extra job
           </p>
 
-          {office.on ? (
-            <div>
-              <BigButton kind="second" icon="plus" onClick={() => setAdding(true)}>
-                Add to calendar
-              </BigButton>
-            </div>
-          ) : null}
           {view === "today" ? <EventChips events={eventsByDay.get(day) ?? []} onPick={setRemoving} /> : null}
 
           {state === "loading" || !data || !fresh ? (

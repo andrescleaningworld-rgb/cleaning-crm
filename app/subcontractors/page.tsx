@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { isScheduleEffectivelyActive } from "@/lib/scheduleRecurrence";
 import { findDuplicateSubs, matchWords } from "@/lib/subDuplicates";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -697,13 +698,7 @@ export default function SubcontractorsPage() {
     <Screen
       title="Subcontractors"
       backHref="/"
-      action={
-        adminTab === "subs" ? (
-          <BigButton icon="plus" onClick={() => setShowForm(true)}>
-            Add subcontractor
-          </BigButton>
-        ) : undefined
-      }
+      addAction={adminTab === "subs" ? <AddButton onClick={() => setShowForm(true)}>Add subcontractor</AddButton> : undefined}
     >
       <Tabs
         label="Subcontractor sections"
@@ -723,7 +718,7 @@ export default function SubcontractorsPage() {
             steps={[
               { target: '[data-tip="counts"]', text: "Tap a number to see only those subs." },
               { target: '[data-tip="open"]', text: "Tap Open to see a sub and their accounts." },
-              { target: ".ui-actionbar .ui-btn-main", text: "Tap Add subcontractor to add a new cleaning company." },
+              { target: ".ui-page-add .ui-btn-main", text: "Tap Add subcontractor to add a new cleaning company." },
             ]}
           />
           <PullToRefresh
@@ -776,12 +771,7 @@ export default function SubcontractorsPage() {
             subcontractors.length === 0 ? (
               <EmptyState
                 title="No subcontractors yet"
-                text="Add the first cleaning company you work with."
-                action={
-                  <BigButton kind="second" icon="plus" onClick={() => setShowForm(true)}>
-                    Add subcontractor
-                  </BigButton>
-                }
+                text="Tap Add subcontractor at the top to add the first cleaning company you work with."
               />
             ) : (
               <EmptyState

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AddButton,
   BigButton,
   Card,
   CardList,
@@ -539,11 +540,7 @@ export default function DocumentsPage() {
     <Screen
       title="Documents"
       subtitle={["Contracts, handbooks and policies", countText].filter(Boolean).join(" · ")}
-      action={
-        <BigButton icon="plus" onClick={() => setAdding(true)}>
-          Add document
-        </BigButton>
-      }
+      addAction={<AddButton onClick={() => setAdding(true)}>Add document</AddButton>}
     >
       <SearchBar value={query} onChange={setQuery} label="Search documents" />
       <Tabs
@@ -570,12 +567,7 @@ export default function DocumentsPage() {
         documents.length === 0 ? (
           <EmptyState
             title="No documents yet"
-            text="Add your first contract, handbook or policy."
-            action={
-              <BigButton kind="second" icon="plus" onClick={() => setAdding(true)}>
-                Add document
-              </BigButton>
-            }
+            text="Tap Add document at the top to add your first contract, handbook or policy."
           />
         ) : (
           <EmptyState
