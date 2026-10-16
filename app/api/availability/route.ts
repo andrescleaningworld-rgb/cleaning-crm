@@ -3,14 +3,16 @@
 //   GET  ?settings=1[&subId=…]                       Evening's end (and a sub's crews)
 //   POST { action: "check", days: ["Monday", …], start: "19:00", minutes: 90,
 //          point?: { lat, lng }, points?: { [accountId]: [lat, lng] } }
-//        every sub: Free / Tight / Busy for each day. points are the map's
-//        positions (the same ones "Find closest subcontractors" uses).
+//        Free / Tight / Busy for each day. points are the map's positions
+//        (the same ones "Find closest subcontractors" uses). With a point:
+//        only subs within 10 mi, else the 5 closest (within: false).
+//        Coverage and Add Account both ask here.
 //   POST { action: "crews", subId, crews }           the office sets a sub's crews
 //   POST { action: "eveningEnds", time: "23:00" }    the office sets when Evening ends
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { checkAll, WEEK_ORDER, type Point } from "@/lib/availability";
+import { checkAll, nearbyAvailable, WEEK_ORDER, type Point } from "@/lib/availability";
 import { dayToDate, officeDay } from "@/lib/cleanings";
 import { getCrews, getEveningEnds, loadAvailabilitySubs, saveCrews, saveEveningEnds } from "@/lib/pg/availability";
 import { parseClock, toClock } from "@/lib/schedule-time";
@@ -52,8 +54,14 @@ export async function POST(request: NextRequest) {
       const point = toPoint(body.point);
       const points = toPoints(body.points);
       const [subs, eveningEnds] = await Promise.all([loadAvailabilitySubs(), getEveningEnds()]);
-      const results = checkAll(subs, { days, start, minutes: clampMinutesOnSite(minutes), point }, dayToDate(officeDay()), eveningEnds, points);
-      return NextResponse.json({ success: true, eveningEnds: toClock(eveningEnds), results }, noStore);
+      const all = checkAll(subs, { days, start, minutes: clampMinutesOnSite(minutes), point }, dayToDate(officeDay()), eveningEnds, points);
+      // With an address: only the nearby subs (lib/availability.ts nearbyAvailable).
+      // Without one there are no miles, so every sub is listed as before.
+      const nearby = point ? nearbyAvailable(all) : null;
+      return NextResponse.json(
+        { success: true, eveningEnds: toClock(eveningEnds), results: nearby ? nearby.subs : all, within: nearby ? nearby.within : null },
+        noStore
+      );
     }
 
     if (body.action === "crews") {

@@ -7,13 +7,15 @@
 //
 // The spot is the address typed in "Find closest subcontractors" above, and
 // the map's own account positions are sent along, so both boxes measure the
-// same way. Changing a day, the time, the length or the address clears the
-// results: what shows always matches the picks.
+// same way. With an address only nearby subs come back (within 10 mi, else
+// the 5 closest; lib/availability.ts nearbyAvailable). Changing a day, the
+// time, the length or the address clears the results: what shows always
+// matches the picks.
 
 import { useEffect, useRef, useState } from "react";
 import { BigButton, ErrorBox, Sheet, showToast } from "@/app/ui";
 import PlusMinus from "../components/plus-minus";
-import { describeSpan, WEEK_ORDER, type Availability, type DayAvailability, type SubAvailability } from "@/lib/availability";
+import { CLOSEST_FALLBACK, describeSpan, NEARBY_MILES, ROOM_WORDS, roomOf, WEEK_ORDER, type Availability, type DayAvailability, type SubAvailability } from "@/lib/availability";
 import { formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
@@ -25,6 +27,7 @@ const LOOK: Record<Availability, { emoji: string; word: string; color: string; b
   tight: { emoji: "🟡", word: "Tight", color: "#854d0e", background: "#fef9c3" },
   busy: { emoji: "🔴", word: "Busy", color: "#991b1b", background: "#fee2e2" },
 };
+const NO_INFO = { emoji: "⚪", word: ROOM_WORDS.unknown, color: "#475569", background: "#f1f5f9" };
 
 function friendlyDay(iso: string): string {
   const [year, month, day] = iso.split("-").map(Number);
@@ -38,7 +41,7 @@ export default function WhoIsFree({ point, points }: { point: Point | null; poin
   const [days, setDays] = useState<string[]>([]);
   const [start, setStart] = useState(19 * 60);
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
-  const [answer, setAnswer] = useState<{ asked: Asked; results: SubAvailability[] } | null>(null);
+  const [answer, setAnswer] = useState<{ asked: Asked; results: SubAvailability[]; within: boolean | null } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -66,9 +69,9 @@ export default function WhoIsFree({ point, points }: { point: Point | null; poin
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "check", days, start: toClock(start), minutes, point, points }),
       });
-      const data = (await response.json()) as { success?: boolean; results?: SubAvailability[]; error?: string };
+      const data = (await response.json()) as { success?: boolean; results?: SubAvailability[]; within?: boolean | null; error?: string };
       if (!data.success || !data.results) throw new Error(data.error || "Availability did not load.");
-      if (askedKey === latestKey.current) setAnswer({ asked, results: data.results });
+      if (askedKey === latestKey.current) setAnswer({ asked, results: data.results, within: data.within ?? null });
     } catch (err) {
       if (askedKey === latestKey.current) setError(err instanceof Error ? err.message : "Availability did not load.");
     } finally {
@@ -124,7 +127,13 @@ export default function WhoIsFree({ point, points }: { point: Point | null; poin
         <>
           <p className="ui-muted" style={{ marginTop: 12 }}>
             {answer.asked.days.map((day) => day.slice(0, 3)).join(", ")} · {describeSpan(answer.asked.start, answer.asked.start + answer.asked.minutes)} · next 4 weeks
+            {answer.within === true ? ` · subs within ${NEARBY_MILES} mi` : ""}
           </p>
+          {answer.within === false ? (
+            <p style={{ marginTop: 6, color: "#92400e", fontWeight: 700 }}>
+              No sub within {NEARBY_MILES} mi — the {CLOSEST_FALLBACK} closest instead.
+            </p>
+          ) : null}
           <ul className="ui-list-plain" style={{ marginTop: 8, gap: 8 }}>
             {answer.results.map((result) => (
               <ResultCard key={result.subId} result={result} newStart={answer.asked.start} newEnd={answer.asked.start + answer.asked.minutes} />
@@ -140,7 +149,8 @@ export default function WhoIsFree({ point, points }: { point: Point | null; poin
 }
 
 function ResultCard({ result, newStart, newEnd }: { result: SubAvailability; newStart: number; newEnd: number }) {
-  const look = LOOK[result.status];
+  // No live schedule at all: "Free" would mean nothing.
+  const look = roomOf(result) === "unknown" ? NO_INFO : LOOK[result.status];
   // The name on the sub's accounts, which "Find closest subcontractors" lists them by.
   const showContact = result.contactName !== "" && result.contactName.toLowerCase() !== result.name.toLowerCase();
   return (

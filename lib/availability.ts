@@ -92,6 +92,8 @@ export type SubAvailability = {
   /** One per chosen day, in the order of the week. */
   days: DayAvailability[];
   unscheduled: number;
+  /** Live schedules counted; 0 means the colour says nothing ("No schedule info"). */
+  scheduled: number;
 };
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -271,6 +273,7 @@ export function checkAll(subs: AvailabilitySub[], job: NewJob, today: Date, even
         distanceMiles: distances.length > 0 ? Math.min(...distances) : null,
         days: perDay,
         unscheduled: sub.unscheduled,
+        scheduled: sub.schedules.length,
       };
     })
     .sort((a, b) => rank[a.status] - rank[b.status] || (a.distanceMiles ?? Infinity) - (b.distanceMiles ?? Infinity) || a.name.localeCompare(b.name));
@@ -279,4 +282,44 @@ export function checkAll(subs: AvailabilitySub[], job: NewJob, today: Date, even
 /** "5:00–6:30 pm" for a day line. */
 export function describeSpan(start: number, end: number): string {
   return `${formatClock(start)}–${formatClock(end)}`;
+}
+
+// Nearby + available: the one rule Coverage "Who's free?" and Add Account
+// both use to suggest subs. Informational only; nothing is ever assigned.
+//   - Nearby: the sub's nearest active account (distanceMiles above) within
+//     NEARBY_MILES of the new job. Nobody that close: the CLOSEST_FALLBACK
+//     closest instead.
+//   - Room: Free → "Has room", Tight → "Tight", Busy → "Busy"; a sub with no
+//     live schedule at all → "No schedule info" (their Free means nothing).
+//   - Order: Has room, Tight, No schedule info, Busy; closest first in each.
+
+export const NEARBY_MILES = 10;
+export const CLOSEST_FALLBACK = 5;
+
+export type Room = "room" | "tight" | "unknown" | "busy";
+export const ROOM_WORDS: Record<Room, string> = { room: "Has room", tight: "Tight", unknown: "No schedule info", busy: "Busy" };
+const ROOM_RANK: Record<Room, number> = { room: 0, tight: 1, unknown: 2, busy: 3 };
+
+export function roomOf(result: SubAvailability): Room {
+  if (result.scheduled === 0) return "unknown";
+  return result.status === "free" ? "room" : result.status;
+}
+
+/** within: false when nobody is inside NEARBY_MILES and the closest few are given instead. */
+export function nearbyAvailable(results: SubAvailability[]): { subs: SubAvailability[]; within: boolean } {
+  const miles = (result: SubAvailability) => result.distanceMiles ?? Infinity;
+  const measured = results.filter((result) => result.distanceMiles !== null);
+  const near = measured.filter((result) => miles(result) <= NEARBY_MILES);
+  const within = near.length > 0;
+  const picked = within ? near : [...measured].sort((a, b) => miles(a) - miles(b)).slice(0, CLOSEST_FALLBACK);
+  const subs = picked.sort((a, b) => ROOM_RANK[roomOf(a)] - ROOM_RANK[roomOf(b)] || miles(a) - miles(b) || a.name.localeCompare(b.name));
+  return { subs, within };
+}
+
+/** The weekdays named in free text like "Mon, Wed & Fri" or "M-F", in WEEK_ORDER. */
+export function weekdaysIn(text: string): string[] {
+  const value = text.toLowerCase();
+  if (/\b(m\s*-\s*f|mon(day)?\s*(-|–|to|thru|through)\s*fri(day)?|weekdays)\b/.test(value)) return WEEK_ORDER.slice(0, 5);
+  if (/\bweekends?\b/.test(value)) return WEEK_ORDER.slice(5);
+  return WEEK_ORDER.filter((day) => new RegExp(`\\b${day.slice(0, 3).toLowerCase()}`).test(value));
 }

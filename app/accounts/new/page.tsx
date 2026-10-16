@@ -1,12 +1,16 @@
 "use client";
 
-import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, StatusPill, TextAreaField } from "@/app/ui";
+import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, StatusPill, TextAreaField, type StatusKind } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
-import { distanceInMiles, formatMiles } from "@/app/lib/distance";
+import { formatMiles } from "@/app/lib/distance";
+import { CLOSEST_FALLBACK, NEARBY_MILES, ROOM_WORDS, roomOf, WEEK_ORDER, weekdaysIn, type Room, type SubAvailability } from "@/lib/availability";
+import PlusMinus from "@/app/components/plus-minus";
+import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
+import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
 type AccountForm = {
   accountName: string;
@@ -61,27 +65,6 @@ type Subcontractor = {
   scoreStatus?: string;
 };
 
-// Minimal shape pulled from the plain /api/accounts (getAllAccounts) list —
-// same fields/casing app/accounts/page.tsx already reads directly off that
-// response (see its Account type) — just enough to infer each subcontractor's
-// approximate location from their nearest currently-serviced account, since
-// subcontractors themselves don't carry a reliable geocoded address (their
-// free-text address field is often blank/a mailing address — see
-// app/sub-center/coverage-map.tsx's findClosestSubs comment for the same
-// reasoning applied there).
-type ProximityAccount = {
-  subcontractor?: string;
-  status?: string;
-  latitude?: string | number;
-  longitude?: string | number;
-};
-
-// Same tier values as app/accounts/page.tsx's NEAR_ACCOUNT_RADIUS_OPTIONS
-// ("Near Account" filter), applied here as an expanding search instead of a
-// manually-picked radius: try the tightest radius first and widen only if
-// nothing qualifies yet.
-const SUGGESTION_RADIUS_TIERS_MILES = [5, 10, 25, 50] as const;
-
 // Threshold for the "Below target score" badge: the score value below which
 // lib/googleSheets.ts's getSubcontractorPerformanceMap stops labeling a sub
 // "Good" and starts labeling them "Needs Attention" (see the scoreStatus
@@ -90,19 +73,13 @@ const SUGGESTION_RADIUS_TIERS_MILES = [5, 10, 25, 50] as const;
 // inventing a new "at risk" number.
 const AT_RISK_SCORE_THRESHOLD = 8;
 
-// Mirrors coverage.tsx / coverage-map.tsx's isServicedStatus (each of those
-// already keeps its own local copy rather than sharing one — same pattern
-// followed here rather than introducing a new shared export).
-function isServicedStatus(status: unknown): boolean {
-  const value = String(status ?? "").trim().toLowerCase();
-  if (!value) return true;
-  if (value.includes("cancel") || value.includes("lost") || value.includes("terminated") || value.includes("closed")) {
-    return false;
-  }
-  if (value.includes("pause") || value.includes("hold") || value.includes("suspended")) return false;
-  if (value.includes("90") || value.includes("over ninety") || value.includes("old")) return false;
-  return true;
-}
+// What the suggestion checks: the days typed in "Cleaning days" (Mon–Fri when
+// none can be read), at the time and length picked under the suggestions
+// (Coverage's Who's free? buttons, starting at 7:00 pm for 1h 30m).
+const SUGGESTION_WEEKDAYS = WEEK_ORDER.slice(0, 5);
+const ROOM_PILL: Record<Room, StatusKind> = { room: "done", tight: "waiting", unknown: "off", busy: "needs-you" };
+
+type SubSuggestions = { days: string[]; start: number; minutes: number; results: SubAvailability[]; within: boolean };
 
 type SubcontractorOption = {
   value: string;
@@ -262,7 +239,9 @@ export default function NewAccountPage() {
   const [saving, setSaving] = useState(false);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
   const [error, setError] = useState("");
-  const [proximityAccounts, setProximityAccounts] = useState<ProximityAccount[]>([]);
+  const [subSuggestions, setSubSuggestions] = useState<SubSuggestions | null>(null);
+  const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
+  const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
 
   useEffect(() => {
     async function loadManagers() {
@@ -313,29 +292,8 @@ export default function NewAccountPage() {
       }
     }
 
-    // Powers the nearest-subcontractor suggestion note only — read-only,
-    // fails silently like managers/subcontractors above so it never blocks
-    // the form itself.
-    async function loadProximityAccounts() {
-      try {
-        const response = await fetch("/api/accounts", { cache: "no-store" });
-
-        const data = await readJsonResponse<{
-          success?: boolean;
-          accounts?: ProximityAccount[];
-        }>(response);
-
-        if (!response.ok || data.success === false) return;
-
-        setProximityAccounts(data.accounts || []);
-      } catch {
-        // Suggestion note simply won't show if this fails.
-      }
-    }
-
     loadManagers();
     loadSubcontractors();
-    loadProximityAccounts();
   }, []);
 
   const managerOptions = useMemo(() => {
@@ -358,85 +316,55 @@ export default function NewAccountPage() {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [subcontractors]);
 
-  // Informational only — never writes to form.subcontractor. Reuses the same
-  // form.latitude/form.longitude the Full Address autocomplete already
-  // resolves (handlePlaceSelected below), the shared Haversine util, and the
-  // severity-weighted score already merged onto `subcontractors` by
-  // /api/subcontractors. See SUGGESTION_RADIUS_TIERS_MILES/AT_RISK_SCORE_THRESHOLD
-  // above for where those reused values come from.
-  const suggestedSubcontractor = useMemo(() => {
-    const originLatitude = Number(form.latitude);
-    const originLongitude = Number(form.longitude);
-
-    if (
-      !form.latitude ||
-      !form.longitude ||
-      !Number.isFinite(originLatitude) ||
-      !Number.isFinite(originLongitude)
-    ) {
-      return null;
+  // Informational only — never writes to form.subcontractor. Once the Full
+  // Address autocomplete has a map position (handlePlaceSelected below), asks
+  // Coverage's "Who's free?" (/api/availability) for the same answer it gives
+  // there: subs within 10 mi (else the 5 closest), each with miles to their
+  // nearest active account and whether the days have room
+  // (lib/availability.ts nearbyAvailable). Fails silently: no suggestion.
+  useEffect(() => {
+    const lat = Number(form.latitude);
+    const lng = Number(form.longitude);
+    if (!form.latitude || !form.longitude || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setSubSuggestions(null);
+      return;
     }
-
-    // A subcontractor has no reliable geocoded home address of their own
-    // (see ProximityAccount's comment above), so their location is inferred
-    // from the single nearest currently-serviced account already assigned to
-    // them — same approach app/sub-center/coverage-map.tsx's findClosestSubs
-    // uses for the same reason.
-    const nearestDistanceBySub = new Map<string, number>();
-
-    for (const account of proximityAccounts) {
-      const subName = cleanText(account.subcontractor);
-      if (!subName || subName.toLowerCase() === "unassigned") continue;
-      if (!isServicedStatus(account.status)) continue;
-
-      const accountLatitude = Number(account.latitude);
-      const accountLongitude = Number(account.longitude);
-      if (!Number.isFinite(accountLatitude) || !Number.isFinite(accountLongitude)) {
-        continue;
+    const typed = weekdaysIn(form.cleaningDays);
+    const days = typed.length > 0 ? typed : SUGGESTION_WEEKDAYS;
+    let alive = true;
+    const start = suggestionStart;
+    const minutes = suggestionMinutes;
+    // A short wait so typing in "Cleaning days" or tapping − / + does not ask every time.
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/availability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "check", days, start: toClock(start), minutes, point: { lat, lng } }),
+        });
+        const data = await readJsonResponse<{ success?: boolean; results?: SubAvailability[]; within?: boolean | null }>(response);
+        if (!alive) return;
+        setSubSuggestions(data.success && data.results ? { days, start, minutes, results: data.results, within: data.within !== false } : null);
+      } catch {
+        if (alive) setSubSuggestions(null);
       }
-
-      const distance = distanceInMiles(
-        { latitude: originLatitude, longitude: originLongitude },
-        { latitude: accountLatitude, longitude: accountLongitude }
-      );
-      if (distance === null) continue;
-
-      const existing = nearestDistanceBySub.get(subName);
-      if (existing === undefined || distance < existing) {
-        nearestDistanceBySub.set(subName, distance);
-      }
-    }
-
-    let candidates: Array<{ name: string; distance: number }> = [];
-    for (const radius of SUGGESTION_RADIUS_TIERS_MILES) {
-      candidates = Array.from(nearestDistanceBySub.entries())
-        .filter(([, distance]) => distance <= radius)
-        .map(([name, distance]) => ({ name, distance }));
-      if (candidates.length > 0) break;
-    }
-
-    if (candidates.length === 0) return null;
-
-    candidates.sort((a, b) => a.distance - b.distance);
-    const closest = candidates[0];
-
-    const matchedSubcontractor = subcontractors.find(
-      (subcontractor) =>
-        getSubcontractorSubmitName(subcontractor).toLowerCase() ===
-        closest.name.toLowerCase()
-    );
-    if (!matchedSubcontractor?.score) return null;
-
-    const numericScore = Number(matchedSubcontractor.score);
-    if (!Number.isFinite(numericScore)) return null;
-
-    return {
-      name: closest.name,
-      distanceLabel: formatMiles(closest.distance),
-      scoreLabel: matchedSubcontractor.score,
-      isAtRisk: numericScore < AT_RISK_SCORE_THRESHOLD,
+    }, 500);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
     };
-  }, [form.latitude, form.longitude, proximityAccounts, subcontractors]);
+  }, [form.latitude, form.longitude, form.cleaningDays, suggestionStart, suggestionMinutes]);
+
+  // The score already merged onto `subcontractors` by /api/subcontractors, by sub ID.
+  const scoreBySubId = useMemo(() => {
+    const scores = new Map<string, number>();
+    for (const subcontractor of subcontractors) {
+      const id = cleanText(subcontractor.id || subcontractor.subcontractorId);
+      const score = Number(subcontractor.score);
+      if (id && subcontractor.score && Number.isFinite(score)) scores.set(id, score);
+    }
+    return scores;
+  }, [subcontractors]);
 
   function updateField(field: keyof AccountForm, value: string) {
     setForm((current) => ({
@@ -653,13 +581,49 @@ export default function NewAccountPage() {
               ))}
             </SelectField>
 
-            {suggestedSubcontractor ? (
-              <div className="ui-actions-row">
-                <span className="ui-muted">
-                  Suggested: {suggestedSubcontractor.name} — {suggestedSubcontractor.distanceLabel}, score{" "}
-                  {suggestedSubcontractor.scoreLabel}
-                </span>
-                {suggestedSubcontractor.isAtRisk ? <StatusPill kind="waiting">Below target score</StatusPill> : null}
+            {subSuggestions && subSuggestions.results.length > 0 ? (
+              <div>
+                <p className="ui-muted">
+                  Suggested subs —{" "}
+                  {subSuggestions.within ? `within ${NEARBY_MILES} mi` : `none within ${NEARBY_MILES} mi, the ${CLOSEST_FALLBACK} closest`} · room checked{" "}
+                  {subSuggestions.days.map((day) => day.slice(0, 3)).join(", ")} at {formatClock(subSuggestions.start)} for{" "}
+                  {formatMinutes(subSuggestions.minutes)}, next 4 weeks. Pick the sub yourself above.
+                </p>
+                <ul className="ui-list-plain" style={{ marginTop: 6, gap: 6 }}>
+                  {subSuggestions.results.map((result) => {
+                    const room = roomOf(result);
+                    const score = scoreBySubId.get(result.subId);
+                    const showContact = result.contactName !== "" && result.contactName.toLowerCase() !== result.name.toLowerCase();
+                    return (
+                      <li key={result.subId} className="ui-actions-row">
+                        <span>
+                          <strong>{result.name}</strong>
+                          {showContact ? <span className="ui-muted"> ({result.contactName})</span> : null}
+                          <span className="ui-muted">
+                            {" "}
+                            — {formatMiles(result.distanceMiles)}
+                            {score !== undefined ? `, score ${score}` : ""}
+                          </span>
+                        </span>
+                        <StatusPill kind={ROOM_PILL[room]}>{ROOM_WORDS[room]}</StatusPill>
+                        {score !== undefined && score < AT_RISK_SCORE_THRESHOLD ? <StatusPill kind="waiting">Below target score</StatusPill> : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : null}
+
+            {form.latitude && form.longitude ? (
+              <div className="flex flex-wrap gap-x-8 gap-y-3">
+                <div>
+                  <p className="ui-label">Time</p>
+                  <PlusMinus value={suggestionStart} onChange={setSuggestionStart} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time to check" format={formatClock} />
+                </div>
+                <div>
+                  <p className="ui-label">Length</p>
+                  <PlusMinus value={suggestionMinutes} onChange={setSuggestionMinutes} step={MINUTES_ON_SITE_STEP} min={MIN_MINUTES_ON_SITE} max={MAX_MINUTES_ON_SITE} label="Length to check" format={formatMinutes} />
+                </div>
               </div>
             ) : null}
 
