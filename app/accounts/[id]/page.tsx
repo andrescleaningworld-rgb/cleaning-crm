@@ -140,24 +140,10 @@ type SubcontractorsApiResponse = {
   subs?: Subcontractor[];
 };
 
-type QuickStatusOption =
-  | "Active"
-  | "Cancelled"
-  | "Paused"
-  | "Over 90 Days"
-  | "Inactive"
-  | "Needs Review"
-  | "Other";
+// The four account statuses. (The New Account flow sets its own "New - setting up".)
+type QuickStatusOption = "Active" | "Paused" | "Suspended" | "Cancelled";
 
-const quickStatusOptions: QuickStatusOption[] = [
-  "Active",
-  "Cancelled",
-  "Paused",
-  "Over 90 Days",
-  "Inactive",
-  "Needs Review",
-  "Other",
-];
+const quickStatusOptions: QuickStatusOption[] = ["Active", "Paused", "Suspended", "Cancelled"];
 
 function normalizeValue(value: string | number | undefined | null) {
   return String(value || "")
@@ -1104,7 +1090,7 @@ export default function AccountDetailPage() {
   // addAccountUpdate for the history note) rather than a new update
   // mechanism — just targeting Account Health, since "Stable" is a value of
   // that field, not of Status (Status's valid values are Active/Cancelled/
-  // Paused/Over 90 Days/Inactive/Needs Review/Other — "Stable" was never one
+  // Paused/Suspended/Cancelled or an older status — "Stable" was never one
   // of them).
   //
   // The notes summary rides along in this SAME addAccountUpdate call rather

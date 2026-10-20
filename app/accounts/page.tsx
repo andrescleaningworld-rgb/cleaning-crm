@@ -140,11 +140,13 @@ type SubcontractorFilterOption = {
   label: string;
 };
 
+// The four account statuses (plus "Other" to find anything older, and the
+// New Account flow's own "New - setting up", which shows under Other).
 type StatusFilter =
   | "Active"
-  | "Cancelled"
   | "Paused"
-  | "Over 90 Days"
+  | "Suspended"
+  | "Cancelled"
   | "Other"
   | "All";
 
@@ -157,14 +159,7 @@ type SortOption =
   | "Sub Pay - Highest First"
   | "Sub Pay - Lowest First";
 
-type QuickStatusOption =
-  | "Active"
-  | "Cancelled"
-  | "Paused"
-  | "Over 90 Days"
-  | "Inactive"
-  | "Needs Review"
-  | "Other";
+type QuickStatusOption = "Active" | "Paused" | "Suspended" | "Cancelled";
 
 type ApiResponse = {
   success?: boolean;
@@ -273,24 +268,9 @@ const STATUS_CATEGORY_MAP: Record<string, StatusFilter> = {
   current: "Active",
 };
 
-const quickStatusOptions: QuickStatusOption[] = [
-  "Active",
-  "Cancelled",
-  "Paused",
-  "Over 90 Days",
-  "Inactive",
-  "Needs Review",
-  "Other",
-];
+const quickStatusOptions: QuickStatusOption[] = ["Active", "Paused", "Suspended", "Cancelled"];
 
-const statusOptions: StatusFilter[] = [
-  "Active",
-  "Cancelled",
-  "Paused",
-  "Over 90 Days",
-  "Other",
-  "All",
-];
+const statusOptions: StatusFilter[] = ["Active", "Paused", "Suspended", "Cancelled", "Other", "All"];
 
 const sortOptions: SortOption[] = [
   "Account Name",
@@ -395,8 +375,8 @@ function getStatusCategory(status: string | undefined): StatusFilter {
 
   // Substring checks — ordered by specificity
   if (clean.includes("cancel") || clean.includes("lost") || clean.includes("terminated") || clean.includes("closed")) return "Cancelled";
-  if (clean.includes("pause") || clean.includes("hold") || clean.includes("suspended")) return "Paused";
-  if (clean.includes("90") || clean.includes("over 90") || clean.includes("over ninety") || clean.includes("old")) return "Over 90 Days";
+  if (clean.includes("suspend")) return "Suspended";
+  if (clean.includes("pause") || clean.includes("hold")) return "Paused";
 
   return "Other";
 }
@@ -3419,11 +3399,11 @@ function subDisplayOf(account: Account): SubcontractorDisplay {
 }
 
 // "Red only for problems": a cancelled account is finished, not a problem, so
-// it is gray. Active green, Paused / Over 90 Days amber, anything else gray.
+// it is gray. Active green, Paused / Suspended amber, anything else gray.
 function accountStatusKind(status: string | undefined): StatusKind {
   const category = getStatusCategory(status);
   if (category === "Active") return "done";
-  if (category === "Paused" || category === "Over 90 Days") return "waiting";
+  if (category === "Paused" || category === "Suspended") return "waiting";
   return "off";
 }
 

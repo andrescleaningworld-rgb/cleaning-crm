@@ -64,7 +64,7 @@ const startingAccountUpdateTypes: SettingItem[] = [
 const startingAccountStatuses: SettingItem[] = [
   { id: "status-active", name: "Active", status: "Active" },
   { id: "status-paused", name: "Paused", status: "Active" },
-  { id: "status-over-90", name: "Over 90 Days", status: "Active" },
+  { id: "status-suspended", name: "Suspended", status: "Active" },
   { id: "status-cancelled", name: "Cancelled", status: "Active" },
 ];
 

@@ -13,7 +13,7 @@ const SCOPE_OPTIONS: StatusScope[] = ["Active", "All", "Cancelled"];
 
 // Simplified version of app/accounts/page.tsx's getStatusCategory — this
 // picker only needs a 3-way Active/All/Cancelled split, not the full
-// Paused/Over 90 Days/Other breakdown the Accounts page uses, so "Active"
+// Paused/Suspended/Other breakdown the Accounts page uses, so "Active"
 // here just means "not cancelled".
 function isCancelled(status: string | undefined): boolean {
   const clean = (status ?? "").trim().toLowerCase();

@@ -471,7 +471,7 @@ export default function NewAccountPage() {
             <SelectField label="Status" value={form.status} onChange={(event) => updateField("status", event.target.value)}>
               <option>Active</option>
               <option>Paused</option>
-              <option>Over 90 Days</option>
+              <option>Suspended</option>
               <option>Cancelled</option>
             </SelectField>
 

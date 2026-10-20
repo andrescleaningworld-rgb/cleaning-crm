@@ -627,10 +627,13 @@ export default function EditAccountPage() {
             <SelectField label="Status" optional value={formData.status || ""} onChange={(event) => updateField("status", event.target.value)}>
               <option value="">Select Status</option>
               <option value="Active">Active</option>
-              <option value="Cancelled">Cancelled</option>
               <option value="Paused">Paused</option>
-              <option value="Over 90 Days">Over 90 Days</option>
-              <option value="Inactive">Inactive</option>
+              <option value="Suspended">Suspended</option>
+              <option value="Cancelled">Cancelled</option>
+              {/* An older status (Inactive, Other *) or the New Account flow's "New - setting up" stays as it is until it is changed. */}
+              {formData.status && !["Active", "Paused", "Suspended", "Cancelled"].includes(formData.status) ? (
+                <option value={formData.status}>{formData.status}</option>
+              ) : null}
             </SelectField>
 
             <Field
