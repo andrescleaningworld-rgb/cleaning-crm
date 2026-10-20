@@ -10,6 +10,10 @@ import GoogleAddressAutocompleteInput, {
 import { payShare } from "@/lib/payShare";
 import FrequencyField from "@/app/components/frequency-field";
 import CleaningTimeField from "@/app/components/cleaning-time-field";
+import SubSuggestions from "@/app/components/sub-suggestions";
+import { cleaningStartMinutes } from "@/lib/cleaningTime";
+import { DEFAULT_START_TIME } from "@/lib/schedule-time";
+import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
 import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 
 type Account = {
@@ -70,6 +74,8 @@ type Subcontractor = {
   dropdownLabel?: string;
   email?: string;
   status?: string;
+  /** Merged on by /api/subcontractors; shown on the suggestions. */
+  score?: string | number;
 };
 
 type SubcontractorOption = {
@@ -394,6 +400,24 @@ export default function EditAccountPage() {
     loadAccount();
     loadSubcontractors();
   }, [decodedAccountIdFromUrl, normalizedUrlValue]);
+
+  // The same nearby + available suggestions as Add Account and flow step 2, by sub ID.
+  const scoreBySubId = useMemo(() => {
+    const scores = new Map<string, number>();
+    for (const subcontractor of subcontractors) {
+      const id = cleanText(subcontractor.id || subcontractor.subcontractorId);
+      const score = Number(subcontractor.score);
+      if (id && subcontractor.score && Number.isFinite(score)) scores.set(id, score);
+    }
+    return scores;
+  }, [subcontractors]);
+  const subById = (id: string) => subcontractors.find((subcontractor) => cleanText(subcontractor.id || subcontractor.subcontractorId) === id);
+  const selectedSubId = cleanText(
+    (() => {
+      const picked = subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === cleanText(formData?.subcontractor));
+      return picked ? picked.id || picked.subcontractorId : "";
+    })()
+  );
 
   const subcontractorOptions = useMemo<SubcontractorOption[]>(() => {
     const currentValue = cleanText(formData?.subcontractor);
@@ -740,6 +764,22 @@ export default function EditAccountPage() {
         <Card title="Service & Assignment">
           <div style={sectionStyle}>
             <Field label="Manager" optional value={formData.manager || ""} onChange={(event) => updateField("manager", event.target.value)} />
+
+            <SubSuggestions
+              lat={formData.latitude && Number.isFinite(Number(formData.latitude)) ? Number(formData.latitude) : null}
+              lng={formData.longitude && Number.isFinite(Number(formData.longitude)) ? Number(formData.longitude) : null}
+              cleaningDays={formData.cleaningDays || ""}
+              start={cleaningStartMinutes(formData.cleaningTime) ?? DEFAULT_START_TIME}
+              minutes={DEFAULT_MINUTES_ON_SITE}
+              scoreBySubId={scoreBySubId}
+              selectedId={selectedSubId}
+              hint="Tap one to pick it, or choose from the list below."
+              onSelect={(result) => {
+                const picked = subById(result.subId);
+                const value = picked ? getSubcontractorDropdownValue(picked) : "";
+                if (value) updateField("subcontractor", value);
+              }}
+            />
 
             <SelectField
               label="Assigned subcontractor"
