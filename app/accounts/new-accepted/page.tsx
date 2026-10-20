@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast } from "@/app/ui";
 import GoogleAddressAutocompleteInput, { type PlaceAddressDetails } from "@/app/components/GoogleAddressAutocompleteInput";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
+import SubPayFields from "@/app/components/sub-pay-fields";
 
 type Place = { address: string; city: string; state: string; zip: string; latitude: string; longitude: string };
 const NO_PLACE: Place = { address: "", city: "", state: "", zip: "", latitude: "", longitude: "" };
@@ -23,6 +24,9 @@ export default function NewAcceptedAccountPage() {
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  // The sub's pay: the same boxes as every account form (app/components/sub-pay-fields.tsx).
+  const [frequency, setFrequency] = useState("");
+  const [subPay, setSubPay] = useState({ pay: "", per: "" });
   // Contacts after the first (main) one; saved once the account is made.
   const [extraContacts, setExtraContacts] = useState<NewContact[]>([]);
   const [manager, setManager] = useState("");
@@ -76,7 +80,7 @@ export default function NewAcceptedAccountPage() {
       const response = await fetch("/api/account-flow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", accountName: accountName.trim(), ...place, monthlyRevenue: price, contactName: contactName.trim(), phone: phone.trim(), email: email.trim(), manager, estimateUrl, estimateName }),
+        body: JSON.stringify({ action: "create", accountName: accountName.trim(), ...place, monthlyRevenue: price, contactName: contactName.trim(), phone: phone.trim(), email: email.trim(), manager, estimateUrl, estimateName, frequency, monthlySubcontractorPay: subPay.pay, subPricePerCleaning: subPay.per }),
       });
       const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; accountId?: string };
       if (!response.ok || !data.success || !data.accountId) throw new Error(data.error || "The account was not saved. Try again.");
@@ -121,6 +125,7 @@ export default function NewAcceptedAccountPage() {
               />
             </label>
             <Field label="Monthly price" inputMode="decimal" placeholder="2500" value={price} onChange={(event) => setPrice(event.target.value)} disabled={saving} />
+            <SubPayFields revenue={price} frequency={frequency} onFrequency={setFrequency} pay={subPay.pay} per={subPay.per} onPay={setSubPay} disabled={saving} />
             <NewAccountContacts
               main={{ name: contactName, phone, email }}
               onMain={(field, value) => (field === "name" ? setContactName(value) : field === "phone" ? setPhone(value) : setEmail(value))}

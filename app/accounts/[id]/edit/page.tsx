@@ -9,12 +9,13 @@ import GoogleAddressAutocompleteInput, {
 } from "@/app/components/GoogleAddressAutocompleteInput";
 import { payShare } from "@/lib/payShare";
 import FrequencyField from "@/app/components/frequency-field";
+import SubPayFields from "@/app/components/sub-pay-fields";
 import CleaningTimeField from "@/app/components/cleaning-time-field";
 import SubSuggestions from "@/app/components/sub-suggestions";
 import { cleaningStartMinutes } from "@/lib/cleaningTime";
 import { DEFAULT_START_TIME } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
-import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
+import { afterFrequencyChange, perCleaningText } from "@/lib/frequency";
 
 type Account = {
   id?: string;
@@ -219,20 +220,6 @@ function formatCurrency(value: string | undefined) {
   });
 }
 
-// Mirrors app/accounts/new/page.tsx's computeSuggestedSubcontractorPay
-// (same 0.7 ratio) — that auto-calc was never ported to this Edit form at
-// all, which is the root cause of "changing Cleaning World Gets Paid
-// doesn't recalculate Subcontractor Pay" here.
-function computeSuggestedSubcontractorPay(revenueInput: string) {
-  const numericRevenue = moneyToNumber(revenueInput);
-
-  if (!numericRevenue || numericRevenue <= 0) {
-    return "";
-  }
-
-  return String(Math.round(numericRevenue * 0.7 * 100) / 100);
-}
-
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
 
@@ -269,12 +256,6 @@ export default function EditAccountPage() {
   const [savedMessage, setSavedMessage] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
-  // Starts false on every load (including an account that already has a
-  // saved Subcontractor Pay) so opening the form never recalculates
-  // anything on its own — only an actual edit to Cleaning World Gets Paid
-  // (while untouched) or a direct edit to Subcontractor Pay itself (which
-  // flips this and stops further auto-overwrites) changes the value.
-  const [subcontractorPayTouched, setSubcontractorPayTouched] = useState(false);
 
   useEffect(() => {
     async function loadAccount() {
@@ -837,76 +818,19 @@ export default function EditAccountPage() {
               optional
               inputMode="decimal"
               value={formData.monthlyRevenue || ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                setFormData((current) => {
-                  if (!current) return current;
-                  const suggestedPay = subcontractorPayTouched
-                    ? undefined
-                    : computeSuggestedSubcontractorPay(value);
-                  return {
-                    ...current,
-                    monthlyRevenue: value,
-                    ...(suggestedPay !== undefined
-                      ? {
-                          subcontractorPay: suggestedPay,
-                          monthlySubcontractorPay: suggestedPay,
-                          subPricePerCleaning: perCleaningText(suggestedPay, current.frequency),
-                        }
-                      : {}),
-                  };
-                });
-                setSavedMessage("");
-                setSaveError("");
-              }}
+              onChange={(event) => updateField("monthlyRevenue", event.target.value)}
             />
 
-            <Field
-              label="Sub price per cleaning"
-              optional
-              hint={perCleaningHint(formData.frequency)}
-              inputMode="decimal"
-              placeholder="50"
-              value={formData.subPricePerCleaning || ""}
-              onChange={(event) => {
-                // Typed by hand: the monthly pay is worked out from it and is no longer a 70% suggestion.
-                const value = event.target.value;
-                setSubcontractorPayTouched(true);
-                setFormData((current) => {
-                  if (!current) return current;
-                  const pay = monthlyPayText(value, current.frequency);
-                  return pay !== undefined
-                    ? { ...current, subPricePerCleaning: value, subcontractorPay: pay, monthlySubcontractorPay: pay }
-                    : { ...current, subPricePerCleaning: value };
-                });
-                setSavedMessage("");
-                setSaveError("");
-              }}
-            />
-
-            <Field
-              label="Subcontractor pay (monthly)"
-              optional
-              hint="Changes to 70% of the amount above when you edit that, until you type your own number here or a price per cleaning."
-              inputMode="decimal"
-              value={formData.subcontractorPay || formData.monthlySubcontractorPay || ""}
-              onChange={(event) => {
-                // Marks this touched so a later Cleaning World Gets Paid
-                // edit stops overwriting it — this is now the user's
-                // deliberate value, not a suggestion. Written to both
-                // subcontractorPay and monthlySubcontractorPay (the read
-                // side already falls back between the two, meaning
-                // existing data can land under either name) so a manual
-                // edit can't end up saved under the field the load path
-                // isn't preferring, which would look like the edit
-                // silently didn't take.
-                const value = event.target.value;
-                setSubcontractorPayTouched(true);
-                setFormData((current) =>
-                  current
-                    ? { ...current, subcontractorPay: value, monthlySubcontractorPay: value, subPricePerCleaning: perCleaningText(value, current.frequency) }
-                    : current
-                );
+            {/* The reminder, the 70% suggestion, Frequency when missing, and the two pay boxes in step. */}
+            <SubPayFields
+              revenue={formData.monthlyRevenue || ""}
+              frequency={formData.frequency || ""}
+              onFrequency={(frequency) => updateField("frequency", frequency)}
+              pay={formData.subcontractorPay || formData.monthlySubcontractorPay || ""}
+              per={formData.subPricePerCleaning || ""}
+              onPay={({ pay, per }) => {
+                // Written to both pay names (the read side falls back between them), so an edit always shows.
+                setFormData((current) => (current ? { ...current, subcontractorPay: pay, monthlySubcontractorPay: pay, subPricePerCleaning: per } : current));
                 setSavedMessage("");
                 setSaveError("");
               }}

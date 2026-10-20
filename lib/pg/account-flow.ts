@@ -150,6 +150,10 @@ export type NewAcceptedAccount = {
   contactName: string;
   /** The main contact's phone ("" when none). */
   phone?: string;
+  /** The sub's pay (lib/frequency.ts), from the form's pay boxes. "" when not filled in. */
+  frequency?: string;
+  monthlySubcontractorPay?: string;
+  subPricePerCleaning?: string;
   /** The customer's email: the Welcome Packet's To (step 1) reads it from the account. */
   email: string;
   manager: string;
@@ -175,6 +179,9 @@ export async function createAcceptedAccount(input: NewAcceptedAccount, by: strin
     contactName: input.contactName,
     phone: input.phone ?? "",
     email: input.email,
+    frequency: input.frequency ?? "",
+    monthlySubcontractorPay: input.monthlySubcontractorPay ?? "",
+    subPricePerCleaning: input.subPricePerCleaning ?? "",
     manager: input.manager,
     status: FLOW_STATUS,
   });

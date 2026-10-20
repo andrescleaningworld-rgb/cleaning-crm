@@ -10,8 +10,9 @@ import GoogleAddressAutocompleteInput, {
 import SubSuggestions from "@/app/components/sub-suggestions";
 import PlusMinus from "@/app/components/plus-minus";
 import FrequencyField from "@/app/components/frequency-field";
+import SubPayFields from "@/app/components/sub-pay-fields";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
-import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
+import { afterFrequencyChange } from "@/lib/frequency";
 import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
@@ -209,23 +210,12 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   }
 }
 
-function computeSuggestedSubcontractorPay(revenueInput: string) {
-  const numericRevenue = Number(revenueInput.replace(/[^0-9.-]/g, ""));
-
-  if (!Number.isFinite(numericRevenue) || numericRevenue <= 0) {
-    return "";
-  }
-
-  return String(Math.round(numericRevenue * 0.7 * 100) / 100);
-}
-
 export default function NewAccountPage() {
   const router = useRouter();
 
   const [form, setForm] = useState<AccountForm>(emptyForm);
   const [portalAccess, setPortalAccess] = useState<"Yes" | "No">("Yes");
   const [managers, setManagers] = useState<Manager[]>([]);
-  const [subcontractorPayTouched, setSubcontractorPayTouched] = useState(false);
   // Contacts after the first (main) one; saved once the account is made.
   const [extraContacts, setExtraContacts] = useState<NewContact[]>([]);
   const [loadingManagers, setLoadingManagers] = useState(true);
@@ -614,51 +604,18 @@ export default function NewAccountPage() {
               inputMode="decimal"
               placeholder="2500"
               value={form.monthlyRevenue}
-              onChange={(event) => {
-                const value = event.target.value;
-                setForm((current) => {
-                  const pay = subcontractorPayTouched ? current.monthlySubcontractorPay : computeSuggestedSubcontractorPay(value);
-                  return {
-                    ...current,
-                    monthlyRevenue: value,
-                    monthlySubcontractorPay: pay,
-                    subPricePerCleaning: subcontractorPayTouched ? current.subPricePerCleaning : perCleaningText(pay, current.frequency),
-                  };
-                });
-              }}
+              onChange={(event) => updateField("monthlyRevenue", event.target.value)}
             />
 
-            <Field
-              label="Sub price per cleaning"
-              optional
-              hint={perCleaningHint(form.frequency)}
-              inputMode="decimal"
-              placeholder="50"
-              value={form.subPricePerCleaning}
-              onChange={(event) => {
-                const value = event.target.value;
-                setSubcontractorPayTouched(true);
-                setForm((current) => {
-                  const pay = monthlyPayText(value, current.frequency);
-                  return pay !== undefined
-                    ? { ...current, subPricePerCleaning: value, monthlySubcontractorPay: pay }
-                    : { ...current, subPricePerCleaning: value };
-                });
-              }}
-            />
-
-            <Field
-              label="Monthly subcontractor pay"
-              optional
-              hint="Filled in at 70% of the revenue until you type your own number or a price per cleaning."
-              inputMode="decimal"
-              placeholder="1800"
-              value={form.monthlySubcontractorPay}
-              onChange={(event) => {
-                const value = event.target.value;
-                setSubcontractorPayTouched(true);
-                setForm((current) => ({ ...current, monthlySubcontractorPay: value, subPricePerCleaning: perCleaningText(value, current.frequency) }));
-              }}
+            {/* The reminder, the 70% suggestion, Frequency when missing, and the two pay boxes in step. */}
+            <SubPayFields
+              revenue={form.monthlyRevenue}
+              frequency={form.frequency}
+              onFrequency={(frequency) => updateField("frequency", frequency)}
+              pay={form.monthlySubcontractorPay}
+              per={form.subPricePerCleaning}
+              onPay={({ pay, per }) => setForm((current) => ({ ...current, monthlySubcontractorPay: pay, subPricePerCleaning: per }))}
+              disabled={saving}
             />
           </div>
         </Card>

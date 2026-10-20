@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BigButton, ErrorBox, Field, Sheet, TextAreaField, showToast } from "@/app/ui";
 import FrequencyField from "./frequency-field";
 import CleaningTimeField from "./cleaning-time-field";
-import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
+import SubPayFields from "./sub-pay-fields";
+import { afterFrequencyChange, perCleaningText } from "@/lib/frequency";
 
 type AccountRecord = Record<string, unknown>;
 
@@ -204,36 +205,21 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
             }
           />
         ) : null}
+        {/* Right under Frequency: the reminder, the 70% suggestion and the two pay boxes in step. */}
+        {asks("perCleaning") || asks("subPay") ? (
+          <SubPayFields
+            revenue={text(account, "monthlyRevenue")}
+            frequency={values.frequency}
+            onFrequency={(frequency) => set("frequency", frequency)}
+            pay={values.subPay}
+            per={values.perCleaning}
+            onPay={({ pay, per }) => setValues((current) => ({ ...current, subPay: pay, perCleaning: per }))}
+            frequencyAbove={asks("frequency")}
+          />
+        ) : null}
         {asks("cleaningDays") ? <Field label="Cleaning days" placeholder="Mon, Wed, Fri" value={values.cleaningDays} onChange={(event) => set("cleaningDays", event.target.value)} /> : null}
         {asks("cleaningTime") ? <CleaningTimeField value={values.cleaningTime} onChange={(value) => set("cleaningTime", value)} /> : null}
         {asks("startDate") ? <Field label="Start date" type="date" value={values.startDate} onChange={(event) => set("startDate", event.target.value)} /> : null}
-        {asks("perCleaning") || asks("subPay") ? (
-          <Field
-            label="Sub price per cleaning"
-            hint={perCleaningHint(values.frequency)}
-            inputMode="decimal"
-            value={values.perCleaning}
-            onChange={(event) => {
-              const perCleaning = event.target.value;
-              setValues((current) => {
-                const pay = monthlyPayText(perCleaning, current.frequency);
-                return pay !== undefined ? { ...current, perCleaning, subPay: pay } : { ...current, perCleaning };
-              });
-            }}
-          />
-        ) : null}
-        {/* Shown together with the price per cleaning, so the two always match on screen. */}
-        {asks("perCleaning") || asks("subPay") ? (
-          <Field
-            label="Subcontractor pay (monthly)"
-            inputMode="decimal"
-            value={values.subPay}
-            onChange={(event) => {
-              const subPay = event.target.value;
-              setValues((current) => ({ ...current, subPay, perCleaning: perCleaningText(subPay, current.frequency) }));
-            }}
-          />
-        ) : null}
         {asks("scopeOfWork") ? <TextAreaField label="Scope of work" rows={3} value={values.scopeOfWork} onChange={(event) => set("scopeOfWork", event.target.value)} /> : null}
         {asks("access") ? (
           <TextAreaField label="Key / alarm / access info" rows={2} value={values.access} onChange={(event) => set("access", event.target.value)} />
