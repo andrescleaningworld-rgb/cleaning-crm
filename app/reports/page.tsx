@@ -1038,9 +1038,10 @@ export default function ReportsPage() {
     <main className="ui-screen print:bg-white print:p-0">
       <style>{`
         @media print {
-          /* Landscape so every column fits (some reports have 9-10). */
+          /* Margins only: no page size or orientation here, so the print
+             dialog keeps its Layout choice (Portrait by default). The
+             tables below are sized to fit Portrait. */
           @page {
-            size: letter landscape;
             margin: 0.35in;
           }
 
@@ -1054,14 +1055,19 @@ export default function ReportsPage() {
             table-layout: auto;
           }
 
-          .ui-table th {
-            font-size: 10px !important;
-          }
-
+          /* Small enough for 9-10 columns on a Portrait page; long names
+             and notes wrap inside their column instead of pushing it off. */
           .ui-table th,
           .ui-table td {
-            white-space: normal;
+            font-size: 9px !important;
+            line-height: 1.25 !important;
+            padding: 3px 4px !important;
+            white-space: normal !important;
             overflow-wrap: anywhere;
+          }
+
+          .ui-table th {
+            font-weight: 700;
           }
 
           .ui-card {

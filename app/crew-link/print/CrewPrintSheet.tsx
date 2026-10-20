@@ -14,8 +14,8 @@ export function CrewPrintStyles() {
   return (
     <style>{`
       @media print {
+        /* Margins only: no page size, so the print dialog keeps its Layout choice. */
         @page {
-          size: letter;
           margin: 0.5in;
         }
 
