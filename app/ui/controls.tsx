@@ -14,6 +14,7 @@ import {
   useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { BigButton, Icon, useUiWords, type IconName } from "./core";
 import { showToast } from "./toast";
@@ -315,12 +316,7 @@ export function ConfirmSheet({
   const titleId = useId();
   const textId = useId();
 
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+  useModal(ref, open);
 
   return (
     <dialog
@@ -329,8 +325,9 @@ export function ConfirmSheet({
       aria-labelledby={titleId}
       aria-describedby={textId}
       onCancel={(event) => {
+        // Esc always closes, even while something is running (it keeps running).
         event.preventDefault();
-        if (!busy) onCancel();
+        onCancel();
       }}
     >
       <h2 className="ui-sheet-title" id={titleId}>
@@ -344,7 +341,8 @@ export function ConfirmSheet({
           {confirmLabel}
         </BigButton>
         {/* Cancel comes first in the tab order's safe spot: it gets focus when the sheet opens. */}
-        <BigButton kind="second" onClick={onCancel} disabled={busy} autoFocus>
+        {/* Never greyed out: a request that hangs must not trap anyone (phones have no Esc). */}
+        <BigButton kind="second" onClick={onCancel} autoFocus>
           {words.cancel}
         </BigButton>
       </div>
@@ -353,6 +351,29 @@ export function ConfirmSheet({
 }
 
 /* ---------- Sheet ---------- */
+
+/**
+ * Opens and closes a native modal <dialog> with `open`. A modal dialog makes
+ * the rest of the page unclickable, so it must never outlive its sheet: it
+ * is closed when `open` goes false AND when the sheet leaves the page while
+ * still open (a parent that stops rendering it, a page that reloads its
+ * data), which would otherwise leave an invisible layer blocking every tap.
+ */
+function useModal(ref: RefObject<HTMLDialogElement | null>, open: boolean) {
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open && dialog.isConnected) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [ref, open]);
+
+  useEffect(() => {
+    const dialog = ref.current;
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, [ref]);
+}
 
 /**
  * A panel over the screen for one small job (add a thing, send a thing, look
@@ -378,7 +399,7 @@ export function Sheet({
   actions?: ReactNode;
   /** Defaults to "Cancel" when there are actions, "Close" when there are none. */
   closeLabel?: string;
-  /** Blocks closing while a save is running. */
+  /** A save is running (the sheet can still be closed; the save goes on). */
   busy?: boolean;
   children?: ReactNode;
 }) {
@@ -386,21 +407,18 @@ export function Sheet({
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
+  useModal(ref, open);
 
   return (
     <dialog
       ref={ref}
       className="ui-sheet ui-sheet-form"
       aria-labelledby={titleId}
+      aria-busy={busy || undefined}
       onCancel={(event) => {
+        // Esc always closes, even while a save is running (it keeps running) or after an error.
         event.preventDefault();
-        if (!busy) onClose();
+        onClose();
       }}
     >
       <h2 className="ui-sheet-title" id={titleId}>
@@ -411,7 +429,8 @@ export function Sheet({
       {open ? <div className="ui-sheet-body">{children}</div> : null}
       <div className="ui-sheet-actions">
         {actions}
-        <BigButton kind="second" onClick={onClose} disabled={busy}>
+        {/* Never greyed out: a save that hangs must not trap anyone (phones have no Esc). It keeps running. */}
+        <BigButton kind="second" onClick={onClose}>
           {closeLabel ?? (actions ? words.cancel : words.close)}
         </BigButton>
       </div>
