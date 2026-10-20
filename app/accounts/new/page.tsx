@@ -67,6 +67,8 @@ type Subcontractor = {
   status?: string;
   score?: string;
   scoreStatus?: string;
+  /** The database ID (lib/pg/subs.ts): what a suggestion's subId is. `id` is the old row number. */
+  subId?: string;
 };
 
 type SubcontractorOption = {
@@ -317,7 +319,7 @@ export default function NewAccountPage() {
   const scoreBySubId = useMemo(() => {
     const scores = new Map<string, number>();
     for (const subcontractor of subcontractors) {
-      const id = cleanText(subcontractor.id || subcontractor.subcontractorId);
+      const id = cleanText(subcontractor.subId);
       const score = Number(subcontractor.score);
       if (id && subcontractor.score && Number.isFinite(score)) scores.set(id, score);
     }
@@ -572,6 +574,12 @@ export default function NewAccountPage() {
               start={suggestionStart}
               minutes={suggestionMinutes}
               scoreBySubId={scoreBySubId}
+              hint="Tap one to pick it."
+              selectedId={cleanText(subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor)?.subId)}
+              onSelect={(result) => {
+                const picked = subcontractors.find((subcontractor) => cleanText(subcontractor.subId) === result.subId);
+                if (picked) updateField("subcontractor", getSubcontractorDropdownValue(picked));
+              }}
             />
 
             {form.latitude && form.longitude ? (

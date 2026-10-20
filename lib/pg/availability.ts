@@ -141,7 +141,7 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
     if (!account.sub_id) continue;
     const sub = subFor(account.sub_id);
     if (!sub) continue;
-    sub.accounts.push({ accountId: account.id, point: pointOf(account) });
+    sub.accounts.push({ accountId: account.id, accountName: String(account.account_name ?? "").trim(), point: pointOf(account) });
     if (!scheduled.has(account.id)) sub.unscheduled += 1;
   }
 

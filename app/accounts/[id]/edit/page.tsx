@@ -76,6 +76,8 @@ type Subcontractor = {
   status?: string;
   /** Merged on by /api/subcontractors; shown on the suggestions. */
   score?: string | number;
+  /** The database ID (lib/pg/subs.ts): what a suggestion's subId is. `id` is the old row number. */
+  subId?: string;
 };
 
 type SubcontractorOption = {
@@ -405,19 +407,15 @@ export default function EditAccountPage() {
   const scoreBySubId = useMemo(() => {
     const scores = new Map<string, number>();
     for (const subcontractor of subcontractors) {
-      const id = cleanText(subcontractor.id || subcontractor.subcontractorId);
+      const id = cleanText(subcontractor.subId);
       const score = Number(subcontractor.score);
       if (id && subcontractor.score && Number.isFinite(score)) scores.set(id, score);
     }
     return scores;
   }, [subcontractors]);
-  const subById = (id: string) => subcontractors.find((subcontractor) => cleanText(subcontractor.id || subcontractor.subcontractorId) === id);
-  const selectedSubId = cleanText(
-    (() => {
-      const picked = subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === cleanText(formData?.subcontractor));
-      return picked ? picked.id || picked.subcontractorId : "";
-    })()
-  );
+  // Suggestions name subs by database ID (subId); the dropdown keys on the row number (id).
+  const subById = (id: string) => subcontractors.find((subcontractor) => cleanText(subcontractor.subId) === id);
+  const selectedSubId = cleanText(subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === cleanText(formData?.subcontractor))?.subId);
 
   const subcontractorOptions = useMemo<SubcontractorOption[]>(() => {
     const currentValue = cleanText(formData?.subcontractor);
@@ -774,6 +772,7 @@ export default function EditAccountPage() {
               scoreBySubId={scoreBySubId}
               selectedId={selectedSubId}
               hint="Tap one to pick it, or choose from the list below."
+              excludeAccountId={cleanText(formData.accountId || formData.id)}
               onSelect={(result) => {
                 const picked = subById(result.subId);
                 const value = picked ? getSubcontractorDropdownValue(picked) : "";

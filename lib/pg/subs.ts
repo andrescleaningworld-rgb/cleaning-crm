@@ -50,7 +50,9 @@ export async function getAllSubcontractorsRaw(): Promise<RawSubcontractorRow[]> 
   const sql = getSql();
   const rows = (await sql.query(`SELECT * FROM subcontractors ORDER BY ${SHEET_ORDER}`)) as SubRow[];
   return rows.map((row) => {
-    const result: RawSubcontractorRow = { id: row.legacy_row_id };
+    // id stays the row number every screen keys on; subId is the database ID that
+    // the availability check and the New Account offer use (suggestions match on it).
+    const result: RawSubcontractorRow = { id: row.legacy_row_id, subId: String(row.id ?? "") };
     for (const [field, column] of Object.entries(FIELD_COLUMNS)) {
       result[field] = String(row[column] ?? "").trim();
     }

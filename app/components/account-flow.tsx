@@ -328,7 +328,8 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
             .map((sub) => {
               const contact = String(sub.contactName ?? sub.name ?? "").trim();
               const company = String(sub.companyName ?? "").trim();
-              return { id: String(sub.id ?? sub.subcontractorId ?? "").trim(), label: contact && company && contact !== company ? `${contact} — ${company}` : contact || company };
+              // subId: the database ID the offer is sent to (id is the old row number).
+              return { id: String(sub.subId ?? sub.id ?? "").trim(), label: contact && company && contact !== company ? `${contact} — ${company}` : contact || company };
             })
             .filter((sub) => sub.id && sub.label)
             .sort((a, b) => a.label.localeCompare(b.label))

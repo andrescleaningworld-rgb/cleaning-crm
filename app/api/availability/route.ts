@@ -54,7 +54,9 @@ export async function POST(request: NextRequest) {
       const point = toPoint(body.point);
       const points = toPoints(body.points);
       const [subs, eveningEnds] = await Promise.all([loadAvailabilitySubs(), getEveningEnds()]);
-      const all = checkAll(subs, { days, start, minutes: clampMinutesOnSite(minutes), point }, dayToDate(officeDay()), eveningEnds, points);
+      // accountId: the account being edited, left out of "nearest account" (its own sub would be 0 mi away).
+      const excludeAccountId = typeof body.accountId === "string" ? body.accountId.trim() : "";
+      const all = checkAll(subs, { days, start, minutes: clampMinutesOnSite(minutes), point, excludeAccountId }, dayToDate(officeDay()), eveningEnds, points);
       // With an address: only the nearby subs (lib/availability.ts nearbyAvailable).
       // Without one there are no miles, so every sub is listed as before.
       const nearby = point ? nearbyAvailable(all) : null;

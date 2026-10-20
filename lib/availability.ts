@@ -61,10 +61,11 @@ export type AvailabilitySub = {
   /** Active accounts of this sub with no live schedule: not counted. */
   unscheduled: number;
   /** The sub's active accounts and their map positions, for "how far". */
-  accounts: { accountId: string; point: Point | null }[];
+  accounts: { accountId: string; accountName?: string; point: Point | null }[];
 };
 
-export type NewJob = { days: string[]; start: number; minutes: number; point: Point | null };
+/** excludeAccountId: the account being edited, so it is never its own sub's "nearest account". */
+export type NewJob = { days: string[]; start: number; minutes: number; point: Point | null; excludeAccountId?: string };
 
 export type DayCleaning = { accountName: string; start: number; end: number; exact: boolean; estimated: boolean; minutesOnSite: number };
 
@@ -89,6 +90,8 @@ export type SubAvailability = {
   status: Availability;
   /** Miles from the new job to the sub's nearest account; null without a spot or positions. */
   distanceMiles: number | null;
+  /** That nearest account's name ("9.9 mi from Bedding Industries"); "" when there is no distance. */
+  nearestAccountName: string;
   /** One per chosen day, in the order of the week. */
   days: DayAvailability[];
   unscheduled: number;
@@ -263,14 +266,23 @@ export function checkAll(subs: AvailabilitySub[], job: NewJob, today: Date, even
     .map((original) => {
       const sub = points ? withPoints(original, points) : original;
       const perDay = days.map((weekday) => checkDay(sub, job, weekday, datesByDay.get(weekday) ?? [], eveningEnds));
-      const distances = job.point ? sub.accounts.flatMap((account) => (account.point ? [haversineMiles(job.point as Point, account.point)] : [])) : [];
+      // The sub's nearest account to the job (not the job itself), and how far it is.
+      let nearest: { miles: number; name: string } | null = null;
+      if (job.point) {
+        for (const account of sub.accounts) {
+          if (!account.point || (job.excludeAccountId && account.accountId === job.excludeAccountId)) continue;
+          const miles = haversineMiles(job.point, account.point);
+          if (!nearest || miles < nearest.miles) nearest = { miles, name: account.accountName ?? "" };
+        }
+      }
       return {
         subId: sub.subId,
         name: sub.name,
         contactName: sub.contactName,
         crews: sub.crews,
         status: perDay.reduce<Availability>((all, day) => worse(all, day.status), "free"),
-        distanceMiles: distances.length > 0 ? Math.min(...distances) : null,
+        distanceMiles: nearest ? nearest.miles : null,
+        nearestAccountName: nearest ? nearest.name : "",
         days: perDay,
         unscheduled: sub.unscheduled,
         scheduled: sub.schedules.length,

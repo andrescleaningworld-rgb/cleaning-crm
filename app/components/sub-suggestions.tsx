@@ -44,6 +44,7 @@ export default function SubSuggestions({
   selectedId,
   onSelect,
   hint = "Pick the sub yourself above.",
+  excludeAccountId = "",
 }: {
   lat: number | null;
   lng: number | null;
@@ -56,6 +57,8 @@ export default function SubSuggestions({
   selectedId?: string;
   onSelect?: (result: SubAvailability) => void;
   hint?: string;
+  /** The account being edited: never shown as its own sub's nearest account. */
+  excludeAccountId?: string;
 }) {
   const [found, setFound] = useState<Found | null>(null);
   const hasSpot = lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
@@ -70,7 +73,7 @@ export default function SubSuggestions({
         const response = await fetch("/api/availability", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "check", days, start: toClock(start), minutes, point: { lat, lng } }),
+          body: JSON.stringify({ action: "check", days, start: toClock(start), minutes, point: { lat, lng }, accountId: excludeAccountId }),
         });
         const data = (await response.json().catch(() => ({}))) as { success?: boolean; results?: SubAvailability[]; within?: boolean | null };
         if (!alive) return;
@@ -83,7 +86,7 @@ export default function SubSuggestions({
       alive = false;
       clearTimeout(timer);
     };
-  }, [lat, lng, cleaningDays, start, minutes]);
+  }, [lat, lng, cleaningDays, start, minutes, excludeAccountId]);
 
   // No map spot (an address that was typed, not picked): no list, whatever was found before.
   if (!hasSpot || !found || found.results.length === 0) return null;
@@ -107,6 +110,7 @@ export default function SubSuggestions({
                 <span className="ui-muted">
                   {" "}
                   — {formatMiles(result.distanceMiles)}
+                  {result.nearestAccountName && result.distanceMiles !== null ? ` from ${result.nearestAccountName}` : ""}
                   {score !== undefined ? `, score ${score}` : ""}
                 </span>
               </span>
