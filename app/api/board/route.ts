@@ -11,6 +11,7 @@ import { NOTE_BOXES } from "@/lib/board";
 import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "@/lib/boardPins";
 import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
+import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
 import {
   boardReady,
   connectTv,
@@ -84,6 +85,8 @@ export async function GET(request: NextRequest) {
     }
 
     await syncBoard();
+    // New accounts in the 8-step flow: the Welcome Packet and the Onboarding Checklist finish steps 1 and 5 by themselves.
+    if (await flowsReady().catch(() => false)) await syncAutoSteps().catch((error) => console.error("[board] account flows:", error instanceof Error ? error.message : error));
     // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
     await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
     const settings = await getBoardSettings();

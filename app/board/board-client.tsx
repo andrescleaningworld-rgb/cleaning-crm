@@ -27,6 +27,8 @@ import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARE
 import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
 import AccountLink from "../components/AccountLink";
+import PizzaTracker from "../components/pizza-tracker";
+import { StuckNote } from "../components/account-flow";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
@@ -197,8 +199,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       // No storage: the board simply starts at the top afterwards.
     }
     if (box === "extra") return router.push("/extra-jobs/new?from=board");
-    // New accepted: the account is added first; "Add accepted estimate" is its first step.
-    if (box === "account") return router.push("/accounts/new?from=board");
+    // New accepted: the office form makes the account, starts its 8 steps and pins it.
+    if (box === "account") return router.push("/accounts/new-accepted?from=board");
     if ((NOTE_BOXES as readonly string[]).includes(box)) setAdding({ kind: "note", box, boxName: SHARED_SQUARES.find((entry) => entry.kind === box)?.label ?? "this box" });
   };
 
@@ -215,6 +217,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       addAction={
         state !== "loading" && state !== "off" && state !== "failed" && data ? (
           <>
+            <AddButton href="/accounts/new-accepted?from=board">New accepted account</AddButton>
             <AddButton onClick={() => setPinning(true)}>Pin something</AddButton>
             {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
             <AddButton href="/extra-jobs/new?from=board">Extra job</AddButton>
@@ -332,6 +335,14 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 </dd>
               </dl>
             </div>
+
+            {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
+            {open.flow ? (
+              <>
+                <PizzaTracker view={open.flow} />
+                {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}
+              </>
+            ) : null}
 
             <div className={styles.sheetButtons}>
               {open.href ? <BigButton onClick={() => openDetails(open)}>{open.href.startsWith("/supply-orders/print") ? "📄 Open order" : "Open full details"}</BigButton> : null}

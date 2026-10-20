@@ -114,9 +114,10 @@ const SELECT_ITEM = `
 export async function listHandoffs(): Promise<HandoffItem[]> {
   const sql = getSql();
   // 'complaint', 'supply' and 'note' rows, and the 'extra' rows that mirror a real extra job ("job-<id>"),
-  // are Pin Board papers only (lib/pg/board.ts); they have no steps here.
+  // are Pin Board papers only (lib/pg/board.ts); they have no steps here. Neither does a new account in
+  // the 8-step flow (data.flow): its steps are on the account page and its pin (lib/pg/account-flow.ts).
   const rows = (await sql.query(
-    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'supply', 'note') AND NOT (i.kind = 'extra' AND i.item_id LIKE 'job-%') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') AND ${handoffLive("i")} ORDER BY i.step_since ASC`
+    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'supply', 'note') AND NOT (i.kind = 'extra' AND i.item_id LIKE 'job-%') AND NOT (i.kind = 'account' AND COALESCE(i.data->>'flow', '') <> '') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') AND ${handoffLive("i")} ORDER BY i.step_since ASC`
   )) as Row[];
   return rows.map(toItem);
 }
@@ -210,6 +211,8 @@ export async function syncAccountStep(accountId: string, items: OnboardingCheckl
   if (!(await handoffsReady())) return null;
   const current = await getHandoff("account", accountId);
   if (!current) return null;
+  // A new account in the 8-step flow moves by its own steps (lib/pg/account-flow.ts), not by the checklist.
+  if (current.data.flow) return current;
   const step = currentOnboardingSection(items);
   if (step === current.step) return current;
   return moveHandoff({ kind: "account", itemId: accountId, toStep: step, by, done: step === ACCOUNT_DONE_STEP });

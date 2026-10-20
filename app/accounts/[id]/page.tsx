@@ -42,6 +42,7 @@ import SiteStock from "./site-stock";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
 import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-packet-sheet";
+import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
@@ -344,6 +345,8 @@ export default function AccountDetailPage() {
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
   const [welcomeVersion, setWelcomeVersion] = useState(0);
   const [welcomeSentAt, setWelcomeSentAt] = useState<string | null>(null);
+  // Goes up when the Onboarding Checklist closes, so the new-account steps read again.
+  const [flowVersion, setFlowVersion] = useState(0);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
@@ -1307,6 +1310,17 @@ export default function AccountDetailPage() {
               </div>
             </NextCleaning>
 
+            {/* A new account from "New Accepted Account": its 8 steps and the one green button. Nothing for other accounts. */}
+            <AccountFlowPanel
+              accountId={thisAccountId}
+              refreshKey={welcomeVersion + flowVersion}
+              onSendPacket={() => setShowWelcomePacket(true)}
+              onOpenChecklist={() => {
+                setShowMore(true);
+                setShowOnboardingWizard(true);
+              }}
+            />
+
             {onboardingHandoff && !onboardingHandoff.doneAt ? (
               <div className="account-detail-print-hide">
                 <HandoffCard item={{ ...onboardingHandoff, title: "New account" }} settings={handoffs.settings} data-tip="new-account">
@@ -1605,7 +1619,11 @@ export default function AccountDetailPage() {
                 onAllItemsComplete={applyOnboardingCompletionStable}
                 sectionGuide={sectionGuide}
                 onHandoff={handleOnboardingHandoff}
-                onClose={() => setShowOnboardingWizard(false)}
+                onClose={() => {
+                  setShowOnboardingWizard(false);
+                  // Step 5 of a new account's flow finishes when the checklist does.
+                  setFlowVersion((version) => version + 1);
+                }}
               />
             ) : null}
 

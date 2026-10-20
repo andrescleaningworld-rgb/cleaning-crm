@@ -705,3 +705,9 @@ button.pile:focus-visible {
   max-width: none;
   min-height: 76px;
 }
+
+/* A new account whose current step has had no progress for 2 work days (lib/accountFlow.ts). */
+.flowRed {
+  outline: 3px solid var(--ui-bad);
+  outline-offset: 1px;
+}

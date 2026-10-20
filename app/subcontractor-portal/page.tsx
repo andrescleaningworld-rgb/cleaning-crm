@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Counts, Tips, setShellExtra } from "@/app/ui";
 import { SUB_WORDS } from "@/app/ui/words";
 import SimpleHome, { PinPad, useSubLang } from "./simple-home";
+import SubOffers from "./offers";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
@@ -1391,6 +1392,8 @@ export default function SubcontractorPortalPage() {
 
         {subcontractor ? (
           <>
+            {/* A new account the office offered to this sub: Yes / No. Nothing when none is waiting. */}
+            <SubOffers lang={lang} />
             {!showMore ? (
               <SimpleHome
                 accounts={activeAccounts}

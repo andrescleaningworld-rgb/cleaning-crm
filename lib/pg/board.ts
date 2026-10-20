@@ -30,8 +30,22 @@ import { extraJobsReady } from "@/lib/pg/extra-jobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
 import { handoffLive } from "@/lib/pg/account-live";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
+import { flowView, isFlowStep } from "@/lib/accountFlow";
 
 let ready: boolean | null = null;
+let flowTable: boolean | null = null;
+
+/** Migration 046 is in: new-account papers can show their pizza tracker. Until then the board reads as before. */
+async function flowTableReady(): Promise<boolean> {
+  if (flowTable === true) return true;
+  try {
+    const rows = (await getSql()`SELECT to_regclass('public.account_flows') IS NOT NULL AS ok`) as { ok: boolean }[];
+    flowTable = rows[0]?.ok === true;
+  } catch {
+    flowTable = false;
+  }
+  return flowTable === true;
+}
 
 /**
  * The feature switch. FEATURE_PIN_BOARD=1 turns the board on,
@@ -252,9 +266,12 @@ async function runSync(): Promise<void> {
   `);
 
   // 6. Take down what was finished where it lives. "Closed there" is who.
+  //    A new account in the 8-step flow (data.flow) is not done when its
+  //    checklist is: it comes down when it goes live (lib/pg/account-flow.ts).
   await sql`
     UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Checklist finished'
     WHERE h.kind = 'account' AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
+      AND COALESCE(h.data->>'flow', '') = ''
       AND (h.done_at IS NOT NULL OR EXISTS (SELECT 1 FROM onboarding_checklists c WHERE c.account_id = h.item_id AND c.completed_at IS NOT NULL))
   `;
   await sql`
@@ -377,11 +394,36 @@ type PaperRow = {
   board_done_at: string | Date | null;
   board_done_by: string;
   checklist_items: unknown;
+  /** account_flows, when the paper is a new account in the 8-step flow (null otherwise, and before migration 046). */
+  flow_step?: string | null;
+  flow_step_since?: string | Date | null;
+  flow_manager?: string | null;
+  flow_offer_sub?: string | null;
+  flow_due?: string | Date | null;
+  flow_note?: string | null;
+  flow_note_by?: string | null;
+  flow_note_at?: string | Date | null;
 };
+
+function paperFlow(row: PaperRow): Paper["flow"] {
+  if (row.kind !== "account" || !row.flow_step || !isFlowStep(row.flow_step)) return null;
+  const due = row.flow_due instanceof Date ? row.flow_due.toISOString().slice(0, 10) : clean(row.flow_due).slice(0, 10);
+  return flowView({
+    step: row.flow_step,
+    stepSince: iso(row.flow_step_since),
+    manager: clean(row.flow_manager),
+    offerSubName: clean(row.flow_offer_sub),
+    followUpDue: due,
+    stuckNote: clean(row.flow_note),
+    stuckNoteBy: clean(row.flow_note_by),
+    stuckNoteAt: iso(row.flow_note_at),
+  });
+}
 
 function paperHref(row: PaperRow): string {
   const accountId = clean(row.account_id);
-  if (row.kind === "account") return `/accounts/${encodeURIComponent(row.item_id)}?onboarding=1`;
+  // A new account in the 8-step flow opens on its steps (the green button); the others open the checklist.
+  if (row.kind === "account") return `/accounts/${encodeURIComponent(row.item_id)}${clean(row.data?.flow) ? "" : "?onboarding=1"}`;
   // The complaint itself (its id is the paper's id).
   if (row.kind === "complaint") return `/complaints/${encodeURIComponent(row.item_id)}`;
   if (row.kind === "supply") return clean(row.data?.orderId) ? `/supply-orders?order=${encodeURIComponent(clean(row.data?.orderId))}` : "/supply-orders";
@@ -433,7 +475,9 @@ function toPaper(row: PaperRow): Paper {
     takenAt: iso(row.taken_at),
     doneAt: iso(row.board_done_at),
     doneBy: row.board_done_by ?? "",
-    progress: row.kind === "account" ? countChecklistProgress(checklistItems(row.checklist_items)) : null,
+    // A paper in the 8-step flow shows its tracker instead of the checklist count.
+    progress: row.kind === "account" && !paperFlow(row) ? countChecklistProgress(checklistItems(row.checklist_items)) : null,
+    flow: paperFlow(row),
     href: paperHref(row),
     pdfHref: paperPdfHref(row),
     forWho: clean(row.data?.forWho),
@@ -443,12 +487,27 @@ function toPaper(row: PaperRow): Paper {
   };
 }
 
-const SELECT_PAPER = `
+const SELECT_PAPER_PLAIN = `
   SELECT i.kind, i.item_id, i.title, i.account_id, i.account_name, i.data, i.created_by, i.board_square, i.board_pinned_at,
          i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items
   FROM handoff_items i
   LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
   WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}`;
+
+// The same, plus each new account's 8-step flow (migration 046).
+const SELECT_PAPER_FLOW = `
+  SELECT i.kind, i.item_id, i.title, i.account_id, i.account_name, i.data, i.created_by, i.board_square, i.board_pinned_at,
+         i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items,
+         f.step AS flow_step, f.step_since AS flow_step_since, f.manager AS flow_manager, f.offer_sub_name AS flow_offer_sub,
+         f.follow_up_due AS flow_due, f.stuck_note AS flow_note, f.stuck_note_by AS flow_note_by, f.stuck_note_at AS flow_note_at
+  FROM handoff_items i
+  LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
+  LEFT JOIN account_flows f ON i.kind = 'account' AND f.account_id = i.item_id
+  WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}`;
+
+async function selectPaper(): Promise<string> {
+  return (await flowTableReady()) ? SELECT_PAPER_FLOW : SELECT_PAPER_PLAIN;
+}
 
 /**
  * Everything still pinned (oldest first) and the Done tray: the papers
@@ -457,6 +516,7 @@ const SELECT_PAPER = `
  */
 export async function listPapers(doneDays = DEFAULT_BOARD_SETTINGS.doneDays): Promise<{ papers: Paper[]; done: Paper[] }> {
   const sql = getSql();
+  const SELECT_PAPER = await selectPaper();
   const [open, done] = await Promise.all([
     sql.query(`${SELECT_PAPER} AND i.board_done_at IS NULL ORDER BY i.board_pinned_at ASC, i.item_id ASC`),
     sql.query(`${SELECT_PAPER} AND i.board_done_at > now() - ($1::int || ' days')::interval ORDER BY i.board_done_at DESC LIMIT 200`, [doneDays]),
@@ -484,6 +544,7 @@ export async function listArchive(input: { doneDays: number; search?: string; da
     where += ` AND (i.board_done_at AT TIME ZONE 'America/New_York')::date = $${params.length}::date`;
   }
   const offset = Math.max(0, Math.round(input.offset ?? 0));
+  const SELECT_PAPER = await selectPaper();
   const [rows, count] = await Promise.all([
     sql.query(`${SELECT_PAPER}${where} ORDER BY i.board_done_at DESC, i.item_id LIMIT 101 OFFSET ${offset}`, params),
     sql.query(`SELECT count(*)::int AS n FROM handoff_items i WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}${where}`, params),

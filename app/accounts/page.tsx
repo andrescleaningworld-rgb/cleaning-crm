@@ -2504,7 +2504,15 @@ async function handleSaveTransferProposal() {
           ]}
         />
       }
-      addAction={inTransfersTab ? undefined : <AddButton href="/accounts/new">Add account</AddButton>}
+      addAction={
+        inTransfersTab ? undefined : (
+          <>
+            {/* A customer who just accepted an estimate: the 8-step new-account flow. */}
+            <AddButton href="/accounts/new-accepted">New accepted account</AddButton>
+            <AddButton href="/accounts/new">Add account</AddButton>
+          </>
+        )
+      }
     >
       <PrintAccounts
         open={showPrint}
