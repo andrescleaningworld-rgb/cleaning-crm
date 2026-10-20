@@ -321,7 +321,14 @@ export default function EditAccountPage() {
         }
 
         const accountWithChecklist: Account = { ...foundAccount, checklistNeeded };
-        setFormData(accountWithChecklist);
+        // No price per cleaning saved yet: fill it in from the monthly
+        // Subcontractor Pay and the Frequency. Only the form gets it (not the
+        // "as loaded" copy), so the next save keeps it on the account.
+        const savedPerCleaning = cleanText(accountWithChecklist.subPricePerCleaning);
+        const filledPerCleaning = savedPerCleaning
+          ? savedPerCleaning
+          : perCleaningText(accountWithChecklist.subcontractorPay || accountWithChecklist.monthlySubcontractorPay || "", accountWithChecklist.frequency);
+        setFormData({ ...accountWithChecklist, subPricePerCleaning: filledPerCleaning });
         originalDataRef.current = accountWithChecklist;
       } catch (err) {
         setError(
