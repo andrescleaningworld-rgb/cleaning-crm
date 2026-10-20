@@ -48,6 +48,7 @@ import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../co
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 import { payShare } from "@/lib/payShare";
+import { cleaningsPerMonth, cleaningsPerMonthText, perCleaningFromMonthlyPay } from "@/lib/frequency";
 
 type Account = {
   id?: string;
@@ -79,6 +80,8 @@ type Account = {
   cleaningSchedule?: string;
   schedule?: string;
   frequency?: string;
+  /** The sub's price per cleaning (migration 048). "" = not set. */
+  subPricePerCleaning?: string;
   cleaningDays?: string;
   scope?: string;
   scopeOfWork?: string;
@@ -511,6 +514,13 @@ export default function AccountDetailPage() {
   const estimatedGrossMargin = monthlyRevenueNumber - subcontractorPayNumber;
   // The sub's share and what we keep, as % of monthly revenue (staff only).
   const share = payShare(monthlyRevenueNumber, subcontractorPayNumber);
+  // The sub's price per cleaning: as saved, else worked out from the monthly pay and the Frequency.
+  const cleaningsAMonth = cleaningsPerMonth(account?.frequency);
+  const perCleaning = moneyToNumber(account?.subPricePerCleaning) || perCleaningFromMonthlyPay(subcontractorPayNumber, account?.frequency) || 0;
+  const perCleaningText =
+    perCleaning && cleaningsAMonth !== null
+      ? `${perCleaning.toLocaleString("en-US", { style: "currency", currency: "USD" })} × ${cleaningsPerMonthText(cleaningsAMonth)} cleanings a month`
+      : "Not worked out (Frequency is Other or blank)";
 
   const accountNameForUrl = encodeURIComponent(account?.accountName || "");
   const accountIdForUrl = encodeURIComponent(
@@ -1282,6 +1292,7 @@ export default function AccountDetailPage() {
                   <Detail label="CW Pay" value={formatMoney(account.monthlyRevenue)} />
                   <Detail label="Subcontractor Pay" value={`${formatMoney(subcontractorPay)} (${share.subPercent})`} />
                   <Detail label="We keep" value={`${formatCalculatedMoney(share.keep)} (${share.keepPercent})`} />
+                  <Detail label="Sub price per cleaning" value={perCleaningText} />
                   <Detail label="Has Key" value={account.hasKey || "N/A"} />
                   <Detail label="Alarm Info" value={alarmInfo || "N/A"} />
                   <Detail label="Address" value={addressLink} full />
@@ -1638,6 +1649,7 @@ export default function AccountDetailPage() {
                 <Detail label="Frequency" value={cleaningFrequency} />
                 <Detail label="Monthly Revenue" value={formatMoney(account.monthlyRevenue)} />
                 <Detail label="Subcontractor Pay" value={`${formatMoney(subcontractorPay)} (${share.subPercent})`} />
+                <Detail label="Sub price per cleaning" value={perCleaningText} />
                 <Detail label="Estimated Gross Margin" value={`${grossMarginText} (${share.keepPercent})`} />
                 <Detail label="Has Key" value={account.hasKey || "N/A"} />
                 <Detail label="Alarm Info" value={alarmInfo || "N/A"} full />

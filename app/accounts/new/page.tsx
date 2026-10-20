@@ -9,6 +9,8 @@ import GoogleAddressAutocompleteInput, {
 } from "@/app/components/GoogleAddressAutocompleteInput";
 import SubSuggestions from "@/app/components/sub-suggestions";
 import PlusMinus from "@/app/components/plus-minus";
+import FrequencyField from "@/app/components/frequency-field";
+import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
@@ -27,6 +29,8 @@ type AccountForm = {
   accountStartDate: string;
   monthlyRevenue: string;
   monthlySubcontractorPay: string;
+  /** The sub's price per cleaning (migration 048). "" = not set. */
+  subPricePerCleaning: string;
   contactName: string;
   phone: string;
   email: string;
@@ -101,6 +105,7 @@ const emptyForm: AccountForm = {
   accountStartDate: "",
   monthlyRevenue: "",
   monthlySubcontractorPay: "",
+  subPricePerCleaning: "",
   contactName: "",
   phone: "",
   email: "",
@@ -590,26 +595,48 @@ export default function NewAccountPage() {
               value={form.monthlyRevenue}
               onChange={(event) => {
                 const value = event.target.value;
-                setForm((current) => ({
-                  ...current,
-                  monthlyRevenue: value,
-                  monthlySubcontractorPay: subcontractorPayTouched
-                    ? current.monthlySubcontractorPay
-                    : computeSuggestedSubcontractorPay(value),
-                }));
+                setForm((current) => {
+                  const pay = subcontractorPayTouched ? current.monthlySubcontractorPay : computeSuggestedSubcontractorPay(value);
+                  return {
+                    ...current,
+                    monthlyRevenue: value,
+                    monthlySubcontractorPay: pay,
+                    subPricePerCleaning: subcontractorPayTouched ? current.subPricePerCleaning : perCleaningText(pay, current.frequency),
+                  };
+                });
+              }}
+            />
+
+            <Field
+              label="Sub price per cleaning"
+              optional
+              hint={perCleaningHint(form.frequency)}
+              inputMode="decimal"
+              placeholder="50"
+              value={form.subPricePerCleaning}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSubcontractorPayTouched(true);
+                setForm((current) => {
+                  const pay = monthlyPayText(value, current.frequency);
+                  return pay !== undefined
+                    ? { ...current, subPricePerCleaning: value, monthlySubcontractorPay: pay }
+                    : { ...current, subPricePerCleaning: value };
+                });
               }}
             />
 
             <Field
               label="Monthly subcontractor pay"
               optional
-              hint="Filled in at 70% of the revenue until you type your own number."
+              hint="Filled in at 70% of the revenue until you type your own number or a price per cleaning."
               inputMode="decimal"
               placeholder="1800"
               value={form.monthlySubcontractorPay}
               onChange={(event) => {
+                const value = event.target.value;
                 setSubcontractorPayTouched(true);
-                updateField("monthlySubcontractorPay", event.target.value);
+                setForm((current) => ({ ...current, monthlySubcontractorPay: value, subPricePerCleaning: perCleaningText(value, current.frequency) }));
               }}
             />
           </div>
@@ -626,7 +653,18 @@ export default function NewAccountPage() {
         <Card title="Service Details">
           <div style={sectionStyle}>
             <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
-            <Field label="Frequency" optional value={form.frequency} onChange={(event) => updateField("frequency", event.target.value)} />
+            <FrequencyField
+              value={form.frequency}
+              onChange={(value) =>
+                // A price per cleaning keeps its price and the monthly pay follows; without one, it is worked out from the pay.
+                setForm((current) => {
+                  const fromPer = current.subPricePerCleaning ? monthlyPayText(current.subPricePerCleaning, value) : undefined;
+                  return fromPer !== undefined
+                    ? { ...current, frequency: value, monthlySubcontractorPay: fromPer }
+                    : { ...current, frequency: value, subPricePerCleaning: perCleaningText(current.monthlySubcontractorPay, value) };
+                })
+              }
+            />
             <Field label="Cleaning days" optional value={form.cleaningDays} onChange={(event) => updateField("cleaningDays", event.target.value)} />
           </div>
         </Card>

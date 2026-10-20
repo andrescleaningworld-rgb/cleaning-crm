@@ -8,6 +8,8 @@ import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
 import { payShare } from "@/lib/payShare";
+import FrequencyField from "@/app/components/frequency-field";
+import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 
 type Account = {
   id?: string;
@@ -46,6 +48,8 @@ type Account = {
   notes?: string;
   // Printed on both account PDFs; "notes" stays internal (office only).
   notesForSub?: string;
+  /** The sub's price per cleaning (migration 048). "" = not set. */
+  subPricePerCleaning?: string;
   checklistNeeded?: string;
 };
 
@@ -730,7 +734,23 @@ export default function EditAccountPage() {
             </SelectField>
 
             <Field label="Service type" optional value={formData.serviceType || ""} onChange={(event) => updateField("serviceType", event.target.value)} />
-            <Field label="Frequency" optional value={formData.frequency || ""} onChange={(event) => updateField("frequency", event.target.value)} />
+            <FrequencyField
+              value={formData.frequency || ""}
+              onChange={(value) => {
+                // A new Frequency: a price per cleaning keeps its price and the monthly pay follows;
+                // without one, the price per cleaning is worked out again from the monthly pay.
+                setFormData((current) => {
+                  if (!current) return current;
+                  const pay = current.subcontractorPay || current.monthlySubcontractorPay || "";
+                  const fromPer = current.subPricePerCleaning ? monthlyPayText(current.subPricePerCleaning, value) : undefined;
+                  return fromPer !== undefined
+                    ? { ...current, frequency: value, subcontractorPay: fromPer, monthlySubcontractorPay: fromPer }
+                    : { ...current, frequency: value, subPricePerCleaning: perCleaningText(pay, value) };
+                });
+                setSavedMessage("");
+                setSaveError("");
+              }}
+            />
             <Field
               label="Cleaning days"
               optional
@@ -759,7 +779,11 @@ export default function EditAccountPage() {
                     ...current,
                     monthlyRevenue: value,
                     ...(suggestedPay !== undefined
-                      ? { subcontractorPay: suggestedPay, monthlySubcontractorPay: suggestedPay }
+                      ? {
+                          subcontractorPay: suggestedPay,
+                          monthlySubcontractorPay: suggestedPay,
+                          subPricePerCleaning: perCleaningText(suggestedPay, current.frequency),
+                        }
                       : {}),
                   };
                 });
@@ -769,9 +793,32 @@ export default function EditAccountPage() {
             />
 
             <Field
-              label="Subcontractor pay"
+              label="Sub price per cleaning"
               optional
-              hint="Changes to 70% of the amount above when you edit that, until you type your own number here."
+              hint={perCleaningHint(formData.frequency)}
+              inputMode="decimal"
+              placeholder="50"
+              value={formData.subPricePerCleaning || ""}
+              onChange={(event) => {
+                // Typed by hand: the monthly pay is worked out from it and is no longer a 70% suggestion.
+                const value = event.target.value;
+                setSubcontractorPayTouched(true);
+                setFormData((current) => {
+                  if (!current) return current;
+                  const pay = monthlyPayText(value, current.frequency);
+                  return pay !== undefined
+                    ? { ...current, subPricePerCleaning: value, subcontractorPay: pay, monthlySubcontractorPay: pay }
+                    : { ...current, subPricePerCleaning: value };
+                });
+                setSavedMessage("");
+                setSaveError("");
+              }}
+            />
+
+            <Field
+              label="Subcontractor pay (monthly)"
+              optional
+              hint="Changes to 70% of the amount above when you edit that, until you type your own number here or a price per cleaning."
               inputMode="decimal"
               value={formData.subcontractorPay || formData.monthlySubcontractorPay || ""}
               onChange={(event) => {
@@ -788,7 +835,7 @@ export default function EditAccountPage() {
                 setSubcontractorPayTouched(true);
                 setFormData((current) =>
                   current
-                    ? { ...current, subcontractorPay: value, monthlySubcontractorPay: value }
+                    ? { ...current, subcontractorPay: value, monthlySubcontractorPay: value, subPricePerCleaning: perCleaningText(value, current.frequency) }
                     : current
                 );
                 setSavedMessage("");

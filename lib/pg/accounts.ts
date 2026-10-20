@@ -215,6 +215,24 @@ function notesForSubWrite(current: AccountRow, fields: Record<string, unknown>):
   return { sets: [["notes_for_sub", value]], before: { "Notes for Sub": had }, after: { "Notes for Sub": value } };
 }
 
+/* ---------- the sub's price per cleaning (migration 048; not a sheet column) ---------- */
+
+// Saved next to the monthly Subcontractor Pay when the office enters the pay
+// per cleaning (lib/frequency.ts). "" = not set. Staff only.
+function subPricePerCleaningWrite(current: AccountRow, fields: Record<string, unknown>): { sets: [column: string, value: string | null][]; before: Record<string, string>; after: Record<string, string> } {
+  if (fields.subPricePerCleaning === undefined) return { sets: [], before: {}, after: {} };
+  const raw = String(fields.subPricePerCleaning ?? "").trim();
+  const value = raw ? toMoney(raw) : null;
+  if (raw && value === null) throw new Error("The price per cleaning is not an amount.");
+  // Before migration 048 the column is not there: the monthly pay (worked out
+  // from it on the form) is what is saved, and the price is shown from it.
+  if (!("sub_price_per_cleaning" in current)) return { sets: [], before: {}, after: {} };
+  const had = current.sub_price_per_cleaning == null ? "" : Number(current.sub_price_per_cleaning).toFixed(2);
+  const now = value ?? "";
+  if (now === had) return { sets: [], before: {}, after: {} };
+  return { sets: [["sub_price_per_cleaning", value]], before: { "Sub Price per Cleaning": had }, after: { "Sub Price per Cleaning": now } };
+}
+
 /* ---------- typed values kept next to the text ---------- */
 
 export const toMoney = (raw: string): string | null => {
@@ -468,9 +486,12 @@ export async function updateAccountFieldsDirect(
   const notesForSub = notesForSubWrite(current, resolvedFields);
   Object.assign(before, notesForSub.before);
   Object.assign(after, notesForSub.after);
+  const subPrice = subPricePerCleaningWrite(current, resolvedFields);
+  Object.assign(before, subPrice.before);
+  Object.assign(after, subPrice.after);
 
   const { assignments, params } = writes.length > 0 ? await buildAccountWrite(current, writes) : { assignments: [] as string[], params: [] as unknown[] };
-  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets]) {
+  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets, ...subPrice.sets]) {
     params.push(value);
     assignments.push(`${column} = $${params.length}`);
   }
@@ -703,7 +724,13 @@ function toAppsScriptAccount(row: AccountRow, action: AppsScriptAccountsAction):
     status: held(row, 16),
     // getAllAccounts is the staff list. The sub portal reads getAccounts, so the reason an account left never goes to a sub.
     ...(action === "getAllAccounts"
-      ? { cancelledDate: appsScriptDateText(held(row, 17)), finalCleaningDate: dayOf(row.final_cleaning_date), cancellationReason: text(row, "cancellation_reason") }
+      ? {
+          cancelledDate: appsScriptDateText(held(row, 17)),
+          finalCleaningDate: dayOf(row.final_cleaning_date),
+          cancellationReason: text(row, "cancellation_reason"),
+          // Migration 048, staff list only. "" = not set (or before 048 runs).
+          subPricePerCleaning: row.sub_price_per_cleaning == null ? "" : Number(row.sub_price_per_cleaning).toFixed(2),
+        }
       : {}),
     accountHealth: held(row, 19),
     accountStartDate: startDateText(held(row, 2)),
@@ -812,6 +839,17 @@ export async function addAccount(payload: Record<string, unknown>): Promise<{ ac
     `INSERT INTO accounts (${columns.join(", ")}, id, legacy_key) VALUES (${placeholders.join(", ")}, $${params.length}, $${params.length})`,
     params
   );
+
+  // The sub's price per cleaning (migration 048), when the form had one.
+  const perCleaning = toMoney(String(payload.subPricePerCleaning ?? ""));
+  if (perCleaning) {
+    try {
+      await sql`UPDATE accounts SET sub_price_per_cleaning = ${perCleaning} WHERE id = ${accountId}`;
+    } catch (error) {
+      // 42703 = migration 048 has not run here: the monthly pay is saved, the per-cleaning price is not.
+      if ((error as { code?: string }).code !== "42703") throw error;
+    }
+  }
   return { accountId };
 }
 
