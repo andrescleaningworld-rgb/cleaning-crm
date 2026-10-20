@@ -13,7 +13,6 @@ import TimeOnSiteFill from "./time-on-site-fill";
 import NewAccountsBoard from "./new-accounts";
 import TeamHubStaffQueue from "./team-hub-queue";
 import { Tabs } from "@/app/ui";
-import { useHandoffs } from "../components/handoffs";
 import { SubScoreAlertsCard } from "../components/sub-score-alerts";
 import { NoScheduleTile } from "../components/no-schedule";
 
@@ -90,9 +89,8 @@ export default function AccountsCenterPage() {
 
   // The open-problem count rides in the tab's own label so staff notice it
   // without opening the tab.
-  // The New accounts board only exists where handoffs are turned on.
-  const handoffsOn = useHandoffs().state === "ready";
-  const tabs = TABS.filter((tab) => tab.value !== "new" || handoffsOn).map((tab) =>
+  // New accounts reads the 8-step flow; where it is not turned on, the board says so.
+  const tabs = TABS.map((tab) =>
     tab.value === "team-hub" && openTeamHubCount > 0 ? { ...tab, label: `${tab.label} (${openTeamHubCount})` } : tab
   );
 
@@ -123,7 +121,7 @@ export default function AccountsCenterPage() {
           <AccountsPage />
         </TransfersTabContext.Provider>
       )}
-      {activeTab === "new" && (handoffsOn ? <NewAccountsBoard /> : <AccountsPage />)}
+      {activeTab === "new" && <NewAccountsBoard />}
       {activeTab === "visits" && <VisitsPage />}
       {activeTab === "complaints" && <ComplaintsPage />}
       {activeTab === "updates" && <AccountUpdatesPage />}

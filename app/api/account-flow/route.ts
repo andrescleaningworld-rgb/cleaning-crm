@@ -2,6 +2,7 @@
 // through to proxy.ts's default admin gate.
 //
 // GET  ?accountId=X                         the flow (null for an account that has none)
+// GET  ?list=1                              every new account still in the flow (Accounts Center)
 // POST { action: "create", ... }            the "New Accepted Account" form
 // POST { action: "previewOffer", accountId, subId }                  step 2: what the sub will get (nothing sent)
 // POST { action: "offer", accountId, subId, days, start, minutes }   step 2
@@ -22,9 +23,11 @@ import {
   flowsReady,
   followUpDone,
   getFlowDetail,
+  listOpenFlows,
   previewOffer,
   sendOffer,
   setStuckNote,
+  syncAutoSteps,
   takeOfferBack,
   tapDone,
 } from "@/lib/pg/account-flow";
@@ -35,7 +38,13 @@ const noStore = { headers: { "Cache-Control": "no-store" } };
 
 export async function GET(request: NextRequest) {
   try {
-    if (!(await flowsReady())) return NextResponse.json({ success: true, ready: false, flow: null }, noStore);
+    if (!(await flowsReady())) return NextResponse.json({ success: true, ready: false, flow: null, flows: [] }, noStore);
+    // Accounts Center → New accounts: every new account still in the flow.
+    if (request.nextUrl.searchParams.get("list") === "1") {
+      const identity = await getAdminIdentity(request);
+      await syncAutoSteps().catch((error) => console.error("[account-flow list] sync:", error instanceof Error ? error.message : error));
+      return NextResponse.json({ success: true, ready: true, flows: await listOpenFlows(clean(identity?.name)) }, noStore);
+    }
     const accountId = clean(request.nextUrl.searchParams.get("accountId"));
     if (!accountId) return refuse("accountId is required.");
     return NextResponse.json({ success: true, ready: true, flow: await getFlowDetail(accountId) }, noStore);

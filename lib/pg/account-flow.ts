@@ -24,6 +24,7 @@ import { parseClock, toClock, windowForStartTime } from "@/lib/schedule-time";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import {
   FLOW_STATUS,
+  FLOW_STEPS,
   dayAfter,
   flowView,
   isFlowStep,
@@ -32,6 +33,7 @@ import {
   type FlowEvent,
   type FlowFacts,
   type FlowStep,
+  type FlowView,
   type SubOffer,
 } from "@/lib/accountFlow";
 
@@ -88,6 +90,37 @@ export function factsOf(row: Pick<FlowRow, "step" | "step_since" | "manager" | "
     stuckNoteBy: clean(row.stuck_note_by),
     stuckNoteAt: iso(row.stuck_note_at),
   };
+}
+
+/** One new account in the 8-step flow, for Accounts Center → New accounts. */
+export type OpenFlow = { accountId: string; accountName: string; manager: string; view: FlowView; mine: boolean };
+
+/**
+ * Every new account still in the flow (not Live), oldest first, with its
+ * tracker. `mine`: its current step is the manager's and that manager is
+ * `me` (same first name, the way the board says "with Andrés").
+ * Deleted accounts are left out.
+ */
+export async function listOpenFlows(me: string): Promise<OpenFlow[]> {
+  const rows = (await getSql()`
+    SELECT f.* FROM account_flows f
+    JOIN accounts a ON a.id = f.account_id
+    WHERE f.step <> 'live' AND NOT a.is_test AND (to_jsonb(a) ->> 'deleted_at') IS NULL
+    ORDER BY f.created_at ASC, f.account_id ASC
+  `) as FlowRow[];
+  const myName = clean(me).split(/\s+/)[0]?.toLowerCase() ?? "";
+  return rows.map((row) => {
+    const view = flowView(factsOf(row));
+    const owner = FLOW_STEPS.find((step) => step.key === view.step)?.owner;
+    const managerFirst = clean(row.manager).split(/\s+/)[0]?.toLowerCase() ?? "";
+    return {
+      accountId: row.account_id,
+      accountName: clean(row.account_name),
+      manager: clean(row.manager),
+      view,
+      mine: owner === "manager" && myName !== "" && managerFirst === myName,
+    };
+  });
 }
 
 async function flowRow(accountId: string): Promise<FlowRow | null> {
