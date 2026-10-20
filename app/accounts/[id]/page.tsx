@@ -41,7 +41,7 @@ import SupplyMode from "./supply-mode";
 import SiteStock from "./site-stock";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
-import WelcomePacketSheet from "../../components/welcome-packet-sheet";
+import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-packet-sheet";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
@@ -343,6 +343,7 @@ export default function AccountDetailPage() {
   // The customer Welcome Packet sheet. The version goes up after a send, so the checklist and History read again.
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
   const [welcomeVersion, setWelcomeVersion] = useState(0);
+  const [welcomeSentAt, setWelcomeSentAt] = useState<string | null>(null);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [error, setError] = useState("");
   const [packetMessage, setPacketMessage] = useState("");
@@ -572,7 +573,23 @@ export default function AccountDetailPage() {
     }
   }, [searchParams]);
 
-  const hasContactPhone = contactPhone !== "N/A" && /[0-9]/.test(contactPhone);
+  // "Sent <date>" on the Welcome Packet button: the last send on the account's History.
+  const welcomeAccountId = account ? getAccountId(account, rawAccountIdFromUrl) : "";
+  useEffect(() => {
+    if (!welcomeAccountId) return;
+    let alive = true;
+    fetch(`/api/accounts/${encodeURIComponent(welcomeAccountId)}/welcome-packet?summary=1`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; lastSentAt?: string | null }) => {
+        if (alive && data.success) setWelcomeSentAt(data.lastSentAt ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [welcomeAccountId]);
+
+  const hasContactPhone =contactPhone !== "N/A" && /[0-9]/.test(contactPhone);
 
   function makeTelLink(phone: string | undefined | null): string {
     if (!phone || phone === "N/A") return "#";
@@ -1439,8 +1456,8 @@ export default function AccountDetailPage() {
                 <BigButton kind="second" busy={sendingPacket} busyLabel="Sending sub packet…" onClick={() => void handleSendNewAccountPacket()}>
                   Send Sub Packet
                 </BigButton>
-                <BigButton kind="second" onClick={() => setShowWelcomePacket(true)}>
-                  Send Customer Welcome Packet
+                <BigButton kind="second" icon={welcomeSentAt ? "check" : undefined} onClick={() => setShowWelcomePacket(true)}>
+                  {welcomeSentAt ? `Customer Welcome Packet: Sent ${welcomeSentLabel(welcomeSentAt)}` : "Send Customer Welcome Packet"}
                 </BigButton>
                 <BigButton
                   kind="second"
@@ -1560,7 +1577,10 @@ export default function AccountDetailPage() {
               accountId={thisAccountId}
               accountName={accountName}
               onClose={() => setShowWelcomePacket(false)}
-              onSent={() => setWelcomeVersion((version) => version + 1)}
+              onSent={(sentAt) => {
+                setWelcomeSentAt(sentAt);
+                setWelcomeVersion((version) => version + 1);
+              }}
             />
 
             <DeleteAccountSheet

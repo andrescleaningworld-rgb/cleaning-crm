@@ -18,7 +18,14 @@ type Preview = {
   subject: string;
   managerProblem: string;
   html: string;
+  lastSentAt: string | null;
+  portalAccessOn: boolean;
 };
+
+/** "Oct 16, 2026" in New York time. */
+export function welcomeSentLabel(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" });
+}
 
 function emailProblem(to: string): string {
   if (!to.trim()) return "Type the customer's email.";
@@ -37,7 +44,7 @@ export default function WelcomePacketSheet({
   accountId: string;
   accountName: string;
   onClose: () => void;
-  onSent?: () => void;
+  onSent?: (sentAt: string) => void;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -82,10 +89,10 @@ export default function WelcomePacketSheet({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ to: to.trim() }),
       });
-      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; sentTo?: string };
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; sentTo?: string; sentAt?: string };
       if (!response.ok || !data.success) throw new Error(data.error || "The packet was not sent. Try again.");
       showToast(`Welcome packet sent to ${data.sentTo ?? to.trim()} ✓`);
-      onSent?.();
+      onSent?.(data.sentAt ?? new Date().toISOString());
       onClose();
     } catch (err) {
       setSendError(err instanceof Error ? err.message : "The packet was not sent. Try again.");
@@ -112,6 +119,12 @@ export default function WelcomePacketSheet({
       {preview ? (
         <div className="ui-stack">
           {preview.managerProblem ? <ErrorBox title="Not ready to send" text={preview.managerProblem} /> : null}
+          {preview.lastSentAt ? <p className="ui-muted">Already sent {welcomeSentLabel(preview.lastSentAt)}. Sending again sends a new copy.</p> : null}
+          {!preview.portalAccessOn ? (
+            <p className="ui-muted">
+              Portal access is OFF for this account, so the portal link in the packet will not let the customer in yet. Turn it on (Portal access on this page) before or after you send.
+            </p>
+          ) : null}
           <Field
             label="To (customer email)"
             type="email"
@@ -135,7 +148,7 @@ export default function WelcomePacketSheet({
             title="Welcome packet preview"
             srcDoc={preview.html}
             sandbox=""
-            style={{ width: "100%", height: 460, border: "1px solid #cbd5e1", borderRadius: 12, background: "#eef2f7" }}
+            style={{ width: "100%", height: 460, border: "1px solid #cbd5e1", borderRadius: 12, background: "#ffffff" }}
           />
         </div>
       ) : null}

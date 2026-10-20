@@ -1,17 +1,22 @@
 import fs from "fs";
 import path from "path";
-import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Page, View, Text, Image, Link, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
 import {
   WELCOME_COLORS as C,
   WELCOME_FOOTER,
   WELCOME_NOTE,
-  WELCOME_SERVICES,
+  WELCOME_PORTAL_BUTTON,
+  WELCOME_PORTAL_INTRO,
+  WELCOME_PORTAL_TITLE,
   WELCOME_SERVICES_INTRO,
+  WELCOME_SERVICES_LINK_TEXT,
+  WELCOME_SERVICES_URL,
   WELCOME_TAGLINE,
   WELCOME_TITLE,
   WELCOME_VISITS,
   WELCOME_VISITS_INTRO,
   welcomePolicies,
+  welcomePortalSteps,
   welcomePreparedFor,
   welcomeTeamRows,
   type WelcomePacketData,
@@ -20,16 +25,17 @@ import {
 
 // The customer Welcome Packet PDF: the same content as the email
 // (lib/welcomePacket.ts), laid out like docs/welcome-packet.pdf — page 1 the
-// team, visits and policies; page 2 the services, the note and the signature.
+// team, visits and policies; page 2 the services line, the portal, the note
+// and the signature. White pages; blue only for the header bar and headings.
 
 const styles = StyleSheet.create({
-  page: { fontFamily: "Helvetica", fontSize: 8.5, color: C.text, paddingTop: 30, paddingBottom: 30, paddingHorizontal: 50 },
+  page: { fontFamily: "Helvetica", fontSize: 8.5, color: C.text, backgroundColor: "#ffffff", paddingTop: 30, paddingBottom: 30, paddingHorizontal: 50 },
   logoWrap: { alignItems: "center", marginBottom: 10 },
   logo: { width: 190, height: "auto" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: C.header, paddingVertical: 11, paddingHorizontal: 12 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: C.header, borderBottomWidth: 3, borderColor: C.accent, paddingVertical: 11, paddingHorizontal: 12 },
   headerTitle: { fontFamily: "Helvetica-Bold", fontSize: 14, color: "#ffffff" },
   headerTagline: { fontSize: 8, color: C.tagline },
-  prepared: { flexDirection: "row", flexWrap: "wrap", borderWidth: 1, borderTopWidth: 0, borderColor: C.border, backgroundColor: C.rowAlt, paddingVertical: 6, paddingHorizontal: 12 },
+  prepared: { flexDirection: "row", flexWrap: "wrap", borderWidth: 1, borderTopWidth: 0, borderColor: C.border, paddingVertical: 6, paddingHorizontal: 12 },
   preparedLabel: { fontFamily: "Helvetica-Bold", color: C.label, marginRight: 4 },
   preparedValue: { marginRight: 4 },
   bar: { backgroundColor: C.bar, paddingVertical: 6, paddingHorizontal: 12, marginTop: 6 },
@@ -41,26 +47,24 @@ const styles = StyleSheet.create({
   teamValue: { padding: 5 },
   para: { paddingVertical: 5, paddingHorizontal: 6 },
   visit: { flexDirection: "row", borderBottomWidth: 1, borderColor: C.border },
-  visitLabelBox: { width: "17%", padding: 7 },
+  visitLabelBox: { width: "22%", padding: 7 },
   visitLabel: { fontFamily: "Helvetica-Bold", color: C.label, marginBottom: 6 },
-  visitBody: { width: "83%", padding: 7 },
+  visitBody: { width: "78%", padding: 7 },
   visitNote: { fontFamily: "Helvetica-Oblique", marginTop: 6 },
   policies: { borderWidth: 1, borderColor: C.border, borderBottomWidth: 0, marginTop: 3 },
   policy: { borderBottomWidth: 1, borderColor: C.border, paddingVertical: 5, paddingLeft: 18, paddingRight: 8 },
   bold: { fontFamily: "Helvetica-Bold" },
-  servicesGrid: { flexDirection: "row", flexWrap: "wrap", borderWidth: 1, borderColor: C.border, borderRightWidth: 0, borderBottomWidth: 0 },
-  serviceCell: { width: "50%", borderRightWidth: 1, borderBottomWidth: 1, borderColor: C.border, padding: 3, paddingBottom: 4 },
-  serviceHead: { backgroundColor: C.visitBg, paddingVertical: 4, paddingHorizontal: 8, borderBottomWidth: 1, borderColor: C.border, marginBottom: 2 },
-  serviceTitle: { fontFamily: "Helvetica-Bold", fontSize: 9.5, color: C.label },
-  serviceSub: { fontFamily: "Helvetica-Oblique", fontSize: 7.5, color: C.bar, marginTop: 1 },
-  serviceItem: { paddingHorizontal: 8, paddingVertical: 1.6 },
+  policyTitle: { fontFamily: "Helvetica-Bold", color: C.label },
+  link: { color: C.bar, textDecoration: "underline" },
+  portalButton: { alignSelf: "flex-start", backgroundColor: C.bar, borderRadius: 5, paddingVertical: 7, paddingHorizontal: 14, marginHorizontal: 6, marginTop: 2, color: "#ffffff", fontFamily: "Helvetica-Bold", fontSize: 9.5, textDecoration: "none" },
+  portalUrl: { paddingHorizontal: 6, paddingTop: 4, color: C.muted, fontSize: 7.5 },
   signRow: { flexDirection: "row", justifyContent: "space-around", marginTop: 12 },
   signBox: { width: "36%", alignItems: "center" },
   signValue: { fontFamily: "Helvetica-Oblique", fontSize: 11, color: C.label, marginBottom: 3 },
-  signLine: { width: "100%", borderTopWidth: 0.75, borderColor: "#94a3b8", marginBottom: 4 },
+  signLine: { width: "100%", borderTopWidth: 0.75, borderColor: C.line, marginBottom: 4 },
   signLabel: { color: C.muted },
-  footer: { backgroundColor: C.footer, paddingVertical: 9, alignItems: "center", marginTop: 14 },
-  footerLine: { color: "#ffffff", fontSize: 8, marginVertical: 1.5 },
+  footer: { backgroundColor: "#ffffff", borderTopWidth: 1.5, borderColor: C.accent, paddingVertical: 9, alignItems: "center", marginTop: 14 },
+  footerLine: { color: C.muted, fontSize: 8, marginVertical: 1.5 },
 });
 
 // Read once per warm instance, lazily so a build-time import never touches the disk.
@@ -90,8 +94,8 @@ function Bar({ title }: { title: string }) {
 function TeamTable({ rows, labelWidth }: { rows: WelcomeRow[]; labelWidth: number }) {
   return (
     <View style={styles.teamTable}>
-      {rows.map((row, i) => (
-        <View key={row.label} style={[styles.teamRow, { backgroundColor: i % 2 ? C.rowAlt : "#ffffff" }]}>
+      {rows.map((row) => (
+        <View key={row.label} style={styles.teamRow}>
           <Text style={[styles.teamLabel, { width: `${labelWidth}%` }]}>{row.label}</Text>
           <Text style={[styles.teamValue, { width: `${100 - labelWidth}%` }]}>{row.value}</Text>
         </View>
@@ -103,6 +107,7 @@ function TeamTable({ rows, labelWidth }: { rows: WelcomeRow[]; labelWidth: numbe
 export function WelcomePacketDocument(data: WelcomePacketData) {
   const team = welcomeTeamRows(data);
   const prepared = welcomePreparedFor(data);
+  const [servicesBefore, servicesAfter = ""] = WELCOME_SERVICES_INTRO.split(WELCOME_SERVICES_LINK_TEXT);
   return (
     <Document title={`Welcome Packet - ${data.accountName}`} author="Cleaning World Inc.">
       <Page size="LETTER" style={styles.page}>
@@ -132,9 +137,9 @@ export function WelcomePacketDocument(data: WelcomePacketData) {
         <Bar title="Pre-Service Visits" />
         <Text style={styles.para}>{WELCOME_VISITS_INTRO}</Text>
         <View style={{ borderTopWidth: 1, borderColor: C.border }}>
-          {WELCOME_VISITS.map((visit, i) => (
+          {WELCOME_VISITS.map((visit) => (
             <View key={visit.label} style={styles.visit} wrap={false}>
-              <View style={[styles.visitLabelBox, { backgroundColor: i === 0 ? C.visitBg : C.rowAlt }]}>
+              <View style={styles.visitLabelBox}>
                 <Text style={styles.visitLabel}>{visit.label}</Text>
                 <Text style={styles.visitLabel}>{visit.title}</Text>
               </View>
@@ -148,9 +153,9 @@ export function WelcomePacketDocument(data: WelcomePacketData) {
 
         <Bar title="Policies & Important Information" />
         <View style={styles.policies}>
-          {welcomePolicies(data).map((policy, i) => (
-            <Text key={policy.title} style={[styles.policy, { backgroundColor: i % 2 ? C.rowAlt : "#ffffff" }]}>
-              <Text style={styles.bold}>{policy.title}:</Text> {policy.text}
+          {welcomePolicies(data).map((policy) => (
+            <Text key={policy.title} style={styles.policy}>
+              <Text style={styles.policyTitle}>{policy.title}:</Text> {policy.text}
             </Text>
           ))}
         </View>
@@ -159,22 +164,22 @@ export function WelcomePacketDocument(data: WelcomePacketData) {
       <Page size="LETTER" style={styles.page}>
         <Logo />
         <Bar title="Our Full Range of Services" />
-        <Text style={styles.para}>{WELCOME_SERVICES_INTRO}</Text>
-        <View style={styles.servicesGrid}>
-          {WELCOME_SERVICES.map((group) => (
-            <View key={group.title} style={styles.serviceCell} wrap={false}>
-              <View style={styles.serviceHead}>
-                <Text style={styles.serviceTitle}>{group.title}</Text>
-                <Text style={styles.serviceSub}>{group.subtitle}</Text>
-              </View>
-              {group.items.map((item) => (
-                <Text key={item} style={styles.serviceItem}>
-                  • {item}
-                </Text>
-              ))}
-            </View>
-          ))}
-        </View>
+        <Text style={styles.para}>
+          {servicesBefore}
+          <Link src={WELCOME_SERVICES_URL} style={styles.link}>
+            {WELCOME_SERVICES_LINK_TEXT}
+          </Link>
+          {servicesAfter}
+        </Text>
+
+        <Bar title={WELCOME_PORTAL_TITLE} />
+        <Text style={styles.para}>
+          {WELCOME_PORTAL_INTRO} {welcomePortalSteps(data)}
+        </Text>
+        <Link src={data.portalUrl} style={styles.portalButton}>
+          {WELCOME_PORTAL_BUTTON}
+        </Link>
+        <Text style={styles.portalUrl}>{data.portalUrl}</Text>
 
         <Bar title="A Note From Our Team" />
         <Text style={styles.para}>{WELCOME_NOTE}</Text>

@@ -16,7 +16,12 @@ export type WelcomePacketInfo = {
   managerPhone: string;
   managerEmail: string;
   supplyMode: WelcomeSupplyMode;
+  /** Portal access is ON for this account (Portal access YES/NO on the account page). */
+  portalAccessOn: boolean;
 };
+
+/** Where the packet's portal button goes: the first-time "Set your password" page. */
+export const WELCOME_PORTAL_PATH = "/portal/forgot?first=1";
 
 type Row = {
   id: string;
@@ -70,7 +75,36 @@ export async function loadWelcomePacketInfo(accountId: string): Promise<WelcomeP
     managerPhone: (row.manager_phone ?? "").trim(),
     managerEmail: (row.manager_email ?? "").trim(),
     supplyMode: await supplyModeOf(row.id),
+    portalAccessOn: await portalAccessOn(row.id),
   };
+}
+
+// Same test the portal login uses (lib/pg/portal-auth.ts accountsForEmail).
+async function portalAccessOn(accountId: string): Promise<boolean> {
+  try {
+    const rows = (await getSql()`
+      SELECT 1 FROM portal_access WHERE account_ref = ${accountId} AND upper(btrim(portal_access)) = 'YES' LIMIT 1
+    `) as unknown[];
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * When the packet was last sent, from the account's History (the line the
+ * send route writes: "Welcome packet sent to: …"). null: never sent.
+ */
+export async function lastWelcomePacketSentAt(accountId: string): Promise<string | null> {
+  const rows = (await getSql()`
+    SELECT created_at FROM activity_log
+    WHERE entity_type = 'account' AND entity_id = ${accountId} AND detail LIKE 'Welcome packet sent to:%'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `) as { created_at: Date | string }[];
+  const at = rows[0]?.created_at;
+  if (!at) return null;
+  return at instanceof Date ? at.toISOString() : String(at);
 }
 
 // supply_account_modes (migration 027): no row means included. 'customer'
@@ -112,8 +146,16 @@ export function packetDate(now = new Date()): string {
   return now.toLocaleDateString("en-US", { timeZone: "America/New_York", year: "numeric", month: "long", day: "numeric" });
 }
 
-export function packetData(info: WelcomePacketInfo, now = new Date()): WelcomePacketData {
+/**
+ * `origin` is the app's address (from the request). `to` is the address the
+ * packet goes to; the portal line shows the account's saved email, because
+ * that is the one the portal accepts, and `to` only when none is saved.
+ */
+export function packetData(info: WelcomePacketInfo, options: { origin: string; to?: string; now?: Date }): WelcomePacketData {
+  const now = options.now ?? new Date();
   return {
+    portalUrl: `${options.origin}${WELCOME_PORTAL_PATH}`,
+    portalEmail: info.customerEmail || (options.to ?? "").trim(),
     accountName: info.accountName,
     address: info.address,
     contactName: info.contactName,
