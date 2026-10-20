@@ -10,7 +10,7 @@ import GoogleAddressAutocompleteInput, {
 import SubSuggestions from "@/app/components/sub-suggestions";
 import PlusMinus from "@/app/components/plus-minus";
 import FrequencyField from "@/app/components/frequency-field";
-import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
+import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
@@ -664,12 +664,10 @@ export default function NewAccountPage() {
             <FrequencyField
               value={form.frequency}
               onChange={(value) =>
-                // A price per cleaning keeps its price and the monthly pay follows; without one, it is worked out from the pay.
+                // A new Frequency: the monthly pay stays and the price per cleaning is worked out again (lib/frequency.ts).
                 setForm((current) => {
-                  const fromPer = current.subPricePerCleaning ? monthlyPayText(current.subPricePerCleaning, value) : undefined;
-                  return fromPer !== undefined
-                    ? { ...current, frequency: value, monthlySubcontractorPay: fromPer }
-                    : { ...current, frequency: value, subPricePerCleaning: perCleaningText(current.monthlySubcontractorPay, value) };
+                  const next = afterFrequencyChange(value, current.monthlySubcontractorPay, current.subPricePerCleaning);
+                  return { ...current, frequency: value, monthlySubcontractorPay: next.pay, subPricePerCleaning: next.per };
                 })
               }
             />

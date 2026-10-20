@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BigButton, ErrorBox, Field, Sheet, TextAreaField, showToast } from "@/app/ui";
 import FrequencyField from "./frequency-field";
 import CleaningTimeField from "./cleaning-time-field";
-import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
+import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 
 type AccountRecord = Record<string, unknown>;
 
@@ -196,11 +196,10 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
           <FrequencyField
             value={values.frequency}
             onChange={(frequency) =>
+              // A new Frequency: the monthly pay stays and the price per cleaning is worked out again (lib/frequency.ts).
               setValues((current) => {
-                const fromPer = current.perCleaning ? monthlyPayText(current.perCleaning, frequency) : undefined;
-                return fromPer !== undefined && asks("subPay")
-                  ? { ...current, frequency, subPay: fromPer }
-                  : { ...current, frequency, perCleaning: perCleaningText(current.subPay, frequency) || current.perCleaning };
+                const next = afterFrequencyChange(frequency, current.subPay, current.perCleaning);
+                return { ...current, frequency, subPay: next.pay, perCleaning: next.per };
               })
             }
           />
@@ -218,19 +217,20 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
               const perCleaning = event.target.value;
               setValues((current) => {
                 const pay = monthlyPayText(perCleaning, current.frequency);
-                return pay !== undefined && asks("subPay") ? { ...current, perCleaning, subPay: pay } : { ...current, perCleaning };
+                return pay !== undefined ? { ...current, perCleaning, subPay: pay } : { ...current, perCleaning };
               });
             }}
           />
         ) : null}
-        {asks("subPay") ? (
+        {/* Shown together with the price per cleaning, so the two always match on screen. */}
+        {asks("perCleaning") || asks("subPay") ? (
           <Field
             label="Subcontractor pay (monthly)"
             inputMode="decimal"
             value={values.subPay}
             onChange={(event) => {
               const subPay = event.target.value;
-              setValues((current) => ({ ...current, subPay, perCleaning: perCleaningText(subPay, current.frequency) || current.perCleaning }));
+              setValues((current) => ({ ...current, subPay, perCleaning: perCleaningText(subPay, current.frequency) }));
             }}
           />
         ) : null}

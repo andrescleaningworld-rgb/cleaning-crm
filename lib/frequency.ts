@@ -82,10 +82,21 @@ export function matchFrequency(raw: string | undefined | null): FrequencyOption 
 
 const amountOf = (text: string) => Number(String(text ?? "").replace(/[$,\s]/g, ""));
 
-/** For the account forms: the monthly pay text for a typed price per cleaning, or undefined when it cannot be worked out. */
+/** For the account forms: the monthly pay (whole dollars) for a typed price per cleaning, or undefined when it cannot be worked out. */
 export function monthlyPayText(perText: string, frequency: string | undefined | null): string | undefined {
   const pay = monthlyPayFromPerCleaning(amountOf(perText), frequency);
-  return pay === null ? undefined : String(pay);
+  return pay === null ? undefined : String(Math.round(pay));
+}
+
+/**
+ * The forms' answer to a new Frequency: the monthly pay stays and the price
+ * per cleaning is worked out again from it. With no monthly pay yet, a typed
+ * price per cleaning stays and gives the monthly pay instead.
+ */
+export function afterFrequencyChange(frequency: string, payText: string, perText: string): { pay: string; per: string } {
+  if (amountOf(payText) > 0) return { pay: payText, per: perCleaningText(payText, frequency) };
+  if (amountOf(perText) > 0) return { pay: monthlyPayText(perText, frequency) ?? payText, per: perText };
+  return { pay: payText, per: perText };
 }
 
 /** For the account forms: the price per cleaning text for a typed monthly pay, or "" when it cannot be worked out. */

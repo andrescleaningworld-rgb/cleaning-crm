@@ -14,7 +14,7 @@ import SubSuggestions from "@/app/components/sub-suggestions";
 import { cleaningStartMinutes } from "@/lib/cleaningTime";
 import { DEFAULT_START_TIME } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
-import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
+import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 
 type Account = {
   id?: string;
@@ -809,15 +809,11 @@ export default function EditAccountPage() {
             <FrequencyField
               value={formData.frequency || ""}
               onChange={(value) => {
-                // A new Frequency: a price per cleaning keeps its price and the monthly pay follows;
-                // without one, the price per cleaning is worked out again from the monthly pay.
+                // A new Frequency: the monthly pay stays and the price per cleaning is worked out again (lib/frequency.ts).
                 setFormData((current) => {
                   if (!current) return current;
-                  const pay = current.subcontractorPay || current.monthlySubcontractorPay || "";
-                  const fromPer = current.subPricePerCleaning ? monthlyPayText(current.subPricePerCleaning, value) : undefined;
-                  return fromPer !== undefined
-                    ? { ...current, frequency: value, subcontractorPay: fromPer, monthlySubcontractorPay: fromPer }
-                    : { ...current, frequency: value, subPricePerCleaning: perCleaningText(pay, value) };
+                  const next = afterFrequencyChange(value, current.subcontractorPay || current.monthlySubcontractorPay || "", current.subPricePerCleaning || "");
+                  return { ...current, frequency: value, subcontractorPay: next.pay, monthlySubcontractorPay: next.pay, subPricePerCleaning: next.per };
                 });
                 setSavedMessage("");
                 setSaveError("");
