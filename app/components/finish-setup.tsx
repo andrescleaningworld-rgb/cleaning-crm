@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BigButton, ErrorBox, Field, Sheet, TextAreaField, showToast } from "@/app/ui";
 import FrequencyField from "./frequency-field";
+import CleaningTimeField from "./cleaning-time-field";
 import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 
 type AccountRecord = Record<string, unknown>;
@@ -26,6 +27,7 @@ const amount = (value: string) => Number(value.replace(/[$,\s]/g, "")) || 0;
 const SETUP_FIELDS = [
   { key: "frequency", label: "Frequency" },
   { key: "cleaningDays", label: "Cleaning days" },
+  { key: "cleaningTime", label: "Cleaning time" },
   { key: "startDate", label: "Start date" },
   { key: "subPay", label: "Subcontractor pay (monthly)" },
   { key: "perCleaning", label: "Sub price per cleaning" },
@@ -43,6 +45,7 @@ function savedValues(account: AccountRecord | null): Values {
   return {
     frequency: text(account, "frequency"),
     cleaningDays: text(account, "cleaningDays"),
+    cleaningTime: text(account, "cleaningTime"),
     startDate: text(account, "accountStartDate", "startDate"),
     subPay: amount(text(account, "monthlySubcontractorPay", "subcontractorPay")) > 0 ? text(account, "monthlySubcontractorPay", "subcontractorPay") : "",
     perCleaning: text(account, "subPricePerCleaning"),
@@ -54,11 +57,12 @@ function savedValues(account: AccountRecord | null): Values {
   };
 }
 
-/** "6 of 10": how many setup fields the account already has. */
+/** "6 of 11": how many setup fields the account already has. The cleaning time counts once it can be saved (migration 050). */
 export function setupCount(account: AccountRecord | null): { done: number; total: number; missing: SetupKey[] } {
   const saved = savedValues(account);
-  const missing = SETUP_FIELDS.map((field) => field.key).filter((key) => !saved[key]);
-  return { done: SETUP_FIELDS.length - missing.length, total: SETUP_FIELDS.length, missing };
+  const keys = SETUP_FIELDS.map((field) => field.key).filter((key) => key !== "cleaningTime" || text(account, "cleaningTimeReady"));
+  const missing = keys.filter((key) => !saved[key]);
+  return { done: keys.length - missing.length, total: keys.length, missing };
 }
 
 async function loadAccount(accountId: string): Promise<AccountRecord | null> {
@@ -131,6 +135,7 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
     const fields: Record<string, string> = {};
     if (asks("frequency") && values.frequency.trim()) fields.frequency = values.frequency.trim();
     if (asks("cleaningDays") && values.cleaningDays.trim()) fields.cleaningDays = values.cleaningDays.trim();
+    if (asks("cleaningTime") && values.cleaningTime) fields.cleaningTime = values.cleaningTime;
     if (asks("startDate") && values.startDate) fields.startDate = values.startDate;
     if (asks("scopeOfWork") && values.scopeOfWork.trim()) fields.scopeOfWork = values.scopeOfWork.trim();
     if (asks("access") && values.access.trim()) fields.keyAlarmAccessInfo = values.access.trim();
@@ -201,6 +206,7 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
           />
         ) : null}
         {asks("cleaningDays") ? <Field label="Cleaning days" placeholder="Mon, Wed, Fri" value={values.cleaningDays} onChange={(event) => set("cleaningDays", event.target.value)} /> : null}
+        {asks("cleaningTime") ? <CleaningTimeField value={values.cleaningTime} onChange={(value) => set("cleaningTime", value)} /> : null}
         {asks("startDate") ? <Field label="Start date" type="date" value={values.startDate} onChange={(event) => set("startDate", event.target.value)} /> : null}
         {asks("perCleaning") || asks("subPay") ? (
           <Field

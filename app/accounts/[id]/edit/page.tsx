@@ -9,6 +9,7 @@ import GoogleAddressAutocompleteInput, {
 } from "@/app/components/GoogleAddressAutocompleteInput";
 import { payShare } from "@/lib/payShare";
 import FrequencyField from "@/app/components/frequency-field";
+import CleaningTimeField from "@/app/components/cleaning-time-field";
 import { monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 
 type Account = {
@@ -50,6 +51,10 @@ type Account = {
   notesForSub?: string;
   /** The sub's price per cleaning (migration 048). "" = not set. */
   subPricePerCleaning?: string;
+  /** "18:00-21:00" (window) or "19:00" (exact), migration 050. */
+  cleaningTime?: string;
+  /** "true" once migration 050 has run, so the cleaning time can be saved. */
+  cleaningTimeReady?: string;
   checklistNeeded?: string;
 };
 
@@ -786,6 +791,7 @@ export default function EditAccountPage() {
               value={formData.cleaningDays || ""}
               onChange={(event) => updateField("cleaningDays", event.target.value)}
             />
+            {formData.cleaningTimeReady ? <CleaningTimeField value={formData.cleaningTime || ""} onChange={(value) => updateField("cleaningTime", value)} /> : null}
           </div>
         </Card>
 

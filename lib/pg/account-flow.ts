@@ -208,7 +208,8 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
   if (!row) return null;
   const sql = getSql();
   const [accounts, events] = await Promise.all([
-    sql`SELECT address, city, zip, latitude, longitude, cleaning_days, start_date, start_date_raw FROM accounts WHERE id = ${accountId} LIMIT 1`,
+    // cleaning_time (migration 050) through to_jsonb, so this reads the same before 050 has run.
+    sql`SELECT address, city, zip, latitude, longitude, cleaning_days, start_date, start_date_raw, COALESCE(to_jsonb(accounts) ->> 'cleaning_time', '') AS cleaning_time FROM accounts WHERE id = ${accountId} LIMIT 1`,
     sql`SELECT step, action, by_name, note, at FROM account_flow_events WHERE account_id = ${accountId} ORDER BY at ASC, id ASC`,
   ]);
   const account = (accounts as Record<string, unknown>[])[0] ?? {};
@@ -230,6 +231,7 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
     latitude: account.latitude === null || !Number.isFinite(lat) ? null : lat,
     longitude: account.longitude === null || !Number.isFinite(lng) ? null : lng,
     cleaningDays: clean(account.cleaning_days),
+    cleaningTime: clean(account.cleaning_time),
     startDate: day(account.start_date as string | Date | null) || clean(account.start_date_raw),
     events: (events as { step: string; action: FlowEvent["action"]; by_name: string; note: string; at: string | Date }[]).map((event) => ({
       step: isFlowStep(event.step) ? event.step : "packet",

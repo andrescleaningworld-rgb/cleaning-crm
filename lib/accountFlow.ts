@@ -154,6 +154,8 @@ export type FlowDetail = {
   latitude: number | null;
   longitude: number | null;
   cleaningDays: string;
+  /** The account cleaning time (lib/cleaningTime.ts): the offer start time is filled in from it. */
+  cleaningTime: string;
   startDate: string;
   events: FlowEvent[];
 };

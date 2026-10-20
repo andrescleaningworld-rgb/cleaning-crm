@@ -49,6 +49,7 @@ import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from 
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 import { payShare } from "@/lib/payShare";
 import { cleaningsPerMonth, cleaningsPerMonthText, perCleaningFromMonthlyPay } from "@/lib/frequency";
+import { describeCleaningTime } from "@/lib/cleaningTime";
 
 type Account = {
   id?: string;
@@ -82,6 +83,8 @@ type Account = {
   frequency?: string;
   /** The sub's price per cleaning (migration 048). "" = not set. */
   subPricePerCleaning?: string;
+  /** "18:00-21:00" (window) or "19:00" (exact), migration 050. */
+  cleaningTime?: string;
   cleaningDays?: string;
   scope?: string;
   scopeOfWork?: string;
@@ -1287,6 +1290,7 @@ export default function AccountDetailPage() {
                   )}
                   <Detail label="Start Date" value={startDate} />
                   <Detail label="Cleaning Days" value={cleaningDays} />
+                  <Detail label="Cleaning Time" value={describeCleaningTime(account.cleaningTime) || "Not set"} />
                   <Detail label="Frequency" value={cleaningFrequency} />
                   <TimeOnSiteDetail accountId={getAccountId(account, rawAccountIdFromUrl)} />
                   <Detail label="CW Pay" value={formatMoney(account.monthlyRevenue)} />
@@ -1646,6 +1650,7 @@ export default function AccountDetailPage() {
                 <Detail label="Subcontractor" value={subcontractorContactDisplay} />
                 <Detail label="Start Date" value={startDate} />
                 <Detail label="Cleaning Days" value={cleaningDays} />
+                <Detail label="Cleaning Time" value={describeCleaningTime(account.cleaningTime) || "Not set"} />
                 <Detail label="Frequency" value={cleaningFrequency} />
                 <Detail label="Monthly Revenue" value={formatMoney(account.monthlyRevenue)} />
                 <Detail label="Subcontractor Pay" value={`${formatMoney(subcontractorPay)} (${share.subPercent})`} />

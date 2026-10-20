@@ -24,6 +24,7 @@ import {
 import { normalizeSubName, resolveAssignedSubKey } from "@/lib/subAccountMatching";
 import { isCancellationReason, isCancelledStatus } from "@/lib/cancellation";
 import { dateOrNull, timestampOrNull, toISO } from "@/lib/dateUtils";
+import { cleaningTimeText, parseCleaningTime } from "@/lib/cleaningTime";
 
 const SHEET_ORDER = "source_row NULLS LAST, created_at, pk";
 
@@ -231,6 +232,25 @@ function subPricePerCleaningWrite(current: AccountRow, fields: Record<string, un
   const now = value ?? "";
   if (now === had) return { sets: [], before: {}, after: {} };
   return { sets: [["sub_price_per_cleaning", value]], before: { "Sub Price per Cleaning": had }, after: { "Sub Price per Cleaning": now } };
+}
+
+/* ---------- the cleaning time (migration 050; not a sheet column) ---------- */
+
+// "18:00-21:00" (a window) or "19:00" (an exact appointment), "" = not set (lib/cleaningTime.ts).
+function cleaningTimeWrite(current: AccountRow, fields: Record<string, unknown>): { sets: [column: string, value: string][]; before: Record<string, string>; after: Record<string, string> } {
+  if (fields.cleaningTime === undefined) return { sets: [], before: {}, after: {} };
+  const raw = String(fields.cleaningTime ?? "").trim();
+  const parsed = parseCleaningTime(raw);
+  if (raw && !parsed) throw new Error("The cleaning time is not a time.");
+  const value = parsed ? cleaningTimeText(parsed) : "";
+  // Before migration 050 the column is not there: nothing to save unless something was typed.
+  if (!("cleaning_time" in current)) {
+    if (value) throw new Error("The cleaning time cannot be saved until its database update has run. Nothing was saved. Leave the cleaning time empty and save again.");
+    return { sets: [], before: {}, after: {} };
+  }
+  const had = text(current, "cleaning_time");
+  if (value === had) return { sets: [], before: {}, after: {} };
+  return { sets: [["cleaning_time", value]], before: { "Cleaning Time": had }, after: { "Cleaning Time": value } };
 }
 
 /* ---------- typed values kept next to the text ---------- */
@@ -489,9 +509,12 @@ export async function updateAccountFieldsDirect(
   const subPrice = subPricePerCleaningWrite(current, resolvedFields);
   Object.assign(before, subPrice.before);
   Object.assign(after, subPrice.after);
+  const cleaningTime = cleaningTimeWrite(current, resolvedFields);
+  Object.assign(before, cleaningTime.before);
+  Object.assign(after, cleaningTime.after);
 
   const { assignments, params } = writes.length > 0 ? await buildAccountWrite(current, writes) : { assignments: [] as string[], params: [] as unknown[] };
-  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets, ...subPrice.sets]) {
+  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets, ...subPrice.sets, ...cleaningTime.sets]) {
     params.push(value);
     assignments.push(`${column} = $${params.length}`);
   }
@@ -730,6 +753,9 @@ function toAppsScriptAccount(row: AccountRow, action: AppsScriptAccountsAction):
           cancellationReason: text(row, "cancellation_reason"),
           // Migration 048, staff list only. "" = not set (or before 048 runs).
           subPricePerCleaning: row.sub_price_per_cleaning == null ? "" : Number(row.sub_price_per_cleaning).toFixed(2),
+          // Migration 050. cleaningTimeReady: the field can be saved here (false until 050 runs).
+          cleaningTime: text(row, "cleaning_time"),
+          cleaningTimeReady: "cleaning_time" in row ? "true" : "",
         }
       : {}),
     accountHealth: held(row, 19),

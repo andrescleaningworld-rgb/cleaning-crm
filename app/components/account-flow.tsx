@@ -23,6 +23,7 @@ import PlusMinus from "./plus-minus";
 import SubSuggestions, { suggestionDays } from "./sub-suggestions";
 import { FLOW_STEPS, type FlowDetail, type FlowEvent } from "@/lib/accountFlow";
 import { DEFAULT_START_TIME, formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
+import { cleaningStartMinutes, describeCleaningTime } from "@/lib/cleaningTime";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
 /** "Mon, Wed, Fri at 7:00 pm, about 1h 30m" — the offer as the sub reads it. */
@@ -302,7 +303,8 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
   const [subId, setSubId] = useState("");
   const [subLabel, setSubLabel] = useState("");
   const [days, setDays] = useState(flow.cleaningDays);
-  const [start, setStart] = useState(DEFAULT_START_TIME);
+  // The start time comes from the account's cleaning time (the window's start, or the appointment).
+  const [start, setStart] = useState(cleaningStartMinutes(flow.cleaningTime) ?? DEFAULT_START_TIME);
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -314,6 +316,8 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
     setError("");
     setPreview(null);
     setDays((current) => current || flow.cleaningDays);
+    const fromAccount = cleaningStartMinutes(flow.cleaningTime);
+    if (fromAccount !== null) setStart(fromAccount);
     fetch("/api/subcontractors", { cache: "no-store" })
       .then((response) => response.json())
       .then((data: { subcontractors?: Record<string, unknown>[]; subs?: Record<string, unknown>[]; data?: Record<string, unknown>[] }) => {
@@ -331,7 +335,7 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
         );
       })
       .catch(() => setSubs([]));
-  }, [open, flow.cleaningDays]);
+  }, [open, flow.cleaningDays, flow.cleaningTime]);
 
   const daysText = days.trim() || suggestionDays("").map((day) => day.slice(0, 3)).join(", ");
 
@@ -440,6 +444,7 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
         <div className="flex flex-wrap gap-x-8 gap-y-3">
           <div>
             <p className="ui-label">Time</p>
+            {flow.cleaningTime ? <p className="ui-muted">Account: {describeCleaningTime(flow.cleaningTime)}</p> : null}
             <PlusMinus value={start} onChange={setStart} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time" format={formatClock} />
           </div>
           <div>
