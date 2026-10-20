@@ -7,6 +7,7 @@ import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, show
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
+import { payShare } from "@/lib/payShare";
 
 type Account = {
   id?: string;
@@ -609,14 +610,12 @@ export default function EditAccountPage() {
         <div className="ui-stat">
           <p className="ui-stat-label">Subcontractor Pay</p>
           <p className="ui-stat-value">{formatCurrency(formData.subcontractorPay || formData.monthlySubcontractorPay)}</p>
+          <p className="ui-muted">({payShare(moneyToNumber(formData.monthlyRevenue), moneyToNumber(formData.subcontractorPay || formData.monthlySubcontractorPay)).subPercent})</p>
         </div>
         <div className="ui-stat">
-          <p className="ui-stat-label">Gross Margin</p>
+          <p className="ui-stat-label">We keep (Gross Margin)</p>
           <p className="ui-stat-value">{formatCurrency(String(grossMargin))}</p>
-        </div>
-        <div className="ui-stat">
-          <p className="ui-stat-label">Gross Margin %</p>
-          <p className="ui-stat-value">{grossMarginPercent.toFixed(1)}%</p>
+          <p className="ui-muted">({payShare(moneyToNumber(formData.monthlyRevenue), moneyToNumber(formData.subcontractorPay || formData.monthlySubcontractorPay)).keepPercent})</p>
         </div>
       </div>
 

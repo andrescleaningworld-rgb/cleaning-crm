@@ -18,6 +18,7 @@ import {
   type SectionKey as OverviewSectionKey,
 } from "@/lib/overviewHealth";
 import MonthBars, { type MonthValue } from "./month-bars";
+import { shareOfRevenue } from "@/lib/payShare";
 import styles from "./overview.module.css";
 
 type AnyRow = Record<string, unknown>;
@@ -1048,7 +1049,7 @@ export default function DashboardPage() {
                     <p className={styles.cardWord}>Paid to subs</p>
                     <p className={styles.realTerm}>Subcontractor pay</p>
                     <p className={styles.cardNumber}>{moneyValue(dashboard.monthlySubcontractorPay)}</p>
-                    <p className={styles.cardLine}>every month</p>
+                    <p className={styles.cardLine}>every month, {shareOfRevenue(dashboard.monthlySubcontractorPay, dashboard.monthlyRevenue)} of the money in</p>
                   </div>
                   <div className={styles.card}>
                     <p className={styles.cardWord}>We keep</p>

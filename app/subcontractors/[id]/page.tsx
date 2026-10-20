@@ -30,6 +30,7 @@ import {
 } from "@/lib/subAccountMatching";
 import InviteToPortal from "./invite-to-portal";
 import CrewsDetail from "./crews";
+import { shareOfRevenue } from "@/lib/payShare";
 
 type AnyRow = Record<string, unknown>;
 
@@ -380,13 +381,6 @@ function getGrossMargin(account: AnyRow) {
   return getMonthlyRevenue(account) - getMonthlySubPay(account);
 }
 
-function getGrossMarginPercent(account: AnyRow) {
-  const revenue = getMonthlyRevenue(account);
-
-  if (!revenue) return 0;
-
-  return (getGrossMargin(account) / revenue) * 100;
-}
 
 function getAccountHealth(account: AnyRow) {
   return getAnyValue(account, [
@@ -924,9 +918,8 @@ export default function SubcontractorDetailPage() {
           <StatCard label="Active Accounts" value={String(currentAccounts.length)} />
           <StatCard label="Past Accounts" value={String(pastAccounts.length)} />
           <StatCard label="Monthly Revenue" value={money(totals.activeRevenue)} />
-          <StatCard label="Monthly Sub Pay" value={money(totals.activeSubPay)} />
-          <StatCard label="Gross Margin" value={money(totals.grossMargin)} />
-          <StatCard label="Gross Margin %" value={`${totals.grossMarginPercent.toFixed(1)}%`} />
+          <StatCard label="Monthly Sub Pay" value={`${money(totals.activeSubPay)} (${shareOfRevenue(totals.activeSubPay, totals.activeRevenue)})`} />
+          <StatCard label="We keep (Gross Margin)" value={`${money(totals.grossMargin)} (${shareOfRevenue(totals.grossMargin, totals.activeRevenue)})`} />
           <StatCard label="Open Complaints" value={String(openComplaints.length)} />
           <StatCard label="Valid Complaints" value={String(validComplaints.length)} />
         </div>
@@ -1149,7 +1142,9 @@ function AccountsList({
       cell: (account) => (
         <>
           <p className="ui-muted ui-nowrap">{money(getMonthlyRevenue(account))}</p>
-          <p className="ui-muted ui-nowrap">{money(getMonthlySubPay(account))}</p>
+          <p className="ui-muted ui-nowrap">
+            {money(getMonthlySubPay(account))} ({shareOfRevenue(getMonthlySubPay(account), getMonthlyRevenue(account))})
+          </p>
         </>
       ),
     },
@@ -1158,7 +1153,7 @@ function AccountsList({
       cell: (account) => (
         <>
           <p className="ui-muted ui-nowrap">{money(getGrossMargin(account))}</p>
-          <p className="ui-muted ui-nowrap">{getGrossMarginPercent(account).toFixed(1)}%</p>
+          <p className="ui-muted ui-nowrap">{shareOfRevenue(getGrossMargin(account), getMonthlyRevenue(account))}</p>
         </>
       ),
     },
@@ -1171,7 +1166,8 @@ function AccountsList({
     <Card title={title}>
       <p className="ui-card-text">{description}</p>
       <p className="ui-strong" style={{ marginTop: 8 }}>
-        Revenue: {money(revenueTotal)} | Sub Pay: {money(subPayTotal)} | Margin: {money(revenueTotal - subPayTotal)}
+        Revenue: {money(revenueTotal)} | Sub Pay: {money(subPayTotal)} ({shareOfRevenue(subPayTotal, revenueTotal)}) | We keep:{" "}
+        {money(revenueTotal - subPayTotal)} ({shareOfRevenue(revenueTotal - subPayTotal, revenueTotal)})
       </p>
       <div style={{ marginTop: 12 }}>
         {accounts.length === 0 ? (
@@ -1190,10 +1186,11 @@ function AccountsList({
                 </p>
                 <p className="ui-card-text">Schedule: {schedule(account)}</p>
                 <p className="ui-card-text">
-                  Revenue {money(getMonthlyRevenue(account))} · Sub Pay {money(getMonthlySubPay(account))}
+                  Revenue {money(getMonthlyRevenue(account))} · Sub Pay {money(getMonthlySubPay(account))} (
+                  {shareOfRevenue(getMonthlySubPay(account), getMonthlyRevenue(account))})
                 </p>
                 <p className="ui-card-text">
-                  Margin {money(getGrossMargin(account))} · GM {getGrossMarginPercent(account).toFixed(1)}%
+                  We keep {money(getGrossMargin(account))} ({shareOfRevenue(getGrossMargin(account), getMonthlyRevenue(account))})
                 </p>
                 <p className="ui-card-text">Health: {getAccountHealth(account) || "Not set"}</p>
                 {showCancelledDate ? <p className="ui-card-text">Notes: {getAccountNotes(account) || "None"}</p> : null}

@@ -271,6 +271,10 @@ export type AccountPacketAdminData = {
   monthlyRevenue: string;
   estGrossMargin: string;
   estGrossMarginPercent: string;
+  /** "67%": Monthly Pay as a share of Monthly Revenue (lib/payShare.ts), "—" with no revenue. */
+  subPayShare: string;
+  /** "33%": what we keep as a share of Monthly Revenue, "—" with no revenue. */
+  keepShare: string;
   subcontractorCompany: string;
   notes: string;
 };
@@ -284,9 +288,7 @@ function getLogoBuffer(): Buffer {
 }
 
 export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
-  const grossMarginDisplay = data.estGrossMarginPercent
-    ? `${data.estGrossMargin} (${data.estGrossMarginPercent}%)`
-    : data.estGrossMargin;
+  const grossMarginDisplay = `${data.estGrossMargin} (${data.keepShare})`;
 
   return (
     <Document title={`New Account Packet (Admin) - ${data.accountName}`}>
@@ -355,7 +357,7 @@ export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
           <Section title="Team Leader Assignment">
             <View style={styles.fieldGrid}>
               <Field label="Team Leader Name" value={data.teamLeaderName} />
-              <Field label="Monthly Pay" value={data.monthlyPay} />
+              <Field label="Monthly Pay" value={`${data.monthlyPay} (${data.subPayShare})`} />
             </View>
           </Section>
 

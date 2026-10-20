@@ -4,6 +4,7 @@ import { fetchAppsScript } from "@/lib/appsScriptFetch";
 import { getSubcontractorsAppsScriptShape, subsOnPostgres } from "@/lib/data/subs";
 import { fetchAccountsForAction, AccountsFetchError } from "@/app/api/accounts/route";
 import { renderAccountPacketAdminPdf } from "@/lib/pdf/account-packet-admin";
+import { payShare } from "@/lib/payShare";
 
 // Admin-only, same reasoning as app/api/accounts/[id]/pdf/route.ts (the
 // Team Leader variant): this path isn't in proxy.ts's PUBLIC_PATHS,
@@ -246,6 +247,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       ? formatMoneyNumber(computedGrossMargin)
       : cleanText(account.grossMargin) || "N/A";
     const estGrossMarginPercent = cleanText(account.grossMarginPercent).replace(/%$/, "");
+    const share = payShare(monthlyRevenueNumber, subcontractorPayNumber);
     const subcontractorCompany = findSubcontractorCompany(cleanText(account.subcontractor), subs);
     const notes = cleanText(account.notes);
 
@@ -273,6 +275,8 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       monthlyRevenue,
       estGrossMargin,
       estGrossMarginPercent,
+      subPayShare: share.subPercent,
+      keepShare: share.keepPercent,
       subcontractorCompany,
       notes,
     });

@@ -47,6 +47,7 @@ import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
+import { payShare } from "@/lib/payShare";
 
 type Account = {
   id?: string;
@@ -522,6 +523,8 @@ export default function AccountDetailPage() {
     account?.subcontractorPay || account?.monthlySubcontractorPay
   );
   const estimatedGrossMargin = monthlyRevenueNumber - subcontractorPayNumber;
+  // The sub's share and what we keep, as % of monthly revenue (staff only).
+  const share = payShare(monthlyRevenueNumber, subcontractorPayNumber);
 
   const accountNameForUrl = encodeURIComponent(account?.accountName || "");
   const accountIdForUrl = encodeURIComponent(
@@ -1291,7 +1294,8 @@ export default function AccountDetailPage() {
                   <Detail label="Frequency" value={cleaningFrequency} />
                   <TimeOnSiteDetail accountId={getAccountId(account, rawAccountIdFromUrl)} />
                   <Detail label="CW Pay" value={formatMoney(account.monthlyRevenue)} />
-                  <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
+                  <Detail label="Subcontractor Pay" value={`${formatMoney(subcontractorPay)} (${share.subPercent})`} />
+                  <Detail label="We keep" value={`${formatCalculatedMoney(share.keep)} (${share.keepPercent})`} />
                   <Detail label="Has Key" value={account.hasKey || "N/A"} />
                   <Detail label="Alarm Info" value={alarmInfo || "N/A"} />
                   <Detail label="Address" value={addressLink} full />
@@ -1520,11 +1524,12 @@ export default function AccountDetailPage() {
                   <div className="ui-stat">
                     <p className="ui-stat-label">Sub Pay</p>
                     <p className="ui-stat-value">{formatMoney(subcontractorPay)}</p>
+                    <p className="ui-muted">({share.subPercent})</p>
                   </div>
                   <div className="ui-stat">
                     <p className="ui-stat-label">Est. Gross Margin</p>
                     <p className="ui-stat-value">{grossMarginText}</p>
-                    {account.grossMarginPercent ? <p className="ui-muted">({account.grossMarginPercent.replace(/%$/, "")}%)</p> : null}
+                    <p className="ui-muted">({share.keepPercent})</p>
                   </div>
                 </div>
               </Card>
@@ -1646,8 +1651,8 @@ export default function AccountDetailPage() {
                 <Detail label="Cleaning Days" value={cleaningDays} />
                 <Detail label="Frequency" value={cleaningFrequency} />
                 <Detail label="Monthly Revenue" value={formatMoney(account.monthlyRevenue)} />
-                <Detail label="Subcontractor Pay" value={formatMoney(subcontractorPay)} />
-                <Detail label="Estimated Gross Margin" value={grossMarginText} />
+                <Detail label="Subcontractor Pay" value={`${formatMoney(subcontractorPay)} (${share.subPercent})`} />
+                <Detail label="Estimated Gross Margin" value={`${grossMarginText} (${share.keepPercent})`} />
                 <Detail label="Has Key" value={account.hasKey || "N/A"} />
                 <Detail label="Alarm Info" value={alarmInfo || "N/A"} full />
                 <Detail label="Scope / Special Instructions" value={account.scope || "N/A"} full />

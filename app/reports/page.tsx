@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import AccountLink from "../components/AccountLink";
+import { shareOfRevenue } from "@/lib/payShare";
 
 type AnyRow = Record<string, unknown>;
 
@@ -331,12 +332,6 @@ function getGrossMargin(row: AnyRow) {
   const revenue = getMonthlyRevenue(row);
   const subPay = getMonthlySubPay(row);
   return revenue - subPay;
-}
-
-function getGrossMarginPercent(row: AnyRow) {
-  const revenue = getMonthlyRevenue(row);
-  if (!revenue) return 0;
-  return (getGrossMargin(row) / revenue) * 100;
 }
 
 function getSaleDate(row: AnyRow) {
@@ -1471,13 +1466,13 @@ export default function ReportsPage() {
                   <SummaryCard
                     label="Active Monthly Revenue"
                     value={money(totals.activeRevenue)}
-                    note={`Sub pay: ${money(totals.activeSubPay)}`}
+                    note={`Sub pay: ${money(totals.activeSubPay)} (${shareOfRevenue(totals.activeSubPay, totals.activeRevenue)})`}
                   />
 
                   <SummaryCard
                     label="Active Gross Margin"
-                    value={money(totals.activeGrossMargin)}
-                    note="Revenue minus sub pay"
+                    value={`${money(totals.activeGrossMargin)} (${shareOfRevenue(totals.activeGrossMargin, totals.activeRevenue)})`}
+                    note="We keep: revenue minus sub pay"
                   />
 
                   <SummaryCard
@@ -1631,13 +1626,13 @@ export default function ReportsPage() {
                             {money(getMonthlyRevenue(account))}
                           </td>
                           <td className="px-4 py-3">
-                            {money(getMonthlySubPay(account))}
+                            {money(getMonthlySubPay(account))} ({shareOfRevenue(getMonthlySubPay(account), getMonthlyRevenue(account))})
                           </td>
                           <td className="px-4 py-3">
-                            {money(getGrossMargin(account))}
+                            {money(getGrossMargin(account))} ({shareOfRevenue(getGrossMargin(account), getMonthlyRevenue(account))})
                           </td>
                           <td className="px-4 py-3">
-                            {getGrossMarginPercent(account).toFixed(1)}%
+                            {shareOfRevenue(getGrossMargin(account), getMonthlyRevenue(account))}
                           </td>
                           <td className="px-4 py-3">
                             {getStatus(account) || "-"}
@@ -1713,10 +1708,10 @@ export default function ReportsPage() {
                             {money(getMonthlyRevenue(account))}
                           </td>
                           <td className="px-4 py-3">
-                            {money(getMonthlySubPay(account))}
+                            {money(getMonthlySubPay(account))} ({shareOfRevenue(getMonthlySubPay(account), getMonthlyRevenue(account))})
                           </td>
                           <td className="px-4 py-3">
-                            {money(getGrossMargin(account))}
+                            {money(getGrossMargin(account))} ({shareOfRevenue(getGrossMargin(account), getMonthlyRevenue(account))})
                           </td>
                           <td className="px-4 py-3">
                             {getStatus(account) || "-"}

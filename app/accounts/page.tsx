@@ -37,6 +37,7 @@ import CancellationFields from "../components/CancellationFields";
 import AccountLink from "../components/AccountLink";
 import PrintAccounts, { type PrintRow } from "./print-accounts";
 import { cancellationNote, cancellationProblem } from "@/lib/cancellation";
+import { shareOfRevenue } from "@/lib/payShare";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1278,8 +1279,8 @@ export default function AccountsPage() {
         frequency: normalizeText(account.cleaningDays) || account._frequencyText || "",
         status: normalizeText(account.status),
         price: formatMoney(account.monthlyRevenue),
-        subPay: formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay),
-        margin: (account._monthlyRevenueNum ?? 0) > 0 ? `${formatMoney(account._grossMarginNum)} (${account._grossMarginPercent ?? 0}%)` : "",
+        subPay: `${formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)} (${shareOfRevenue(account._subPayNum ?? 0, account._monthlyRevenueNum ?? 0)})`,
+        margin: `${formatMoney(account._grossMarginNum ?? 0)} (${shareOfRevenue(account._grossMarginNum ?? 0, account._monthlyRevenueNum ?? 0)})`,
         startDate: formatDate(account.accountStartDate),
         contact: normalizeText(account.contactName),
         phone: normalizeText(account.phone),
@@ -1338,9 +1339,6 @@ export default function AccountsPage() {
     () => filteredAccounts.reduce((sum, a) => sum + ((a._grossMarginNum ?? 0)), 0),
     [filteredAccounts]
   );
-  const filteredMarginPercent = filteredRevenue > 0
-    ? Math.round((filteredGrossMargin / filteredRevenue) * 100)
-    : 0;
 
   const activeSubcontractors = useMemo(() => {
     return allSubcontractors
@@ -2061,7 +2059,7 @@ async function handleSaveTransferProposal() {
             </div>
             <div class="pay">
               <span>Sub Pay</span>
-              <strong>${formatMoney(subPay)}</strong>
+              <strong>${formatMoney(subPay)} (${shareOfRevenue(subPay, moneyToNumber(account.monthlyRevenue))})</strong>
             </div>
           </div>
 
@@ -2071,6 +2069,7 @@ async function handleSaveTransferProposal() {
             <p><strong>Frequency:</strong> ${escapeHtml(normalizeText(account.frequency) || "N/A")}</p>
             <p><strong>Keys / Alarm:</strong> ${escapeHtml(getKeysAlarmRequired(account))}</p>
             <p><strong>Monthly Revenue:</strong> ${formatMoney(account.monthlyRevenue)}</p>
+            <p><strong>We keep:</strong> ${formatMoney(moneyToNumber(account.monthlyRevenue) - subPay)} (${shareOfRevenue(moneyToNumber(account.monthlyRevenue) - subPay, moneyToNumber(account.monthlyRevenue))})</p>
             <p><strong>Account Health:</strong> ${escapeHtml(account.accountHealth || "N/A")}</p>
           </div>
 
@@ -2246,7 +2245,12 @@ async function handleSaveTransferProposal() {
 
           <div class="summary-box">
             <span>Total Sub Pay</span>
-            <strong>${formatMoney(totalSubPay)}</strong>
+            <strong>${formatMoney(totalSubPay)} (${shareOfRevenue(totalSubPay, totalRevenue)})</strong>
+          </div>
+
+          <div class="summary-box">
+            <span>We keep</span>
+            <strong>${formatMoney(totalRevenue - totalSubPay)} (${shareOfRevenue(totalRevenue - totalSubPay, totalRevenue)})</strong>
           </div>
         </div>
 
@@ -3226,12 +3230,12 @@ async function handleSaveTransferProposal() {
           <div className="ui-stat">
             <p className="ui-stat-label">Sub Pay In Current View</p>
             <p className="ui-stat-value">{money0(filteredSubPay)}</p>
-            <p className="ui-muted">Total subcontractor pay for the filtered accounts.</p>
+            <p className="ui-muted">{shareOfRevenue(filteredSubPay, filteredRevenue)} of revenue · total subcontractor pay for the filtered accounts.</p>
           </div>
           <div className="ui-stat">
-            <p className="ui-stat-label">Gross Margin In Current View</p>
+            <p className="ui-stat-label">We keep (Gross Margin) In Current View</p>
             <p className="ui-stat-value">{money0(filteredGrossMargin)}</p>
-            <p className="ui-muted">{filteredMarginPercent}% of revenue</p>
+            <p className="ui-muted">{shareOfRevenue(filteredGrossMargin, filteredRevenue)} of revenue</p>
           </div>
         </div>
       ) : null}
@@ -3569,10 +3573,12 @@ function AccountMoneyBlock({ account }: { account: Account }) {
           ({(account._monthlyRevenueNum ?? 0) > 0 && (account._revenuePercent ?? 0) < 0.1 ? "under 0.1" : account._revenuePercent ?? 0}% of total)
         </span>
       </p>
-      <p className="ui-muted ui-nowrap">Sub pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)}</p>
       <p className="ui-muted ui-nowrap">
-        Margin: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} (
-        {account._grossMarginPercent ?? 0}%)
+        Sub pay: {formatMoney(account.monthlySubcontractorPay ?? account.subcontractorPay)} ({shareOfRevenue(account._subPayNum ?? 0, account._monthlyRevenueNum ?? 0)})
+      </p>
+      <p className="ui-muted ui-nowrap">
+        We keep: {(account._grossMarginNum ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} (
+        {shareOfRevenue(account._grossMarginNum ?? 0, account._monthlyRevenueNum ?? 0)})
       </p>
       {normalizeText(account._frequencyText) ? <p className="ui-muted">{account._frequencyText}</p> : null}
     </div>
