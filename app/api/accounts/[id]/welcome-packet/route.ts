@@ -2,7 +2,8 @@
 // through to proxy.ts's default admin gate, like the account PDF route).
 //
 // GET: the preview — who it goes to, and the packet exactly as the email
-// will show it, plus anything that blocks the send.
+// will show it, plus anything that blocks the send, and when it was last sent.
+// GET ?summary=1: only when it was last sent (the account page's button).
 // POST { to }: sends it. The HTML email and a PDF of the same packet
 // (lib/welcomePacket.ts + lib/pdf/welcome-packet.tsx), CC the office, replies
 // go to the account manager. Then it is written on the account's History and
@@ -15,7 +16,7 @@ import { sendHtmlEmail } from "@/lib/email";
 import { WELCOME_PACKET_ITEM } from "@/lib/onboardingChecklist";
 import { renderWelcomePacketPdf } from "@/lib/pdf/welcome-packet";
 import { syncAccountStep } from "@/lib/pg/handoffs";
-import { emailProblem, loadWelcomePacketInfo, managerProblem, packetData, welcomePacketProblems, type WelcomePacketInfo } from "@/lib/pg/welcome-packet";
+import { emailProblem, lastWelcomePacketSentAt, loadWelcomePacketInfo, managerProblem, packetData, welcomePacketProblems, type WelcomePacketInfo } from "@/lib/pg/welcome-packet";
 import { welcomePacketHtml, welcomePacketText, welcomePdfFilename, welcomeSubject } from "@/lib/welcomePacket";
 
 export const maxDuration = 45;
@@ -39,12 +40,18 @@ async function load(context: RouteContext): Promise<WelcomePacketInfo | NextResp
   return info;
 }
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const info = await load(context);
     if (info instanceof NextResponse) return info;
-    const data = packetData(info);
+    const lastSentAt = await lastWelcomePacketSentAt(info.accountId);
+    if (request.nextUrl.searchParams.get("summary") === "1") {
+      return NextResponse.json({ success: true, lastSentAt });
+    }
+    const data = packetData(info, { origin: request.nextUrl.origin });
     return NextResponse.json({
+      lastSentAt,
+      portalAccessOn: info.portalAccessOn,
       success: true,
       to: info.customerEmail,
       cc: OFFICE_CC,
@@ -73,7 +80,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (problems.length) return NextResponse.json({ success: false, error: problems.join(" "), problems }, { status: 400 });
 
     const now = new Date();
-    const data = packetData(info, now);
+    const data = packetData(info, { origin: request.nextUrl.origin, to, now });
     const pdf = await renderWelcomePacketPdf(data);
     const replyTo = replyToOf(info);
 
@@ -120,7 +127,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       console.error("[welcome-packet] checklist tick failed:", err instanceof Error ? err.message : err);
     }
 
-    return NextResponse.json({ success: true, sentTo: to, cc: OFFICE_CC, replyTo, sentDate: data.sentDate, checklistTicked });
+    return NextResponse.json({ success: true, sentTo: to, cc: OFFICE_CC, replyTo, sentDate: data.sentDate, sentAt: now.toISOString(), checklistTicked });
   } catch (error) {
     console.error("[accounts/[id]/welcome-packet POST]", error);
     return NextResponse.json(
