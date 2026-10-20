@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BigButton,
   Card,
-  ConfirmSheet,
   ErrorBox,
-  Field,
   Screen,
   SelectField,
   Sheet,
@@ -326,14 +324,6 @@ export default function AccountDetailPage() {
   // Customer portal invite ("Set your password" email): what the server answered, shown in a sheet.
   const [sendingPortalInvite, setSendingPortalInvite] = useState(false);
   const [portalInvite, setPortalInvite] = useState<{ ok: boolean; message: string; devLink?: string } | null>(null);
-  // "Customer email": the email the customer logs in to the portal with.
-  const [emailDraft, setEmailDraft] = useState<string | null>(null);
-  const [savingEmail, setSavingEmail] = useState(false);
-  const [emailError, setEmailError] = useState("");
-  // "This changes who can log in to the customer portal": asked before the email of an account with portal access is changed.
-  const [emailPortalAsk, setEmailPortalAsk] = useState(false);
-  // Goes up after the email is saved here, so the Contacts card reads the main contact again.
-  const [contactsVersion, setContactsVersion] = useState(0);
   // The customer Welcome Packet sheet. The version goes up after a send, so the checklist and History read again.
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
   const [welcomeVersion, setWelcomeVersion] = useState(0);
@@ -647,35 +637,6 @@ export default function AccountDetailPage() {
     matchedSubcontractor.companyName !== subcontractorContactDisplay
       ? matchedSubcontractor.companyName
       : "";
-
-  async function handleSaveCustomerEmail(confirmed = false) {
-    if (emailDraft === null || savingEmail) return;
-    // The account's email is its customer portal login: with portal access on, a different email needs a yes first.
-    const emailNow = contactEmail === "N/A" ? "" : contactEmail.trim().toLowerCase();
-    if (!confirmed && portalAccess === "YES" && emailDraft.trim().toLowerCase() !== emailNow) {
-      setEmailPortalAsk(true);
-      return;
-    }
-    setEmailPortalAsk(false);
-    setSavingEmail(true);
-    setEmailError("");
-    try {
-      const res = await fetch("/api/admin/account-emails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: decodeURIComponent(accountIdForUrl), email: emailDraft.trim() }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { success?: boolean; email?: string; error?: string };
-      if (!res.ok || !data.success) throw new Error(data.error || "Failed to save the email.");
-      setAccount((current) => (current ? { ...current, email: data.email ?? "" } : current));
-      setEmailDraft(null);
-      setContactsVersion((version) => version + 1);
-    } catch (err) {
-      setEmailError(err instanceof Error ? err.message : "Failed to save the email.");
-    } finally {
-      setSavingEmail(false);
-    }
-  }
 
   async function handleSendPortalInvite() {
     if (sendingPortalInvite) return;
@@ -1404,43 +1365,6 @@ export default function AccountDetailPage() {
               </BigButton>
             </Sheet>
 
-            <ConfirmSheet
-              open={emailPortalAsk}
-              title="This changes who can log in to the customer portal."
-              text={`${accountName} has customer portal access. The account's email is its login, so after this change a different email (or none) can log in.`}
-              confirmLabel="Yes, change it"
-              busy={savingEmail}
-              busyLabel="Saving…"
-              onConfirm={() => void handleSaveCustomerEmail(true)}
-              onCancel={() => setEmailPortalAsk(false)}
-            />
-
-            <Sheet
-              open={emailDraft !== null}
-              title="Customer email"
-              text="The customer logs in to the portal with this email."
-              onClose={() => setEmailDraft(null)}
-              busy={savingEmail}
-              actions={
-                <BigButton busy={savingEmail} busyLabel="Saving…" onClick={() => void handleSaveCustomerEmail()}>
-                  Save email
-                </BigButton>
-              }
-            >
-              <Field
-                label="Customer email"
-                optional
-                type="email"
-                inputMode="email"
-                autoComplete="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={emailDraft ?? ""}
-                onChange={(event) => setEmailDraft(event.target.value)}
-                placeholder="name@example.com"
-                error={emailError || undefined}
-              />
-            </Sheet>
             <Sheet
               open={portalInvite !== null}
               title={portalInvite?.ok ? "Portal invite" : "Portal invite not sent"}
@@ -1487,15 +1411,6 @@ export default function AccountDetailPage() {
                 >
                   {`Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
                 </BigButton>
-                <BigButton
-                  kind="second"
-                  onClick={() => {
-                    setEmailError("");
-                    setEmailDraft(contactEmail === "N/A" ? "" : contactEmail);
-                  }}
-                >
-                  Customer email
-                </BigButton>
                 <BigButton kind="second" busy={sendingPortalInvite} busyLabel="Sending portal invite…" onClick={() => void handleSendPortalInvite()}>
                   Send portal invite
                 </BigButton>
@@ -1508,9 +1423,13 @@ export default function AccountDetailPage() {
                 <PhotosLink accountId={thisAccountId} accountName={accountName} />
                 <SupplyMode accountId={thisAccountId} accountName={accountName} />
                 <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
-                <BigButton kind="danger" onClick={() => setShowDeleteAccount(true)}>
+              </div>
+
+              {/* Last, on its own row and normal size: red words and outline, never a big red block. */}
+              <div className="account-detail-print-hide" style={{ marginTop: 16 }}>
+                <button type="button" className="ui-btn ui-btn-delete" onClick={() => setShowDeleteAccount(true)}>
                   Delete account
-                </BigButton>
+                </button>
               </div>
 
               {/* What is at this site, + Add delivery, a corrected count, and its history. */}
@@ -1536,7 +1455,7 @@ export default function AccountDetailPage() {
               </Card>
 
             {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
-            <AccountContacts key={contactsVersion} accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />
+            <AccountContacts accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />
 
             <Card title="Notes">
               <p className="ui-card-text">Internal account notes.</p>

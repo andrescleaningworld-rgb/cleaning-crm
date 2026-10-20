@@ -679,6 +679,17 @@ img {
   color: var(--ui-brand-ink);
 }
 
+/* A destructive action that should not shout (Delete account): normal size, red words and outline. */
+.ui-btn-delete {
+  background: var(--ui-surface, #fff);
+  color: var(--ui-bad);
+  border: 2px solid var(--ui-bad);
+}
+
+.ui-btn-delete:hover:not(:disabled) {
+  background: #fce7e5;
+}
+
 .ui-btn-quiet:hover:not(:disabled) {
   background: var(--ui-surface-2);
 }
