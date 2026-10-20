@@ -5,6 +5,7 @@
 // other email. Server only.
 
 import { sendHtmlEmail } from "@/lib/email";
+import type { EmailLogMeta } from "@/lib/pg/email-log";
 import { INVITE_LANGUAGES, subInviteText } from "@/lib/subPortalInvite";
 
 // Same logo and sender name as the transfer proposal email (lib/pg/sub-transfers.ts).
@@ -54,12 +55,13 @@ export function subInviteHtml(url: string, email: string, subName: string): stri
 }
 
 /** Sends the invite to `email`. False when no email provider is set up here (as sendHtmlEmail). */
-export async function sendSubInviteEmail(input: { email: string; url: string; subName: string }): Promise<boolean> {
+export async function sendSubInviteEmail(input: { email: string; url: string; subName: string; log?: EmailLogMeta }): Promise<boolean> {
   return sendHtmlEmail({
     to: [input.email],
     subject: "Your Cleaning World Sub Portal / Tu portal / Seu portal",
     text: subInviteText(input.url, input.email),
     html: subInviteHtml(input.url, input.email, input.subName),
     fromName: SENDER_NAME,
+    log: input.log,
   });
 }

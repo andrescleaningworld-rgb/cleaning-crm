@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     const url = passwordLinkUrl(new URL(request.url).origin, link.token);
     const mail = passwordLinkEmail("set", url);
-    const sent = await sendCustomerEmail(link.email, mail.subject, mail.lines).catch(() => false);
+    const sent = await sendCustomerEmail(link.email, mail.subject, mail.lines, { type: "Customer portal invite", accountId, sentBy: actor?.name || "Someone" }).catch(() => false);
     return NextResponse.json({
       success: true,
       message: sent ? "Invite sent." : "The invite could not be emailed.",

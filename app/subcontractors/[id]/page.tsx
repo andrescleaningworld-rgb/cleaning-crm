@@ -31,6 +31,7 @@ import {
 import InviteToPortal from "./invite-to-portal";
 import CrewsDetail from "./crews";
 import { shareOfRevenue } from "@/lib/payShare";
+import EmailLogList from "@/app/components/email-log-list";
 
 type AnyRow = Record<string, unknown>;
 
@@ -1005,6 +1006,13 @@ export default function SubcontractorDetailPage() {
             )}
           </div>
         </Card>
+
+        {/* Every email the app sent this sub (by its database ID, or its email for the old rows). */}
+        <div className="sub-detail-print-hide">
+          <Card title="Email log">
+            <EmailLogList subId={clean(String((subcontractor as unknown as Record<string, unknown>).subId ?? ""))} subEmail={form.email} showSubFilter={false} />
+          </Card>
+        </div>
 
         {editing ? (
           <EditSubcontractorSheet pageId={pageId} initial={form} onClose={() => setEditing(false)} onSaved={loadData} />

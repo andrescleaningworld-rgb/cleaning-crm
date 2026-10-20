@@ -3,6 +3,29 @@ import { Resend } from "resend";
 import nodemailer, { type Transporter } from "nodemailer";
 import { isOutboundDryRun, logDryRun } from "./outbound";
 import { BILLING_EMAIL, SERVICE_EMAIL } from "./portalContacts";
+import { logEmail, type EmailLogMeta } from "./pg/email-log";
+
+/**
+ * The Email log (lib/pg/email-log.ts): with `meta`, the send is written to
+ * the log as sent or failed, with exactly what was sent. Without it, the
+ * send is as before. Logging never changes what the send returns or throws.
+ */
+async function logged(
+  meta: EmailLogMeta | undefined,
+  base: { to: string[]; cc?: string[]; subject: string; html?: string; text?: string; attachments?: EmailAttachment[] },
+  send: () => Promise<boolean>
+): Promise<boolean> {
+  if (!meta) return send();
+  const entry = { ...meta, to: base.to, cc: base.cc, subject: base.subject, html: base.html, text: base.text, attachments: (base.attachments ?? []).map((file) => file.filename) };
+  try {
+    const sent = await send();
+    await logEmail({ ...entry, status: sent ? "sent" : "failed", error: sent ? "" : "No email sender is set up here." });
+    return sent;
+  } catch (error) {
+    await logEmail({ ...entry, status: "failed", error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
+}
 
 // Requires RESEND_API_KEY in .env.local — silently skips if not set.
 // Also requires a verified sending domain in Resend dashboard.
@@ -161,6 +184,21 @@ export async function sendHtmlEmail(input: {
   cc?: string[];
   replyTo?: string;
   attachments?: EmailAttachment[];
+  /** Write it to the Email log (type, account, sub, who sent it). */
+  log?: EmailLogMeta;
+}): Promise<boolean> {
+  return logged(input.log, input, () => deliverHtmlEmail(input));
+}
+
+async function deliverHtmlEmail(input: {
+  to: string[];
+  subject: string;
+  text: string;
+  html: string;
+  fromName?: string;
+  cc?: string[];
+  replyTo?: string;
+  attachments?: EmailAttachment[];
 }): Promise<boolean> {
   const cc = input.cc?.length ? input.cc : undefined;
   const replyTo = input.replyTo || undefined;
@@ -209,8 +247,8 @@ export async function sendStaffNotification(to: string, subject: string, lines: 
 
 // One email to one customer (the portal's "Set your password" link). Plain
 // text, through the same provider and the same dry-run switch as the rest.
-export async function sendCustomerEmail(to: string, subject: string, lines: string[]): Promise<boolean> {
-  return sendPlainTextEmail([to], subject, lines, undefined, false);
+export async function sendCustomerEmail(to: string, subject: string, lines: string[], log?: EmailLogMeta): Promise<boolean> {
+  return logged(log, { to: [to], subject, text: lines.join("\n") }, () => sendPlainTextEmail([to], subject, lines, undefined, false));
 }
 
 // Subcontractor-facing notification — replaces the old Apps Script
@@ -222,9 +260,10 @@ export async function sendSubcontractorNotification(
   to: string,
   subject: string,
   lines: string[],
-  attachments?: EmailAttachment[]
+  attachments?: EmailAttachment[],
+  log?: EmailLogMeta
 ): Promise<boolean> {
-  return sendPlainTextEmail([to], subject, lines, attachments);
+  return logged(log, { to: [to], subject, text: [...lines, "", CHEER.emailLine].join("\n"), attachments }, () => sendPlainTextEmail([to], subject, lines, attachments));
 }
 
 export async function sendPortalNotification({

@@ -6,6 +6,7 @@ import {
 } from "@/lib/data/catalogs";
 import { getAllSubcontractorsRaw } from "@/lib/data/subs";
 import { sendSubcontractorNotification } from "@/lib/email";
+import { getAdminIdentity } from "@/lib/adminSession";
 
 // Matches the Phase 1 upload cap (app/api/documents/route.ts) — a document
 // can never exceed this, so this is purely a defensive re-check, not a
@@ -113,7 +114,12 @@ export async function POST(request: NextRequest) {
           content: fileBuffer,
           contentType: fileContentType,
         },
-      ]);
+      ], {
+        type: "Document",
+        subId: String((subcontractor as Record<string, unknown>).subId ?? subcontractor.id ?? ""),
+        subName: subcontractor.contactName || subcontractor.companyName || "",
+        sentBy: (await getAdminIdentity(request))?.name || "Someone",
+      });
     } catch (err) {
       console.error("[documents/send] email send failed", err);
       return NextResponse.json(

@@ -59,6 +59,7 @@ const ADMIN_GROUPS: NavGroup[] = [
       { href: "/map", label: "Map", icon: "map" },
       { href: "/portal-requests", label: "Portal Requests", icon: "portal" },
       { href: "/notifications", label: "Notifications", icon: "bell" },
+      { href: "/email-log", label: "Email log", icon: "mail" },
     ],
   },
 ];
@@ -541,6 +542,7 @@ const SIDE_ICONS = {
   map: "M12 21s-6.5-5.7-6.5-11a6.5 6.5 0 0113 0c0 5.3-6.5 11-6.5 11zm0-8.500a2.500 2.500 0 100-5 2.500 2.500 0 000 5z",
   portal: "M4 13l2.500-8h11L20 13v6H4v-6zm0 0h5a3 3 0 006 0h5",
   bell: "M6 16V11a6 6 0 0112 0v5l2 2H4l2-2zm4 5h4",
+  mail: "M4 6h16v12H4V6zm0 1l8 6 8-6",
   settings: "M12 15a3 3 0 100-6 3 3 0 000 6zm8-3l-2 .700-.500 1.300 1 1.900-1.600 1.600-1.900-1-1.300.500L13 21h-2l-.700-2-1.300-.500-1.900 1-1.600-1.600 1-1.900L6 14.700 4 14v-2l2-.700.500-1.300-1-1.900 1.600-1.600 1.900 1L10.300 7 11 5h2l.700 2 1.300.500 1.900-1 1.600 1.600-1 1.900.500 1.300 2 .700z",
   help: "M12 21a9 9 0 100-18 9 9 0 000 18zm-2.500-11.500a2.500 2.500 0 114 2c-.900.600-1.500 1.200-1.500 2.500m0 3v.010",
   logout: "M10 5H6a1 1 0 00-1 1v12a1 1 0 001 1h4M15 8l4 4-4 4M19 12H9",
@@ -571,6 +573,7 @@ const PAGE_NAMES: Record<string, string> = {
   "customer-portal": "Customer Portal",
   portal: "Customer Portal",
   "portal-requests": "Portal Requests",
+  "email-log": "Email log",
   "to-do": "To-Do",
   "sub-schedules": "Sub Schedules",
   "supply-orders": "Supply Orders",

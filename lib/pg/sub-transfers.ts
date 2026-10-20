@@ -420,13 +420,21 @@ export async function buildSubTransferProposalEmail(proposal: Body, appUrl: stri
     return { proposalId, to: subcontractorEmail, subcontractorName, subject, text: plainBody, html: htmlBody };
 }
 
-export async function sendSubTransferProposalEmail(proposal: Body, appUrl: string): Promise<Record<string, unknown>> {
+export async function sendSubTransferProposalEmail(proposal: Body, appUrl: string, sentBy = "Someone"): Promise<Record<string, unknown>> {
   try {
     const built = await buildSubTransferProposalEmail(proposal, appUrl);
     if ("error" in built) return { success: false, message: built.error, proposalReceived: proposal };
     const { proposalId, to: subcontractorEmail, subject, text: plainBody, html: htmlBody } = built;
+    const accountNames = (Array.isArray(proposal.accounts) ? (proposal.accounts as Body[]) : []).map((account) => text(account.accountName || account.name)).filter(Boolean);
 
-    const sent = await sendHtmlEmail({ to: [subcontractorEmail], subject, text: plainBody, html: htmlBody, fromName: SENDER_NAME });
+    const sent = await sendHtmlEmail({
+      to: [subcontractorEmail],
+      subject,
+      text: plainBody,
+      html: htmlBody,
+      fromName: SENDER_NAME,
+      log: { type: "Transfer proposal", accountName: accountNames.join(", "), subName: built.subcontractorName, sentBy },
+    });
     if (!sent) return { success: false, message: "Failed to send transfer proposal email: email is not set up here." };
 
     if (proposalId && proposalId !== "Proposal") {

@@ -40,6 +40,7 @@ import SiteStock from "./site-stock";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
 import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-packet-sheet";
+import SubPacketSheet from "../../components/sub-packet-sheet";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { sentToText, useHandoffs } from "../../components/handoffs";
@@ -320,7 +321,8 @@ export default function AccountDetailPage() {
   // Team Hub tab hidden 2026-09-24 (Crew Link replaces it) — the page
   // always shows Details; ./team-hub-tab.tsx is kept, just not rendered.
   const activeTab = "details" as const;
-  const [sendingPacket, setSendingPacket] = useState(false);
+  // "Send Sub Packet": the preview with Send / Cancel (app/components/sub-packet-sheet.tsx).
+  const [showSubPacket, setShowSubPacket] = useState(false);
   // Customer portal invite ("Set your password" email): what the server answered, shown in a sheet.
   const [sendingPortalInvite, setSendingPortalInvite] = useState(false);
   const [portalInvite, setPortalInvite] = useState<{ ok: boolean; message: string; devLink?: string } | null>(null);
@@ -332,8 +334,6 @@ export default function AccountDetailPage() {
   const [flowVersion, setFlowVersion] = useState(0);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [error, setError] = useState("");
-  const [packetMessage, setPacketMessage] = useState("");
-  const [packetError, setPacketError] = useState("");
   const [showPdfModal, setShowPdfModal] = useState(false);
   // Print PDF first asks: print, pin to the board, or both. Works whatever Settings -> Pin Board -> Accounts says.
   const [showPrintChoice, setShowPrintChoice] = useState(false);
@@ -406,8 +406,6 @@ export default function AccountDetailPage() {
       try {
         setLoading(true);
         setError("");
-        setPacketMessage("");
-        setPacketError("");
 
         const response = await fetch("/api/accounts", {
           cache: "no-store",
@@ -657,60 +655,6 @@ export default function AccountDetailPage() {
       setPortalInvite({ ok: false, message: "Failed to send the invite." });
     } finally {
       setSendingPortalInvite(false);
-    }
-  }
-
-  async function handleSendNewAccountPacket() {
-    if (!account) return;
-
-    try {
-      setSendingPacket(true);
-      setPacketMessage("");
-      setPacketError("");
-
-      const response = await fetch("/api/accounts", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action: "sendNewAccountPacket",
-          accountId:
-            account.accountId ||
-            account.id ||
-            account.rowNumber ||
-            account.accountName ||
-            rawAccountIdFromUrl,
-          accountName: account.accountName || "",
-          address: accountAddress,
-          startDate,
-          cleaningSchedule: cleaningDays,
-          subcontractor: account.subcontractor || "",
-          subcontractorEmail: account.subcontractorEmail || "",
-          monthlySubcontractorPay: subcontractorPay,
-          hasKey: account.hasKey || "",
-          alarmInfo,
-          scope: account.scope || account.notes || "",
-          notes: account.notes || "",
-          manager: account.manager || "",
-        }),
-      });
-
-      const data = await readApiResponse(response);
-
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || "Could not send new account packet.");
-      }
-
-      setPacketMessage(data.message || "New account packet sent successfully.");
-    } catch (err) {
-      setPacketError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong sending the new account packet."
-      );
-    } finally {
-      setSendingPacket(false);
     }
   }
 
@@ -1299,20 +1243,10 @@ export default function AccountDetailPage() {
               {accountAddress ? <p className="ui-muted">{addressLink}</p> : null}
             </div>
 
-            {packetMessage ? (
-              <p className="ui-savestatus ui-savestatus-saved account-detail-print-hide" role="status">
-                {packetMessage}
-              </p>
-            ) : null}
             {statusMessage ? (
               <p className="ui-savestatus ui-savestatus-saved account-detail-print-hide" role="status">
                 {statusMessage}
               </p>
-            ) : null}
-            {packetError ? (
-              <div className="account-detail-print-hide">
-                <ErrorBox title="The packet was not sent." text={packetError} onRetry={() => void handleSendNewAccountPacket()} />
-              </div>
             ) : null}
             {portalAccessError ? (
               <div className="account-detail-print-hide">
@@ -1390,7 +1324,7 @@ export default function AccountDetailPage() {
                 <BigButton kind="second" onClick={() => (pinInfo ? setShowPrintChoice(true) : openPdfModal())}>
                   Print PDF
                 </BigButton>
-                <BigButton kind="second" busy={sendingPacket} busyLabel="Sending sub packet…" onClick={() => void handleSendNewAccountPacket()}>
+                <BigButton kind="second" onClick={() => setShowSubPacket(true)}>
                   Send Sub Packet
                 </BigButton>
                 <BigButton kind="second" icon={welcomeSentAt ? "check" : undefined} onClick={() => setShowWelcomePacket(true)}>
@@ -1494,6 +1428,8 @@ export default function AccountDetailPage() {
             <div className="account-detail-print-hide">
               <AccountHistory key={welcomeVersion} accountId={getAccountId(account, rawAccountIdFromUrl)} />
             </div>
+
+            <SubPacketSheet open={showSubPacket} accountId={thisAccountId} accountName={accountName} onClose={() => setShowSubPacket(false)} />
 
             <WelcomePacketSheet
               open={showWelcomePacket}

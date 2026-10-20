@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
         const proposal = (body.proposal || body) as Record<string, unknown>;
         result =
           requestedAction === "sendSubTransferProposalEmail"
-            ? await sendSubTransferProposalEmail(proposal, request.nextUrl.origin)
+            ? await sendSubTransferProposalEmail(proposal, request.nextUrl.origin, (await getAdminIdentity(request))?.name || "Someone")
             : requestedAction === "updateSubTransferProposalStatus"
               ? await updateSubTransferProposalStatus(body as Record<string, unknown>)
               : await createSubTransferProposal(proposal);

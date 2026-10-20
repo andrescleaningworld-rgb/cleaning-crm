@@ -57,7 +57,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     if (method === "email") {
       const url = `${new URL(request.url).origin}${SUB_PORTAL_PATH}`;
-      const sent = await sendSubInviteEmail({ email: sub.email, url, subName: sub.name });
+      const identity = await getAdminIdentity(request);
+      const sent = await sendSubInviteEmail({ email: sub.email, url, subName: sub.name, log: { type: "Sub portal invite", subId: id, subName: sub.name, sentBy: identity?.name || "Someone" } });
       if (!sent) return refuse("The email was not sent: email is not set up on this server.", 503);
     }
 

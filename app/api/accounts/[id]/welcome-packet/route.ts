@@ -83,6 +83,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const data = packetData(info, { origin: request.nextUrl.origin, to, now });
     const pdf = await renderWelcomePacketPdf(data);
     const replyTo = replyToOf(info);
+    const identity = await getAdminIdentity(request);
+    const by = identity?.name || "Someone";
 
     const sent = await sendHtmlEmail({
       to: [to],
@@ -93,14 +95,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       text: welcomePacketText(data),
       html: welcomePacketHtml(data),
       attachments: [{ filename: welcomePdfFilename(data), content: pdf, contentType: "application/pdf" }],
+      log: { type: "Welcome Packet", accountId: info.accountId, accountName: info.accountName, sentBy: by },
     });
     if (!sent) {
       return NextResponse.json({ success: false, error: "Email is not set up on this server, so nothing was sent." }, { status: 503 });
     }
 
     // The email is out. What follows is bookkeeping and never turns the send into a failure.
-    const identity = await getAdminIdentity(request);
-    const by = identity?.name || "Someone";
     await logActivity({
       actorAccountId: identity?.accountId ?? null,
       actorRole: identity?.role ?? "manager",

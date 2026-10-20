@@ -22,6 +22,7 @@ import { appendSubSchedule } from "@/lib/data/scheduling";
 import { weekdaysIn } from "@/lib/availability";
 import { parseClock, toClock, windowForStartTime } from "@/lib/schedule-time";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
+import { logEmail } from "@/lib/pg/email-log";
 import {
   FLOW_STATUS,
   FLOW_STEPS,
@@ -349,7 +350,32 @@ export async function sendOffer(accountId: string, offer: { subId: string; days:
   if (moved.length === 0) throw new FlowError("This step was already done. The page shows where it is now.");
   await addEvent(accountId, "sub", "done", by, subName);
   await addEvent(accountId, "subOk", "offer", by, subName);
-  await textSubAboutOffer(clean(sub.phone), subName);
+  const texted = await textSubAboutOffer(clean(sub.phone), subName);
+  // The Email log: the text (when there was a phone) and the card in the sub's portal.
+  const account = (await getFlowDetail(accountId).catch(() => null)) ?? null;
+  await logEmail({
+    channel: "text",
+    type: "New account offer",
+    to: [clean(sub.phone) || "(no phone on file: portal only)"],
+    subject: `New account offer: ${account?.accountName ?? accountId}`,
+    status: texted.ok ? "sent" : "failed",
+    error: texted.error,
+    text: [
+      clean(sub.phone) ? `Text message: ${SUB_OFFER_TEXT}` : "No text (no phone on file).",
+      "",
+      "In the sub portal: New account for you",
+      account?.accountName ?? "",
+      account?.address ? `Address: ${account.address}` : "",
+      `Days: ${offer.days}`,
+      offer.start ? `Time: ${offer.start}` : "",
+      offer.minutes ? `Time needed: ${offer.minutes} minutes` : "",
+    ].filter((line, index) => line !== "" || index === 1).join("\n"),
+    accountId,
+    accountName: account?.accountName ?? "",
+    subId: sub.id,
+    subName,
+    sentBy: by,
+  });
   return { subName };
 }
 
@@ -371,15 +397,18 @@ export async function previewOffer(accountId: string, subId: string): Promise<{ 
 }
 
 /** The sub hears that an offer is waiting in their portal. Never throws. */
-async function textSubAboutOffer(phone: string, subName: string): Promise<void> {
+async function textSubAboutOffer(phone: string, subName: string): Promise<{ ok: boolean; error: string }> {
   if (!phone) {
     console.debug(`[sms] skip account-flow/offer: sub "${subName}" has no phone on file`);
-    return;
+    // The offer still waits in the portal; the log says no text went out.
+    return { ok: true, error: "" };
   }
   try {
-    await sendSms(phone, sanitizeSmsText(SUB_OFFER_TEXT, Infinity), "account-flow/offer");
+    const result = await sendSms(phone, sanitizeSmsText(SUB_OFFER_TEXT, Infinity), "account-flow/offer");
+    return result.success ? { ok: true, error: "" } : { ok: false, error: "The text did not go out (the text provider said no)." };
   } catch (error) {
     console.error("[sms] account-flow/offer failed:", error instanceof Error ? error.message : error);
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
