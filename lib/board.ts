@@ -2,6 +2,8 @@
 // /board/calendar. Plain TS with no server imports, so client components can
 // use it directly. The database side is lib/pg/board.ts.
 
+import type { FlowView } from "@/lib/accountFlow";
+
 export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note";
 
 export const PAPER_KINDS: PaperKind[] = ["account", "extra", "complaint", "supply", "note"];
@@ -46,6 +48,8 @@ export type Paper = {
   doneBy: string;
   /** New accounts only: Onboarding Checklist items ticked, out of how many. */
   progress: { done: number; total: number } | null;
+  /** A new account made with "New Accepted Account": its 8-step pizza tracker. null for every other paper. */
+  flow: FlowView | null;
   /** The real record this paper opens. "" = the paper is all there is (a note). */
   href: string;
   /** A pinned account: its Admin (office) PDF, made fresh each time it is opened (no stored file). "" = none, and always "" on the TV. */

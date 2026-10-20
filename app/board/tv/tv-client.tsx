@@ -44,6 +44,7 @@ import { SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, pape
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
 import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
+import PizzaTracker from "@/app/components/pizza-tracker";
 import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported } from "../full-screen";
 import styles from "./tv.module.css";
 
@@ -747,15 +748,17 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
 
   const renderNote = (paper: Paper) => {
     const overdue = isOverdue(paper, now);
-    const stuck = data ? isOld(paper, data.settings, now) : false;
+    // A new account in the 8-step flow is late by its own rule: 2 work days with no progress on one step.
+    const stuck = paper.flow ? paper.flow.red : data ? isOld(paper, data.settings, now) : false;
     return (
       <div className={`${styles.note} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${overdue || stuck ? styles.late : ""}`} data-late={overdue || stuck ? "1" : "0"}>
         <p className={styles.noteType}>
           {paperLabel(paper)}
-          {overdue ? ` · due ${dueLabel(paper.dueDate)}` : stuck ? ` · ${daysLabel(daysPinned(paper, now))}` : ""}
+          {overdue ? ` · due ${dueLabel(paper.dueDate)}` : stuck && !paper.flow ? ` · ${daysLabel(daysPinned(paper, now))}` : ""}
           {paper.recordDone ? " · done ✓" : ""}
         </p>
         <p className={styles.noteName}>{paper.accountName || paperLabel(paper)}</p>
+        {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
         {overdue || stuck ? <span className={styles.lateCorner} aria-hidden="true" /> : null}
       </div>
     );

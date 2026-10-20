@@ -4584,3 +4584,76 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
     display: none;
   }
 }
+
+/* ---------- New Account pizza tracker (app/components/pizza-tracker.tsx) ---------- */
+.cw-pizza-bar {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+}
+.cw-pizza-seg {
+  display: block;
+  flex: 1;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--ui-line);
+}
+.is-done > .cw-pizza-seg,
+.cw-pizza-seg.is-done {
+  background: var(--ui-green);
+}
+.is-now > .cw-pizza-seg,
+.cw-pizza-seg.is-now {
+  background: var(--ui-brand);
+}
+.cw-pizza.is-red .is-now > .cw-pizza-seg,
+.cw-pizza.is-red .cw-pizza-seg.is-now {
+  background: var(--ui-bad);
+}
+.cw-pizza-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  margin-top: 6px;
+}
+.cw-pizza-pin .cw-pizza-now {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--ui-ink);
+}
+.cw-pizza.is-red .cw-pizza-now {
+  color: var(--ui-bad);
+}
+.cw-pizza-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 6px;
+}
+.cw-pizza-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cw-pizza-label {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--ui-muted);
+}
+.cw-pizza-step.is-done .cw-pizza-label {
+  color: var(--ui-ink);
+}
+.cw-pizza-step.is-now .cw-pizza-label {
+  color: var(--ui-ink);
+  font-weight: 700;
+}
+.cw-pizza-full .cw-pizza-now {
+  margin: 10px 0 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ui-ink);
+}

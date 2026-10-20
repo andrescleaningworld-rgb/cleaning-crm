@@ -16,6 +16,7 @@ import { isOld, type Paper } from "@/lib/board";
 import { officeDay } from "@/lib/cleanings";
 import { boardReady, getBoardSettings, listBoardManagers, listPapers, syncBoard, tvTokenIsValid } from "@/lib/pg/board";
 import { listCleanings } from "@/lib/pg/cleanings";
+import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
 import { eventLine } from "@/lib/officeEvents";
 import { listOfficeEvents, tvSlides } from "@/lib/pg/office-events";
 
@@ -47,6 +48,8 @@ function forTv(paper: Paper): Paper {
     doneAt: "",
     doneBy: "",
     progress: null,
+    // The pizza tracker and who the step is with ("with Greg"), as the office asked for the TV. The stuck note stays off the TV.
+    flow: paper.flow ? { ...paper.flow, stuckNote: "", stuckNoteBy: "", stuckNoteAt: "" } : null,
     href: "",
     pdfHref: "",
   };
@@ -60,6 +63,7 @@ export async function GET(request: NextRequest) {
     if (!allowed) return NextResponse.json({ success: false, error: "This TV link is off." }, { status: 401, ...noStore });
 
     await syncBoard();
+    if (await flowsReady().catch(() => false)) await syncAutoSteps().catch((error) => console.error("[board tv] account flows:", error instanceof Error ? error.message : error));
     const today = officeDay();
     const settings = await getBoardSettings();
     const [managers, lists, calendar, slides, events] = await Promise.all([
@@ -82,7 +86,7 @@ export async function GET(request: NextRequest) {
         papers: papers.map(forTv),
         counters: {
           pinned: papers.length,
-          stuck: papers.filter((paper) => isOld(paper, settings)).length,
+          stuck: papers.filter((paper) => isOld(paper, settings) || paper.flow?.red === true).length,
           doneToday: lists.done.filter((paper) => paper.doneAt && officeDay(paper.doneAt) === today).length,
         },
         cleanings: calendar.cleanings.map((cleaning) => ({ accountName: cleaning.accountName, sub: cleaning.sub, status: cleaning.status })),

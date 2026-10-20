@@ -9,6 +9,7 @@ import { Caveat } from "next/font/google";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Sheet } from "@/app/ui";
 import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import PizzaTracker from "@/app/components/pizza-tracker";
 import styles from "./board.module.css";
 
 const handwriting = Caveat({ subsets: ["latin"], weight: ["700"], display: "swap" });
@@ -36,6 +37,9 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
       <span className={styles.kind}>{paperLabel(paper)}</span>
       {title ? <span className={`${styles.title} ${paper.kind === "note" && !tv ? handwriting.className : ""}`}>{title}</span> : null}
       {!tv && paper.badge ? <span className={styles.badge}>{paper.badge}</span> : null}
+      {/* A new account in the 8-step flow: its pizza tracker, on the board and on the TV. */}
+      {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
+      {!tv && paper.flow?.stuckNote ? <span className={styles.meta}>Stuck: {paper.flow.stuckNote}</span> : null}
       {!tv && paper.progress ? (
         <>
           <span className={styles.bar} aria-hidden="true">
@@ -70,7 +74,7 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
 
 export function paperClass(paper: Paper, settings: BoardSettings, now: Date): string {
   // An account update is a green note; every other note is yellow.
-  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""}`;
+  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red ? styles.flowRed : ""}`;
 }
 
 /* ---------- a full square: the papers that fit, then a pile ---------- */

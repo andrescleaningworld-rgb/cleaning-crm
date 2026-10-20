@@ -1,16 +1,15 @@
 "use client";
 
-import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, StatusPill, TextAreaField, type StatusKind } from "@/app/ui";
+import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, TextAreaField } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import WelcomePacketSheet from "@/app/components/welcome-packet-sheet";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
-import { formatMiles } from "@/app/lib/distance";
-import { CLOSEST_FALLBACK, NEARBY_MILES, ROOM_WORDS, roomOf, WEEK_ORDER, weekdaysIn, type Room, type SubAvailability } from "@/lib/availability";
+import SubSuggestions from "@/app/components/sub-suggestions";
 import PlusMinus from "@/app/components/plus-minus";
-import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
+import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
 type AccountForm = {
@@ -65,22 +64,6 @@ type Subcontractor = {
   score?: string;
   scoreStatus?: string;
 };
-
-// Threshold for the "Below target score" badge: the score value below which
-// lib/googleSheets.ts's getSubcontractorPerformanceMap stops labeling a sub
-// "Good" and starts labeling them "Needs Attention" (see the scoreStatus
-// if-chain there, mirrored in app/subcontractors/[id]/page.tsx's score
-// legend: "8-8.9 Good, 7-7.9 Needs Attention"). Reused as-is rather than
-// inventing a new "at risk" number.
-const AT_RISK_SCORE_THRESHOLD = 8;
-
-// What the suggestion checks: the days typed in "Cleaning days" (Mon–Fri when
-// none can be read), at the time and length picked under the suggestions
-// (Coverage's Who's free? buttons, starting at 7:00 pm for 1h 30m).
-const SUGGESTION_WEEKDAYS = WEEK_ORDER.slice(0, 5);
-const ROOM_PILL: Record<Room, StatusKind> = { room: "done", tight: "waiting", unknown: "off", busy: "needs-you" };
-
-type SubSuggestions = { days: string[]; start: number; minutes: number; results: SubAvailability[]; within: boolean };
 
 type SubcontractorOption = {
   value: string;
@@ -243,7 +226,6 @@ export default function NewAccountPage() {
   // Set once the account is saved: the screen then offers "Send Customer Welcome Packet".
   const [saved, setSaved] = useState<{ id: string; name: string } | null>(null);
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
-  const [subSuggestions, setSubSuggestions] = useState<SubSuggestions | null>(null);
   const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
   const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
 
@@ -320,44 +302,11 @@ export default function NewAccountPage() {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [subcontractors]);
 
-  // Informational only — never writes to form.subcontractor. Once the Full
-  // Address autocomplete has a map position (handlePlaceSelected below), asks
-  // Coverage's "Who's free?" (/api/availability) for the same answer it gives
-  // there: subs within 10 mi (else the 5 closest), each with miles to their
-  // nearest active account and whether the days have room
-  // (lib/availability.ts nearbyAvailable). Fails silently: no suggestion.
-  useEffect(() => {
-    const lat = Number(form.latitude);
-    const lng = Number(form.longitude);
-    if (!form.latitude || !form.longitude || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setSubSuggestions(null);
-      return;
-    }
-    const typed = weekdaysIn(form.cleaningDays);
-    const days = typed.length > 0 ? typed : SUGGESTION_WEEKDAYS;
-    let alive = true;
-    const start = suggestionStart;
-    const minutes = suggestionMinutes;
-    // A short wait so typing in "Cleaning days" or tapping − / + does not ask every time.
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch("/api/availability", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "check", days, start: toClock(start), minutes, point: { lat, lng } }),
-        });
-        const data = await readJsonResponse<{ success?: boolean; results?: SubAvailability[]; within?: boolean | null }>(response);
-        if (!alive) return;
-        setSubSuggestions(data.success && data.results ? { days, start, minutes, results: data.results, within: data.within !== false } : null);
-      } catch {
-        if (alive) setSubSuggestions(null);
-      }
-    }, 500);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-  }, [form.latitude, form.longitude, form.cleaningDays, suggestionStart, suggestionMinutes]);
+  // Suggested subs (app/components/sub-suggestions.tsx) are informational
+  // only here — they never write to form.subcontractor. They show once the
+  // Full Address autocomplete has a map position (handlePlaceSelected below).
+  const suggestionLat = form.latitude && Number.isFinite(Number(form.latitude)) ? Number(form.latitude) : null;
+  const suggestionLng = form.longitude && Number.isFinite(Number(form.longitude)) ? Number(form.longitude) : null;
 
   // The score already merged onto `subcontractors` by /api/subcontractors, by sub ID.
   const scoreBySubId = useMemo(() => {
@@ -611,38 +560,14 @@ export default function NewAccountPage() {
               ))}
             </SelectField>
 
-            {subSuggestions && subSuggestions.results.length > 0 ? (
-              <div>
-                <p className="ui-muted">
-                  Suggested subs —{" "}
-                  {subSuggestions.within ? `within ${NEARBY_MILES} mi` : `none within ${NEARBY_MILES} mi, the ${CLOSEST_FALLBACK} closest`} · room checked{" "}
-                  {subSuggestions.days.map((day) => day.slice(0, 3)).join(", ")} at {formatClock(subSuggestions.start)} for{" "}
-                  {formatMinutes(subSuggestions.minutes)}, next 4 weeks. Pick the sub yourself above.
-                </p>
-                <ul className="ui-list-plain" style={{ marginTop: 6, gap: 6 }}>
-                  {subSuggestions.results.map((result) => {
-                    const room = roomOf(result);
-                    const score = scoreBySubId.get(result.subId);
-                    const showContact = result.contactName !== "" && result.contactName.toLowerCase() !== result.name.toLowerCase();
-                    return (
-                      <li key={result.subId} className="ui-actions-row">
-                        <span>
-                          <strong>{result.name}</strong>
-                          {showContact ? <span className="ui-muted"> ({result.contactName})</span> : null}
-                          <span className="ui-muted">
-                            {" "}
-                            — {formatMiles(result.distanceMiles)}
-                            {score !== undefined ? `, score ${score}` : ""}
-                          </span>
-                        </span>
-                        <StatusPill kind={ROOM_PILL[room]}>{ROOM_WORDS[room]}</StatusPill>
-                        {score !== undefined && score < AT_RISK_SCORE_THRESHOLD ? <StatusPill kind="waiting">Below target score</StatusPill> : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ) : null}
+            <SubSuggestions
+              lat={suggestionLat}
+              lng={suggestionLng}
+              cleaningDays={form.cleaningDays}
+              start={suggestionStart}
+              minutes={suggestionMinutes}
+              scoreBySubId={scoreBySubId}
+            />
 
             {form.latitude && form.longitude ? (
               <div className="flex flex-wrap gap-x-8 gap-y-3">
