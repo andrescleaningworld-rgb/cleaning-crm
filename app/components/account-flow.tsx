@@ -39,16 +39,6 @@ async function postFlow(body: Record<string, unknown>): Promise<{ success?: bool
   return data;
 }
 
-const EVENT_WORDS: Record<FlowEvent["action"], string> = {
-  start: "Account made",
-  done: "Done",
-  offer: "Offer sent to",
-  yes: "Said yes",
-  no: "Said no",
-  back: "Offer taken back",
-  note: "Note",
-};
-
 export default function AccountFlowPanel({
   accountId,
   refreshKey = 0,
@@ -112,7 +102,8 @@ export default function AccountFlowPanel({
     <div className="account-detail-print-hide" style={{ marginTop: 16 }}>
       <Card title="New account setup">
         <div className="ui-stack">
-          <PizzaTracker view={view} />
+          {/* The same vertical list as the pin popup on the board: green check, big blue dot "with <name>", gray. */}
+          <PizzaTracker view={view} size="list" />
           {/* The account fields still empty, on one short screen (not Edit Account). */}
           <FinishSetup accountId={accountId} />
           {view.red ? <p className="ui-field-error">No progress for 2 work days. Add a note below if it is stuck.</p> : null}
@@ -204,22 +195,42 @@ export default function AccountFlowPanel({
 
           {view.step !== "live" ? <StuckNote accountId={accountId} view={view} onSaved={() => void load()} /> : null}
 
-          <details>
-            <summary className="ui-link">Who did what</summary>
-            <ul className="ui-list-plain" style={{ marginTop: 8, gap: 4 }}>
-              {flow.events.map((event, index) => (
-                <li key={`${event.at}-${index}`} className="ui-muted">
-                  {FLOW_STEPS.find((step) => step.key === event.step)?.tracker}: {EVENT_WORDS[event.action]}
-                  {event.action === "offer" ? ` ${event.note}` : ""} · {event.by || "Someone"} · {friendlyDate(event.at)}
-                  {event.note && event.action !== "offer" ? ` — ${event.note}` : ""}
-                </li>
-              ))}
-            </ul>
-          </details>
+          <StepHistory events={flow.events} />
         </div>
       </Card>
 
       <PickSubSheet open={picking} flow={flow} onClose={() => setPicking(false)} onSent={() => void load()} />
+    </div>
+  );
+}
+
+/** "Oct 20, 2:15 pm": when a step was finished, in office time. */
+function whenText(at: string): string {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** "Step history": each finished step, newest first: step name · who · date and time. */
+function StepHistory({ events }: { events: FlowEvent[] }) {
+  const done = events
+    .filter((event) => event.action === "done")
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  return (
+    <div>
+      <p className="ui-label">Step history</p>
+      {done.length === 0 ? (
+        <p className="ui-muted">No steps done yet.</p>
+      ) : (
+        <ul className="ui-list-plain" style={{ marginTop: 6, gap: 4 }}>
+          {done.map((event, index) => (
+            <li key={`${event.at}-${index}`} className="ui-card-text">
+              <strong>{FLOW_STEPS.find((step) => step.key === event.step)?.action ?? event.step}</strong> · {event.by || "Someone"} · {whenText(event.at)}
+              {event.note && event.step === "followUp" ? <span className="ui-muted"> — {event.note}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
