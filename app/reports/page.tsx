@@ -679,6 +679,101 @@ export default function ReportsPage() {
     });
   }, [complaints, dateRange, managerFilter, search]);
 
+  // A visit row has no subcontractor or status of its own: they come from its
+  // account, found by Account ID first, then by name (older visits carry the
+  // sheet's ACC- ids, which do not always match).
+  const accountForVisit = useMemo(() => {
+    const byId = new Map<string, AnyRow>();
+    const byName = new Map<string, AnyRow>();
+    accounts.forEach((account) => {
+      const id = getValue(account, ["accountId", "Account ID", "id", "ID"]);
+      if (id) byId.set(id, account);
+      const name = normalizeKey(getAccountName(account));
+      if (name && name !== "-" && !byName.has(name)) byName.set(name, account);
+    });
+    return (visit: AnyRow): AnyRow | null =>
+      byId.get(getValue(visit, ["accountId", "Account ID"])) ??
+      byName.get(normalizeKey(getValue(visit, ["accountName", "Account Name", "account", "Account"]))) ??
+      null;
+  }, [accounts]);
+
+  // "Visits": every visit in the date range, newest first.
+  const visitsReport = useMemo(() => {
+    return visits
+      .filter((visit) => {
+        if (!isDateInRange(getVisitDate(visit), dateRange.start, dateRange.end)) return false;
+        const account = accountForVisit(visit);
+        return (
+          (managerFilter === "All" || getVisitManager(visit) === managerFilter) &&
+          (subcontractorFilter === "All" || (account ? getSubcontractor(account) : "") === subcontractorFilter) &&
+          (statusFilter === "All" || (account ? getStatus(account) : "") === statusFilter) &&
+          rowMatchesSearch(visit, search)
+        );
+      })
+      .sort((a, b) => (getDate(getVisitDate(b))?.getTime() || 0) - (getDate(getVisitDate(a))?.getTime() || 0));
+  }, [visits, accountForVisit, dateRange, managerFilter, subcontractorFilter, statusFilter, search]);
+
+  const visitsPerManager = useMemo(() => {
+    const counts: Record<string, number> = {};
+    visitsReport.forEach((visit) => {
+      const manager = getVisitManager(visit) || "Unassigned";
+      counts[manager] = (counts[manager] || 0) + 1;
+    });
+    return Object.entries(counts).sort(([a, x], [b, y]) => y - x || a.localeCompare(b));
+  }, [visitsReport]);
+
+  // "Last Visit by Account": one row per account, from ALL visits (the date
+  // range does not apply). Status "All" means Active accounts here.
+  const lastVisitReport = useMemo(() => {
+    const latest = new Map<AnyRow, { date: Date; by: string }>();
+    visits.forEach((visit) => {
+      const account = accountForVisit(visit);
+      const date = getDate(getVisitDate(visit));
+      if (!account || !date) return;
+      const current = latest.get(account);
+      if (!current || date > current.date) latest.set(account, { date, by: getVisitManager(visit) });
+    });
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const rows = accounts
+      .filter((account) => {
+        const status = getStatus(account);
+        return (
+          (statusFilter === "All" ? !status.toLowerCase().includes("cancel") : status === statusFilter) &&
+          (managerFilter === "All" || getAccountManager(account) === managerFilter) &&
+          (subcontractorFilter === "All" || getSubcontractor(account) === subcontractorFilter) &&
+          rowMatchesSearch(account, search)
+        );
+      })
+      .map((account) => {
+        const last = latest.get(account) ?? null;
+        let days: number | null = null;
+        if (last) {
+          const day = new Date(last.date);
+          day.setHours(0, 0, 0, 0);
+          days = Math.max(0, Math.round((startOfToday.getTime() - day.getTime()) / 86_400_000));
+        }
+        return { account, last, days };
+      })
+      // Never visited first, then the oldest visit first.
+      .sort((a, b) => {
+        if (a.days === null || b.days === null) {
+          if (a.days === null && b.days === null) return getAccountName(a.account).localeCompare(getAccountName(b.account));
+          return a.days === null ? -1 : 1;
+        }
+        return b.days - a.days || getAccountName(a.account).localeCompare(getAccountName(b.account));
+      });
+
+    return {
+      rows,
+      days30: rows.filter((row) => row.days !== null && row.days >= 30).length,
+      days60: rows.filter((row) => row.days !== null && row.days >= 60).length,
+      never: rows.filter((row) => row.days === null).length,
+    };
+  }, [accounts, visits, accountForVisit, statusFilter, managerFilter, subcontractorFilter, search]);
+
   const totals = useMemo(() => {
     const revenueAdded = startedAccounts.reduce((sum, account) => {
       return sum + getMonthlyRevenue(account);
@@ -839,6 +934,8 @@ export default function ReportsPage() {
   const showManagerSummary = reportType === "Manager Summary";
   const showComplaints = reportType === "Complaints";
   const showSales = reportType === "Sales & Commissions";
+  const showVisits = reportType === "Visits";
+  const showLastVisit = reportType === "Last Visit by Account";
 
   return (
     <main className="ui-screen print:bg-white print:p-0">
@@ -899,6 +996,19 @@ export default function ReportsPage() {
             padding: 4px !important;
           }
         }
+
+        /* Last Visit by Account: 30-59 days yellow, 60+ days or Never red. Kept when printed. */
+        .visit-age-watch td {
+          background: #fff4c2;
+        }
+        .visit-age-problem td {
+          background: #fde2df;
+        }
+        .visit-age-watch td,
+        .visit-age-problem td {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
       `}</style>
 
       <div className="mx-auto max-w-7xl space-y-6">
@@ -949,8 +1059,14 @@ export default function ReportsPage() {
               </p>
               <p className="ui-muted">{reportType}</p>
               <p className="ui-muted">
-                Date Range: {safeDate(dateRange.start)} -{" "}
-                {safeDate(dateRange.end)}
+                {showLastVisit ? (
+                  "All visits (date range does not apply)"
+                ) : (
+                  <>
+                    Date Range: {safeDate(dateRange.start)} -{" "}
+                    {safeDate(dateRange.end)}
+                  </>
+                )}
               </p>
               <p className="ui-muted">
                 Printed on {new Date().toLocaleDateString()}
@@ -976,6 +1092,8 @@ export default function ReportsPage() {
                 <option>Manager Summary</option>
                 <option>Complaints</option>
                 <option>Sales & Commissions</option>
+                <option>Visits</option>
+                <option>Last Visit by Account</option>
               </select>
             </div>
 
@@ -1680,11 +1798,161 @@ export default function ReportsPage() {
                 </ReportTable>
               </section>
             )}
+
+            {showVisits && (
+              <section className="ui-card">
+                <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <h2 className="ui-card-title">Visits</h2>
+                    <p className="ui-muted">
+                      Every visit between {safeDate(dateRange.start)} and{" "}
+                      {safeDate(dateRange.end)}, newest first.
+                    </p>
+                  </div>
+
+                  <div className="font-semibold text-gray-700">
+                    Total visits: {visitsReport.length}
+                  </div>
+                </div>
+
+                {visitsPerManager.length > 0 ? (
+                  <div className="print-avoid-break mb-4 flex flex-wrap gap-x-6 gap-y-1 text-gray-700">
+                    <span className="font-semibold">Per manager:</span>
+                    {visitsPerManager.map(([manager, count]) => (
+                      <span key={manager}>
+                        {manager}: <strong>{count}</strong>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Visited By</th>
+                      <th className="px-4 py-3">Subcontractor</th>
+                      <th className="px-4 py-3">Type / Notes</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {visitsReport.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                          No visits found for this filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      visitsReport.map((visit, index) => {
+                        const account = accountForVisit(visit);
+                        return (
+                          <tr key={getValue(visit, ["id", "Visit ID"]) || index} className="border-b">
+                            <td className="px-4 py-3 whitespace-nowrap">{safeDate(getVisitDate(visit))}</td>
+                            <td className="px-4 py-3 font-semibold text-gray-900">
+                              <AccountLink
+                                accountId={account ? getValue(account, ["accountId", "Account ID", "id", "ID"]) : getValue(visit, ["accountId", "Account ID"])}
+                                name={getValue(visit, ["accountName", "Account Name", "account", "Account"]) || "-"}
+                              />
+                            </td>
+                            <td className="px-4 py-3">{getVisitManager(visit) || "-"}</td>
+                            <td className="px-4 py-3">{(account && getSubcontractor(account)) || "-"}</td>
+                            <td className="px-4 py-3">{visitSummary(visit)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </ReportTable>
+              </section>
+            )}
+
+            {showLastVisit && (
+              <section className="ui-card">
+                <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <h2 className="ui-card-title">Last Visit by Account</h2>
+                    <p className="ui-muted">
+                      {statusFilter === "All" ? "Active accounts" : `Accounts with status ${statusFilter}`}, oldest visit
+                      first. Uses all visits: the date range does not apply.
+                    </p>
+                  </div>
+
+                  <div className="font-semibold text-gray-700">
+                    Accounts: {lastVisitReport.rows.length}
+                  </div>
+                </div>
+
+                <div className="print-avoid-break mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <SummaryCard label="30+ days since a visit" value={String(lastVisitReport.days30)} note="Includes the 60+ days ones" />
+                  <SummaryCard label="60+ days since a visit" value={String(lastVisitReport.days60)} note="Marked red" />
+                  <SummaryCard label="Never visited" value={String(lastVisitReport.never)} note="Marked red, at the top" />
+                </div>
+
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Account</th>
+                      <th className="px-4 py-3">Manager</th>
+                      <th className="px-4 py-3">Subcontractor</th>
+                      <th className="px-4 py-3">Last Visit</th>
+                      <th className="px-4 py-3">Days Since</th>
+                      <th className="px-4 py-3">Visited By</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {lastVisitReport.rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                          No accounts found for this filter.
+                        </td>
+                      </tr>
+                    ) : (
+                      lastVisitReport.rows.map(({ account, last, days }, index) => {
+                        const age = days === null || days >= 60 ? "visit-age-problem" : days >= 30 ? "visit-age-watch" : "";
+                        return (
+                          <tr key={getValue(account, ["accountId", "Account ID", "id", "ID"]) || index} className={`border-b ${age}`}>
+                            <td className="px-4 py-3 font-semibold text-gray-900">
+                              <AccountLink accountId={getValue(account, ["accountId", "Account ID", "id", "ID"])} name={getAccountName(account)} />
+                            </td>
+                            <td className="px-4 py-3">{getAccountManager(account) || "-"}</td>
+                            <td className="px-4 py-3">{getSubcontractor(account) || "-"}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">{last ? last.date.toLocaleDateString() : <strong>Never</strong>}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">{days === null ? <strong>Never</strong> : days >= 30 ? <strong>{days}</strong> : days}</td>
+                            <td className="px-4 py-3">{last?.by || "-"}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </ReportTable>
+              </section>
+            )}
           </>
         )}
       </div>
     </main>
   );
+}
+
+function getVisitDate(row: AnyRow) {
+  return getValue(row, ["date", "Date", "visitDate", "Visit Date"]);
+}
+
+/** Who made the visit. */
+function getVisitManager(row: AnyRow) {
+  return getValue(row, ["manager", "Manager", "completedBy", "Completed By", "visitedBy", "Visited By"]);
+}
+
+/** "Routine Visit: floors look good…": the type, then the notes cut short. */
+function visitSummary(row: AnyRow) {
+  const type = getValue(row, ["visitType", "Visit Type", "type", "Type"]);
+  const notes = getValue(row, ["notes", "Notes"]).replace(/\s+/g, " ");
+  const short = notes.length > 140 ? `${notes.slice(0, 137).trimEnd()}…` : notes;
+  if (type && short) return `${type}: ${short}`;
+  return type || short || "-";
 }
 
 function SummaryCard({
