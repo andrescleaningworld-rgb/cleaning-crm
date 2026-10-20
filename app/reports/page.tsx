@@ -98,6 +98,11 @@ function getDate(value: unknown): Date | null {
 
   if (!text) return null;
 
+  // A plain day (2026-10-23) is that day here, not midnight in London
+  // (new Date reads it as UTC, which shows the day before in New York).
+  const plainDay = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  if (plainDay) return new Date(Number(plainDay[1]), Number(plainDay[2]) - 1, Number(plainDay[3]));
+
   const directDate = new Date(text);
   if (!Number.isNaN(directDate.getTime())) return directDate;
 

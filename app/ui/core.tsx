@@ -284,6 +284,8 @@ export function Field({
   return (
     <FieldShell id={id} label={label} hint={hint} error={error} optional={optional}>
       <input
+        // A date box never offers the browser's saved entries (names, emails) over its calendar.
+        autoComplete={input.type === "date" ? "off" : undefined}
         {...input}
         id={id}
         className={`ui-input ${className}`.trim()}

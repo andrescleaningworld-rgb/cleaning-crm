@@ -5,6 +5,7 @@ import OneSignalInit from "./components/OneSignalInit";
 import CWHeader from "./components/CWHeader";
 import VersionCheckBanner from "./components/VersionCheckBanner";
 import { ToastRegion } from "./ui/toast";
+import DateInputs from "./components/DateInputs";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             <main className="cw-page-card">{children}</main>
             {/* One place for every "Saved ✓" and Undo message, on every page. */}
             <ToastRegion />
+            <DateInputs />
           </div>
         </div>
       </body>

@@ -80,6 +80,27 @@ type SubcontractorsApiResponse = {
   data?: Subcontractor[];
 };
 
+/**
+ * A saved date as the date box needs it (YYYY-MM-DD), or "" when it is not a
+ * date. Saved dates come as 2026-10-23, 10/23/2026 or the long "Fri Oct 23
+ * 2026 00:00:00 GMT-0400 ..." form the cancelled date is sent in.
+ */
+function toDateInput(value: unknown): string {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(text);
+  if (iso) return `${iso[1]}-${pad(Number(iso[2]))}-${pad(Number(iso[3]))}`;
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (us) return `${us[3]}-${pad(Number(us[1]))}-${pad(Number(us[2]))}`;
+  const long = /^[A-Za-z]{3} ([A-Za-z]{3}) (\d{1,2}) (\d{4})/.exec(text);
+  if (long) {
+    const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(long[1]) + 1;
+    if (month) return `${long[3]}-${pad(month)}-${pad(Number(long[2]))}`;
+  }
+  return "";
+}
+
 function cleanText(value: unknown) {
   return String(value || "").trim();
 }
@@ -650,8 +671,8 @@ export default function EditAccountPage() {
             <Field
               label="Start date"
               optional
-              placeholder="6/10/2026"
-              value={formData.accountStartDate || formData.startDate || formData.serviceStartDate || ""}
+              type="date"
+              value={toDateInput(formData.accountStartDate || formData.startDate || formData.serviceStartDate)}
               onChange={(event) => {
                 // Written to all three aliases (the read side already
                 // falls back between them, meaning existing data can
@@ -681,8 +702,8 @@ export default function EditAccountPage() {
             <Field
               label="Cancelled date"
               optional
-              placeholder="6/10/2026"
-              value={formData.cancelledDate || ""}
+              type="date"
+              value={toDateInput(formData.cancelledDate)}
               onChange={(event) => updateField("cancelledDate", event.target.value)}
             />
 
