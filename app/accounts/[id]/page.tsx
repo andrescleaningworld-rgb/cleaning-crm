@@ -42,7 +42,7 @@ import PrintOrPinSheet from "./print-or-pin";
 import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-packet-sheet";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
-import { AcceptedEstimate, HandoffCard, sentToText, useHandoffs } from "../../components/handoffs";
+import { sentToText, useHandoffs } from "../../components/handoffs";
 import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
 import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 import { payShare } from "@/lib/payShare";
@@ -1287,13 +1287,7 @@ export default function AccountDetailPage() {
               }}
             />
 
-            {onboardingHandoff && !onboardingHandoff.doneAt ? (
-              <div className="account-detail-print-hide">
-                <HandoffCard item={{ ...onboardingHandoff, title: "New account" }} settings={handoffs.settings} data-tip="new-account">
-                  <BigButton onClick={() => setShowOnboardingWizard(true)}>Open checklist</BigButton>
-                </HandoffCard>
-              </div>
-            ) : null}
+            {/* The old 7-step "New account" card is retired (migration 051): new accounts use the 8-step flow above. */}
 
             <div className="ui-actions-row">
               <StatusPill kind={accountStatusKind(account.status)}>{account.status || "No Status"}</StatusPill>
@@ -1468,17 +1462,7 @@ export default function AccountDetailPage() {
             {/* the exact same OnboardingChecklist component the wizard modal    */}
             {/* uses, just inline rather than in a modal.                        */}
             {/* --------------------------------------------------------------- */}
-            {handoffs.state === "ready" && !onboardingHandoff?.doneAt ? (
-              <section className="ui-card ui-stack account-detail-print-hide">
-                <h2 className="ui-card-title">New account</h2>
-                <p className="ui-card-text">
-                  {onboardingHandoff
-                    ? `Accepted ${onboardingHandoff.data.acceptedOn || "(no date)"}. This account is on the New accounts board.`
-                    : "Is this a new account? Add the accepted estimate and it goes on the New accounts board, with each step, its owner and its due date."}
-                </p>
-                <AcceptedEstimate accountId={thisAccountId} accountName={accountName} manager={account.manager || ""} current={onboardingHandoff} onSaved={() => void handoffs.reload()} />
-              </section>
-            ) : null}
+            {/* "Add accepted estimate" (the old 7-step board) is retired: a new account is made with New Accepted Account. */}
 
             <section className="ui-card account-detail-print-hide">
               <OnboardingChecklist

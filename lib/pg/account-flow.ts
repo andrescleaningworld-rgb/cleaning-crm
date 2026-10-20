@@ -287,8 +287,14 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
  * Returns false when the flow was not on that step.
  */
 async function advance(accountId: string, from: FlowStep, by: string, note = ""): Promise<boolean> {
-  const to = nextFlowStep(from);
   const sql = getSql();
+  // Steps already marked done (an account brought into the flow later, e.g. with its sub already
+  // assigned) are skipped: the flow goes on to the first step that is not done yet.
+  const doneBefore = new Set(
+    ((await sql`SELECT DISTINCT step FROM account_flow_events WHERE account_id = ${accountId} AND action = 'done'`) as { step: string }[]).map((row) => row.step)
+  );
+  let to = nextFlowStep(from);
+  while (to !== "live" && doneBefore.has(to)) to = nextFlowStep(to);
   const moved = (await sql`
     UPDATE account_flows SET step = ${to}, step_since = now(), stuck_note = '', stuck_note_by = '', stuck_note_at = NULL,
       done_at = CASE WHEN ${to} = 'live' THEN now() ELSE NULL END

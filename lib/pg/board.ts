@@ -25,7 +25,6 @@ import {
   type PaperKind,
   type TvLink,
 } from "@/lib/board";
-import { ACCOUNT_DONE_STEP, currentOnboardingSection } from "@/lib/handoffs";
 import { extraJobsReady } from "@/lib/pg/extra-jobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
 import { handoffLive } from "@/lib/pg/account-live";
@@ -92,8 +91,6 @@ export async function listBoardManagers(): Promise<BoardManager[]> {
 }
 
 /* ---------- papers pin themselves ---------- */
-
-type ChecklistRow = { account_id: string; account_name: string; items: unknown; started_at: string | Date | null; manager: string | null };
 
 function checklistItems(value: unknown): OnboardingChecklistItems {
   const items = createEmptyChecklistItems();
@@ -174,34 +171,9 @@ async function runSync(): Promise<void> {
     WHERE board_pinned_at IS NULL AND done_at IS NULL AND kind = 'account'
   `;
 
-  // 2. New accounts: an Onboarding Checklist that is started and not finished.
-  const checklists = (await sql`
-    SELECT c.account_id, COALESCE(NULLIF(btrim(a.account_name), ''), c.account_name) AS account_name, c.items, c.started_at,
-           COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw) AS manager
-    FROM onboarding_checklists c
-    LEFT JOIN accounts a ON a.id = c.account_id
-    LEFT JOIN managers m ON m.id = a.manager_id
-    WHERE c.completed_at IS NULL
-      AND btrim(c.account_id) <> ''
-      AND COALESCE(a.status_key, '') <> 'cancelled'
-      AND (to_jsonb(a)->>'deleted_at') IS NULL
-      AND NOT EXISTS (SELECT 1 FROM handoff_items h WHERE h.kind = 'account' AND h.item_id = c.account_id)
-  `) as ChecklistRow[];
-  for (const row of checklists) {
-    const step = currentOnboardingSection(checklistItems(row.items));
-    if (step === ACCOUNT_DONE_STEP) continue;
-    await insertPaper({
-      kind: "account",
-      itemId: row.account_id,
-      title: row.account_name,
-      accountId: row.account_id,
-      accountName: row.account_name,
-      manager: clean(row.manager),
-      step,
-      since: row.started_at,
-      data: row.started_at ? { acceptedOn: iso(row.started_at).slice(0, 10) } : {},
-    });
-  }
+  // 2. (Retired, migration 051.) The old 7-step system pinned a "New account"
+  //    paper for every unfinished Onboarding Checklist. New accounts now come
+  //    from the 8-step flow, which pins its own paper (lib/pg/account-flow.ts).
 
   // 3. Complaints that are still open.
   await sql`
