@@ -2,7 +2,7 @@
 // /board/calendar. Plain TS with no server imports, so client components can
 // use it directly. The database side is lib/pg/board.ts.
 
-import type { FlowView } from "@/lib/accountFlow";
+import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
 
 export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note";
 
@@ -50,6 +50,12 @@ export type Paper = {
   progress: { done: number; total: number } | null;
   /** A new account made with "New Accepted Account": its 8-step pizza tracker. null for every other paper. */
   flow: FlowView | null;
+  /**
+   * Set only on the copy papersIn puts in "New accepted" for a new account
+   * that is in a manager's square (it stays there too until Live). The same
+   * paper, so it opens the same popup; drawn with "Handed to <manager>".
+   */
+  mirror?: boolean;
   /** The real record this paper opens. "" = the paper is all there is (a note). */
   href: string;
   /** A pinned account: its Admin (office) PDF, made fresh each time it is opened (no stored file). "" = none, and always "" on the TV. */
@@ -147,10 +153,28 @@ export function paperTilt(itemId: string): number {
 }
 
 /** The papers hanging in one square. */
+/** A new account in the 8-step flow, handed to a manager and not Live yet: it also shows in "New accepted". */
+export function stillNewAccepted(paper: Paper): boolean {
+  return paper.kind === "account" && paper.square !== "" && paper.flow !== null && paper.flow.step !== "live";
+}
+
 export function papersIn(papers: Paper[], square: { shared: PaperKind } | { manager: string }): Paper[] {
   // A sticky note with no square hangs in the box it was added into, or in the Office box.
-  if ("shared" in square) return papers.filter((paper) => paper.square === "" && (paper.kind === "note" ? (paper.box || "note") === square.shared : paper.kind === square.shared));
+  if ("shared" in square) {
+    const own = papers.filter((paper) => paper.square === "" && (paper.kind === "note" ? (paper.box || "note") === square.shared : paper.kind === square.shared));
+    // "New accepted" keeps every new account until it is Live, also once it is handed to a manager.
+    if (square.shared !== "account") return own;
+    return [...own, ...papers.filter(stillNewAccepted).map((paper) => ({ ...paper, mirror: true }))];
+  }
   return papers.filter((paper) => paper.square === square.manager);
+}
+
+/** "Step 3 of 8 · Confirm availability": where a new account is, for its copy in "New accepted". */
+export function flowStepLine(paper: Paper): string {
+  if (!paper.flow) return "";
+  const steps = FLOW_STEPS.length - 1;
+  const def = FLOW_STEPS[paper.flow.index];
+  return paper.flow.step === "live" ? "Live" : `Step ${paper.flow.index + 1} of ${steps} · ${def?.action ?? ""}`;
 }
 
 export function sameDay(isoA: string, b: Date): boolean {

@@ -40,7 +40,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, flowStepLine, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
 import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
@@ -758,6 +758,11 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
           {paper.recordDone ? " · done ✓" : ""}
         </p>
         <p className={styles.noteName}>{paper.accountName || paperLabel(paper)}</p>
+        {paper.mirror ? (
+          <p className={styles.noteType}>
+            Handed to {data?.managers.find((manager) => manager.id === paper.square)?.name || "a manager"} · {flowStepLine(paper)}
+          </p>
+        ) : null}
         {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
         {overdue || stuck ? <span className={styles.lateCorner} aria-hidden="true" /> : null}
       </div>

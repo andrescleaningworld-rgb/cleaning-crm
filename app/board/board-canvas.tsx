@@ -8,7 +8,7 @@
 import { Caveat } from "next/font/google";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Sheet } from "@/app/ui";
-import { SHARED_SQUARES, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import PizzaTracker from "@/app/components/pizza-tracker";
 import styles from "./board.module.css";
 
@@ -24,7 +24,7 @@ function canDrop(paper: Paper, square: string): boolean {
   return paper.kind !== "note" && square === `shared:${paper.kind}` && paper.square !== "";
 }
 
-export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; settings: BoardSettings; tv?: boolean; now: Date }) {
+export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: { paper: Paper; settings: BoardSettings; tv?: boolean; now: Date; handedTo?: string }) {
   const days = daysPinned(paper, now);
   const old = isOld(paper, settings, now);
   const taken = Boolean(paper.takenAt);
@@ -37,6 +37,13 @@ export function PaperFace({ paper, settings, tv = false, now }: { paper: Paper; 
       <span className={styles.kind}>{paperLabel(paper)}</span>
       {title ? <span className={`${styles.title} ${paper.kind === "note" && !tv ? handwriting.className : ""}`}>{title}</span> : null}
       {!tv && paper.badge ? <span className={styles.badge}>{paper.badge}</span> : null}
+      {/* Its copy in "New accepted" while a manager has it: who has it and the step it is on. */}
+      {paper.mirror ? (
+        <>
+          <span className={styles.badge}>Handed to {handedTo || "a manager"}</span>
+          <span className={styles.meta}>{flowStepLine(paper)}</span>
+        </>
+      ) : null}
       {/* A new account in the 8-step flow: its pizza tracker, on the board and on the TV. */}
       {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
       {!tv && paper.flow?.stuckNote ? <span className={styles.meta}>Stuck: {paper.flow.stuckNote}</span> : null}
@@ -279,7 +286,7 @@ export default function BoardCanvas({
   function renderPaper(paper: Paper) {
     const key = paperKey(paper);
     const style = { transform: `rotate(${paperTilt(paper.itemId)}deg)` };
-    const face = <PaperFace paper={paper} settings={settings} tv={tv} now={now} />;
+    const face = <PaperFace paper={paper} settings={settings} tv={tv} now={now} handedTo={paper.mirror ? managers.find((manager) => manager.id === paper.square)?.name : ""} />;
     if (tv) {
       return (
         <div key={key} className={paperClass(paper, settings, now)} style={style} role="button" tabIndex={0} onClick={() => setZoomed(paper)} onKeyDown={(event) => event.key === "Enter" && setZoomed(paper)}>
