@@ -937,6 +937,23 @@ export default function ReportsPage() {
   const showVisits = reportType === "Visits";
   const showLastVisit = reportType === "Last Visit by Account";
 
+  // Overview and Manager Summary print their summary on top, then every list
+  // under it (Manager Summary: grouped by manager, each list keeping its own order).
+  const withLists = showOverview || showManagerSummary;
+  const showStartedList = showStarted || withLists;
+  const showCancelledList = showCancelled || withLists;
+  const showComplaintsList = showComplaints || withLists;
+  const showSalesList = showSales || withLists;
+  const showVisitsList = showVisits || withLists;
+  const byManager = <T,>(rows: T[], manager: (row: T) => string) =>
+    showManagerSummary ? [...rows].sort((a, b) => (manager(a) || "Unassigned").localeCompare(manager(b) || "Unassigned")) : rows;
+  const complaintManager = (row: AnyRow) => getValue(row, ["manager", "Manager", "assignedTo", "Assigned To"]);
+  const startedList = byManager(startedAccounts, getAccountManager);
+  const cancelledList = byManager(cancelledAccounts, getAccountManager);
+  const complaintsList = byManager(filteredComplaints, complaintManager);
+  const salesList = byManager(filteredSales, (row) => getValue(row, ["manager", "Manager", "accountManager"]));
+  const visitsList = byManager(visitsReport, getVisitManager);
+
   return (
     <main className="ui-screen print:bg-white print:p-0">
       <style>{`
@@ -1460,7 +1477,7 @@ export default function ReportsPage() {
               </section>
             )}
 
-            {showStarted && (
+            {showStartedList && (
               <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
@@ -1474,7 +1491,7 @@ export default function ReportsPage() {
                   </div>
 
                   <div className="font-semibold text-gray-700">
-                    Count: {startedAccounts.length} | Revenue Added:{" "}
+                    Count: {startedList.length} | Revenue Added:{" "}
                     {money(totals.revenueAdded)}
                   </div>
                 </div>
@@ -1495,7 +1512,7 @@ export default function ReportsPage() {
                   </thead>
 
                   <tbody>
-                    {startedAccounts.length === 0 ? (
+                    {startedList.length === 0 ? (
                       <tr>
                         <td
                           colSpan={9}
@@ -1507,7 +1524,7 @@ export default function ReportsPage() {
                         </td>
                       </tr>
                     ) : (
-                      startedAccounts.map((account, index) => (
+                      startedList.map((account, index) => (
                         <tr key={index} className="border-b">
                           <td className="px-4 py-3">
                             {safeDate(getStartDate(account))}
@@ -1544,7 +1561,7 @@ export default function ReportsPage() {
               </section>
             )}
 
-            {showCancelled && (
+            {showCancelledList && (
               <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
@@ -1558,7 +1575,7 @@ export default function ReportsPage() {
                   </div>
 
                   <div className="font-semibold text-gray-700">
-                    Count: {cancelledAccounts.length} | Revenue Lost:{" "}
+                    Count: {cancelledList.length} | Revenue Lost:{" "}
                     {money(totals.revenueLost)}
                   </div>
                 </div>
@@ -1579,7 +1596,7 @@ export default function ReportsPage() {
                   </thead>
 
                   <tbody>
-                    {cancelledAccounts.length === 0 ? (
+                    {cancelledList.length === 0 ? (
                       <tr>
                         <td
                           colSpan={9}
@@ -1589,7 +1606,7 @@ export default function ReportsPage() {
                         </td>
                       </tr>
                     ) : (
-                      cancelledAccounts.map((account, index) => (
+                      cancelledList.map((account, index) => (
                         <tr key={index} className="border-b">
                           <td className="px-4 py-3">
                             {safeDate(getCancelledDate(account))}
@@ -1635,7 +1652,7 @@ export default function ReportsPage() {
               </section>
             )}
 
-            {showComplaints && (
+            {showComplaintsList && (
               <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <h2 className="ui-card-title">
@@ -1643,7 +1660,7 @@ export default function ReportsPage() {
                   </h2>
 
                   <div className="font-semibold text-gray-700">
-                    Count: {filteredComplaints.length} | Open / Pending:{" "}
+                    Count: {complaintsList.length} | Open / Pending:{" "}
                     {totals.openComplaints}
                   </div>
                 </div>
@@ -1661,7 +1678,7 @@ export default function ReportsPage() {
                   </thead>
 
                   <tbody>
-                    {filteredComplaints.length === 0 ? (
+                    {complaintsList.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
@@ -1671,7 +1688,7 @@ export default function ReportsPage() {
                         </td>
                       </tr>
                     ) : (
-                      filteredComplaints.slice(0, 50).map((complaint, index) => (
+                      complaintsList.map((complaint, index) => (
                         <tr key={index} className="border-b">
                           <td className="px-4 py-3">
                             {safeDate(
@@ -1732,7 +1749,7 @@ export default function ReportsPage() {
               </section>
             )}
 
-            {showSales && (
+            {showSalesList && (
               <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
@@ -1745,7 +1762,7 @@ export default function ReportsPage() {
                   </div>
 
                   <div className="font-semibold text-gray-700">
-                    Count: {filteredSales.length} | Sales:{" "}
+                    Count: {salesList.length} | Sales:{" "}
                     {money(totals.salesTotal)} | Commission:{" "}
                     {money(totals.commissionTotal)}
                   </div>
@@ -1768,7 +1785,7 @@ export default function ReportsPage() {
                   </thead>
 
                   <tbody>
-                    {filteredSales.length === 0 ? (
+                    {salesList.length === 0 ? (
                       <tr>
                         <td
                           colSpan={10}
@@ -1778,7 +1795,7 @@ export default function ReportsPage() {
                         </td>
                       </tr>
                     ) : (
-                      filteredSales.map((sale, index) => {
+                      salesList.map((sale, index) => {
                         const date = getSaleDate(sale);
 
                         return (
@@ -1855,7 +1872,7 @@ export default function ReportsPage() {
               </section>
             )}
 
-            {showVisits && (
+            {showVisitsList && (
               <section className="ui-card">
                 <div className="mb-4 flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
                   <div>
@@ -1867,12 +1884,12 @@ export default function ReportsPage() {
                   </div>
 
                   <div className="reports-screen-only font-semibold text-gray-700">
-                    Total visits: {visitsReport.length}
+                    Total visits: {visitsList.length}
                   </div>
                 </div>
 
                 <p className="reports-print-only mb-2 font-semibold">
-                  Total visits: {visitsReport.length}
+                  Total visits: {visitsList.length}
                   {visitsPerManager.length > 0
                     ? ` | Per manager: ${visitsPerManager.map(([manager, count]) => `${manager} ${count}`).join(", ")}`
                     : ""}
@@ -1901,14 +1918,14 @@ export default function ReportsPage() {
                   </thead>
 
                   <tbody>
-                    {visitsReport.length === 0 ? (
+                    {visitsList.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
                           No visits found for this filter.
                         </td>
                       </tr>
                     ) : (
-                      visitsReport.map((visit, index) => {
+                      visitsList.map((visit, index) => {
                         const account = accountForVisit(visit);
                         return (
                           <tr key={getValue(visit, ["id", "Visit ID"]) || index} className="border-b">
