@@ -29,6 +29,7 @@ import BoardCanvas from "./board-canvas";
 import AccountLink from "../components/AccountLink";
 import PizzaTracker from "../components/pizza-tracker";
 import { StuckNote } from "../components/account-flow";
+import FinishSetup from "../components/finish-setup";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
@@ -340,6 +341,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             {open.flow ? (
               <>
                 <PizzaTracker view={open.flow} size="list" />
+                <FinishSetup key={open.accountId || open.itemId} accountId={open.accountId || open.itemId} />
                 {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}
               </>
             ) : null}

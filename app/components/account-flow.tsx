@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, ErrorBox, Field, SelectField, Sheet, TextAreaField, friendlyDate, showToast } from "@/app/ui";
 import PizzaTracker from "./pizza-tracker";
+import FinishSetup from "./finish-setup";
 import PlusMinus from "./plus-minus";
 import SubSuggestions, { suggestionDays } from "./sub-suggestions";
 import { FLOW_STEPS, type FlowDetail, type FlowEvent } from "@/lib/accountFlow";
@@ -111,6 +112,8 @@ export default function AccountFlowPanel({
       <Card title="New account setup">
         <div className="ui-stack">
           <PizzaTracker view={view} />
+          {/* The account fields still empty, on one short screen (not Edit Account). */}
+          <FinishSetup accountId={accountId} />
           {view.red ? <p className="ui-field-error">No progress for 2 work days. Add a note below if it is stuck.</p> : null}
           {error ? <ErrorBox title="Not saved" text={error} /> : null}
 
