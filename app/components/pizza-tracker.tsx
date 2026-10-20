@@ -3,12 +3,13 @@
 // Live. Finished steps are filled in green, the current one in blue (red
 // when it has had no progress for 2 business days), with who it is with.
 //   size "pin"   a thin bar and one line, for a paper on the board and the TV
-//   size "full"  every step named, for the account page and an opened paper
+//   size "full"  every step named, for the account page
+//   size "list"  one stage per line (check, big dot, gray), for an opened paper on the board
 // The rules are in lib/accountFlow.ts.
 
 import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
 
-export default function PizzaTracker({ view, size = "full" }: { view: FlowView; size?: "pin" | "full" }) {
+export default function PizzaTracker({ view, size = "full" }: { view: FlowView; size?: "pin" | "full" | "list" }) {
   const live = view.step === "live";
   const stateOf = (index: number) => (live || index < view.index ? "is-done" : index === view.index ? "is-now" : "");
   const summary = live ? "Live: every step is done." : `Step ${view.index + 1} of ${FLOW_STEPS.length - 1}: ${view.now}.${view.red ? " No progress for 2 work days." : ""}`;
@@ -24,6 +25,28 @@ export default function PizzaTracker({ view, size = "full" }: { view: FlowView; 
         <span className="cw-pizza-now">{live ? "✓ Live" : view.now}</span>
         <span className="ui-visually-hidden">{summary}</span>
       </span>
+    );
+  }
+
+  if (size === "list") {
+    return (
+      <div className={`cw-pizza cw-pizza-list ${view.red ? "is-red" : ""}`}>
+        <ol className="cw-pizza-rows" aria-label="New account steps">
+          {FLOW_STEPS.map((step, index) => {
+            const state = stateOf(index);
+            return (
+              <li key={step.key} className={`cw-pizza-row ${state}`} aria-current={state === "is-now" ? "step" : undefined}>
+                <span className="cw-pizza-mark" aria-hidden="true">
+                  {state === "is-done" ? "✓" : null}
+                </span>
+                <span className="cw-pizza-name">{step.tracker}</span>
+                {state === "is-now" ? <span className="cw-pizza-who">{view.withWho}</span> : null}
+              </li>
+            );
+          })}
+        </ol>
+        <span className="ui-visually-hidden">{summary}</span>
+      </div>
     );
   }
 

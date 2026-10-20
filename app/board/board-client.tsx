@@ -339,7 +339,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (
               <>
-                <PizzaTracker view={open.flow} />
+                <PizzaTracker view={open.flow} size="list" />
                 {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}
               </>
             ) : null}

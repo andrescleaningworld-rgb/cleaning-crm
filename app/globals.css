@@ -4657,3 +4657,84 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   font-weight: 800;
   color: var(--ui-ink);
 }
+
+/* size "list": an opened paper on the board. One stage per line, joined by a
+   thin line: green check = done, big blue dot = now (red when stuck), gray = still to come. */
+.cw-pizza-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.cw-pizza-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+/* The line down to the next stage, green once this stage is done. */
+.cw-pizza-row:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 30px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--ui-line);
+}
+.cw-pizza-row.is-done:not(:last-child)::after {
+  background: var(--ui-green);
+}
+.cw-pizza-mark {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--ui-line);
+  background: var(--ui-surface, #fff);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+}
+.cw-pizza-row.is-done .cw-pizza-mark {
+  border-color: var(--ui-green);
+  background: var(--ui-green);
+}
+.cw-pizza-row.is-now .cw-pizza-mark {
+  border: 0;
+  background: var(--ui-brand);
+  box-shadow: 0 0 0 5px var(--ui-brand-soft);
+}
+.cw-pizza.is-red .cw-pizza-row.is-now .cw-pizza-mark {
+  background: var(--ui-bad);
+  box-shadow: 0 0 0 5px #fce7e5;
+}
+.cw-pizza-name {
+  white-space: nowrap;
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+.cw-pizza-row.is-done .cw-pizza-name {
+  color: var(--ui-green-ink);
+  font-weight: 600;
+}
+.cw-pizza-row.is-now .cw-pizza-name {
+  color: var(--ui-ink);
+  font-size: 18px;
+  font-weight: 800;
+}
+.cw-pizza-who {
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ui-brand);
+}
+.cw-pizza.is-red .cw-pizza-who {
+  color: var(--ui-bad);
+}
