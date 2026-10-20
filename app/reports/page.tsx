@@ -941,9 +941,48 @@ export default function ReportsPage() {
     <main className="ui-screen print:bg-white print:p-0">
       <style>{`
         @media print {
+          /* Landscape so every column fits (some reports have 9-10). */
           @page {
-            size: letter;
+            size: letter landscape;
             margin: 0.35in;
+          }
+
+          /* The table is never scrolled or clipped on paper: it shrinks to the page. */
+          .overflow-x-auto {
+            overflow: visible !important;
+          }
+
+          .ui-table {
+            width: 100% !important;
+            table-layout: auto;
+          }
+
+          .ui-table th {
+            font-size: 10px !important;
+          }
+
+          .ui-table th,
+          .ui-table td {
+            white-space: normal;
+            overflow-wrap: anywhere;
+          }
+
+          .ui-card {
+            padding: 8px !important;
+          }
+
+          .reports-print-only {
+            display: block !important;
+          }
+
+          .reports-screen-only {
+            display: none !important;
+          }
+
+          /* No colored rows on paper (ink): the dot and the bold days carry it. */
+          .visit-age-watch td,
+          .visit-age-problem td {
+            background: none !important;
           }
 
           html,
@@ -997,22 +1036,39 @@ export default function ReportsPage() {
           }
         }
 
-        /* Last Visit by Account: 30-59 days yellow, 60+ days or Never red. Kept when printed. */
+        /* Only on paper: the Cleaning World header and one-line summaries. */
+        .reports-print-only {
+          display: none;
+        }
+
+        /* Last Visit by Account: 30-59 days yellow, 60+ days or Never red.
+           On screen the whole row; on paper only the dot. */
         .visit-age-watch td {
           background: #fff4c2;
         }
         .visit-age-problem td {
           background: #fde2df;
         }
-        .visit-age-watch td,
-        .visit-age-problem td {
+        .visit-age-dot {
+          display: inline-block;
+          width: 9px;
+          height: 9px;
+          margin-right: 6px;
+          border-radius: 50%;
+          vertical-align: middle;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
+        }
+        .visit-age-watch .visit-age-dot {
+          background: #d49a00;
+        }
+        .visit-age-problem .visit-age-dot {
+          background: #c0261c;
         }
       `}</style>
 
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between print:hidden no-print">
           <div>
             <h1 className="ui-screen-title">Reports</h1>
             <p className="ui-muted">
@@ -1039,7 +1095,7 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        <section className="hidden print:block">
+        <section className="reports-print-only">
           <div className="mb-5 flex items-center justify-between border-b border-gray-300 pb-4">
             <div>
               <Image
@@ -1075,7 +1131,7 @@ export default function ReportsPage() {
           </div>
         </section>
 
-        <section className="ui-card print:hidden">
+        <section className="ui-card print:hidden no-print">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div>
               <label className="ui-label">
@@ -1259,13 +1315,13 @@ export default function ReportsPage() {
           </section>
         ) : (
           <>
-            <section className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-900 print:hidden">
+            <section className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-900 print:hidden no-print">
               Loaded records: {accounts.length} accounts, {visits.length}{" "}
               visits, {complaints.length} complaints, {sales.length} sales.
             </section>
 
             {loadError && (
-              <section className="ui-field-error print:hidden">
+              <section className="ui-field-error print:hidden no-print">
                 {loadError}
               </section>
             )}
@@ -1810,13 +1866,20 @@ export default function ReportsPage() {
                     </p>
                   </div>
 
-                  <div className="font-semibold text-gray-700">
+                  <div className="reports-screen-only font-semibold text-gray-700">
                     Total visits: {visitsReport.length}
                   </div>
                 </div>
 
+                <p className="reports-print-only mb-2 font-semibold">
+                  Total visits: {visitsReport.length}
+                  {visitsPerManager.length > 0
+                    ? ` | Per manager: ${visitsPerManager.map(([manager, count]) => `${manager} ${count}`).join(", ")}`
+                    : ""}
+                </p>
+
                 {visitsPerManager.length > 0 ? (
-                  <div className="print-avoid-break mb-4 flex flex-wrap gap-x-6 gap-y-1 text-gray-700">
+                  <div className="reports-screen-only mb-4 flex flex-wrap gap-x-6 gap-y-1 text-gray-700">
                     <span className="font-semibold">Per manager:</span>
                     {visitsPerManager.map(([manager, count]) => (
                       <span key={manager}>
@@ -1879,12 +1942,17 @@ export default function ReportsPage() {
                     </p>
                   </div>
 
-                  <div className="font-semibold text-gray-700">
+                  <div className="reports-screen-only font-semibold text-gray-700">
                     Accounts: {lastVisitReport.rows.length}
                   </div>
                 </div>
 
-                <div className="print-avoid-break mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                <p className="reports-print-only mb-2 font-semibold">
+                  Accounts: {lastVisitReport.rows.length} | 30+ days: {lastVisitReport.days30} | 60+ days:{" "}
+                  {lastVisitReport.days60} | Never: {lastVisitReport.never}
+                </p>
+
+                <div className="reports-screen-only mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
                   <SummaryCard label="30+ days since a visit" value={String(lastVisitReport.days30)} note="Includes the 60+ days ones" />
                   <SummaryCard label="60+ days since a visit" value={String(lastVisitReport.days60)} note="Marked red" />
                   <SummaryCard label="Never visited" value={String(lastVisitReport.never)} note="Marked red, at the top" />
@@ -1920,7 +1988,10 @@ export default function ReportsPage() {
                             <td className="px-4 py-3">{getAccountManager(account) || "-"}</td>
                             <td className="px-4 py-3">{getSubcontractor(account) || "-"}</td>
                             <td className="px-4 py-3 whitespace-nowrap">{last ? last.date.toLocaleDateString() : <strong>Never</strong>}</td>
-                            <td className="px-4 py-3 whitespace-nowrap">{days === null ? <strong>Never</strong> : days >= 30 ? <strong>{days}</strong> : days}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {age ? <span className="visit-age-dot" aria-hidden="true" /> : null}
+                              {days === null ? <strong>Never</strong> : days >= 30 ? <strong>{days}</strong> : days}
+                            </td>
                             <td className="px-4 py-3">{last?.by || "-"}</td>
                           </tr>
                         );
