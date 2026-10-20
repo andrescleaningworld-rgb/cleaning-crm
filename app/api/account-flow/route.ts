@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
           longitude: clean(body.longitude),
           monthlyRevenue: clean(body.monthlyRevenue).replace(/[^0-9.]/g, ""),
           contactName: clean(body.contactName),
+          phone: clean(body.phone),
           email: clean(body.email),
           manager,
           estimateUrl: clean(body.estimateUrl),

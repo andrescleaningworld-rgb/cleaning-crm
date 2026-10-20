@@ -10,6 +10,7 @@ import GoogleAddressAutocompleteInput, {
 import SubSuggestions from "@/app/components/sub-suggestions";
 import PlusMinus from "@/app/components/plus-minus";
 import FrequencyField from "@/app/components/frequency-field";
+import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import { afterFrequencyChange, monthlyPayText, perCleaningHint, perCleaningText } from "@/lib/frequency";
 import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
@@ -225,6 +226,8 @@ export default function NewAccountPage() {
   const [portalAccess, setPortalAccess] = useState<"Yes" | "No">("Yes");
   const [managers, setManagers] = useState<Manager[]>([]);
   const [subcontractorPayTouched, setSubcontractorPayTouched] = useState(false);
+  // Contacts after the first (main) one; saved once the account is made.
+  const [extraContacts, setExtraContacts] = useState<NewContact[]>([]);
   const [loadingManagers, setLoadingManagers] = useState(true);
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [saving, setSaving] = useState(false);
@@ -355,6 +358,8 @@ export default function NewAccountPage() {
       if (!form.accountName.trim()) {
         throw new Error("Account name is required.");
       }
+      const contactsError = contactsProblem(extraContacts);
+      if (contactsError) throw new Error(contactsError);
 
       const accountPayload: AccountForm = {
         ...form,
@@ -402,8 +407,16 @@ export default function NewAccountPage() {
         }
       }
 
+      // The contacts after the main one. The account is saved either way; a contact that did not save can be added on Edit Account.
+      const contactsFailed = data.accountId ? await saveExtraContacts(data.accountId, extraContacts) : 0;
+
       // A "Checklist Needed" warning is not a failure: the account is saved.
-      showToast(data.checklistFlagWarning || "Account saved", data.checklistFlagWarning ? "bad" : "good");
+      showToast(
+        contactsFailed
+          ? `Account saved, but ${contactsFailed} contact${contactsFailed === 1 ? "" : "s"} did not save. Add ${contactsFailed === 1 ? "it" : "them"} on Edit Account.`
+          : data.checklistFlagWarning || "Account saved",
+        contactsFailed || data.checklistFlagWarning ? "bad" : "good"
+      );
 
       // With the new account's ID the screen stays, to offer the Welcome Packet;
       // without one (the old Sheets path) it goes back to the list as before.
@@ -650,11 +663,15 @@ export default function NewAccountPage() {
           </div>
         </Card>
 
-        <Card title="Customer Contact">
+        <Card title="Customer Contacts">
           <div style={sectionStyle}>
-            <Field label="Contact name" optional value={form.contactName} onChange={(event) => updateField("contactName", event.target.value)} />
-            <Field label="Phone" optional inputMode="tel" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
-            <Field label="Email" optional inputMode="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} />
+            <NewAccountContacts
+              main={{ name: form.contactName, phone: form.phone, email: form.email }}
+              onMain={(field, value) => updateField(field === "name" ? "contactName" : field, value)}
+              extras={extraContacts}
+              onExtras={setExtraContacts}
+              disabled={saving}
+            />
           </div>
         </Card>
 

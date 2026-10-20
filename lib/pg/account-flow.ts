@@ -114,6 +114,8 @@ export type NewAcceptedAccount = {
   longitude: string;
   monthlyRevenue: string;
   contactName: string;
+  /** The main contact's phone ("" when none). */
+  phone?: string;
   /** The customer's email: the Welcome Packet's To (step 1) reads it from the account. */
   email: string;
   manager: string;
@@ -137,6 +139,7 @@ export async function createAcceptedAccount(input: NewAcceptedAccount, by: strin
     longitude: input.longitude,
     monthlyRevenue: input.monthlyRevenue,
     contactName: input.contactName,
+    phone: input.phone ?? "",
     email: input.email,
     manager: input.manager,
     status: FLOW_STATUS,

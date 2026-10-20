@@ -22,8 +22,8 @@ import { AddBar, AddButton, BigButton, Card, ConfirmSheet, Field, SelectField, S
 
 export type Contact = { id: number | null; name: string; role: string; phone: string; email: string; notes: string; isMain: boolean };
 
-const ROLES = ["Main contact", "Billing", "Property/Site manager", "After-hours/Emergency", "Keys/Access"];
-const OTHER = "Other";
+export const ROLES = ["Main contact", "Billing", "Property/Site manager", "After-hours/Emergency", "Keys/Access"];
+export const OTHER = "Other";
 
 type Draft = { ref: number | "main" | null; name: string; roleChoice: string; roleOther: string; phone: string; email: string; notes: string };
 /** What is waiting for "This changes who can log in to the customer portal". */
