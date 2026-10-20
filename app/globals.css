@@ -344,7 +344,13 @@ img {
 }
 
 @media print {
-  body * {
+  /* Only on a page that has a print view of its own (the Account Packet, the
+     subcontractor detail, a .ui-print-view, the To-Do / Account Update /
+     Crew Link print views; a new one goes in this list): everything else is hidden so
+     only that view prints. Every other page prints its content as it is
+     (the navy bar and the sidebar are .no-print). Unscoped, this rule left
+     every page without a print view blank on paper. */
+  body:has(.account-packet-print-view, .sub-detail-print, .ui-print-view, .todo-print-view, .account-update-print-view, .crew-print-view) * {
     visibility: hidden;
   }
 
@@ -1617,9 +1623,10 @@ button.ui-card:hover {
   accent-color: var(--ui-brand);
 }
 
-/* Printing. The app hides everything on paper (body * { visibility: hidden })
-   and each page opts its printable part back in. Wrap that part in
-   .ui-print-view; buttons inside it are left out. */
+/* Printing. A page prints its content, without the navy bar and sidebar.
+   A page that wants only one part on paper wraps it in .ui-print-view: the
+   rest of that page is then hidden (body:has(...) * { visibility: hidden })
+   and buttons inside it are left out. */
 @media print {
   .ui-print-view,
   .ui-print-view * {
@@ -2436,6 +2443,24 @@ main.cw-page-card {
   }
   main.cw-page-card {
     margin: 0;
+  }
+  /* No room kept for the sidebar, no screen-height shell, nothing clipped. */
+  .cw-app-container,
+  .cw-app-container:has(.cw-side),
+  .cw-app-container:has(.cw-side-mini) {
+    max-width: none;
+    padding-left: 0;
+  }
+  .cw-app-shell {
+    min-height: 0;
+  }
+  html,
+  body {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  .ui-toast-region {
+    display: none;
   }
 }
 
