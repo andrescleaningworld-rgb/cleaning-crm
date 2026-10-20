@@ -3,6 +3,7 @@
 //
 // GET  ?accountId=X                         the flow (null for an account that has none)
 // POST { action: "create", ... }            the "New Accepted Account" form
+// POST { action: "previewOffer", accountId, subId }                  step 2: what the sub will get (nothing sent)
 // POST { action: "offer", accountId, subId, days, start, minutes }   step 2
 // POST { action: "takeBack", accountId }    step 3: pick someone else
 // POST { action: "done", accountId, step }  steps 4 and 6
@@ -21,6 +22,7 @@ import {
   flowsReady,
   followUpDone,
   getFlowDetail,
+  previewOffer,
   sendOffer,
   setStuckNote,
   takeOfferBack,
@@ -87,6 +89,13 @@ export async function POST(request: NextRequest) {
     }
 
     if (!accountId) return refuse("accountId is required.");
+
+    // "Preview before sending": who the offer goes to and the exact text. Nothing is sent or saved.
+    if (action === "previewOffer") {
+      const subId = clean(body.subId);
+      if (!subId) return refuse("Pick a subcontractor.");
+      return NextResponse.json({ success: true, preview: await previewOffer(accountId, subId) });
+    }
 
     if (action === "offer") {
       const subId = clean(body.subId);

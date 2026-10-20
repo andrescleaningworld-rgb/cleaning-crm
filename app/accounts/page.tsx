@@ -94,6 +94,9 @@ type Account = {
   _distanceMiles?: number | null;
 };
 
+/** The transfer proposal email as the sub will get it (lib/pg/sub-transfers.ts buildSubTransferProposalEmail). */
+type TransferEmailPreview = { proposalId: string; to: string; subcontractorName: string; subject: string; text: string; html: string };
+
 type Subcontractor = {
   id?: string;
   subcontractorId?: string;
@@ -761,6 +764,8 @@ export default function AccountsPage() {
   const [transferPayByAccountId, setTransferPayByAccountId] = useState<Record<string, string>>({});
   const [transferNotes, setTransferNotes] = useState("");
   const [transferProposalId, setTransferProposalId] = useState("");
+  // The email shown before it is sent; null = no preview open.
+  const [transferPreview, setTransferPreview] = useState<TransferEmailPreview | null>(null);
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferMessage, setTransferMessage] = useState("");
   const [transferError, setTransferError] = useState("");
@@ -1837,7 +1842,10 @@ async function handleSaveTransferProposal() {
   }
 }
 
-  async function handleSendTransferProposalEmail() {
+  // "Send email" first shows the email exactly as the sub will get it and who
+  // it goes to; nothing goes out until Send is tapped in that preview. The
+  // proposal is saved as a draft first so the preview carries its real ID.
+  async function handlePreviewTransferProposalEmail() {
     const validationError = validateTransferProposal();
     if (validationError) {
       setTransferError(validationError);
@@ -1849,39 +1857,70 @@ async function handleSaveTransferProposal() {
       setTransferError("");
       setTransferMessage("");
 
-      let proposalId = transferProposalId;
-
-      if (!proposalId) {
-        const createResponse = await fetch("/api/sub-transfer-proposals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "createSubTransferProposal",
-            proposal: buildTransferProposalPayload(),
-          }),
-        });
-
-        const createData = await readJson<{
-          success?: boolean;
-          error?: string;
-          message?: string;
-          proposalId?: string;
-          id?: string;
-          data?: { proposalId?: string };
-        }>(createResponse);
-
-        if (!createResponse.ok || createData.success === false) {
-          throw new Error(
-            createData.error ?? createData.message ?? "Could not save transfer proposal before sending."
-          );
-        }
-
-        proposalId = createData.proposalId ?? createData.id ?? createData.data?.proposalId ?? "";
-
-        if (proposalId) {
-          setTransferProposalId(proposalId);
-        }
+      const proposalId = await ensureTransferProposalSaved();
+      const response = await fetch("/api/sub-transfer-proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "previewSubTransferProposalEmail",
+          proposal: { ...buildTransferProposalPayload(), proposalId },
+        }),
+      });
+      const data = await readJson<{ success?: boolean; error?: string; preview?: TransferEmailPreview }>(response);
+      if (!response.ok || data.success === false || !data.preview) {
+        throw new Error(data.error ?? "Could not show the email before sending.");
       }
+      setTransferPreview({ ...data.preview, proposalId });
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Something went wrong preparing the email.");
+    } finally {
+      setTransferSaving(false);
+    }
+  }
+
+  async function ensureTransferProposalSaved(): Promise<string> {
+    let proposalId = transferProposalId;
+
+    if (!proposalId) {
+      const createResponse = await fetch("/api/sub-transfer-proposals", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "createSubTransferProposal",
+          proposal: buildTransferProposalPayload(),
+        }),
+      });
+
+      const createData = await readJson<{
+        success?: boolean;
+        error?: string;
+        message?: string;
+        proposalId?: string;
+        id?: string;
+        data?: { proposalId?: string };
+      }>(createResponse);
+
+      if (!createResponse.ok || createData.success === false) {
+        throw new Error(
+          createData.error ?? createData.message ?? "Could not save transfer proposal before sending."
+        );
+      }
+
+      proposalId = createData.proposalId ?? createData.id ?? createData.data?.proposalId ?? "";
+
+      if (proposalId) {
+        setTransferProposalId(proposalId);
+      }
+    }
+    return proposalId;
+  }
+
+  /** The Send in the preview: the same proposal the preview showed. */
+  async function handleSendTransferProposalEmail(proposalId: string): Promise<boolean> {
+    try {
+      setTransferSaving(true);
+      setTransferError("");
+      setTransferMessage("");
 
       const response = await fetch("/api/sub-transfer-proposals", {
         method: "POST",
@@ -1899,8 +1938,10 @@ async function handleSaveTransferProposal() {
 
       setTransferMessage(data.message ?? "Proposal email sent.");
       loadTransferProposals();
+      return true;
     } catch (err) {
       setTransferError(err instanceof Error ? err.message : "Something went wrong sending the email.");
+      return false;
     } finally {
       setTransferSaving(false);
     }
@@ -3046,8 +3087,8 @@ async function handleSaveTransferProposal() {
                   <BigButton kind="second" busy={transferSaving} busyLabel="Working…" onClick={() => void handleSaveTransferProposal()}>
                     Save draft
                   </BigButton>
-                  <BigButton kind="second" disabled={transferSaving} onClick={() => void handleSendTransferProposalEmail()}>
-                    Send email
+                  <BigButton kind="second" disabled={transferSaving} onClick={() => void handlePreviewTransferProposalEmail()}>
+                    Send email…
                   </BigButton>
                   <BigButton kind="second" disabled={transferSaving} onClick={handlePrintTransferProposal}>
                     Print proposal
@@ -3059,6 +3100,53 @@ async function handleSaveTransferProposal() {
               </div>
             </Card>
           </div>
+
+          <Sheet
+            open={transferPreview !== null}
+            title="Check before sending"
+            text={transferPreview ? `This email goes to ${transferPreview.subcontractorName} at ${transferPreview.to}. Nothing is sent until you tap Send.` : ""}
+            onClose={() => {
+              if (!transferSaving) setTransferPreview(null);
+            }}
+            busy={transferSaving}
+            actions={
+              <>
+                <BigButton
+                  busy={transferSaving}
+                  busyLabel="Sending…"
+                  onClick={() => {
+                    const preview = transferPreview;
+                    if (!preview) return;
+                    void handleSendTransferProposalEmail(preview.proposalId).then((sent) => sent && setTransferPreview(null));
+                  }}
+                >
+                  Send
+                </BigButton>
+                <BigButton kind="quiet" disabled={transferSaving} onClick={() => setTransferPreview(null)}>
+                  Cancel
+                </BigButton>
+              </>
+            }
+          >
+            {transferPreview ? (
+              <div className="ui-stack">
+                <p className="ui-card-text">
+                  <strong>To:</strong> {transferPreview.to}
+                  <br />
+                  <strong>Subject:</strong> {transferPreview.subject}
+                </p>
+                {/* The email itself, as the sub will see it. Sandboxed: its links and buttons do nothing here. */}
+                <iframe
+                  title="The email the sub will get"
+                  sandbox=""
+                  srcDoc={transferPreview.html}
+                  style={{ width: "100%", height: 520, border: "1px solid var(--ui-line)", borderRadius: 12, background: "#fff" }}
+                />
+                <p className="ui-muted">The draft is saved{transferPreview.proposalId ? ` as ${transferPreview.proposalId}` : ""}. Cancel keeps it as a draft.</p>
+                {transferError ? <ErrorBox title="Not sent" text={transferError} /> : null}
+              </div>
+            ) : null}
+          </Sheet>
 
           <Card title="Drafts and old proposals">
             <p className="ui-card-text">Saved drafts, sent proposals, accepted, declined, and cancelled proposals appear here.</p>

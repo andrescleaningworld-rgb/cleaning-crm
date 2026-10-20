@@ -3,7 +3,7 @@ import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 import { isPostgres } from "@/lib/dataSource";
-import { createSubTransferProposal, getSubTransferProposals, sendSubTransferProposalEmail, updateSubTransferProposalStatus } from "@/lib/pg/sub-transfers";
+import { buildSubTransferProposalEmail, createSubTransferProposal, getSubTransferProposals, sendSubTransferProposalEmail, updateSubTransferProposalStatus } from "@/lib/pg/sub-transfers";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -121,6 +121,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+
+    // "Preview before sending": the email exactly as the sub will get it (same
+    // build as the send), with who it goes to. Nothing is sent or saved.
+    if (String(body.action || "").trim() === "previewSubTransferProposalEmail") {
+      if (!onPostgres) return NextResponse.json({ success: false, error: "The preview is not available here." }, { status: 409 });
+      const built = await buildSubTransferProposalEmail((body.proposal || body) as Record<string, unknown>, request.nextUrl.origin);
+      if ("error" in built) return NextResponse.json({ success: false, error: built.error }, { status: 400 });
+      return NextResponse.json({ success: true, preview: built });
+    }
 
     const allowedActions = [
       "createSubTransferProposal",

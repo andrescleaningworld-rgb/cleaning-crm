@@ -293,6 +293,9 @@ export function StuckNote({ accountId, view, onSaved }: { accountId: string; vie
 
 type SubOption = { id: string; label: string };
 
+/** What the flow API's previewOffer answers: who, and the exact text message. */
+type OfferPreview = { subName: string; phone: string; email: string; text: string };
+
 /** Step 2: the suggested subs (tap one), or any sub from the list, then the days, time and length the sub will see. */
 function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: FlowDetail; onClose: () => void; onSent: () => void }) {
   const [subs, setSubs] = useState<SubOption[]>([]);
@@ -303,10 +306,13 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
   const [minutes, setMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // "Preview before sending": what the sub will get; null = still choosing.
+  const [preview, setPreview] = useState<OfferPreview | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setError("");
+    setPreview(null);
     setDays((current) => current || flow.cleaningDays);
     fetch("/api/subcontractors", { cache: "no-store" })
       .then((response) => response.json())
@@ -327,7 +333,10 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
       .catch(() => setSubs([]));
   }, [open, flow.cleaningDays]);
 
-  async function send() {
+  const daysText = days.trim() || suggestionDays("").map((day) => day.slice(0, 3)).join(", ");
+
+  /** First tap: show exactly what the sub will get. Nothing is sent. */
+  async function showPreview() {
     if (!subId) {
       setError("Tap a sub, or pick one from the list.");
       return;
@@ -335,7 +344,26 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
     setBusy(true);
     setError("");
     try {
-      const daysText = days.trim() || suggestionDays("").map((day) => day.slice(0, 3)).join(", ");
+      const response = await fetch("/api/account-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "previewOffer", accountId: flow.accountId, subId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; preview?: OfferPreview };
+      if (!response.ok || !data.success || !data.preview) throw new Error(data.error || "Could not show what the sub will get. Try again.");
+      setPreview(data.preview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not show what the sub will get. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Send, from the preview: the offer goes out now. */
+  async function send() {
+    setBusy(true);
+    setError("");
+    try {
       const data = await postFlow({ action: "offer", accountId: flow.accountId, subId, days: daysText, start: toClock(start), minutes });
       showToast(`Sent to ${data.subName ?? subLabel} ✓`);
       onClose();
@@ -357,11 +385,56 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
       }}
       busy={busy}
       actions={
-        <BigButton busy={busy} busyLabel="Sending…" disabled={!subId} onClick={() => void send()}>
-          {subLabel ? `Send to ${subLabel}` : "Send to the sub"}
-        </BigButton>
+        preview ? (
+          <>
+            <BigButton busy={busy} busyLabel="Sending…" onClick={() => void send()}>
+              Send
+            </BigButton>
+            <BigButton kind="quiet" disabled={busy} onClick={() => setPreview(null)}>
+              Cancel
+            </BigButton>
+          </>
+        ) : (
+          <BigButton busy={busy} busyLabel="Getting it ready…" disabled={!subId} onClick={() => void showPreview()}>
+            {subLabel ? `Send to ${subLabel}…` : "Send to the sub…"}
+          </BigButton>
+        )
       }
     >
+      {preview ? (
+        <div className="ui-stack">
+          <p className="ui-card-text">
+            <strong>Check before sending.</strong> Nothing goes out until you tap Send.
+          </p>
+          <p className="ui-card-text">
+            <strong>To:</strong> {preview.subName}
+            {preview.email ? ` (${preview.email})` : ""}
+          </p>
+          <div>
+            <p className="ui-label">Text message{preview.phone ? ` to ${preview.phone}` : ""}</p>
+            {preview.phone ? (
+              <p className="ui-card-text" style={{ background: "var(--ui-surface-2)", borderRadius: 12, padding: 12 }}>
+                {preview.text}
+              </p>
+            ) : (
+              <p className="ui-field-error">No phone on file for {preview.subName}: no text goes out. The offer still waits in their portal.</p>
+            )}
+          </div>
+          <div>
+            <p className="ui-label">In their sub portal</p>
+            <div style={{ border: "2px solid var(--ui-line)", borderRadius: 14, padding: 14 }}>
+              <p className="ui-strong">New account for you</p>
+              <p className="ui-card-text">{flow.accountName}</p>
+              <p className="ui-card-text">Address: {flow.address || "-"}</p>
+              <p className="ui-card-text">Days: {daysText}</p>
+              <p className="ui-card-text">Time: {formatClock(start)}</p>
+              <p className="ui-card-text">Time needed: {formatMinutes(minutes)}</p>
+              <p className="ui-muted">With two buttons: Yes, I can do it · No, I can&apos;t</p>
+            </div>
+          </div>
+          {error ? <ErrorBox title="Not sent" text={error} /> : null}
+        </div>
+      ) : (
       <div className="ui-stack">
         <Field label="Cleaning days" hint="What the sub will see, e.g. Mon, Wed, Fri." value={days} onChange={(event) => setDays(event.target.value)} disabled={busy} />
         <div className="flex flex-wrap gap-x-8 gap-y-3">
@@ -407,6 +480,7 @@ function PickSubSheet({ open, flow, onClose, onSent }: { open: boolean; flow: Fl
         </SelectField>
         {error ? <ErrorBox title="Not sent" text={error} /> : null}
       </div>
+      )}
     </Sheet>
   );
 }

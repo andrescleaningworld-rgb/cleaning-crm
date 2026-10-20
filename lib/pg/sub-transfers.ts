@@ -278,12 +278,18 @@ const formatMoney = (value: unknown) => "$" + money(value).toLocaleString("en-US
  * button for each account, and marks the proposal Sent. `appUrl` is this
  * app's own address: the buttons open it.
  */
-export async function sendSubTransferProposalEmail(proposal: Body, appUrl: string): Promise<Record<string, unknown>> {
-  try {
+type ProposalEmail = { proposalId: string; to: string; subcontractorName: string; subject: string; text: string; html: string };
+
+/**
+ * The transfer proposal email exactly as the sub will get it, without
+ * sending it: the office sees this first ("Preview before sending") and the
+ * send below uses the same build, so the two can never differ.
+ */
+export async function buildSubTransferProposalEmail(proposal: Body, appUrl: string): Promise<ProposalEmail | { error: string }> {
     const subcontractorName = text(proposal.newSubcontractor || proposal.subcontractorName || proposal.subName || proposal.subcontractor || proposal.companyName) || "Subcontractor";
     let subcontractorEmail = text(proposal.newSubcontractorEmail || proposal.subcontractorEmail || proposal.subEmail || proposal.email || proposal.toEmail);
     if (!subcontractorEmail && subcontractorName) subcontractorEmail = await findSubcontractorEmailByName(subcontractorName);
-    if (!subcontractorEmail) return { success: false, message: "Subcontractor email is missing.", subcontractorNameReceived: subcontractorName, proposalReceived: proposal };
+    if (!subcontractorEmail) return { error: "Subcontractor email is missing." };
 
     const accounts = Array.isArray(proposal.accounts) ? (proposal.accounts as Body[]) : [];
     const proposalId = text(proposal.proposalId || proposal.id) || "Proposal";
@@ -410,6 +416,15 @@ export async function sendSubTransferProposalEmail(proposal: Body, appUrl: strin
       "</div>" +
       "</div>" +
       "</div>";
+
+    return { proposalId, to: subcontractorEmail, subcontractorName, subject, text: plainBody, html: htmlBody };
+}
+
+export async function sendSubTransferProposalEmail(proposal: Body, appUrl: string): Promise<Record<string, unknown>> {
+  try {
+    const built = await buildSubTransferProposalEmail(proposal, appUrl);
+    if ("error" in built) return { success: false, message: built.error, proposalReceived: proposal };
+    const { proposalId, to: subcontractorEmail, subject, text: plainBody, html: htmlBody } = built;
 
     const sent = await sendHtmlEmail({ to: [subcontractorEmail], subject, text: plainBody, html: htmlBody, fromName: SENDER_NAME });
     if (!sent) return { success: false, message: "Failed to send transfer proposal email: email is not set up here." };

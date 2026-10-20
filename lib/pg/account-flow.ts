@@ -312,6 +312,20 @@ export async function sendOffer(accountId: string, offer: { subId: string; days:
 // No link: Textbelt refuses texts that carry one.
 export const SUB_OFFER_TEXT = "Cleaning World has a new account for you. Open your sub portal to say yes or no.";
 
+/** "Preview before sending" for step 2: who the offer goes to and the exact text. Nothing is sent or saved. */
+export async function previewOffer(accountId: string, subId: string): Promise<{ subName: string; phone: string; email: string; text: string }> {
+  await mustBeOn(accountId, "sub");
+  const subs = (await getSql()`SELECT contact_name, company_name, email, phone FROM subcontractors WHERE id = ${subId} LIMIT 1`) as { contact_name: string; company_name: string; email: string; phone: string }[];
+  const sub = subs[0];
+  if (!sub) throw new FlowError("That subcontractor was not found.");
+  return {
+    subName: clean(sub.contact_name) || clean(sub.company_name),
+    phone: clean(sub.phone),
+    email: clean(sub.email),
+    text: sanitizeSmsText(SUB_OFFER_TEXT, Infinity),
+  };
+}
+
 /** The sub hears that an offer is waiting in their portal. Never throws. */
 async function textSubAboutOffer(phone: string, subName: string): Promise<void> {
   if (!phone) {
