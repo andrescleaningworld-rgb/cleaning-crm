@@ -928,6 +928,85 @@ export default function ReportsPage() {
     cancelledAccounts,
   ]);
 
+  // "Account Management Performance": growth, loss rate and retention, from
+  // each account's start date, cancelled date, status and monthly price.
+  // Only the Manager filter applies; the date range does not.
+  //   - No start date: counted as already active a year ago (they are the
+  //     oldest accounts), left out of the 1/2/5-year counts.
+  //   - Cancelled with no cancelled date: left out of every count, because
+  //     when it left is not known.
+  //   - Revenue "12 months ago" uses today's prices (no price history).
+  const performance = useMemo(() => {
+    const now = new Date();
+    const rows = accounts
+      .filter((account) => managerFilter === "All" || getAccountManager(account) === managerFilter)
+      .map((account) => {
+        const cancelled = getStatus(account).toLowerCase().includes("cancel");
+        return {
+          start: getDate(getStartDate(account)),
+          cancelled,
+          cancelledOn: cancelled ? getDate(getCancelledDate(account)) : null,
+          revenue: getMonthlyRevenue(account),
+        };
+      });
+
+    // Cancelled with no date: not known when it left, so it is in no count.
+    const known = rows.filter((row) => !row.cancelled || row.cancelledOn);
+    const activeOn = (day: Date) =>
+      known.filter((row) => (!row.start || row.start <= day) && (!row.cancelled || (row.cancelledOn as Date) > day));
+    const sum = (list: { revenue: number }[]) => list.reduce((total, row) => total + row.revenue, 0);
+    const change = (was: number, is: number) => (was ? ((is - was) / was) * 100 : null);
+
+    const yearAgo = new Date(now);
+    yearAgo.setFullYear(now.getFullYear() - 1);
+    const activeNow = activeOn(now);
+    const activeYearAgo = activeOn(yearAgo);
+    const lostLast12 = known.filter((row) => row.cancelledOn && row.cancelledOn > yearAgo && row.cancelledOn <= now);
+
+    const thisYear = now.getFullYear();
+    const dataYears = known.flatMap((row) => [row.start?.getFullYear(), row.cancelledOn?.getFullYear()]).filter((year): year is number => !!year && year <= thisYear);
+    const firstYear = Math.max(Math.min(thisYear, ...dataYears), thisYear - 9);
+    const years = [];
+    for (let year = thisYear; year >= firstYear; year--) {
+      const jan1 = new Date(year, 0, 1);
+      const started = known.filter((row) => row.start && row.start.getFullYear() === year);
+      const lost = known.filter((row) => row.cancelledOn && row.cancelledOn.getFullYear() === year);
+      const atStart = activeOn(new Date(jan1.getTime() - 1)).length;
+      years.push({
+        year,
+        started: started.length,
+        cancelled: lost.length,
+        revenueAdded: sum(started),
+        revenueLost: sum(lost),
+        atStart,
+        lossRate: atStart ? (lost.length / atStart) * 100 : null,
+      });
+    }
+
+    const kept = (span: number) => {
+      const since = new Date(now);
+      since.setFullYear(now.getFullYear() - span);
+      const list = activeNow.filter((row) => row.start && row.start <= since);
+      return { years: span, count: list.length, share: activeNow.length ? (list.length / activeNow.length) * 100 : 0, revenue: sum(list) };
+    };
+
+    return {
+      revenueNow: sum(activeNow),
+      revenueYearAgo: sum(activeYearAgo),
+      revenueChange: change(sum(activeYearAgo), sum(activeNow)),
+      activeNow: activeNow.length,
+      activeYearAgo: activeYearAgo.length,
+      activeChange: change(activeYearAgo.length, activeNow.length),
+      lostLast12: lostLast12.length,
+      lossRateLast12: activeYearAgo.length ? (lostLast12.length / activeYearAgo.length) * 100 : null,
+      years,
+      retention: [kept(1), kept(2), kept(5)],
+      noStartActive: activeNow.filter((row) => !row.start).length,
+      noStartAll: rows.filter((row) => !row.start).length,
+      cancelledNoDate: rows.length - known.length,
+    };
+  }, [accounts, managerFilter]);
+
   const showOverview = reportType === "Overview";
   const showStarted = reportType === "YTD Started Accounts";
   const showCancelled = reportType === "YTD Cancelled Accounts";
@@ -936,6 +1015,7 @@ export default function ReportsPage() {
   const showSales = reportType === "Sales & Commissions";
   const showVisits = reportType === "Visits";
   const showLastVisit = reportType === "Last Visit by Account";
+  const showPerformance = reportType === "Account Management Performance";
 
   // Overview and Manager Summary print their summary on top, then every list
   // under it (Manager Summary: grouped by manager, each list keeping its own order).
@@ -1134,6 +1214,8 @@ export default function ReportsPage() {
               <p className="ui-muted">
                 {showLastVisit ? (
                   "All visits (date range does not apply)"
+                ) : showPerformance ? (
+                  `As of ${new Date().toLocaleDateString()} · Manager: ${managerFilter === "All" ? "All" : managerFilter}`
                 ) : (
                   <>
                     Date Range: {safeDate(dateRange.start)} -{" "}
@@ -1167,6 +1249,7 @@ export default function ReportsPage() {
                 <option>Sales & Commissions</option>
                 <option>Visits</option>
                 <option>Last Visit by Account</option>
+                <option>Account Management Performance</option>
               </select>
             </div>
 
@@ -2018,11 +2101,124 @@ export default function ReportsPage() {
                 </ReportTable>
               </section>
             )}
+
+            {showPerformance && (
+              <section className="ui-card">
+                <div className="mb-4">
+                  <h2 className="ui-card-title">Account Management Performance</h2>
+                  <p className="ui-muted">
+                    {managerFilter === "All" ? "All managers" : `Manager: ${managerFilter}`}. Today compared with 12 months ago.
+                    Only the Manager filter applies.
+                  </p>
+                </div>
+
+                <h3 className="ui-strong mb-2">1. Are we growing?</h3>
+                <div className="print-avoid-break mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <SummaryCard
+                    label="Monthly revenue now"
+                    value={money(performance.revenueNow)}
+                    note={`12 months ago: ${money(performance.revenueYearAgo)} (${percentChange(performance.revenueChange)})`}
+                  />
+                  <SummaryCard
+                    label="Active accounts now"
+                    value={String(performance.activeNow)}
+                    note={`12 months ago: ${performance.activeYearAgo} (${percentChange(performance.activeChange)})`}
+                  />
+                </div>
+
+                <ReportTable>
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-gray-600">
+                      <th className="px-4 py-3">Year</th>
+                      <th className="px-4 py-3">Started</th>
+                      <th className="px-4 py-3">Cancelled</th>
+                      <th className="px-4 py-3">Net Accounts</th>
+                      <th className="px-4 py-3">Revenue Added</th>
+                      <th className="px-4 py-3">Revenue Lost</th>
+                      <th className="px-4 py-3">Net Revenue</th>
+                      <th className="px-4 py-3">Loss Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {performance.years.map((row) => (
+                      <tr key={row.year} className="border-b">
+                        <td className="px-4 py-3 font-semibold text-gray-900">
+                          {row.year}
+                          {row.year === new Date().getFullYear() ? " (so far)" : ""}
+                        </td>
+                        <td className="px-4 py-3">{row.started}</td>
+                        <td className="px-4 py-3">{row.cancelled}</td>
+                        <td className="px-4 py-3 font-semibold">{signed(row.started - row.cancelled)}</td>
+                        <td className="px-4 py-3">{money(row.revenueAdded)}</td>
+                        <td className="px-4 py-3">{money(row.revenueLost)}</td>
+                        <td className="px-4 py-3 font-semibold">{money(row.revenueAdded - row.revenueLost)}</td>
+                        <td className="px-4 py-3">
+                          {row.lossRate === null ? "-" : `${row.lossRate.toFixed(1)}%`}
+                          <span className="ui-muted"> ({row.cancelled} of {row.atStart})</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </ReportTable>
+                <p className="ui-muted mt-2">
+                  Loss rate = accounts cancelled that year ÷ accounts active on January 1 of that year. Revenue is each account&apos;s
+                  monthly price.
+                </p>
+
+                <h3 className="ui-strong mb-2 mt-6">2. How many accounts do we lose?</h3>
+                <div className="print-avoid-break mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <SummaryCard
+                    label="Loss rate, last 12 months"
+                    value={performance.lossRateLast12 === null ? "-" : `${performance.lossRateLast12.toFixed(1)}%`}
+                    note={`${performance.lostLast12} cancelled out of ${performance.activeYearAgo} active 12 months ago`}
+                  />
+                </div>
+
+                <h3 className="ui-strong mb-2 mt-6">3. How long do accounts stay?</h3>
+                <div className="print-avoid-break mb-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+                  {performance.retention.map((row) => (
+                    <SummaryCard
+                      key={row.years}
+                      label={`With us more than ${row.years} year${row.years === 1 ? "" : "s"}`}
+                      value={String(row.count)}
+                      note={`${row.share.toFixed(0)}% of active accounts · ${money(row.revenue)} a month`}
+                    />
+                  ))}
+                </div>
+
+                <div className="print-avoid-break rounded-xl border border-amber-200 bg-amber-50 p-3 text-gray-800">
+                  <p className="font-semibold">About the data</p>
+                  <ul className="ml-5 list-disc">
+                    <li>
+                      {performance.noStartAll} account{performance.noStartAll === 1 ? " has" : "s have"} no start date (
+                      {performance.noStartActive} of them active). They count as already active 12 months ago and are left out
+                      of the 1, 2 and 5 year counts.
+                    </li>
+                    <li>
+                      {performance.cancelledNoDate} cancelled account{performance.cancelledNoDate === 1 ? " has" : "s have"} no
+                      cancelled date and {performance.cancelledNoDate === 1 ? "is" : "are"} left out, because when{" "}
+                      {performance.cancelledNoDate === 1 ? "it" : "they"} left is not known.
+                    </li>
+                    <li>Revenue 12 months ago uses today&apos;s prices: the app keeps no price history.</li>
+                  </ul>
+                </div>
+              </section>
+            )}
           </>
         )}
       </div>
     </main>
   );
+}
+
+/** "+5.2%", "-3.0%", or "no data" when there is nothing to compare with. */
+function percentChange(value: number | null) {
+  if (value === null) return "no data";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+function signed(value: number) {
+  return value > 0 ? `+${value}` : String(value);
 }
 
 function getVisitDate(row: AnyRow) {
