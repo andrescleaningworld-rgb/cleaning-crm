@@ -570,10 +570,7 @@ export default function ReportsPage() {
   ]);
 
   const activeAccounts = useMemo(() => {
-    return filteredAccounts.filter((account) => {
-      const status = getStatus(account).toLowerCase();
-      return !status.includes("cancel");
-    });
+    return filteredAccounts.filter((account) => isActiveNow(account));
   }, [filteredAccounts]);
 
   const startedAccounts = useMemo(() => {
@@ -736,7 +733,7 @@ export default function ReportsPage() {
       .filter((account) => {
         const status = getStatus(account);
         return (
-          (statusFilter === "All" ? !status.toLowerCase().includes("cancel") : status === statusFilter) &&
+          (statusFilter === "All" ? isActiveNow(account) : status === statusFilter) &&
           (managerFilter === "All" || getAccountManager(account) === managerFilter) &&
           (subcontractorFilter === "All" || getSubcontractor(account) === subcontractorFilter) &&
           rowMatchesSearch(account, search)
@@ -938,6 +935,7 @@ export default function ReportsPage() {
       .map((account) => {
         const cancelled = getStatus(account).toLowerCase().includes("cancel");
         return {
+          activeNow: isActiveNow(account, now),
           start: getDate(getStartDate(account)),
           cancelled,
           cancelledOn: cancelled ? getDate(getCancelledDate(account)) : null,
@@ -954,7 +952,9 @@ export default function ReportsPage() {
 
     const yearAgo = new Date(now);
     yearAgo.setFullYear(now.getFullYear() - 1);
-    const activeNow = activeOn(now);
+    // Today: the same rule as every other report (isActiveNow). 12 months ago
+    // and each January 1: from the start and cancelled dates.
+    const activeNow = rows.filter((row) => row.activeNow);
     const activeYearAgo = activeOn(yearAgo);
     const lostLast12 = known.filter((row) => row.cancelledOn && row.cancelledOn > yearAgo && row.cancelledOn <= now);
 
@@ -2220,6 +2220,18 @@ function percentChange(value: number | null) {
 
 function signed(value: number) {
   return value > 0 ? `+${value}` : String(value);
+}
+
+/**
+ * The one rule for "active" on every report: the status is Active (any
+ * spelling) and the start date has passed (or there is none). Paused,
+ * Suspended, Cancelled and anything else are not active; an Active account
+ * that starts later counts from its start date.
+ */
+function isActiveNow(account: AnyRow, now = new Date()) {
+  if (getStatus(account).trim().toLowerCase() !== "active") return false;
+  const start = getDate(getStartDate(account));
+  return !start || start <= now;
 }
 
 function getVisitDate(row: AnyRow) {
