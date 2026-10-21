@@ -8,20 +8,34 @@
 //
 //   1 Send welcome packet        opens the existing Welcome Packet sheet
 //   2 Choose subcontractor       the suggested subs (distance + room), then "Send to <sub>"
-//   3 Sub confirms               waits for the sub's Yes / No in their portal
-//   4 Contact customer           Done
+//   3 Sub confirms               the sub's Yes / No in their portal, or Mark done / "Sub said no" here
+//   4 Contact customer           Mark done
 //   5 Site survey + onboarding   opens the Onboarding Checklist; done when it is
-//   6 Crew walkthrough           Done
+//   6 Crew walkthrough           Mark done
 //   7 Confirm start date         saves the account's Start Date
 //   8 Follow up                  a note, then Done: the account is live
+// In the step list, every step still to do has a small "Mark done" (a later
+// step is done ahead and skipped when the flow gets there), and every done
+// step a small "Undo", until the account is live.
 
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, ErrorBox, Field, SelectField, Sheet, TextAreaField, friendlyDate, showToast } from "@/app/ui";
-import PizzaTracker from "./pizza-tracker";
+import PizzaTracker, { type TrackerActions } from "./pizza-tracker";
 import FinishSetup from "./finish-setup";
 import PlusMinus from "./plus-minus";
 import SubSuggestions, { suggestionDays } from "./sub-suggestions";
-import { FLOW_STEPS, type FlowDetail, type FlowEvent } from "@/lib/accountFlow";
+import { FLOW_SETUP_STEPS, FLOW_STEPS, type FlowDetail, type FlowEvent, type FlowStep } from "@/lib/accountFlow";
+
+/** The current step's own big button already marks it done, so its line has no small "Mark done". */
+const BIG_BUTTON_MARKS: FlowStep[] = ["subOk", "call", "walkthrough", "startDate", "followUp"];
+
+const trackerWord = (step: FlowStep) => FLOW_STEPS.find((def) => def.key === step)?.tracker ?? step;
+
+/** "Setup: 3 of 8 done": the tracker's steps only. */
+export function setupStepsText(view: FlowDetail["view"]): string {
+  const done = view.step === "live" ? FLOW_SETUP_STEPS : (view.done ?? []).length;
+  return `Setup: ${done} of ${FLOW_SETUP_STEPS} done${done === FLOW_SETUP_STEPS ? " ✓" : ""}`;
+}
 import { DEFAULT_START_TIME, formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
 import { cleaningStartMinutes, describeCleaningTime } from "@/lib/cleaningTime";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
@@ -97,13 +111,22 @@ export default function AccountFlowPanel({
   // Every account that is not a new one from the form: nothing here.
   if (!loaded || !flow) return null;
   const view = flow.view;
+  // Who step 3 is about: the sub the offer went to, else the sub already on the account.
+  const subName = flow.offer?.subName || flow.accountSub || "the sub";
+  const trackerActions: TrackerActions = {
+    busy,
+    canMark: (step) => step !== view.step || !BIG_BUTTON_MARKS.includes(step),
+    onMarkDone: (step) => void act({ action: "markDone", step }, `${trackerWord(step)}: done ✓`),
+    onUndo: (step) => void act({ action: "undo", step }, `${trackerWord(step)}: undone`),
+  };
 
   return (
     <div className="account-detail-print-hide" style={{ marginTop: 16 }}>
       <Card title="New account setup">
         <div className="ui-stack">
+          <p className="ui-strong">{setupStepsText(view)}</p>
           {/* The same vertical list as the pin popup on the board: green check, big blue dot "with <name>", gray. */}
-          <PizzaTracker view={view} size="list" />
+          <PizzaTracker view={view} size="list" actions={trackerActions} />
           {/* The account fields still empty, on one short screen (not Edit Account). */}
           <FinishSetup accountId={accountId} />
           {view.red ? <p className="ui-field-error">No progress for 2 work days. Add a note below if it is stuck.</p> : null}
@@ -121,13 +144,22 @@ export default function AccountFlowPanel({
             </BigButton>
           ) : null}
 
-          {view.step === "subOk" && flow.offer ? (
+          {view.step === "subOk" ? (
             <>
-              <p className="ui-card-text">
-                Waiting for <strong>{flow.offer.subName}</strong> to tap Yes in their portal. {offerWhen(flow.offer)}.
-              </p>
-              <BigButton kind="quiet" busy={busy} busyLabel="Taking it back…" onClick={() => void act({ action: "takeBack" }, "Offer taken back. Pick another sub.")}>
-                Pick a different sub
+              {flow.offer ? (
+                <p className="ui-card-text">
+                  Waiting for <strong>{flow.offer.subName}</strong> to tap Yes in their portal. {offerWhen(flow.offer)}.
+                </p>
+              ) : (
+                <p className="ui-card-text">
+                  Check that <strong>{subName}</strong> can take this account.
+                </p>
+              )}
+              <BigButton busy={busy} busyLabel="Saving…" onClick={() => void act({ action: "markDone", step: "subOk" }, "Sub OK ✓")}>
+                Mark done: {subName} said yes
+              </BigButton>
+              <BigButton kind="quiet" disabled={busy} onClick={() => void act({ action: "subNo" }, "Back to Sub picked. Pick another sub.")}>
+                {subName === "the sub" ? "The sub" : subName} said no: pick another sub
               </BigButton>
             </>
           ) : null}
@@ -136,7 +168,7 @@ export default function AccountFlowPanel({
             <>
               <p className="ui-card-text">Call the customer and book the site survey.</p>
               <BigButton busy={busy} busyLabel="Saving…" onClick={() => void act({ action: "done", step: "call" }, "Customer called ✓")}>
-                Done: customer called
+                Mark done: customer called
               </BigButton>
             </>
           ) : null}
@@ -154,7 +186,7 @@ export default function AccountFlowPanel({
             <>
               <p className="ui-card-text">Walk the crew through the account.</p>
               <BigButton busy={busy} busyLabel="Saving…" onClick={() => void act({ action: "done", step: "walkthrough" }, "Walkthrough done ✓")}>
-                Done: walkthrough
+                Mark done: walkthrough
               </BigButton>
             </>
           ) : null}
@@ -211,10 +243,20 @@ function whenText(at: string): string {
   return date.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** "Step history": each finished step, newest first: step name · who · date and time. */
+/** How a step-history line starts: "Send welcome packet", "Undone: Send welcome packet", "Sub said no". */
+function historyWhat(event: FlowEvent): string {
+  const action = FLOW_STEPS.find((step) => step.key === event.step)?.action ?? event.step;
+  if (event.action === "undo") return `Undone: ${action}`;
+  if (event.action === "yes") return "Sub said yes";
+  if (event.action === "no") return "Sub said no: back to Sub picked";
+  if (event.action === "back") return "Offer taken back: back to Sub picked";
+  return action;
+}
+
+/** "Step history": each step done or undone (and the sub's yes / no), newest first: what · who · date and time. */
 function StepHistory({ events }: { events: FlowEvent[] }) {
   const done = events
-    .filter((event) => event.action === "done")
+    .filter((event) => event.action === "done" || event.action === "undo" || event.action === "yes" || event.action === "no" || event.action === "back")
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
   return (
     <div>
@@ -225,8 +267,8 @@ function StepHistory({ events }: { events: FlowEvent[] }) {
         <ul className="ui-list-plain" style={{ marginTop: 6, gap: 4 }}>
           {done.map((event, index) => (
             <li key={`${event.at}-${index}`} className="ui-card-text">
-              <strong>{FLOW_STEPS.find((step) => step.key === event.step)?.action ?? event.step}</strong> · {event.by || "Someone"} · {whenText(event.at)}
-              {event.note && event.step === "followUp" ? <span className="ui-muted"> — {event.note}</span> : null}
+              <strong>{historyWhat(event)}</strong> · {event.by || "Someone"} · {whenText(event.at)}
+              {event.note ? <span className="ui-muted"> — {event.note}</span> : null}
             </li>
           ))}
         </ul>

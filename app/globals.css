@@ -4774,3 +4774,20 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
 .cw-pizza.is-red .cw-pizza-who {
   color: var(--ui-bad);
 }
+/* Account page: the small "Mark done" / "Undo" at the end of a step's line. */
+.cw-pizza-act {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-size: 15px;
+  cursor: pointer;
+}
+.cw-pizza-row.is-done .cw-pizza-act {
+  color: var(--ui-muted);
+  font-weight: 600;
+}
+.cw-pizza-act:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

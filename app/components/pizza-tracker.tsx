@@ -5,13 +5,25 @@
 //   size "pin"   a thin bar and one line, for a paper on the board and the TV
 //   size "full"  every step named, for the account page
 //   size "list"  one stage per line (check, big dot, gray), for an opened paper on the board
+//                and the account page. With `actions` (the account page), a done step has a
+//                small "Undo" and a step still to do has a small "Mark done".
+// A step done ahead of the current one (e.g. the sub was already on the account) is green too.
 // The rules are in lib/accountFlow.ts.
 
-import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
+import { FLOW_STEPS, type FlowStep, type FlowView } from "@/lib/accountFlow";
 
-export default function PizzaTracker({ view, size = "full" }: { view: FlowView; size?: "pin" | "full" | "list" }) {
+export type TrackerActions = {
+  busy: boolean;
+  /** Whether this not-done step gets the small "Mark done" (the current step's big button may already be it). */
+  canMark: (step: FlowStep) => boolean;
+  onMarkDone: (step: FlowStep) => void;
+  onUndo: (step: FlowStep) => void;
+};
+
+export default function PizzaTracker({ view, size = "full", actions }: { view: FlowView; size?: "pin" | "full" | "list"; actions?: TrackerActions }) {
   const live = view.step === "live";
-  const stateOf = (index: number) => (live || index < view.index ? "is-done" : index === view.index ? "is-now" : "");
+  const done = view.done ?? [];
+  const stateOf = (index: number) => (live || index < view.index || done.includes(FLOW_STEPS[index].key) ? "is-done" : index === view.index ? "is-now" : "");
   const summary = live ? "Live: every step is done." : `Step ${view.index + 1} of ${FLOW_STEPS.length - 1}: ${view.now}.${view.red ? " No progress for 2 work days." : ""}`;
 
   if (size === "pin") {
@@ -41,6 +53,17 @@ export default function PizzaTracker({ view, size = "full" }: { view: FlowView; 
                 </span>
                 <span className="cw-pizza-name">{step.tracker}</span>
                 {state === "is-now" ? <span className="cw-pizza-who">{view.withWho}</span> : null}
+                {actions && !live && step.key !== "live" ? (
+                  state === "is-done" ? (
+                    <button type="button" className="ui-link cw-pizza-act" disabled={actions.busy} onClick={() => actions.onUndo(step.key)} aria-label={`Undo ${step.tracker}`}>
+                      Undo
+                    </button>
+                  ) : actions.canMark(step.key) ? (
+                    <button type="button" className="ui-link cw-pizza-act" disabled={actions.busy} onClick={() => actions.onMarkDone(step.key)} aria-label={`Mark ${step.tracker} done`}>
+                      Mark done
+                    </button>
+                  ) : null
+                ) : null}
               </li>
             );
           })}

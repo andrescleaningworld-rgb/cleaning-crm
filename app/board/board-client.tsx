@@ -28,7 +28,7 @@ import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
 import AccountLink from "../components/AccountLink";
 import PizzaTracker from "../components/pizza-tracker";
-import { StuckNote } from "../components/account-flow";
+import { StuckNote, setupStepsText } from "../components/account-flow";
 import FinishSetup from "../components/finish-setup";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
@@ -340,6 +340,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (
               <>
+                <p className="ui-strong">{setupStepsText(open.flow)}</p>
                 <PizzaTracker view={open.flow} size="list" />
                 <FinishSetup key={open.accountId || open.itemId} accountId={open.accountId || open.itemId} />
                 {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}

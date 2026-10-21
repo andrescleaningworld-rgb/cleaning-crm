@@ -58,6 +58,8 @@ export type FlowFacts = {
   stuckNote: string;
   stuckNoteBy: string;
   stuckNoteAt: string;
+  /** Steps marked done in the step history (doneStepsOf), including any done ahead of the current step. */
+  doneSteps?: FlowStep[];
 };
 
 /** The tracker as every screen draws it. */
@@ -76,7 +78,32 @@ export type FlowView = {
   stuckNote: string;
   stuckNoteBy: string;
   stuckNoteAt: string;
+  /** Every step that is done (never "live"): the ones before the current step, plus any done ahead of it. */
+  done: FlowStep[];
 };
+
+/** The 8 setup steps (everything but "live"): "Setup: 3 of 8 done". */
+export const FLOW_SETUP_STEPS = FLOW_STEPS.length - 1;
+
+/**
+ * Which steps are done, from the step history read oldest first: "done" marks
+ * a step done and "undo" takes it back. A sub's No (or the office taking the
+ * offer back) takes back both "Sub picked" and "Sub OK": a new sub has to be
+ * picked and say yes.
+ */
+export function doneStepsOf(events: { step: string; action: string }[]): FlowStep[] {
+  const done = new Set<FlowStep>();
+  for (const event of events) {
+    if (!isFlowStep(event.step) || event.step === "live") continue;
+    if (event.action === "done") done.add(event.step);
+    else if (event.action === "undo") done.delete(event.step);
+    else if (event.step === "subOk" && (event.action === "no" || event.action === "back")) {
+      done.delete("sub");
+      done.delete("subOk");
+    }
+  }
+  return FLOW_STEPS.filter((def) => done.has(def.key)).map((def) => def.key);
+}
 
 /** "Greg" from "Greg Smith". */
 export function firstName(name: string): string {
@@ -134,11 +161,13 @@ export function flowView(facts: FlowFacts, now = new Date()): FlowView {
     stuckNote: facts.stuckNote,
     stuckNoteBy: facts.stuckNoteBy,
     stuckNoteAt: facts.stuckNoteAt,
+    // Before the current step is always done; after it, only what was marked done ahead of time.
+    done: FLOW_STEPS.filter((step, i) => step.key !== "live" && (def.key === "live" || i < index || (facts.doneSteps ?? []).includes(step.key))).map((step) => step.key),
   };
 }
 
 /** One step's line in the "who did what" list. */
-export type FlowEvent = { step: FlowStep; action: "start" | "done" | "offer" | "yes" | "no" | "back" | "note"; by: string; note: string; at: string };
+export type FlowEvent = { step: FlowStep; action: "start" | "done" | "undo" | "offer" | "yes" | "no" | "back" | "note"; by: string; note: string; at: string };
 
 /** Everything the account page needs. */
 export type FlowDetail = {
@@ -157,6 +186,8 @@ export type FlowDetail = {
   /** The account cleaning time (lib/cleaningTime.ts): the offer start time is filled in from it. */
   cleaningTime: string;
   startDate: string;
+  /** The account's Subcontractor field: who step 3 is about when no offer went out from here. */
+  accountSub: string;
   events: FlowEvent[];
 };
 

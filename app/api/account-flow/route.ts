@@ -8,6 +8,9 @@
 // POST { action: "offer", accountId, subId, days, start, minutes }   step 2
 // POST { action: "takeBack", accountId }    step 3: pick someone else
 // POST { action: "done", accountId, step }  steps 4 and 6
+// POST { action: "markDone", accountId, step }  any step: "Mark done" (a later step is done ahead)
+// POST { action: "undo", accountId, step }  a step marked done by mistake
+// POST { action: "subNo", accountId }       step 3 from the office: the sub said no, back to step 2
 // POST { action: "startDate", accountId, startDate }                 step 7
 // POST { action: "followUp", accountId, note }                       step 8
 // POST { action: "note", accountId, note }  why the current step is stuck
@@ -24,13 +27,17 @@ import {
   followUpDone,
   getFlowDetail,
   listOpenFlows,
+  markStepDone,
+  markSubSaidNo,
   previewOffer,
   sendOffer,
   setStuckNote,
   syncAutoSteps,
   takeOfferBack,
   tapDone,
+  undoStep,
 } from "@/lib/pg/account-flow";
+import { isFlowStep } from "@/lib/accountFlow";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
@@ -127,6 +134,21 @@ export async function POST(request: NextRequest) {
       const step = clean(body.step);
       if (step !== "call" && step !== "walkthrough") return refuse("That step is not finished with a Done button.");
       await tapDone(accountId, step, by);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "markDone" || action === "undo") {
+      const step = clean(body.step);
+      if (!isFlowStep(step)) return refuse("Unknown step.");
+      if (action === "markDone") await markStepDone(accountId, step, by);
+      else await undoStep(accountId, step, by);
+      // Step 3's Yes sets the account's Subcontractor; the last step makes it Active.
+      await invalidateAccountLists();
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "subNo") {
+      await markSubSaidNo(accountId, by);
       return NextResponse.json({ success: true });
     }
 

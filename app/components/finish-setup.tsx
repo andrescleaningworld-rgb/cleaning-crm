@@ -2,7 +2,7 @@
 
 // "Finish setting up" for a new account in the 8-step flow (account page and
 // the pin popup on the board): one short screen with only the account fields
-// still empty, big fields and one Save. "Setup: 6 of 10 done" says what is
+// still empty, big fields and one Save. "Account details: 6 of 11 filled in" says what is
 // left. It saves to the same account fields as Edit Account
 // (/api/accounts, updateAccountFieldsDirect), so nothing is kept twice.
 
@@ -73,7 +73,7 @@ async function loadAccount(accountId: string): Promise<AccountRecord | null> {
   return list.find((row) => String(row.accountId ?? row.id ?? "").trim() === accountId) ?? null;
 }
 
-/** The button and its screen. Shows "Setup: 6 of 10 done" on the button, and nothing once everything is filled in. */
+/** The button and its screen. Shows "Account details: 6 of 11 filled in" on the button (not the setup steps: those are the tracker's "Setup: 3 of 8 done"), and nothing once everything is filled in. */
 export default function FinishSetup({ accountId, onSaved }: { accountId: string; onSaved?: () => void }) {
   const [account, setAccount] = useState<AccountRecord | null>(null);
   const [open, setOpen] = useState(false);
@@ -95,10 +95,10 @@ export default function FinishSetup({ accountId, onSaved }: { accountId: string;
     <>
       {count.missing.length > 0 ? (
         <BigButton kind="second" onClick={() => setOpen(true)}>
-          Finish setting up · Setup: {count.done} of {count.total} done
+          Finish account details · {count.done} of {count.total} filled in
         </BigButton>
       ) : (
-        <p className="ui-muted">Setup: {count.total} of {count.total} done ✓</p>
+        <p className="ui-muted">Account details: {count.total} of {count.total} filled in ✓</p>
       )}
       {open ? (
         <FinishSetupSheet
@@ -168,7 +168,7 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
       if (!response.ok || data.success === false) throw new Error(data.error || "That did not save. Try again.");
       const updated = (await loadAccount(accountId)) ?? account;
       const after = setupCount(updated);
-      showToast(after.missing.length ? `Saved ✓ Setup: ${after.done} of ${after.total} done` : "Saved ✓ Setup is complete");
+      showToast(after.missing.length ? `Saved ✓ Account details: ${after.done} of ${after.total} filled in` : "Saved ✓ Account details are complete");
       onSaved(updated);
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
@@ -181,7 +181,7 @@ function FinishSetupSheet({ account, onClose, onSaved }: { account: AccountRecor
     <Sheet
       open
       title="Finish setting up"
-      text={`${text(account, "accountName")} · Setup: ${done} of ${total} done. Only what is still missing is here.`}
+      text={`${text(account, "accountName")} · Account details: ${done} of ${total} filled in. Only what is still missing is here.`}
       onClose={() => {
         if (!busy) onClose();
       }}

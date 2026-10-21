@@ -1,13 +1,21 @@
 // The New Account flow in Postgres (db/migrations/046_new_account_flow.sql).
 // The rules and words are in lib/accountFlow.ts.
 //
-// Only accounts made with the "New Accepted Account" form have a flow. Two
-// steps finish by themselves, from records that already exist:
-//   1 packet  the account's History has "Welcome packet sent to: ..."
-//             (written by the Welcome Packet send, app/api/accounts/[id]/welcome-packet)
-//   5 survey  the account's Onboarding Checklist is complete
-// The others are tapped by a person, or answered by the sub in their portal.
-// Every move is written to account_flow_events: who, which step, when.
+// Only accounts made with the "New Accepted Account" form have a flow.
+// account_flows.step is the current step: the first one not done yet. Four
+// steps are marked done by themselves when the record already exists, even
+// ahead of the current step (syncAutoSteps, run on every read):
+//   1 packet     the account's History has "Welcome packet sent to: ..."
+//                (written by the Welcome Packet send, app/api/accounts/[id]/welcome-packet)
+//   2 sub        the account has a Subcontractor
+//   5 survey     the account's Onboarding Checklist is complete
+//   7 startDate  the account has a Start Date
+// Any step can also be marked done by a person (markStepDone), and undone
+// (undoStep). Step 3 is answered by the sub in their portal, or marked
+// Yes / No by the office. Every move is written to account_flow_events:
+// who, which step, when. Which steps are done is read from those events
+// (doneStepsOf in lib/accountFlow.ts); a step done ahead is skipped when
+// the flow gets to it.
 //
 // The pin is the board's usual new-account paper (handoff_items, kind
 // 'account') with data.flow = '1'. The old checklist-driven steps leave it
@@ -27,6 +35,8 @@ import {
   FLOW_STATUS,
   FLOW_STEPS,
   dayAfter,
+  doneStepsOf,
+  flowIndex,
   flowView,
   isFlowStep,
   nextFlowStep,
@@ -80,8 +90,12 @@ type FlowRow = {
   done_at: string | Date | null;
 };
 
-export function factsOf(row: Pick<FlowRow, "step" | "step_since" | "manager" | "offer_sub_name" | "follow_up_due" | "stuck_note" | "stuck_note_by" | "stuck_note_at">): FlowFacts {
+export function factsOf(
+  row: Pick<FlowRow, "step" | "step_since" | "manager" | "offer_sub_name" | "follow_up_due" | "stuck_note" | "stuck_note_by" | "stuck_note_at">,
+  doneSteps: FlowStep[] = []
+): FlowFacts {
   return {
+    doneSteps,
     step: isFlowStep(row.step) ? row.step : "packet",
     stepSince: iso(row.step_since),
     manager: clean(row.manager),
@@ -109,9 +123,10 @@ export async function listOpenFlows(me: string): Promise<OpenFlow[]> {
     WHERE f.step <> 'live' AND NOT a.is_test AND (to_jsonb(a) ->> 'deleted_at') IS NULL
     ORDER BY f.created_at ASC, f.account_id ASC
   `) as FlowRow[];
+  const events = await stepEventsFor(rows.map((row) => row.account_id));
   const myName = clean(me).split(/\s+/)[0]?.toLowerCase() ?? "";
   return rows.map((row) => {
-    const view = flowView(factsOf(row));
+    const view = flowView(factsOf(row, doneStepsOf(events.get(row.account_id) ?? [])));
     const owner = FLOW_STEPS.find((step) => step.key === view.step)?.owner;
     const managerFirst = clean(row.manager).split(/\s+/)[0]?.toLowerCase() ?? "";
     return {
@@ -127,6 +142,35 @@ export async function listOpenFlows(me: string): Promise<OpenFlow[]> {
 async function flowRow(accountId: string): Promise<FlowRow | null> {
   const rows = (await getSql()`SELECT * FROM account_flows WHERE account_id = ${accountId}`) as FlowRow[];
   return rows[0] ?? null;
+}
+
+type StepEvent = { step: string; action: string; at: string };
+
+/** The events that say which steps are done (done, undo, and a sub's No), oldest first, per account. */
+async function stepEventsFor(accountIds: string[]): Promise<Map<string, StepEvent[]>> {
+  const byAccount = new Map<string, StepEvent[]>();
+  if (accountIds.length === 0) return byAccount;
+  const rows = (await getSql()`
+    SELECT account_id, step, action, at FROM account_flow_events
+    WHERE account_id = ANY(${accountIds}) AND action IN ('done', 'undo', 'no', 'back')
+    ORDER BY at ASC, id ASC
+  `) as { account_id: string; step: string; action: string; at: string | Date }[];
+  for (const row of rows) {
+    const list = byAccount.get(row.account_id) ?? [];
+    list.push({ step: row.step, action: row.action, at: iso(row.at) });
+    byAccount.set(row.account_id, list);
+  }
+  return byAccount;
+}
+
+/** The steps of one account marked done in its step history (not counting the ones before the current step). */
+async function doneStepsFor(accountId: string): Promise<FlowStep[]> {
+  return doneStepsOf((await stepEventsFor([accountId])).get(accountId) ?? []);
+}
+
+/** Done: before the current step, or marked done ahead of it. */
+function isDoneOn(pointer: FlowStep, done: FlowStep[], step: FlowStep): boolean {
+  return step !== "live" && (pointer === "live" || flowIndex(step) < flowIndex(pointer) || done.includes(step));
 }
 
 async function addEvent(accountId: string, step: FlowStep, action: FlowEvent["action"], by: string, note = ""): Promise<void> {
@@ -218,32 +262,77 @@ export async function createAcceptedAccount(input: NewAcceptedAccount, by: strin
 /* ---------- reading ---------- */
 
 /**
- * The two steps that finish by themselves. Safe to call on every read: it
- * only moves a flow that is still on step 1 or 5 and whose record says done.
+ * The steps backed by a record finish by themselves, also ahead of the
+ * current step, for every account still in setup (new and old; never a Live,
+ * deleted, cancelled, inactive or test account). Safe to call on
+ * every read: it only marks a step that is not done yet and whose record
+ * says it is. A step someone undid is not marked again from the same record:
+ *   packet, survey  only when the packet / checklist is newer than the undo
+ *   sub, startDate  not again after an undo (or the sub's No); a person marks it
  */
 export async function syncAutoSteps(accountId?: string): Promise<void> {
   const sql = getSql();
   const only = accountId ?? null;
-  // 1: the Welcome Packet was sent after the flow started (History, newest first).
-  const sent = (await sql`
-    SELECT f.account_id, l.actor_name
+  const flows = (await sql`
+    SELECT f.account_id, f.step, f.follow_up_due,
+           btrim(COALESCE(a.subcontractor_raw, '')) AS account_sub,
+           a.start_date,
+           c.completed_at AS checklist_done_at,
+           p.created_at AS packet_at, p.actor_name AS packet_by
     FROM account_flows f
-    JOIN LATERAL (
-      SELECT actor_name FROM activity_log
+    LEFT JOIN accounts a ON a.id = f.account_id
+    LEFT JOIN onboarding_checklists c ON c.account_id = f.account_id
+    LEFT JOIN LATERAL (
+      SELECT created_at, actor_name FROM activity_log
       WHERE entity_type = 'account' AND entity_id = f.account_id AND detail LIKE 'Welcome packet sent to:%' AND created_at >= f.created_at
       ORDER BY created_at DESC LIMIT 1
-    ) l ON true
-    WHERE f.step = 'packet' AND (${only}::text IS NULL OR f.account_id = ${only})
-  `) as { account_id: string; actor_name: string }[];
-  for (const row of sent) await advance(row.account_id, "packet", clean(row.actor_name) || "Welcome Packet");
+    ) p ON true
+    -- Only accounts still in setup: not Live, and not archived (deleted, cancelled, inactive) or a test account.
+    WHERE f.step <> 'live' AND f.done_at IS NULL
+      AND a.id IS NOT NULL AND NOT a.is_test AND (to_jsonb(a) ->> 'deleted_at') IS NULL
+      AND a.status_key NOT IN ('cancelled', 'canceled', 'inactive')
+      AND (${only}::text IS NULL OR f.account_id = ${only})
+  `) as {
+    account_id: string;
+    step: string;
+    follow_up_due: string | Date | null;
+    account_sub: string;
+    start_date: string | Date | null;
+    checklist_done_at: string | Date | null;
+    packet_at: string | Date | null;
+    packet_by: string | null;
+  }[];
+  if (flows.length === 0) return;
+  const eventsByAccount = await stepEventsFor(flows.map((row) => row.account_id));
 
-  // 5: the Onboarding Checklist is complete.
-  const surveyed = (await sql`
-    SELECT f.account_id FROM account_flows f
-    JOIN onboarding_checklists c ON c.account_id = f.account_id
-    WHERE f.step = 'survey' AND c.completed_at IS NOT NULL AND (${only}::text IS NULL OR f.account_id = ${only})
-  `) as { account_id: string }[];
-  for (const row of surveyed) await advance(row.account_id, "survey", "Onboarding Checklist");
+  for (const row of flows) {
+    if (!isFlowStep(row.step)) continue;
+    const pointer = row.step;
+    const events = eventsByAccount.get(row.account_id) ?? [];
+    const done = doneStepsOf(events);
+    const lastUndo = (step: FlowStep) => events.filter((event) => event.step === step && event.action === "undo").reduce((last, event) => (event.at > last ? event.at : last), "");
+    const undoneEver = (step: FlowStep) => lastUndo(step) !== "" || (step === "sub" && events.some((event) => event.step === "subOk" && (event.action === "no" || event.action === "back")));
+    const open = (step: FlowStep) => !isDoneOn(pointer, done, step);
+
+    const marks: { step: FlowStep; by: string; note: string }[] = [];
+    const packetAt = iso(row.packet_at);
+    if (packetAt && open("packet") && lastUndo("packet") < packetAt) marks.push({ step: "packet", by: clean(row.packet_by) || "Welcome Packet", note: "" });
+    if (clean(row.account_sub) && open("sub") && !undoneEver("sub")) marks.push({ step: "sub", by: "Automatic", note: `Sub on the account: ${clean(row.account_sub)}` });
+    const checklistAt = iso(row.checklist_done_at);
+    if (checklistAt && open("survey") && lastUndo("survey") < checklistAt) marks.push({ step: "survey", by: "Onboarding Checklist", note: "" });
+    const startDate = day(row.start_date);
+    if (startDate && open("startDate") && !undoneEver("startDate")) {
+      marks.push({ step: "startDate", by: "Automatic", note: `Start date on the account: ${startDate}` });
+      // Step 8 is due the day after the start date, as when the date is saved from step 7.
+      if (!row.follow_up_due) await sql`UPDATE account_flows SET follow_up_due = ${dayAfter(startDate)}::date WHERE account_id = ${row.account_id} AND follow_up_due IS NULL`;
+    }
+    if (marks.length === 0) continue;
+
+    // Ahead of the current step: written to the history now, skipped when the flow gets there.
+    for (const mark of marks) if (mark.step !== pointer) await addEvent(row.account_id, mark.step, "done", mark.by, mark.note);
+    const onCurrent = marks.find((mark) => mark.step === pointer);
+    if (onCurrent) await advance(row.account_id, pointer, onCurrent.by, onCurrent.note);
+  }
 }
 
 export async function getFlowDetail(accountId: string): Promise<FlowDetail | null> {
@@ -253,10 +342,11 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
   const sql = getSql();
   const [accounts, events] = await Promise.all([
     // cleaning_time (migration 050) through to_jsonb, so this reads the same before 050 has run.
-    sql`SELECT address, city, zip, latitude, longitude, cleaning_days, start_date, start_date_raw, COALESCE(to_jsonb(accounts) ->> 'cleaning_time', '') AS cleaning_time FROM accounts WHERE id = ${accountId} LIMIT 1`,
+    sql`SELECT address, city, zip, latitude, longitude, cleaning_days, start_date, start_date_raw, subcontractor_raw, COALESCE(to_jsonb(accounts) ->> 'cleaning_time', '') AS cleaning_time FROM accounts WHERE id = ${accountId} LIMIT 1`,
     sql`SELECT step, action, by_name, note, at FROM account_flow_events WHERE account_id = ${accountId} ORDER BY at ASC, id ASC`,
   ]);
   const account = (accounts as Record<string, unknown>[])[0] ?? {};
+  const eventRows = events as { step: string; action: FlowEvent["action"]; by_name: string; note: string; at: string | Date }[];
   const street = clean(account.address);
   const extra = [clean(account.city), clean(account.zip)].filter((part) => part && !street.toLowerCase().includes(part.toLowerCase()));
   const lat = Number(account.latitude);
@@ -265,7 +355,7 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
     accountId: row.account_id,
     accountName: clean(row.account_name),
     manager: clean(row.manager),
-    view: flowView(factsOf(row)),
+    view: flowView(factsOf(row, doneStepsOf(eventRows))),
     estimateUrl: clean(row.estimate_url),
     estimateName: clean(row.estimate_name),
     offer: row.offer_sub_id || row.offer_sub_name
@@ -277,7 +367,8 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
     cleaningDays: clean(account.cleaning_days),
     cleaningTime: clean(account.cleaning_time),
     startDate: day(account.start_date as string | Date | null) || clean(account.start_date_raw),
-    events: (events as { step: string; action: FlowEvent["action"]; by_name: string; note: string; at: string | Date }[]).map((event) => ({
+    accountSub: clean(account.subcontractor_raw),
+    events: eventRows.map((event) => ({
       step: isFlowStep(event.step) ? event.step : "packet",
       action: event.action,
       by: clean(event.by_name),
@@ -296,11 +387,9 @@ export async function getFlowDetail(accountId: string): Promise<FlowDetail | nul
  */
 async function advance(accountId: string, from: FlowStep, by: string, note = ""): Promise<boolean> {
   const sql = getSql();
-  // Steps already marked done (an account brought into the flow later, e.g. with its sub already
-  // assigned) are skipped: the flow goes on to the first step that is not done yet.
-  const doneBefore = new Set(
-    ((await sql`SELECT DISTINCT step FROM account_flow_events WHERE account_id = ${accountId} AND action = 'done'`) as { step: string }[]).map((row) => row.step)
-  );
+  // Steps already done ahead (marked by a person, or from a record like the sub on the
+  // account) are skipped: the flow goes on to the first step that is not done yet.
+  const doneBefore = new Set<string>(await doneStepsFor(accountId));
   let to = nextFlowStep(from);
   while (to !== "live" && doneBefore.has(to)) to = nextFlowStep(to);
   const moved = (await sql`
@@ -336,6 +425,82 @@ async function mustBeOn(accountId: string, step: FlowStep): Promise<FlowRow> {
 export async function tapDone(accountId: string, step: "call" | "walkthrough", by: string): Promise<void> {
   await mustBeOn(accountId, step);
   await advance(accountId, step, by);
+}
+
+/**
+ * "Mark done" for any step. The current step: the flow moves on (step 3 with
+ * an offer out counts as the sub's Yes). A later step: marked done ahead,
+ * and skipped when the flow gets there.
+ */
+export async function markStepDone(accountId: string, step: FlowStep, by: string): Promise<void> {
+  if (step === "live") throw new FlowError("Live comes by itself after the last step.");
+  const row = await flowRow(accountId);
+  if (!row) throw new FlowError("This account has no new-account steps.");
+  if (row.step === "live") throw new FlowError("This account is already live.");
+  const pointer = isFlowStep(row.step) ? row.step : "packet";
+  if (isDoneOn(pointer, await doneStepsFor(accountId), step)) throw new FlowError("That step is already done. The page shows where it is now.");
+
+  if (step !== pointer) {
+    await addEvent(accountId, step, "done", by);
+    return;
+  }
+  if (step === "subOk" && (clean(row.offer_sub_id) || clean(row.offer_sub_name))) {
+    // The office says yes for the sub: the same as the sub tapping Yes in their portal.
+    await acceptOffer(row, by, `Marked for ${clean(row.offer_sub_name) || "the sub"}`);
+    return;
+  }
+  if (!(await advance(accountId, step, by))) throw new FlowError("That step is already done. The page shows where it is now.");
+}
+
+/** Step 3 from the office: the sub said no. Back to step 2 to pick another sub (the procedure). */
+export async function markSubSaidNo(accountId: string, by: string): Promise<void> {
+  const row = await mustBeOn(accountId, "subOk");
+  const accounts = (await getSql()`SELECT subcontractor_raw FROM accounts WHERE id = ${accountId} LIMIT 1`) as { subcontractor_raw: string | null }[];
+  const subName = clean(row.offer_sub_name) || clean(accounts[0]?.subcontractor_raw);
+  await backToPick(accountId);
+  await addEvent(accountId, "subOk", "no", by, subName ? `${subName} said no` : "The sub said no");
+}
+
+/**
+ * "Undo" on a step marked done by mistake. The history keeps both (done, then
+ * undone, with who and when). When the step is before the current one, the
+ * flow goes back to it. Undoing "Sub picked" undoes "Sub OK" too (a new sub
+ * has to say yes), and takes back an offer still waiting in the sub's portal.
+ * Not once the account is live (it is Active and its pin is in the Done tray).
+ */
+export async function undoStep(accountId: string, step: FlowStep, by: string): Promise<void> {
+  if (step === "live") throw new FlowError("Live can't be undone here.");
+  const row = await flowRow(accountId);
+  if (!row) throw new FlowError("This account has no new-account steps.");
+  if (row.step === "live") throw new FlowError("This account is already live, so its steps can't be undone.");
+  const pointer = isFlowStep(row.step) ? row.step : "packet";
+  const done = await doneStepsFor(accountId);
+  if (!isDoneOn(pointer, done, step)) throw new FlowError("That step is not done. The page shows where it is now.");
+
+  const steps: FlowStep[] = step === "sub" && isDoneOn(pointer, done, "subOk") ? ["sub", "subOk"] : [step];
+  try {
+    for (const each of steps) await addEvent(accountId, each, "undo", by, each === step ? "" : "Goes with Sub picked");
+  } catch (error) {
+    // 23514: the events table does not take "undo" yet (migration 053 not run on this database).
+    if ((error as { code?: string })?.code === "23514") throw new FlowError("Undo needs a database update first (migration 053). Ask the office admin.");
+    throw error;
+  }
+
+  if (flowIndex(step) >= flowIndex(pointer)) return; // done ahead: only the mark is taken back
+  const sql = getSql();
+  if (step === "sub" || step === "subOk") {
+    // Back to picking (or confirming) the sub: an offer still out is taken back, so the sub's portal no longer shows it.
+    await sql`
+      UPDATE account_flows SET step = ${step}, step_since = now(), stuck_note = '', stuck_note_by = '', stuck_note_at = NULL, done_at = NULL,
+        offer_sub_id = '', offer_sub_name = '', offer_sub_email = '', offer_days = '', offer_start = '', offer_minutes = NULL, offer_sent_at = NULL
+      WHERE account_id = ${accountId} AND step = ${pointer}
+    `;
+  } else {
+    await sql`
+      UPDATE account_flows SET step = ${step}, step_since = now(), stuck_note = '', stuck_note_by = '', stuck_note_at = NULL, done_at = NULL
+      WHERE account_id = ${accountId} AND step = ${pointer}
+    `;
+  }
 }
 
 /** Step 2: the offer goes to one sub; the flow waits on step 3 for their answer. */
@@ -511,16 +676,21 @@ export async function answerOffer(input: { accountId: string; subId: string; ema
   const by = clean(row.offer_sub_name) || clean(input.subName) || "The sub";
 
   if (input.yes) {
-    await updateAccountFieldsDirect(input.accountId, { subcontractor: row.offer_sub_name });
-    await addEvent(input.accountId, "subOk", "yes", by);
-    await advance(input.accountId, "subOk", by);
-    await scheduleForYes(row, by);
+    await acceptOffer(row, by);
     return;
   }
 
   await backToPick(input.accountId);
   await addEvent(input.accountId, "subOk", "no", by);
   await textManagerSubSaidNo(row, by, input.origin);
+}
+
+/** The sub's Yes (from their portal, or marked by the office): they become the account's subcontractor, the flow moves on, the schedule is added. */
+async function acceptOffer(row: FlowRow, by: string, note = ""): Promise<void> {
+  await updateAccountFieldsDirect(row.account_id, { subcontractor: row.offer_sub_name });
+  await addEvent(row.account_id, "subOk", "yes", by, note);
+  await advance(row.account_id, "subOk", by);
+  await scheduleForYes(row, by);
 }
 
 /**

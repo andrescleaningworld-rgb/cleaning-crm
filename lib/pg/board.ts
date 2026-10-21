@@ -29,7 +29,7 @@ import { extraJobsReady } from "@/lib/pg/extra-jobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
 import { handoffLive } from "@/lib/pg/account-live";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
-import { flowView, isFlowStep } from "@/lib/accountFlow";
+import { doneStepsOf, flowView, isFlowStep } from "@/lib/accountFlow";
 
 let ready: boolean | null = null;
 let flowTable: boolean | null = null;
@@ -375,6 +375,8 @@ type PaperRow = {
   flow_note?: string | null;
   flow_note_by?: string | null;
   flow_note_at?: string | Date | null;
+  /** The step history that says which steps are done (done / undo / the sub's No), oldest first. */
+  flow_events?: { step: string; action: string }[] | null;
 };
 
 function paperFlow(row: PaperRow): Paper["flow"] {
@@ -389,6 +391,7 @@ function paperFlow(row: PaperRow): Paper["flow"] {
     stuckNote: clean(row.flow_note),
     stuckNoteBy: clean(row.flow_note_by),
     stuckNoteAt: iso(row.flow_note_at),
+    doneSteps: doneStepsOf(Array.isArray(row.flow_events) ? row.flow_events : []),
   });
 }
 
@@ -471,7 +474,10 @@ const SELECT_PAPER_FLOW = `
   SELECT i.kind, i.item_id, i.title, i.account_id, i.account_name, i.data, i.created_by, i.board_square, i.board_pinned_at,
          i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items,
          f.step AS flow_step, f.step_since AS flow_step_since, f.manager AS flow_manager, f.offer_sub_name AS flow_offer_sub,
-         f.follow_up_due AS flow_due, f.stuck_note AS flow_note, f.stuck_note_by AS flow_note_by, f.stuck_note_at AS flow_note_at
+         f.follow_up_due AS flow_due, f.stuck_note AS flow_note, f.stuck_note_by AS flow_note_by, f.stuck_note_at AS flow_note_at,
+         (SELECT json_agg(json_build_object('step', e.step, 'action', e.action) ORDER BY e.at, e.id)
+          FROM account_flow_events e
+          WHERE f.account_id IS NOT NULL AND e.account_id = f.account_id AND e.action IN ('done', 'undo', 'no', 'back')) AS flow_events
   FROM handoff_items i
   LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
   LEFT JOIN account_flows f ON i.kind = 'account' AND f.account_id = i.item_id
