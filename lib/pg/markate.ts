@@ -9,9 +9,17 @@
 // square: a note in that box (kind 'note', item_id 'markate-<id>', data.box
 // 'account'), pinned with no text to anyone. Start new account or Skip takes
 // it down. Taking it down on the board skips the estimate (reconcileBoard).
+//
+// Each new estimate also gets one email to crm@ (sendEstimateEmails). Whether
+// it went is kept on the estimate's own row, in raw.cwEmail:
+//   { state: "pending" | "sending" | "sent", tries, claimedAt, sentAt, lastError }
+// A failed send stays "pending" and goes again on the next check.
 
 import { getSql } from "@/lib/db";
+import { sendHtmlEmail } from "@/lib/email";
+import { MARKATE_EMAIL_TO, estimateEmailHtml, estimateEmailSubject, estimateEmailText, type EstimateEmailData } from "@/lib/markateEstimateEmail";
 import {
+  MARKATE_REDIRECT_URI,
   MarkateApiError,
   decryptToken,
   encryptToken,
@@ -193,8 +201,16 @@ function easternDay(time: number): string {
  * newest accepted first, back to the last good run (never before Oct 22,
  * 2026), and saves the ones whose customer is commercial and that have a recurring
  * line item. The rest are not saved. Each saved one is pinned in "New accepted".
+ * Then the emails to crm@ that are still to go are sent (new ones, and any
+ * that failed before), whatever happened with Markate.
  */
 export async function checkForEstimates(): Promise<CheckResult> {
+  const result = await importEstimates();
+  await sendEstimateEmails();
+  return result;
+}
+
+async function importEstimates(): Promise<CheckResult> {
   const result: CheckResult = { checked: 0, added: 0, finished: false, error: "" };
   const row = await connectionRow();
   if (!row) return { ...result, error: "Markate is not connected." };
@@ -274,7 +290,7 @@ export async function checkForEstimates(): Promise<CheckResult> {
           INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, recurring_total, status, estimate_date, url_public, matched_item, matched_why, raw)
           VALUES (${id}, ${text(estimate.custom_number)}, ${customerId}, ${customerName}, ${JSON.stringify(customer)}::jsonb, ${estimateTotal(estimate)}, ${match.recurringTotal},
                   ${text(estimate.status) || "A"}, ${easternDay(acceptedTime(estimate))},
-                  ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify(estimate)}::jsonb)
+                  ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify({ ...estimate, cwEmail: { state: "pending", tries: 0 } })}::jsonb)
           ON CONFLICT (markate_estimate_id) DO NOTHING
           RETURNING id::text
         `) as { id: string }[];
@@ -301,6 +317,112 @@ export async function checkForEstimates(): Promise<CheckResult> {
     await sql`UPDATE markate_connection SET last_checked_at = ${startedAt.toISOString()}, last_check_error = ${result.error} WHERE id = 1`;
   }
   return result;
+}
+
+/* ---------- the email to crm@ ---------- */
+
+/** A send that failed this many times is given up on (each failure is in the Email log). */
+const MAX_EMAIL_TRIES = 20;
+/** A send that was started but never finished (the function was stopped) can be tried again after this. */
+const SENDING_STALE = "10 minutes";
+const APP_ORIGIN = new URL(MARKATE_REDIRECT_URI).origin;
+
+type EmailRow = {
+  id: string;
+  estimate_number: string;
+  customer_name: string;
+  customer: Record<string, unknown> | null;
+  total: string;
+  recurring_total: string;
+  estimate_date: string;
+  url_public: string;
+  matched_item: string;
+  matched_why: string;
+};
+
+function emailData(row: EmailRow): EstimateEmailData {
+  const c = row.customer ?? {};
+  const cityLine = [text(c.city), [text(c.state), text(c.zip)].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  return {
+    customerName: row.customer_name,
+    displayName: text(c.display_name),
+    company: text(c.company),
+    address: [text(c.address), text(c.address_secondary), cityLine].filter(Boolean).join(", "),
+    contactName: [text(c.first_name), text(c.last_name)].filter(Boolean).join(" ") || text(c.display_name),
+    phone: text(c.phone) || text(c.phone_secondary),
+    email: text(c.email),
+    monthlyPrice: Number(row.recurring_total) || 0,
+    total: Number(row.total) || 0,
+    matchedItem: row.matched_item,
+    matchedWhy: row.matched_why,
+    acceptedDay: row.estimate_date,
+    estimateNumber: row.estimate_number,
+    crmUrl: `${APP_ORIGIN}/accounts-center?tab=new&markate=${row.id}#markate-${row.id}`,
+    markateUrl: row.url_public,
+  };
+}
+
+/**
+ * One email to crm@ for each estimate the import saved: the ones still
+ * "pending" (new, or failed before). Never one accepted before Oct 22, 2026.
+ * A row is claimed ("sending") before the send, so the cron and Check now
+ * running at the same time cannot both send it. Never throws.
+ */
+async function sendEstimateEmails(): Promise<void> {
+  const sql = getSql();
+  const due = `
+    (raw->'cwEmail'->>'state' = 'pending'
+      OR (raw->'cwEmail'->>'state' = 'sending' AND (raw->'cwEmail'->>'claimedAt')::timestamptz < now() - interval '${SENDING_STALE}'))
+    AND COALESCE((raw->'cwEmail'->>'tries')::int, 0) < ${MAX_EMAIL_TRIES}
+    AND NOT (estimate_date <> '' AND estimate_date < '${IMPORT_START_DAY}')
+    AND NOT (outcome = 'skipped' AND outcome_by LIKE 'Accepted before Oct 22, 2026%')`;
+  try {
+    const rows = (await sql.query(
+      `SELECT id::text, estimate_number, customer_name, customer, total::text, recurring_total::text, estimate_date, url_public, matched_item, matched_why
+       FROM markate_estimates WHERE ${due} ORDER BY id LIMIT 25`
+    )) as EmailRow[];
+    for (const row of rows) {
+      const claimed = (await sql.query(
+        `UPDATE markate_estimates SET raw = jsonb_set(raw, '{cwEmail}', COALESCE(raw->'cwEmail', '{}'::jsonb) || jsonb_build_object('state', 'sending', 'claimedAt', now()))
+         WHERE id = $1::bigint AND ${due} RETURNING id`,
+        [row.id]
+      )) as unknown[];
+      if (claimed.length === 0) continue;
+
+      const data = emailData(row);
+      let error = "";
+      try {
+        const sent = await sendHtmlEmail({
+          to: [MARKATE_EMAIL_TO],
+          subject: estimateEmailSubject(data),
+          html: estimateEmailHtml(data),
+          text: estimateEmailText(data),
+          fromName: "Cleaning World CRM",
+          log: { type: "NEW ACCEPTED ACCOUNT", accountName: data.customerName, sentBy: "System" },
+        });
+        if (!sent) error = "No email sender is set up here.";
+      } catch (err) {
+        error = err instanceof Error ? err.message : "The email did not send.";
+      }
+
+      if (error) {
+        console.error(`[markate email] estimate ${row.id} not sent:`, error);
+        await sql.query(
+          `UPDATE markate_estimates SET raw = jsonb_set(raw, '{cwEmail}', raw->'cwEmail' || jsonb_build_object('state', 'pending', 'tries', COALESCE((raw->'cwEmail'->>'tries')::int, 0) + 1, 'lastError', $2::text))
+           WHERE id = $1::bigint`,
+          [row.id, error.slice(0, 300)]
+        );
+      } else {
+        await sql.query(
+          `UPDATE markate_estimates SET raw = jsonb_set(raw, '{cwEmail}', raw->'cwEmail' || jsonb_build_object('state', 'sent', 'sentAt', now(), 'lastError', ''))
+           WHERE id = $1::bigint`,
+          [row.id]
+        );
+      }
+    }
+  } catch (error) {
+    console.error("[markate email]", error instanceof Error ? error.message : error);
+  }
 }
 
 /* ---------- the Pin Board paper ---------- */
