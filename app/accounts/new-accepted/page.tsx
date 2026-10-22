@@ -5,6 +5,10 @@
 // 8 steps and pins it in the manager's square on the Pin Board (the manager
 // gets the usual board text). Then it opens the account, where the big green
 // button is step 1. Server: app/api/account-flow (action "create").
+//
+// From Markate (?markate=<id>, Accounts Center -> New accounts): the form opens
+// filled from the Markate estimate, with its link as the estimate. After the
+// save, the estimate is marked started with the new account (POST /api/markate).
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -12,6 +16,24 @@ import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast } from
 import GoogleAddressAutocompleteInput, { type PlaceAddressDetails } from "@/app/components/GoogleAddressAutocompleteInput";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import SubPayFields from "@/app/components/sub-pay-fields";
+
+type MarkatePrefill = {
+  id: string;
+  waiting: boolean;
+  accountName: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  latitude: string;
+  longitude: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  price: string;
+  estimateUrl: string;
+  estimateName: string;
+};
 
 type Place = { address: string; city: string; state: string; zip: string; latitude: string; longitude: string };
 const NO_PLACE: Place = { address: "", city: "", state: "", zip: "", latitude: "", longitude: "" };
@@ -34,6 +56,31 @@ export default function NewAcceptedAccountPage() {
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Filled from a Markate estimate: its id and the estimate link that is saved when no file is chosen.
+  const [markate, setMarkate] = useState<MarkatePrefill | null>(null);
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("markate");
+    if (!id) return;
+    fetch(`/api/markate?estimate=${encodeURIComponent(id)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; prefill?: MarkatePrefill; error?: string }) => {
+        const filled = data.prefill;
+        if (!data.success || !filled) {
+          setError(data.error || "The Markate estimate did not load. Type the details in.");
+          return;
+        }
+        if (!filled.waiting) setError("This Markate estimate was already started or skipped. Saving makes another account.");
+        setMarkate(filled);
+        setAccountName(filled.accountName);
+        setPlace({ address: filled.address, city: filled.city, state: filled.state, zip: filled.zip, latitude: filled.latitude, longitude: filled.longitude });
+        setPrice(filled.price);
+        setContactName(filled.contactName);
+        setPhone(filled.phone);
+        setEmail(filled.email);
+      })
+      .catch(() => setError("The Markate estimate did not load. Type the details in."));
+  }, []);
 
   useEffect(() => {
     fetch("/api/admin/managers", { cache: "no-store" })
@@ -76,6 +123,10 @@ export default function NewAcceptedAccountPage() {
         if (!uploaded.ok || !data.success || !data.url) throw new Error(data.error || "The estimate did not upload. Try again.");
         estimateUrl = data.url;
         estimateName = data.name ?? file.name;
+      } else if (markate?.estimateUrl) {
+        // No file chosen: the Markate estimate's own link is the estimate.
+        estimateUrl = markate.estimateUrl;
+        estimateName = markate.estimateName;
       }
       const response = await fetch("/api/account-flow", {
         method: "POST",
@@ -86,6 +137,10 @@ export default function NewAcceptedAccountPage() {
       if (!response.ok || !data.success || !data.accountId) throw new Error(data.error || "The account was not saved. Try again.");
       // The contacts after the main one. The account is saved either way.
       const contactsFailed = await saveExtraContacts(data.accountId, extraContacts);
+      // Made from a Markate estimate: it leaves the From Markate list (and the Pin Board's New accepted square).
+      if (markate?.waiting) {
+        await fetch("/api/markate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "started", id: markate.id, accountId: data.accountId }) }).catch(() => undefined);
+      }
       showToast(
         contactsFailed ? `Saved and pinned. ${contactsFailed} contact${contactsFailed === 1 ? "" : "s"} did not save: add ${contactsFailed === 1 ? "it" : "them"} on Edit Account.` : "Saved and pinned ✓",
         contactsFailed ? "bad" : "good"
@@ -146,7 +201,9 @@ export default function NewAcceptedAccountPage() {
                 Estimate PDF
               </label>
               <input id="estimate-file" type="file" accept="application/pdf,image/*" className="ui-input" disabled={saving} onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-              <p className="ui-hint">{file ? `Chosen: ${file.name}` : "Or a photo of it. 10MB or smaller."}</p>
+              <p className="ui-hint">
+                {file ? `Chosen: ${file.name}` : markate?.estimateUrl ? "The Markate estimate link is saved. Choose a file only to use it instead." : "Or a photo of it. 10MB or smaller."}
+              </p>
             </div>
           </div>
         </Card>

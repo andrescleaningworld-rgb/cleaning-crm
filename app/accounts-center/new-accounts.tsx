@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AddButton, BigButton, Counts, EmptyState, ErrorBox, PullToRefresh, Screen, SkeletonList, StatusPill, Tips, showToast } from "@/app/ui";
 import PizzaTracker from "../components/pizza-tracker";
+import FromMarkate from "./from-markate";
 import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
 
 type OpenFlow = { accountId: string; accountName: string; manager: string; view: FlowView; mine: boolean };
@@ -21,6 +22,7 @@ export default function NewAccountsBoard() {
   const [state, setState] = useState<"loading" | "ready" | "off" | "failed">("loading");
   const [flows, setFlows] = useState<OpenFlow[]>([]);
   const [quick, setQuick] = useState<"all" | "late" | "mine">("all");
+  const [markateReload, setMarkateReload] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -63,10 +65,12 @@ export default function NewAccountsBoard() {
       />
       <PullToRefresh
         onRefresh={async () => {
+          setMarkateReload((n) => n + 1);
           await load();
           showToast("Updated ✓");
         }}
       />
+      <FromMarkate reloadKey={markateReload} />
       {state === "off" ? (
         <EmptyState title="Not turned on here yet" text="The New accounts board works once this database has the new-account steps." />
       ) : state === "failed" ? (

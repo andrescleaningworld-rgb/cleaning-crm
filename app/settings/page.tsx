@@ -870,6 +870,7 @@ export default function SettingsPage() {
           <Tile icon="note" label="Extra Services" detail="What customers can request" href="/settings/extra-services" />
           <Tile icon="status" label="Equipment Categories and Staff" href="/settings/equipment-categories" />
           {isOwner ? <Tile icon="visit" label="Activity Log" detail="Who changed what" href="/settings/activity-log" /> : null}
+          {isOwner ? <Tile icon="key" label="Markate" detail="Connect Markate, and which items are recurring" href="/settings/markate" /> : null}
           <Tile icon="print" label="Logs" detail="Account update history" href="/settings/logs" />
           <Tile icon="problem" label="Deleted accounts" detail="Who deleted what, and Restore" href="/settings/deleted-accounts" />
         </div>

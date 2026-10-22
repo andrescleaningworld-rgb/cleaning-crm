@@ -11,6 +11,7 @@ import AccountsCenterKeys from "./keys";
 import MissingEmails from "./missing-emails";
 import TimeOnSiteFill from "./time-on-site-fill";
 import NewAccountsBoard from "./new-accounts";
+import { MARKATE_CHANGED } from "./from-markate";
 import TeamHubStaffQueue from "./team-hub-queue";
 import { Tabs } from "@/app/ui";
 import { SubScoreAlertsCard } from "../components/sub-score-alerts";
@@ -55,6 +56,8 @@ export default function AccountsCenterPage() {
   // badge on the tab itself so staff notice without opening it.
   const [openTeamHubCount, setOpenTeamHubCount] = useState(0);
   const [showRecent, setShowRecent] = useState(false);
+  // Markate estimates waiting in New accounts -> From Markate: the badge on that tab.
+  const [markateWaiting, setMarkateWaiting] = useState(0);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
@@ -82,6 +85,17 @@ export default function AccountsCenterPage() {
       .catch(() => setOpenTeamHubCount(0));
   }, []);
 
+  useEffect(() => {
+    const count = () =>
+      fetch("/api/markate?count=1", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data: { count?: number }) => setMarkateWaiting(Number(data.count) || 0))
+        .catch(() => setMarkateWaiting(0));
+    void count();
+    window.addEventListener(MARKATE_CHANGED, count);
+    return () => window.removeEventListener(MARKATE_CHANGED, count);
+  }, []);
+
   function handleTabChange(next: CenterTab) {
     setActiveTab(next);
     if (typeof window !== "undefined") window.localStorage.setItem(TAB_STORAGE_KEY, next);
@@ -91,7 +105,11 @@ export default function AccountsCenterPage() {
   // without opening the tab.
   // New accounts reads the 8-step flow; where it is not turned on, the board says so.
   const tabs = TABS.map((tab) =>
-    tab.value === "team-hub" && openTeamHubCount > 0 ? { ...tab, label: `${tab.label} (${openTeamHubCount})` } : tab
+    tab.value === "team-hub" && openTeamHubCount > 0
+      ? { ...tab, label: `${tab.label} (${openTeamHubCount})` }
+      : tab.value === "new" && markateWaiting > 0
+        ? { ...tab, label: `${tab.label} (${markateWaiting})` }
+        : tab
   );
 
   return (
