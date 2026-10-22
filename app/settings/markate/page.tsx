@@ -21,8 +21,34 @@ function lastResult(status: Status): string {
 }
 type Item = { id: string; name: string; addedBy: string; addedAt: string };
 /** What Check now looked at (lib/pg/markate.ts CheckResult): shown on this page only, not saved. */
-type Seen = { number: string; status: string; customerType: string; items: string[]; outcome: "brought in" | "left out" | "already in the CRM"; why: string };
-type CheckSummary = { added: number; finished: boolean; since: string; notes: string[]; seen: Seen[] };
+type Seen = { number: string; status: string; customerType: string; items: string[]; outcome: "brought in" | "left out" | "already in the CRM"; kind: string; why: string };
+type Lookup = { id: string; found: boolean; error: string; number: string; fields: string[]; acceptedWhen: string; inWindow: boolean; countsAsAccepted: boolean; inLists: string[] };
+type CheckSummary = { checked: number; added: number; finished: boolean; since: string; notes: string[]; seen: Seen[]; leftOut: Record<string, number>; lookup: Lookup | null };
+
+/** "12 left out: 8 residential, 3 not accepted, 1 no recurring item". */
+function leftOutLine(leftOut: Record<string, number>): string {
+  const parts = Object.entries(leftOut).sort((a, b) => b[1] - a[1]);
+  const total = parts.reduce((sum, [, n]) => sum + n, 0);
+  return total === 0 ? "None left out." : `${total} left out: ${parts.map(([kind, n]) => `${n} ${kind}`).join(", ")}.`;
+}
+
+function SeenRow({ seen }: { seen: Seen }) {
+  return (
+    <li className="ui-acct">
+      <span className="ui-acct-name">{seen.number}</span>
+      <span className="ui-actions-row">
+        <StatusPill kind={seen.outcome === "brought in" ? "done" : seen.outcome === "left out" ? "off" : "waiting"}>
+          {seen.outcome === "brought in" ? "Brought in" : seen.outcome === "left out" ? "Left out" : "Already in the CRM"}
+        </StatusPill>
+      </span>
+      <span className="ui-acct-line">
+        Status {seen.status} · Customer: {seen.customerType}
+      </span>
+      <span className="ui-acct-line">Items: {seen.items.length ? seen.items.join(", ") : "none listed"}</span>
+      <span className="ui-acct-line ui-strong">{seen.why}</span>
+    </li>
+  );
+}
 type Settings = { ready: boolean; configured: boolean; status: Status; items: Item[] };
 
 async function post(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -40,6 +66,8 @@ export default function MarkateSettingsPage() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState("");
   const [summary, setSummary] = useState<CheckSummary | null>(null);
+  // Troubleshooting: one Markate estimate id to look up with Check now (optional).
+  const [lookupId, setLookupId] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -72,7 +100,16 @@ export default function MarkateSettingsPage() {
       if (Array.isArray(data.items) && settings) setSettings({ ...settings, items: data.items as Item[] });
       if (body.action === "checkNow") {
         const result = data.result as Partial<CheckSummary> | undefined;
-        setSummary({ added: result?.added ?? 0, finished: result?.finished !== false, since: result?.since ?? "", notes: result?.notes ?? [], seen: result?.seen ?? [] });
+        setSummary({
+          checked: result?.checked ?? 0,
+          added: result?.added ?? 0,
+          finished: result?.finished !== false,
+          since: result?.since ?? "",
+          notes: result?.notes ?? [],
+          seen: result?.seen ?? [],
+          leftOut: result?.leftOut ?? {},
+          lookup: result?.lookup ?? null,
+        });
         showToast(`${result?.added ?? 0} new estimate${result?.added === 1 ? "" : "s"} found.${result?.finished === false ? " The rest come in on the next check." : ""}`);
         await load();
       } else if (body.action === "disconnect") {
@@ -125,8 +162,17 @@ export default function MarkateSettingsPage() {
                 )}
                 {status.lastError && !status.lastError.startsWith("Stopped at the time limit") ? <p className="ui-field-error">The last check did not finish: {status.lastError}</p> : null}
                 <p className="ui-muted">It checks every 30 minutes. Only estimates accepted on or after Oct 22, 2026 come in.</p>
+                <Field
+                  label="Look up one Markate estimate"
+                  optional
+                  hint="For troubleshooting: the estimate's Markate id (a number). Check now then shows its status and dates."
+                  inputMode="numeric"
+                  value={lookupId}
+                  disabled={busy !== ""}
+                  onChange={(event) => setLookupId(event.target.value.replace(/\D/g, ""))}
+                />
                 <div className="ui-actions-row">
-                  <BigButton kind="second" busy={busy === "check"} busyLabel="Checking…" disabled={busy !== ""} onClick={() => void run("check", { action: "checkNow" }, "")}>
+                  <BigButton kind="second" busy={busy === "check"} busyLabel="Checking…" disabled={busy !== ""} onClick={() => void run("check", { action: "checkNow", lookupId }, "")}>
                     Check now
                   </BigButton>
                   <BigButton kind="danger" busy={busy === "disconnect"} busyLabel="Disconnecting…" disabled={busy !== ""} onClick={() => void run("disconnect", { action: "disconnect" }, "Markate is disconnected.")}>
@@ -154,32 +200,67 @@ export default function MarkateSettingsPage() {
           {summary ? (
             <Card title="What Check now looked at">
               <p className="ui-card-text">
-                {summary.seen.length === 0 ? "No estimates" : `${summary.seen.length} estimate${summary.seen.length === 1 ? "" : "s"}`}
+                Looked at {summary.checked} estimate{summary.checked === 1 ? "" : "s"}
                 {summary.since ? ` since ${friendlyDate(new Date(`${summary.since}T00:00:00`))}` : ""}. {summary.added} brought in.
                 {summary.finished ? "" : " It stopped at the time limit; the next check goes on."}
               </p>
+              {summary.seen.some((seen) => seen.outcome !== "left out") ? (
+                <ul className="ui-acct-list" style={{ marginTop: 12 }}>
+                  {summary.seen
+                    .filter((seen) => seen.outcome !== "left out")
+                    .map((seen, index) => (
+                      <SeenRow key={`${seen.number}-${index}`} seen={seen} />
+                    ))}
+                </ul>
+              ) : null}
+              <p className="ui-card-text" style={{ marginTop: 12 }}>
+                {leftOutLine(summary.leftOut)}
+              </p>
+              {/* Each list Markate sent: its size, the pages read, and page 1's first and last estimate (the real order). */}
               {summary.notes.map((note) => (
                 <p key={note} className="ui-muted">
                   {note}
                 </p>
               ))}
-              {summary.seen.length > 0 ? (
-                <ul className="ui-acct-list" style={{ marginTop: 12 }}>
-                  {summary.seen.map((seen, index) => (
-                    <li key={`${seen.number}-${index}`} className="ui-acct">
-                      <span className="ui-acct-name">{seen.number}</span>
-                      <span className="ui-actions-row">
-                        <StatusPill kind={seen.outcome === "brought in" ? "done" : seen.outcome === "left out" ? "off" : "waiting"}>{seen.outcome === "brought in" ? "Brought in" : seen.outcome === "left out" ? "Left out" : "Already in the CRM"}</StatusPill>
-                      </span>
-                      <span className="ui-acct-line">
-                        Status {seen.status} · Customer: {seen.customerType}
-                      </span>
-                      <span className="ui-acct-line">Items: {seen.items.length ? seen.items.join(", ") : "none listed"}</span>
-                      <span className="ui-acct-line ui-strong">{seen.why}</span>
-                    </li>
-                  ))}
-                </ul>
+
+              {summary.lookup ? (
+                <div className="ui-stack" style={{ marginTop: 12 }}>
+                  <p className="ui-card-text ui-strong">
+                    Looked up Markate id {summary.lookup.id}
+                    {summary.lookup.number ? ` (${summary.lookup.number})` : ""}
+                  </p>
+                  {summary.lookup.found ? (
+                    <>
+                      <p className="ui-muted">
+                        In the check&apos;s lists: {summary.lookup.inLists.length ? summary.lookup.inLists.join("; ") : "none"}. Counts as accepted: {summary.lookup.countsAsAccepted ? "yes" : "no"}. Date used:{" "}
+                        {summary.lookup.acceptedWhen ? summary.lookup.acceptedWhen.replace("T", " ").slice(0, 16) + " UTC" : "none"} ({summary.lookup.inWindow ? "since the cutoff" : "before the cutoff"}).
+                      </p>
+                      <ul className="ui-muted" style={{ margin: 0, paddingLeft: 18 }}>
+                        {summary.lookup.fields.map((field) => (
+                          <li key={field}>{field}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="ui-field-error">Not found: {summary.lookup.error || "Markate sent nothing."}</p>
+                  )}
+                </div>
               ) : null}
+
+              <details style={{ marginTop: 12 }}>
+                <summary className="ui-muted" style={{ cursor: "pointer" }}>
+                  Show details
+                </summary>
+                {summary.seen.some((seen) => seen.outcome === "left out") ? (
+                  <ul className="ui-acct-list" style={{ marginTop: 12 }}>
+                    {summary.seen
+                      .filter((seen) => seen.outcome === "left out")
+                      .map((seen, index) => (
+                        <SeenRow key={`${seen.number}-${index}`} seen={seen} />
+                      ))}
+                  </ul>
+                ) : null}
+              </details>
             </Card>
           ) : null}
 

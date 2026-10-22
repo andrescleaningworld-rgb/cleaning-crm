@@ -174,7 +174,12 @@ const RATE_LIMIT_RETRIES = 3;
 /** A run stops before the function's 5-minute limit; the next run starts again from Oct 22 and skips what it already has. */
 const RUN_BUDGET_MS = 240_000;
 const PAGE_SIZE = 50;
-const MAX_PAGES = 100;
+/**
+ * Markate's sort order cannot be trusted (Oct 22 test), so the Accepted list is
+ * read whole, up to this many pages. A longer list: its first and last half of
+ * that many are read, so the newest are reached whichever way it is sorted.
+ */
+const MAX_LIST_PAGES = 60;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -189,7 +194,25 @@ export type SeenEstimate = {
   customerType: string;
   items: string[];
   outcome: "brought in" | "left out" | "already in the CRM";
+  /** Left out only: the short reason the counts are grouped by ("residential", "not accepted", ...). */
+  kind: string;
   why: string;
+};
+
+/** One Markate estimate looked up by its id (Check now troubleshooting): its raw status and date fields. */
+export type EstimateLookup = {
+  id: string;
+  found: boolean;
+  error: string;
+  number: string;
+  /** "key: value" for every status, date, accepted and work order field Markate sent. */
+  fields: string[];
+  /** The time the check uses as "accepted" (ISO), "" when none. */
+  acceptedWhen: string;
+  inWindow: boolean;
+  countsAsAccepted: boolean;
+  /** Which of the check's lists it was in ("" = none). */
+  inLists: string[];
 };
 
 export type CheckResult = {
@@ -199,13 +222,38 @@ export type CheckResult = {
   error: string;
   /** The day the check looked back to (YYYY-MM-DD, Eastern). */
   since: string;
-  /** What Markate sent back for each list asked for: how many, and under which names. */
+  /** One line per list asked for: its size, the pages read, and page 1's first and last estimate (the real order). */
   notes: string[];
   seen: SeenEstimate[];
+  /** How many were left out, by reason ("residential": 8, ...). */
+  leftOut: Record<string, number>;
+  lookup: EstimateLookup | null;
 };
 
-/** At most this many estimates are listed in the Check now summary. */
-const MAX_SEEN = 60;
+/** At most this many left-out estimates are listed under "Show details". */
+const MAX_LEFT_OUT_SHOWN = 100;
+
+/** "EST-050378 (added 2026-10-22 19:30, updated …)": an estimate and the dates Markate sent with it. */
+function describe(estimate: MarkateEstimate | undefined): string {
+  if (!estimate) return "none";
+  const raw = estimate as Record<string, unknown>;
+  const dates = [
+    ["added", raw.datetime_added],
+    ["updated", raw.datetime_updated],
+    ["accepted", raw.date_accepted ?? raw.datetime_accepted],
+    ["issued", raw.date_issued],
+  ]
+    .filter(([, value]) => text(value))
+    .map(([label, value]) => `${label} ${text(value).replace("T", " ").slice(0, 16)}`);
+  return `${text(raw.custom_number) || `id ${text(raw.id)}`}${dates.length ? ` (${dates.join(", ")})` : ""}`;
+}
+
+/** The fields worth seeing on one estimate when it does not come in: status, dates, accepted, work order. */
+function lookupFields(estimate: MarkateEstimate): string[] {
+  return Object.entries(estimate as Record<string, unknown>)
+    .filter(([key]) => /status|date|time|accept|work_?order|convert/i.test(key))
+    .map(([key, value]) => `${key}: ${value === null ? "null" : typeof value === "object" ? JSON.stringify(value).slice(0, 120) : text(value).slice(0, 120)}`);
+}
 
 /** The list in a Markate reply: under "estimates" as documented, else the first list in the reply. */
 function listIn(reply: Record<string, unknown>, key: string): { rows: MarkateEstimate[]; foundUnder: string } {
@@ -258,14 +306,14 @@ function easternDay(time: number): string {
  * Then the emails to crm@ that are still to go are sent (new ones, and any
  * that failed before), whatever happened with Markate.
  */
-export async function checkForEstimates(): Promise<CheckResult> {
-  const result = await importEstimates();
+export async function checkForEstimates(options: { lookupId?: string } = {}): Promise<CheckResult> {
+  const result = await importEstimates(options.lookupId?.trim() ?? "");
   await sendEstimateEmails();
   return result;
 }
 
-async function importEstimates(): Promise<CheckResult> {
-  const result: CheckResult = { checked: 0, added: 0, finished: false, error: "", since: "", notes: [], seen: [] };
+async function importEstimates(lookupId: string): Promise<CheckResult> {
+  const result: CheckResult = { checked: 0, added: 0, finished: false, error: "", since: "", notes: [], seen: [], leftOut: {}, lookup: null };
   const row = await connectionRow();
   if (!row) return { ...result, error: "Markate is not connected." };
   const startedAt = new Date();
@@ -301,38 +349,100 @@ async function importEstimates(): Promise<CheckResult> {
     // Each customer is asked for once per run.
     const customers = new Map<string, MarkateCustomer | null>();
 
-    // 1. Collect the estimates since the cutoff, from two lists: the Accepted ones (newest
-    //    accepted first), and the newest of any status, which also finds one whose status
-    //    changed after it was accepted (turned into a work order). Each estimate once.
+    // 1. Collect the estimates since the cutoff. Markate's sort order cannot be trusted and
+    //    estimates have no date filter, so the Accepted list is read whole (or both ends of a
+    //    very long one). Plus the newest by number of any status, which also finds one whose
+    //    status changed after it was accepted (turned into a work order). Each estimate once.
     const collected = new Map<string, MarkateEstimate>();
-    const sources: { label: string; query: Record<string, string> }[] = [
-      { label: "Accepted (status A)", query: { status: "A", order: "date-accepted-desc" } },
-      { label: "Newest, any status", query: { order: "added-desc" } },
+    const listsOf = new Map<string, string[]>();
+    const inWindow = (estimate: MarkateEstimate) => {
+      const time = acceptedTime(estimate);
+      return !Number.isFinite(time) || time >= cutoff;
+    };
+    const sources: { label: string; query: Record<string, string>; maxPages: number }[] = [
+      { label: "Accepted (status A)", query: { status: "A", order: "date-accepted-desc" }, maxPages: MAX_LIST_PAGES },
+      { label: "Newest by number, any status", query: { order: "number-desc" }, maxPages: 2 },
     ];
     for (const source of sources) {
-      let count = 0;
-      let under = "";
-      let replyKeys = "";
-      for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const get = async (page: number) => {
         const reply = await call<Record<string, unknown>>("estimates", { ...source.query, page: String(page), rows_per_page: String(PAGE_SIZE) });
-        const { rows, foundUnder } = listIn(reply, "estimates");
-        under ||= foundUnder;
-        replyKeys ||= Object.keys(reply ?? {}).join(", ");
-        count += rows.length;
-        let anyRecent = false;
-        for (const listed of rows) {
-          const time = acceptedTime(listed);
-          if (Number.isFinite(time) && time < cutoff) continue;
-          anyRecent = true;
-          const id = text(listed.id);
-          if (id && !collected.has(id)) collected.set(id, listed);
+        return { reply, ...listIn(reply, "estimates") };
+      };
+      const first = await get(1);
+      const pagination = (first.reply.pagination ?? {}) as { total_pages?: unknown; total_rows?: unknown; next?: unknown };
+      const totalPages = Number(pagination.total_pages) || 0;
+      // Which pages to read after page 1: all of them, or both ends of a very long list.
+      const pages: number[] = [];
+      if (totalPages > 0) {
+        const last = Math.min(totalPages, source.maxPages);
+        for (let page = 2; page <= last; page += 1) pages.push(page);
+        if (totalPages > source.maxPages && source.maxPages === MAX_LIST_PAGES) {
+          const half = MAX_LIST_PAGES / 2;
+          pages.length = 0;
+          for (let page = 2; page <= half; page += 1) pages.push(page);
+          for (let page = Math.max(half + 1, totalPages - half + 1); page <= totalPages; page += 1) pages.push(page);
         }
-        const next = Number((reply.pagination as { next?: unknown } | undefined)?.next ?? 0);
-        if (!anyRecent || !(next > page) || rows.length === 0) break;
+      } else if (Number(pagination.next) > 1) {
+        for (let page = 2; page <= source.maxPages; page += 1) pages.push(page);
       }
+
+      let sent = 0;
+      let recent = 0;
+      const take = (rows: MarkateEstimate[]) => {
+        sent += rows.length;
+        for (const listed of rows) {
+          const id = text(listed.id);
+          if (!id) continue;
+          listsOf.set(id, [...(listsOf.get(id) ?? []), source.label]);
+          if (!inWindow(listed)) continue;
+          recent += 1;
+          if (!collected.has(id)) collected.set(id, listed);
+        }
+      };
+      take(first.rows);
+      let read = 1;
+      for (const page of pages) {
+        const { rows } = await get(page);
+        read += 1;
+        take(rows);
+        if (rows.length === 0 && totalPages === 0) break;
+      }
+
       result.notes.push(
-        `${source.label}: Markate sent ${count} estimate${count === 1 ? "" : "s"}${under ? ` (under "${under}")` : ` (no list in the reply; it had: ${replyKeys || "nothing"})`}.`
+        first.foundUnder
+          ? `${source.label}, order ${source.query.order}: ${text(pagination.total_rows) || "?"} in all, ${totalPages || "?"} pages of up to ${PAGE_SIZE}. ` +
+              `Read ${read} page${read === 1 ? "" : "s"} (${sent} estimates), ${recent} since ${result.since}. ` +
+              `Page 1 starts with ${describe(first.rows[0])} and ends with ${describe(first.rows[first.rows.length - 1])}.`
+          : `${source.label}: no list in Markate's reply (it had: ${Object.keys(first.reply).join(", ") || "nothing"}).`
       );
+    }
+
+    // Troubleshooting: one estimate looked up by its Markate id. If it was in no list but
+    // counts as accepted and is recent, it is decided on like the others.
+    if (lookupId) {
+      const lookup: EstimateLookup = { id: lookupId, found: false, error: "", number: "", fields: [], acceptedWhen: "", inWindow: false, countsAsAccepted: false, inLists: listsOf.get(lookupId) ?? [] };
+      try {
+        const got = await call<Record<string, unknown>>(`estimates/${encodeURIComponent(lookupId)}`);
+        const estimate = (got.estimate ?? null) as MarkateEstimate | null;
+        if (estimate) {
+          const time = acceptedTime(estimate);
+          Object.assign(lookup, {
+            found: true,
+            number: text(estimate.custom_number),
+            fields: lookupFields(estimate),
+            acceptedWhen: Number.isFinite(time) ? new Date(time).toISOString() : "",
+            inWindow: inWindow(estimate),
+            countsAsAccepted: wasAccepted(estimate),
+          });
+          if (lookup.inWindow && !collected.has(lookupId)) collected.set(lookupId, estimate);
+        } else {
+          lookup.error = `Markate's reply had no estimate (it had: ${Object.keys(got).join(", ") || "nothing"}).`;
+        }
+      } catch (error) {
+        if (error instanceof OutOfTime) throw error;
+        lookup.error = error instanceof Error ? error.message : "The lookup did not work.";
+      }
+      result.lookup = lookup;
     }
 
     // 2. Decide on each one, newest first, and say why.
@@ -341,8 +451,15 @@ async function importEstimates(): Promise<CheckResult> {
       ids.length ? ((await sql`SELECT markate_estimate_id FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as { markate_estimate_id: string }[]).map((r) => r.markate_estimate_id) : []
     );
     const ordered = [...collected.values()].sort((a, b) => (acceptedTime(b) || 0) - (acceptedTime(a) || 0));
-    const see = (estimate: MarkateEstimate, customerType: string, outcome: SeenEstimate["outcome"], why: string) => {
-      if (result.seen.length < MAX_SEEN) result.seen.push({ number: text(estimate.custom_number) || `id ${text(estimate.id)}`, status: statusLabel(estimate), customerType, items: itemNames(estimate), outcome, why });
+    // Brought in and already in the CRM are always listed; left out ones are counted by reason, and listed up to a limit.
+    let leftOutShown = 0;
+    const see = (estimate: MarkateEstimate, customerType: string, outcome: SeenEstimate["outcome"], why: string, kind = "") => {
+      if (outcome === "left out") {
+        result.leftOut[kind] = (result.leftOut[kind] ?? 0) + 1;
+        if (leftOutShown >= MAX_LEFT_OUT_SHOWN) return;
+        leftOutShown += 1;
+      }
+      result.seen.push({ number: text(estimate.custom_number) || `id ${text(estimate.id)}`, status: statusLabel(estimate), customerType, items: itemNames(estimate), outcome, kind, why });
     };
 
     for (const listed of ordered) {
@@ -353,13 +470,13 @@ async function importEstimates(): Promise<CheckResult> {
         continue;
       }
       if (!wasAccepted(listed)) {
-        see(listed, "Not looked up", "left out", `Not accepted (status ${statusLabel(listed)}).`);
+        see(listed, "Not looked up", "left out", `Not accepted (status ${statusLabel(listed)}).`, "not accepted");
         continue;
       }
 
       const customerId = text(listed.customer_id) || text(listed.customer?.id);
       if (!customerId) {
-        see(listed, "Not found", "left out", "The estimate has no customer.");
+        see(listed, "Not found", "left out", "The estimate has no customer.", "no customer");
         continue;
       }
       if (!customers.has(customerId)) {
@@ -368,7 +485,7 @@ async function importEstimates(): Promise<CheckResult> {
       }
       const customer = customers.get(customerId);
       if (!customer || !isCommercial(customer)) {
-        see(listed, customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.");
+        see(listed, customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.", customer ? "residential" : "customer not found");
         continue;
       }
 
@@ -379,7 +496,7 @@ async function importEstimates(): Promise<CheckResult> {
       }
       const match = recurringMatch(Array.isArray(estimate.items) ? estimate.items : [], names);
       if (!match) {
-        see(estimate, customerTypeLabel(customer), "left out", "No recurring item (no name on the list, no \"per Month\").");
+        see(estimate, customerTypeLabel(customer), "left out", "No recurring item (no name on the list, no \"per Month\").", "no recurring item");
         continue;
       }
 
