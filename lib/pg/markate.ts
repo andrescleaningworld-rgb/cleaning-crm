@@ -52,7 +52,17 @@ type ConnectionRow = {
 
 const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
 
-export type MarkateStatus = { connected: boolean; connectedAt: string; connectedBy: string; lastCheckedAt: string; lastError: string };
+export type MarkateStatus = {
+  connected: boolean;
+  connectedAt: string;
+  connectedBy: string;
+  /** When the last check ran ("" = never). */
+  lastCheckedAt: string;
+  /** "" when the last check finished; otherwise why it did not. */
+  lastError: string;
+  /** How many estimates the last check brought in. */
+  lastFound: number;
+};
 
 async function connectionRow(): Promise<ConnectionRow | null> {
   const rows = (await getSql()`SELECT * FROM markate_connection WHERE id = 1`) as ConnectionRow[];
@@ -61,12 +71,17 @@ async function connectionRow(): Promise<ConnectionRow | null> {
 
 export async function markateStatus(): Promise<MarkateStatus> {
   const row = await connectionRow();
+  // What the last check found: the estimates saved since it started.
+  const found = row?.last_checked_at
+    ? (((await getSql()`SELECT count(*)::int AS n FROM markate_estimates WHERE found_at >= ${iso(row.last_checked_at)}`) as { n: number }[])[0]?.n ?? 0)
+    : 0;
   return {
     connected: Boolean(row),
     connectedAt: iso(row?.connected_at),
     connectedBy: row?.connected_by ?? "",
     lastCheckedAt: iso(row?.last_checked_at),
     lastError: row?.last_check_error ?? "",
+    lastFound: found,
   };
 }
 
@@ -136,13 +151,26 @@ export async function removeRecurringItem(id: string): Promise<void> {
 
 /* ---------- checking Markate for new estimates ---------- */
 
-const FIRST_RUN_DAYS = 30;
-/** Each later run looks back this far before the last good run, so nothing slips through. */
+/**
+ * The import starts here: only estimates accepted on or after Oct 22, 2026
+ * (midnight Eastern) come in. There is no catch-up of older estimates.
+ */
+const IMPORT_START_MS = Date.parse("2026-10-22T04:00:00Z");
+const IMPORT_START_DAY = "2026-10-22";
+/** Each later run looks back this far before the last good run, so nothing slips through (never before the start). */
 const OVERLAP_MS = 2 * 86_400_000;
-/** Markate allows 120 calls a minute; a run stops before that and the next run picks up the rest. */
-const MAX_CALLS = 90;
+/** Markate allows 120 calls a minute. A run keeps under 100 a minute and waits when it gets there. */
+const CALLS_PER_MINUTE = 100;
+/** "Too many requests" anyway: wait (Markate's Retry-After, else a minute) and try the same call again, up to this many times. */
+const RATE_LIMIT_RETRIES = 3;
+/** A run stops before the function's 5-minute limit; the next run starts again from Oct 22 and skips what it already has. */
+const RUN_BUDGET_MS = 240_000;
 const PAGE_SIZE = 50;
-const MAX_PAGES = 20;
+const MAX_PAGES = 100;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+class OutOfTime extends Error {}
 
 export type CheckResult = { checked: number; added: number; finished: boolean; error: string };
 
@@ -155,10 +183,15 @@ function acceptedTime(estimate: MarkateEstimate): number {
   return NaN;
 }
 
+/** YYYY-MM-DD in the office's time zone (Eastern), "" when unknown. */
+function easternDay(time: number): string {
+  return Number.isFinite(time) ? new Date(time).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) : "";
+}
+
 /**
  * The cron (every 30 minutes) and "Check now": lists Accepted estimates,
- * newest accepted first, back to the last good run (30 days on the first),
- * and saves the ones whose customer is commercial and that have a recurring
+ * newest accepted first, back to the last good run (never before Oct 22,
+ * 2026), and saves the ones whose customer is commercial and that have a recurring
  * line item. The rest are not saved. Each saved one is pinned in "New accepted".
  */
 export async function checkForEstimates(): Promise<CheckResult> {
@@ -166,21 +199,36 @@ export async function checkForEstimates(): Promise<CheckResult> {
   const row = await connectionRow();
   if (!row) return { ...result, error: "Markate is not connected." };
   const startedAt = new Date();
-  const cutoff = row.last_checked_at ? new Date(row.last_checked_at).getTime() - OVERLAP_MS : Date.now() - FIRST_RUN_DAYS * 86_400_000;
+  // From the last run that finished (less the overlap), never before Oct 22, 2026. After a run that
+  // did not finish, start again from Oct 22: what is already saved is skipped without asking Markate.
+  const lastGood = row.last_checked_at && !row.last_check_error ? new Date(row.last_checked_at).getTime() - OVERLAP_MS : IMPORT_START_MS;
+  const cutoff = Math.max(IMPORT_START_MS, lastGood);
   const sql = getSql();
-  let calls = 0;
+  // Old ones already brought in are skipped and their papers come down, even if nobody opens the list.
+  await reconcileBoard();
 
   try {
     const token = await accessToken();
     if (!token) return { ...result, error: "Markate is not connected." };
-    const call = async <T>(path: string, query?: Record<string, string>): Promise<T | null> => {
-      if (calls >= MAX_CALLS) return null;
-      calls += 1;
-      return markateGet<T>(token, path, query);
+    // When each call of this run was made, to keep under Markate's limit.
+    const callTimes: number[] = [];
+    const call = async <T>(path: string, query?: Record<string, string>): Promise<T> => {
+      for (let attempt = 0; ; attempt += 1) {
+        while (callTimes.length > 0 && Date.now() - callTimes[0] >= 60_000) callTimes.shift();
+        if (callTimes.length >= CALLS_PER_MINUTE) await sleep(60_000 - (Date.now() - callTimes[0]) + 250);
+        if (Date.now() - startedAt.getTime() > RUN_BUDGET_MS) throw new OutOfTime();
+        callTimes.push(Date.now());
+        try {
+          return await markateGet<T>(token, path, query);
+        } catch (error) {
+          if (!(error instanceof MarkateApiError) || error.status !== 429 || attempt >= RATE_LIMIT_RETRIES) throw error;
+          await sleep((error.retryAfterSeconds || 60) * 1000);
+        }
+      }
     };
     const names = new Set((await listRecurringItems()).map((item) => itemKey(item.name)));
+    // Each customer is asked for once per run.
     const customers = new Map<string, MarkateCustomer | null>();
-    let stoppedEarly = false;
 
     for (let page = 1; page <= MAX_PAGES; page += 1) {
       const list = await call<{ estimates?: MarkateEstimate[]; pagination?: { next?: unknown } }>("estimates", {
@@ -189,10 +237,6 @@ export async function checkForEstimates(): Promise<CheckResult> {
         page: String(page),
         rows_per_page: String(PAGE_SIZE),
       });
-      if (!list) {
-        stoppedEarly = true;
-        break;
-      }
       const estimates = (list.estimates ?? []).filter((estimate) => text(estimate.status).toUpperCase() === "A" || !text(estimate.status));
       const ids = estimates.map((estimate) => text(estimate.id)).filter(Boolean);
       const known = new Set(
@@ -212,10 +256,6 @@ export async function checkForEstimates(): Promise<CheckResult> {
         if (!customerId) continue;
         if (!customers.has(customerId)) {
           const got = await call<{ customer?: MarkateCustomer }>(`customers/${encodeURIComponent(customerId)}`);
-          if (!got) {
-            stoppedEarly = true;
-            break;
-          }
           customers.set(customerId, got.customer ?? null);
         }
         const customer = customers.get(customerId);
@@ -224,10 +264,6 @@ export async function checkForEstimates(): Promise<CheckResult> {
         let estimate = listed;
         if (!Array.isArray(estimate.items) || estimate.items.length === 0) {
           const got = await call<{ estimate?: MarkateEstimate }>(`estimates/${encodeURIComponent(id)}`);
-          if (!got) {
-            stoppedEarly = true;
-            break;
-          }
           estimate = got.estimate ?? listed;
         }
         const match = recurringMatch(Array.isArray(estimate.items) ? estimate.items : [], names);
@@ -237,7 +273,7 @@ export async function checkForEstimates(): Promise<CheckResult> {
         const inserted = (await sql`
           INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, recurring_total, status, estimate_date, url_public, matched_item, matched_why, raw)
           VALUES (${id}, ${text(estimate.custom_number)}, ${customerId}, ${customerName}, ${JSON.stringify(customer)}::jsonb, ${estimateTotal(estimate)}, ${match.recurringTotal},
-                  ${text(estimate.status) || "A"}, ${Number.isFinite(acceptedTime(estimate)) ? new Date(acceptedTime(estimate)).toISOString().slice(0, 10) : ""},
+                  ${text(estimate.status) || "A"}, ${easternDay(acceptedTime(estimate))},
                   ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify(estimate)}::jsonb)
           ON CONFLICT (markate_estimate_id) DO NOTHING
           RETURNING id::text
@@ -247,19 +283,22 @@ export async function checkForEstimates(): Promise<CheckResult> {
           await pinEstimatePaper(inserted[0].id, customerName, estimateTotal(estimate), match.item);
         }
       }
-      if (stoppedEarly) break;
       const next = Number(list.pagination?.next ?? 0);
       if (!anyRecent || !(next > page) || estimates.length === 0) break;
     }
 
-    result.finished = !stoppedEarly;
-    // Only a full run moves the starting point; a run that stopped early is picked up by the next one.
-    if (result.finished) await sql`UPDATE markate_connection SET last_checked_at = ${startedAt.toISOString()}, last_check_error = '' WHERE id = 1`;
-    else await sql`UPDATE markate_connection SET last_check_error = 'Stopped early (Markate call limit). The next check picks up the rest.' WHERE id = 1`;
+    // last_checked_at is when the last run started, whatever happened; last_check_error is '' when it finished.
+    result.finished = true;
+    await sql`UPDATE markate_connection SET last_checked_at = ${startedAt.toISOString()}, last_check_error = '' WHERE id = 1`;
   } catch (error) {
-    const message = error instanceof MarkateApiError || error instanceof Error ? error.message : "The check did not work.";
+    if (error instanceof OutOfTime) {
+      // Not shown as an error: what was found so far is saved, and the next check goes on.
+      await sql`UPDATE markate_connection SET last_checked_at = ${startedAt.toISOString()}, last_check_error = 'Stopped at the time limit. The next check goes on from there.' WHERE id = 1`;
+      return result;
+    }
+    const message = error instanceof Error ? error.message : "The check did not work.";
     result.error = message.slice(0, 300);
-    await sql`UPDATE markate_connection SET last_check_error = ${result.error} WHERE id = 1`;
+    await sql`UPDATE markate_connection SET last_checked_at = ${startedAt.toISOString()}, last_check_error = ${result.error} WHERE id = 1`;
   }
   return result;
 }
@@ -295,11 +334,16 @@ async function takePaperDown(id: string, why: string): Promise<void> {
 
 /**
  * Keeps the list and the board in step:
+ *   a waiting estimate accepted before the import start (Oct 22, 2026) is skipped;
  *   a waiting estimate whose paper was taken down on the board is skipped (it never comes back);
  *   a paper put back up for an estimate that is started or skipped comes down again.
  */
 async function reconcileBoard(): Promise<void> {
   const sql = getSql();
+  await sql`
+    UPDATE markate_estimates SET outcome = 'skipped', outcome_by = 'Accepted before Oct 22, 2026 (import start)', outcome_at = now()
+    WHERE outcome = 'waiting' AND estimate_date <> '' AND estimate_date < ${IMPORT_START_DAY}
+  `;
   await sql`
     UPDATE markate_estimates e SET outcome = 'skipped', outcome_by = COALESCE(NULLIF(h.board_done_by, ''), 'Pin Board') || ' (taken off the Pin Board)', outcome_at = h.board_done_at
     FROM handoff_items h

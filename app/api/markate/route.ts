@@ -30,6 +30,9 @@ import {
   waitingCount,
 } from "@/lib/pg/markate";
 
+// "Check now" can wait on Markate's call limit; the check stops itself after 4 minutes.
+export const maxDuration = 300;
+
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
 const noStore = { headers: { "Cache-Control": "no-store" } };
