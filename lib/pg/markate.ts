@@ -180,11 +180,65 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class OutOfTime extends Error {}
 
-export type CheckResult = { checked: number; added: number; finished: boolean; error: string };
+/** One estimate a check looked at, and what it decided: shown after Check now (read only, not saved). */
+export type SeenEstimate = {
+  number: string;
+  /** Markate's status letter and its words: "A Accepted". */
+  status: string;
+  /** "Commercial", "Residential", or "Not looked up". */
+  customerType: string;
+  items: string[];
+  outcome: "brought in" | "left out" | "already in the CRM";
+  why: string;
+};
+
+export type CheckResult = {
+  checked: number;
+  added: number;
+  finished: boolean;
+  error: string;
+  /** The day the check looked back to (YYYY-MM-DD, Eastern). */
+  since: string;
+  /** What Markate sent back for each list asked for: how many, and under which names. */
+  notes: string[];
+  seen: SeenEstimate[];
+};
+
+/** At most this many estimates are listed in the Check now summary. */
+const MAX_SEEN = 60;
+
+/** The list in a Markate reply: under "estimates" as documented, else the first list in the reply. */
+function listIn(reply: Record<string, unknown>, key: string): { rows: MarkateEstimate[]; foundUnder: string } {
+  if (Array.isArray(reply[key])) return { rows: reply[key] as MarkateEstimate[], foundUnder: key };
+  for (const [name, value] of Object.entries(reply)) if (Array.isArray(value)) return { rows: value as MarkateEstimate[], foundUnder: name };
+  return { rows: [], foundUnder: "" };
+}
+
+/**
+ * Accepted, also after it was turned into a work order or invoiced: status A
+ * or V, status words that say so, an accepted date, or a work order linked.
+ */
+function wasAccepted(estimate: MarkateEstimate): boolean {
+  const raw = estimate as Record<string, unknown>;
+  const letter = text(raw.status).toUpperCase();
+  if (letter === "A" || letter === "V") return true;
+  if (/accept|convert|work\s*order|invoiced/i.test(text(raw.status_text))) return true;
+  if (text(raw.date_accepted) || text(raw.datetime_accepted)) return true;
+  return Object.entries(raw).some(([key, value]) => /work_?order/i.test(key) && Boolean(value) && text(value) !== "0" && text(value) !== "[]");
+}
+
+const statusLabel = (estimate: MarkateEstimate) => {
+  const raw = estimate as Record<string, unknown>;
+  return [text(raw.status), text(raw.status_text)].filter(Boolean).join(" ") || "no status";
+};
+const itemNames = (estimate: MarkateEstimate) => (Array.isArray(estimate.items) ? estimate.items.map((item) => text(item.name)).filter(Boolean) : []);
+const customerTypeLabel = (customer: MarkateCustomer | null | undefined) =>
+  !customer ? "Not found" : text(customer.type_service_text) || (isCommercial(customer) ? "Commercial" : text(customer.type_service) === "1" ? "Residential" : `type ${text(customer.type_service) || "?"}`);
 
 /** When the estimate was accepted (or last changed, if Markate does not say). */
 function acceptedTime(estimate: MarkateEstimate): number {
-  for (const value of [estimate.date_accepted, estimate.datetime_updated, estimate.datetime_added, estimate.date_issued]) {
+  const raw = estimate as Record<string, unknown>;
+  for (const value of [estimate.date_accepted, raw.datetime_accepted, estimate.datetime_updated, estimate.datetime_added, estimate.date_issued]) {
     const time = Date.parse(text(value).replace(" ", "T"));
     if (Number.isFinite(time)) return time;
   }
@@ -211,7 +265,7 @@ export async function checkForEstimates(): Promise<CheckResult> {
 }
 
 async function importEstimates(): Promise<CheckResult> {
-  const result: CheckResult = { checked: 0, added: 0, finished: false, error: "" };
+  const result: CheckResult = { checked: 0, added: 0, finished: false, error: "", since: "", notes: [], seen: [] };
   const row = await connectionRow();
   if (!row) return { ...result, error: "Markate is not connected." };
   const startedAt = new Date();
@@ -219,6 +273,7 @@ async function importEstimates(): Promise<CheckResult> {
   // did not finish, start again from Oct 22: what is already saved is skipped without asking Markate.
   const lastGood = row.last_checked_at && !row.last_check_error ? new Date(row.last_checked_at).getTime() - OVERLAP_MS : IMPORT_START_MS;
   const cutoff = Math.max(IMPORT_START_MS, lastGood);
+  result.since = easternDay(cutoff);
   const sql = getSql();
   // Old ones already brought in are skipped and their papers come down, even if nobody opens the list.
   await reconcileBoard();
@@ -246,61 +301,104 @@ async function importEstimates(): Promise<CheckResult> {
     // Each customer is asked for once per run.
     const customers = new Map<string, MarkateCustomer | null>();
 
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
-      const list = await call<{ estimates?: MarkateEstimate[]; pagination?: { next?: unknown } }>("estimates", {
-        status: "A",
-        order: "date-accepted-desc",
-        page: String(page),
-        rows_per_page: String(PAGE_SIZE),
-      });
-      const estimates = (list.estimates ?? []).filter((estimate) => text(estimate.status).toUpperCase() === "A" || !text(estimate.status));
-      const ids = estimates.map((estimate) => text(estimate.id)).filter(Boolean);
-      const known = new Set(
-        ids.length ? ((await sql`SELECT markate_estimate_id FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as { markate_estimate_id: string }[]).map((r) => r.markate_estimate_id) : []
-      );
-      let anyRecent = false;
-
-      for (const listed of estimates) {
-        const id = text(listed.id);
-        const time = acceptedTime(listed);
-        if (Number.isFinite(time) && time < cutoff) continue;
-        anyRecent = true;
-        if (!id || known.has(id)) continue;
-        result.checked += 1;
-
-        const customerId = text(listed.customer_id) || text(listed.customer?.id);
-        if (!customerId) continue;
-        if (!customers.has(customerId)) {
-          const got = await call<{ customer?: MarkateCustomer }>(`customers/${encodeURIComponent(customerId)}`);
-          customers.set(customerId, got.customer ?? null);
+    // 1. Collect the estimates since the cutoff, from two lists: the Accepted ones (newest
+    //    accepted first), and the newest of any status, which also finds one whose status
+    //    changed after it was accepted (turned into a work order). Each estimate once.
+    const collected = new Map<string, MarkateEstimate>();
+    const sources: { label: string; query: Record<string, string> }[] = [
+      { label: "Accepted (status A)", query: { status: "A", order: "date-accepted-desc" } },
+      { label: "Newest, any status", query: { order: "added-desc" } },
+    ];
+    for (const source of sources) {
+      let count = 0;
+      let under = "";
+      let replyKeys = "";
+      for (let page = 1; page <= MAX_PAGES; page += 1) {
+        const reply = await call<Record<string, unknown>>("estimates", { ...source.query, page: String(page), rows_per_page: String(PAGE_SIZE) });
+        const { rows, foundUnder } = listIn(reply, "estimates");
+        under ||= foundUnder;
+        replyKeys ||= Object.keys(reply ?? {}).join(", ");
+        count += rows.length;
+        let anyRecent = false;
+        for (const listed of rows) {
+          const time = acceptedTime(listed);
+          if (Number.isFinite(time) && time < cutoff) continue;
+          anyRecent = true;
+          const id = text(listed.id);
+          if (id && !collected.has(id)) collected.set(id, listed);
         }
-        const customer = customers.get(customerId);
-        if (!customer || !isCommercial(customer)) continue;
-
-        let estimate = listed;
-        if (!Array.isArray(estimate.items) || estimate.items.length === 0) {
-          const got = await call<{ estimate?: MarkateEstimate }>(`estimates/${encodeURIComponent(id)}`);
-          estimate = got.estimate ?? listed;
-        }
-        const match = recurringMatch(Array.isArray(estimate.items) ? estimate.items : [], names);
-        if (!match) continue;
-
-        const customerName = text(customer.company) || text(customer.display_name) || text(estimate.customer?.name);
-        const inserted = (await sql`
-          INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, recurring_total, status, estimate_date, url_public, matched_item, matched_why, raw)
-          VALUES (${id}, ${text(estimate.custom_number)}, ${customerId}, ${customerName}, ${JSON.stringify(customer)}::jsonb, ${estimateTotal(estimate)}, ${match.recurringTotal},
-                  ${text(estimate.status) || "A"}, ${easternDay(acceptedTime(estimate))},
-                  ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify({ ...estimate, cwEmail: { state: "pending", tries: 0 } })}::jsonb)
-          ON CONFLICT (markate_estimate_id) DO NOTHING
-          RETURNING id::text
-        `) as { id: string }[];
-        if (inserted[0]) {
-          result.added += 1;
-          await pinEstimatePaper(inserted[0].id, customerName, estimateTotal(estimate), match.item);
-        }
+        const next = Number((reply.pagination as { next?: unknown } | undefined)?.next ?? 0);
+        if (!anyRecent || !(next > page) || rows.length === 0) break;
       }
-      const next = Number(list.pagination?.next ?? 0);
-      if (!anyRecent || !(next > page) || estimates.length === 0) break;
+      result.notes.push(
+        `${source.label}: Markate sent ${count} estimate${count === 1 ? "" : "s"}${under ? ` (under "${under}")` : ` (no list in the reply; it had: ${replyKeys || "nothing"})`}.`
+      );
+    }
+
+    // 2. Decide on each one, newest first, and say why.
+    const ids = [...collected.keys()];
+    const known = new Set(
+      ids.length ? ((await sql`SELECT markate_estimate_id FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as { markate_estimate_id: string }[]).map((r) => r.markate_estimate_id) : []
+    );
+    const ordered = [...collected.values()].sort((a, b) => (acceptedTime(b) || 0) - (acceptedTime(a) || 0));
+    const see = (estimate: MarkateEstimate, customerType: string, outcome: SeenEstimate["outcome"], why: string) => {
+      if (result.seen.length < MAX_SEEN) result.seen.push({ number: text(estimate.custom_number) || `id ${text(estimate.id)}`, status: statusLabel(estimate), customerType, items: itemNames(estimate), outcome, why });
+    };
+
+    for (const listed of ordered) {
+      const id = text(listed.id);
+      result.checked += 1;
+      if (known.has(id)) {
+        see(listed, "Not looked up", "already in the CRM", "Brought in by an earlier check.");
+        continue;
+      }
+      if (!wasAccepted(listed)) {
+        see(listed, "Not looked up", "left out", `Not accepted (status ${statusLabel(listed)}).`);
+        continue;
+      }
+
+      const customerId = text(listed.customer_id) || text(listed.customer?.id);
+      if (!customerId) {
+        see(listed, "Not found", "left out", "The estimate has no customer.");
+        continue;
+      }
+      if (!customers.has(customerId)) {
+        const got = await call<{ customer?: MarkateCustomer }>(`customers/${encodeURIComponent(customerId)}`);
+        customers.set(customerId, got.customer ?? null);
+      }
+      const customer = customers.get(customerId);
+      if (!customer || !isCommercial(customer)) {
+        see(listed, customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.");
+        continue;
+      }
+
+      let estimate = listed;
+      if (!Array.isArray(estimate.items) || estimate.items.length === 0) {
+        const got = await call<{ estimate?: MarkateEstimate }>(`estimates/${encodeURIComponent(id)}`);
+        estimate = got.estimate ?? listed;
+      }
+      const match = recurringMatch(Array.isArray(estimate.items) ? estimate.items : [], names);
+      if (!match) {
+        see(estimate, customerTypeLabel(customer), "left out", "No recurring item (no name on the list, no \"per Month\").");
+        continue;
+      }
+
+      const customerName = text(customer.company) || text(customer.display_name) || text(estimate.customer?.name);
+      const inserted = (await sql`
+        INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, recurring_total, status, estimate_date, url_public, matched_item, matched_why, raw)
+        VALUES (${id}, ${text(estimate.custom_number)}, ${customerId}, ${customerName}, ${JSON.stringify(customer)}::jsonb, ${estimateTotal(estimate)}, ${match.recurringTotal},
+                ${text(estimate.status) || "A"}, ${easternDay(acceptedTime(estimate))},
+                ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify({ ...estimate, cwEmail: { state: "pending", tries: 0 } })}::jsonb)
+        ON CONFLICT (markate_estimate_id) DO NOTHING
+        RETURNING id::text
+      `) as { id: string }[];
+      if (inserted[0]) {
+        result.added += 1;
+        await pinEstimatePaper(inserted[0].id, customerName, estimateTotal(estimate), match.item);
+        see(estimate, customerTypeLabel(customer), "brought in", `Recurring item: ${match.item}${match.why === "per month" ? " (says per month)" : ""}.`);
+      } else {
+        see(estimate, customerTypeLabel(customer), "already in the CRM", "Brought in by a check running at the same time.");
+      }
     }
 
     // last_checked_at is when the last run started, whatever happened; last_check_error is '' when it finished.

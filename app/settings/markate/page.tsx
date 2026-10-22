@@ -20,6 +20,9 @@ function lastResult(status: Status): string {
   return status.lastFound === 0 ? "No new estimates." : `It found ${status.lastFound} new estimate${status.lastFound === 1 ? "" : "s"}.`;
 }
 type Item = { id: string; name: string; addedBy: string; addedAt: string };
+/** What Check now looked at (lib/pg/markate.ts CheckResult): shown on this page only, not saved. */
+type Seen = { number: string; status: string; customerType: string; items: string[]; outcome: "brought in" | "left out" | "already in the CRM"; why: string };
+type CheckSummary = { added: number; finished: boolean; since: string; notes: string[]; seen: Seen[] };
 type Settings = { ready: boolean; configured: boolean; status: Status; items: Item[] };
 
 async function post(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -36,6 +39,7 @@ export default function MarkateSettingsPage() {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState("");
+  const [summary, setSummary] = useState<CheckSummary | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -67,7 +71,8 @@ export default function MarkateSettingsPage() {
       const data = await post(body);
       if (Array.isArray(data.items) && settings) setSettings({ ...settings, items: data.items as Item[] });
       if (body.action === "checkNow") {
-        const result = data.result as { added?: number; finished?: boolean } | undefined;
+        const result = data.result as Partial<CheckSummary> | undefined;
+        setSummary({ added: result?.added ?? 0, finished: result?.finished !== false, since: result?.since ?? "", notes: result?.notes ?? [], seen: result?.seen ?? [] });
         showToast(`${result?.added ?? 0} new estimate${result?.added === 1 ? "" : "s"} found.${result?.finished === false ? " The rest come in on the next check." : ""}`);
         await load();
       } else if (body.action === "disconnect") {
@@ -145,6 +150,38 @@ export default function MarkateSettingsPage() {
               </div>
             )}
           </Card>
+
+          {summary ? (
+            <Card title="What Check now looked at">
+              <p className="ui-card-text">
+                {summary.seen.length === 0 ? "No estimates" : `${summary.seen.length} estimate${summary.seen.length === 1 ? "" : "s"}`}
+                {summary.since ? ` since ${friendlyDate(new Date(`${summary.since}T00:00:00`))}` : ""}. {summary.added} brought in.
+                {summary.finished ? "" : " It stopped at the time limit; the next check goes on."}
+              </p>
+              {summary.notes.map((note) => (
+                <p key={note} className="ui-muted">
+                  {note}
+                </p>
+              ))}
+              {summary.seen.length > 0 ? (
+                <ul className="ui-acct-list" style={{ marginTop: 12 }}>
+                  {summary.seen.map((seen, index) => (
+                    <li key={`${seen.number}-${index}`} className="ui-acct">
+                      <span className="ui-acct-name">{seen.number}</span>
+                      <span className="ui-actions-row">
+                        <StatusPill kind={seen.outcome === "brought in" ? "done" : seen.outcome === "left out" ? "off" : "waiting"}>{seen.outcome === "brought in" ? "Brought in" : seen.outcome === "left out" ? "Left out" : "Already in the CRM"}</StatusPill>
+                      </span>
+                      <span className="ui-acct-line">
+                        Status {seen.status} · Customer: {seen.customerType}
+                      </span>
+                      <span className="ui-acct-line">Items: {seen.items.length ? seen.items.join(", ") : "none listed"}</span>
+                      <span className="ui-acct-line ui-strong">{seen.why}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </Card>
+          ) : null}
 
           <Card title="Recurring items">
             <p className="ui-card-text">An estimate comes in when a line item has exactly one of these names (any capital letters).</p>
