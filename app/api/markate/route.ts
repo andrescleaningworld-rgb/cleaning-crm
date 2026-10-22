@@ -9,7 +9,7 @@
 // POST { action: "started", id, accountId }   New Accepted Account was saved from this estimate
 // POST { action: "addItem", name }            owner
 // POST { action: "removeItem", id }           owner
-// POST { action: "checkNow" }                 owner: the same check the cron runs
+// POST { action: "checkNow", lookupId? }      owner: the same check the cron runs (+ one estimate looked up)
 // POST { action: "disconnect" }               owner
 
 import { NextRequest, NextResponse } from "next/server";
@@ -99,7 +99,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "checkNow") {
-      const result = await checkForEstimates();
+      // lookupId (optional): one Markate estimate to look up and show, for troubleshooting.
+      const result = await checkForEstimates({ lookupId: clean(body.lookupId).replace(/\D/g, "") });
       if (result.error) return refuse(result.error, 502);
       return NextResponse.json({ success: true, result });
     }
