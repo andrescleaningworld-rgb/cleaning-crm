@@ -70,7 +70,7 @@ async function photoAttachments(job: ExtraJob): Promise<EmailAttachment[]> {
   return attachments;
 }
 
-/** "Extra job done, ready to invoice": sent when the manager marks it Done. Carries the after photo. */
+/** "Extra job done, ready to invoice": sent when the manager marks it Done. Carries the after photos, if any. */
 export async function sendExtraJobDone(job: ExtraJob, origin: string): Promise<boolean> {
   const attachments = await photoAttachments(job);
   return sendInternalNotification(
@@ -82,8 +82,7 @@ export async function sendExtraJobDone(job: ExtraJob, origin: string): Promise<b
       `Marked done by: ${job.doneBy}`,
       ...(job.doneNote ? [`Note: ${job.doneNote}`] : []),
       "",
-      `After photos (${job.photos.length}):`,
-      ...job.photos.map((photo) => photo.url),
+      ...(job.photos.length > 0 ? [`After photos (${job.photos.length}):`, ...job.photos.map((photo) => photo.url)] : ["No photo (labor only)"]),
       "",
       `Office copy of the work order: ${origin}/extra-jobs/${job.id}/work-order?copy=office`,
       `Open it: ${origin}/extra-jobs/${job.id}`,

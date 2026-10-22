@@ -373,7 +373,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 </BigButton>
               )}
             </div>
-            {isExtraJob(open) ? <p className="ui-muted">To finish it, tap Open full details and tap Done on the job. It needs an after photo. The paper then comes down by itself.</p> : null}
+            {isExtraJob(open) ? <p className="ui-muted">To finish it, tap Open full details and tap Done on the job. The paper then comes down by itself.</p> : null}
 
             <p className="ui-label">Hand it to</p>
             <div className={styles.give}>

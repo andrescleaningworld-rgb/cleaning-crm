@@ -295,14 +295,18 @@ async function syncExtraJobs(): Promise<void> {
   await sql`
     UPDATE handoff_items h SET
       board_done_at = COALESCE(j.done_at, j.cancelled_at, now()),
-      board_done_by = CASE WHEN j.status = 'done' THEN j.done_by || ' (ready to invoice)' ELSE j.cancelled_by || ' (job cancelled)' END
+      board_done_by = CASE
+        WHEN j.status = 'done' THEN j.done_by || ' (ready to invoice)'
+          || CASE WHEN NOT EXISTS (SELECT 1 FROM extra_job_photos p WHERE p.job_id = j.id AND p.moment = 'after') THEN ' · No photo (labor only)' ELSE '' END
+        ELSE j.cancelled_by || ' (job cancelled)'
+      END
     FROM extra_jobs j
     WHERE h.kind = 'extra' AND h.item_id = 'job-' || j.id::text AND j.status <> 'setup'
       AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
   `;
 }
 
-/** True for a blue paper that mirrors a real extra job: it is finished on the job's page (with an after photo), not on the board. */
+/** True for a blue paper that mirrors a real extra job: it is finished on the job's page, not on the board. */
 export function isExtraJobPaper(kind: string, itemId: string): boolean {
   return kind === "extra" && itemId.startsWith("job-");
 }

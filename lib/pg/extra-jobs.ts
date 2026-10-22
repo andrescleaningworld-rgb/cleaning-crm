@@ -253,15 +253,14 @@ export async function addJobPhoto(jobId: string, url: string, fileName: string, 
 }
 
 /**
- * Marks a job Done (ready to invoice). Needs at least one after photo.
- * Returns "no-photo", "not-found", "already" (someone marked it first), "cancelled" or the job.
+ * Marks a job Done (ready to invoice). An after photo is optional: labor-only jobs have none.
+ * Returns "not-found", "already" (someone marked it first), "cancelled" or the job.
  */
-export async function finishExtraJob(id: string, by: string, note: string): Promise<ExtraJob | "no-photo" | "not-found" | "already" | "cancelled"> {
+export async function finishExtraJob(id: string, by: string, note: string): Promise<ExtraJob | "not-found" | "already" | "cancelled"> {
   const job = await getExtraJob(id);
   if (!job) return "not-found";
   if (job.status === "done") return "already";
   if (job.status === "cancelled") return "cancelled";
-  if (job.photos.length === 0) return "no-photo";
   const sql = getSql();
   const rows = (await sql`
     UPDATE extra_jobs SET status = 'done', done_by = ${by}, done_at = now(), done_note = ${note.trim().slice(0, 1000)}

@@ -17,6 +17,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [askNoPhoto, setAskNoPhoto] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
@@ -76,6 +77,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
     try {
       const data = await post({ action: "done", id: job.id, note });
       if (data.job) setJob(data.job);
+      setAskNoPhoto(false);
       showToast(data.emailed === false ? "Done. The email to the office did not go out." : CHEER.logged, data.emailed === false ? "bad" : "good");
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
@@ -252,7 +254,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
 
           {cancelled ? null : (
           <Card title={done ? "After photos" : "When the job is done"}>
-            {done ? null : <p className="ui-card-text">Add at least one after photo, then tap Done. The office is told it is ready to invoice.</p>}
+            {done ? null : <p className="ui-card-text">Add an after photo if you have one, then tap Done. The office is told it is ready to invoice.</p>}
             {job.photos.length > 0 ? (
               <div className={styles.photos} style={{ marginTop: 12 }}>
                 {job.photos.map((photo, index) => (
@@ -264,7 +266,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
                 ))}
               </div>
             ) : done ? (
-              <p className="ui-muted">No photos.</p>
+              <p className="ui-muted">No photo (labor only)</p>
             ) : null}
 
             <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => void addPhotos(event.target.files)} />
@@ -278,11 +280,10 @@ export default function ExtraJobDetail({ id }: { id: string }) {
                 <>
                   <TextAreaField label="Note for the office" optional rows={2} maxLength={1000} value={note} disabled={busy} onChange={(event) => setNote(event.target.value)} />
                   <div>
-                    <BigButton icon="check" busy={busy} busyLabel="Saving…" disabled={uploading || job.photos.length === 0} onClick={() => void markDone()}>
+                    <BigButton icon="check" busy={busy} busyLabel="Saving…" disabled={uploading} onClick={() => (job.photos.length === 0 ? setAskNoPhoto(true) : void markDone())}>
                       Done
                     </BigButton>
                   </div>
-                  {job.photos.length === 0 ? <p className="ui-muted">The Done button turns on after the first photo.</p> : null}
                 </>
               )}
             </div>
@@ -292,6 +293,22 @@ export default function ExtraJobDetail({ id }: { id: string }) {
           {error ? <ErrorBox title="Not saved yet." text={error} /> : null}
         </>
       )}
+
+      <Sheet
+        open={askNoPhoto}
+        title="Mark done without a photo?"
+        onClose={() => {
+          setAskNoPhoto(false);
+          fileInput.current?.click();
+        }}
+        closeLabel="Add a photo"
+        busy={busy}
+        actions={
+          <BigButton busy={busy} busyLabel="Saving…" onClick={() => void markDone()}>
+            Yes, no photo needed
+          </BigButton>
+        }
+      />
 
       <Sheet
         open={cancelling}

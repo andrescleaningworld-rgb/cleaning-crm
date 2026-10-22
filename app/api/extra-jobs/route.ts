@@ -109,11 +109,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, job: { ...job, setupEmailed: emailed }, emailed });
     }
 
-    // Step 4: the manager taps Done (at least one after photo), which tells the office it is ready to invoice (step 5).
+    // Step 4: the manager taps Done (with an after photo if there is one), which tells the office it is ready to invoice (step 5).
     if (action === "done") {
       const result = await finishExtraJob(clean(body.id), by, clean(body.note));
       if (result === "not-found") return refuse("That extra job was not found.", 404);
-      if (result === "no-photo") return refuse("Add at least one after photo first.");
       if (result === "already") return refuse("This job was already marked done.", 409);
       if (result === "cancelled") return refuse("This job was cancelled.", 409);
       const emailed = await tellOffice(result, "done", origin);

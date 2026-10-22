@@ -158,8 +158,8 @@ export async function POST(request: NextRequest) {
 
     if (action === "done") {
       if (!kind || !itemId) return refuse("kind and itemId are required.");
-      // An extra job is done on its own page, where the after photo goes; the paper then comes down by itself.
-      if (isExtraJobPaper(kind, itemId) && body.on !== false) return refuse("Mark this job Done on its own page. It needs an after photo.");
+      // An extra job is done on its own page; the paper then comes down by itself.
+      if (isExtraJobPaper(kind, itemId) && body.on !== false) return refuse("Mark this job Done on its own page.");
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
       return NextResponse.json({ success: true });
     }
