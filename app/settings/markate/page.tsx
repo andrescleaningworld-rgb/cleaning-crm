@@ -8,7 +8,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, friendlyDate, showToast } from "@/app/ui";
 
-type Status = { connected: boolean; connectedAt: string; connectedBy: string; lastCheckedAt: string; lastError: string };
+type Status = { connected: boolean; connectedAt: string; connectedBy: string; lastCheckedAt: string; lastError: string; lastFound: number };
+
+/** "Oct 22 at 3:30 PM". */
+const whenText = (value: string) => `${friendlyDate(value)} at ${new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+
+/** What the last check did, in a few words. */
+function lastResult(status: Status): string {
+  if (status.lastError.startsWith("Stopped at the time limit")) return `It found ${status.lastFound} so far and stopped at the time limit. The next check goes on.`;
+  if (status.lastError) return "";
+  return status.lastFound === 0 ? "No new estimates." : `It found ${status.lastFound} new estimate${status.lastFound === 1 ? "" : "s"}.`;
+}
 type Item = { id: string; name: string; addedBy: string; addedAt: string };
 type Settings = { ready: boolean; configured: boolean; status: Status; items: Item[] };
 
@@ -70,6 +80,8 @@ export default function MarkateSettingsPage() {
       if (body.action === "addItem") setName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
+      // A check that failed still ran: show its time and why.
+      if (body.action === "checkNow") void load();
     } finally {
       setBusy("");
     }
@@ -99,10 +111,15 @@ export default function MarkateSettingsPage() {
                   <StatusPill kind="done">Connected</StatusPill> since {friendlyDate(status.connectedAt)}
                   {status.connectedBy ? ` (by ${status.connectedBy})` : ""}
                 </p>
-                <p className="ui-muted">
-                  {status.lastCheckedAt ? `Last checked ${friendlyDate(status.lastCheckedAt)} at ${new Date(status.lastCheckedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}.` : "Not checked yet."} It checks every 30 minutes.
-                </p>
-                {status.lastError ? <p className="ui-field-error">Last check: {status.lastError}</p> : null}
+                {status.lastCheckedAt ? (
+                  <p className="ui-card-text">
+                    Last checked {whenText(status.lastCheckedAt)}. {lastResult(status)}
+                  </p>
+                ) : (
+                  <p className="ui-card-text">Not checked yet. Tap Check now, or wait for the next check.</p>
+                )}
+                {status.lastError && !status.lastError.startsWith("Stopped at the time limit") ? <p className="ui-field-error">The last check did not finish: {status.lastError}</p> : null}
+                <p className="ui-muted">It checks every 30 minutes. Only estimates accepted on or after Oct 22, 2026 come in.</p>
                 <div className="ui-actions-row">
                   <BigButton kind="second" busy={busy === "check"} busyLabel="Checking…" disabled={busy !== ""} onClick={() => void run("check", { action: "checkNow" }, "")}>
                     Check now

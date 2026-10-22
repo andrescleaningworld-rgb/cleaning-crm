@@ -108,7 +108,12 @@ export async function revokeTokens(refreshToken: string): Promise<void> {
 /* ---------- API ---------- */
 
 export class MarkateApiError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    /** From Markate's Retry-After header on "Too many requests" (0 = not given). */
+    readonly retryAfterSeconds = 0
+  ) {
     super(message);
   }
 }
@@ -123,7 +128,8 @@ export async function markateGet<T>(accessToken: string, path: string, query: Re
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     const why = response.status === 429 ? "Too many requests" : String(data.error_description ?? data.error ?? data.message ?? "");
-    throw new MarkateApiError(`Markate ${path.split("?")[0]}: ${response.status}${why ? ` ${why}` : ""}`, response.status);
+    const retryAfter = Number(response.headers.get("retry-after"));
+    throw new MarkateApiError(`Markate ${path.split("?")[0]}: ${response.status}${why ? ` ${why}` : ""}`, response.status, Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 120) : 0);
   }
   return (await response.json()) as T;
 }

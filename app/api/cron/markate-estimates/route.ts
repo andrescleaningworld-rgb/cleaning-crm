@@ -6,6 +6,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkForEstimates, markateReady, markateStatus } from "@/lib/pg/markate";
 
+// A check can wait on Markate's call limit; it stops itself after 4 minutes.
+export const maxDuration = 300;
+
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
