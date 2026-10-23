@@ -81,6 +81,8 @@ type Words = {
   at: (time: string) => string;
   subject: (account: string) => string;
   pdfNote: string;
+  /** The web page's last line (app/sub-packet): the same packet as a PDF. */
+  pdfLink: string;
   locale: string;
   frequencyWords: Record<string, string>;
   dayWords: Record<string, string>;
@@ -121,6 +123,7 @@ const WORDS: Record<SubPacketLang, Words> = {
     at: (time) => `At ${time}`,
     subject: (account) => `New account for you: ${account} — Cleaning World`,
     pdfNote: "The same packet is attached as a PDF.",
+    pdfLink: "Download this packet as a PDF",
     locale: "en-US",
     frequencyWords: {},
     dayWords: {},
@@ -159,6 +162,7 @@ const WORDS: Record<SubPacketLang, Words> = {
     at: (time) => `A las ${time}`,
     subject: (account) => `Cuenta nueva para usted: ${account} — Cleaning World`,
     pdfNote: "El mismo paquete va adjunto en PDF.",
+    pdfLink: "Descargar este paquete en PDF",
     locale: "es-US",
     frequencyWords: {
       "1x per week": "1 vez por semana",
@@ -208,6 +212,7 @@ const WORDS: Record<SubPacketLang, Words> = {
     at: (time) => `Às ${time}`,
     subject: (account) => `Conta nova para você: ${account} — Cleaning World`,
     pdfNote: "O mesmo pacote vai anexado em PDF.",
+    pdfLink: "Baixar este pacote em PDF",
     locale: "pt-BR",
     frequencyWords: {
       "1x per week": "1 vez por semana",
@@ -395,8 +400,12 @@ function sectionHtml(section: SubPacketSection, openMap: string): string {
   );
 }
 
-/** The packet as an email: a whole HTML page that stays light in dark mode (as the Welcome Packet). */
-export function subPacketHtml(data: SubPacketData): string {
+/**
+ * The packet as an email: a whole HTML page that stays light in dark mode (as
+ * the Welcome Packet). The same page is the packet link (app/sub-packet): then
+ * pdfUrl is given and the last line is a link to the PDF instead of "attached".
+ */
+export function subPacketHtml(data: SubPacketData, options: { pdfUrl?: string } = {}): string {
   const w = WORDS[data.lang];
   const body =
     `<div style="background:#ffffff;padding:18px 0;text-align:center;">` +
@@ -412,7 +421,9 @@ export function subPacketHtml(data: SubPacketData): string {
     `<div style="border-top:2px solid ${C.accent};margin-top:16px;color:${C.muted};padding:14px 16px;text-align:center;font-size:12px;line-height:1.7;">` +
     `Cleaning World Inc. · ${SUB_PACKET_OFFICE.phone} · ${SUB_PACKET_OFFICE.email} · cleaningworldinc.com<br>${esc(data.sentDate)}` +
     `</div>` +
-    `<p style="margin:12px 0 0;font-size:12px;color:${C.muted};text-align:center;">${esc(w.pdfNote)}</p>`;
+    `<p style="margin:12px 0 0;font-size:12px;color:${C.muted};text-align:center;">` +
+    (options.pdfUrl ? `<a href="${esc(options.pdfUrl)}" style="color:${C.label};font-weight:700;">${esc(w.pdfLink)}</a>` : esc(w.pdfNote)) +
+    `</p>`;
   return (
     `<!DOCTYPE html><html lang="${data.lang}" style="background:#ffffff;"><head>` +
     `<meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />` +

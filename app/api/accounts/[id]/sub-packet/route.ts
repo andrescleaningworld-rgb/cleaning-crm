@@ -1,8 +1,10 @@
 // The Sub Packet for one account (lib/subPacket.ts, lib/pg/sub-packet.ts).
 // Staff only (proxy.ts default gate, plus a logged-in check here).
 //
-// GET  ?lang=en|es|pt              the preview: to, subject, the email as it will look, problems
+// GET  ?lang=en|es|pt              the preview: to, subject, the email as it will look, problems,
+//                                  and the packet link in that language (lib/subPacketLink.ts)
 // POST { lang, to }                sends it with the PDF; written to the Email log and the account's History
+// POST { lang, method }            text / copy / qr: the link was shared that way; written to the History
 //
 // Only the sub's own pay is in it: never the revenue, the margin or the internal Notes.
 
@@ -13,6 +15,8 @@ import { sendHtmlEmail } from "@/lib/email";
 import { renderSubPacketPdf } from "@/lib/pdf/sub-packet";
 import { loadSubPacketInfo, subPacketData, subPacketProblems } from "@/lib/pg/sub-packet";
 import { isSubPacketLang, subPacketHtml, subPacketPdfFilename, subPacketSubject, subPacketText, type SubPacketLang } from "@/lib/subPacket";
+import { subKeyOf, subPacketLinkUrl, subPacketToken } from "@/lib/subPacketLink";
+import { PACKET_SHARE_LABEL, isPacketShareMethod } from "@/lib/subPacketShare";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -38,6 +42,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
           html: subPacketHtml(data),
           lang,
           problems: subPacketProblems(info, info.subEmail),
+          // No link before the account has a sub (the link is made for that sub).
+          link: info.subName ? subPacketLinkUrl(request.nextUrl.origin, subPacketToken(info.accountId, subKeyOf(info), lang)) : "",
         },
       },
       noStore
@@ -54,9 +60,25 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!identity) return refuse("Log in first.", 401);
     const by = identity.name || "Someone";
     const id = decodeURIComponent((await context.params).id);
-    const body = (await request.json().catch(() => ({}))) as { lang?: unknown; to?: unknown };
+    const body = (await request.json().catch(() => ({}))) as { lang?: unknown; to?: unknown; method?: unknown };
     const info = await loadSubPacketInfo(id);
     if (!info) return refuse("That account was not found.", 404);
+
+    // Text / Copy link / QR: the link went out from the manager's own phone; only the History line is written here.
+    if (isPacketShareMethod(body.method) && body.method !== "email") {
+      if (!info.subName) return refuse("This account has no subcontractor yet. Pick one on Edit Account first.");
+      const lang = langOf(body.lang);
+      await logActivity({
+        actorAccountId: identity.accountId ?? null,
+        actorRole: identity.role ?? "manager",
+        actorName: by,
+        action: "update",
+        entityType: "account",
+        entityId: info.accountId,
+        detail: `Sub packet shared by ${PACKET_SHARE_LABEL[body.method]} (${info.subName}, ${lang.toUpperCase()})`,
+      });
+      return NextResponse.json({ success: true }, noStore);
+    }
     const to = String(body.to ?? info.subEmail).trim();
     const problems = subPacketProblems(info, to);
     if (problems.length) return refuse(problems.join(" "));
@@ -82,7 +104,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       action: "update",
       entityType: "account",
       entityId: info.accountId,
-      detail: `Sub packet sent to: ${to} (${info.subName}, ${data.lang.toUpperCase()})`,
+      detail: `Sub packet sent by email to: ${to} (${info.subName}, ${data.lang.toUpperCase()})`,
     }).catch((error) => console.error("[sub-packet] history:", error instanceof Error ? error.message : error));
 
     return NextResponse.json({ success: true, sentTo: to }, noStore);
