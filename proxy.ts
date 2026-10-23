@@ -95,6 +95,11 @@ const PUBLIC_PATHS = [
   // open the Apps Script web app). A subcontractor taps them from their
   // email, with no login. See app/api/sub-transfer-response/route.ts.
   "/api/sub-transfer-response",
+  // The Sub Packet link (Send Sub Packet -> Text / Copy link / QR): opened by
+  // the sub with no login, like the packet email. The page checks its signed
+  // link itself (lib/subPacketLink.ts). Exact-or-subpath match, so the staff
+  // API /api/accounts/<id>/sub-packet stays behind the login.
+  "/sub-packet",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action

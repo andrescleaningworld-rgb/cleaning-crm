@@ -25,8 +25,9 @@ export type ShareMethod = "text" | "copy" | "print";
 
 /**
  * The same buttons serve other links too (the sub portal invite,
- * app/subcontractors/[id]/invite-to-portal.tsx). Every option below has a
- * default that is exactly Crew Link's behavior.
+ * app/subcontractors/[id]/invite-to-portal.tsx; the Sub Packet,
+ * app/components/sub-packet-sheet.tsx). Every option below has a default
+ * that is exactly Crew Link's behavior.
  */
 type ShareOptions = {
   /** The text the Messages app opens with. Default: the Crew Link message. */
@@ -39,6 +40,12 @@ type ShareOptions = {
   printLabel?: string;
   /** The line under the QR code on a computer. */
   qrNote?: string;
+  /**
+   * Given: the third button shows the QR code right here (on a phone too)
+   * instead of opening a printable page, and onQr is told. Default: Print.
+   */
+  qrButtonLabel?: string;
+  onQr?: () => void;
   /** Told when a button is used (to record it). */
   onShare?: (method: ShareMethod) => void;
   /** More buttons in the same row (e.g. Email). */
@@ -55,6 +62,8 @@ export default function CrewLinkShare({
   printHref,
   printLabel = "Print QR sign",
   qrNote = "The link opens on your phone. From there, tap Share and send it to your crew by text.",
+  qrButtonLabel,
+  onQr,
   onShare,
   children,
 }: { accountId?: string; placeName: string; url: string } & ShareOptions) {
@@ -126,19 +135,33 @@ export default function CrewLinkShare({
         <button type="button" onClick={copyLink} className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}>
           <span className="text-2xl" aria-hidden="true">{copied ? "✅" : "📋"}</span> {copied ? "Copied!" : copyLabel}
         </button>
-        <a
-          href={printHref ?? `/crew-link/print/${encodeURIComponent(accountId)}`}
-          target="_blank"
-          rel="noopener"
-          onClick={() => onShare?.("print")}
-          className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}
-        >
-          <span className="text-2xl" aria-hidden="true">🖨️</span> {printLabel}
-        </a>
+        {qrButtonLabel ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (!showQr) onQr?.();
+              setShowQr((prev) => !prev);
+            }}
+            aria-expanded={showQr}
+            className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}
+          >
+            <span className="text-2xl" aria-hidden="true">🔳</span> {qrButtonLabel}
+          </button>
+        ) : (
+          <a
+            href={printHref ?? `/crew-link/print/${encodeURIComponent(accountId)}`}
+            target="_blank"
+            rel="noopener"
+            onClick={() => onShare?.("print")}
+            className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}
+          >
+            <span className="text-2xl" aria-hidden="true">🖨️</span> {printLabel}
+          </a>
+        )}
         {children}
       </div>
 
-      {showQr && !isPhone ? (
+      {showQr && (!isPhone || qrButtonLabel) ? (
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-green-200 bg-green-50 p-5 text-center">
           <p className="text-lg font-bold text-green-900">Scan this with your phone&apos;s camera</p>
           {qrDataUrl ? (
