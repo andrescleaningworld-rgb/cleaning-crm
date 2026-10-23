@@ -34,6 +34,7 @@ import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/
 import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
 import AccountEverything from "./account-everything";
+import AccountSignals from "./account-signals";
 import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
 import SiteStock from "./site-stock";
@@ -1236,6 +1237,10 @@ export default function AccountDetailPage() {
             <div className="ui-actions-row">
               <StatusPill kind={accountStatusKind(account.status)}>{account.status || "No Status"}</StatusPill>
               <StatusPill kind={accountHealthKind(account.accountHealth)}>{account.accountHealth || "No Health Status"}</StatusPill>
+            </div>
+            {/* "At risk" and the other reminders for this account. Active accounts only, staff only. */}
+            <div className="account-detail-print-hide">
+              <AccountSignals accountId={thisAccountId} active={String(account.status ?? "").trim().toLowerCase() === "active"} />
             </div>
             {/* The full name: the bar at the top shortens long ones. */}
             <div>

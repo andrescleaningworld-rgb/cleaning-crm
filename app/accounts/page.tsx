@@ -38,6 +38,8 @@ import AccountLink from "../components/AccountLink";
 import PrintAccounts, { type PrintRow } from "./print-accounts";
 import { cancellationNote, cancellationProblem } from "@/lib/cancellation";
 import { shareOfRevenue } from "@/lib/payShare";
+import { RiskPill, RiskReason, useRiskFlags } from "../components/account-risk";
+import type { RiskFlag } from "@/lib/accountRisk";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -829,6 +831,9 @@ export default function AccountsPage() {
   // Redesign: what the three counts, the chips, the card's three dots and
   // the money switch need.
   const [needsYouOnly, setNeedsYouOnly] = useState(false);
+  // "At risk" (app/components/account-risk.tsx): the flag on each card, and the count that shows only yellow and red.
+  const riskFlags = useRiskFlags();
+  const [riskOnly, setRiskOnly] = useState(false);
   const [townFilter, setTownFilter] = useState("");
   const [picker, setPicker] = useState<"sub" | "town" | null>(null);
   const [moreAccount, setMoreAccount] = useState<Account | null>(null);
@@ -1180,6 +1185,7 @@ export default function AccountsPage() {
       if (townFilter && townOf(account) !== townFilter) return false;
       // The "Need you" box is off while searching, like the other two.
       if (needsYouOnly && !nonLocationFilterParams.cleanSearch && !problemLineOf(account, openTeamHubProblems[getAccountId(account)] ?? 0)) return false;
+      if (riskOnly && !nonLocationFilterParams.cleanSearch && (riskFlags[getAccountId(account)]?.level ?? "green") === "green") return false;
 
       if (nearAccountRef) {
         if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
@@ -1237,7 +1243,7 @@ export default function AccountsPage() {
         normalizeText(b.accountName)
       );
     });
-  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems]);
+  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems, riskOnly, riskFlags]);
 
   // Accounts that would otherwise match the current filters but are hidden
   // from Near Account results only because they have no stored coordinates —
@@ -1304,6 +1310,7 @@ export default function AccountsPage() {
     () => accounts.filter((a) => problemLineOf(a, openTeamHubProblems[getAccountId(a)] ?? 0) !== "").length,
     [accounts, openTeamHubProblems]
   );
+  const atRiskCount = useMemo(() => accounts.filter((a) => (riskFlags[getAccountId(a)]?.level ?? "green") !== "green").length, [accounts, riskFlags]);
   // Towns of the accounts that are not cancelled, most accounts first.
   const towns = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2305,15 +2312,24 @@ async function handleSaveTransferProposal() {
   }
 
   // The three big counts at the top.
-  function showOnly(which: "Active" | "NeedsYou" | "Cancelled") {
+  function showOnly(which: "Active" | "NeedsYou" | "AtRisk" | "Cancelled") {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
     if (which === "NeedsYou") {
       // Tapping it again goes back to Active.
+      setRiskOnly(false);
       setNeedsYouOnly((value) => !value);
       setStatusFilter(needsYouOnly ? "Active" : "All");
       return;
     }
+    if (which === "AtRisk") {
+      // Yellow and red (only active accounts have a flag). Tapping it again goes back to Active.
+      setNeedsYouOnly(false);
+      setRiskOnly((value) => !value);
+      setStatusFilter("Active");
+      return;
+    }
     setNeedsYouOnly(false);
+    setRiskOnly(false);
     setStatusFilter(which);
   }
 
@@ -2335,6 +2351,7 @@ async function handleSaveTransferProposal() {
 
   function clearFilters() {
     setNeedsYouOnly(false);
+    setRiskOnly(false);
     setTownFilter("");
     setSearchText("");
     setStatusFilter("Active");
@@ -2558,8 +2575,8 @@ async function handleSaveTransferProposal() {
       {subcontractorWarning ? <ErrorBox title="Some subcontractor details did not load." text={subcontractorWarning} /> : null}
 
       {/* Three big counts. Tapping one shows only those accounts. */}
-      <div className="ui-counts" data-tip="counts">
-        <button type="button" className="ui-count ui-count-good" aria-pressed={!searchingAll && !needsYouOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
+      <div className="ui-counts" data-tip="counts" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+        <button type="button" className="ui-count ui-count-good" aria-pressed={!searchingAll && !needsYouOnly && !riskOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
           <span className="ui-count-number">{activeCount}</span>
           <span className="ui-count-label">Active</span>
         </button>
@@ -2567,7 +2584,11 @@ async function handleSaveTransferProposal() {
           <span className="ui-count-number">{needsYouCount}</span>
           <span className="ui-count-label">Need you</span>
         </button>
-        <button type="button" className="ui-count ui-count-off" aria-pressed={!searchingAll && !needsYouOnly && statusFilter === "Cancelled"} onClick={() => showOnly("Cancelled")}>
+        <button type="button" className="ui-count ui-count-bad" aria-pressed={!searchingAll && riskOnly} onClick={() => showOnly("AtRisk")}>
+          <span className="ui-count-number">{atRiskCount}</span>
+          <span className="ui-count-label">At risk</span>
+        </button>
+        <button type="button" className="ui-count ui-count-off" aria-pressed={!searchingAll && !needsYouOnly && !riskOnly && statusFilter === "Cancelled"} onClick={() => showOnly("Cancelled")}>
           <span className="ui-count-number">{cancelledCount}</span>
           <span className="ui-count-label">Cancelled</span>
         </button>
@@ -3243,8 +3264,8 @@ async function handleSaveTransferProposal() {
               <SkeletonList rows={3} />
             ) : (
               <EmptyState
-                title={needsYouOnly ? "Nothing needs you right now" : "No accounts match"}
-                text={needsYouOnly ? "Tap Active to see all your active accounts." : "Try a shorter search, or tap Clear filters to see them all."}
+                title={needsYouOnly ? "Nothing needs you right now" : riskOnly ? "No accounts at risk" : "No accounts match"}
+                text={needsYouOnly || riskOnly ? "Tap Active to see all your active accounts." : "Try a shorter search, or tap Clear filters to see them all."}
                 action={
                   <BigButton kind="second" onClick={clearFilters}>
                     Clear filters
@@ -3263,6 +3284,7 @@ async function handleSaveTransferProposal() {
                     selected={selectedBulkToDoIds.has(getAccountId(account))}
                     onToggle={() => toggleBulkToDoAccount(account)}
                     showMoney={showMoney}
+                    risk={riskFlags[getAccountId(account)]}
                     onMore={setMoreAccount}
                     onToDo={openQuickToDoModal}
                     onSeeCrewProblems={seeCrewProblems}
@@ -3538,6 +3560,7 @@ function AccountCard({
   selected,
   onToggle,
   showMoney,
+  risk,
   onMore,
   onToDo,
   onSeeCrewProblems,
@@ -3548,6 +3571,8 @@ function AccountCard({
   selected: boolean;
   onToggle: () => void;
   showMoney: boolean;
+  /** The "At risk" flag (active accounts only). */
+  risk?: RiskFlag;
   onMore: (account: Account) => void;
   onToDo: (account: Account) => void;
   onSeeCrewProblems: () => void;
@@ -3600,8 +3625,10 @@ function AccountCard({
         <div className="ui-actions-row">
           {problem ? <StatusPill kind="needs-you">Needs you</StatusPill> : null}
           <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
+          <RiskPill flag={risk} />
         </div>
         {problem ? <p className="ui-acct-wrong">{problem}</p> : null}
+        <RiskReason flag={risk} />
         <p className="ui-acct-line">
           Sub: {getSubDisplayLabel(subDisplayOf(account))}
           {days ? ` · ${days}` : ""}

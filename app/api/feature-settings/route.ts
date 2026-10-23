@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { isFeatureSettingKey } from "@/lib/featureSettings";
 import { featureSettingsReady, getFeatureSettings, saveFeatureSetting } from "@/lib/pg/feature-settings";
+import { forgetRiskCache } from "@/lib/pg/account-risk";
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status, ...noStore });
@@ -30,6 +31,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as { key?: unknown; value?: unknown };
     if (!isFeatureSettingKey(body.key)) return refuse("Unknown setting.");
     const value = await saveFeatureSetting(body.key, body.value, identity.name || "Owner");
+    // New thresholds count at once, not after the flags' 5-minute memory.
+    if (body.key === "atRisk") forgetRiskCache();
     return NextResponse.json({ success: true, value }, noStore);
   } catch (error) {
     console.error("[feature-settings POST]", error instanceof Error ? error.message : error);

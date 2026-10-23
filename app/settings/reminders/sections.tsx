@@ -3,9 +3,9 @@
 // The sections of Settings -> Reminders & check-ins (./page.tsx), top to
 // bottom. Each reminder feature adds its own section to SECTIONS.
 
-import type { ReactNode } from "react";
-import { Card } from "@/app/ui";
-import type { FeatureSettingKey, FeatureSettings } from "@/lib/featureSettings";
+import { useEffect, useState, type ReactNode } from "react";
+import { BigButton, Card } from "@/app/ui";
+import { DEFAULT_FEATURE_SETTINGS, type AtRiskSetting, type FeatureSettingKey, type FeatureSettings } from "@/lib/featureSettings";
 
 export type SectionProps = {
   settings: FeatureSettings;
@@ -53,4 +53,59 @@ function InsuranceSection({ settings, canEdit, save }: SectionProps) {
   );
 }
 
-export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection];
+/** A pair of number boxes: when it turns yellow, when it turns red. */
+function ThresholdRow({ label, yellow, red, onYellow, onRed, disabled, unit }: { label: string; yellow: number; red: number; onYellow: (n: number) => void; onRed: (n: number) => void; disabled: boolean; unit: string }) {
+  const box = (value: number, onChange: (n: number) => void, color: string, word: string) => (
+    <label className="ui-field" style={{ flex: 1 }}>
+      <span className="ui-label">
+        {color} {word}
+      </span>
+      <input className="ui-input" type="number" min={0} inputMode="decimal" disabled={disabled} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    </label>
+  );
+  return (
+    <div className="ui-stack">
+      <p className="ui-strong">{label}</p>
+      <div className="ui-actions-row" style={{ alignItems: "flex-end" }}>
+        {box(yellow, onYellow, "🟡", `Yellow ${unit}`)}
+        {box(red, onRed, "🔴", `Red ${unit}`)}
+      </div>
+    </div>
+  );
+}
+
+function AtRiskSection({ settings, canEdit, save }: SectionProps) {
+  const [t, setT] = useState<AtRiskSetting>(settings.atRisk);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- follow the saved values once they load
+  useEffect(() => setT(settings.atRisk), [settings.atRisk]);
+  const set = (field: keyof AtRiskSetting) => (n: number) => setT((current) => ({ ...current, [field]: Number.isFinite(n) ? n : 0 }));
+  const d = DEFAULT_FEATURE_SETTINGS.atRisk;
+  return (
+    <Card title="🚦 At risk accounts">
+      <div className="ui-stack">
+        <p className="ui-card-text">
+          Each active account gets 🟢 / 🟡 / 🔴. It takes the worst of these. A red account gets a paper in its manager&apos;s square. Staff only: subs and
+          customers never see it.
+        </p>
+        <ThresholdRow label="Complaints in the last 30 days" unit="at" yellow={t.complaintsYellow} red={t.complaintsRed} onYellow={set("complaintsYellow")} onRed={set("complaintsRed")} disabled={!canEdit} />
+        <ThresholdRow label="Days with no manager visit" unit="after" yellow={t.visitDaysYellow} red={t.visitDaysRed} onYellow={set("visitDaysYellow")} onRed={set("visitDaysRed")} disabled={!canEdit} />
+        <ThresholdRow label="Sub score" unit="below" yellow={t.scoreYellowBelow} red={t.scoreRedBelow} onYellow={set("scoreYellowBelow")} onRed={set("scoreRedBelow")} disabled={!canEdit} />
+        <ThresholdRow label="👎 from the customer check-in, last 60 days" unit="at" yellow={t.thumbsDownYellow} red={t.thumbsDownRed} onYellow={set("thumbsDownYellow")} onRed={set("thumbsDownRed")} disabled={!canEdit} />
+        <p className="ui-muted">
+          Start: complaints {d.complaintsYellow} / {d.complaintsRed}, no visit after {d.visitDaysYellow} / {d.visitDaysRed} days, sub score below {d.scoreYellowBelow} / {d.scoreRedBelow}, 👎{" "}
+          {d.thumbsDownYellow} / {d.thumbsDownRed}.
+        </p>
+        <div className="ui-actions-row">
+          <BigButton disabled={!canEdit} onClick={() => void save("atRisk", t)}>
+            Save
+          </BigButton>
+          <BigButton kind="second" disabled={!canEdit} onClick={() => setT(d)}>
+            Back to the start numbers
+          </BigButton>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection];
