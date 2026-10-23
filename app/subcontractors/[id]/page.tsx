@@ -32,6 +32,7 @@ import InviteToPortal from "./invite-to-portal";
 import CrewsDetail from "./crews";
 import { shareOfRevenue } from "@/lib/payShare";
 import EmailLogList from "@/app/components/email-log-list";
+import { SubInsuranceCard } from "@/app/components/sub-insurance";
 
 type AnyRow = Record<string, unknown>;
 
@@ -913,6 +914,11 @@ export default function SubcontractorDetailPage() {
 
         <div className="sub-detail-print-hide">
           <InviteToPortal subId={getSubId(subcontractor)} subName={getCompanyName(subcontractor)} email={form.email} onEditSub={() => setEditing(true)} />
+        </div>
+
+        {/* The COI: its date, the file, Upload COI, and Approve / Reject for one sent from the portal. */}
+        <div className="sub-detail-print-hide">
+          <SubInsuranceCard subId={pageId} onChanged={() => void loadData()} />
         </div>
 
         <div className="sub-detail-print-hide ui-stats">

@@ -1,0 +1,31 @@
+// The daily reminders (vercel.json, every morning): sub insurance, and the
+// other reminder features as they are added. Each part runs on its own: one
+// failing never stops the others. Vercel Cron calls it with CRON_SECRET (the
+// same self-check as the other crons; /api/cron is public in proxy.ts).
+
+import { NextRequest, NextResponse } from "next/server";
+import { runInsuranceChecks } from "@/lib/pg/sub-insurance";
+
+export const maxDuration = 300;
+
+type Part = { name: string; run: (origin: string) => Promise<unknown> };
+
+const PARTS: Part[] = [{ name: "insurance", run: runInsuranceChecks }];
+
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+  const origin = request.nextUrl.origin;
+  const results: Record<string, unknown> = {};
+  for (const part of PARTS) {
+    try {
+      results[part.name] = await part.run(origin);
+    } catch (error) {
+      console.error(`[daily-reminders] ${part.name}:`, error instanceof Error ? error.message : error);
+      results[part.name] = { error: error instanceof Error ? error.message : "failed" };
+    }
+  }
+  return NextResponse.json({ success: true, results });
+}
