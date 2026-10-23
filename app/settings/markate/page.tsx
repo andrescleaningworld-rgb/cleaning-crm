@@ -22,7 +22,7 @@ function lastResult(status: Status): string {
 type Item = { id: string; name: string; addedBy: string; addedAt: string };
 /** What Check now looked at (lib/pg/markate.ts CheckResult): shown on this page only, not saved. */
 type Seen = { number: string; status: string; customerType: string; items: string[]; outcome: "brought in" | "left out" | "already in the CRM"; kind: string; why: string };
-type Lookup = { id: string; found: boolean; error: string; number: string; fields: string[]; acceptedWhen: string; inWindow: boolean; countsAsAccepted: boolean; inLists: string[] };
+type Lookup = { id: string; found: boolean; error: string; number: string; fields: string[]; day: string; countsAsAccepted: boolean; inLists: string[]; inCrm: string };
 type CheckSummary = { checked: number; added: number; finished: boolean; since: string; notes: string[]; seen: Seen[]; leftOut: Record<string, number>; lookup: Lookup | null };
 
 /** "12 left out: 8 residential, 3 not accepted, 1 no recurring item". */
@@ -200,7 +200,7 @@ export default function MarkateSettingsPage() {
           {summary ? (
             <Card title="What Check now looked at">
               <p className="ui-card-text">
-                Looked at {summary.checked} estimate{summary.checked === 1 ? "" : "s"}
+                Looked at {summary.checked} new estimate{summary.checked === 1 ? "" : "s"}
                 {summary.since ? ` since ${friendlyDate(new Date(`${summary.since}T00:00:00`))}` : ""}. {summary.added} brought in.
                 {summary.finished ? "" : " It stopped at the time limit; the next check goes on."}
               </p>
@@ -232,8 +232,8 @@ export default function MarkateSettingsPage() {
                   {summary.lookup.found ? (
                     <>
                       <p className="ui-muted">
-                        In the check&apos;s lists: {summary.lookup.inLists.length ? summary.lookup.inLists.join("; ") : "none"}. Counts as accepted: {summary.lookup.countsAsAccepted ? "yes" : "no"}. Date used:{" "}
-                        {summary.lookup.acceptedWhen ? summary.lookup.acceptedWhen.replace("T", " ").slice(0, 16) + " UTC" : "none"} ({summary.lookup.inWindow ? "since the cutoff" : "before the cutoff"}).
+                        In the pages read: {summary.lookup.inLists.length ? "yes" : "no"}. Counts as accepted: {summary.lookup.countsAsAccepted ? "yes" : "no"}. Its day (Eastern):{" "}
+                        {summary.lookup.day ? friendlyDate(new Date(`${summary.lookup.day}T00:00:00`)) : "none"}. In the CRM: {summary.lookup.inCrm || "not yet"}.
                       </p>
                       <ul className="ui-muted" style={{ margin: 0, paddingLeft: 18 }}>
                         {summary.lookup.fields.map((field) => (

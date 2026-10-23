@@ -160,32 +160,32 @@ export async function removeRecurringItem(id: string): Promise<void> {
 /* ---------- checking Markate for new estimates ---------- */
 
 /**
- * The import starts here: only estimates accepted on or after Oct 22, 2026
- * (midnight Eastern) come in. There is no catch-up of older estimates.
+ * The import starts here. Markate sends no accepted date, so "accepted from
+ * Oct 22, 2026 on" works like this: the first check sets aside every estimate
+ * already in the Accepted list that was issued before this day (the baseline);
+ * after that, anything new in the Accepted list was accepted since then.
  */
-const IMPORT_START_MS = Date.parse("2026-10-22T04:00:00Z");
 const IMPORT_START_DAY = "2026-10-22";
-/** Each later run looks back this far before the last good run, so nothing slips through (never before the start). */
-const OVERLAP_MS = 2 * 86_400_000;
+/** The row that says the baseline is done (a marker; never shown, no paper, no email). */
+const BASELINE_ID = "baseline-before-2026-10-22";
+const BASELINE_WHY = "Accepted before Oct 22, 2026 (import start)";
 /** Markate allows 120 calls a minute. A run keeps under 100 a minute and waits when it gets there. */
 const CALLS_PER_MINUTE = 100;
 /** "Too many requests" anyway: wait (Markate's Retry-After, else a minute) and try the same call again, up to this many times. */
 const RATE_LIMIT_RETRIES = 3;
-/** A run stops before the function's 5-minute limit; the next run starts again from Oct 22 and skips what it already has. */
+/** A run stops before the function's 5-minute limit; the next run goes on (what is saved stays saved). */
 const RUN_BUDGET_MS = 240_000;
 const PAGE_SIZE = 50;
-/**
- * Markate's sort order cannot be trusted (Oct 22 test), so the Accepted list is
- * read whole, up to this many pages. A longer list: its first and last half of
- * that many are read, so the newest are reached whichever way it is sorted.
- */
-const MAX_LIST_PAGES = 60;
+/** The baseline reads the whole Accepted list, up to this many pages (the time limit stops it sooner; the next run goes on). */
+const BASELINE_MAX_PAGES = 1000;
+/** After the baseline: newest accepted first, until a page has nothing new, never more than this many pages. */
+const MAX_NEW_PAGES = 20;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class OutOfTime extends Error {}
 
-/** One estimate a check looked at, and what it decided: shown after Check now (read only, not saved). */
+/** One estimate a check looked at, and what it decided: shown after Check now (read only). */
 export type SeenEstimate = {
   number: string;
   /** Markate's status letter and its words: "A Accepted". */
@@ -194,7 +194,7 @@ export type SeenEstimate = {
   customerType: string;
   items: string[];
   outcome: "brought in" | "left out" | "already in the CRM";
-  /** Left out only: the short reason the counts are grouped by ("residential", "not accepted", ...). */
+  /** Left out only: the short reason the counts are grouped by ("residential", "no recurring item", ...). */
   kind: string;
   why: string;
 };
@@ -207,12 +207,13 @@ export type EstimateLookup = {
   number: string;
   /** "key: value" for every status, date, accepted and work order field Markate sent. */
   fields: string[];
-  /** The time the check uses as "accepted" (ISO), "" when none. */
-  acceptedWhen: string;
-  inWindow: boolean;
+  /** The Eastern day the check reads from its dates (YYYY-MM-DD), "" when none. */
+  day: string;
   countsAsAccepted: boolean;
-  /** Which of the check's lists it was in ("" = none). */
+  /** Which of the check's lists it was in (none = []). */
   inLists: string[];
+  /** What the CRM already did with it ("" = nothing yet). */
+  inCrm: string;
 };
 
 export type CheckResult = {
@@ -220,9 +221,9 @@ export type CheckResult = {
   added: number;
   finished: boolean;
   error: string;
-  /** The day the check looked back to (YYYY-MM-DD, Eastern). */
+  /** Kept for the page; "" now (there is no date window any more). */
   since: string;
-  /** One line per list asked for: its size, the pages read, and page 1's first and last estimate (the real order). */
+  /** One line about the Accepted list: its size, the pages read, and page 1's first and last estimate. */
   notes: string[];
   seen: SeenEstimate[];
   /** How many were left out, by reason ("residential": 8, ...). */
@@ -233,15 +234,43 @@ export type CheckResult = {
 /** At most this many left-out estimates are listed under "Show details". */
 const MAX_LEFT_OUT_SHOWN = 100;
 
-/** "EST-050378 (added 2026-10-22 19:30, updated …)": an estimate and the dates Markate sent with it. */
+/**
+ * A Markate date as an Eastern calendar day (YYYY-MM-DD). A date with no time
+ * zone ("2026-10-22", "2026-10-22 00:00:00"), or one at exactly midnight
+ * ("2026-10-22T00:00:00+00:00", a date with no real time), is that day as
+ * written, not UTC midnight; a real time with a zone is turned into the
+ * Eastern day. "" when none.
+ */
+function markateDay(value: unknown): string {
+  const raw = text(value);
+  const day = /^(\d{4}-\d{2}-\d{2})/.exec(raw)?.[1];
+  if (!day) return "";
+  const rest = raw.slice(10);
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(rest) || /^[ T]00:00(:00)?/.test(rest)) return day;
+  const time = Date.parse(raw.replace(" ", "T"));
+  return Number.isFinite(time) ? easternDay(time) : day;
+}
+
+/** The day the estimate is from: its accepted date if Markate ever sends one, else the day it was issued, else added. */
+function estimateDay(estimate: MarkateEstimate): string {
+  const raw = estimate as Record<string, unknown>;
+  return markateDay(raw.date_accepted) || markateDay(raw.datetime_accepted) || markateDay(raw.date_issued) || markateDay(raw.datetime_added);
+}
+
+/** YYYY-MM-DD in the office's time zone (Eastern), "" when unknown. */
+function easternDay(time: number): string {
+  return Number.isFinite(time) ? new Date(time).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) : "";
+}
+
+/** "EST-050378 (issued 2026-10-22, added …)": an estimate and the dates Markate sent with it. */
 function describe(estimate: MarkateEstimate | undefined): string {
   if (!estimate) return "none";
   const raw = estimate as Record<string, unknown>;
   const dates = [
-    ["added", raw.datetime_added],
-    ["updated", raw.datetime_updated],
     ["accepted", raw.date_accepted ?? raw.datetime_accepted],
     ["issued", raw.date_issued],
+    ["added", raw.datetime_added],
+    ["updated", raw.datetime_updated],
   ]
     .filter(([, value]) => text(value))
     .map(([label, value]) => `${label} ${text(value).replace("T", " ").slice(0, 16)}`);
@@ -283,28 +312,14 @@ const itemNames = (estimate: MarkateEstimate) => (Array.isArray(estimate.items) 
 const customerTypeLabel = (customer: MarkateCustomer | null | undefined) =>
   !customer ? "Not found" : text(customer.type_service_text) || (isCommercial(customer) ? "Commercial" : text(customer.type_service) === "1" ? "Residential" : `type ${text(customer.type_service) || "?"}`);
 
-/** When the estimate was accepted (or last changed, if Markate does not say). */
-function acceptedTime(estimate: MarkateEstimate): number {
-  const raw = estimate as Record<string, unknown>;
-  for (const value of [estimate.date_accepted, raw.datetime_accepted, estimate.datetime_updated, estimate.datetime_added, estimate.date_issued]) {
-    const time = Date.parse(text(value).replace(" ", "T"));
-    if (Number.isFinite(time)) return time;
-  }
-  return NaN;
-}
-
-/** YYYY-MM-DD in the office's time zone (Eastern), "" when unknown. */
-function easternDay(time: number): string {
-  return Number.isFinite(time) ? new Date(time).toLocaleDateString("en-CA", { timeZone: "America/New_York" }) : "";
-}
-
 /**
- * The cron (every 30 minutes) and "Check now": lists Accepted estimates,
- * newest accepted first, back to the last good run (never before Oct 22,
- * 2026), and saves the ones whose customer is commercial and that have a recurring
- * line item. The rest are not saved. Each saved one is pinned in "New accepted".
- * Then the emails to crm@ that are still to go are sent (new ones, and any
- * that failed before), whatever happened with Markate.
+ * The cron (every 30 minutes) and "Check now". Reads Markate's Accepted list,
+ * newest accepted first. The first check sets aside the ones accepted before
+ * Oct 22, 2026 (the baseline); every check after that stops at the first page
+ * with nothing new. Each new one is decided on: brought in (commercial, with a
+ * recurring line item: waiting, pinned in "New accepted"), or left out. Both are
+ * remembered, so nothing is looked at twice. Then the emails to crm@ that are
+ * still to go are sent (new ones, and any that failed before).
  */
 export async function checkForEstimates(options: { lookupId?: string } = {}): Promise<CheckResult> {
   const result = await importEstimates(options.lookupId?.trim() ?? "");
@@ -312,16 +327,14 @@ export async function checkForEstimates(options: { lookupId?: string } = {}): Pr
   return result;
 }
 
+type KnownRow = { markate_estimate_id: string; outcome: string; outcome_by: string };
+
 async function importEstimates(lookupId: string): Promise<CheckResult> {
   const result: CheckResult = { checked: 0, added: 0, finished: false, error: "", since: "", notes: [], seen: [], leftOut: {}, lookup: null };
   const row = await connectionRow();
   if (!row) return { ...result, error: "Markate is not connected." };
   const startedAt = new Date();
-  // From the last run that finished (less the overlap), never before Oct 22, 2026. After a run that
-  // did not finish, start again from Oct 22: what is already saved is skipped without asking Markate.
-  const lastGood = row.last_checked_at && !row.last_check_error ? new Date(row.last_checked_at).getTime() - OVERLAP_MS : IMPORT_START_MS;
-  const cutoff = Math.max(IMPORT_START_MS, lastGood);
-  result.since = easternDay(cutoff);
+  const today = easternDay(startedAt.getTime());
   const sql = getSql();
   // Old ones already brought in are skipped and their papers come down, even if nobody opens the list.
   await reconcileBoard();
@@ -348,109 +361,12 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
     const names = new Set((await listRecurringItems()).map((item) => itemKey(item.name)));
     // Each customer is asked for once per run.
     const customers = new Map<string, MarkateCustomer | null>();
-
-    // 1. Collect the estimates since the cutoff. Markate's sort order cannot be trusted and
-    //    estimates have no date filter, so the Accepted list is read whole (or both ends of a
-    //    very long one). Plus the newest by number of any status, which also finds one whose
-    //    status changed after it was accepted (turned into a work order). Each estimate once.
-    const collected = new Map<string, MarkateEstimate>();
-    const listsOf = new Map<string, string[]>();
-    const inWindow = (estimate: MarkateEstimate) => {
-      const time = acceptedTime(estimate);
-      return !Number.isFinite(time) || time >= cutoff;
+    const knownOf = async (ids: string[]): Promise<Map<string, KnownRow>> => {
+      if (ids.length === 0) return new Map();
+      const rows = (await sql`SELECT markate_estimate_id, outcome, outcome_by FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as KnownRow[];
+      return new Map(rows.map((known) => [known.markate_estimate_id, known]));
     };
-    const sources: { label: string; query: Record<string, string>; maxPages: number }[] = [
-      { label: "Accepted (status A)", query: { status: "A", order: "date-accepted-desc" }, maxPages: MAX_LIST_PAGES },
-      { label: "Newest by number, any status", query: { order: "number-desc" }, maxPages: 2 },
-    ];
-    for (const source of sources) {
-      const get = async (page: number) => {
-        const reply = await call<Record<string, unknown>>("estimates", { ...source.query, page: String(page), rows_per_page: String(PAGE_SIZE) });
-        return { reply, ...listIn(reply, "estimates") };
-      };
-      const first = await get(1);
-      const pagination = (first.reply.pagination ?? {}) as { total_pages?: unknown; total_rows?: unknown; next?: unknown };
-      const totalPages = Number(pagination.total_pages) || 0;
-      // Which pages to read after page 1: all of them, or both ends of a very long list.
-      const pages: number[] = [];
-      if (totalPages > 0) {
-        const last = Math.min(totalPages, source.maxPages);
-        for (let page = 2; page <= last; page += 1) pages.push(page);
-        if (totalPages > source.maxPages && source.maxPages === MAX_LIST_PAGES) {
-          const half = MAX_LIST_PAGES / 2;
-          pages.length = 0;
-          for (let page = 2; page <= half; page += 1) pages.push(page);
-          for (let page = Math.max(half + 1, totalPages - half + 1); page <= totalPages; page += 1) pages.push(page);
-        }
-      } else if (Number(pagination.next) > 1) {
-        for (let page = 2; page <= source.maxPages; page += 1) pages.push(page);
-      }
 
-      let sent = 0;
-      let recent = 0;
-      const take = (rows: MarkateEstimate[]) => {
-        sent += rows.length;
-        for (const listed of rows) {
-          const id = text(listed.id);
-          if (!id) continue;
-          listsOf.set(id, [...(listsOf.get(id) ?? []), source.label]);
-          if (!inWindow(listed)) continue;
-          recent += 1;
-          if (!collected.has(id)) collected.set(id, listed);
-        }
-      };
-      take(first.rows);
-      let read = 1;
-      for (const page of pages) {
-        const { rows } = await get(page);
-        read += 1;
-        take(rows);
-        if (rows.length === 0 && totalPages === 0) break;
-      }
-
-      result.notes.push(
-        first.foundUnder
-          ? `${source.label}, order ${source.query.order}: ${text(pagination.total_rows) || "?"} in all, ${totalPages || "?"} pages of up to ${PAGE_SIZE}. ` +
-              `Read ${read} page${read === 1 ? "" : "s"} (${sent} estimates), ${recent} since ${result.since}. ` +
-              `Page 1 starts with ${describe(first.rows[0])} and ends with ${describe(first.rows[first.rows.length - 1])}.`
-          : `${source.label}: no list in Markate's reply (it had: ${Object.keys(first.reply).join(", ") || "nothing"}).`
-      );
-    }
-
-    // Troubleshooting: one estimate looked up by its Markate id. If it was in no list but
-    // counts as accepted and is recent, it is decided on like the others.
-    if (lookupId) {
-      const lookup: EstimateLookup = { id: lookupId, found: false, error: "", number: "", fields: [], acceptedWhen: "", inWindow: false, countsAsAccepted: false, inLists: listsOf.get(lookupId) ?? [] };
-      try {
-        const got = await call<Record<string, unknown>>(`estimates/${encodeURIComponent(lookupId)}`);
-        const estimate = (got.estimate ?? null) as MarkateEstimate | null;
-        if (estimate) {
-          const time = acceptedTime(estimate);
-          Object.assign(lookup, {
-            found: true,
-            number: text(estimate.custom_number),
-            fields: lookupFields(estimate),
-            acceptedWhen: Number.isFinite(time) ? new Date(time).toISOString() : "",
-            inWindow: inWindow(estimate),
-            countsAsAccepted: wasAccepted(estimate),
-          });
-          if (lookup.inWindow && !collected.has(lookupId)) collected.set(lookupId, estimate);
-        } else {
-          lookup.error = `Markate's reply had no estimate (it had: ${Object.keys(got).join(", ") || "nothing"}).`;
-        }
-      } catch (error) {
-        if (error instanceof OutOfTime) throw error;
-        lookup.error = error instanceof Error ? error.message : "The lookup did not work.";
-      }
-      result.lookup = lookup;
-    }
-
-    // 2. Decide on each one, newest first, and say why.
-    const ids = [...collected.keys()];
-    const known = new Set(
-      ids.length ? ((await sql`SELECT markate_estimate_id FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as { markate_estimate_id: string }[]).map((r) => r.markate_estimate_id) : []
-    );
-    const ordered = [...collected.values()].sort((a, b) => (acceptedTime(b) || 0) - (acceptedTime(a) || 0));
     // Brought in and already in the CRM are always listed; left out ones are counted by reason, and listed up to a limit.
     let leftOutShown = 0;
     const see = (estimate: MarkateEstimate, customerType: string, outcome: SeenEstimate["outcome"], why: string, kind = "") => {
@@ -462,22 +378,32 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       result.seen.push({ number: text(estimate.custom_number) || `id ${text(estimate.id)}`, status: statusLabel(estimate), customerType, items: itemNames(estimate), outcome, kind, why });
     };
 
-    for (const listed of ordered) {
+    /** A left out one is remembered as skipped (no paper, no email), so it is not looked at again. */
+    const rememberLeftOut = async (estimate: MarkateEstimate, customer: MarkateCustomer | null | undefined, kind: string) => {
+      const customerName = (customer && (text(customer.company) || text(customer.display_name))) || text(estimate.customer?.name);
+      await sql`
+        INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, status, estimate_date, url_public, raw, outcome, outcome_by, outcome_at)
+        VALUES (${text(estimate.id)}, ${text(estimate.custom_number)}, ${text(estimate.customer_id) || text(estimate.customer?.id)}, ${customerName}, ${JSON.stringify(customer ?? {})}::jsonb,
+                ${estimateTotal(estimate)}, ${text(estimate.status)}, ${markateDay((estimate as Record<string, unknown>).date_accepted) || today}, ${text(estimate.url_public)},
+                ${JSON.stringify(estimate)}::jsonb, 'skipped', ${`Left out: ${kind}`}, now())
+        ON CONFLICT (markate_estimate_id) DO NOTHING
+      `;
+    };
+
+    /** Decides on one estimate the CRM has not seen: brought in, or left out (remembered). */
+    const decide = async (listed: MarkateEstimate) => {
       const id = text(listed.id);
       result.checked += 1;
-      if (known.has(id)) {
-        see(listed, "Not looked up", "already in the CRM", "Brought in by an earlier check.");
-        continue;
-      }
       if (!wasAccepted(listed)) {
+        // Only the lookup can get here (the list is the Accepted one). Not remembered: it may still be accepted.
         see(listed, "Not looked up", "left out", `Not accepted (status ${statusLabel(listed)}).`, "not accepted");
-        continue;
+        return;
       }
-
       const customerId = text(listed.customer_id) || text(listed.customer?.id);
       if (!customerId) {
         see(listed, "Not found", "left out", "The estimate has no customer.", "no customer");
-        continue;
+        await rememberLeftOut(listed, null, "no customer");
+        return;
       }
       if (!customers.has(customerId)) {
         const got = await call<{ customer?: MarkateCustomer }>(`customers/${encodeURIComponent(customerId)}`);
@@ -485,8 +411,10 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       }
       const customer = customers.get(customerId);
       if (!customer || !isCommercial(customer)) {
-        see(listed, customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.", customer ? "residential" : "customer not found");
-        continue;
+        const kind = customer ? "residential" : "customer not found";
+        see(listed, customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.", kind);
+        await rememberLeftOut(listed, customer, kind);
+        return;
       }
 
       let estimate = listed;
@@ -497,14 +425,17 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       const match = recurringMatch(Array.isArray(estimate.items) ? estimate.items : [], names);
       if (!match) {
         see(estimate, customerTypeLabel(customer), "left out", "No recurring item (no name on the list, no \"per Month\").", "no recurring item");
-        continue;
+        await rememberLeftOut(estimate, customer, "no recurring item");
+        return;
       }
 
+      // Markate sends no accepted date: the day the CRM found it (Eastern) stands in for it.
+      const acceptedDay = markateDay((estimate as Record<string, unknown>).date_accepted) || today;
       const customerName = text(customer.company) || text(customer.display_name) || text(estimate.customer?.name);
       const inserted = (await sql`
         INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, recurring_total, status, estimate_date, url_public, matched_item, matched_why, raw)
         VALUES (${id}, ${text(estimate.custom_number)}, ${customerId}, ${customerName}, ${JSON.stringify(customer)}::jsonb, ${estimateTotal(estimate)}, ${match.recurringTotal},
-                ${text(estimate.status) || "A"}, ${easternDay(acceptedTime(estimate))},
+                ${text(estimate.status) || "A"}, ${acceptedDay},
                 ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify({ ...estimate, cwEmail: { state: "pending", tries: 0 } })}::jsonb)
         ON CONFLICT (markate_estimate_id) DO NOTHING
         RETURNING id::text
@@ -516,6 +447,126 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       } else {
         see(estimate, customerTypeLabel(customer), "already in the CRM", "Brought in by a check running at the same time.");
       }
+    };
+
+    /** A known one that is a real import (waiting or started) is listed as already in the CRM; the rest are only counted. */
+    let alreadyDecided = 0;
+    const seeKnown = (estimate: MarkateEstimate, known: KnownRow) => {
+      alreadyDecided += 1;
+      if (known.outcome !== "skipped") see(estimate, "Not looked up", "already in the CRM", known.outcome === "started" ? "The account was started from it." : "Waiting in From Markate.");
+    };
+
+    const getPage = async (page: number) => {
+      const reply = await call<Record<string, unknown>>("estimates", { status: "A", order: "date-accepted-desc", page: String(page), rows_per_page: String(PAGE_SIZE) });
+      return { reply, ...listIn(reply, "estimates") };
+    };
+    const baselineDone = (await knownOf([BASELINE_ID])).size > 0;
+    const inList = new Set<string>();
+
+    // The Accepted list, newest accepted first (checked on Oct 22: EST-050378 was first).
+    const first = await getPage(1);
+    const pagination = (first.reply.pagination ?? {}) as { total_pages?: unknown; total_rows?: unknown };
+    const totalPages = Number(pagination.total_pages) || 0;
+    let read = 0;
+    let setAside = 0;
+    let reachedEnd = false;
+
+    for (let page = 1; page <= (baselineDone ? MAX_NEW_PAGES : BASELINE_MAX_PAGES); page += 1) {
+      const { rows } = page === 1 ? first : await getPage(page);
+      read += 1;
+      if (rows.length === 0) {
+        reachedEnd = true;
+        break;
+      }
+      for (const listed of rows) inList.add(text(listed.id));
+      const known = await knownOf(rows.map((listed) => text(listed.id)).filter(Boolean));
+      const fresh = rows.filter((listed) => text(listed.id) && !known.has(text(listed.id)));
+      for (const listed of rows) {
+        const was = known.get(text(listed.id));
+        if (was) seeKnown(listed, was);
+      }
+
+      if (!baselineDone) {
+        // The baseline: the ones issued before Oct 22 are set aside in one go (no paper, no email).
+        const old = fresh.filter((listed) => (estimateDay(listed) || "0000-00-00") < IMPORT_START_DAY);
+        if (old.length > 0) {
+          const records = old.map((listed) => ({
+            id: text(listed.id),
+            number: text(listed.custom_number),
+            customer_id: text(listed.customer_id) || text(listed.customer?.id),
+            customer_name: text(listed.customer?.name),
+            total: estimateTotal(listed),
+            status: text(listed.status),
+            day: estimateDay(listed),
+            url: text(listed.url_public),
+            raw: listed,
+          }));
+          await sql.query(
+            `INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, total, status, estimate_date, url_public, raw, outcome, outcome_by, outcome_at)
+             SELECT x.id, x.number, x.customer_id, x.customer_name, x.total, x.status, x.day, x.url, x.raw, 'skipped', $2, now()
+             FROM jsonb_to_recordset($1::jsonb) AS x(id text, number text, customer_id text, customer_name text, total numeric, status text, day text, url text, raw jsonb)
+             ON CONFLICT (markate_estimate_id) DO NOTHING`,
+            [JSON.stringify(records), BASELINE_WHY]
+          );
+          setAside += old.length;
+        }
+        for (const listed of fresh.filter((candidate) => !old.includes(candidate))) await decide(listed);
+        if (totalPages > 0 && page >= totalPages) {
+          reachedEnd = true;
+          break;
+        }
+      } else {
+        // After the baseline: stop at the first page with nothing new.
+        if (fresh.length === 0) break;
+        for (const listed of fresh) await decide(listed);
+        if (totalPages > 0 && page >= totalPages) break;
+      }
+    }
+
+    if (!baselineDone && reachedEnd) {
+      await sql`
+        INSERT INTO markate_estimates (markate_estimate_id, estimate_number, estimate_date, outcome, outcome_by, outcome_at)
+        VALUES (${BASELINE_ID}, 'Baseline', ${today}, 'skipped', 'Baseline done: the Accepted list was read whole and the ones before Oct 22, 2026 set aside', now())
+        ON CONFLICT (markate_estimate_id) DO NOTHING
+      `;
+    }
+
+    result.notes.push(
+      first.foundUnder
+        ? `Accepted list, newest accepted first: ${text(pagination.total_rows) || "?"} in all, ${totalPages || "?"} pages of up to ${PAGE_SIZE}. ` +
+            (baselineDone
+              ? `Read ${read} page${read === 1 ? "" : "s"}, up to the first page with nothing new. ${alreadyDecided} already decided before.`
+              : `First run: read ${read} page${read === 1 ? "" : "s"} and set aside ${setAside} issued before Oct 22, 2026 (no paper, no email).${reachedEnd ? " The baseline is done." : " The next check goes on with the rest."}`) +
+            ` Page 1 starts with ${describe(first.rows[0])} and ends with ${describe(first.rows[first.rows.length - 1])}.`
+        : `Accepted list: no list in Markate's reply (it had: ${Object.keys(first.reply).join(", ") || "nothing"}).`
+    );
+
+    // Troubleshooting: one estimate looked up by its Markate id. One the CRM has not
+    // seen that counts as accepted is decided on like the others.
+    if (lookupId) {
+      const lookup: EstimateLookup = { id: lookupId, found: false, error: "", number: "", fields: [], day: "", countsAsAccepted: false, inLists: inList.has(lookupId) ? ["Accepted list (pages read)"] : [], inCrm: "" };
+      try {
+        const got = await call<Record<string, unknown>>(`estimates/${encodeURIComponent(lookupId)}`);
+        const estimate = (got.estimate ?? null) as MarkateEstimate | null;
+        if (estimate) {
+          const known = (await knownOf([lookupId])).get(lookupId);
+          Object.assign(lookup, {
+            found: true,
+            number: text(estimate.custom_number),
+            fields: lookupFields(estimate),
+            day: estimateDay(estimate),
+            countsAsAccepted: wasAccepted(estimate),
+            inCrm: known ? `${known.outcome}${known.outcome_by ? ` (${known.outcome_by})` : ""}` : "",
+          });
+          if (!known && wasAccepted(estimate)) await decide(estimate);
+        } else {
+          lookup.error = `Markate's reply had no estimate (it had: ${Object.keys(got).join(", ") || "nothing"}).`;
+        }
+      } catch (error) {
+        if (error instanceof OutOfTime) throw error;
+        lookup.error = error instanceof Error ? error.message : "The lookup did not work.";
+      }
+      result.lookup = lookup;
     }
 
     // last_checked_at is when the last run started, whatever happened; last_check_error is '' when it finished.
