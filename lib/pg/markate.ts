@@ -14,6 +14,10 @@
 // it went is kept on the estimate's own row, in raw.cwEmail:
 //   { state: "pending" | "sending" | "sent", tries, claimedAt, sentAt, lastError }
 // A failed send stays "pending" and goes again on the next check.
+//
+// Every amount saved (total, recurring_total) is before tax (lib/markate.ts,
+// estimateTotal / linePreTax). raw.cwPreTax = true marks a row saved that way;
+// migration 055 fixed the ones brought in before.
 
 import { getSql } from "@/lib/db";
 import { sendHtmlEmail } from "@/lib/email";
@@ -436,7 +440,7 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
         INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, recurring_total, status, estimate_date, url_public, matched_item, matched_why, raw)
         VALUES (${id}, ${text(estimate.custom_number)}, ${customerId}, ${customerName}, ${JSON.stringify(customer)}::jsonb, ${estimateTotal(estimate)}, ${match.recurringTotal},
                 ${text(estimate.status) || "A"}, ${acceptedDay},
-                ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify({ ...estimate, cwEmail: { state: "pending", tries: 0 } })}::jsonb)
+                ${text(estimate.url_public)}, ${match.item}, ${match.why}, ${JSON.stringify({ ...estimate, cwEmail: { state: "pending", tries: 0 }, cwPreTax: true })}::jsonb)
         ON CONFLICT (markate_estimate_id) DO NOTHING
         RETURNING id::text
       `) as { id: string }[];
