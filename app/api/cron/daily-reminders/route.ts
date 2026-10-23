@@ -1,11 +1,12 @@
 // The daily reminders (vercel.json, every morning): sub insurance, "At
-// risk" papers, and the other reminder features as they are added. Each
+// risk" papers, price reviews, and the other reminder features as they are added. Each
 // part runs on its own: one failing never stops the others. Vercel Cron calls it with CRON_SECRET (the
 // same self-check as the other crons; /api/cron is public in proxy.ts).
 
 import { NextRequest, NextResponse } from "next/server";
 import { runInsuranceChecks } from "@/lib/pg/sub-insurance";
 import { refreshRiskPins } from "@/lib/pg/account-risk";
+import { refreshPricePins } from "@/lib/pg/price-review";
 
 export const maxDuration = 300;
 
@@ -14,6 +15,7 @@ type Part = { name: string; run: (origin: string) => Promise<unknown> };
 const PARTS: Part[] = [
   { name: "insurance", run: runInsuranceChecks },
   { name: "atRisk", run: () => refreshRiskPins() },
+  { name: "priceReview", run: () => refreshPricePins() },
 ];
 
 export async function GET(request: NextRequest) {
