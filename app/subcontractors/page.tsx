@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { isScheduleEffectivelyActive } from "@/lib/scheduleRecurrence";
+import { InsuranceBadge, useInsuranceMap } from "@/app/components/sub-insurance";
 import { findDuplicateSubs, matchWords } from "@/lib/subDuplicates";
 import {
   AddButton,
@@ -397,6 +398,8 @@ function AddSubcontractorSheet({ existing, onClose, onAdded }: { existing: Subco
 }
 
 export default function SubcontractorsPage() {
+  // Red "Insurance expired" / yellow "expiring" on each sub (app/components/sub-insurance.tsx).
+  const insuranceMap = useInsuranceMap();
   const [adminTab, setAdminTab] = useState<"subs" | "log">("subs");
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -801,6 +804,7 @@ export default function SubcontractorsPage() {
                     </p>
                   ) : null}
                   <div className="ui-actions-row" style={{ marginTop: 8 }}>
+                    <InsuranceBadge map={insuranceMap} sub={sub as Record<string, unknown>} showSoon />
                     {schedulePill(sub)}
                     <span className="ui-muted">Status: {getStatus(sub)}</span>
                   </div>
@@ -823,6 +827,7 @@ export default function SubcontractorsPage() {
                     <>
                       <p className="ui-strong">{scoreText(sub)}</p>
                       {scorePill(sub)}
+                      <InsuranceBadge map={insuranceMap} sub={sub as Record<string, unknown>} showSoon />
                     </>
                   ),
                 },

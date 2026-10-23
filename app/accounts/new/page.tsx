@@ -8,6 +8,8 @@ import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
 import SubSuggestions from "@/app/components/sub-suggestions";
+import { useInsuranceMap } from "@/app/components/sub-insurance";
+import { findInsurance, niceDay } from "@/lib/subInsurance";
 import PlusMinus from "@/app/components/plus-minus";
 import FrequencyField from "@/app/components/frequency-field";
 import SubPayFields from "@/app/components/sub-pay-fields";
@@ -292,15 +294,21 @@ export default function NewAccountPage() {
     ).sort();
   }, [managers]);
 
+  // Subs whose insurance expired say so in the list (app/components/sub-insurance.tsx).
+  const insuranceMap = useInsuranceMap();
   const subcontractorOptions = useMemo<SubcontractorOption[]>(() => {
     return subcontractors
       .map((subcontractor) => ({
         value: getSubcontractorDropdownValue(subcontractor),
-        label: getSubcontractorDisplayName(subcontractor),
+        label: `${getSubcontractorDisplayName(subcontractor)}${findInsurance(insuranceMap, subcontractor as Record<string, unknown>)?.state === "expired" ? " ⚠ insurance expired" : ""}`,
       }))
       .filter((option) => option.value && option.label)
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [subcontractors]);
+  }, [subcontractors, insuranceMap]);
+  const pickedInsurance = (() => {
+    const picked = subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor);
+    return picked ? findInsurance(insuranceMap, picked as Record<string, unknown>) : null;
+  })();
 
   // Suggested subs (app/components/sub-suggestions.tsx) are informational
   // only here — they never write to form.subcontractor. They show once the
@@ -569,6 +577,9 @@ export default function NewAccountPage() {
                 </option>
               ))}
             </SelectField>
+            {pickedInsurance?.state === "expired" ? (
+              <p className="ui-field-error">⚠ This sub&apos;s insurance expired on {niceDay(pickedInsurance.expiresOn)}.</p>
+            ) : null}
 
             <SubSuggestions
               lat={suggestionLat}

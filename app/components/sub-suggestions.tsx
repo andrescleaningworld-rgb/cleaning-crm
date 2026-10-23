@@ -13,6 +13,7 @@ import { formatMiles } from "@/app/lib/distance";
 import { CLOSEST_FALLBACK, NEARBY_MILES, ROOM_WORDS, roomOf, WEEK_ORDER, weekdaysIn, type Room, type SubAvailability } from "@/lib/availability";
 import { formatClock, toClock } from "@/lib/schedule-time";
 import { formatMinutes } from "@/lib/time-on-site";
+import { InsuranceBadge, useInsuranceMap } from "./sub-insurance";
 
 // Threshold for the "Below target score" badge: the score value below which
 // lib/googleSheets.ts's getSubcontractorPerformanceMap stops labeling a sub
@@ -61,6 +62,8 @@ export default function SubSuggestions({
   excludeAccountId?: string;
 }) {
   const [found, setFound] = useState<Found | null>(null);
+  // A red "Insurance expired" next to a sub whose insurance ran out.
+  const insuranceMap = useInsuranceMap();
   const hasSpot = lat !== null && lng !== null && Number.isFinite(lat) && Number.isFinite(lng);
 
   useEffect(() => {
@@ -116,6 +119,7 @@ export default function SubSuggestions({
               </span>
               <StatusPill kind={ROOM_PILL[room]}>{ROOM_WORDS[room]}</StatusPill>
               {score !== undefined && score < AT_RISK_SCORE_THRESHOLD ? <StatusPill kind="waiting">Below target score</StatusPill> : null}
+              <InsuranceBadge map={insuranceMap} sub={{ subId: result.subId, name: result.name, contactName: result.contactName }} />
             </>
           );
           return (
