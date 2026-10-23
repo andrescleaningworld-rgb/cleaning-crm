@@ -136,13 +136,22 @@ export async function markateGet<T>(accessToken: string, path: string, query: Re
 
 /* ---------- which estimates come in ---------- */
 
-export type MarkateItem = { name?: unknown; description?: unknown; total?: unknown };
+export type MarkateItem = {
+  name?: unknown;
+  description?: unknown;
+  qty?: unknown;
+  price?: unknown;
+  discount_amount?: unknown;
+  tax_amount?: unknown;
+  total?: unknown;
+};
 export type MarkateEstimate = {
   id?: unknown;
   custom_number?: unknown;
   customer_id?: unknown;
   customer?: { id?: unknown; name?: unknown } | null;
   status?: unknown;
+  subtotal?: unknown;
   total?: unknown;
   date_issued?: unknown;
   date_accepted?: unknown;
@@ -177,7 +186,7 @@ export function recurringMatch(items: MarkateItem[], recurringNames: Set<string>
     const why = name && recurringNames.has(itemKey(name)) ? "name" : /per\s+month/i.test(text(line.description)) ? "per month" : null;
     if (!why) continue;
     first ??= { item: name || text(line.description).slice(0, 80), why };
-    recurringTotal += money(line.total);
+    recurringTotal += linePreTax(line);
   }
   return first ? { ...first, recurringTotal: Math.round(recurringTotal * 100) / 100 } : null;
 }
@@ -185,4 +194,44 @@ export function recurringMatch(items: MarkateItem[], recurringNames: Set<string>
 /** Commercial in Markate is type_service 2. */
 export const isCommercial = (customer: MarkateCustomer) => text(customer.type_service) === "2";
 
-export const estimateTotal = (estimate: MarkateEstimate) => money(estimate.total);
+/* ---------- amounts: always before tax ---------- */
+//
+// The CRM never uses an amount with tax in it (sub pay is worked out from the
+// gross before tax). Markate puts tax on each line item (tax_amount). Its docs
+// do not say whether a line's total already has that tax in it, so each line
+// is checked against its own numbers (qty x price - discount). Migration 055
+// does the same sums for the estimates brought in before this.
+
+const near = (a: number, b: number) => Math.abs(a - b) < 0.015;
+
+/** The tax inside a line item's total: its tax_amount, unless the total is clearly the amount before tax. */
+function lineTaxIncluded(line: MarkateItem): number {
+  const tax = money(line.tax_amount);
+  if (tax <= 0) return 0;
+  const total = money(line.total);
+  const beforeTax = money(line.qty) * money(line.price) - money(line.discount_amount);
+  if (near(total, beforeTax + tax)) return tax;
+  if (near(total, beforeTax)) return 0;
+  return tax; // cannot tell: take the tax out, never leave it in
+}
+
+/** A line item's total before tax. */
+export const linePreTax = (line: MarkateItem) => Math.round((money(line.total) - lineTaxIncluded(line)) * 100) / 100;
+
+/**
+ * The estimate's amount before tax: Markate's "subtotal". When that subtotal
+ * is the line totals added up and those carry tax, the tax is taken out. With
+ * no subtotal: the line items before tax added up. With neither (a list row
+ * with no line items): the total, as there is nothing to work tax out from.
+ */
+export function estimateTotal(estimate: MarkateEstimate): number {
+  const items = Array.isArray(estimate.items) ? estimate.items : [];
+  if (text(estimate.subtotal) !== "") {
+    const subtotal = money(estimate.subtotal);
+    const linesAddedUp = items.reduce((sum, line) => sum + money(line.total), 0);
+    const taxInLines = items.length > 0 && near(subtotal, linesAddedUp) ? items.reduce((sum, line) => sum + lineTaxIncluded(line), 0) : 0;
+    return Math.round((subtotal - taxInLines) * 100) / 100;
+  }
+  if (items.length > 0) return Math.round(items.reduce((sum, line) => sum + linePreTax(line), 0) * 100) / 100;
+  return money(estimate.total);
+}
