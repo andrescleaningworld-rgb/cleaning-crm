@@ -5,9 +5,14 @@
 //                      complaints, visits, the sub's score and (once the
 //                      check-in is in) 👎 answers. Kept for 5 minutes.
 // refreshRiskPins()    the daily check (app/api/cron/daily-reminders): an
-//                      account that turned red gets ONE paper in its
+//                      account that TURNS red gets ONE paper in its
 //                      manager's square ("risk:<account id>:<day>"); when it
-//                      is no longer red the paper comes down. Needs
+//                      is no longer red the paper comes down. The very first
+//                      run only writes down every account's colour: accounts
+//                      already red that day get no paper (no flood on day
+//                      one; the flags and the filter still show them). At
+//                      most 5 new papers a square a day (auto-pins.ts); one
+//                      over that is tried again the next day. Needs
 //                      migration 057 (account_risk_flags), else does nothing.
 
 import { getSql } from "@/lib/db";
@@ -15,7 +20,7 @@ import { accountLive } from "@/lib/pg/account-live";
 import { getSubcontractorPerformanceMap } from "@/lib/data/subs";
 import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
 import { getFeatureSetting } from "@/lib/pg/feature-settings";
-import { managerSquareFinder, pinOnce, takeDownPapers } from "@/lib/pg/auto-pins";
+import { managerSquareFinder, pinOnceCapped, takeDownPapers } from "@/lib/pg/auto-pins";
 import { riskOf, type RiskFlag, type RiskSignals } from "@/lib/accountRisk";
 import { easternToday } from "@/lib/subInsurance";
 import { thumbsDownByAccount } from "@/lib/pg/customer-checkin";
@@ -89,22 +94,24 @@ async function riskTableReady(): Promise<boolean> {
   return rows[0]?.ok === true;
 }
 
-export async function refreshRiskPins(): Promise<{ red: number; pinned: number; cleared: number }> {
-  const result = { red: 0, pinned: 0, cleared: 0 };
+export async function refreshRiskPins(): Promise<{ red: number; pinned: number; capped: number; cleared: number; firstRun: boolean }> {
+  const result = { red: 0, pinned: 0, capped: 0, cleared: 0, firstRun: false };
   if (!(await riskTableReady())) return result;
   const sql = getSql();
   forgetRiskCache();
   const flags = await accountRiskFlags();
   const before = (await sql`SELECT account_id, level FROM account_risk_flags`) as { account_id: string; level: string }[];
   const wasRed = new Set(before.filter((row) => row.level === "red").map((row) => row.account_id));
+  // Nothing written down yet: the first run. Today's colours become the start; no papers.
+  result.firstRun = before.length === 0;
   const squareOf = await managerSquareFinder();
   const today = easternToday();
 
   for (const flag of flags.values()) {
     const red = flag.level === "red";
     if (red) result.red += 1;
-    if (red && !wasRed.has(flag.accountId)) {
-      const up = await pinOnce({
+    if (red && !wasRed.has(flag.accountId) && !result.firstRun) {
+      const outcome = await pinOnceCapped({
         itemId: `risk:${flag.accountId}:${today}`,
         title: flag.accountName || "Account",
         label: "At risk",
@@ -114,7 +121,12 @@ export async function refreshRiskPins(): Promise<{ red: number; pinned: number; 
         accountId: flag.accountId,
         accountName: flag.accountName,
       });
-      if (up) result.pinned += 1;
+      if (outcome === "pinned") result.pinned += 1;
+      if (outcome === "capped") {
+        // Not written down as red, so tomorrow it still counts as turning red and gets its paper then.
+        result.capped += 1;
+        continue;
+      }
     }
     if (!red && wasRed.has(flag.accountId)) result.cleared += await takeDownPapers(`risk:${flag.accountId}:`, "No longer at risk");
     await sql`

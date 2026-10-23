@@ -133,10 +133,11 @@ export const SUB_INSURANCE_WORDS: Record<
     pickDate: string;
     failed: string;
     cancel: string;
-    emailSubject: (expired: boolean) => string;
+    emailSubject: (kind: "missing" | "soon" | "expired") => string;
     emailHello: (name: string) => string;
     emailSoon: (day: string) => string;
     emailExpired: (day: string) => string;
+    emailMissing: string;
     emailAsk: string;
     emailButton: string;
   }
@@ -159,10 +160,11 @@ export const SUB_INSURANCE_WORDS: Record<
     pickDate: "Enter the expiration date.",
     failed: "That did not send. Try again.",
     cancel: "Cancel",
-    emailSubject: (expired) => (expired ? "Your insurance has expired – Cleaning World" : "Your insurance expires soon – Cleaning World"),
+    emailSubject: (kind) => (kind === "expired" ? "Your insurance has expired – Cleaning World" : kind === "missing" ? "We need your insurance – Cleaning World" : "Your insurance expires soon – Cleaning World"),
     emailHello: (name) => `Hi ${name},`,
     emailSoon: (day) => `Your insurance certificate (COI) expires on ${day}.`,
     emailExpired: (day) => `Your insurance certificate (COI) expired on ${day}.`,
+    emailMissing: "We do not have your insurance certificate (COI).",
     emailAsk: "Please upload the new one in your sub portal. Tap the button, then \"Upload my insurance\".",
     emailButton: "Open my sub portal",
   },
@@ -184,10 +186,11 @@ export const SUB_INSURANCE_WORDS: Record<
     pickDate: "Escriba la fecha de vencimiento.",
     failed: "No se envió. Intente de nuevo.",
     cancel: "Cancelar",
-    emailSubject: (expired) => (expired ? "Su seguro ha vencido – Cleaning World" : "Su seguro vence pronto – Cleaning World"),
+    emailSubject: (kind) => (kind === "expired" ? "Su seguro ha vencido – Cleaning World" : kind === "missing" ? "Necesitamos su seguro – Cleaning World" : "Su seguro vence pronto – Cleaning World"),
     emailHello: (name) => `Hola ${name}:`,
     emailSoon: (day) => `Su certificado de seguro (COI) vence el ${day}.`,
     emailExpired: (day) => `Su certificado de seguro (COI) venció el ${day}.`,
+    emailMissing: "No tenemos su certificado de seguro (COI).",
     emailAsk: "Por favor suba el nuevo en su portal. Toque el botón y luego \"Subir mi seguro\".",
     emailButton: "Abrir mi portal",
   },
@@ -209,10 +212,11 @@ export const SUB_INSURANCE_WORDS: Record<
     pickDate: "Digite a data de vencimento.",
     failed: "Não foi enviado. Tente de novo.",
     cancel: "Cancelar",
-    emailSubject: (expired) => (expired ? "Seu seguro venceu – Cleaning World" : "Seu seguro vence em breve – Cleaning World"),
+    emailSubject: (kind) => (kind === "expired" ? "Seu seguro venceu – Cleaning World" : kind === "missing" ? "Precisamos do seu seguro – Cleaning World" : "Seu seguro vence em breve – Cleaning World"),
     emailHello: (name) => `Olá ${name},`,
     emailSoon: (day) => `Seu certificado de seguro (COI) vence em ${day}.`,
     emailExpired: (day) => `Seu certificado de seguro (COI) venceu em ${day}.`,
+    emailMissing: "Não temos o seu certificado de seguro (COI).",
     emailAsk: "Por favor envie o novo no seu portal. Toque no botão e depois em \"Enviar meu seguro\".",
     emailButton: "Abrir meu portal",
   },

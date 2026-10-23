@@ -5,7 +5,7 @@
 // same self-check as the other crons; /api/cron is public in proxy.ts).
 
 import { NextRequest, NextResponse } from "next/server";
-import { runInsuranceChecks } from "@/lib/pg/sub-insurance";
+import { runInsuranceChecks, runSubInsuranceReminders } from "@/lib/pg/sub-insurance";
 import { refreshRiskPins } from "@/lib/pg/account-risk";
 import { refreshPricePins } from "@/lib/pg/price-review";
 import { runMonthlyCheckins } from "@/lib/pg/customer-checkin";
@@ -16,6 +16,7 @@ type Part = { name: string; run: (origin: string) => Promise<unknown> };
 
 const PARTS: Part[] = [
   { name: "insurance", run: runInsuranceChecks },
+  { name: "subInsuranceReminders", run: runSubInsuranceReminders },
   { name: "atRisk", run: () => refreshRiskPins() },
   { name: "priceReview", run: () => refreshPricePins() },
   { name: "checkin", run: runMonthlyCheckins },

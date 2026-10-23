@@ -40,6 +40,34 @@ export async function pinOnce(paper: AutoPaper): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** At most this many new "At risk" and price review papers in one manager's square a day (no flood). */
+export const DAILY_SQUARE_CAP = 5;
+/** The papers the cap counts: the daily scans' own. */
+const CAPPED_PREFIXES = ["risk:", "price:"];
+
+/**
+ * pinOnce for the daily scans ("At risk", price review), with the cap: a
+ * manager's square gets at most DAILY_SQUARE_CAP of their new papers a day.
+ * "capped" = not put up today; the scan tries again tomorrow. The Office
+ * square ("") is not capped.
+ */
+export async function pinOnceCapped(paper: AutoPaper): Promise<"pinned" | "exists" | "capped"> {
+  if (paper.square !== "") {
+    const rows = (await getSql()`
+      SELECT count(*)::int AS n FROM handoff_items
+      WHERE kind = 'note' AND board_square = ${paper.square} AND created_by = 'Reminder'
+        AND (left(item_id, 5) = ${CAPPED_PREFIXES[0]} OR left(item_id, 6) = ${CAPPED_PREFIXES[1]})
+        AND (board_pinned_at AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date
+    `) as { n: number }[];
+    if ((rows[0]?.n ?? 0) >= DAILY_SQUARE_CAP) {
+      // Already up from before: not a new paper, the cap does not apply.
+      const up = (await getSql()`SELECT 1 FROM handoff_items WHERE kind = 'note' AND item_id = ${paper.itemId}`) as unknown[];
+      return up.length > 0 ? "exists" : "capped";
+    }
+  }
+  return (await pinOnce(paper)) ? "pinned" : "exists";
+}
+
 /** Changes the short line on a paper that is up (a comment added later). */
 export async function updatePaperNotes(itemId: string, notes: string): Promise<void> {
   await getSql()`

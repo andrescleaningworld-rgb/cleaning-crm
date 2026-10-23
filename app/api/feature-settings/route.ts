@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { isFeatureSettingKey } from "@/lib/featureSettings";
+import { isEditableSettingKey } from "@/lib/featureSettings";
 import { featureSettingsReady, getFeatureSettings, saveFeatureSetting } from "@/lib/pg/feature-settings";
 import { forgetRiskCache } from "@/lib/pg/account-risk";
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     if (!identity) return refuse("Log in first.", 401);
     if (identity.role !== "owner") return refuse("Only the owner can change these.", 403);
     const body = (await request.json().catch(() => ({}))) as { key?: unknown; value?: unknown };
-    if (!isFeatureSettingKey(body.key)) return refuse("Unknown setting.");
+    if (!isEditableSettingKey(body.key)) return refuse("Unknown setting.");
     const value = await saveFeatureSetting(body.key, body.value, identity.name || "Owner");
     // New thresholds count at once, not after the flags' 5-minute memory.
     if (body.key === "atRisk") forgetRiskCache();

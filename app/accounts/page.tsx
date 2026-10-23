@@ -834,6 +834,19 @@ export default function AccountsPage() {
   // "At risk" (app/components/account-risk.tsx): the flag on each card, and the count that shows only yellow and red.
   const riskFlags = useRiskFlags();
   const [riskOnly, setRiskOnly] = useState(false);
+  // "Overdue price reviews": active accounts 12 months or more since their last price change (app/api/price-review). Dates only.
+  const [priceDue, setPriceDue] = useState<Record<string, { dueOn: string }>>({});
+  const [priceDueOnly, setPriceDueOnly] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/price-review?all=1", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; due?: Record<string, { dueOn: string }> }) => alive && setPriceDue(data.success && data.due ? data.due : {}))
+      .catch(() => alive && setPriceDue({}));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [townFilter, setTownFilter] = useState("");
   const [picker, setPicker] = useState<"sub" | "town" | null>(null);
   const [moreAccount, setMoreAccount] = useState<Account | null>(null);
@@ -1186,6 +1199,7 @@ export default function AccountsPage() {
       // The "Need you" box is off while searching, like the other two.
       if (needsYouOnly && !nonLocationFilterParams.cleanSearch && !problemLineOf(account, openTeamHubProblems[getAccountId(account)] ?? 0)) return false;
       if (riskOnly && !nonLocationFilterParams.cleanSearch && (riskFlags[getAccountId(account)]?.level ?? "green") === "green") return false;
+      if (priceDueOnly && !nonLocationFilterParams.cleanSearch && !priceDue[getAccountId(account)]) return false;
 
       if (nearAccountRef) {
         if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
@@ -1243,7 +1257,7 @@ export default function AccountsPage() {
         normalizeText(b.accountName)
       );
     });
-  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems, riskOnly, riskFlags]);
+  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems, riskOnly, riskFlags, priceDueOnly, priceDue]);
 
   // Accounts that would otherwise match the current filters but are hidden
   // from Near Account results only because they have no stored coordinates —
@@ -2314,6 +2328,7 @@ async function handleSaveTransferProposal() {
   // The three big counts at the top.
   function showOnly(which: "Active" | "NeedsYou" | "AtRisk" | "Cancelled") {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
+    setPriceDueOnly(false);
     if (which === "NeedsYou") {
       // Tapping it again goes back to Active.
       setRiskOnly(false);
@@ -2352,6 +2367,7 @@ async function handleSaveTransferProposal() {
   function clearFilters() {
     setNeedsYouOnly(false);
     setRiskOnly(false);
+    setPriceDueOnly(false);
     setTownFilter("");
     setSearchText("");
     setStatusFilter("Active");
@@ -2576,7 +2592,7 @@ async function handleSaveTransferProposal() {
 
       {/* Three big counts. Tapping one shows only those accounts. */}
       <div className="ui-counts" data-tip="counts" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-        <button type="button" className="ui-count ui-count-good" aria-pressed={!searchingAll && !needsYouOnly && !riskOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
+        <button type="button" className="ui-count ui-count-good" aria-pressed={!searchingAll && !needsYouOnly && !riskOnly && !priceDueOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
           <span className="ui-count-number">{activeCount}</span>
           <span className="ui-count-label">Active</span>
         </button>
@@ -2593,6 +2609,22 @@ async function handleSaveTransferProposal() {
           <span className="ui-count-label">Cancelled</span>
         </button>
       </div>
+      {Object.keys(priceDue).length > 0 ? (
+        <button
+          type="button"
+          className="ui-money-toggle"
+          aria-pressed={priceDueOnly}
+          onClick={() => {
+            setVisibleCount(INITIAL_VISIBLE_COUNT);
+            setNeedsYouOnly(false);
+            setRiskOnly(false);
+            setStatusFilter("Active");
+            setPriceDueOnly((value) => !value);
+          }}
+        >
+          {priceDueOnly ? `💲 Overdue price reviews (${Object.keys(priceDue).length}) · tap to see all` : `💲 Overdue price reviews (${Object.keys(priceDue).length})`}
+        </button>
+      ) : null}
 
       {/* One search box. The list narrows as you type; Enter (or the
           keyboard's Search key) also asks the server, exactly as the old
@@ -3264,8 +3296,8 @@ async function handleSaveTransferProposal() {
               <SkeletonList rows={3} />
             ) : (
               <EmptyState
-                title={needsYouOnly ? "Nothing needs you right now" : riskOnly ? "No accounts at risk" : "No accounts match"}
-                text={needsYouOnly || riskOnly ? "Tap Active to see all your active accounts." : "Try a shorter search, or tap Clear filters to see them all."}
+                title={needsYouOnly ? "Nothing needs you right now" : riskOnly ? "No accounts at risk" : priceDueOnly ? "No price reviews overdue" : "No accounts match"}
+                text={needsYouOnly || riskOnly || priceDueOnly ? "Tap Active to see all your active accounts." : "Try a shorter search, or tap Clear filters to see them all."}
                 action={
                   <BigButton kind="second" onClick={clearFilters}>
                     Clear filters

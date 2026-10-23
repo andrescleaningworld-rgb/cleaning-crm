@@ -44,7 +44,7 @@ function InsuranceSection({ settings, canEdit, save }: SectionProps) {
         </p>
         <Switch
           label="Subs upload their insurance in the portal"
-          text={'Turns on the "Upload my insurance" button and banner in the sub portal, and the reminder email to the sub (English, Spanish, Portuguese). What a sub sends waits for the office to approve it.'}
+          text={'The "Upload my insurance" button and banner in the sub portal, and the reminder emails to subs (English, Spanish, Portuguese): missing or expired every 7 days, expiring at 30, 14 and 3 days before. Only active subs with an active account. Paused while a COI waits for approval. What a sub sends waits for the office to approve it.'}
           on={settings.subInsurancePortal.on}
           canEdit={canEdit}
           onChange={(on) => void save("subInsurancePortal", { on })}

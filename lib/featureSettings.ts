@@ -2,7 +2,7 @@
 // features read (feature_settings, migration 056; lib/pg/feature-settings.ts).
 // Plain TS, safe in the browser. A setting nobody saved is its default here.
 
-/** Sub portal insurance upload, the banner and the email to the sub (sub-facing: off until turned on). */
+/** Sub portal insurance upload, the banner and the reminder emails to subs (sub-facing; on from the start since Oct 24, 2026). */
 export type SubInsurancePortalSetting = { on: boolean };
 
 /** "At risk" accounts (lib/accountRisk.ts). Yellow at the first number, red at the second. */
@@ -24,21 +24,29 @@ export type AtRiskSetting = {
 /** The customer monthly check-in (customer-facing: off until turned on). */
 export type CheckinSetting = { on: boolean };
 
+/**
+ * Not on the Settings page: the day each reminder started, so what was
+ * already due that day gets no paper (no flood on day one). "" = not started.
+ */
+export type BaselinesSetting = { priceReviewStartedOn: string };
+
 export type FeatureSettings = {
   subInsurancePortal: SubInsurancePortalSetting;
   atRisk: AtRiskSetting;
   checkin: CheckinSetting;
+  baselines: BaselinesSetting;
 };
 
 export type FeatureSettingKey = keyof FeatureSettings;
 
 export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
-  subInsurancePortal: { on: false },
+  subInsurancePortal: { on: true },
   atRisk: {
     complaintsYellow: 1,
     complaintsRed: 2,
-    visitDaysYellow: 45,
-    visitDaysRed: 90,
+    // Manager visits are logged rarely (Oct 2026: 126 active accounts had none), so a long gap only: 180 / 365.
+    visitDaysYellow: 180,
+    visitDaysRed: 365,
     // 8 is where a sub stops being "Good" (the "Below target score" pill); under 6 is the sub score alert.
     scoreYellowBelow: 8,
     scoreRedBelow: 6,
@@ -46,11 +54,15 @@ export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
     thumbsDownRed: 2,
   },
   checkin: { on: false },
+  baselines: { priceReviewStartedOn: "" },
 };
 
 export const FEATURE_SETTING_KEYS = Object.keys(DEFAULT_FEATURE_SETTINGS) as FeatureSettingKey[];
 
 export const isFeatureSettingKey = (value: unknown): value is FeatureSettingKey => typeof value === "string" && value in DEFAULT_FEATURE_SETTINGS;
+
+/** The ones the Settings page may change (the baselines are set by the reminders themselves). */
+export const isEditableSettingKey = (value: unknown): value is Exclude<FeatureSettingKey, "baselines"> => isFeatureSettingKey(value) && value !== "baselines";
 
 /** A saved value laid over the default: only known fields, of the right kind, are kept. */
 export function readFeatureSetting<K extends FeatureSettingKey>(key: K, saved: unknown): FeatureSettings[K] {
@@ -61,6 +73,7 @@ export function readFeatureSetting<K extends FeatureSettingKey>(key: K, saved: u
     const value = source[field];
     if (typeof fallback === "boolean" && typeof value === "boolean") out[field] = value;
     if (typeof fallback === "number" && typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 10_000) out[field] = value;
+    if (typeof fallback === "string" && typeof value === "string") out[field] = value.slice(0, 40);
   }
   return out as FeatureSettings[K];
 }

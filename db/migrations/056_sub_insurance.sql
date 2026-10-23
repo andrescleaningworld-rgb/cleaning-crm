@@ -16,9 +16,10 @@
 --                                    to the sub).
 --                        'replaced'  an older approved one.
 --                      An office upload is approved at once.
--- sub_coi_alerts       the reminders already done, so each goes out once:
---                      'soon' (30 days before) and 'expired', per sub and
---                      expiration date.
+-- sub_coi_alerts       the office reminders already done, so each goes out
+--                      once: 'soon' (30 days before) and 'expired', per sub
+--                      and expiration date.
+-- sub_insurance_reminders   the reminder emails sent to subs (below).
 --
 -- Running it again changes nothing.
 
@@ -55,3 +56,20 @@ CREATE TABLE IF NOT EXISTS sub_coi_alerts (
   done_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (sub_id, expires_on, kind)
 );
+
+-- sub_insurance_reminders   every reminder email sent to a sub, so the next
+--                           one goes at the right time (lib/pg/sub-insurance.ts):
+--                           'missing' / 'expired' every 7 days until a COI is
+--                           approved; 'soon30' / 'soon14' / 'soon3' once each
+--                           per expiration date. None while a COI waits for
+--                           approval.
+CREATE TABLE IF NOT EXISTS sub_insurance_reminders (
+  id          BIGSERIAL PRIMARY KEY,
+  sub_id      TEXT NOT NULL REFERENCES subcontractors (id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL CHECK (kind IN ('missing', 'expired', 'soon30', 'soon14', 'soon3')),
+  expires_on  DATE,
+  sent_to     TEXT NOT NULL DEFAULT '',
+  sent_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS sub_insurance_reminders_sub_idx ON sub_insurance_reminders (sub_id, sent_at DESC);

@@ -8,14 +8,21 @@
 // Sub Center -> Insurance); only Approve sets the date. Until then the old
 // date and its badge stay.
 //
-// Reminders (runInsuranceChecks, once a day from app/api/cron/daily-reminders):
-//   30 days before   a paper in the Office square, an email to info@, and,
-//                    with Settings -> Reminders -> sub portal insurance on, an
-//                    email to the sub (English, Spanish, Portuguese)
+// Office reminders (runInsuranceChecks, once a day from app/api/cron/daily-reminders):
+//   30 days before   a paper in the Office square and an email to info@
 //   on expiry        the same again
 // Each once per sub and expiration date (sub_coi_alerts). Insurance that ran
-// out more than 30 days ago gets no reminder (no flood on the first day);
-// it still shows red everywhere and in the list.
+// out more than 30 days ago gets no office reminder (no flood on the first
+// day); it still shows red everywhere and in the list.
+//
+// Reminders to subs (runSubInsuranceReminders, same daily job), while
+// Settings -> Reminders -> sub portal insurance is on: every ACTIVE sub with
+// at least one active account whose insurance is
+//   missing (no date on file) or expired   every 7 days until a COI is approved
+//   expiring within 30 days                 at 30, 14 and 3 days before
+// in English, Spanish and Portuguese, with the portal link. None while a COI
+// the sub sent waits for approval; they go on if it is rejected. Each one is
+// logged (sub_insurance_reminders) and written to the sub's History.
 //
 // Paper ids: "coi:<sub id>:soon:<date>", "coi:<sub id>:expired:<date>",
 // "coi:<sub id>:review:<document id>". A new approved COI takes all of the
@@ -37,6 +44,7 @@ import {
   type SubInsurance,
 } from "@/lib/subInsurance";
 import { officeInsuranceEmail, subInsuranceEmail } from "@/lib/subInsuranceEmail";
+import { accountLive } from "@/lib/pg/account-live";
 
 let readyCache = false;
 
@@ -292,14 +300,14 @@ export async function portalInsurance(subId: string): Promise<{ expiresOn: strin
 
 /* ---------- the daily reminders ---------- */
 
-export type InsuranceCheckResult = { pinned: number; officeEmails: number; subEmails: number };
+export type InsuranceCheckResult = { pinned: number; officeEmails: number };
 
+/** The office side: a paper and an email to info@, 30 days before and on expiry. */
 export async function runInsuranceChecks(origin: string): Promise<InsuranceCheckResult> {
-  const result: InsuranceCheckResult = { pinned: 0, officeEmails: 0, subEmails: 0 };
+  const result: InsuranceCheckResult = { pinned: 0, officeEmails: 0 };
   if (!(await subInsuranceReady())) return result;
   const sql = getSql();
   const today = easternToday();
-  const portalOn = (await getFeatureSetting("subInsurancePortal")).on;
   const all = await listSubInsurance(today);
   for (const sub of all) {
     if (!sub.expiresOn || sub.daysLeft === null) continue;
@@ -330,15 +338,105 @@ export async function runInsuranceChecks(origin: string): Promise<InsuranceCheck
     } catch (error) {
       console.error("[insurance] office email:", error instanceof Error ? error.message : error);
     }
+  }
+  return result;
+}
 
-    if (portalOn && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(sub.email)) {
-      try {
-        const mail = subInsuranceEmail({ subName: sub.name, expiresOn: sub.expiresOn, expired, portalUrl: `${origin}/subcontractor-portal` });
-        if (await sendHtmlEmail({ to: [sub.email], fromName: "Cleaning World", ...mail, log: { type: "Sub insurance", subId: sub.subId, subName: sub.name, sentBy: "System" } })) result.subEmails += 1;
-      } catch (error) {
-        console.error("[insurance] sub email:", error instanceof Error ? error.message : error);
-      }
+/* ---------- reminders to subs ---------- */
+
+export type SubReminderKind = "missing" | "expired" | "soon30" | "soon14" | "soon3";
+export type SubReminderPlan = { subId: string; name: string; email: string; kind: SubReminderKind; expiresOn: string };
+
+const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
+const REPEAT_DAYS = 7;
+
+/** Active subs (status Active or blank) with at least one active account (linked, or by name). */
+async function activeSubsWithAccounts(): Promise<Set<string>> {
+  const rows = (await getSql().query(
+    `SELECT s.id FROM subcontractors s
+     WHERE (btrim(s.status) = '' OR s.status ILIKE 'active%')
+       AND EXISTS (
+         SELECT 1 FROM accounts a
+         WHERE a.status_key = 'active' AND NOT a.is_test AND ${accountLive("a")}
+           AND (a.subcontractor_id = s.id
+                OR (a.subcontractor_id IS NULL AND btrim(a.subcontractor_raw) <> ''
+                    AND lower(btrim(a.subcontractor_raw)) IN (lower(btrim(s.contact_name)), lower(btrim(s.company_name))))))`
+  )) as { id: string }[];
+  return new Set(rows.map((row) => row.id));
+}
+
+type LogRow = { sub_id: string; kind: SubReminderKind; expires_on: string; last: string | Date };
+
+/** Who gets a reminder today, and which one. Nothing is sent. Also how many were held back (a COI waiting) or have no email. */
+export async function planSubInsuranceReminders(today = easternToday()): Promise<{ plans: SubReminderPlan[]; waiting: number; noEmail: number }> {
+  const out = { plans: [] as SubReminderPlan[], waiting: 0, noEmail: 0 };
+  if (!(await subInsuranceReady())) return out;
+  const [all, active, log] = await Promise.all([
+    listSubInsurance(today),
+    activeSubsWithAccounts(),
+    getSql()`SELECT sub_id, kind, COALESCE(expires_on::text, '') AS expires_on, max(sent_at) AS last FROM sub_insurance_reminders GROUP BY 1, 2, 3` as unknown as Promise<LogRow[]>,
+  ]);
+  const now = Date.now();
+  for (const sub of all) {
+    if (!active.has(sub.subId)) continue;
+    let kind: SubReminderKind | null = null;
+    if (sub.state === "none") kind = "missing";
+    else if (sub.state === "expired") kind = "expired";
+    else if (sub.state === "soon" && sub.daysLeft !== null) kind = sub.daysLeft <= 3 ? "soon3" : sub.daysLeft <= 14 ? "soon14" : "soon30";
+    if (!kind) continue;
+    // Paused while a COI the sub sent waits for the office (a rejected one does not pause).
+    if (sub.pending) {
+      out.waiting += 1;
+      continue;
     }
+    const mine = log.filter((row) => row.sub_id === sub.subId);
+    if (kind === "missing" || kind === "expired") {
+      const last = Math.max(0, ...mine.filter((row) => row.kind === "missing" || row.kind === "expired").map((row) => new Date(row.last).getTime()));
+      if (last && now - last < REPEAT_DAYS * 86_400_000) continue;
+    } else if (mine.some((row) => row.kind === kind && row.expires_on === sub.expiresOn)) {
+      continue;
+    }
+    if (!EMAIL_RE.test(sub.email)) {
+      out.noEmail += 1;
+      continue;
+    }
+    out.plans.push({ subId: sub.subId, name: sub.name, email: sub.email, kind, expiresOn: sub.expiresOn });
+  }
+  return out;
+}
+
+export async function runSubInsuranceReminders(origin: string): Promise<{ sent: number; failed: number; waiting: number; noEmail: number; off: boolean }> {
+  const result = { sent: 0, failed: 0, waiting: 0, noEmail: 0, off: false };
+  if (!(await getFeatureSetting("subInsurancePortal")).on) return { ...result, off: true };
+  const plan = await planSubInsuranceReminders();
+  result.waiting = plan.waiting;
+  result.noEmail = plan.noEmail;
+  const sql = getSql();
+  for (const reminder of plan.plans) {
+    const kind = reminder.kind === "missing" ? "missing" : reminder.kind === "expired" ? "expired" : "soon";
+    let ok = false;
+    try {
+      const mail = subInsuranceEmail({ subName: reminder.name, expiresOn: reminder.expiresOn, kind, portalUrl: `${origin}/subcontractor-portal` });
+      ok = await sendHtmlEmail({ to: [reminder.email], fromName: "Cleaning World", ...mail, log: { type: "Sub insurance reminder", subId: reminder.subId, subName: reminder.name, sentBy: "System" } });
+    } catch (error) {
+      console.error("[insurance] sub reminder:", error instanceof Error ? error.message : error);
+    }
+    if (!ok) {
+      result.failed += 1;
+      continue;
+    }
+    result.sent += 1;
+    await sql`
+      INSERT INTO sub_insurance_reminders (sub_id, kind, expires_on, sent_to)
+      VALUES (${reminder.subId}, ${reminder.kind}, ${reminder.expiresOn || null}, ${reminder.email})
+    `;
+    const what =
+      reminder.kind === "missing"
+        ? "no insurance on file"
+        : reminder.kind === "expired"
+          ? `expired ${reminder.expiresOn}`
+          : `expires ${reminder.expiresOn} (${reminder.kind.slice(4)} days before)`;
+    await history(reminder.subId, "System", `Insurance reminder emailed to ${reminder.email}: ${what}.`);
   }
   return result;
 }

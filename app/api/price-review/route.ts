@@ -3,6 +3,7 @@
 // money goes in or out.
 //
 // GET ?accountId=                                   the review: last change, due, snooze
+// GET ?all=1                                        every account due for a review ("Overdue price reviews")
 // POST { accountId, action: "setDate", day }        "The price last changed on…"
 // POST { accountId, action: "snooze", months, reason }   3 or 6 months, written to History
 
@@ -10,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { SNOOZE_MONTHS, type SnoozeMonths } from "@/lib/priceReview";
 import { looseDate } from "@/lib/subInsurance";
-import { accountPriceReview, setLastPriceChange, snoozePriceReview } from "@/lib/pg/price-review";
+import { accountPriceReview, listDuePriceReviews, setLastPriceChange, snoozePriceReview } from "@/lib/pg/price-review";
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status, ...noStore });
@@ -18,6 +19,7 @@ const refuse = (error: string, status = 400) => NextResponse.json({ success: fal
 export async function GET(request: NextRequest) {
   try {
     if (!(await getAdminIdentity(request))) return refuse("Log in first.", 401);
+    if (request.nextUrl.searchParams.get("all") === "1") return NextResponse.json({ success: true, due: await listDuePriceReviews() }, noStore);
     const accountId = request.nextUrl.searchParams.get("accountId")?.trim() ?? "";
     if (!accountId) return refuse("accountId is required.");
     return NextResponse.json({ success: true, review: await accountPriceReview(accountId) }, noStore);

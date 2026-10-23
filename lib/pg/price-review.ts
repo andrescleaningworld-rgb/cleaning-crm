@@ -7,12 +7,19 @@
 //                     manager's square. A price change, or a snooze, takes it
 //                     down. Paper id: "price:<account id>:<due day>:<snooze end>",
 //                     so a snooze that ends puts a new paper up.
+//                     No flood on day one: the first run writes down its day
+//                     (feature_settings "baselines"). Accounts already overdue
+//                     then get no paper; they are in Accounts Center's
+//                     "Overdue price reviews". Papers only for accounts that
+//                     reach 12 months after that day (or whose snooze ends
+//                     after it). At most 5 new papers a square a day.
 // No money is read out or shown: only whether the price changed, and when.
 
 import { getSql } from "@/lib/db";
 import { logActivity } from "@/lib/activityLog";
 import { accountLive } from "@/lib/pg/account-live";
-import { managerSquareFinder, pinOnce, takeDownPapers } from "@/lib/pg/auto-pins";
+import { managerSquareFinder, pinOnceCapped, takeDownPapers } from "@/lib/pg/auto-pins";
+import { featureSettingsReady, getFeatureSetting, saveFeatureSetting } from "@/lib/pg/feature-settings";
 import { addMonths, historyChangedPrice, reviewOf, type PriceReview, type SnoozeMonths } from "@/lib/priceReview";
 import { easternToday } from "@/lib/subInsurance";
 
@@ -124,10 +131,39 @@ async function syncPaper(accountId: string): Promise<void> {
   if (!review.due) await takeDownPapers(`price:${accountId}:`, "Price review not due");
 }
 
-export async function refreshPricePins(): Promise<{ due: number; pinned: number; cleared: number }> {
-  const result = { due: 0, pinned: 0, cleared: 0 };
-  if (!(await priceReviewReady())) return result;
+/** The day the price reminders started (set on their first run). "" before. */
+async function startedOn(): Promise<string> {
+  return (await getFeatureSetting("baselines")).priceReviewStartedOn;
+}
+
+/** A due review gets a paper only when it came due after the reminders started (not the day-one backlog). */
+function earnsPaper(review: PriceReview, row: AccountRow, started: string): boolean {
+  return review.dueOn >= started || (row.snoozed_until ?? "") >= started;
+}
+
+export type DueReview = { dueOn: string; lastChangeOn: string; dayOne: boolean };
+
+/** Every active account due for a price review (Accounts Center -> "Overdue price reviews"). dayOne = already overdue when the reminders started. */
+export async function listDuePriceReviews(): Promise<Record<string, DueReview>> {
   const today = easternToday();
+  const [rows, historyDays, started] = await Promise.all([accountRows(), historyPriceDays(), startedOn()]);
+  const out: Record<string, DueReview> = {};
+  for (const row of rows) {
+    const review = toReview(row, historyDays, today);
+    if (review.due) out[row.id] = { dueOn: review.dueOn, lastChangeOn: review.lastChangeOn, dayOne: !earnsPaper(review, row, started || today) };
+  }
+  return out;
+}
+
+export async function refreshPricePins(): Promise<{ due: number; dayOne: number; pinned: number; capped: number; cleared: number }> {
+  const result = { due: 0, dayOne: 0, pinned: 0, capped: 0, cleared: 0 };
+  if (!(await priceReviewReady()) || !(await featureSettingsReady())) return result;
+  const today = easternToday();
+  let started = await startedOn();
+  if (!started) {
+    started = today;
+    await saveFeatureSetting("baselines", { priceReviewStartedOn: today }, "System");
+  }
   const [rows, historyDays, squareOf] = await Promise.all([accountRows(), historyPriceDays(), managerSquareFinder()]);
   for (const row of rows) {
     const review = toReview(row, historyDays, today);
@@ -136,7 +172,11 @@ export async function refreshPricePins(): Promise<{ due: number; pinned: number;
       continue;
     }
     result.due += 1;
-    const up = await pinOnce({
+    if (!earnsPaper(review, row, started)) {
+      result.dayOne += 1;
+      continue;
+    }
+    const outcome = await pinOnceCapped({
       itemId: `price:${row.id}:${review.dueOn}:${row.snoozed_until ?? ""}`,
       title: row.account_name || "Account",
       label: "Price review",
@@ -146,7 +186,8 @@ export async function refreshPricePins(): Promise<{ due: number; pinned: number;
       accountId: row.id,
       accountName: row.account_name,
     });
-    if (up) result.pinned += 1;
+    if (outcome === "pinned") result.pinned += 1;
+    if (outcome === "capped") result.capped += 1;
   }
   return result;
 }
