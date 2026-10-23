@@ -100,6 +100,10 @@ const PUBLIC_PATHS = [
   // link itself (lib/subPacketLink.ts). Exact-or-subpath match, so the staff
   // API /api/accounts/<id>/sub-packet stays behind the login.
   "/sub-packet",
+  // The customer monthly check-in (👍 / 👎 from the email): opened by the
+  // customer with no login. The page checks its signed link itself
+  // (lib/checkinLink.ts).
+  "/checkin",
 ];
 
 // Dedicated, single-purpose subcontractor endpoints (no mixed login action

@@ -4,7 +4,8 @@
 // bottom. Each reminder feature adds its own section to SECTIONS.
 
 import { useEffect, useState, type ReactNode } from "react";
-import { BigButton, Card } from "@/app/ui";
+import { BigButton, Card, showToast } from "@/app/ui";
+import { CHECKIN_SEND_FROM_DAY, CHECKIN_TEST_EMAIL } from "@/lib/customerCheckin";
 import { DEFAULT_FEATURE_SETTINGS, type AtRiskSetting, type FeatureSettingKey, type FeatureSettings } from "@/lib/featureSettings";
 
 export type SectionProps = {
@@ -108,4 +109,38 @@ function AtRiskSection({ settings, canEdit, save }: SectionProps) {
   );
 }
 
-export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection];
+function CheckinSection({ settings, canEdit, save }: SectionProps) {
+  const [busy, setBusy] = useState(false);
+  async function test() {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/customer-checkin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "test" }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      showToast(data.success ? `Test sent to ${CHECKIN_TEST_EMAIL} ✓` : data.error || "The test was not sent.", data.success ? undefined : "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card title="👍 Customer monthly check-in">
+      <div className="ui-stack">
+        <p className="ui-card-text">
+          From the {CHECKIN_SEND_FROM_DAY}th of each month, each active customer gets one email: &quot;How was your cleaning this month?&quot; with 👍 and 👎. No login.
+          👎 asks &quot;What went wrong?&quot; and puts a paper in the manager&apos;s square. Customers can stop the emails with one tap. Email only for now.
+        </p>
+        <Switch
+          label="Send the monthly check-in to customers"
+          text="Customers see this. Send yourself a test first."
+          on={settings.checkin.on}
+          canEdit={canEdit}
+          onChange={(on) => void save("checkin", { on })}
+        />
+        <BigButton kind="second" busy={busy} busyLabel="Sending…" onClick={() => void test()}>
+          Send me a test ({CHECKIN_TEST_EMAIL})
+        </BigButton>
+      </div>
+    </Card>
+  );
+}
+
+export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection, CheckinSection];

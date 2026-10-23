@@ -18,6 +18,7 @@ import { getFeatureSetting } from "@/lib/pg/feature-settings";
 import { managerSquareFinder, pinOnce, takeDownPapers } from "@/lib/pg/auto-pins";
 import { riskOf, type RiskFlag, type RiskSignals } from "@/lib/accountRisk";
 import { easternToday } from "@/lib/subInsurance";
+import { thumbsDownByAccount } from "@/lib/pg/customer-checkin";
 
 export type AccountRisk = RiskFlag & { accountId: string; accountName: string; manager: string; signals: RiskSignals };
 
@@ -32,10 +33,6 @@ type Row = {
   last_visit: string | null;
 };
 
-/** The 👎 answers to the customer check-in per account in the last 60 days. None until the check-in exists. */
-async function thumbsDownByAccount(): Promise<Map<string, number>> {
-  return new Map();
-}
 
 const CACHE_MS = 5 * 60_000;
 let cache: { at: number; flags: Map<string, AccountRisk> } | null = null;

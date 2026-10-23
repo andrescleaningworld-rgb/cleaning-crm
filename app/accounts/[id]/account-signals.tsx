@@ -6,6 +6,8 @@
 //   the price review: when the price last changed, "Time to review price",
 //     Snooze 3 / 6 months with a reason, set the date (app/api/price-review).
 //     Dates only: no money shows here.
+//   the customer monthly check-in: the last answers, 👍 / 👎 and what went
+//     wrong (app/api/customer-checkin)
 // Staff only (the account page is). Nothing shows for an account that is not active.
 
 import { useCallback, useEffect, useState } from "react";
@@ -14,6 +16,7 @@ import { RiskPill, RiskReason } from "@/app/components/account-risk";
 import type { RiskFlag, RiskSignals } from "@/lib/accountRisk";
 import { SNOOZE_MONTHS, agoText, type PriceReview, type SnoozeMonths } from "@/lib/priceReview";
 import { easternToday, niceDay } from "@/lib/subInsurance";
+import type { CheckinResult } from "@/lib/customerCheckin";
 
 type Flag = RiskFlag & { signals: RiskSignals };
 
@@ -167,6 +170,44 @@ function PricePart({ accountId }: { accountId: string }) {
   );
 }
 
+type Checkins = { ready: boolean; on: boolean; optedOut: boolean; results: CheckinResult[] };
+
+const monthName = (month: string) => new Date(`${month}-15T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", year: "numeric" });
+
+function CheckinPart({ accountId }: { accountId: string }) {
+  const [data, setData] = useState<Checkins | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/customer-checkin?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((reply: { success?: boolean } & Checkins) => alive && setData(reply.success ? reply : null))
+      .catch(() => alive && setData(null));
+    return () => {
+      alive = false;
+    };
+  }, [accountId]);
+  // Nothing to show before the check-in was ever on and sent.
+  if (!data || !data.ready || (!data.on && data.results.length === 0)) return null;
+  return (
+    <div className="ui-stack" style={{ borderTop: "1px solid #dbeafe", paddingTop: 12 }}>
+      <p className="ui-strong">👍 Monthly check-in</p>
+      {data.optedOut ? <p className="ui-muted">The customer stopped these emails.</p> : null}
+      {data.results.length === 0 ? (
+        <p className="ui-muted">No check-in sent yet.</p>
+      ) : (
+        <ul className="ui-card-text" style={{ margin: 0, paddingLeft: 18 }}>
+          {data.results.map((result) => (
+            <li key={result.month}>
+              {monthName(result.month)}: {result.answer === "up" ? "👍 Good" : result.answer === "down" ? "👎 Not good" : "no answer"}
+              {result.comment ? <span className="ui-muted"> · &quot;{result.comment}&quot;</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function AccountSignals({ accountId, active }: { accountId: string; active: boolean }) {
   if (!accountId || !active) return null;
   return (
@@ -174,6 +215,7 @@ export default function AccountSignals({ accountId, active }: { accountId: strin
       <div className="ui-stack">
         <RiskPart accountId={accountId} />
         <PricePart accountId={accountId} />
+        <CheckinPart accountId={accountId} />
       </div>
     </Card>
   );
