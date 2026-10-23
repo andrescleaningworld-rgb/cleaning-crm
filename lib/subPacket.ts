@@ -83,6 +83,8 @@ type Words = {
   pdfNote: string;
   /** The web page's last line (app/sub-packet): the same packet as a PDF. */
   pdfLink: string;
+  /** One-page PDF: where the scope of work went when it is too long for page 1. */
+  seePage2: string;
   locale: string;
   frequencyWords: Record<string, string>;
   dayWords: Record<string, string>;
@@ -124,6 +126,7 @@ const WORDS: Record<SubPacketLang, Words> = {
     subject: (account) => `New account for you: ${account} — Cleaning World`,
     pdfNote: "The same packet is attached as a PDF.",
     pdfLink: "Download this packet as a PDF",
+    seePage2: "see page 2",
     locale: "en-US",
     frequencyWords: {},
     dayWords: {},
@@ -163,6 +166,7 @@ const WORDS: Record<SubPacketLang, Words> = {
     subject: (account) => `Cuenta nueva para usted: ${account} — Cleaning World`,
     pdfNote: "El mismo paquete va adjunto en PDF.",
     pdfLink: "Descargar este paquete en PDF",
+    seePage2: "vea la página 2",
     locale: "es-US",
     frequencyWords: {
       "1x per week": "1 vez por semana",
@@ -213,6 +217,7 @@ const WORDS: Record<SubPacketLang, Words> = {
     subject: (account) => `Conta nova para você: ${account} — Cleaning World`,
     pdfNote: "O mesmo pacote vai anexado em PDF.",
     pdfLink: "Baixar este pacote em PDF",
+    seePage2: "veja a página 2",
     locale: "pt-BR",
     frequencyWords: {
       "1x per week": "1 vez por semana",
@@ -278,10 +283,12 @@ function daysWords(value: string, w: Words): string {
 /* ---------- the sections: one list for the email, the text and the PDF ---------- */
 
 export type SubPacketRow = { label: string; value: string; href?: string };
+/** Which section it is, whatever the language: the one-page layouts place each one by it. */
+export type SubPacketSectionId = "account" | "start" | "schedule" | "pay" | "scope" | "notes" | "access" | "links" | "contact";
 export type SubPacketSection =
-  | { kind: "rows"; title: string; rows: SubPacketRow[] }
-  | { kind: "text"; title: string; text: string }
-  | { kind: "links"; title: string; links: { label: string; text: string; url: string }[] };
+  | { id: SubPacketSectionId; kind: "rows"; title: string; rows: SubPacketRow[] }
+  | { id: SubPacketSectionId; kind: "text"; title: string; text: string }
+  | { id: SubPacketSectionId; kind: "links"; title: string; links: { label: string; text: string; url: string }[] };
 
 export function subPacketSections(data: SubPacketData): SubPacketSection[] {
   const w = WORDS[data.lang];
@@ -295,10 +302,10 @@ export function subPacketSections(data: SubPacketData): SubPacketSection[] {
     { label: w.accountName, value: data.accountName },
     { label: w.address, value: data.address, href: data.address ? data.mapUrl : undefined },
   ]);
-  if (account.length || contacts.length) sections.push({ kind: "rows", title: w.account, rows: [...account, ...contacts.map((row, index) => ({ ...row, label: index === 0 ? `${w.contacts}: ${row.label}` : row.label }))] });
+  if (account.length || contacts.length) sections.push({ id: "account", kind: "rows", title: w.account, rows: [...account, ...contacts.map((row, index) => ({ ...row, label: index === 0 ? `${w.contacts}: ${row.label}` : row.label }))] });
 
   const start = keep([{ label: w.startDate, value: startDateWords(data.startDate, w) }]);
-  if (start.length) sections.push({ kind: "rows", title: w.start, rows: start });
+  if (start.length) sections.push({ id: "start", kind: "rows", title: w.start, rows: start });
 
   const schedule = keep([
     { label: w.days, value: daysWords(data.cleaningDays, w) },
@@ -306,35 +313,53 @@ export function subPacketSections(data: SubPacketData): SubPacketSection[] {
     { label: w.time, value: cleaningTimeWords(data.cleaningTime, w) },
     { label: w.onSite, value: minutesWords(data.minutesOnSite) },
   ]);
-  if (schedule.length) sections.push({ kind: "rows", title: w.schedule, rows: schedule });
+  if (schedule.length) sections.push({ id: "schedule", kind: "rows", title: w.schedule, rows: schedule });
 
   const pay = keep([
     { label: w.perCleaning, value: money(data.perCleaning, true) },
     { label: w.monthly, value: money(data.monthlyPay, false) },
   ]);
-  if (pay.length) sections.push({ kind: "rows", title: w.pay, rows: pay });
+  if (pay.length) sections.push({ id: "pay", kind: "rows", title: w.pay, rows: pay });
 
-  if (data.scope.trim()) sections.push({ kind: "text", title: w.scope, text: data.scope.trim() });
-  if (data.notesForSub.trim()) sections.push({ kind: "text", title: w.notes, text: data.notesForSub.trim() });
-  if (data.access.trim()) sections.push({ kind: "text", title: w.access, text: data.access.trim() });
+  if (data.scope.trim()) sections.push({ id: "scope", kind: "text", title: w.scope, text: data.scope.trim() });
+  if (data.notesForSub.trim()) sections.push({ id: "notes", kind: "text", title: w.notes, text: data.notesForSub.trim() });
+  if (data.access.trim()) sections.push({ id: "access", kind: "text", title: w.access, text: data.access.trim() });
 
   const links = [
     data.crewLinkUrl ? { label: w.crewLink, text: w.crewLinkText, url: data.crewLinkUrl } : null,
     data.portalUrl ? { label: w.portal, text: w.portalText, url: data.portalUrl } : null,
   ].filter((link): link is { label: string; text: string; url: string } => link !== null);
-  if (links.length) sections.push({ kind: "links", title: w.links, links });
+  if (links.length) sections.push({ id: "links", kind: "links", title: w.links, links });
 
   const contact = keep([
     { label: w.manager, value: [data.managerName, data.managerPhone].filter(Boolean).join(" · ") },
     { label: w.office, value: `${SUB_PACKET_OFFICE.phone} · ${SUB_PACKET_OFFICE.email}` },
   ]);
-  sections.push({ kind: "rows", title: w.contact, rows: contact });
+  sections.push({ id: "contact", kind: "rows", title: w.contact, rows: contact });
   return sections;
 }
 
 export function subPacketWords(lang: SubPacketLang) {
   const w = WORDS[lang];
-  return { title: w.title, intro: w.intro, hello: w.hello, pdfNote: w.pdfNote, openMap: w.openMap };
+  return { title: w.title, intro: w.intro, hello: w.hello, pdfNote: w.pdfNote, openMap: w.openMap, accountName: w.accountName, scope: w.scope, seePage2: w.seePage2 };
+}
+
+/**
+ * The one-page layout of the PDF and the web page (not the email): the same
+ * sections, placed in two columns. The account's name row is left out (the
+ * header shows the name); everything else is kept.
+ *   left    the account (address, contacts), start, schedule
+ *   right   pay, who to call, links
+ *   boxes   access and notes, side by side
+ *   scope   full width under them (on page 2 of the PDF when too long)
+ */
+export function subPacketOnePage(data: SubPacketData): { left: SubPacketSection[]; right: SubPacketSection[]; boxes: SubPacketSection[]; scope: SubPacketSection | null } {
+  const w = WORDS[data.lang];
+  const sections = subPacketSections(data)
+    .map((section) => (section.id === "account" && section.kind === "rows" ? { ...section, rows: section.rows.filter((row) => row.label !== w.accountName) } : section))
+    .filter((section) => section.kind !== "rows" || section.rows.length > 0);
+  const pick = (ids: SubPacketSectionId[]) => ids.flatMap((id) => sections.filter((section) => section.id === id));
+  return { left: pick(["account", "start", "schedule"]), right: pick(["pay", "contact", "links"]), boxes: pick(["access", "notes"]), scope: pick(["scope"])[0] ?? null };
 }
 
 export function subPacketSubject(data: Pick<SubPacketData, "lang" | "accountName">): string {
@@ -434,6 +459,74 @@ export function subPacketHtml(data: SubPacketData, options: { pdfUrl?: string } 
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;background:#ffffff;"><tr><td style="text-align:left;${FONT}color:${C.text};">` +
     body +
     `</td></tr></table></td></tr></table></body></html>`
+  );
+}
+
+/* ---------- the web page (the packet link, app/sub-packet) ---------- */
+
+function pageSection(section: SubPacketSection, openMap: string): string {
+  let inner: string;
+  if (section.kind === "text") {
+    inner = `<div class="box">${lines(section.text)}</div>`;
+  } else if (section.kind === "links") {
+    inner = section.links
+      .map((link) => `<div class="box"><b class="l">${esc(link.label)}</b><div class="m">${esc(link.text)}</div><a href="${esc(link.url)}">${esc(link.url)}</a></div>`)
+      .join("");
+  } else {
+    const rows = section.rows.map((row) => {
+      const map = row.href ? `<br><a href="${esc(row.href)}">${esc(openMap)}</a>` : "";
+      return `<tr><td class="l">${esc(row.label)}</td><td>${lines(row.value)}${map}</td></tr>`;
+    });
+    inner = `<table>${rows.join("")}</table>`;
+  }
+  return `<section class="sec"><div class="bar">${esc(section.title)}</div>${inner}</section>`;
+}
+
+const PAGE_CSS =
+  `:root{color-scheme:light only}*{box-sizing:border-box}` +
+  `body{margin:0;background:#fff;color:${C.text};font:14px/1.45 Arial,Helvetica,sans-serif}` +
+  `.sheet{max-width:816px;margin:0 auto;padding:16px}` +
+  `.head{display:flex;align-items:center;gap:14px;background:${C.header};border-bottom:4px solid ${C.accent};padding:10px 14px}` +
+  `.head img{width:120px;max-width:30%;height:auto;background:#fff;border-radius:6px;padding:4px 6px}` +
+  `.head h1{margin:0;font-size:20px;line-height:1.2;color:#fff}.head p{margin:2px 0 0;font-weight:700;color:${C.tagline}}` +
+  `.intro{margin:10px 0 2px}` +
+  `.cols{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.cols>.one{grid-column:1/-1}` +
+  `@media (max-width:640px){.cols{grid-template-columns:1fr}}` +
+  `.sec{margin-top:10px;break-inside:avoid}.bar{background:${C.bar};color:#fff;font-weight:700;padding:5px 10px}` +
+  `table{width:100%;border-collapse:collapse;border:1px solid ${C.border};border-top:0}` +
+  `td{padding:6px 8px;border-bottom:1px solid ${C.border};vertical-align:top;font-size:13px}` +
+  `td.l{width:38%;font-weight:700;color:${C.label};border-right:1px solid ${C.border}}` +
+  `.box{border:1px solid ${C.border};border-top:0;padding:8px 10px;font-size:13px;overflow-wrap:anywhere}` +
+  `.box .l{color:${C.label}}.box .m{color:${C.muted};font-size:12px;margin:1px 0 3px}a{color:${C.bar}}` +
+  `.foot{border-top:2px solid ${C.accent};margin-top:14px;padding-top:8px;text-align:center;color:${C.muted};font-size:12px}` +
+  `.pdf{text-align:center;margin:10px 0 0;font-size:13px}.pdf a{font-weight:700}` +
+  `@media print{@page{size:letter;margin:0.4in}.sheet{padding:0}.pdf{display:none}}`;
+
+/**
+ * The packet link's page: the same one-page layout as the PDF
+ * (subPacketOnePage): two columns, access and notes side by side, the scope
+ * under them. On a phone the columns stack. Printed, it is one letter page
+ * when it fits. The email is subPacketHtml, not this.
+ */
+export function subPacketPageHtml(data: SubPacketData, options: { pdfUrl?: string } = {}): string {
+  const w = WORDS[data.lang];
+  const layout = subPacketOnePage(data);
+  const column = (sections: SubPacketSection[]) => `<div>${sections.map((section) => pageSection(section, w.openMap)).join("")}</div>`;
+  const boxes = layout.boxes.length
+    ? `<div class="cols">${layout.boxes.map((section) => `<div${layout.boxes.length === 1 ? ' class="one"' : ""}>${pageSection(section, w.openMap)}</div>`).join("")}</div>`
+    : "";
+  return (
+    `<!DOCTYPE html><html lang="${data.lang}"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />` +
+    `<meta name="color-scheme" content="light only" /><title>${esc(subPacketSubject(data))}</title><style>${PAGE_CSS}</style></head>` +
+    `<body><main class="sheet">` +
+    `<header class="head"><img src="${WELCOME_LOGO_URL}" alt="Cleaning World Inc." /><div><h1>${esc(w.title)}</h1><p>${esc(data.accountName)}</p></div></header>` +
+    `<p class="intro"><b>${esc(w.hello(data.subName || "there"))}</b> ${esc(w.intro)}</p>` +
+    `<div class="cols">${column(layout.left)}${column(layout.right)}</div>` +
+    boxes +
+    (layout.scope ? pageSection(layout.scope, w.openMap) : "") +
+    `<footer class="foot">Cleaning World Inc. · cleaningworldinc.com · ${esc(data.sentDate)}</footer>` +
+    (options.pdfUrl ? `<p class="pdf"><a href="${esc(options.pdfUrl)}">${esc(w.pdfLink)}</a></p>` : "") +
+    `</main></body></html>`
   );
 }
 

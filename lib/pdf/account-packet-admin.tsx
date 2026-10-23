@@ -7,8 +7,8 @@ import {
   Text,
   Image,
   StyleSheet,
-  renderToBuffer,
 } from "@react-pdf/renderer";
+import { renderScopeFitted } from "@/lib/pdf/fit";
 
 // Deliberately NOT shared with lib/pdf/account-packet.tsx (the Team Leader
 // template) — this file is self-contained end to end (styles, components,
@@ -19,7 +19,11 @@ import {
 // what this one prints. The actual safety boundary is "what data gets
 // fetched and passed in" (see app/api/accounts/[id]/pdf/admin/route.ts),
 // but keeping the templates fully separate too means a reviewer can look at
-// either file in isolation and know it's the whole story.
+// either file in isolation and know it's the whole story. (lib/pdf/fit.ts
+// is shared: it only decides one page or two, and carries no account data.)
+//
+// ONE letter page. Only a scope of work too long for page 1 goes on page 2,
+// alone. Nothing smaller than 9 pt.
 
 const COLORS = {
   blueDark: "#003b7a",
@@ -27,219 +31,140 @@ const COLORS = {
   border: "#dbeafe",
   label: "#64748b",
   value: "#0f172a",
-  scopeBg: "#f8fafc",
-  scopeBorder: "#e2e8f0",
+  boxBg: "#f8fafc",
+  boxBorder: "#e2e8f0",
   bannerBg: "#fef2f2",
   bannerBorder: "#fecaca",
   bannerText: "#991b1b",
 };
 
-const PAGE_MARGIN = 36;
-// A third of an inch: still clear of what printers cannot print, and it lets a typical account fit on one page.
-const PAGE_MARGIN_BOTTOM = 24;
+const SIDE = 30;
+const TOP = 30;
+// Room for the footer, which sits at the bottom of every page.
+const BOTTOM = 52;
 
 const styles = StyleSheet.create({
-  // A long Access Info or Notes runs onto more pages. These margins keep the
-  // text off the paper's edge there (printers cut it off). Page 1 looks as
-  // before: the header and footer are pulled back out to the edges below.
   page: {
     fontFamily: "Helvetica",
     fontSize: 10,
     color: COLORS.value,
-    paddingTop: PAGE_MARGIN,
-    paddingBottom: PAGE_MARGIN_BOTTOM,
+    paddingTop: TOP,
+    paddingBottom: BOTTOM,
   },
+  // Page 1's header runs to the paper's top edge; a page 2 starts at TOP.
   header: {
-    marginTop: -PAGE_MARGIN,
+    marginTop: -TOP,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: COLORS.blueDark,
-    paddingVertical: 16,
-    paddingHorizontal: 36,
+    paddingVertical: 12,
+    paddingHorizontal: SIDE,
   },
-  logoBox: {
-    backgroundColor: "#ffffff",
-    borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  logo: {
-    width: 120,
-    height: "auto",
-  },
-  headerTitleBlock: {
-    alignItems: "flex-end",
-  },
-  headerTitle: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 20,
-    color: "#ffffff",
-  },
-  headerSubtitle: {
-    marginTop: 3,
-    fontSize: 10,
-    color: "#ffffff",
-    opacity: 0.9,
-  },
-  headerMeta: {
-    marginTop: 8,
-    fontSize: 8,
-    color: "#ffffff",
-    opacity: 0.75,
-  },
-  accentBar: {
-    height: 4,
-    backgroundColor: COLORS.blueLight,
-  },
+  logoBox: { backgroundColor: "#ffffff", borderRadius: 5, paddingVertical: 5, paddingHorizontal: 8 },
+  logo: { width: 96, height: "auto" },
+  headerTitleBlock: { alignItems: "flex-end", maxWidth: 380 },
+  headerTitle: { fontFamily: "Helvetica-Bold", fontSize: 16, color: "#ffffff" },
+  headerSubtitle: { marginTop: 1, fontSize: 10, color: "#ffffff", opacity: 0.9 },
+  headerAccount: { marginTop: 5, fontFamily: "Helvetica-Bold", fontSize: 12, color: "#ffffff", textAlign: "right" },
+  headerMeta: { marginTop: 1, fontSize: 9, color: "#ffffff", opacity: 0.8 },
+  accentBar: { height: 3, backgroundColor: COLORS.blueLight },
   banner: {
     backgroundColor: COLORS.bannerBg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.bannerBorder,
-    paddingVertical: 6,
-    paddingHorizontal: 36,
+    paddingVertical: 4,
+    paddingHorizontal: SIDE,
   },
   bannerText: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 8.5,
+    fontSize: 9,
     color: COLORS.bannerText,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
     textAlign: "center",
   },
-  // No flexGrow here (unlike the Team Leader template) — with the extra
-  // banner + two extra sections this variant carries, forcing the footer to
-  // the literal bottom of the page via flexGrow was tipping react-pdf's
-  // (conservative) pagination height estimate just over one page and
-  // producing a trailing blank second page even though the final compacted
-  // layout visibly fits with room to spare. A naturally-flowing footer
-  // right after Notes reads fine and, combined with the tighter spacing
-  // below, keeps this comfortably on one page.
-  body: {
-    paddingHorizontal: 36,
-    paddingTop: 14,
-  },
-  section: {
-    marginBottom: 8,
-  },
+  body: { paddingHorizontal: SIDE, paddingTop: 10 },
+  section: { marginBottom: 9 },
   sectionTitle: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 11,
+    fontSize: 10,
     color: COLORS.blueDark,
     textTransform: "uppercase",
-    letterSpacing: 1,
+    letterSpacing: 0.8,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    paddingBottom: 5,
-    marginBottom: 8,
+    paddingBottom: 3,
+    marginBottom: 6,
   },
-  notesRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  notesColumn: {
-    width: "47%",
-  },
-  fieldGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-  },
-  field: {
-    width: "47%",
-    marginBottom: 8,
-  },
-  // Four across: Account Overview and Account Snapshot.
-  fieldQuarter: {
-    width: "23%",
-    marginBottom: 8,
-  },
-  fieldLabel: {
+  grid: { flexDirection: "row", flexWrap: "wrap" },
+  cell: { width: "25%", paddingRight: 10, marginBottom: 5 },
+  cellWide: { width: "50%", paddingRight: 10, marginBottom: 5 },
+  label: {
     fontFamily: "Helvetica-Bold",
-    fontSize: 8,
+    fontSize: 9,
     color: COLORS.label,
     textTransform: "uppercase",
-    letterSpacing: 0.6,
-    marginBottom: 3,
+    letterSpacing: 0.4,
+    marginBottom: 2,
   },
-  fieldValue: {
-    fontSize: 11,
-    color: COLORS.value,
-  },
+  value: { fontSize: 10.5, color: COLORS.value },
+  columns: { flexDirection: "row", justifyContent: "space-between" },
+  column: { width: "48.5%" },
   textBox: {
-    backgroundColor: COLORS.scopeBg,
+    backgroundColor: COLORS.boxBg,
     borderWidth: 1,
-    borderColor: COLORS.scopeBorder,
-    borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderColor: COLORS.boxBorder,
+    borderRadius: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
-  textBoxText: {
-    fontSize: 10.5,
-    lineHeight: 1.5,
-    color: COLORS.value,
-  },
+  text: { fontSize: 9.5, lineHeight: 1.4, color: COLORS.value },
+  seePage2: { fontSize: 10.5, fontFamily: "Helvetica-Bold", color: COLORS.blueDark, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 5 },
+  page2Title: { fontFamily: "Helvetica-Bold", fontSize: 14, color: COLORS.blueDark },
+  page2Account: { fontSize: 10, color: COLORS.label, marginTop: 2, marginBottom: 8 },
   footer: {
+    position: "absolute",
+    bottom: 18,
+    left: SIDE,
+    right: SIDE,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    marginHorizontal: 36,
-    marginTop: 4,
-    paddingTop: 10,
-    // The page margin is the space under the footer now (it was 16 here).
-    paddingBottom: 0,
+    paddingTop: 6,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
   },
-  footerCompany: {
-    fontFamily: "Helvetica-Bold",
-    fontSize: 9,
-    color: COLORS.label,
-  },
-  footerLine: {
-    fontSize: 8,
-    color: COLORS.label,
-    marginTop: 1,
-  },
-  footerNote: {
-    fontSize: 8,
-    color: COLORS.label,
-    textAlign: "right",
-  },
+  footerCompany: { fontFamily: "Helvetica-Bold", fontSize: 9, color: COLORS.label },
+  footerLine: { fontSize: 9, color: COLORS.label, marginTop: 1 },
+  footerNote: { fontSize: 9, color: COLORS.label, textAlign: "right", maxWidth: 260 },
 });
 
-function Field({ label, value, quarter = false }: { label: string; value: string; quarter?: boolean }) {
+function Field({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
   return (
-    <View style={quarter ? styles.fieldQuarter : styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={styles.fieldValue}>{value || "N/A"}</Text>
+    <View style={wide ? styles.cellWide : styles.cell}>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.value}>{value || "N/A"}</Text>
     </View>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// Never split across pages: a section that does not fit moves whole. Only
+// the scope (breakable) may run on, so lib/pdf/fit.ts sees that it is too
+// long and moves it to page 2.
+function Section({ title, breakable = false, children }: { title: string; breakable?: boolean; children: React.ReactNode }) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle} minPresenceAhead={40}>
-        {title}
-      </Text>
+    <View style={styles.section} wrap={breakable}>
+      <Text style={styles.sectionTitle}>{title}</Text>
       {children}
     </View>
   );
 }
 
-// A block of free text that may be long: it may break across pages so
-// nothing is cut off, and its title is not left alone at the bottom of a
-// page. Empty shows "None".
-function TextSection({ title, text }: { title: string; text: string }) {
+function TextBox({ text, empty = "None" }: { text: string; empty?: string }) {
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle} minPresenceAhead={40}>
-        {title}
-      </Text>
-      <View style={styles.textBox}>
-        <Text style={styles.textBoxText}>{text || "None"}</Text>
-      </View>
+    <View style={styles.textBox}>
+      <Text style={styles.text}>{text || empty}</Text>
     </View>
   );
 }
@@ -287,7 +212,7 @@ function getLogoBuffer(): Buffer {
   return cachedLogo;
 }
 
-export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
+export function AccountPacketAdminDocument({ scopeOnPage2 = false, ...data }: AccountPacketAdminData & { scopeOnPage2?: boolean }) {
   const grossMarginDisplay = `${data.estGrossMargin} (${data.keepShare})`;
 
   return (
@@ -302,9 +227,8 @@ export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
           <View style={styles.headerTitleBlock}>
             <Text style={styles.headerTitle}>New Account Packet</Text>
             <Text style={styles.headerSubtitle}>Admin / Internal Copy</Text>
-            <Text style={styles.headerMeta}>
-              {data.accountName} &middot; Generated {data.generatedDate}
-            </Text>
+            <Text style={styles.headerAccount}>{data.accountName}</Text>
+            <Text style={styles.headerMeta}>Generated {data.generatedDate}</Text>
           </View>
         </View>
 
@@ -316,69 +240,73 @@ export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
 
         <View style={styles.body}>
           <Section title="Account Overview">
-            <View style={styles.fieldGrid}>
-              <Field quarter label="Account Status" value={data.accountStatus} />
-              <Field quarter label="Sub Company" value={data.subcontractorCompany} />
-              <Field quarter label="Monthly Revenue" value={data.monthlyRevenue} />
-              <Field quarter label="Est. Gross Margin" value={grossMarginDisplay} />
+            <View style={styles.grid}>
+              <Field label="Account Status" value={data.accountStatus} />
+              <Field label="Sub Company" value={data.subcontractorCompany} />
+              <Field label="Monthly Revenue" value={data.monthlyRevenue} />
+              <Field label="Est. Gross Margin" value={grossMarginDisplay} />
             </View>
           </Section>
 
           <Section title="Account Snapshot">
-            <View style={styles.fieldGrid}>
-              <Field quarter label="Account Name" value={data.accountName} />
-              <Field quarter label="Address" value={data.address} />
-              <Field quarter label="Start Date" value={data.startDate} />
-              <Field quarter label="Cleaning Schedule" value={data.cleaningSchedule} />
+            <View style={styles.grid}>
+              <Field wide label="Address" value={data.address} />
+              <Field label="Start Date" value={data.startDate} />
+              <Field label="Cleaning Schedule" value={data.cleaningSchedule} />
             </View>
           </Section>
 
-          {/* One Access section (Has Key, Alarm Info, and the Key / Alarm / Access Info text) and the two notes side by side, so a typical account stays on one page. */}
-          <Section title="Access">
-            <View style={styles.fieldGrid}>
+          <Section title="Team Leader & Access">
+            <View style={styles.grid}>
+              <Field label="Team Leader Name" value={data.teamLeaderName} />
+              <Field label="Monthly Pay" value={`${data.monthlyPay} (${data.subPayShare})`} />
               <Field label="Has Key" value={data.hasKey} />
               <Field label="Alarm Info" value={data.alarmInfo} />
             </View>
-            <Text style={styles.fieldLabel}>Key / Alarm / Access Info</Text>
-            <View style={styles.textBox}>
-              <Text style={styles.textBoxText}>{data.accessInfo || "None"}</Text>
-            </View>
           </Section>
 
-          <View style={styles.notesRow}>
-            <View style={styles.notesColumn}>
-              <TextSection title="Notes for Sub" text={data.notesForSub} />
+          <View style={styles.columns} wrap={false}>
+            <View style={styles.column}>
+              <Section title="Key / Alarm / Access Info">
+                <TextBox text={data.accessInfo} />
+              </Section>
             </View>
-            <View style={styles.notesColumn}>
-              <TextSection title="Internal Notes" text={data.notes} />
+            <View style={styles.column}>
+              <Section title="Notes for Sub">
+                <TextBox text={data.notesForSub} />
+              </Section>
             </View>
           </View>
 
-          <Section title="Team Leader Assignment">
-            <View style={styles.fieldGrid}>
-              <Field label="Team Leader Name" value={data.teamLeaderName} />
-              <Field label="Monthly Pay" value={`${data.monthlyPay} (${data.subPayShare})`} />
-            </View>
+          <Section title="Internal Notes">
+            <TextBox text={data.notes} />
           </Section>
 
-          <Section title="Scope of Work">
-            <View style={styles.textBox}>
-              <Text style={styles.textBoxText}>{data.scope || "N/A"}</Text>
+          {scopeOnPage2 ? (
+            <View style={styles.section}>
+              <Text style={styles.seePage2}>Scope of work: see page 2</Text>
             </View>
-          </Section>
+          ) : (
+            <Section title="Scope of Work" breakable>
+              <TextBox text={data.scope} empty="N/A" />
+            </Section>
+          )}
+
+          {scopeOnPage2 ? (
+            <View break>
+              <Text style={styles.page2Title}>Scope of Work</Text>
+              <Text style={styles.page2Account}>{data.accountName}</Text>
+              <TextBox text={data.scope} empty="N/A" />
+            </View>
+          ) : null}
         </View>
 
-        {/* Never split: the whole footer moves to the next page if it does not fit. */}
-        <View style={styles.footer} wrap={false}>
+        <View style={styles.footer} fixed>
           <View>
             <Text style={styles.footerCompany}>Cleaning World Inc.</Text>
-            <Text style={styles.footerLine}>90 Burlews Ct, Hackensack, NJ 07601</Text>
-            <Text style={styles.footerLine}>201-487-1313</Text>
+            <Text style={styles.footerLine}>90 Burlews Ct, Hackensack, NJ 07601 · 201-487-1313</Text>
           </View>
-
-          <Text style={styles.footerNote}>
-            Questions? Contact your manager: {data.manager || "N/A"}
-          </Text>
+          <Text style={styles.footerNote}>Questions? Contact your manager: {data.manager || "N/A"}</Text>
         </View>
       </Page>
     </Document>
@@ -386,5 +314,5 @@ export function AccountPacketAdminDocument(data: AccountPacketAdminData) {
 }
 
 export async function renderAccountPacketAdminPdf(data: AccountPacketAdminData): Promise<Buffer> {
-  return renderToBuffer(<AccountPacketAdminDocument {...data} />);
+  return renderScopeFitted((scopeOnPage2) => <AccountPacketAdminDocument {...data} scopeOnPage2={scopeOnPage2} />);
 }
