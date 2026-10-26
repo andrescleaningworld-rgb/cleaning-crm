@@ -12,7 +12,8 @@ const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
 function facts(job: ExtraJob): string[] {
   return [
     `Job number: ${job.jobNumber}`,
-    ...(job.woNumber ? [`WO / Estimate #: ${job.woNumber}`] : []),
+    ...(job.woNumber ? [`Customer WO #: ${job.woNumber}`] : []),
+    ...(job.estimateNumber ? [`Estimate #: ${job.estimateNumber}`] : []),
     `Account: ${job.accountName}`,
     `Job: ${job.description}`,
     `Date: ${dayLabel(job.jobDate)}`,
@@ -42,7 +43,8 @@ export async function sendExtraJobCancelled(job: ExtraJob, origin: string): Prom
     "This extra job was cancelled. Do not invoice it. Its Sale is cancelled too.",
     "",
     `Job number: ${job.jobNumber}`,
-    ...(job.woNumber ? [`WO / Estimate #: ${job.woNumber}`] : []),
+    ...(job.woNumber ? [`Customer WO #: ${job.woNumber}`] : []),
+    ...(job.estimateNumber ? [`Estimate #: ${job.estimateNumber}`] : []),
     `Account: ${job.accountName}`,
     `Job: ${job.description}`,
     `Date: ${dayLabel(job.jobDate)}`,
@@ -70,7 +72,14 @@ async function photoAttachments(job: ExtraJob): Promise<EmailAttachment[]> {
   return attachments;
 }
 
-/** "Extra job done, ready to invoice": sent when the manager marks it Done. Carries the after photos, if any. */
+/** The approved estimate(s), for invoicing: a link each. None: said so, never a reason to hold the email. */
+function estimateLines(job: ExtraJob): string[] {
+  if (!job.estimatesOn) return [];
+  if (job.estimates.length === 0) return ["Approved estimate: none attached", ""];
+  return [`Approved estimate (${job.estimates.length}):`, ...job.estimates.map((estimate) => estimate.url), ""];
+}
+
+/** "Extra job done, ready to invoice": sent when the manager marks it Done. Carries the after photos, if any, and links the approved estimate. */
 export async function sendExtraJobDone(job: ExtraJob, origin: string): Promise<boolean> {
   const attachments = await photoAttachments(job);
   return sendInternalNotification(
@@ -82,6 +91,7 @@ export async function sendExtraJobDone(job: ExtraJob, origin: string): Promise<b
       `Marked done by: ${job.doneBy}`,
       ...(job.doneNote ? [`Note: ${job.doneNote}`] : []),
       "",
+      ...estimateLines(job),
       ...(job.photos.length > 0 ? [`After photos (${job.photos.length}):`, ...job.photos.map((photo) => photo.url)] : ["No photo (labor only)"]),
       "",
       `Office copy of the work order: ${origin}/extra-jobs/${job.id}/work-order?copy=office`,

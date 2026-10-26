@@ -24,11 +24,23 @@ export const STATUS_LABEL: Record<ExtraJobStatus, string> = { setup: "Set up", d
 
 export type ExtraJobPhoto = { id: string; url: string; fileName: string; uploadedBy: string; uploadedAt: string };
 
+/** An approved estimate file (migration 061): a PDF or a photo. Office only: it has our prices. */
+export type ExtraJobEstimate = { id: string; url: string; fileName: string; contentType: string; uploadedBy: string; uploadedAt: string };
+
+/** True for a PDF estimate (shown as a file, not a picture). */
+export const isPdfEstimate = (estimate: Pick<ExtraJobEstimate, "contentType" | "fileName" | "url">) =>
+  /pdf/i.test(estimate.contentType) || /\.pdf$/i.test(estimate.fileName || estimate.url);
+
+/** "Estimate ✓" on the list and the board, when a job has one. */
+export const ESTIMATE_BADGE = "Estimate ✓";
+
 export type ExtraJob = {
   id: string;
   jobNumber: string;
-  /** The optional "WO / Estimate #": free text, may be empty. Not our job number. */
+  /** The optional "Customer WO #" (was "WO / Estimate #"): free text, may be empty. Not our job number. Prints on both copies. */
   woNumber: string;
+  /** The optional "Estimate #", when the estimate came from Markate (migration 061). Office only: never on the sub copy. */
+  estimateNumber: string;
   accountId: string;
   accountName: string;
   source: ExtraJobSource;
@@ -59,6 +71,10 @@ export type ExtraJob = {
   doneEmailed: boolean;
   cancelEmailed: boolean;
   photos: ExtraJobPhoto[];
+  /** The approved estimate file(s), oldest first. Office only. */
+  estimates: ExtraJobEstimate[];
+  /** False until migration 061 runs here: no Estimate # box, no estimate upload. */
+  estimatesOn: boolean;
 };
 
 /** What the work order needs from the account. The sub copy prints these; it never prints the price. */
@@ -76,6 +92,8 @@ export type NewExtraJob = {
   subPay: number;
   soldBy: string;
   woNumber: string;
+  /** Optional; saved only once migration 061 has run. */
+  estimateNumber?: string;
 };
 
 export type AccountChoice = { id: string; name: string; subId: string; manager: string; address: string; active: boolean };
@@ -140,11 +158,11 @@ export function searchAccounts(accounts: AccountChoice[], text: string, limit = 
     .slice(0, limit);
 }
 
-/** Text search on the Extra Jobs page: job number, WO / Estimate #, account, the job, the sub. */
+/** Text search on the Extra Jobs page: job number, Customer WO #, Estimate #, account, the job, the sub. */
 export function jobMatches(job: ExtraJob, text: string): boolean {
   const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const haystack = [job.jobNumber, job.woNumber, job.accountName, job.description, job.subName, job.soldBy].join(" ").toLowerCase();
+  const haystack = [job.jobNumber, job.woNumber, job.estimateNumber, job.accountName, job.description, job.subName, job.soldBy].join(" ").toLowerCase();
   return words.every((word) => haystack.includes(word));
 }
 

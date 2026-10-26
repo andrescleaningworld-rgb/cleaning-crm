@@ -1,17 +1,20 @@
 "use client";
 
 // One quick form, under a minute: account, how it came in, what the job is,
-// date, customer price, sub, sub pay, who sold it, and an optional
-// WO / Estimate #. Saving it also creates a one-time Sale (10% commission)
-// and tells the office by email.
+// date, customer price, sub, sub pay, who sold it, an optional Customer WO #,
+// and (migration 061) an optional Estimate # and approved estimate file(s).
+// Saving it also creates a one-time Sale (10% commission) and tells the
+// office by email. The estimate files upload after the job is saved; one
+// that does not upload never undoes the save.
 //
 // The same form changes a job that is still on "Set up" (`editId`): every
 // field can be changed, and the job's Sale is changed to match.
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BigButton, CHEER, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField, showToast } from "@/app/ui";
 import { EXTRA_JOBS_RULE, SOURCES, checkNewExtraJob, searchAccounts, todayDay, type AccountChoice, type ExtraJob, type ExtraJobSource, type FormChoices } from "@/lib/extraJobs";
+import { ESTIMATE_ACCEPT, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
 
 type State = "loading" | "off" | "missing" | "locked" | "failed" | "ready";
@@ -79,15 +82,22 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   const [subPay, setSubPay] = useState("");
   const [soldBy, setSoldBy] = useState("");
   const [woNumber, setWoNumber] = useState("");
+  const [estimateNumber, setEstimateNumber] = useState("");
+  const [estimatesOn, setEstimatesOn] = useState(false);
+  // Estimate files already on the job (change form), and the ones picked here, waiting for Save.
+  const [estimateCount, setEstimateCount] = useState(0);
+  const [estimateFiles, setEstimateFiles] = useState<File[]>([]);
+  const estimateInput = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const load = async () => {
       const response = await fetch("/api/extra-jobs?view=form", { cache: "no-store" });
-      const body = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<FormChoices>;
+      const body = (await response.json()) as { success?: boolean; ready?: boolean; estimatesOn?: boolean } & Partial<FormChoices>;
       if (body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
+      setEstimatesOn(body.estimatesOn === true);
       const loaded: FormChoices = { accounts: body.accounts ?? [], subs: body.subs ?? [], sellers: body.sellers ?? [], me: body.me ?? "" };
 
       if (editId) {
@@ -113,6 +123,8 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         setSubPay(String(job.subPay));
         setSoldBy(job.soldBy);
         setWoNumber(job.woNumber);
+        setEstimateNumber(job.estimateNumber);
+        setEstimateCount(job.estimates.length);
       } else {
         // The person filling it in is usually the one who sold it.
         if (loaded.sellers.includes(loaded.me)) setSoldBy(loaded.me);
@@ -150,6 +162,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       subPay: subPay.trim() === "" ? Number.NaN : Number(subPay),
       soldBy,
       woNumber: woNumber.trim(),
+      ...(estimatesOn ? { estimateNumber: estimateNumber.trim() } : {}),
     };
     const problem = checkNewExtraJob(input);
     if (problem) return setError(problem);
@@ -163,7 +176,17 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; job?: ExtraJob; emailed?: boolean };
       if (!response.ok || body.success !== true || !body.job) throw new Error(body.error ?? "That did not save. Try again.");
-      showToast(body.emailed === false ? "Saved. The email to the office did not go out." : CHEER.logged, body.emailed === false ? "bad" : "good");
+      // The job is saved. Now the estimate files, if any; one that fails never undoes the save.
+      const notUploaded: string[] = [];
+      for (const file of estimateFiles) {
+        try {
+          await uploadEstimate(body.job.id, file);
+        } catch (err) {
+          notUploaded.push(`${file.name}: ${err instanceof Error ? err.message : "did not upload"}`);
+        }
+      }
+      if (notUploaded.length > 0) showToast(`Saved. The estimate did not upload (${notUploaded.join("; ")}). Add it on the job's page.`, "bad");
+      else showToast(body.emailed === false ? "Saved. The email to the office did not go out." : CHEER.logged, body.emailed === false ? "bad" : "good");
       router.push(`/extra-jobs/${body.job.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
@@ -260,8 +283,49 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
                 </option>
               ))}
             </SelectField>
-            <Field label="WO / Estimate #" hint="If the customer or the office has one. It prints on the work order." optional maxLength={60} autoComplete="off" value={woNumber} disabled={saving} onChange={(event) => setWoNumber(event.target.value)} />
+            <Field label="Customer WO #" hint="If the customer has one. It prints on both work order copies." optional maxLength={60} autoComplete="off" value={woNumber} disabled={saving} onChange={(event) => setWoNumber(event.target.value)} />
           </div>
+
+          {estimatesOn ? (
+            <div className={styles.two}>
+              <Field label="Estimate #" hint="From Markate. Office only." optional maxLength={60} autoComplete="off" value={estimateNumber} disabled={saving} onChange={(event) => setEstimateNumber(event.target.value)} />
+              <div className="ui-field">
+                <span className="ui-label">Approved estimate</span>
+                <span className="ui-hint">
+                  Optional. PDF or photo. Office only.{estimateCount > 0 ? ` ${estimateCount} on the job already.` : ""}
+                </span>
+                <input
+                  ref={estimateInput}
+                  type="file"
+                  accept={ESTIMATE_ACCEPT}
+                  multiple
+                  hidden
+                  onChange={(event) => {
+                    const picked = Array.from(event.target.files ?? []);
+                    setEstimateFiles((current) => [...current, ...picked]);
+                    event.target.value = "";
+                  }}
+                />
+                <div>
+                  <BigButton kind="second" icon="camera" disabled={saving} onClick={() => estimateInput.current?.click()}>
+                    {estimateFiles.length > 0 || estimateCount > 0 ? "Add another" : "Add estimate"}
+                  </BigButton>
+                </div>
+                {estimateFiles.length > 0 ? (
+                  <ul className={styles.pickedFiles} aria-label="Estimate files to upload">
+                    {estimateFiles.map((file, index) => (
+                      <li key={`${file.name}-${index}`} className={styles.pickedFile}>
+                        <span>{file.name}</span>
+                        <button type="button" className={styles.changeLink} disabled={saving} aria-label={`Remove ${file.name}`} onClick={() => setEstimateFiles((current) => current.filter((_, at) => at !== index))}>
+                          remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {error ? <ErrorBox title="Not saved yet." text={error} /> : null}
         </div>

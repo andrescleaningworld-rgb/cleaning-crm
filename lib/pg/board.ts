@@ -25,7 +25,8 @@ import {
   type PaperKind,
   type TvLink,
 } from "@/lib/board";
-import { extraJobsReady } from "@/lib/pg/extra-jobs";
+import { estimatesReady, extraJobsReady } from "@/lib/pg/extra-jobs";
+import { ESTIMATE_BADGE } from "@/lib/extraJobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
 import { handoffLive } from "@/lib/pg/account-live";
 import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
@@ -278,7 +279,11 @@ async function runSync(): Promise<void> {
 async function syncExtraJobs(): Promise<void> {
   if (!(await extraJobsReady())) return;
   const sql = getSql();
-  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', j.sub_name)`;
+  // estimate: "1" when an approved estimate is attached (migration 061), for the "Estimate ✓" badge. Never the file itself.
+  const estimate = (await estimatesReady())
+    ? `CASE WHEN EXISTS (SELECT 1 FROM extra_job_estimates e WHERE e.job_id = j.id) THEN '1' ELSE '' END`
+    : `''`;
+  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', j.sub_name, 'estimate', ${estimate})`;
   await sql.query(`
     INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
     SELECT 'extra', 'job-' || j.id::text, j.account_name, j.account_id, j.account_name, j.manager, 'setup', j.created_at, ${facts}, j.created_by, j.created_at
@@ -428,9 +433,9 @@ function paperDetail(row: PaperRow): string {
   return "";
 }
 
-/** "3 items" on a supply order (how big it is, at a glance); the job number on an extra job. */
+/** "3 items" on a supply order (how big it is, at a glance); the job number on an extra job, and "Estimate ✓" when one is attached. */
 function paperBadge(row: PaperRow): string {
-  if (row.kind === "extra") return clean(row.data?.jobNumber);
+  if (row.kind === "extra") return [clean(row.data?.jobNumber), clean(row.data?.estimate) === "1" ? ESTIMATE_BADGE : ""].filter(Boolean).join(" · ");
   if (row.kind !== "supply") return "";
   const count = Number(clean(row.data?.count));
   if (!Number.isFinite(count) || count < 1) return "";

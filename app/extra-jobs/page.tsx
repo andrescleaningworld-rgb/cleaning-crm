@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AddButton, BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
-import { EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
+import { ESTIMATE_BADGE, EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import styles from "./extra-jobs.module.css";
@@ -75,7 +75,7 @@ export default function ExtraJobsPage() {
         <>
           <Field
             label="Find an extra job"
-            hint="Job number, WO / Estimate #, account, the job or the sub."
+            hint="Job number, Customer WO #, Estimate #, account, the job or the sub."
             type="search"
             autoComplete="off"
             value={search}
@@ -120,7 +120,8 @@ export default function ExtraJobsPage() {
                     <span className={styles.jobTop}>
                       <span className={styles.number}>
                         {job.jobNumber}
-                        {job.woNumber ? <span className={styles.wo}> · WO / Est. {job.woNumber}</span> : null}
+                        {job.woNumber ? <span className={styles.wo}> · WO {job.woNumber}</span> : null}
+                        {job.estimates.length > 0 ? <span className={styles.estimateBadge}>{ESTIMATE_BADGE}</span> : null}
                       </span>
                       <StatusPill kind={job.status === "done" ? "done" : job.status === "cancelled" ? "off" : "waiting"}>{STATUS_LABEL[job.status]}</StatusPill>
                     </span>

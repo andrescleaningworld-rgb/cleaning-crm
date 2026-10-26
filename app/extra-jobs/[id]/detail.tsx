@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, Sheet, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
-import { EXTRA_JOB_COMMISSION_PERCENT, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
+import { ESTIMATE_BADGE, EXTRA_JOB_COMMISSION_PERCENT, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../../components/AccountLink";
+import { ESTIMATE_ACCEPT, EstimateList, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
 
 type State = "loading" | "off" | "missing" | "failed" | "ready";
@@ -21,6 +22,8 @@ export default function ExtraJobDetail({ id }: { id: string }) {
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const estimateInput = useRef<HTMLInputElement>(null);
+  const [uploadingEstimate, setUploadingEstimate] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -60,6 +63,22 @@ export default function ExtraJobDetail({ id }: { id: string }) {
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  /** The approved estimate: a PDF or a photo, one or more. Optional; Done never waits for it. */
+  async function addEstimates(files: FileList | null) {
+    if (!files || files.length === 0 || !job) return;
+    setError("");
+    setUploadingEstimate(true);
+    try {
+      for (const file of Array.from(files)) setJob(await uploadEstimate(job.id, file));
+      showToast("Estimate added.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The estimate did not upload. Try again.");
+    } finally {
+      setUploadingEstimate(false);
+      if (estimateInput.current) estimateInput.current.value = "";
     }
   }
 
@@ -152,8 +171,14 @@ export default function ExtraJobDetail({ id }: { id: string }) {
               </div>
               {job.woNumber ? (
                 <div>
-                  <dt>WO / Estimate #</dt>
+                  <dt>Customer WO #</dt>
                   <dd>{job.woNumber}</dd>
+                </div>
+              ) : null}
+              {job.estimateNumber ? (
+                <div>
+                  <dt>Estimate #</dt>
+                  <dd>{job.estimateNumber}</dd>
                 </div>
               ) : null}
               <div>
@@ -240,8 +265,29 @@ export default function ExtraJobDetail({ id }: { id: string }) {
             </div>
           ) : null}
 
+          {job.estimatesOn && (job.estimates.length > 0 || !cancelled) ? (
+            <Card title="Approved estimate" right={job.estimates.length > 0 ? <StatusPill kind="done">{ESTIMATE_BADGE}</StatusPill> : undefined}>
+              <p className="ui-card-text">Office only. Never on the sub copy.</p>
+              {job.estimates.length > 0 ? (
+                <div style={{ marginTop: 12 }}>
+                  <EstimateList estimates={job.estimates} />
+                </div>
+              ) : null}
+              {cancelled ? null : (
+                <>
+                  <input ref={estimateInput} type="file" accept={ESTIMATE_ACCEPT} multiple hidden onChange={(event) => void addEstimates(event.target.files)} />
+                  <div style={{ marginTop: 12 }}>
+                    <BigButton kind="second" icon="camera" busy={uploadingEstimate} busyLabel="Adding the estimate…" disabled={busy} onClick={() => estimateInput.current?.click()}>
+                      {job.estimates.length === 0 ? "Add estimate" : "Add another"}
+                    </BigButton>
+                  </div>
+                </>
+              )}
+            </Card>
+          ) : null}
+
           <Card title="Work order">
-            <p className="ui-card-text">The sub copy has no customer price. The office copy has everything.</p>
+            <p className="ui-card-text">The sub copy has no customer price and no estimate. The office copy has everything.</p>
             <div className={styles.buttonRow} style={{ marginTop: 12 }}>
               <BigButton kind="second" href={`/extra-jobs/${job.id}/work-order?copy=sub`}>
                 Sub copy

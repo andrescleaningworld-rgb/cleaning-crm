@@ -58,7 +58,9 @@ export default function WorkOrder({ id, copy }: { id: string; copy: "sub" | "off
                 </div>
                 <div className={styles.orderNumber}>
                   <strong>{job.jobNumber}</strong>
-                  {job.woNumber ? <span className={styles.orderWo}>WO / Estimate #: {job.woNumber}</span> : null}
+                  {job.woNumber ? <span className={styles.orderWo}>Customer WO #: {job.woNumber}</span> : null}
+                  {/* The Estimate # and the estimate itself are office only: never on the sub copy. */}
+                  {office && job.estimateNumber ? <span className={styles.orderWo}>Estimate #: {job.estimateNumber}</span> : null}
                   <span className={styles.copyTag}>{office ? "Office copy" : "Sub copy"}</span>
                   {job.status === "cancelled" ? (
                     <>

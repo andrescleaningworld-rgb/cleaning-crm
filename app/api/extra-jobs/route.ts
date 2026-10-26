@@ -9,6 +9,7 @@ import { SOURCES, checkNewExtraJob, isDay, type ExtraJob, type ExtraJobSource, t
 import {
   cancelExtraJob,
   createExtraJob,
+  estimatesReady,
   extraJobsReady,
   finishExtraJob,
   getExtraJob,
@@ -44,7 +45,8 @@ export async function GET(request: NextRequest) {
 
     if (view === "form") {
       const identity = await getAdminIdentity(request);
-      return NextResponse.json({ success: true, ready: true, ...(await getFormChoices(clean(identity?.name))) }, noStore);
+      // estimatesOn: the Estimate # and the estimate upload are on the form (migration 061).
+      return NextResponse.json({ success: true, ready: true, estimatesOn: await estimatesReady(), ...(await getFormChoices(clean(identity?.name))) }, noStore);
     }
 
     if (view === "pay") {
@@ -95,6 +97,8 @@ export async function POST(request: NextRequest) {
         subPay: Math.round(Number(body.subPay) * 100) / 100,
         soldBy: clean(body.soldBy),
         woNumber: clean(body.woNumber),
+        // Optional (migration 061). Left out = left as it is.
+        estimateNumber: body.estimateNumber === undefined ? undefined : clean(body.estimateNumber),
       };
       const problem = checkNewExtraJob(input);
       if (problem) return refuse(problem);

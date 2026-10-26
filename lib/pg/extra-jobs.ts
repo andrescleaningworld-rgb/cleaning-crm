@@ -15,6 +15,7 @@ import { getSql } from "@/lib/db";
 import {
   EXTRA_JOB_COMMISSION_PERCENT,
   type ExtraJob,
+  type ExtraJobEstimate,
   type ExtraJobAccount,
   type ExtraJobPhoto,
   type ExtraJobSource,
@@ -31,7 +32,7 @@ export async function extraJobsReady(): Promise<boolean> {
   if (ready === true) return true;
   try {
     const sql = getSql();
-    // Ready means every Extra Jobs migration is in: the tables (021), the cancel columns (022) and the WO / Estimate # (023).
+    // Ready means every Extra Jobs migration is in: the tables (021), the cancel columns (022) and the Customer WO # (023). The estimate (061) has its own check, estimatesReady().
     const rows = (await sql`
       SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'extra_jobs' AND column_name = 'wo_number') AS ok
     `) as { ok: boolean }[];
@@ -42,10 +43,26 @@ export async function extraJobsReady(): Promise<boolean> {
   return ready === true;
 }
 
+let estimatesOn = false;
+
+/** True once migration 061 is in: the Estimate # and the approved estimate files. Until then both are hidden. */
+export async function estimatesReady(): Promise<boolean> {
+  if (estimatesOn) return true;
+  try {
+    const rows = (await getSql()`SELECT to_regclass('public.extra_job_estimates') IS NOT NULL AS ok`) as { ok: boolean }[];
+    estimatesOn = rows[0]?.ok === true;
+  } catch {
+    estimatesOn = false;
+  }
+  return estimatesOn;
+}
+
 const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
 
-/** The optional WO / Estimate #, as typed (free text, at most 60 characters). */
+/** The optional Customer WO #, as typed (free text, at most 60 characters). */
 const woNumberOf = (input: { woNumber?: string }) => (input.woNumber ?? "").trim().slice(0, 60);
+/** The optional Estimate # (Markate), as typed. */
+const estimateNumberOf = (input: { estimateNumber?: string }) => (input.estimateNumber ?? "").trim().slice(0, 60);
 
 type JobRow = {
   id: string;
@@ -78,9 +95,20 @@ type JobRow = {
   edited_by: string;
   edited_at: string | Date | null;
   photos: { id: number; url: string; file_name: string; uploaded_by: string; uploaded_at: string }[] | null;
+  estimate_number: string | null;
+  estimates: { id: number; url: string; file_name: string; content_type: string; uploaded_by: string; uploaded_at: string }[] | null;
+  estimates_on: boolean;
 };
 
 function toJob(row: JobRow): ExtraJob {
+  const estimates: ExtraJobEstimate[] = (row.estimates ?? []).map((file) => ({
+    id: String(file.id),
+    url: file.url,
+    fileName: file.file_name,
+    contentType: file.content_type,
+    uploadedBy: file.uploaded_by,
+    uploadedAt: iso(file.uploaded_at),
+  }));
   const photos: ExtraJobPhoto[] = (row.photos ?? []).map((photo) => ({
     id: String(photo.id),
     url: photo.url,
@@ -92,6 +120,7 @@ function toJob(row: JobRow): ExtraJob {
     id: String(row.id),
     jobNumber: row.job_number,
     woNumber: row.wo_number,
+    estimateNumber: row.estimate_number ?? "",
     accountId: row.account_id,
     accountName: row.account_name,
     source: row.source,
@@ -119,10 +148,21 @@ function toJob(row: JobRow): ExtraJob {
     doneEmailed: Boolean(row.done_emailed_at),
     cancelEmailed: Boolean(row.cancel_emailed_at),
     photos,
+    estimates,
+    estimatesOn: row.estimates_on === true,
   };
 }
 
-const SELECT_JOB = `
+/** The job query. The Estimate # and the estimate files only once migration 061 is in (before it, empty). */
+async function selectJob(): Promise<string> {
+  const on = await estimatesReady();
+  const estimates = on
+    ? `j.estimate_number, true AS estimates_on, COALESCE((
+           SELECT jsonb_agg(jsonb_build_object('id', e.id, 'url', e.url, 'file_name', e.file_name, 'content_type', e.content_type, 'uploaded_by', e.uploaded_by, 'uploaded_at', e.uploaded_at) ORDER BY e.uploaded_at, e.id)
+           FROM extra_job_estimates e WHERE e.job_id = j.id
+         ), '[]'::jsonb) AS estimates`
+    : `'' AS estimate_number, false AS estimates_on, '[]'::jsonb AS estimates`;
+  return `
   SELECT j.id::text, j.job_number, j.wo_number, j.account_id, j.account_name, j.source, j.description, j.job_date::text AS job_day,
          j.customer_price::text, j.sub_id, j.sub_name, j.sub_pay::text, j.sold_by, j.manager, j.status, j.sale_id,
          j.created_by, j.created_at, j.setup_emailed_at, j.done_by, j.done_at, j.done_note, j.done_emailed_at,
@@ -130,14 +170,16 @@ const SELECT_JOB = `
          COALESCE((
            SELECT jsonb_agg(jsonb_build_object('id', p.id, 'url', p.url, 'file_name', p.file_name, 'uploaded_by', p.uploaded_by, 'uploaded_at', p.uploaded_at) ORDER BY p.uploaded_at, p.id)
            FROM extra_job_photos p WHERE p.job_id = j.id AND p.moment = 'after'
-         ), '[]'::jsonb) AS photos
+         ), '[]'::jsonb) AS photos,
+         ${estimates}
   FROM extra_jobs j`;
+}
 
 /** Every extra job: the ones still to do first (soonest date first), then the done and the cancelled ones (newest first). */
 export async function listExtraJobs(): Promise<ExtraJob[]> {
   const sql = getSql();
   const rows = (await sql.query(
-    `${SELECT_JOB} ORDER BY (j.status <> 'setup'), CASE WHEN j.status = 'setup' THEN j.job_date END ASC, COALESCE(j.done_at, j.cancelled_at) DESC NULLS LAST, j.id DESC LIMIT 1000`
+    `${await selectJob()} ORDER BY (j.status <> 'setup'), CASE WHEN j.status = 'setup' THEN j.job_date END ASC, COALESCE(j.done_at, j.cancelled_at) DESC NULLS LAST, j.id DESC LIMIT 1000`
   )) as JobRow[];
   return rows.map(toJob);
 }
@@ -145,7 +187,7 @@ export async function listExtraJobs(): Promise<ExtraJob[]> {
 export async function getExtraJob(id: string): Promise<ExtraJob | null> {
   if (!/^\d+$/.test(id)) return null;
   const sql = getSql();
-  const rows = (await sql.query(`${SELECT_JOB} WHERE j.id = $1::bigint`, [id])) as JobRow[];
+  const rows = (await sql.query(`${await selectJob()} WHERE j.id = $1::bigint`, [id])) as JobRow[];
   return rows[0] ? toJob(rows[0]) : null;
 }
 
@@ -215,6 +257,10 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
     RETURNING id::text, job_number
   `) as { id: string; job_number: string }[];
   const { id, job_number: jobNumber } = inserted[0];
+  // The optional Estimate # (migration 061). Before 061 it is not asked for.
+  if (estimateNumberOf(input) && (await estimatesReady())) {
+    await sql`UPDATE extra_jobs SET estimate_number = ${estimateNumberOf(input)} WHERE id = ${id}::bigint`;
+  }
 
   try {
     const managers = (await sql`
@@ -227,7 +273,7 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
       // The sale is made the day the job is set up; the job itself may be weeks away.
       saleDate: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
       serviceSold: input.description.trim().slice(0, 300),
-      // The Sale carries the WO / Estimate # when there is one, and our job number when there is not.
+      // The Sale carries the Customer WO # when there is one, and our job number when there is not.
       workOrderEstimateNumber: woNumberOf(input) || jobNumber,
       soldBy: input.soldBy.trim(),
       amountSold: input.customerPrice,
@@ -250,6 +296,15 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
 export async function addJobPhoto(jobId: string, url: string, fileName: string, by: string): Promise<void> {
   const sql = getSql();
   await sql`INSERT INTO extra_job_photos (job_id, url, file_name, uploaded_by) VALUES (${jobId}::bigint, ${url}, ${fileName.slice(0, 200)}, ${by})`;
+}
+
+/** An approved estimate file, already in Blob storage, saved on the job (migration 061). */
+export async function addJobEstimate(jobId: string, file: { url: string; fileName: string; contentType: string }, by: string): Promise<void> {
+  const sql = getSql();
+  await sql`
+    INSERT INTO extra_job_estimates (job_id, url, file_name, content_type, uploaded_by)
+    VALUES (${jobId}::bigint, ${file.url}, ${file.fileName.slice(0, 200)}, ${file.contentType.slice(0, 100)}, ${by})
+  `;
 }
 
 /**
@@ -300,6 +355,9 @@ export async function updateExtraJob(id: string, input: NewExtraJob, by: string)
     RETURNING id
   `) as unknown[];
   if (rows.length === 0) return "locked";
+  if (input.estimateNumber !== undefined && (await estimatesReady())) {
+    await sql`UPDATE extra_jobs SET estimate_number = ${estimateNumberOf(input)} WHERE id = ${id}::bigint`;
+  }
 
   if (job.saleId) {
     const commission = Math.round(input.customerPrice * EXTRA_JOB_COMMISSION_PERCENT) / 100;
@@ -364,7 +422,7 @@ export async function cancelExtraJob(id: string, by: string, reason: string): Pr
  */
 export async function getPayReport(from: string, to: string): Promise<PayRow[]> {
   const sql = getSql();
-  const rows = (await sql.query(`${SELECT_JOB} WHERE j.status = 'done' AND j.job_date BETWEEN $1::date AND $2::date ORDER BY lower(j.sub_name), j.job_date, j.id`, [from, to])) as JobRow[];
+  const rows = (await sql.query(`${await selectJob()} WHERE j.status = 'done' AND j.job_date BETWEEN $1::date AND $2::date ORDER BY lower(j.sub_name), j.job_date, j.id`, [from, to])) as JobRow[];
   const bySub = new Map<string, PayRow>();
   for (const job of rows.map(toJob)) {
     const key = job.subId || job.subName.toLowerCase();
