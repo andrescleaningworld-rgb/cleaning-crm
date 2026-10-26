@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BigButton, Card, CardList, EmptyState, ErrorBox, Field, Screen, SearchBar, SkeletonList } from "@/app/ui";
+import { BigButton, Card, CardList, EmptyState, ErrorBox, Field, Screen, SearchBar, SkeletonList, showToast } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
 import PrintSheet from "../components/print-sheet";
 import tagStyles from "./key-tags.module.css";
@@ -30,6 +30,10 @@ type Subcontractor = { contactName?: string; companyName?: string; name?: string
 type StaffMember = { name?: string; active?: boolean };
 
 const HOLDER_LIST_ID = "keys-holder-names";
+
+/** Tags per letter page: 6 across (7.5") by 13 down (9.75") inside the half-inch margin. */
+const TAGS_PER_PAGE = 78;
+const pagesOf = (codes: string[]) => Array.from({ length: Math.ceil(codes.length / TAGS_PER_PAGE) }, (_, i) => codes.slice(i * TAGS_PER_PAGE, (i + 1) * TAGS_PER_PAGE));
 
 function clean(value: unknown): string {
   return String(value ?? "").trim();
@@ -66,6 +70,7 @@ export default function AccountsCenterKeys() {
   // The codes on the sheet being printed; null when nothing is printing.
   const [printCodes, setPrintCodes] = useState<string[] | null>(null);
   const [preparingPrint, setPreparingPrint] = useState(false);
+  const [printError, setPrintError] = useState("");
   const endPrint = useCallback(() => setPrintCodes(null), []);
 
   async function loadData() {
@@ -163,13 +168,25 @@ export default function AccountsCenterKeys() {
   async function printTags(list: RawAccount[]) {
     if (list.length === 0 || preparingPrint) return;
     setPreparingPrint(true);
+    setPrintError("");
     const codes: string[] = [];
+    const failed: string[] = [];
     for (const account of list) {
       const code = clean(account.keyCode) || (await handleGenerateCode(account));
       if (code) codes.push(code);
+      else failed.push(clean(account.accountName) || "No name");
     }
     setPreparingPrint(false);
-    // An account whose code could not be made shows its own error; the rest still print.
+    // Never a blank page: no code, no print. A tag that could not get a code
+    // is named here (its own card says why); the rest still print.
+    if (failed.length > 0) {
+      const message =
+        codes.length === 0
+          ? `Nothing printed. No key code could be made for ${failed.join(", ")}.`
+          : `Printed ${codes.length}. No key code could be made for ${failed.join(", ")}.`;
+      setPrintError(message);
+      showToast(message, "bad");
+    }
     if (codes.length > 0) setPrintCodes(codes);
   }
 
@@ -292,16 +309,22 @@ export default function AccountsCenterKeys() {
         ) : null}
       </div>
 
+      {printError ? <p className="ui-field-error" role="alert">{printError}</p> : null}
       {/* Paper only: the key tags. Code and "Cleaning World", nothing else. */}
       <PrintSheet active={printCodes !== null} onDone={endPrint}>
-        <div className={tagStyles.sheet}>
-          {(printCodes ?? []).map((code, index) => (
-            <div key={`${code}-${index}`} className={tagStyles.tag}>
-              <span className={tagStyles.code}>{code}</span>
-              <span className={tagStyles.brand}>Cleaning World</span>
+        {/* One letter page per 78 tags (6 across, 13 down), each with its own margin. */}
+        {pagesOf(printCodes ?? []).map((page, pageIndex) => (
+          <div key={pageIndex} className={tagStyles.page} style={pageIndex > 0 ? { breakBefore: "page" } : undefined}>
+            <div className={tagStyles.sheet}>
+              {page.map((code, index) => (
+                <div key={`${code}-${index}`} className={tagStyles.tag}>
+                  <span className={tagStyles.code}>{code}</span>
+                  <span className={tagStyles.brand}>Cleaning World</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </PrintSheet>
 
       <datalist id={HOLDER_LIST_ID}>

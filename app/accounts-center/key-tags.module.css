@@ -1,24 +1,52 @@
 /* Key tags for paper (the Keys tab's Print tag / Print tags): a grid of
-   1.25" x 0.75" tags on letter paper, six across (7.5" fits inside the
-   browser's usual margins), with dashed cut lines. Only the code and
-   "Cleaning World" are on a tag. */
+   1.25" x 0.75" tags on letter paper, six across, with dashed cut lines.
+   Only the code and "Cleaning World" are on a tag.
+
+   Shown on paper: app/globals.css hides everything on a page that has a print
+   view with `body:has(.ui-print-view) *` (specificity 0,1,1), which beats its
+   own `.ui-print-view *` show rule (0,1,0), so a sheet printed blank. The
+   two-class rules below (0,2,0) win, for the tags only.
+
+   No browser date / URL header and footer: the tags' pages have no page
+   margin (a named page, so no other print is changed); the margin is inside
+   the page instead (.page padding). */
+
+@page keytags {
+  size: letter;
+  margin: 0;
+}
+
+.page {
+  page: keytags;
+  box-sizing: border-box;
+  padding: 0.5in;
+  background: #fff;
+}
+
+@media print {
+  .page .sheet,
+  .page .sheet * {
+    visibility: visible;
+  }
+}
 
 .sheet {
   display: grid;
   grid-template-columns: repeat(6, 1.25in);
   grid-auto-rows: 0.75in;
-  /* The grid's own top and left edges; each tag draws its right and bottom. */
-  border-top: 1px dashed #000;
-  border-left: 1px dashed #000;
   width: max-content;
   color: #000;
   background: #fff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 .tag {
   box-sizing: border-box;
-  border-right: 1px dashed #000;
-  border-bottom: 1px dashed #000;
+  /* Each tag its own dashed outline; neighbors overlap by one line, so a
+     short last row is outlined only where there are tags. */
+  border: 1px dashed #000;
+  margin: 0 -1px -1px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
