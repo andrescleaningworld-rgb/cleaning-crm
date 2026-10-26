@@ -36,6 +36,8 @@ type LoadResponse = {
   translations?: ContentTranslations;
   /** "Supplies arrived" and "Case empty" are here (migration 038, supply orders on). */
   shelves?: boolean;
+  /** "Supplies arrived" alone: supply orders on, or something on its way to this site. */
+  arrived?: boolean;
 };
 
 type Feature = "checklist" | "supplies" | "problem" | "arrived" | "empty";
@@ -79,6 +81,7 @@ export default function CrewLinkPage() {
   // Older API responses (before Crew Link) had no modules — treat as checklist-only.
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
   const [shelves, setShelves] = useState(false);
+  const [arrived, setArrived] = useState(false);
 
   const [name, setName] = useState<string | null>(null); // null = not read from the phone yet
   const [screen, setScreen] = useState<Screen>("home");
@@ -113,6 +116,7 @@ export default function CrewLinkPage() {
         setTabs(data.tabs ?? [{ id: 0, name: "", sections: data.sections ?? [] }]);
         if (data.modules) setModules(data.modules);
         setShelves(data.shelves === true);
+        setArrived(data.arrived === true || data.shelves === true);
         setTranslations(data.translations ?? {});
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this link.");
@@ -131,7 +135,8 @@ export default function CrewLinkPage() {
     ...(modules.checklist ? (["checklist"] as const) : []),
     ...(modules.supplyOrders ? (["supplies"] as const) : []),
     ...(modules.problemReports ? (["problem"] as const) : []),
-    ...(shelves ? (["arrived", "empty"] as const) : []),
+    ...(arrived ? (["arrived"] as const) : []),
+    ...(shelves ? (["empty"] as const) : []),
   ];
   const onlyFeature = features.length === 1 ? features[0] : null;
   const rootScreen: Screen = onlyFeature ?? "home";

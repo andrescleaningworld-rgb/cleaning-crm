@@ -18,8 +18,12 @@
 //                             taps Picked up -> warehouse down, site up
 //                   deliver   we take it on the tablet (warehouse down) and
 //                             drive it
-//   3. On its way vendor and deliver: the crew confirms on Supplies arrived,
-//                 per item. Only what came goes on the site; less came: the
+//   3. On its way whoever is there confirms, per item: the crew (Crew Link
+//                 Supplies arrived), the sub (sub portal Supplies arrived) or
+//                 the office (Supply Orders ✓ Delivered), for every open order
+//                 however it was placed. From our shelf and not taken on the
+//                 tablet yet: what came leaves the warehouse on confirm.
+//                 Only what came goes on the site; less came: the
 //                 rest is a back order (migration 039); more came: the extra
 //                 goes on the site too. Any difference is flagged to the
 //                 office (Supply Orders, an email, and a paper in the Pin
@@ -308,10 +312,56 @@ export async function waiting(accountId?: string): Promise<Waiting[]> {
   return list.filter((entry) => entry.lines.length > 0).sort((a, b) => a.at.localeCompare(b.at));
 }
 
-/** What a crew can confirm on Supplies arrived: not a pick-up (the office confirms that), not a "we deliver" still at the warehouse. */
-export const crewCanConfirm = (entry: Waiting) => entry.fill !== "pickup" && !(entry.fill === "deliver" && !entry.sentAt);
 
 /* ---------- taken from the warehouse for a site ---------- */
+
+/**
+ * The statements that take these lines out of the warehouse for a site:
+ * first what is kept there for that customer (site_shelf.warehouse_qty),
+ * then Cleaning World's own (sub_supplies.shelf_count), each a 'send' move.
+ * Used when an order leaves the warehouse (sendToSite), and when a "We
+ * deliver" or pick-up order is confirmed arrived without being taken first
+ * (confirmArrival). Lines with no product are skipped.
+ */
+async function warehouseTake(input: { accountId: string; accountName: string; ref: string; lines: WaitLine[]; by: string; source: MoveSource }) {
+  const sql = getSql();
+  const shelfLines = input.lines.filter((line): line is WaitLine & { supplyId: number } => line.supplyId !== null && line.qty > 0);
+  const ids = shelfLines.map((line) => line.supplyId);
+  if (ids.length === 0) return [];
+  const [costs, held] = await Promise.all([
+    sql`SELECT id, supply_item, unit_cost::text FROM sub_supplies WHERE id = ANY(${ids}::bigint[])` as unknown as Promise<{ id: string | number; supply_item: string; unit_cost: string | null }[]>,
+    sql`SELECT supply_id, warehouse_qty FROM site_shelf WHERE account_id = ${input.accountId} AND supply_id = ANY(${ids}::bigint[]) AND warehouse_qty > 0` as unknown as Promise<{ supply_id: string | number; warehouse_qty: number }[]>,
+  ]);
+  const costOf = new Map(costs.map((row) => [Number(row.id), row]));
+  const heldOf = new Map(held.map((row) => [Number(row.supply_id), row.warehouse_qty]));
+  const statements = [];
+  for (const line of shelfLines) {
+    const row = costOf.get(line.supplyId);
+    const theirs = Math.min(heldOf.get(line.supplyId) ?? 0, line.qty);
+    const ours = line.qty - theirs;
+    const name = clean(row?.supply_item) || line.name;
+    if (theirs > 0) {
+      statements.push(
+        sql`UPDATE site_shelf SET warehouse_qty = GREATEST(warehouse_qty - ${theirs}, 0), updated_by = ${input.by}, updated_at = now() WHERE account_id = ${input.accountId} AND supply_id = ${line.supplyId}`,
+        sql`
+          INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note, source)
+          VALUES (${line.supplyId}, ${name}, ${-theirs}, 'send', ${input.accountId}, ${input.accountName}, ${row?.unit_cost ?? null}, ${input.by}, ${input.ref}, 'Sent to site from their own stock at the warehouse', ${input.source})
+        `
+      );
+    }
+    if (ours > 0) {
+      statements.push(
+        // The warehouse never shows less than 0: a count that was off is fixed by the next count.
+        sql`UPDATE sub_supplies SET shelf_count = GREATEST(COALESCE(shelf_count, 0) - ${ours}, 0), updated_at = now() WHERE id = ${line.supplyId}`,
+        sql`
+          INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note, source)
+          VALUES (${line.supplyId}, ${name}, ${-ours}, 'send', ${input.accountId}, ${input.accountName}, ${row?.unit_cost ?? null}, ${input.by}, ${input.ref}, 'Sent to site', ${input.source})
+        `
+      );
+    }
+  }
+  return statements;
+}
 
 /**
  * Takes the items out of the warehouse for a site: first what is kept there
@@ -343,16 +393,6 @@ export async function sendToSite(input: { key?: string; accountId?: string; acco
     entry = { key: "", source: "office", ref: "", backOrder: false, fill: "deliver", accountId, accountName: clean(input.accountName), at: "", sentAt: "", lines };
   }
 
-  const shelfLines = entry.lines.filter((line): line is WaitLine & { supplyId: number } => line.supplyId !== null && line.qty > 0);
-  const ids = shelfLines.map((line) => line.supplyId);
-  const [costs, held] = ids.length
-    ? await Promise.all([
-        sql`SELECT id, supply_item, unit_cost::text FROM sub_supplies WHERE id = ANY(${ids}::bigint[])` as unknown as Promise<{ id: string | number; supply_item: string; unit_cost: string | null }[]>,
-        sql`SELECT supply_id, warehouse_qty FROM site_shelf WHERE account_id = ${entry.accountId} AND supply_id = ANY(${ids}::bigint[]) AND warehouse_qty > 0` as unknown as Promise<{ supply_id: string | number; warehouse_qty: number }[]>,
-      ])
-    : [[], []];
-  const costOf = new Map(costs.map((row) => [Number(row.id), row]));
-  const heldOf = new Map(held.map((row) => [Number(row.supply_id), row.warehouse_qty]));
   const ref = entry.key.startsWith("d:") ? "" : entry.ref;
 
   const statements = [];
@@ -370,31 +410,7 @@ export async function sendToSite(input: { key?: string; accountId?: string; acco
       ON CONFLICT (source, source_ref) WHERE source <> 'office' DO UPDATE SET sent_by = EXCLUDED.sent_by, sent_at = EXCLUDED.sent_at, lines = EXCLUDED.lines
     `);
   }
-  for (const line of shelfLines) {
-    const row = costOf.get(line.supplyId);
-    const theirs = Math.min(heldOf.get(line.supplyId) ?? 0, line.qty);
-    const ours = line.qty - theirs;
-    const name = clean(row?.supply_item) || line.name;
-    if (theirs > 0) {
-      statements.push(
-        sql`UPDATE site_shelf SET warehouse_qty = GREATEST(warehouse_qty - ${theirs}, 0), updated_by = ${input.by}, updated_at = now() WHERE account_id = ${entry.accountId} AND supply_id = ${line.supplyId}`,
-        sql`
-          INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note, source)
-          VALUES (${line.supplyId}, ${name}, ${-theirs}, 'send', ${entry.accountId}, ${entry.accountName}, ${row?.unit_cost ?? null}, ${input.by}, ${ref}, 'Sent to site from their own stock at the warehouse', ${source})
-        `
-      );
-    }
-    if (ours > 0) {
-      statements.push(
-        // The warehouse never shows less than 0: a count that was off is fixed by the next count.
-        sql`UPDATE sub_supplies SET shelf_count = GREATEST(COALESCE(shelf_count, 0) - ${ours}, 0), updated_at = now() WHERE id = ${line.supplyId}`,
-        sql`
-          INSERT INTO supply_moves (supply_id, item_name, qty, kind, account_id, account_name, unit_cost, staff_name, order_id, note, source)
-          VALUES (${line.supplyId}, ${name}, ${-ours}, 'send', ${entry.accountId}, ${entry.accountName}, ${row?.unit_cost ?? null}, ${input.by}, ${ref}, 'Sent to site', ${source})
-        `
-      );
-    }
-  }
+  statements.push(...(await warehouseTake({ accountId: entry.accountId, accountName: entry.accountName, ref, lines: entry.lines, by: input.by, source })));
   // The order shows it is on its way.
   if (entry.source === "crew-order") statements.push(sql`UPDATE supply_orders SET status = 'ordered', updated_at = now() WHERE id = ${Number(ref)} AND status = 'new'`);
   if (entry.source === "sub-order") {
@@ -844,6 +860,10 @@ export async function confirmArrival(input: { accountId: string; key: string; go
   const extra = arrived.filter((line) => line.got > line.qty);
   const sql = getSql();
   const by = clean(input.by).slice(0, 80) || "Crew";
+  // From our shelf ("We deliver", or the sub picks up) and never taken out on
+  // the tablet: what came leaves the warehouse now. What did not come stays
+  // there, so its back order is not "sent" either.
+  const fromShelf = entry.key.startsWith("d:") && !entry.sentAt && (entry.fill === "deliver" || entry.fill === "pickup");
 
   const statements = [];
   if (entry.key.startsWith("d:")) {
@@ -851,6 +871,12 @@ export async function confirmArrival(input: { accountId: string; key: string; go
       UPDATE supply_deliveries SET arrived = ${JSON.stringify(arrived)}::jsonb, arrived_by = ${by}, arrived_at = now(), short = ${short.length > 0}, extra = ${extra.length > 0}
       WHERE id = ${Number(entry.key.slice(2))} AND arrived_at IS NULL
     `);
+    if (fromShelf) {
+      statements.push(
+        ...(await warehouseTake({ accountId: entry.accountId, accountName: entry.accountName, ref: entry.ref, lines: arrived.map((line) => ({ ...line, qty: line.got })), by, source })),
+        sql`UPDATE supply_deliveries SET sent_by = ${by}, sent_at = now() WHERE id = ${Number(entry.key.slice(2))} AND sent_at IS NULL`
+      );
+    }
   } else {
     statements.push(sql`
       INSERT INTO supply_deliveries (account_id, account_name, source, source_ref, lines, arrived, arrived_by, arrived_at, short, extra)
@@ -867,7 +893,8 @@ export async function confirmArrival(input: { accountId: string; key: string; go
       entry.key.startsWith("d:")
         ? sql`
             INSERT INTO supply_deliveries (account_id, account_name, source, source_ref, lines, sent_by, sent_at, back_of, fill)
-            SELECT account_id, account_name, source, ${entry.ref} || ${BACK} || id::text, ${lines}::jsonb, sent_by, sent_at, id, fill FROM supply_deliveries p
+            SELECT account_id, account_name, source, ${entry.ref} || ${BACK} || id::text, ${lines}::jsonb,
+                   CASE WHEN ${fromShelf} THEN '' ELSE sent_by END, CASE WHEN ${fromShelf} THEN NULL ELSE sent_at END, id, fill FROM supply_deliveries p
             WHERE id = ${Number(entry.key.slice(2))} AND NOT EXISTS (SELECT 1 FROM supply_deliveries b WHERE b.back_of = p.id)
           `
         : sql`
@@ -1083,6 +1110,21 @@ export async function differentDeliveries(limit = 20): Promise<DifferentDelivery
   }));
 }
 
+/* ---------- the office: ✓ Delivered ---------- */
+
+/**
+ * Supply Orders "✓ Delivered": the office confirms an open delivery (or back
+ * order) the same way a crew does on Supplies arrived: `got` per line (the
+ * ordered amounts unless changed), site stock up, short = back order, who
+ * and when saved on the delivery.
+ */
+export async function officeDelivered(input: { key: string; got: number[]; by: string }): Promise<{ short: number; extra: number; accountName: string }> {
+  const entry = (await waiting()).find((item) => item.key === clean(input.key));
+  if (!entry) throw new Error("That order is not waiting any more. Refresh the page.");
+  const result = await confirmArrival({ accountId: entry.accountId, key: entry.key, got: input.got, by: input.by, source: "office" });
+  return { short: result.short.length, extra: result.extra.length, accountName: entry.accountName };
+}
+
 /* ---------- what a crew sees (Crew Link, sub portal) ---------- */
 
 export type CrewShelfView = {
@@ -1090,11 +1132,16 @@ export type CrewShelfView = {
   waiting: { key: string; at: string; sent: boolean; backOrder: boolean; lines: { name: string; unit: string; qty: number }[] }[];
 };
 
-/** One site's shelf and what is on its way there, with no product codes (staff only) and no costs. */
+/**
+ * One site's shelf and everything open on its way there, however it was
+ * ordered (Crew Link, sub portal, office) and however it is filled: whoever is
+ * at the site when it comes can confirm it. No product codes (staff only), no
+ * costs, no account details.
+ */
 export async function crewShelfView(accountId: string): Promise<CrewShelfView> {
   const [shelves, onTheWay] = await Promise.all([siteShelves(accountId), waiting(accountId)]);
   return {
     shelf: (shelves[0]?.tiles ?? []).map((item) => ({ supplyId: item.supplyId, name: item.name, unit: item.unit, photoUrl: item.photoUrl, qty: item.qty ?? 0, level: item.level })),
-    waiting: onTheWay.filter(crewCanConfirm).map((entry) => ({ key: entry.key, at: entry.at, sent: entry.sentAt !== "", backOrder: entry.backOrder, lines: entry.lines.map((line) => ({ name: line.name, unit: line.unit, qty: line.qty })) })),
+    waiting: onTheWay.map((entry) => ({ key: entry.key, at: entry.at, sent: entry.sentAt !== "", backOrder: entry.backOrder, lines: entry.lines.map((line) => ({ name: line.name, unit: line.unit, qty: line.qty })) })),
   };
 }

@@ -1,7 +1,9 @@
 // Public, no-login route (proxy.ts PUBLIC_PATHS already covers
 // "/api/porter-checklist") — Crew Link "📦 Supplies arrived" and "🗑 Case
-// empty" (lib/pg/shelves.ts). Gated by the link's porter_code and its
-// supply-orders switch; rate-limited per code, like the supplies route. Only
+// empty" (lib/pg/shelves.ts). Gated by the link's porter_code: Supplies
+// arrived works on any live link (an order for this site can come from the
+// sub portal or the office), Case empty only with its supply-orders switch
+// on. Rate-limited per code, like the supplies route. Only
 // this link's own account is ever read or changed, and nothing a crew is
 // sent carries a product code or a cost.
 //
@@ -9,7 +11,7 @@
 //   POST { action: "arrive", key, got, reporterName }   confirm a delivery
 //   POST { action: "empty", supplyId, reporterName }    one case used up
 import { NextRequest, NextResponse } from "next/server";
-import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
+import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLink";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { getContentTranslations } from "@/lib/crewTranslations";
 import { caseEmpty, confirmArrival, crewShelfView, shelvesReady } from "@/lib/pg/shelves";
@@ -18,7 +20,7 @@ type Context = { params: Promise<{ code: string }> };
 
 async function loadEnabled(code: string) {
   const link = await resolveCrewLink(code);
-  return link && link.modules.supplyOrders && (await shelvesReady()) ? link : null;
+  return link && crewLinkIsLive(link.modules) && (await shelvesReady()) ? link : null;
 }
 
 export async function GET(_request: NextRequest, { params }: Context) {
@@ -29,7 +31,9 @@ export async function GET(_request: NextRequest, { params }: Context) {
     }
     const link = await loadEnabled(code);
     if (!link) return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
-    const view = await crewShelfView(link.template.accountId);
+    const full = await crewShelfView(link.template.accountId);
+    // The shelf is for Case empty: only with supply orders on here.
+    const view = link.modules.supplyOrders ? full : { ...full, shelf: [] };
     const translations = await getContentTranslations([...view.shelf.flatMap((item) => [item.name, item.unit]), ...view.waiting.flatMap((entry) => entry.lines.flatMap((line) => [line.name, line.unit]))].filter(Boolean));
     return NextResponse.json({ success: true, ...view, translations }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -56,6 +60,7 @@ export async function POST(request: NextRequest, { params }: Context) {
         return NextResponse.json({ success: true, short: result.short.length, extra: result.extra.length });
       }
       if (body.action === "empty") {
+        if (!link.modules.supplyOrders) return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
         const result = await caseEmpty({ accountId, supplyId: Number(body.supplyId), by });
         return NextResponse.json({ success: true, qty: result.qty });
       }

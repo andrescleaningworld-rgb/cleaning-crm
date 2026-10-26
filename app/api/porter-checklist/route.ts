@@ -19,7 +19,7 @@ import {
 import { logActivity } from "@/lib/activityLog";
 import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLink";
 import { getContentTranslations, sectionTexts } from "@/lib/crewTranslations";
-import { shelvesReady } from "@/lib/pg/shelves";
+import { shelvesReady, waiting } from "@/lib/pg/shelves";
 
 export async function GET(request: NextRequest) {
   try {
@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
     // ES/PT for every tab name, section and item (English if missing).
     const translations = await getContentTranslations(tabs.flatMap((tab) => [tab.name, ...sectionTexts(tab.sections)]));
 
+    const shelvesOn = await shelvesReady();
     // Crews see the building name only — no account name, ids or details.
     return NextResponse.json({
       success: true,
@@ -67,7 +68,11 @@ export async function GET(request: NextRequest) {
       modules,
       translations,
       // "Supplies arrived" and "Case empty" (migrations 038, 039), with supply orders on.
-      shelves: modules.supplyOrders && (await shelvesReady()),
+      shelves: modules.supplyOrders && shelvesOn,
+      // "Supplies arrived" alone also shows when something is on its way to
+      // this site, however it was ordered (sub portal, office), even with
+      // supply orders off here.
+      arrived: shelvesOn && (modules.supplyOrders || (await waiting(template.accountId)).length > 0),
     });
   } catch (error) {
     return NextResponse.json(

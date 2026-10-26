@@ -12,6 +12,7 @@
 //   POST decline { order }                        ✗ Decline
 //   POST delete { order, reason, note }           🗑 Delete order (soft; not once stock moved)
 //   POST pickedUp { key }                         ✓ Picked up (sub at the warehouse)
+//   POST delivered { key, got }                   ✓ Delivered: the office confirms what arrived
 //   POST cancelBack { key, index, choice }        a back-ordered item cancelled: "shelf" or "lost"
 //   POST cameIn { lines, vendor, ownerAccountId, ownerAccountName }   + Stock came in
 //   POST orderForSub { accountId, accountName, sub, lines, note }     a manager's order (call / text)
@@ -41,6 +42,7 @@ import {
   officeShelf,
   orderAccountName,
   orderForSub,
+  officeDelivered,
   pickedUp,
   setSiteCount,
   shelvesReady,
@@ -149,6 +151,21 @@ export async function POST(request: NextRequest) {
         const result = await deleteOrder({ order, reason: clean(body.reason), note: clean(body.note), by });
         await logOrder(identity, order, `Deleted. Why: ${result.reason}`, "delete");
         return NextResponse.json({ success: true });
+      }
+      if (action === "delivered") {
+        const result = await officeDelivered({ key: clean(body.key), got: (Array.isArray(body.got) ? body.got : []).map((n) => Number(n)), by });
+        if (identity.accountId) {
+          await logActivity({
+            actorAccountId: identity.accountId,
+            actorRole: identity.role ?? "manager",
+            actorName: identity.name || "",
+            action: "update",
+            entityType: "supply-order",
+            entityId: clean(body.key).slice(0, 200),
+            detail: `${result.accountName}: ✓ Delivered${result.short ? ` (${result.short} short, back order)` : ""}${result.extra ? ` (${result.extra} extra)` : ""}`.slice(0, 500),
+          });
+        }
+        return NextResponse.json({ success: true, short: result.short, extra: result.extra });
       }
       if (action === "pickedUp") {
         await pickedUp({ key: clean(body.key), by });

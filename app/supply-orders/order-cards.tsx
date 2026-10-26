@@ -12,9 +12,11 @@
 //   Approved       "How do we fill it?": 🚚 Vendor ships to site / 🏬 Sub picks
 //                  up / 🚐 We deliver (the sub's own Pick Up / Deliver choice
 //                  is marked)
-//   On its way     vendor or we deliver: the crew confirms on Supplies
-//                  arrived; a pick-up: ✓ Picked up here. We deliver waits for
-//                  the tablet (Supply Check -> For an account) first.
+//   On its way     whoever is there confirms what came: the crew or the sub
+//                  (Supplies arrived), or the office: Delivered ✓ here (each card,
+//                  or many at once in the bottom bar), with − / + per item.
+//                  From our shelf and not taken on the tablet yet: what came
+//                  leaves the warehouse then (lib/pg/shelves.ts confirmArrival).
 //   Delivered
 //
 // What arrived short or extra is red on its card; what came short is
@@ -42,6 +44,7 @@ import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import ApproveSheet, { FILL_WORDS, FillButtons, postShelves, type FillChoice, type OrderPick } from "./approve-sheet";
 import { BackOrderBox, DifferentBox, type BackOrderLine } from "./back-order";
+import { BigStepper, rowTone } from "@/app/porter/[code]/CrewArrived";
 
 export type SubOrder = Record<string, unknown> & {
   rowNumber?: number;
@@ -104,9 +107,10 @@ type Card = {
 
 export type OrderSummary = { total: number; newOrReview: number; approved: number; pending: number; completed: number };
 
-type Bulk = "decline" | FillChoice;
+type Bulk = "decline" | "delivered" | FillChoice;
 const BULK_LABEL: Record<Bulk, string> = {
   decline: "✗ Decline",
+  delivered: "✓ Delivered",
   vendor: `${FILL_WORDS.vendor.icon} ${FILL_WORDS.vendor.label}`,
   pickup: `${FILL_WORDS.pickup.icon} ${FILL_WORDS.pickup.label}`,
   deliver: `${FILL_WORDS.deliver.icon} ${FILL_WORDS.deliver.label}`,
@@ -145,12 +149,15 @@ export function orderGroupKey(order: SubOrder): string {
 /** What the card says while the order is on its way. */
 function onTheWayText(card: Card): string {
   const delivery = card.delivery;
-  if (!delivery) return "The crew confirms on Supplies arrived.";
+  if (!delivery) return "Crew, sub or office: ✓ Delivered when it comes.";
   if (delivery.fill === "pickup") return `${FILL_WORDS.pickup.icon} Waiting for the sub at the warehouse.`;
   if (delivery.fill === "deliver" && !delivery.sentAt) return `${FILL_WORDS.deliver.icon} Ready to go: take it on the tablet (Supply Check → For an account).`;
-  if (delivery.fill === "deliver") return `${FILL_WORDS.deliver.icon} On the way. The crew confirms on Supplies arrived.`;
-  return `${FILL_WORDS.vendor.icon} The vendor ships it. The crew confirms on Supplies arrived.`;
+  if (delivery.fill === "deliver") return `${FILL_WORDS.deliver.icon} On the way.`;
+  return `${FILL_WORDS.vendor.icon} The vendor ships it.`;
 }
+
+/** Everything still on its way for an order: its delivery and its back orders. ✓ Delivered confirms these. */
+const openOf = (card: Card): Waiting[] => [...(card.delivery ? [card.delivery] : []), ...card.backOrders];
 
 export default function OrderCards({
   orders,
@@ -190,7 +197,8 @@ export default function OrderCards({
   const [busy, setBusy] = useState("");
   const [approving, setApproving] = useState<Card | null>(null);
   const [confirm, setConfirm] = useState<{ action: Bulk; cards: Card[] } | null>(null);
-  const [pickingUp, setPickingUp] = useState<Card | null>(null);
+  // ✓ Delivered: the order whose amounts are being checked.
+  const [delivering, setDelivering] = useState<Card | null>(null);
   // 🗑 Delete order: the cards waiting for a reason.
   const [deleting, setDeleting] = useState<Card[] | null>(null);
   // "📌 Pin to board": the orders waiting for a square to be picked.
@@ -411,10 +419,13 @@ export default function OrderCards({
     await syncFor(list.flatMap((card) => trackingFor(card, step)));
   }
 
-  /** Decline or one way to fill, for one card. Returns false when it could not. */
+  /** Decline, ✓ Delivered (as ordered) or one way to fill, for one card. Returns false when it could not. */
   async function act(card: Card, action: Bulk): Promise<boolean> {
     try {
       if (action === "decline") await postShelves({ action: "decline", order: card.order });
+      else if (action === "delivered") {
+        for (const entry of openOf(card)) await postShelves({ action: "delivered", key: entry.key, got: entry.lines.map((line) => line.qty) });
+      }
       else if (card.step === "ordered") await postShelves({ action: "approve", order: card.order, lines: [], add: [], fill: action });
       else await postShelves({ action: "fill", order: card.order, fill: action });
       return true;
@@ -428,22 +439,33 @@ export default function OrderCards({
     setBusy(action);
     const done: Card[] = [];
     for (const card of list) if (await act(card, action)) done.push(card);
-    await afterChange(done, action === "decline" ? "" : "bought");
+    await afterChange(done, action === "decline" ? "" : action === "delivered" ? "delivered" : "bought");
     setSelected(new Set());
     setBusy("");
     if (done.length > 0) showToast(`${BULK_LABEL[action]}: ${done.length} order${done.length === 1 ? "" : "s"} ✓`);
   }
 
-  async function pickUp(card: Card) {
-    if (!card.delivery) return;
-    setBusy("pickup");
+  /**
+   * ✓ Delivered from the sheet: each open delivery of the order with the
+   * amounts as checked. Less than ordered stays open as a back order (the
+   * order stays on its way); otherwise it is Delivered.
+   */
+  async function deliver(card: Card, got: number[][]) {
+    setBusy("delivered");
+    const entries = openOf(card);
+    let short = false;
     try {
-      await postShelves({ action: "pickedUp", key: card.delivery.key });
-      setPickingUp(null);
-      showToast(`${card.accountName}: picked up ✓`);
-      await afterChange([card], "delivered");
+      for (const [index, entry] of entries.entries()) {
+        const amounts = entry.lines.map((line, at) => got[index]?.[at] ?? line.qty);
+        await postShelves({ action: "delivered", key: entry.key, got: amounts });
+        if (amounts.some((n, at) => n < entry.lines[at].qty)) short = true;
+      }
+      setDelivering(null);
+      showToast(short ? `${card.accountName}: ✓ Delivered. The rest is a back order.` : `${card.accountName}: ✓ Delivered`);
+      await afterChange([card], short ? "bought" : "delivered");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "That did not save.", "bad");
+      await Promise.all([loadExtras(), onChanged()]);
     } finally {
       setBusy("");
     }
@@ -501,8 +523,9 @@ export default function OrderCards({
   const canPin = pinInfo !== null && pinIsOn(pinInfo, "order");
 
   const picked = shown.filter((card) => selected.has(card.key));
-  /** Who a bulk button works for: new or approved orders (a Crew Link order is new until it is filled). */
-  const pickedFor = (action: Bulk) => picked.filter((card) => card.step === "ordered" || (card.step === "approved" && (action !== "decline" || !card.delivery)));
+  /** Who a bulk button works for: ✓ Delivered, orders with something on its way; the rest, new or approved orders (a Crew Link order is new until it is filled). */
+  const pickedFor = (action: Bulk) =>
+    action === "delivered" ? picked.filter((card) => openOf(card).length > 0) : picked.filter((card) => card.step === "ordered" || (card.step === "approved" && (action !== "decline" || !card.delivery)));
   const toggle = (key: string) =>
     setSelected((current) => {
       const next = new Set(current);
@@ -516,7 +539,7 @@ export default function OrderCards({
       <Tips
         id="order-cards-inbox"
         steps={[
-          { target: '[data-tip="order-counts"]', text: "One card per order, from anywhere. Approve or decline; then pick how we fill it. The crew confirms on Supplies arrived." },
+          { target: '[data-tip="order-counts"]', text: "One card per order, from anywhere. Approve or decline; then pick how we fill it. Crew, sub or office: Delivered ✓ when it comes." },
           { target: '[data-tip="order-list"]', text: "Tick several cards to decline them, or fill them the same way, at once." },
         ]}
       />
@@ -616,15 +639,15 @@ export default function OrderCards({
                 </div>
               ) : null}
               {card.step === "bought" && card.backOrders.length === 0 ? <p className="ui-muted">{onTheWayText(card)}</p> : null}
-              {card.step === "bought" && card.delivery?.fill === "pickup" ? (
+              {openOf(card).length > 0 ? (
                 <button
                   type="button"
                   disabled={busy !== ""}
-                  onClick={() => setPickingUp(card)}
+                  onClick={() => setDelivering(card)}
                   className="mt-2 flex min-h-[64px] w-full items-center justify-center rounded-2xl bg-green-600 px-4 text-xl font-black text-white shadow-sm active:scale-[0.98] disabled:opacity-50"
-                  data-order-picked-up
+                  data-order-delivered
                 >
-                  ✓ Picked up
+                  Delivered ✓
                 </button>
               ) : null}
 
@@ -670,7 +693,7 @@ export default function OrderCards({
             >
               🗑 Delete ({picked.length})
             </button>
-            {(["vendor", "pickup", "deliver", "decline"] as Bulk[]).map((bulk) => {
+            {(["delivered", "vendor", "pickup", "deliver", "decline"] as Bulk[]).map((bulk) => {
               const list = pickedFor(bulk);
               return (
                 <button
@@ -678,7 +701,8 @@ export default function OrderCards({
                   type="button"
                   disabled={list.length === 0 || busy !== ""}
                   onClick={() => setConfirm({ action: bulk, cards: list })}
-                  className={`min-h-[56px] rounded-2xl px-2 text-base font-black disabled:bg-slate-300 disabled:text-slate-500 ${bulk === "decline" ? "bg-white text-red-700 ring-2 ring-red-300" : "bg-blue-700 text-white"}`}
+                  data-bulk-action={bulk}
+                  className={`min-h-[56px] rounded-2xl px-2 text-base font-black disabled:bg-slate-300 disabled:text-slate-500 ${bulk === "decline" ? "bg-white text-red-700 ring-2 ring-red-300" : bulk === "delivered" ? "bg-green-600 text-white" : "bg-blue-700 text-white"}`}
                 >
                   {BULK_LABEL[bulk]}
                   {list.length > 0 ? ` (${list.length})` : ""}
@@ -703,16 +727,7 @@ export default function OrderCards({
 
       <DeleteSheet cards={deleting} busy={busy === "delete"} onCancel={() => setDeleting(null)} onDelete={(reason, note) => deleting && void deleteCards(deleting, reason, note)} />
 
-      <ConfirmSheet
-        open={pickingUp !== null}
-        title={pickingUp ? `Picked up: ${pickingUp.accountName}?` : ""}
-        text="It comes off the warehouse and goes on the site's stock. The order is Delivered."
-        confirmLabel="✓ Picked up"
-        busy={busy !== ""}
-        busyLabel="Saving…"
-        onConfirm={() => pickingUp && void pickUp(pickingUp)}
-        onCancel={() => setPickingUp(null)}
-      />
+      <DeliveredSheet card={delivering} busy={busy === "delivered"} onCancel={() => setDelivering(null)} onConfirm={(got) => delivering && void deliver(delivering, got)} />
 
       <Sheet
         open={pinning !== null}
@@ -750,6 +765,62 @@ function HandoffDetail({ card, items, settings }: { card: Card; items: HandoffIt
     <div className="mt-2" data-order-handoff>
       <HandoffCard item={row} settings={settings} detail="" />
     </div>
+  );
+}
+
+/**
+ * ✓ Delivered: what came, per item, filled in with what was ordered; − / +
+ * when more or less came (the same stepper as Crew Link). Less = back order.
+ */
+function DeliveredSheet({ card, busy, onCancel, onConfirm }: { card: Card | null; busy: boolean; onCancel: () => void; onConfirm: (got: number[][]) => void }) {
+  const entries = card ? openOf(card) : [];
+  const [got, setGot] = useState<number[][]>([]);
+
+  useEffect(() => {
+    // Each opening starts with the ordered amounts.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setGot(card ? openOf(card).map((entry) => entry.lines.map((line) => line.qty)) : []);
+  }, [card]);
+
+  const changed = entries.some((entry, index) => entry.lines.some((line, at) => (got[index]?.[at] ?? line.qty) !== line.qty));
+  return (
+    <Sheet
+      open={card !== null}
+      title={`Delivered: ${card?.accountName || "this order"}`}
+      text={changed ? "Less = back order." : "All as ordered?"}
+      onClose={() => (busy ? undefined : onCancel())}
+      busy={busy}
+      actions={
+        <BigButton busy={busy} busyLabel="Saving…" onClick={() => onConfirm(got)}>
+          Delivered ✓
+        </BigButton>
+      }
+    >
+      <div className="ui-stack" data-delivered-sheet>
+        {entries.map((entry, index) => (
+          <div key={entry.key} className="ui-stack">
+            {entry.backOrder ? <p className="ui-strong" style={{ margin: 0 }}>⏳ Back order</p> : null}
+            {entry.lines.map((line, at) => {
+              const value = got[index]?.[at] ?? line.qty;
+              return (
+                <div key={`${entry.key}-${at}`} className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl p-3 ring-1 ring-slate-200 ${rowTone(line.qty, value)}`}>
+                  <span className="text-lg font-bold">
+                    {line.name}
+                    <span className="ui-muted"> · {line.qty}{line.unit ? ` ${line.unit}` : ""}</span>
+                  </span>
+                  <BigStepper
+                    value={value}
+                    onChange={(next) =>
+                      setGot((current) => current.map((row, r) => (r === index ? row.map((n, c) => (c === at ? next : n)) : row)))
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </Sheet>
   );
 }
 
