@@ -11,6 +11,7 @@ import {
   addAccount,
   getAccountsAppsScriptShape,
   updateAccountFromPayload,
+  generateAccountKeyCode,
 } from "@/lib/data/accounts";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
@@ -200,6 +201,33 @@ export async function POST(request: NextRequest) {
     // Set by the updateAccountFields path below (fresh record vs. new
     // values) and logged with the save — see lib/accountChanges.ts.
     let fieldChangesDetail: string | null = null;
+
+    // The Keys tab's "Generate code": a new random code no other account
+    // has, saved only on an account with no code yet (lib/pg/accounts.ts).
+    if (action === "generateKeyCode") {
+      const accountId = String(body.accountId ?? "").trim();
+      if (!accountId) return NextResponse.json({ success: false, error: "accountId is required." }, { status: 400 });
+      if (!accountsOnPostgres()) return NextResponse.json({ success: false, error: "Key codes need the accounts database." }, { status: 400 });
+      try {
+        const { code } = await generateAccountKeyCode(accountId);
+        const actor = await getAdminIdentity(request);
+        if (actor?.accountId) {
+          await logActivity({
+            actorAccountId: actor.accountId,
+            actorRole: actor.role ?? "manager",
+            actorName: actor.name || "",
+            action: "update",
+            entityType: "account",
+            entityId: accountId,
+            detail: describeAccountChanges({ "Key Code": "" }, { "Key Code": code }) || `Key Code: ${code}`,
+          });
+        }
+        return NextResponse.json({ success: true, keyCode: code });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not make a key code.";
+        return NextResponse.json({ success: false, error: message }, { status: /not found/i.test(message) ? 404 : 409 });
+      }
+    }
 
     // Fast path for the account edit page's Save button — reads and
     // writes the Accounts sheet directly instead of routing through Apps

@@ -42,3 +42,5 @@ export const markOnboardingAutoStableApplied: typeof sheets.markOnboardingAutoSt
 export const getAccountsAppsScriptShape = pg.getAccountsAppsScriptShape;
 export const addAccount = pg.addAccount;
 export const updateAccountFromPayload = pg.updateAccountFromPayload;
+// The Keys tab's "Generate code" (migration 060). Postgres only.
+export const generateAccountKeyCode = pg.generateAccountKeyCode;
