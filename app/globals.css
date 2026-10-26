@@ -349,8 +349,12 @@ img {
      Crew Link print views; a new one goes in this list): everything else is hidden so
      only that view prints. Every other page prints its content as it is
      (the navy bar and the sidebar are .no-print). Unscoped, this rule left
-     every page without a print view blank on paper. */
-  body:has(.account-packet-print-view, .sub-detail-print, .ui-print-view, .todo-print-view, .account-update-print-view, .crew-print-view) * {
+     every page without a print view blank on paper.
+     :where() keeps this rule as weak as plain `body *` (0,0,1). A bare
+     :has() counts as a class (0,1,1) and beat every view's own
+     `.x, .x * { visibility: visible }` (0,1,0), so from Oct 20 every print
+     view printed blank. */
+  body:where(:has(.account-packet-print-view, .sub-detail-print, .ui-print-view, .todo-print-view, .account-update-print-view, .crew-print-view)) * {
     visibility: hidden;
   }
 
