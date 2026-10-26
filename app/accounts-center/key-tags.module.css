@@ -1,0 +1,44 @@
+/* Key tags for paper (the Keys tab's Print tag / Print tags): a grid of
+   1.25" x 0.75" tags on letter paper, six across (7.5" fits inside the
+   browser's usual margins), with dashed cut lines. Only the code and
+   "Cleaning World" are on a tag. */
+
+.sheet {
+  display: grid;
+  grid-template-columns: repeat(6, 1.25in);
+  grid-auto-rows: 0.75in;
+  /* The grid's own top and left edges; each tag draws its right and bottom. */
+  border-top: 1px dashed #000;
+  border-left: 1px dashed #000;
+  width: max-content;
+  color: #000;
+  background: #fff;
+}
+
+.tag {
+  box-sizing: border-box;
+  border-right: 1px dashed #000;
+  border-bottom: 1px dashed #000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.code {
+  font-family: ui-monospace, "Courier New", monospace;
+  font-size: 22pt;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+
+.brand {
+  margin-top: 4pt;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 6.5pt;
+  line-height: 1;
+}

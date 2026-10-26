@@ -50,3 +50,6 @@ next-env.d.ts
 
 # Lists with customer names made for Andres (never committed).
 docs/migration-reports/private/
+
+# Old key sheet for the one-time Keys import. Holds alarm codes: never commit.
+keys-import.csv

@@ -25,6 +25,7 @@ import { normalizeSubName, resolveAssignedSubKey } from "@/lib/subAccountMatchin
 import { isCancellationReason, isCancelledStatus } from "@/lib/cancellation";
 import { dateOrNull, timestampOrNull, toISO } from "@/lib/dateUtils";
 import { cleaningTimeText, parseCleaningTime } from "@/lib/cleaningTime";
+import { linkKeyHolder, randomKeyCode, type KeyHolderPeople } from "@/lib/keyHolder";
 
 const SHEET_ORDER = "source_row NULLS LAST, created_at, pk";
 
@@ -251,6 +252,97 @@ function cleaningTimeWrite(current: AccountRow, fields: Record<string, unknown>)
   const had = text(current, "cleaning_time");
   if (value === had) return { sets: [], before: {}, after: {} };
   return { sets: [["cleaning_time", value]], before: { "Cleaning Time": had }, after: { "Cleaning Time": value } };
+}
+
+/* ---------- keys: key code and key holder (migration 060; not sheet columns) ---------- */
+
+const KEYS_NOT_READY = "Keys cannot be saved until their database update (060) has run. Nothing was saved.";
+
+/** Another account (deleted and test ones too) already has this code, case ignored. */
+async function keyCodeTaken(code: string, exceptPk: number | null): Promise<boolean> {
+  const rows = (await getSql().query(
+    `SELECT 1 FROM accounts WHERE upper(key_code) = upper($1) AND ($2::bigint IS NULL OR pk <> $2) LIMIT 1`,
+    [code, exceptPk]
+  )) as unknown[];
+  return rows.length > 0;
+}
+
+async function keyCodeWrite(current: AccountRow, fields: Record<string, unknown>): Promise<{ sets: [column: string, value: string][]; before: Record<string, string>; after: Record<string, string> }> {
+  if (fields.keyCode === undefined) return { sets: [], before: {}, after: {} };
+  const value = String(fields.keyCode ?? "").trim();
+  if (!("key_code" in current)) {
+    if (value) throw new Error(KEYS_NOT_READY);
+    return { sets: [], before: {}, after: {} };
+  }
+  if (value && !/^[A-Za-z0-9-]{1,20}$/.test(value)) throw new Error("A key code is letters and numbers only. Nothing was saved.");
+  const had = text(current, "key_code");
+  if (value === had) return { sets: [], before: {}, after: {} };
+  if (value && (await keyCodeTaken(value, current.pk))) throw new Error(`Key code ${value} is already used by another account. Nothing was saved.`);
+  return { sets: [["key_code", value]], before: { "Key Code": had }, after: { "Key Code": value } };
+}
+
+async function keyHolderPeople(): Promise<KeyHolderPeople> {
+  const sql = getSql();
+  const [subs, staff] = await Promise.all([
+    sql.query(`SELECT id, contact_name, company_name FROM subcontractors`) as unknown as Promise<{ id: string; contact_name: string; company_name: string }[]>,
+    sql.query(`SELECT id, name FROM staff`) as unknown as Promise<{ id: string; name: string }[]>,
+  ]);
+  return {
+    subs: subs.map((s) => ({ id: s.id, contactName: s.contact_name, companyName: s.company_name })),
+    staff: staff.map((s) => ({ id: s.id, name: s.name })),
+  };
+}
+
+async function keyHolderWrite(current: AccountRow, fields: Record<string, unknown>): Promise<{ sets: [column: string, value: string | null][]; before: Record<string, string>; after: Record<string, string> }> {
+  if (fields.keyHolder === undefined) return { sets: [], before: {}, after: {} };
+  const value = String(fields.keyHolder ?? "").trim().replace(/\s+/g, " ");
+  if (!("key_holder" in current)) {
+    if (value) throw new Error(KEYS_NOT_READY);
+    return { sets: [], before: {}, after: {} };
+  }
+  const had = text(current, "key_holder");
+  if (value === had) return { sets: [], before: {}, after: {} };
+  const link = value ? linkKeyHolder(value, await keyHolderPeople()) : { subId: null, staffId: null };
+  return {
+    sets: [
+      ["key_holder", value],
+      ["key_holder_sub_id", link.subId],
+      ["key_holder_staff_id", link.staffId],
+    ],
+    before: { "Key Holder": had },
+    after: { "Key Holder": value },
+  };
+}
+
+/**
+ * The Keys tab's "Generate code": a new random code no other account has,
+ * saved on an account that has none yet. Never replaces a code.
+ */
+export async function generateAccountKeyCode(accountId: string): Promise<{ code: string }> {
+  const sql = getSql();
+  const found = (await sql.query(`SELECT * FROM accounts WHERE btrim(id) = $1 ORDER BY ${SHEET_ORDER} LIMIT 1`, [accountId.trim()])) as AccountRow[];
+  if (found.length === 0) throw new Error(`Account "${accountId}" not found.`);
+  const current = found[0];
+  if (!("key_code" in current)) throw new Error(KEYS_NOT_READY);
+  if (text(current, "key_code")) throw new Error("This account already has a key code.");
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const code = randomKeyCode();
+    if (await keyCodeTaken(code, null)) continue;
+    try {
+      // key_code = '' so a code saved a moment ago by someone else is never replaced.
+      const saved = (await sql.query(
+        `UPDATE accounts SET key_code = $1, updated_at = now() WHERE pk = $2 AND key_code = '' RETURNING key_code`,
+        [code, current.pk]
+      )) as unknown[];
+      if (saved.length === 0) throw new Error("This account already has a key code. Reload the page.");
+      return { code };
+    } catch (err) {
+      // Taken between the check and the save (the unique index): try another.
+      if (err instanceof Error && /accounts_key_code_unique/.test(err.message)) continue;
+      throw err;
+    }
+  }
+  throw new Error("Could not find an unused key code. Try again.");
 }
 
 /* ---------- typed values kept next to the text ---------- */
@@ -512,9 +604,15 @@ export async function updateAccountFieldsDirect(
   const cleaningTime = cleaningTimeWrite(current, resolvedFields);
   Object.assign(before, cleaningTime.before);
   Object.assign(after, cleaningTime.after);
+  const keyCode = await keyCodeWrite(current, resolvedFields);
+  Object.assign(before, keyCode.before);
+  Object.assign(after, keyCode.after);
+  const keyHolder = await keyHolderWrite(current, resolvedFields);
+  Object.assign(before, keyHolder.before);
+  Object.assign(after, keyHolder.after);
 
   const { assignments, params } = writes.length > 0 ? await buildAccountWrite(current, writes) : { assignments: [] as string[], params: [] as unknown[] };
-  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets, ...subPrice.sets, ...cleaningTime.sets]) {
+  for (const [column, value] of [...cancellation.sets, ...notesForSub.sets, ...subPrice.sets, ...cleaningTime.sets, ...keyCode.sets, ...keyHolder.sets]) {
     params.push(value);
     assignments.push(`${column} = $${params.length}`);
   }
@@ -756,6 +854,11 @@ function toAppsScriptAccount(row: AccountRow, action: AppsScriptAccountsAction):
           // Migration 050. cleaningTimeReady: the field can be saved here (false until 050 runs).
           cleaningTime: text(row, "cleaning_time"),
           cleaningTimeReady: "cleaning_time" in row ? "true" : "",
+          // Migration 060 (the Keys tab). keysReady: false until 060 runs.
+          keyCode: text(row, "key_code"),
+          keyHolder: text(row, "key_holder"),
+          keyHolderLinked: row.key_holder_sub_id ? "sub" : row.key_holder_staff_id ? "staff" : "",
+          keysReady: "key_code" in row ? "true" : "",
         }
       : {}),
     accountHealth: held(row, 19),
