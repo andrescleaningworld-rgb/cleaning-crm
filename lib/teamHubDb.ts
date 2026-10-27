@@ -1962,3 +1962,20 @@ export async function recordTeamHubChecklistAlertSent(siteId: number, atInstant:
     ON CONFLICT (site_id, alert_date) DO NOTHING
   `;
 }
+
+// One account's Crew Link supply requests between two days (both included),
+// newest first — the supplies part of the account report (Share Report).
+export async function listCrewLinkSupplyOrdersForReport(accountId: string, startDay: string, endDay: string, limit = 200): Promise<TeamHubSupplyOrder[]> {
+  const sql = getSql();
+  const rows = await sql`
+    SELECT * FROM supply_orders
+    WHERE crew_link_account_id = ${accountId}
+      AND created_at >= (${startDay}::date::timestamp AT TIME ZONE ${TEAM_HUB_TIMEZONE})
+      AND created_at < ((${endDay}::date + 1)::timestamp AT TIME ZONE ${TEAM_HUB_TIMEZONE})
+    ORDER BY created_at DESC LIMIT ${limit}
+  `;
+  const orders = rows.map((r) => rowToSupplyOrder(r as Record<string, unknown>));
+  const linesByOrderId = await getSupplyOrderLines(orders.map((o) => o.id));
+  for (const order of orders) order.lines = linesByOrderId.get(order.id) ?? [];
+  return orders;
+}

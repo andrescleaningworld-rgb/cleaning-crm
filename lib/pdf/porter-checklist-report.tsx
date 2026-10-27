@@ -267,7 +267,9 @@ export type PorterChecklistReportData = {
   address: string;
   periodLabel: string;
   generatedDate: string;
+  // Both newest first; the report shows checklists, then supply requests.
   submissions: PorterChecklistReportSubmission[];
+  supplyRequests: SelectedSupplyRequest[];
   truncated: boolean;
 };
 
@@ -322,8 +324,10 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
         <View style={styles.accentBar} />
 
         <View style={styles.body}>
+          {data.submissions.length > 0 ? (
+          <>
           <View style={styles.summarySection}>
-            <Text style={styles.sectionTitle}>Summary</Text>
+            <Text style={styles.sectionTitle}>Checklist summary</Text>
 
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.tableHeaderCell, styles.colDate]}>Date</Text>
@@ -353,12 +357,23 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
           </View>
 
           <Text style={styles.detailIntro} break>
-            Submission Detail
+            Checklists
           </Text>
 
           {data.submissions.map((submission) => (
             <ChecklistBlock key={submission.id} submission={submission} />
           ))}
+          </>
+          ) : null}
+
+          {data.supplyRequests.length > 0 ? (
+            <View break={data.submissions.length > 0}>
+              <Text style={styles.detailIntro}>Supply requests</Text>
+              {data.supplyRequests.map((request) => (
+                <SupplyBlock key={request.id} request={request} />
+              ))}
+            </View>
+          ) : null}
         </View>
 
         <ReportFooter />

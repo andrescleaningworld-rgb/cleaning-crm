@@ -10,6 +10,7 @@
 // never delete or hide rows here.
 
 import { getSql } from "@/lib/db";
+import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
 import {
   DEFAULT_TAB_NAME,
   MAX_TABS,
@@ -389,9 +390,9 @@ export async function listSubmissionsForReport(
   const rows = await sql`
     SELECT * FROM checklist_submissions
     WHERE account_id = ${accountId}
-      AND submitted_at >= ${startISO}
-      AND submitted_at < ${endISO}
-    ORDER BY submitted_at ASC
+      AND submitted_at >= (${startISO}::date::timestamp AT TIME ZONE ${TEAM_HUB_TIMEZONE})
+      AND submitted_at < ((${endISO}::date + 1)::timestamp AT TIME ZONE ${TEAM_HUB_TIMEZONE})
+    ORDER BY submitted_at DESC
     LIMIT 200
   `;
   return rows.map((r) => {

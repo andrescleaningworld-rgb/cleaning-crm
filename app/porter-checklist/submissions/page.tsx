@@ -2,8 +2,10 @@
 
 // Crew Link — Submitted: every checklist and supply request crews sent in
 // through Crew Link, newest first. ?accountId= (from an account card on the
-// Crew Link page) opens it filtered to that account. Rows can be checked and
-// shared together as one PDF ("Share selected"), grouped by account.
+// Crew Link page) opens it filtered to that account. The list always shows
+// everything; the report range only decides what goes in the PDFs (Share
+// Report, and Share selected, which takes the checked rows in the range,
+// grouped by account).
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
@@ -166,8 +168,10 @@ export default function PorterChecklistSubmissionsPage() {
     setShareError("");
   }, [accountFilter, typeFilter, rangePreset, customStart, customEnd]);
 
-  // The days the list shows, inclusive. A custom range missing a date shows everything.
-  const listRange = useMemo((): { start: string; end: string } | null => {
+  // The report range, as days (inclusive). It only decides what Share Report
+  // and Share selected put in the PDF; the list always shows everything.
+  // null while a custom range is missing a date.
+  const reportRange = useMemo((): { start: string; end: string } | null => {
     if (rangePreset === "custom") {
       return customStart && customEnd ? { start: customStart, end: customEnd } : null;
     }
@@ -176,6 +180,23 @@ export default function PorterChecklistSubmissionsPage() {
     return { start: localDay(start), end: localDay(new Date()) };
   }, [rangePreset, customStart, customEnd]);
 
+  // Every submission's time by row key, for checking a selection against the range.
+  const atByKey = useMemo(
+    () =>
+      new Map<string, string>([
+        ...submissions.map((s): [string, string] => [`c:${s.id}`, s.submittedAt]),
+        ...supplyRequests.map((r): [string, string] => [`s:${r.id}`, r.createdAt]),
+      ]),
+    [submissions, supplyRequests]
+  );
+  const inReportRange = (at: string) => {
+    if (!reportRange) return false;
+    const day = localDay(at);
+    return day >= reportRange.start && day <= reportRange.end;
+  };
+  const selectedInRange = [...selected].filter((key) => inReportRange(atByKey.get(key) ?? "")).length;
+
+  // Everything for the account and type filters, newest first (no date limit).
   const rows = useMemo((): Row[] => {
     const all: Row[] = [
       ...(typeFilter === "supplies"
@@ -185,14 +206,8 @@ export default function PorterChecklistSubmissionsPage() {
         ? []
         : supplyRequests.map((r): Row => ({ key: `s:${r.id}`, kind: "supplies", at: r.createdAt, supplies: r }))),
     ];
-    return all
-      .filter((row) => {
-        if (!listRange) return true;
-        const day = localDay(row.at);
-        return day >= listRange.start && day <= listRange.end;
-      })
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  }, [submissions, supplyRequests, typeFilter, listRange]);
+    return all.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  }, [submissions, supplyRequests, typeFilter]);
 
   const allShownSelected = rows.length > 0 && rows.every((row) => selected.has(row.key));
 
@@ -237,24 +252,12 @@ export default function PorterChecklistSubmissionsPage() {
     setExpandedKey(expandedKey === key ? null : key);
   }
 
-  function getReportRange(): { start: string; end: string } {
-    if (rangePreset === "custom") {
-      return { start: customStart, end: customEnd };
-    }
-    const days = rangePreset === "7" ? 7 : 30;
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
-  }
-
   function validateReportRange(): { start: string; end: string } | null {
-    const { start, end } = getReportRange();
-    if (!start || !end) {
+    if (!reportRange) {
       setReportError("Choose a start and end date.");
       return null;
     }
-    return { start, end };
+    return reportRange;
   }
 
   async function readPdf(response: Response): Promise<{ blob: Blob; filename: string }> {
@@ -296,8 +299,8 @@ export default function PorterChecklistSubmissionsPage() {
       const accountName = flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName || "account";
       await navigator.share({
         files: [file],
-        title: `Crew Link Checklist Report — ${accountName}`,
-        text: `Crew Link checklist report for ${accountName}`,
+        title: `Crew Link Report — ${accountName}`,
+        text: `Crew Link report for ${accountName}`,
       });
     } catch (err) {
       // AbortError means the user closed the native share sheet without
@@ -326,10 +329,19 @@ export default function PorterChecklistSubmissionsPage() {
   }
 
   // Same flow as Share Report (share sheet where the device has one, a
-  // download otherwise), but one PDF with only the checked rows.
+  // download otherwise), but one PDF with only the checked rows that fall in
+  // the report range.
   async function handleShareSelected() {
-    const keys = [...selected];
-    if (keys.length === 0) return;
+    if (selected.size === 0) return;
+    if (!reportRange) {
+      setShareError("Choose a start and end date for the report range.");
+      return;
+    }
+    const keys = [...selected].filter((key) => inReportRange(atByKey.get(key) ?? ""));
+    if (keys.length === 0) {
+      setShareError("None of the selected submissions are in the report range.");
+      return;
+    }
     const ids = (prefix: string) => keys.filter((k) => k.startsWith(prefix)).map((k) => Number(k.slice(2)));
     setShareError("");
     setSharePending(true);
@@ -360,16 +372,11 @@ export default function PorterChecklistSubmissionsPage() {
   }
 
   const accountName = accountFilter ? flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName : "";
-  const typeCounts = useMemo(() => {
-    const inRange = (at: string) => {
-      if (!listRange) return true;
-      const day = localDay(at);
-      return day >= listRange.start && day <= listRange.end;
-    };
-    const checklists = submissions.filter((s) => inRange(s.submittedAt)).length;
-    const supplies = supplyRequests.filter((r) => inRange(r.createdAt)).length;
-    return { all: checklists + supplies, checklists, supplies };
-  }, [submissions, supplyRequests, listRange]);
+  const typeCounts = {
+    all: submissions.length + supplyRequests.length,
+    checklists: submissions.length,
+    supplies: supplyRequests.length,
+  };
 
   return (
     <div className="ui-screen">
@@ -455,8 +462,9 @@ export default function PorterChecklistSubmissionsPage() {
         )}
       </div>
       {!accountFilter ? (
-        <p className="ui-muted">Choose a specific account above to share or download its checklist report, or check rows below to share just those.</p>
+        <p className="ui-muted">Choose a specific account above to share or download its report, or check rows below to share just those.</p>
       ) : null}
+      <p className="ui-muted">The report range decides what goes in Share Report and Share selected. The list below shows everything.</p>
       {reportError ? (
         <p className="ui-field-error">
           {reportError}
@@ -494,7 +502,7 @@ export default function PorterChecklistSubmissionsPage() {
       {loading || accountFilter === null ? <p className="ui-muted">Loading submissions…</p> : null}
 
       {!loading && accountFilter !== null && rows.length === 0 ? (
-        <p className="ui-muted">Nothing submitted in this range.</p>
+        <p className="ui-muted">Nothing submitted yet.</p>
       ) : null}
 
       {rows.length > 0 ? (
@@ -676,7 +684,12 @@ export default function PorterChecklistSubmissionsPage() {
 
       {selected.size > 0 ? (
         <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-blue-700 bg-white p-3 shadow-lg">
-          <span className="ui-strong">{selected.size} selected</span>
+          <span>
+            <span className="ui-strong">{selected.size} selected</span>
+            {selectedInRange !== selected.size ? (
+              <span className="ui-muted"> · {selectedInRange} in the report range will be shared</span>
+            ) : null}
+          </span>
           {shareError ? <span className="ui-field-error">{shareError}</span> : null}
           <div className="flex gap-2">
             <button type="button" onClick={() => setSelected(new Set())} className="ui-btn ui-btn-second">
