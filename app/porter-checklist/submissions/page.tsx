@@ -3,9 +3,8 @@
 // Crew Link — Submitted: every checklist and supply request crews sent in
 // through Crew Link, newest first. ?accountId= (from an account card on the
 // Crew Link page) opens it filtered to that account. The list always shows
-// everything; the report range only decides what goes in the PDFs (Share
-// Report, and Share selected, which takes the checked rows in the range,
-// grouped by account).
+// everything; the report range only decides what goes in Share Report.
+// Share selected sends every checked row, grouped by account.
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
@@ -169,7 +168,7 @@ export default function PorterChecklistSubmissionsPage() {
   }, [accountFilter, typeFilter, rangePreset, customStart, customEnd]);
 
   // The report range, as days (inclusive). It only decides what Share Report
-  // and Share selected put in the PDF; the list always shows everything.
+  // puts in the PDF; the list and Share selected ignore it.
   // null while a custom range is missing a date.
   const reportRange = useMemo((): { start: string; end: string } | null => {
     if (rangePreset === "custom") {
@@ -179,22 +178,6 @@ export default function PorterChecklistSubmissionsPage() {
     start.setDate(start.getDate() - (rangePreset === "7" ? 7 : 30));
     return { start: localDay(start), end: localDay(new Date()) };
   }, [rangePreset, customStart, customEnd]);
-
-  // Every submission's time by row key, for checking a selection against the range.
-  const atByKey = useMemo(
-    () =>
-      new Map<string, string>([
-        ...submissions.map((s): [string, string] => [`c:${s.id}`, s.submittedAt]),
-        ...supplyRequests.map((r): [string, string] => [`s:${r.id}`, r.createdAt]),
-      ]),
-    [submissions, supplyRequests]
-  );
-  const inReportRange = (at: string) => {
-    if (!reportRange) return false;
-    const day = localDay(at);
-    return day >= reportRange.start && day <= reportRange.end;
-  };
-  const selectedInRange = [...selected].filter((key) => inReportRange(atByKey.get(key) ?? "")).length;
 
   // Everything for the account and type filters, newest first (no date limit).
   const rows = useMemo((): Row[] => {
@@ -329,19 +312,11 @@ export default function PorterChecklistSubmissionsPage() {
   }
 
   // Same flow as Share Report (share sheet where the device has one, a
-  // download otherwise), but one PDF with only the checked rows that fall in
-  // the report range.
+  // download otherwise), but one PDF with every checked row (the report range
+  // does not apply here).
   async function handleShareSelected() {
-    if (selected.size === 0) return;
-    if (!reportRange) {
-      setShareError("Choose a start and end date for the report range.");
-      return;
-    }
-    const keys = [...selected].filter((key) => inReportRange(atByKey.get(key) ?? ""));
-    if (keys.length === 0) {
-      setShareError("None of the selected submissions are in the report range.");
-      return;
-    }
+    const keys = [...selected];
+    if (keys.length === 0) return;
     const ids = (prefix: string) => keys.filter((k) => k.startsWith(prefix)).map((k) => Number(k.slice(2)));
     setShareError("");
     setSharePending(true);
@@ -464,7 +439,7 @@ export default function PorterChecklistSubmissionsPage() {
       {!accountFilter ? (
         <p className="ui-muted">Choose a specific account above to share or download its report, or check rows below to share just those.</p>
       ) : null}
-      <p className="ui-muted">The report range decides what goes in Share Report and Share selected. The list below shows everything.</p>
+      <p className="ui-muted">The report range only applies to Share Report. The list below shows everything, and Share selected sends exactly the rows you check.</p>
       {reportError ? (
         <p className="ui-field-error">
           {reportError}
@@ -684,12 +659,7 @@ export default function PorterChecklistSubmissionsPage() {
 
       {selected.size > 0 ? (
         <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-blue-700 bg-white p-3 shadow-lg">
-          <span>
-            <span className="ui-strong">{selected.size} selected</span>
-            {selectedInRange !== selected.size ? (
-              <span className="ui-muted"> · {selectedInRange} in the report range will be shared</span>
-            ) : null}
-          </span>
+          <span className="ui-strong">{selected.size} selected</span>
           {shareError ? <span className="ui-field-error">{shareError}</span> : null}
           <div className="flex gap-2">
             <button type="button" onClick={() => setSelected(new Set())} className="ui-btn ui-btn-second">
