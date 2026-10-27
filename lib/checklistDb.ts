@@ -410,3 +410,14 @@ export async function getSubmissionDetail(id: number): Promise<SubmissionDetail 
     sections: (row.items_snapshot_json as ChecklistSubmissionSection[]) ?? [],
   };
 }
+
+// The submissions with these ids, with their checklist items (for "Share selected").
+export async function getSubmissionDetailsByIds(ids: number[]): Promise<SubmissionDetail[]> {
+  if (ids.length === 0) return [];
+  const sql = getSql();
+  const rows = await sql`SELECT * FROM checklist_submissions WHERE id = ANY(${ids})`;
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return { ...rowToSummary(row), sections: (row.items_snapshot_json as ChecklistSubmissionSection[]) ?? [] };
+  });
+}
