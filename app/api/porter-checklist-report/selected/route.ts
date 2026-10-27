@@ -2,11 +2,14 @@
 // "Share selected" on the Submitted page: one PDF with only the checked
 // checklists and Crew Link supply requests, grouped by account, newest first.
 // POST { checklistIds: number[], supplyIds: number[] }
+// Only supply requests picked: the Supply Order PDF instead (lib/pdf/supply-order.tsx).
 import { NextRequest, NextResponse } from "next/server";
 import { fetchAllMainAccounts } from "@/lib/data/accounts";
 import { getSubmissionDetailsByIds } from "@/lib/checklistDb";
 import { getCrewLinkSupplyOrdersByIds } from "@/lib/teamHubDb";
 import { renderSelectedSubmissionsReportPdf, type SelectedReportGroup, type SelectedReportItem } from "@/lib/pdf/porter-checklist-report";
+import { renderSupplyOrderPdf } from "@/lib/pdf/supply-order";
+import { loadSupplyOrderDocs, supplyOrderFileName } from "@/lib/pg/supply-order-docs";
 
 export const maxDuration = 45;
 
@@ -31,6 +34,21 @@ export async function POST(request: NextRequest) {
     }
     if (checklistIds.length + supplyIds.length > MAX_ITEMS) {
       return NextResponse.json({ success: false, error: `Select at most ${MAX_ITEMS} at a time.` }, { status: 400 });
+    }
+
+    // Only supply requests picked: the Supply Order PDF (one order per page), not a cleaning report.
+    if (checklistIds.length === 0) {
+      const docs = await loadSupplyOrderDocs(supplyIds.map((id) => `crew-${id}`));
+      if (docs.length === 0) return NextResponse.json({ success: false, error: "Those supply requests were not found." }, { status: 404 });
+      const pdf = await renderSupplyOrderPdf(docs);
+      return new NextResponse(new Uint8Array(pdf), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${supplyOrderFileName(docs)}"`,
+          "Cache-Control": "no-store",
+        },
+      });
     }
 
     const [checklists, orders, accounts] = await Promise.all([

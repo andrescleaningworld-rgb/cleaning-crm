@@ -331,10 +331,12 @@ export default function PorterChecklistSubmissionsPage() {
       );
       if (canShareFiles) {
         const file = new File([blob], filename, { type: "application/pdf" });
+        // Only supply requests picked: the PDF is a Supply Order, and it says so.
+        const suppliesOnly = ids("c:").length === 0;
         await navigator.share({
           files: [file],
-          title: "Crew Link Report",
-          text: `Crew Link report (${keys.length} submission${keys.length === 1 ? "" : "s"})`,
+          title: suppliesOnly ? "Supply Order" : "Crew Link Report",
+          text: suppliesOnly ? `Supply order${keys.length === 1 ? "" : "s"} from Cleaning World Inc.` : `Crew Link report (${keys.length} submission${keys.length === 1 ? "" : "s"})`,
         });
       } else {
         downloadBlob(blob, filename);

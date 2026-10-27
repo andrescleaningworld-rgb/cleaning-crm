@@ -690,7 +690,7 @@ function SupplySettingsSection() {
 
         <div className="flex flex-col gap-3 sm:flex-row lg:min-w-[360px]">
           <Link
-            href="/supplies"
+            href="/supplies/stock?tab=products"
             className="ui-btn ui-btn-main"
           >
             Manage Supply Items

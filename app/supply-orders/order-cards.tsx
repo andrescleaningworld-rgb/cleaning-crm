@@ -41,12 +41,14 @@ import { SquareTiles, pinIsOn, pinRecord, usePinInfo, type BoardSpot } from "../
 import { BigButton, ConfirmSheet, Counts, EmptyState, ErrorBox, Field, Sheet, StatusPill, Tips, showToast, type StatusKind } from "@/app/ui";
 import { ORDER_STEPS, isLate, isMine, orderStepFromStatus, type HandoffItem } from "@/lib/handoffs";
 import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
+import { orderGroupKey } from "@/lib/supplyOrderGroup";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import ApproveSheet, { FILL_WORDS, FillButtons, postShelves, type FillChoice, type OrderPick } from "./approve-sheet";
 import { BackOrderBox, DifferentBox } from "./back-order";
 import type { ShelfDifferent, ShelfWaiting, ShelvesState } from "./shelves-data";
 import { BigStepper, rowTone } from "@/app/porter/[code]/CrewArrived";
+import { downloadSupplyOrderPdf } from "./order-pdf";
 
 export type SubOrder = Record<string, unknown> & {
   rowNumber?: number;
@@ -64,7 +66,7 @@ export type SubOrder = Record<string, unknown> & {
   notes?: string;
 };
 
-type CrewOrder = {
+export type CrewOrder = {
   id: number;
   accountId: string;
   accountName: string;
@@ -80,7 +82,7 @@ type Waiting = ShelfWaiting;
 type Different = ShelfDifferent;
 
 type Item = { itemId: string; text: string; delivery: string; status: string; step: string; row?: SubOrder };
-type Card = {
+export type Card = {
   key: string;
   source: "sub" | "crew";
   /** What the server knows the order by. */
@@ -147,26 +149,182 @@ export function statusKind(status: string): StatusKind {
   return "off";
 }
 
-// Same rule as the print page: lines sent together share orderGroupId;
-// older lines fall back to the same account + sub + time.
-export function orderGroupKey(order: SubOrder): string {
-  const groupId = clean(order.orderGroupId);
-  if (groupId) return `group:${groupId}`;
-  return `fallback:${clean(order.accountName).toLowerCase()}|${clean(order.subcontractor).toLowerCase()}|${clean(order.timestamp)}`;
-}
+// One rule for grouping order lines into orders (also the print page and the PDF).
+export { orderGroupKey };
 
 /** What the card says while the order is on its way. */
-function onTheWayText(card: Card): string {
+export function onTheWayText(card: Card): string {
   const delivery = card.delivery;
   if (!delivery) return "Crew, sub or office: ✓ Delivered when it comes.";
   if (delivery.fill === "pickup") return `${FILL_WORDS.pickup.icon} Waiting for the sub at the warehouse.`;
   if (delivery.fill === "deliver" && !delivery.sentAt) return `${FILL_WORDS.deliver.icon} Ready to go: take it on the tablet (Supply Check → For an account).`;
   if (delivery.fill === "deliver") return `${FILL_WORDS.deliver.icon} On the way.`;
-  return `${FILL_WORDS.vendor.icon} The vendor ships it.`;
+  return `${FILL_WORDS.vendor.icon} Ships to site.`;
 }
 
 /** Everything still on its way for an order: its delivery and its back orders. ✓ Delivered confirms these. */
-const openOf = (card: Card): Waiting[] => [...(card.delivery ? [card.delivery] : []), ...card.backOrders];
+export const openOf = (card: Card): Waiting[] => [...(card.delivery ? [card.delivery] : []), ...card.backOrders];
+
+/* ---------- what can be done to an order (this page and the Supplies home) ---------- */
+
+/** What one tap does to an order. */
+export type CardAction = "decline" | "delivered" | FillChoice;
+
+/** Decline, ✓ Delivered (as ordered) or one way to fill (approving it first when it is new). Throws when it did not save. */
+export async function cardAction(card: Card, action: CardAction): Promise<void> {
+  if (action === "decline") await postShelves({ action: "decline", order: card.order });
+  else if (action === "delivered") {
+    for (const entry of openOf(card)) await postShelves({ action: "delivered", key: entry.key, got: entry.lines.map((line) => line.qty) });
+  } else if (card.step === "ordered") await postShelves({ action: "approve", order: card.order, lines: [], add: [], fill: action });
+  else await postShelves({ action: "fill", order: card.order, fill: action });
+}
+
+/**
+ * ✓ Delivered with the amounts as checked (`got[entry][line]`; missing = as
+ * ordered). Less than ordered stays open as a back order. Throws when it did not save.
+ */
+export async function deliverCard(card: Card, got: number[][] = []): Promise<{ short: boolean }> {
+  let short = false;
+  for (const [index, entry] of openOf(card).entries()) {
+    const amounts = entry.lines.map((line, at) => got[index]?.[at] ?? line.qty);
+    await postShelves({ action: "delivered", key: entry.key, got: amounts });
+    if (amounts.some((n, at) => n < entry.lines[at].qty)) short = true;
+  }
+  return { short };
+}
+
+/** The step tracking entries for one card, at its new step ("" = closed). */
+export function trackingFor(card: Card, step: string): { itemId: string; step: string; seed: Record<string, unknown> }[] {
+  return card.source === "crew"
+    ? [{ itemId: card.key, step, seed: { title: card.accountName || "Supply order", accountId: card.accountId, accountName: card.accountName, createdBy: card.orderedBy, data: { items: card.items.map((item) => item.text).join(", "), subcontractor: "Crew Link" } } }]
+    : card.items.filter((item) => item.row).map((item) => ({ itemId: item.itemId, step, seed: orderForSync(item.row!) as Record<string, unknown> }));
+}
+
+/** Moves the step tracking (My work, Late, the dashboard) for these cards to `step`. Never throws. */
+export async function syncCardsTracking(cards: Card[], step: string): Promise<void> {
+  const list = cards.flatMap((card) => trackingFor(card, step));
+  if (list.length === 0) return;
+  await postHandoff({ action: "syncOrders", orders: list.map((entry) => ({ ...entry.seed, itemId: entry.itemId, step: entry.step })) }).catch(() => {});
+}
+
+/** The Crew Link orders. Throws with a message to show when they did not load. */
+export async function fetchCrewOrders(): Promise<CrewOrder[]> {
+  const response = await fetchWithTimeout("/api/admin/crew-supplies?view=orders", { cache: "no-store" });
+  const body = (await response.json().catch(() => ({}))) as { success?: boolean; ready?: boolean; error?: string; orders?: CrewOrder[] };
+  if (!response.ok || body.success !== true) throw new Error(body.error || CREW_FAILED);
+  return body.ready ? (body.orders ?? []) : [];
+}
+
+/**
+ * One card per order: the sub-portal lines grouped into their orders, then the
+ * Crew Link orders, each with its delivery, back orders, what arrived
+ * different, and Late / Waiting on me from the step tracking. Shared by this
+ * page and the Supplies home (app/supplies/simple-orders.tsx).
+ */
+export function buildOrderCards({
+  orders,
+  crewOrders,
+  waiting,
+  different,
+  handoffItems,
+  handoffSettings,
+  handoffMe,
+}: {
+  orders: SubOrder[];
+  crewOrders: CrewOrder[];
+  waiting: Waiting[];
+  different: Different[];
+  handoffItems: HandoffItem[];
+  handoffSettings: Parameters<typeof isLate>[1];
+  handoffMe: Parameters<typeof isMine>[2];
+}): Card[] {
+  const tracked = new Map(handoffItems.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
+  const lateOrMine = (itemIds: string[], sent: boolean) => {
+    const rows = itemIds.map((id) => tracked.get(id)).filter((row): row is HandoffItem => Boolean(row && !row.doneAt));
+    return { late: rows.some((row) => isLate(row, handoffSettings)), mine: !sent && rows.some((row) => isMine(row, handoffSettings, handoffMe)) };
+  };
+  const leastStep = (items: Item[]) => {
+    const inFlow = items.filter((item) => item.step !== "");
+    if (inFlow.length === 0) return "";
+    return inFlow.reduce((low, item) => ((STEP_INDEX.get(item.step) ?? 0) < (STEP_INDEX.get(low) ?? 0) ? item.step : low), inFlow[0].step);
+  };
+  const differentFor = (source: string, refs: string[]) => different.filter((entry) => entry.source === source && refs.includes(entry.ref));
+
+  const out: Card[] = [];
+  const groups = new Map<string, SubOrder[]>();
+  for (const order of orders) {
+    const key = orderGroupKey(order);
+    groups.set(key, [...(groups.get(key) ?? []), order]);
+  }
+  for (const [key, rows] of groups) {
+    const first = rows[0];
+    const items: Item[] = rows.map((row) => {
+      const sync = orderForSync(row);
+      const status = canonicalOrderStatus(row.status);
+      return { itemId: sync.itemId, text: `${clean(row.quantity)}${row.unit ? ` ${clean(row.unit)}` : ""} × ${clean(row.supplyItem)}`, delivery: clean(row.deliveryMode), status, step: orderStepFromStatus(status), row };
+    });
+    // The shelves know a sub order by its group (or, for an older line, its own order id).
+    const refs = [...new Set(rows.map((row) => clean(row.orderGroupId) || clean(row.orderId)).filter(Boolean))];
+    const mineWaiting = waiting.filter((entry) => entry.source === "sub-order" && refs.includes(entry.ref));
+    const delivery = mineWaiting.find((entry) => !entry.backOrder) ?? null;
+    const step = leastStep(items);
+    out.push({
+      key,
+      source: "sub",
+      order: { source: "sub-order", refs },
+      accountId: clean(first.accountId),
+      accountName: clean(first.accountName),
+      orderedBy: clean(first.subcontractor),
+      at: parseDate(clean(first.timestamp)),
+      atText: clean(first.timestamp),
+      items,
+      step,
+      status: items.find((item) => item.step === step)?.status ?? items[0].status,
+      delivery,
+      suggested: suggestedFill(clean(first.deliveryMode)),
+      different: differentFor("sub-order", refs),
+      backOrders: mineWaiting.filter((entry) => entry.backOrder),
+      ...lateOrMine(
+        items.map((item) => item.itemId),
+        Boolean(delivery)
+      ),
+      search: [first.accountName, first.accountId, first.subcontractor, first.timestamp, ...rows.flatMap((row) => [row.orderId, row.orderGroupId, row.supplyItem, row.category, row.description, row.quantity, row.unit, row.deliveryMode, row.status, row.notes])]
+        .map(clean)
+        .join(" ")
+        .toLowerCase(),
+    });
+  }
+  for (const order of crewOrders) {
+    const itemId = crewItemId(order.id);
+    const status = CREW_STATUS[order.status];
+    const step = CREW_STEP[order.status];
+    const entries = waiting.filter((entry) => entry.source === "crew-order" && entry.ref === String(order.id));
+    const delivery = entries.find((entry) => !entry.backOrder) ?? null;
+    out.push({
+      key: itemId,
+      source: "crew",
+      order: { source: "crew-order", refs: [String(order.id)] },
+      accountId: order.accountId,
+      accountName: order.accountName,
+      orderedBy: order.orderedBy,
+      at: parseDate(order.createdAt),
+      atText: formatCrewDateTime(order.createdAt),
+      items: [
+        ...order.lines.map((line) => ({ itemId, text: `${line.qty} ${line.unit} × ${line.itemName}`, delivery: "", status, step })),
+        ...(order.otherItems ? [{ itemId, text: `Other: ${order.otherItems}`, delivery: "", status, step }] : []),
+      ],
+      step,
+      status,
+      delivery,
+      suggested: "",
+      different: differentFor("crew-order", [String(order.id)]),
+      backOrders: entries.filter((entry) => entry.backOrder),
+      ...lateOrMine([itemId], Boolean(delivery)),
+      search: [order.accountName, order.accountId, order.orderedBy, "crew link", order.otherItems, ...order.lines.map((line) => line.itemName), status].join(" ").toLowerCase(),
+    });
+  }
+  return out;
+}
 
 export default function OrderCards({
   orders,
@@ -223,6 +381,8 @@ export default function OrderCards({
   // "📌 Pin to board": the orders waiting for a square to be picked.
   const [pinning, setPinning] = useState<Card[] | null>(null);
   const [pinBusy, setPinBusy] = useState("");
+  // ⬇ Download PDF: the card's key, or "bulk" for the bar at the bottom.
+  const [downloading, setDownloading] = useState("");
   const synced = useRef(false);
 
   // Only the newest Crew Link load may change what is shown.
@@ -230,11 +390,9 @@ export default function OrderCards({
   const loadCrewOrders = useCallback(async () => {
     const id = ++crewLoad.current;
     try {
-      const response = await fetchWithTimeout("/api/admin/crew-supplies?view=orders", { cache: "no-store" });
-      const body = (await response.json().catch(() => ({}))) as { success?: boolean; ready?: boolean; error?: string; orders?: CrewOrder[] };
+      const list = await fetchCrewOrders();
       if (id !== crewLoad.current) return;
-      if (!response.ok || body.success !== true) throw new Error(body.error || CREW_FAILED);
-      setCrewOrders(body.ready ? (body.orders ?? []) : []);
+      setCrewOrders(list);
       setCrewError("");
     } catch (error) {
       if (id !== crewLoad.current) return;
@@ -253,11 +411,10 @@ export default function OrderCards({
 
   /** The step tracking for these orders, from what the cards now say. */
   const syncFor = useCallback(
-    (list: { itemId: string; step: string; seed: Record<string, unknown> }[]) => {
-      if (list.length === 0) return Promise.resolve();
-      return postHandoff({ action: "syncOrders", orders: list.map((entry) => ({ ...entry.seed, itemId: entry.itemId, step: entry.step })) })
-        .then(() => reloadHandoffs())
-        .catch(() => {});
+    async (list: Card[], step: string) => {
+      if (list.length === 0) return;
+      await syncCardsTracking(list, step);
+      await reloadHandoffs().catch(() => {});
     },
     [reloadHandoffs]
   );
@@ -301,95 +458,10 @@ export default function OrderCards({
       .catch(() => {});
   }, [handoffState, handoffItems, reloadHandoffs, orders, crewOrders, loading]);
 
-  const cards = useMemo<Card[]>(() => {
-    if (handoffState !== "ready") return [];
-    const tracked = new Map(handoffItems.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
-    const lateOrMine = (itemIds: string[], sent: boolean) => {
-      const rows = itemIds.map((id) => tracked.get(id)).filter((row): row is HandoffItem => Boolean(row && !row.doneAt));
-      return { late: rows.some((row) => isLate(row, handoffSettings)), mine: !sent && rows.some((row) => isMine(row, handoffSettings, handoffMe)) };
-    };
-    const leastStep = (items: Item[]) => {
-      const inFlow = items.filter((item) => item.step !== "");
-      if (inFlow.length === 0) return "";
-      return inFlow.reduce((low, item) => ((STEP_INDEX.get(item.step) ?? 0) < (STEP_INDEX.get(low) ?? 0) ? item.step : low), inFlow[0].step);
-    };
-    const differentFor = (source: string, refs: string[]) => different.filter((entry) => entry.source === source && refs.includes(entry.ref));
-
-    const out: Card[] = [];
-    const groups = new Map<string, SubOrder[]>();
-    for (const order of orders) {
-      const key = orderGroupKey(order);
-      groups.set(key, [...(groups.get(key) ?? []), order]);
-    }
-    for (const [key, rows] of groups) {
-      const first = rows[0];
-      const items: Item[] = rows.map((row) => {
-        const sync = orderForSync(row);
-        const status = canonicalOrderStatus(row.status);
-        return { itemId: sync.itemId, text: `${clean(row.quantity)}${row.unit ? ` ${clean(row.unit)}` : ""} × ${clean(row.supplyItem)}`, delivery: clean(row.deliveryMode), status, step: orderStepFromStatus(status), row };
-      });
-      // The shelves know a sub order by its group (or, for an older line, its own order id).
-      const refs = [...new Set(rows.map((row) => clean(row.orderGroupId) || clean(row.orderId)).filter(Boolean))];
-      const mineWaiting = waiting.filter((entry) => entry.source === "sub-order" && refs.includes(entry.ref));
-      const delivery = mineWaiting.find((entry) => !entry.backOrder) ?? null;
-      const step = leastStep(items);
-      out.push({
-        key,
-        source: "sub",
-        order: { source: "sub-order", refs },
-        accountId: clean(first.accountId),
-        accountName: clean(first.accountName),
-        orderedBy: clean(first.subcontractor),
-        at: parseDate(clean(first.timestamp)),
-        atText: clean(first.timestamp),
-        items,
-        step,
-        status: items.find((item) => item.step === step)?.status ?? items[0].status,
-        delivery,
-        suggested: suggestedFill(clean(first.deliveryMode)),
-        different: differentFor("sub-order", refs),
-        backOrders: mineWaiting.filter((entry) => entry.backOrder),
-        ...lateOrMine(
-          items.map((item) => item.itemId),
-          Boolean(delivery)
-        ),
-        search: [first.accountName, first.accountId, first.subcontractor, first.timestamp, ...rows.flatMap((row) => [row.orderId, row.orderGroupId, row.supplyItem, row.category, row.description, row.quantity, row.unit, row.deliveryMode, row.status, row.notes])]
-          .map(clean)
-          .join(" ")
-          .toLowerCase(),
-      });
-    }
-    for (const order of crewOrders) {
-      const itemId = crewItemId(order.id);
-      const status = CREW_STATUS[order.status];
-      const step = CREW_STEP[order.status];
-      const entries = waiting.filter((entry) => entry.source === "crew-order" && entry.ref === String(order.id));
-      const delivery = entries.find((entry) => !entry.backOrder) ?? null;
-      out.push({
-        key: itemId,
-        source: "crew",
-        order: { source: "crew-order", refs: [String(order.id)] },
-        accountId: order.accountId,
-        accountName: order.accountName,
-        orderedBy: order.orderedBy,
-        at: parseDate(order.createdAt),
-        atText: formatCrewDateTime(order.createdAt),
-        items: [
-          ...order.lines.map((line) => ({ itemId, text: `${line.qty} ${line.unit} × ${line.itemName}`, delivery: "", status, step })),
-          ...(order.otherItems ? [{ itemId, text: `Other: ${order.otherItems}`, delivery: "", status, step }] : []),
-        ],
-        step,
-        status,
-        delivery,
-        suggested: "",
-        different: differentFor("crew-order", [String(order.id)]),
-        backOrders: entries.filter((entry) => entry.backOrder),
-        ...lateOrMine([itemId], Boolean(delivery)),
-        search: [order.accountName, order.accountId, order.orderedBy, "crew link", order.otherItems, ...order.lines.map((line) => line.itemName), status].join(" ").toLowerCase(),
-      });
-    }
-    return out;
-  }, [handoffState, handoffItems, handoffSettings, handoffMe, orders, crewOrders, waiting, different]);
+  const cards = useMemo<Card[]>(
+    () => (handoffState !== "ready" ? [] : buildOrderCards({ orders, crewOrders, waiting, different, handoffItems, handoffSettings, handoffMe })),
+    [handoffState, handoffItems, handoffSettings, handoffMe, orders, crewOrders, waiting, different]
+  );
 
   // Search, delivery mode and account first; then In progress / Late / Waiting on me, or a Status.
   const matching = useMemo(() => {
@@ -446,27 +518,16 @@ export default function OrderCards({
 
   if (handoffState !== "ready") return null;
 
-  /** The step tracking entries for one card, at its new step ("" = closed). */
-  const trackingFor = (card: Card, step: string) =>
-    card.source === "crew"
-      ? [{ itemId: card.key, step, seed: { title: card.accountName || "Supply order", accountId: card.accountId, accountName: card.accountName, createdBy: card.orderedBy, data: { items: card.items.map((item) => item.text).join(", "), subcontractor: "Crew Link" } } }]
-      : card.items.filter((item) => item.row).map((item) => ({ itemId: item.itemId, step, seed: orderForSync(item.row!) as Record<string, unknown> }));
-
   /** After a change: reload everything and move the step tracking. */
   async function afterChange(list: Card[], step: string) {
     await Promise.all([loadExtras(), onChanged()]);
-    await syncFor(list.flatMap((card) => trackingFor(card, step)));
+    await syncFor(list, step);
   }
 
   /** Decline, ✓ Delivered (as ordered) or one way to fill, for one card. Returns false when it could not. */
   async function act(card: Card, action: Bulk): Promise<boolean> {
     try {
-      if (action === "decline") await postShelves({ action: "decline", order: card.order });
-      else if (action === "delivered") {
-        for (const entry of openOf(card)) await postShelves({ action: "delivered", key: entry.key, got: entry.lines.map((line) => line.qty) });
-      }
-      else if (card.step === "ordered") await postShelves({ action: "approve", order: card.order, lines: [], add: [], fill: action });
-      else await postShelves({ action: "fill", order: card.order, fill: action });
+      await cardAction(card, action);
       return true;
     } catch (error) {
       showToast(`${card.accountName}: ${error instanceof Error ? error.message : "That did not save."}`, "bad");
@@ -491,14 +552,8 @@ export default function OrderCards({
    */
   async function deliver(card: Card, got: number[][]) {
     setBusy("delivered");
-    const entries = openOf(card);
-    let short = false;
     try {
-      for (const [index, entry] of entries.entries()) {
-        const amounts = entry.lines.map((line, at) => got[index]?.[at] ?? line.qty);
-        await postShelves({ action: "delivered", key: entry.key, got: amounts });
-        if (amounts.some((n, at) => n < entry.lines[at].qty)) short = true;
-      }
+      const { short } = await deliverCard(card, got);
       setDelivering(null);
       showToast(short ? `${card.accountName}: ✓ Delivered. The rest is a back order.` : `${card.accountName}: ✓ Delivered`);
       await afterChange([card], short ? "bought" : "delivered");
@@ -534,6 +589,18 @@ export default function OrderCards({
   }
 
   /** Pins each order to the square picked. A manager is texted only for their own square (the board's rule). */
+  /** ⬇ Download PDF: the Supply Order PDF for these orders, saved on this device. */
+  async function download(list: Card[]) {
+    setDownloading(list.length === 1 ? list[0].key : "bulk");
+    try {
+      await downloadSupplyOrderPdf(list.map((card) => card.key));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "The PDF could not be made.", "bad");
+    } finally {
+      setDownloading("");
+    }
+  }
+
   async function pinOrders(list: Card[], spot: BoardSpot) {
     setPinBusy(spot.key);
     let done = 0;
@@ -689,7 +756,7 @@ export default function OrderCards({
                   className="mt-2 flex min-h-[64px] w-full items-center justify-center rounded-2xl bg-green-600 px-4 text-xl font-black text-white shadow-sm active:scale-[0.98] disabled:opacity-50"
                   data-order-delivered
                 >
-                  Delivered ✓
+                  It came ✓
                 </button>
               ) : null}
 
@@ -697,6 +764,9 @@ export default function OrderCards({
                 <a href={printHref([card.key])} target="_blank" rel="noopener" className="ui-btn ui-btn-second" data-order-print>
                   🖨 Print
                 </a>
+                <button type="button" className="ui-btn ui-btn-second" disabled={downloading !== ""} onClick={() => void download([card])} data-order-download>
+                  {downloading === card.key ? "Making the PDF…" : "⬇ Download PDF"}
+                </button>
                 {canPin ? (
                   <button type="button" className="ui-btn ui-btn-second" onClick={() => setPinning([card])} data-order-pin>
                     📌 Pin to board
@@ -726,6 +796,15 @@ export default function OrderCards({
             <a href={printHref(picked.map((card) => card.key))} target="_blank" rel="noopener" className="flex min-h-[56px] items-center justify-center rounded-2xl bg-white px-2 text-base font-black text-slate-900 ring-2 ring-slate-300">
               🖨 Print ({picked.length})
             </a>
+            <button
+              type="button"
+              disabled={downloading !== ""}
+              onClick={() => void download(picked)}
+              className="min-h-[56px] rounded-2xl bg-white px-2 text-base font-black text-slate-900 ring-2 ring-slate-300 disabled:opacity-50"
+              data-bulk-download
+            >
+              {downloading === "bulk" ? "Making the PDF…" : `⬇ Download (${picked.length})`}
+            </button>
             {canPin ? (
               <button type="button" disabled={busy !== ""} onClick={() => setPinning(picked)} className="min-h-[56px] rounded-2xl bg-white px-2 text-base font-black text-slate-900 ring-2 ring-slate-300 disabled:opacity-50">
                 📌 Pin ({picked.length})
@@ -819,7 +898,7 @@ function HandoffDetail({ card, items, settings }: { card: Card; items: HandoffIt
  * ✓ Delivered: what came, per item, filled in with what was ordered; − / +
  * when more or less came (the same stepper as Crew Link). Less = back order.
  */
-function DeliveredSheet({ card, busy, onCancel, onConfirm }: { card: Card | null; busy: boolean; onCancel: () => void; onConfirm: (got: number[][]) => void }) {
+export function DeliveredSheet({ card, busy, onCancel, onConfirm }: { card: Card | null; busy: boolean; onCancel: () => void; onConfirm: (got: number[][]) => void }) {
   const entries = card ? openOf(card) : [];
   const [got, setGot] = useState<number[][]>([]);
 
@@ -833,20 +912,20 @@ function DeliveredSheet({ card, busy, onCancel, onConfirm }: { card: Card | null
   return (
     <Sheet
       open={card !== null}
-      title={`Delivered: ${card?.accountName || "this order"}`}
-      text={changed ? "Less = back order." : "All as ordered?"}
+      title={`It came: ${card?.accountName || "this order"}`}
+      text={changed ? "Less = still coming." : "All as ordered?"}
       onClose={() => (busy ? undefined : onCancel())}
       busy={busy}
       actions={
         <BigButton busy={busy} busyLabel="Saving…" onClick={() => onConfirm(got)}>
-          Delivered ✓
+          It came ✓
         </BigButton>
       }
     >
       <div className="ui-stack" data-delivered-sheet>
         {entries.map((entry, index) => (
           <div key={entry.key} className="ui-stack">
-            {entry.backOrder ? <p className="ui-strong" style={{ margin: 0 }}>⏳ Back order</p> : null}
+            {entry.backOrder ? <p className="ui-strong" style={{ margin: 0 }}>⏳ Still coming</p> : null}
             {entry.lines.map((line, at) => {
               const value = got[index]?.[at] ?? line.qty;
               return (

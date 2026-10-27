@@ -129,7 +129,7 @@ export default function AccountSupplies({ accountId, accountName }: { accountId:
         >
           Pick supplies for this account
         </BigButton>
-        <BigButton kind="quiet" href="/supplies">
+        <BigButton kind="quiet" href="/supplies/stock?tab=products">
           Open Supplies
         </BigButton>
       </div>

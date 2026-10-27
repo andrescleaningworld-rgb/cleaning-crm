@@ -15,9 +15,9 @@ export type OrderPick = { source: "crew-order" | "sub-order"; refs: string[] };
 
 /** The three ways to fill an order, as the office reads them. */
 export const FILL_WORDS: Record<FillChoice, { icon: string; label: string; hint: string }> = {
-  vendor: { icon: "🚚", label: "Vendor ships to site", hint: "The crew confirms on Supplies arrived." },
-  pickup: { icon: "🏬", label: "Sub picks up", hint: "At the warehouse. Tap Picked up when it is taken." },
-  deliver: { icon: "🚐", label: "We deliver", hint: "Take it on the tablet; the crew confirms." },
+  vendor: { icon: "🚚", label: "Ships to site", hint: "The crew confirms on Supplies arrived." },
+  pickup: { icon: "🏬", label: "Sub picks up", hint: "At the warehouse." },
+  deliver: { icon: "🚐", label: "We bring it", hint: "Take it on the tablet; the crew confirms." },
 };
 
 type Line = { lineId: string; label: string; qty: number; unit: string; supplyId: number | null };
