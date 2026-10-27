@@ -7,8 +7,9 @@
 // company events (calendar-events.tsx).
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddButton, BigButton, Counts, EmptyState, ErrorBox, MOTTO, Screen, SelectField, Sheet, SkeletonList, Tabs, showToast } from "@/app/ui";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import {
   PROOF_LABEL,
   STATUS_LABEL,
@@ -60,7 +61,7 @@ function step(view: View, day: string, direction: 1 | -1): string {
 }
 
 async function postCalendar(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const response = await fetch("/api/board/calendar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetchWithTimeout("/api/board/calendar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok || data.success !== true) throw new Error(typeof data.error === "string" ? data.error : "That did not save. Try again.");
   return data;
@@ -87,22 +88,54 @@ export default function CalendarClient() {
     return map;
   }, [office.events]);
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/board/calendar?from=${range.from}&to=${range.to}`, { cache: "no-store" });
-      const body = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<CalendarData>;
-      if (!response.ok || body.success !== true) throw new Error("failed");
-      if (body.ready !== true) return setState("off");
-      setData({ today: body.today ?? officeDay(), from: body.from ?? range.from, to: body.to ?? range.to, cleanings: body.cleanings ?? [], managers: body.managers ?? [], subs: body.subs ?? [] });
-      setState("ready");
-    } catch {
-      setState("failed");
-    }
-  }, [range]);
+  const [loadError, setLoadError] = useState("");
+  // Only the newest load may change the screen. Tapping Earlier / Later or
+  // another view while a load is running cancels the older one, so a slow
+  // answer for the wrong days can never land last and leave the skeleton up.
+  const latest = useRef<AbortController | null>(null);
+
+  // quiet: a refresh after a save. If it fails, the calendar on screen stays
+  // and a message says so, instead of the whole page turning into an error.
+  const load = useCallback(
+    async (quiet = false) => {
+      latest.current?.abort();
+      const request = new AbortController();
+      latest.current = request;
+      try {
+        const response = await fetchWithTimeout(`/api/board/calendar?from=${range.from}&to=${range.to}`, { cache: "no-store", signal: request.signal });
+        const body = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<CalendarData>;
+        if (latest.current !== request) return;
+        if (!response.ok || body.success !== true) throw new Error("The calendar did not load.");
+        if (body.ready !== true) return setState("off");
+        setData({ today: body.today ?? officeDay(), from: body.from ?? range.from, to: body.to ?? range.to, cleanings: body.cleanings ?? [], managers: body.managers ?? [], subs: body.subs ?? [] });
+        setLoadError("");
+        setState("ready");
+      } catch (error) {
+        // Cancelled because a newer load started (or the page closed): that one decides.
+        if (latest.current !== request) return;
+        const message = error instanceof Error ? error.message : "The calendar did not load.";
+        if (quiet) {
+          showToast(`The calendar did not refresh. ${message}`, "bad");
+          return;
+        }
+        // The box's title already says "did not load"; the text only adds a reason like the time limit.
+        setLoadError(message === "The calendar did not load." ? "" : message);
+        setState("failed");
+      }
+    },
+    [range]
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => () => latest.current?.abort(), []);
+
+  function retry() {
+    setState("loading");
+    void load();
+  }
 
   const today = data?.today ?? officeDay();
   // The cleanings on screen belong to the days in the title (not to the view that was open a moment ago).
@@ -122,15 +155,18 @@ export default function CalendarClient() {
 
   async function act(body: Record<string, unknown>, message: string) {
     setBusy(true);
+    let saved = false;
     try {
       const result = await postCalendar(body);
-      await load();
+      saved = true;
       showToast(body.action === "pinMissed" && result.pinned === false ? "It is already on the board." : message);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "That did not save. Try again.", "bad");
     } finally {
       setBusy(false);
     }
+    // The buttons are free again; the new colors come in behind them.
+    if (saved) void load(true);
   }
 
   const mark = (cleaning: Cleaning, value: "cleaned" | "missed" | "") =>
@@ -207,7 +243,7 @@ export default function CalendarClient() {
       {state === "off" ? (
         <EmptyState title="Not turned on here yet" text="The Pin Board works once it is switched on and this database has its tables." />
       ) : state === "failed" ? (
-        <ErrorBox title="The calendar did not load." onRetry={() => void load()} />
+        <ErrorBox title="The calendar did not load." text={loadError} onRetry={retry} />
       ) : (
         <>
           <Tabs tabs={VIEWS} value={view} onChange={setView} label="Calendar view" />

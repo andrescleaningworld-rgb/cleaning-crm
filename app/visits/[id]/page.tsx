@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import AccountLink from "../../components/AccountLink";
 import { parseISO } from "@/lib/dateUtils";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
 
 type Visit = {
@@ -168,7 +169,7 @@ export default function VisitDetailPage() {
     try {
       setLoading(true);
       setError("");
-      const response = await fetch(`/api/visits/${encodeURIComponent(visitId)}`, {
+      const response = await fetchWithTimeout(`/api/visits/${encodeURIComponent(visitId)}`, {
         cache: "no-store",
       });
       const data = (await response.json()) as VisitApiResponse;
@@ -198,7 +199,7 @@ export default function VisitDetailPage() {
 
     async function loadAccount() {
       try {
-        const response = await fetch("/api/accounts", { cache: "no-store" });
+        const response = await fetchWithTimeout("/api/accounts", { cache: "no-store" });
         const data = (await response.json()) as AccountsApiResponse;
         const accounts = getLoadedAccounts(data);
         const normalizedName = clean(visit?.accountName).toLowerCase();
@@ -252,7 +253,7 @@ export default function VisitDetailPage() {
     setSaving(true);
     setSaveError("");
     try {
-      const response = await fetch(`/api/visits/${encodeURIComponent(visitId)}`, {
+      const response = await fetchWithTimeout(`/api/visits/${encodeURIComponent(visitId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

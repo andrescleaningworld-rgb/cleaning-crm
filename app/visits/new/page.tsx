@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { BigButton, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 type Account = {
   id?: string;
@@ -76,7 +77,7 @@ function NewVisitPageContent() {
       try {
         setLoadingAccounts(true);
 
-        const response = await fetch("/api/accounts", {
+        const response = await fetchWithTimeout("/api/accounts", {
           method: "GET",
           cache: "no-store",
         });
@@ -156,7 +157,7 @@ function NewVisitPageContent() {
         throw new Error("Please select or enter an account name.");
       }
 
-      const response = await fetch("/api/visits", {
+      const response = await fetchWithTimeout("/api/visits", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

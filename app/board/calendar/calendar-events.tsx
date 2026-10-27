@@ -4,8 +4,9 @@
 // (from Settings -> Staff), holidays, office closed and company events (added
 // here by hand). The words and kinds are in lib/officeEvents.ts.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, ErrorBox, Field, SelectField, Sheet, showToast } from "@/app/ui";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { EVENT_ICON, EVENT_LABEL, HAND_KINDS, eventLine, type OfficeEvent } from "@/lib/officeEvents";
 import styles from "./calendar.module.css";
 
@@ -13,12 +14,17 @@ import styles from "./calendar.module.css";
 export function useOfficeEvents(from: string, to: string) {
   const [events, setEvents] = useState<OfficeEvent[]>([]);
   const [on, setOn] = useState(false);
+  // Only the newest request may change the list (an older, slower one is cancelled).
+  const latest = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
+    latest.current?.abort();
+    const request = new AbortController();
+    latest.current = request;
     try {
-      const response = await fetch(`/api/board/events?from=${from}&to=${to}`, { cache: "no-store" });
+      const response = await fetchWithTimeout(`/api/board/events?from=${from}&to=${to}`, { cache: "no-store", signal: request.signal });
       const body = (await response.json()) as { success?: boolean; on?: boolean; events?: OfficeEvent[] };
-      if (!response.ok || body.success !== true) return;
+      if (latest.current !== request || !response.ok || body.success !== true) return;
       setOn(body.on === true);
       setEvents(body.events ?? []);
     } catch {
@@ -31,6 +37,8 @@ export function useOfficeEvents(from: string, to: string) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
+
+  useEffect(() => () => latest.current?.abort(), []);
 
   return { events, on, reload: load };
 }
@@ -58,7 +66,7 @@ export function EventChips({ events, onPick }: { events: OfficeEvent[]; onPick?:
 }
 
 async function post(body: Record<string, unknown>): Promise<void> {
-  const response = await fetch("/api/board/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetchWithTimeout("/api/board/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
   if (!response.ok || data.success !== true) throw new Error(data.error || "That did not save. Try again.");
 }
