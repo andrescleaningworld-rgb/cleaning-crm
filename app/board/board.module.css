@@ -321,6 +321,47 @@ button.paper:hover {
   transform: rotate(4deg);
 }
 
+/* Asked for a status and not answered yet (lib/pg/pin-status.ts): an orange tag above the kind. */
+.statusTag,
+.statusTagInline {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #e65100;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.statusTagInline {
+  margin: 0 8px 0 0;
+  vertical-align: middle;
+}
+
+/* The latest status on a paper: "Waiting on sub · Greg · Oct 27". */
+.statusLine {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #6a3a00;
+}
+
+/* The four big status buttons in a paper's card: two across, one column on a narrow phone. */
+.statusButtons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 360px) {
+  .statusButtons {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dragging {
   opacity: 0.35;
 }
@@ -445,6 +486,10 @@ button.paper:hover {
 }
 .tv .daysTag {
   font-size: 20px;
+}
+.tv .statusTag,
+.tv .statusLine {
+  font-size: 18px;
 }
 .tv .emptySquare {
   font-size: 22px;

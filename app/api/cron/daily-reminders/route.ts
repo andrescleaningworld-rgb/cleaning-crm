@@ -1,6 +1,6 @@
 // The daily reminders (vercel.json, every morning): sub insurance, "At
-// risk" papers, price reviews and the customer monthly check-in (sent from
-// the 25th, only while it is switched on). Each
+// risk" papers, price reviews, the customer monthly check-in (sent from
+// the 25th, only while it is switched on) and the Pin Board status check. Each
 // part runs on its own: one failing never stops the others. Vercel Cron calls it with CRON_SECRET (the
 // same self-check as the other crons; /api/cron is public in proxy.ts).
 
@@ -9,6 +9,7 @@ import { runInsuranceChecks, runSubInsuranceReminders } from "@/lib/pg/sub-insur
 import { refreshRiskPins } from "@/lib/pg/account-risk";
 import { refreshPricePins } from "@/lib/pg/price-review";
 import { runMonthlyCheckins } from "@/lib/pg/customer-checkin";
+import { runPinStatusChecks } from "@/lib/pg/pin-status";
 
 export const maxDuration = 300;
 
@@ -20,6 +21,8 @@ const PARTS: Part[] = [
   { name: "atRisk", run: () => refreshRiskPins() },
   { name: "priceReview", run: () => refreshPricePins() },
   { name: "checkin", run: runMonthlyCheckins },
+  // Pin Board: "Status needed" on pins with no update for 2 business days, and the ask by text and push (weekdays only).
+  { name: "pinStatus", run: (origin) => runPinStatusChecks(origin) },
 ];
 
 export async function GET(request: NextRequest) {

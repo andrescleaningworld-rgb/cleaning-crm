@@ -17,6 +17,17 @@ export const getManagerCalendarColorId: typeof sheets.getManagerCalendarColorId 
 export const appendManager: typeof sheets.appendManager = (...args) => source().appendManager(...args);
 export const updateManager: typeof sheets.updateManager = (...args) => source().updateManager(...args);
 
+/**
+ * The id a manager's push goes to. Devices are tagged with the Staff ID at
+ * login (app/login/page.tsx), so it is the manager's Staff ID: the linked one,
+ * else the active staff member with the same name (the board texts' rule).
+ * The Manager ID only when neither is found, and always on Sheets (no link there).
+ */
+export async function pushIdForManager(manager: { managerId: string; name: string }): Promise<string> {
+  if (!isPostgres("PEOPLE")) return manager.managerId;
+  return (await pg.staffIdForManager(manager.managerId, manager.name).catch(() => "")) || manager.managerId;
+}
+
 export const fetchStaff: typeof sheets.fetchStaff = () => source().fetchStaff();
 export const getStaffById: typeof sheets.getStaffById = (...args) => source().getStaffById(...args);
 export const getActiveSigningStaffById: typeof sheets.getActiveSigningStaffById = (...args) =>

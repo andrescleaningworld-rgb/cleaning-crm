@@ -12,22 +12,25 @@ import { isOutboundDryRun, logDryRun } from "./outbound";
 
 const ONESIGNAL_API_URL = "https://api.onesignal.com/notifications";
 
+/** reason: why it was not delivered, in OneSignal's words where it gave some (the owner's "Send me a test push" shows it). */
+export type PushResult = { success: boolean; reason?: string };
+
 export async function sendPush(
   externalUserId: string,
   title: string,
   body: string,
   url: string,
   routeContext: string = "unknown"
-): Promise<{ success: boolean }> {
+): Promise<PushResult> {
   if (isOutboundDryRun()) {
     logDryRun("push", `(${routeContext}) to ${externalUserId}: ${title} – ${body}`);
-    return { success: true };
+    return { success: true, reason: "Dry run (OUTBOUND_DRY_RUN is on): nothing was really sent." };
   }
 
   const restApiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!restApiKey) {
     console.warn(`[push] skip (${routeContext}): ONESIGNAL_REST_API_KEY not configured`);
-    return { success: false };
+    return { success: false, reason: "ONESIGNAL_REST_API_KEY is not set on this server." };
   }
 
   try {
@@ -70,7 +73,7 @@ export async function sendPush(
         `[push] not delivered (${routeContext}) to ${externalUserId}:`,
         hasErrors ? data.errors : `HTTP ${response.status}`
       );
-      return { success: false };
+      return { success: false, reason: hasErrors ? (data.errors as unknown[]).map((entry) => (typeof entry === "string" ? entry : JSON.stringify(entry))).join("; ") : `OneSignal answered HTTP ${response.status}.` };
     }
 
     console.log(`[push] sent (${routeContext}) to ${externalUserId}, notificationId=${data.id}`);
@@ -78,6 +81,6 @@ export async function sendPush(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[push] threw (${routeContext}) to ${externalUserId}:`, message);
-    return { success: false };
+    return { success: false, reason: message };
   }
 }

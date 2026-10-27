@@ -19,6 +19,7 @@ import { getSql } from "@/lib/db";
 import {
   DEFAULT_BOARD_SETTINGS,
   PAPER_KINDS,
+  isPinStatus,
   type BoardManager,
   type BoardSettings,
   type Paper,
@@ -34,9 +35,22 @@ import { doneStepsOf, flowView, isFlowStep } from "@/lib/accountFlow";
 
 let ready: boolean | null = null;
 let flowTable: boolean | null = null;
+let statusTable: boolean | null = null;
+
+/** Migration 062 is in: the status check (lib/pg/pin-status.ts). Until then pins have no status and nobody is asked. */
+export async function pinStatusReady(): Promise<boolean> {
+  if (statusTable === true) return true;
+  try {
+    const rows = (await getSql()`SELECT to_regclass('public.board_status_log') IS NOT NULL AS ok`) as { ok: boolean }[];
+    statusTable = rows[0]?.ok === true;
+  } catch {
+    statusTable = false;
+  }
+  return statusTable === true;
+}
 
 /** Migration 046 is in: new-account papers can show their pizza tracker. Until then the board reads as before. */
-async function flowTableReady(): Promise<boolean> {
+export async function flowTableReady(): Promise<boolean> {
   if (flowTable === true) return true;
   try {
     const rows = (await getSql()`SELECT to_regclass('public.account_flows') IS NOT NULL AS ok`) as { ok: boolean }[];
@@ -386,7 +400,19 @@ type PaperRow = {
   flow_note_at?: string | Date | null;
   /** The step history that says which steps are done (done / undo / the sub's No), oldest first. */
   flow_events?: { step: string; action: string }[] | null;
+  /** The status check (migration 062); null where it is not in yet. */
+  st_key: string | null;
+  st_note: string | null;
+  st_by: string | null;
+  st_at: string | null;
+  st_asks: string | null;
 };
+
+function paperStatus(row: PaperRow): Paper["status"] {
+  const key = clean(row.st_key);
+  if (!isPinStatus(key)) return null;
+  return { key, note: clean(row.st_note), by: clean(row.st_by), at: iso(row.st_at) };
+}
 
 function paperFlow(row: PaperRow): Paper["flow"] {
   if (row.kind !== "account" || !row.flow_step || !isFlowStep(row.flow_step)) return null;
@@ -468,26 +494,35 @@ function toPaper(row: PaperRow): Paper {
     dueDate: clean(row.data?.dueDate),
     recordDone: clean(row.data?.recordDoneOn) !== "",
     box: row.kind === "note" ? clean(row.data?.box) : "",
+    status: paperStatus(row),
+    statusNeeded: Number(row.st_asks ?? 0) > 0,
   };
 }
 
+// The status check (migration 062), read through to_jsonb so the board still loads where it is not in yet.
+const STATUS_COLUMNS = `x.j->>'board_status' AS st_key, x.j->>'board_status_note' AS st_note, x.j->>'board_status_by' AS st_by,
+         x.j->>'board_status_at' AS st_at, x.j->>'board_asks' AS st_asks`;
+const STATUS_JOIN = `CROSS JOIN LATERAL (SELECT to_jsonb(i) AS j) x`;
+
 const SELECT_PAPER_PLAIN = `
   SELECT i.kind, i.item_id, i.title, i.account_id, i.account_name, i.data, i.created_by, i.board_square, i.board_pinned_at,
-         i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items
+         i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items, ${STATUS_COLUMNS}
   FROM handoff_items i
+  ${STATUS_JOIN}
   LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
   WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}`;
 
 // The same, plus each new account's 8-step flow (migration 046).
 const SELECT_PAPER_FLOW = `
   SELECT i.kind, i.item_id, i.title, i.account_id, i.account_name, i.data, i.created_by, i.board_square, i.board_pinned_at,
-         i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items,
+         i.taken_by, i.taken_at, i.board_done_at, i.board_done_by, c.items AS checklist_items, ${STATUS_COLUMNS},
          f.step AS flow_step, f.step_since AS flow_step_since, f.manager AS flow_manager, f.offer_sub_name AS flow_offer_sub,
          f.follow_up_due AS flow_due, f.stuck_note AS flow_note, f.stuck_note_by AS flow_note_by, f.stuck_note_at AS flow_note_at,
          (SELECT json_agg(json_build_object('step', e.step, 'action', e.action) ORDER BY e.at, e.id)
           FROM account_flow_events e
           WHERE f.account_id IS NOT NULL AND e.account_id = f.account_id AND e.action IN ('done', 'undo', 'no', 'back')) AS flow_events
   FROM handoff_items i
+  ${STATUS_JOIN}
   LEFT JOIN onboarding_checklists c ON i.kind = 'account' AND c.account_id = i.item_id
   LEFT JOIN account_flows f ON i.kind = 'account' AND f.account_id = i.item_id
   WHERE i.board_pinned_at IS NOT NULL AND i.kind IN (${BOARD_KINDS_SQL}) AND ${handoffLive("i")}`;
@@ -567,16 +602,32 @@ export async function pinPaper(input: { text: string; accountId?: string; accoun
   return itemId;
 }
 
+/**
+ * The paper changed hands (another square, taken, given back): the status
+ * check's clock starts again and any open ask is cleared (migration 062;
+ * nothing to do where it is not in yet).
+ */
+async function newOwner(kind: PaperKind, itemId: string): Promise<void> {
+  if (!(await pinStatusReady())) return;
+  await getSql()`
+    UPDATE handoff_items SET board_owner_since = now(), board_asks = 0, board_asked_at = NULL, board_owner_told_at = NULL
+    WHERE kind = ${kind} AND item_id = ${itemId}
+  `;
+}
+
 /** Dragging a paper into a square: "" = back to the shared square, otherwise a manager's Staff ID. */
 export async function movePaper(kind: string, itemId: string, square: string): Promise<boolean> {
   if (!isBoardKind(kind)) return false;
   const sql = getSql();
   const rows = (await sql`
-    UPDATE handoff_items SET board_square = ${square}
-    WHERE kind = ${kind} AND item_id = ${itemId} AND board_pinned_at IS NOT NULL AND board_done_at IS NULL
-    RETURNING item_id
-  `) as unknown[];
-  return rows.length > 0;
+    UPDATE handoff_items i SET board_square = ${square}
+    FROM (SELECT kind, item_id, board_square AS was FROM handoff_items WHERE kind = ${kind} AND item_id = ${itemId}) old
+    WHERE i.kind = old.kind AND i.item_id = old.item_id AND i.board_pinned_at IS NOT NULL AND i.board_done_at IS NULL
+    RETURNING old.was
+  `) as { was: string }[];
+  if (rows.length === 0) return false;
+  if (rows[0].was !== square) await newOwner(kind, itemId);
+  return true;
 }
 
 /** "Got it": the pin turns green and shows who. Taking it back turns it red again. */
@@ -588,7 +639,9 @@ export async function takePaper(kind: string, itemId: string, by: string, on: bo
     WHERE kind = ${kind} AND item_id = ${itemId} AND board_pinned_at IS NOT NULL AND board_done_at IS NULL
     RETURNING item_id
   `) as unknown[];
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+  await newOwner(kind, itemId);
+  return true;
 }
 
 /** "Done": off the board and into the Done tray, with who and when. `on: false` pins it back. */
