@@ -11,7 +11,7 @@
 // The rules (steps, owners, late) are in lib/handoffs.ts.
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BigButton, CHEER, ErrorBox, Field, Sheet, StatusPill, Stepper, showToast, undoable } from "@/app/ui";
 import AccountLink from "./AccountLink";
 import {
@@ -84,7 +84,10 @@ export function useHandoffs(): HandoffsState {
     };
   }, [reload]);
 
-  return { state, settings, me, items, reload };
+  // The same object until something in it changes. A new object on every
+  // render made Supply Orders re-render itself forever (its cards and top
+  // numbers are built from this).
+  return useMemo(() => ({ state, settings, me, items, reload }), [state, settings, me, items, reload]);
 }
 
 /* ---------- words ---------- */
