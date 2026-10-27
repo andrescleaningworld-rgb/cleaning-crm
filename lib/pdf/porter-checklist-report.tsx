@@ -7,11 +7,15 @@ import {
   Text,
   Image,
   StyleSheet,
+  Svg,
+  Path,
+  Circle,
   renderToBuffer,
 } from "@react-pdf/renderer";
 import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
+import { PDF_LOGO_WIDTH } from "@/lib/pdf/supply-order";
 
 // Self-contained, mirroring lib/pdf/account-packet-admin.tsx's styling
 // conventions — but this is the customer-facing variant (like
@@ -47,14 +51,18 @@ const styles = StyleSheet.create({
   logoBox: {
     backgroundColor: "#ffffff",
     borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
   },
+  // Larger, so the wordmark reads clearly (the file is 510 × 95 px; the same size as the Supply Order PDF).
   logo: {
-    width: 110,
+    width: PDF_LOGO_WIDTH,
     height: "auto",
   },
   headerTitleBlock: {
+    // Takes the room the larger logo leaves; a long account name wraps instead of pushing it.
+    flex: 1,
+    marginLeft: 16,
     alignItems: "flex-end",
   },
   headerTitle: {
@@ -197,8 +205,7 @@ const styles = StyleSheet.create({
   },
   checklistMark: {
     width: 14,
-    fontSize: 9.5,
-    fontFamily: "Helvetica-Bold",
+    paddingTop: 1.5,
   },
   supplyQty: {
     width: 30,
@@ -395,6 +402,24 @@ function ReportFooter() {
   );
 }
 
+/**
+ * ✓ done / ○ not done, drawn rather than typed: the PDF's built-in Helvetica
+ * has neither character, so as text they came out blank.
+ */
+function CheckMark({ checked }: { checked: boolean }) {
+  return (
+    <View style={styles.checklistMark}>
+      <Svg width={9} height={9} viewBox="0 0 10 10">
+        {checked ? (
+          <Path d="M1.5 5.2 L4 7.7 L8.6 2.3" stroke={COLORS.greenText} strokeWidth={1.8} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <Circle cx={5} cy={5} r={3.8} stroke={COLORS.label} strokeWidth={1.1} fill="none" />
+        )}
+      </Svg>
+    </View>
+  );
+}
+
 function ChecklistBlock({ submission }: { submission: PorterChecklistReportSubmission }) {
   return (
     <View style={styles.submissionBlock} wrap={false}>
@@ -425,7 +450,7 @@ function ChecklistBlock({ submission }: { submission: PorterChecklistReportSubmi
           <Text style={styles.checklistSectionTitle}>{section.title}</Text>
           {section.items.map((item) => (
             <View key={item.key} style={styles.checklistItemRow}>
-              <Text style={styles.checklistMark}>{item.checked ? "✓" : "○"}</Text>
+              <CheckMark checked={item.checked} />
               <View style={styles.checklistItemText}>
                 <Text style={styles.checklistItemLabel}>{item.label}</Text>
                 {item.subNote ? <Text style={styles.checklistItemSubNote}>{item.subNote}</Text> : null}

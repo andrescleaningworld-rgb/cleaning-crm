@@ -97,7 +97,7 @@ export default function SupplyOrdersPage() {
               <button type="button" onClick={loadAll} disabled={loading} className="ui-btn ui-btn-second">
                 {loading ? "Refreshing..." : "Refresh"}
               </button>
-              <Link href="/supplies" className="ui-btn ui-btn-second">
+              <Link href="/supplies/stock" className="ui-btn ui-btn-second">
                 Warehouse and stock
               </Link>
             </div>
