@@ -161,11 +161,12 @@ export default function PorterChecklistSubmissionsPage() {
     window.history.replaceState(null, "", url.toString());
   }, [accountFilter]);
 
-  // A new account, type or range starts a fresh selection.
+  // A new account or type starts a fresh selection. The report range does
+  // not: it only applies to Share Report, never to the checked rows.
   useEffect(() => {
     setSelected(new Set());
     setShareError("");
-  }, [accountFilter, typeFilter, rangePreset, customStart, customEnd]);
+  }, [accountFilter, typeFilter]);
 
   // The report range, as days (inclusive). It only decides what Share Report
   // puts in the PDF; the list and Share selected ignore it.
