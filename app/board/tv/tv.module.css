@@ -493,6 +493,17 @@
   opacity: 0.8;
 }
 
+/* "Status needed": orange, ahead of the kind of paper. */
+.statusTag {
+  display: inline-block;
+  margin-right: 0.4em;
+  padding: 0 0.35em;
+  border-radius: 0.25em;
+  background: #e65100;
+  color: #ffffff;
+  opacity: 1;
+}
+
 .noteName {
   margin: 0;
   overflow: hidden;

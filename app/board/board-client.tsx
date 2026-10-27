@@ -23,9 +23,10 @@ import {
   friendlyDate,
   showToast,
 } from "@/app/ui";
-import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, type BoardData, type Paper } from "@/lib/board";
+import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, statusLine, type BoardData, type Paper } from "@/lib/board";
 import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
+import PinStatusBox from "./pin-status";
 import AccountLink from "../components/AccountLink";
 import PizzaTracker from "../components/pizza-tracker";
 import { StuckNote, setupStepsText } from "../components/account-flow";
@@ -105,7 +106,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
         setState("off");
         return;
       }
-      setData({ settings: body.settings!, me: body.me!, managers: body.managers ?? [], papers: body.papers ?? [], done: body.done ?? [] });
+      setData({ settings: body.settings!, me: body.me!, managers: body.managers ?? [], papers: body.papers ?? [], done: body.done ?? [], statusOn: body.statusOn === true });
       setState("ready");
     } catch {
       setState((current) => (current === "ready" ? current : "failed"));
@@ -337,6 +338,19 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               </dl>
             </div>
 
+            {/* The status check: one tap, an optional note, and the history. */}
+            {data.statusOn ? (
+              <PinStatusBox
+                key={`${open.kind}:${open.itemId}`}
+                paper={open}
+                canFinish={!isExtraJob(open)}
+                onSaved={(takenDown) => {
+                  if (takenDown) setOpenKey("");
+                  void load();
+                }}
+              />
+            ) : null}
+
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (
               <>
@@ -487,7 +501,9 @@ function MySquare({
                 {paper.badge ? `, ${paper.badge}` : ""}
               </span>
               {isOld(paper, data.settings) ? <span className={styles.mineTagOld}>{daysLabel(days)}</span> : <span className="ui-muted">{days === 0 ? "Today" : daysLabel(days)}</span>}
+              {paper.statusNeeded ? <span className={styles.statusTagInline}>Status needed</span> : null}
             </div>
+            {paper.status ? <p className={styles.statusLine}>{statusLine(paper.status)}</p> : null}
             <h2 className={styles.mineTitle}>{paper.title || KIND_LABEL[paper.kind]}</h2>
             {paper.detail ? <p className="ui-card-text">{paper.detail}</p> : null}
             {paper.progress ? (

@@ -8,7 +8,7 @@
 import { Caveat } from "next/font/google";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Sheet } from "@/app/ui";
-import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, pinStatusLabel, statusLine, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import PizzaTracker from "@/app/components/pizza-tracker";
 import styles from "./board.module.css";
 
@@ -34,6 +34,8 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
     <>
       <span className={`${styles.pin} ${taken ? styles.pinGreen : styles.pinRed}`} aria-hidden="true" />
       {old ? <span className={styles.daysTag}>{daysLabel(days)}</span> : null}
+      {/* Asked for a status and not answered yet (lib/pg/pin-status.ts). */}
+      {paper.statusNeeded ? <span className={styles.statusTag}>Status needed</span> : null}
       <span className={styles.kind}>{paperLabel(paper)}</span>
       {title ? <span className={`${styles.title} ${paper.kind === "note" && !tv ? handwriting.className : ""}`}>{title}</span> : null}
       {!tv && paper.badge ? <span className={styles.badge}>{paper.badge}</span> : null}
@@ -73,6 +75,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
           ✓ <span className="ui-visually-hidden">Done. It comes down tomorrow.</span>
         </span>
       ) : null}
+      {paper.status ? <span className={styles.statusLine}>{tv ? pinStatusLabel(paper.status.key) : statusLine(paper.status)}</span> : null}
       {!tv && taken ? <span className={styles.who}>Got it: {paper.takenBy}</span> : null}
       <span className="ui-visually-hidden">{taken ? "Someone has it." : "Nobody has taken it yet."}</span>
     </>

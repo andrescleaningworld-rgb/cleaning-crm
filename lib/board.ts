@@ -67,7 +67,41 @@ export type Paper = {
   recordDone: boolean;
   /** A sticky note added inside a shared box ("supply", "complaint", "account"): it hangs there. "" = the Office box. */
   box: string;
+  /** The latest status someone gave it (migration 062). null = none yet. */
+  status: PinStatus | null;
+  /** Asked for a status and not answered yet: the "Status needed" tag. */
+  statusNeeded: boolean;
 };
+
+/* ---------- the status check (migration 062, lib/pg/pin-status.ts) ---------- */
+
+export type PinStatusKey = "on_it" | "waiting_customer" | "waiting_sub" | "done";
+
+/** The big buttons, in order. */
+export const PIN_STATUSES: { key: PinStatusKey; label: string }[] = [
+  { key: "on_it", label: "On it" },
+  { key: "waiting_customer", label: "Waiting on customer" },
+  { key: "waiting_sub", label: "Waiting on sub" },
+  { key: "done", label: "Done" },
+];
+
+export const isPinStatus = (value: string): value is PinStatusKey => PIN_STATUSES.some((entry) => entry.key === value);
+export const pinStatusLabel = (key: string) => PIN_STATUSES.find((entry) => entry.key === key)?.label ?? "";
+
+export type PinStatus = { key: PinStatusKey; note: string; by: string; at: string };
+
+/** The note that goes with a status: one short line. */
+export const STATUS_NOTE_MAX = 140;
+
+/** One line of a pin's status history. */
+export type PinStatusEvent = { event: "status" | "ask" | "owner"; status: string; note: string; by: string; at: string };
+
+/** "Waiting on sub · Greg · Oct 27": the status line on a paper. */
+export function statusLine(status: PinStatus): string {
+  const day = new Date(status.at);
+  const when = Number.isNaN(day.getTime()) ? "" : day.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return [pinStatusLabel(status.key), status.by.split(/\s+/)[0] ?? "", when].filter(Boolean).join(" · ");
+}
 
 /** The shared boxes a plain sticky note can be added into. */
 export const NOTE_BOXES = ["account", "complaint", "supply"] as const;
@@ -119,6 +153,8 @@ export type BoardData = {
   papers: Paper[];
   /** The Done tray: finished in the last settings.doneDays days, newest first. Older ones are in the Archive. */
   done: Paper[];
+  /** Migration 062 is in: pins take a status (the big buttons in a pin's card). */
+  statusOn: boolean;
 };
 
 export type TvLink = { id: string; label: string; createdBy: string; createdAt: string; lastSeenAt: string; revokedAt: string; revokedBy: string };

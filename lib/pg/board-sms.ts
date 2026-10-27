@@ -91,38 +91,54 @@ export async function notifyBoardSquare(input: {
   const square = clean(input.square);
   if (!square || square === clean(input.byStaffId)) return;
 
-  let phone = "";
-  let name = "";
+  let contact: StaffContact | null = null;
   try {
     if (!(await listBoardManagers()).some((manager) => manager.id === square)) return;
-    const sql = getSql();
-    const rows = (await sql`
-      SELECT s.name, COALESCE(m.phone, '') AS phone
-      FROM staff s
-      LEFT JOIN managers m ON m.staff_id = s.id OR lower(btrim(m.name)) = lower(btrim(s.name))
-      WHERE s.id = ${square} AND s.role = 'Manager' AND s.active
-      ORDER BY (m.staff_id = s.id) DESC NULLS LAST, (btrim(COALESCE(m.phone, '')) <> '') DESC
-      LIMIT 1
-    `) as { name: string; phone: string }[];
-    if (rows.length === 0) return;
-    name = clean(rows[0].name);
-    phone = clean(rows[0].phone);
+    contact = await staffContact(square, { managersOnly: true });
   } catch (error) {
     console.error(`[notify] ${input.routeContext} lookup failed:`, error instanceof Error ? error.message : error);
     return;
   }
+  if (!contact) return;
 
-  if (!phone) {
-    console.debug(`[sms] skip ${input.routeContext}: manager "${name}" has no phone on file`);
-    return;
+  await textBoardPerson(contact, boardSmsText(input, input.origin), input.paperId, input.routeContext);
+}
+
+/** An active staff member and the phone the To-Do texts use for them (the Managers list, linked by Staff ID, else by name). */
+export type StaffContact = { staffId: string; name: string; phone: string };
+
+/** Null when there is no such active staff member (or, with managersOnly, they are not a Manager). */
+export async function staffContact(staffId: string, options: { managersOnly?: boolean } = {}): Promise<StaffContact | null> {
+  const id = clean(staffId);
+  if (!id) return null;
+  const managersOnly = options.managersOnly === true;
+  const rows = (await getSql()`
+    SELECT s.id, s.name, COALESCE(m.phone, '') AS phone
+    FROM staff s
+    LEFT JOIN managers m ON m.staff_id = s.id OR lower(btrim(m.name)) = lower(btrim(s.name))
+    WHERE s.id = ${id} AND s.active AND (NOT ${managersOnly} OR s.role = 'Manager')
+    ORDER BY (m.staff_id = s.id) DESC NULLS LAST, (btrim(COALESCE(m.phone, '')) <> '') DESC
+    LIMIT 1
+  `) as { id: string; name: string; phone: string }[];
+  const row = rows[0];
+  return row ? { staffId: clean(row.id), name: clean(row.name), phone: clean(row.phone) } : null;
+}
+
+/**
+ * Texts one person about a paper and writes the SMS log under "board:<paper>".
+ * Skips (no attempt, no log row) when they have no phone on file. Never throws.
+ */
+export async function textBoardPerson(contact: StaffContact, text: string, paperId: string, routeContext: string): Promise<boolean> {
+  if (!contact.phone) {
+    console.debug(`[sms] skip ${routeContext}: "${contact.name}" has no phone on file`);
+    return false;
   }
-
-  const message = sanitizeSmsText(boardSmsText(input, input.origin), Infinity);
-  const result = await sendSms(phone, message, input.routeContext);
+  const message = sanitizeSmsText(text, Infinity);
+  const result = await sendSms(contact.phone, message, routeContext);
   try {
     await appendSmsLog({
-      toDoId: `board:${input.paperId}`,
-      managerPhone: phone,
+      toDoId: `board:${paperId}`,
+      managerPhone: contact.phone,
       textId: result.textId !== undefined ? String(result.textId) : "",
       status: result.success ? "sent" : "failed",
       quotaRemaining: result.quotaRemaining,
@@ -130,4 +146,5 @@ export async function notifyBoardSquare(input: {
   } catch (error) {
     console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
   }
+  return result.success;
 }

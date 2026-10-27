@@ -7,7 +7,9 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
-import { NOTE_BOXES } from "@/lib/board";
+import { NOTE_BOXES, STATUS_NOTE_MAX, isPinStatus } from "@/lib/board";
+import { setPaperStatus, statusHistory } from "@/lib/pg/pin-status";
+import { sendPush } from "@/lib/push";
 import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "@/lib/boardPins";
 import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
@@ -25,6 +27,7 @@ import {
   listTvLinks,
   movePaper,
   pinPaper,
+  pinStatusReady,
   revokeTvLink,
   saveBoardSettings,
   syncBoard,
@@ -77,6 +80,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, ready: true, doneDays: settings.doneDays, ...list }, noStore);
     }
 
+    // A pin's status history (migration 062): the statuses, the asks and the owner notices, newest first.
+    if (view === "status") {
+      if (!identity) return refuse("Log in first.", 401);
+      const kind = clean(request.nextUrl.searchParams.get("kind"));
+      const itemId = clean(request.nextUrl.searchParams.get("itemId"));
+      if (!kind || !itemId) return refuse("kind and itemId are required.");
+      if (!(await pinStatusReady())) return NextResponse.json({ success: true, ready: false, history: [] }, noStore);
+      return NextResponse.json({ success: true, ready: true, history: await statusHistory(kind, itemId) }, noStore);
+    }
+
     // Settings -> Pin Board: the days setting and the TV links (owner only).
     if (view === "settings") {
       if (identity?.role !== "owner") return refuse("Only the owner can see the TV links.", 403);
@@ -90,14 +103,14 @@ export async function GET(request: NextRequest) {
     // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
     await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
     const settings = await getBoardSettings();
-    const [managers, lists] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays)]);
+    const [managers, lists, statusOn] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays), pinStatusReady()]);
     const staffId = clean(identity?.staffId);
     const me: BoardMe = {
       name: clean(identity?.name),
       squareId: managers.some((manager) => manager.id === staffId) ? staffId : "",
       isOwner: identity?.role === "owner",
     };
-    const data: BoardData = { settings, me, managers, papers: lists.papers, done: lists.done };
+    const data: BoardData = { settings, me, managers, papers: lists.papers, done: lists.done, statusOn };
     return NextResponse.json({ success: true, ready: true, ...data }, noStore);
   } catch (error) {
     console.error("[board GET]", error instanceof Error ? error.message : error);
@@ -162,6 +175,27 @@ export async function POST(request: NextRequest) {
       if (isExtraJobPaper(kind, itemId) && body.on !== false) return refuse("Mark this job Done on its own page.");
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
       return NextResponse.json({ success: true });
+    }
+
+    // The status check (migration 062): one tap with a status, an optional short note. Resets the clock and clears "Status needed".
+    if (action === "status") {
+      if (!kind || !itemId) return refuse("kind and itemId are required.");
+      if (!(await pinStatusReady())) return refuse("Pin statuses are not turned on here yet.", 409);
+      const status = clean(body.status);
+      if (!isPinStatus(status)) return refuse("Pick a status.");
+      const note = clean(body.note);
+      if (note.length > STATUS_NOTE_MAX) return refuse(`Keep the note under ${STATUS_NOTE_MAX} letters.`);
+      const result = await setPaperStatus({ kind, itemId, status, note, by });
+      if (!result.ok) return refuse("That paper is not on the board any more.", 404);
+      return NextResponse.json({ success: true, takenDown: result.takenDown });
+    }
+
+    // Settings -> Pin Board, owner only: a test push to this person's own devices, to see that push works end to end.
+    if (action === "testPush") {
+      if (identity.role !== "owner") return refuse("Only the owner can send a test push.", 403);
+      if (!byStaffId) return refuse("This login has no Staff ID, so no device is tagged for it.");
+      const result = await sendPush(byStaffId, "Test push", "Push works on this device. Pin Board status asks will come here too.", `${origin}/settings/board`, "board/test-push");
+      return NextResponse.json({ success: true, delivered: result.success, reason: result.reason ?? "", staffId: byStaffId });
     }
 
     // "Pin to board" on a record's own screen. The record is only read; the paper points at it.

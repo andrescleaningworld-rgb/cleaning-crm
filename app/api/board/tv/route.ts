@@ -52,6 +52,9 @@ function forTv(paper: Paper): Paper {
     flow: paper.flow ? { ...paper.flow, stuckNote: "", stuckNoteBy: "", stuckNoteAt: "" } : null,
     href: "",
     pdfHref: "",
+    // "Status needed" and the latest status in a word, not who gave it or the note.
+    status: paper.status ? { key: paper.status.key, note: "", by: "", at: "" } : null,
+    statusNeeded: paper.statusNeeded,
   };
 }
 

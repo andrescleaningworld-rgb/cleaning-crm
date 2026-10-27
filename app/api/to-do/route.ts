@@ -14,6 +14,7 @@ import {
 } from "@/lib/data/todos";
 import {
   fetchManagers,
+  pushIdForManager,
 } from "@/lib/data/people";
 import {
   createCalendarEventForToDo,
@@ -163,7 +164,8 @@ async function sendToDoPush(
     return;
   }
 
-  await sendPush(manager.managerId, title, body, url, routeContext);
+  // Devices are tagged with the Staff ID at login, not the Manager ID: send to that.
+  await sendPush(await pushIdForManager(manager), title, body, url, routeContext);
 }
 
 // Exported so the resend endpoint (app/api/to-do/[id]/resend-notification/

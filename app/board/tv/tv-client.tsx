@@ -40,7 +40,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { SHARED_SQUARES, flowStepLine, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, flowStepLine, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, pinStatusLabel, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
 import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
@@ -753,9 +753,12 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     return (
       <div className={`${styles.note} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${overdue || stuck ? styles.late : ""}`} data-late={overdue || stuck ? "1" : "0"}>
         <p className={styles.noteType}>
+          {/* Asked for a status and not answered yet (lib/pg/pin-status.ts). */}
+          {paper.statusNeeded ? <span className={styles.statusTag}>Status needed</span> : null}
           {paperLabel(paper)}
           {overdue ? ` · due ${dueLabel(paper.dueDate)}` : stuck && !paper.flow ? ` · ${daysLabel(daysPinned(paper, now))}` : ""}
           {paper.recordDone ? " · done ✓" : ""}
+          {paper.status && !paper.statusNeeded ? ` · ${pinStatusLabel(paper.status.key)}` : ""}
         </p>
         <p className={styles.noteName}>{paper.accountName || paperLabel(paper)}</p>
         {paper.mirror ? (

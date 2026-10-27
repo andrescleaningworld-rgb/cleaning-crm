@@ -42,6 +42,21 @@ export async function fetchManagers(): Promise<Manager[]> {
   }));
 }
 
+/** The Staff ID of a manager: the linked one (managers.staff_id), else the active staff member with the same name. "" = none. */
+export async function staffIdForManager(managerId: string, name: string): Promise<string> {
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT s.id FROM staff s
+    WHERE s.active AND (
+      s.id = (SELECT m.staff_id FROM managers m WHERE m.manager_id = ${managerId} AND btrim(${managerId}) <> '' AND m.staff_id IS NOT NULL LIMIT 1)
+      OR lower(btrim(s.name)) = lower(btrim(${name}))
+    )
+    ORDER BY (s.id = (SELECT m.staff_id FROM managers m WHERE m.manager_id = ${managerId} AND btrim(${managerId}) <> '' LIMIT 1)) DESC NULLS LAST
+    LIMIT 1
+  `) as { id: string }[];
+  return rows[0]?.id ?? "";
+}
+
 export async function getManagerCalendarColorId(assignedTo: string): Promise<string | undefined> {
   const target = assignedTo.trim().toLowerCase();
   if (!target) return undefined;
