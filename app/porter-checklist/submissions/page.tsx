@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+// Crew Link — Submitted: every checklist and supply request crews sent in
+// through Crew Link, newest first. ?accountId= (from an account card on the
+// Crew Link page) opens it filtered to that account. The list always shows
+// everything; the report range only decides what goes in Share Report.
+// Share selected sends every checked row, grouped by account.
+
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import AccountLink from "../../components/AccountLink";
@@ -23,12 +30,26 @@ type SubmissionSummary = {
   startedAt: string | null;
 };
 
+type SupplyRequest = {
+  id: number;
+  accountId: string;
+  accountName: string;
+  reporterName: string;
+  status: string;
+  note: string;
+  noteEnglish: string | null;
+  otherItems: string | null;
+  createdAt: string;
+  lines: { itemName: string; unit: string; qty: number }[];
+};
+
 type FlaggedAccount = { accountId: string; accountName: string };
 
 type ListResponse = {
   success?: boolean;
   error?: string;
   submissions?: SubmissionSummary[];
+  supplyRequests?: SupplyRequest[];
   flaggedAccounts?: FlaggedAccount[];
 };
 
@@ -38,14 +59,44 @@ type DetailResponse = {
   detail?: SubmissionSummary & { sections: ChecklistSubmissionSection[] };
 };
 
+type TypeFilter = "all" | "checklists" | "supplies";
+
+type Row =
+  | { key: string; kind: "checklist"; at: string; checklist: SubmissionSummary }
+  | { key: string; kind: "supplies"; at: string; supplies: SupplyRequest };
+
+const SUPPLY_STATUS_LABEL: Record<string, string> = {
+  new: "New",
+  ordered: "Ordered",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+// "YYYY-MM-DD" for a moment, in this computer's time zone.
+function localDay(value: Date | string): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function linesSummary(request: SupplyRequest): string {
+  const parts = request.lines.map((l) => `${l.qty}× ${l.itemName}`);
+  if (request.otherItems) parts.push(`Other: ${request.otherItems}`);
+  return parts.join(", ") || "—";
+}
+
 export default function PorterChecklistSubmissionsPage() {
-  const [accountFilter, setAccountFilter] = useState("");
+  // null until ?accountId= has been read, so the list loads once.
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [submissions, setSubmissions] = useState<SubmissionSummary[]>([]);
+  const [supplyRequests, setSupplyRequests] = useState<SupplyRequest[]>([]);
   const [flaggedAccounts, setFlaggedAccounts] = useState<FlaggedAccount[]>([]);
   const [loading, setLoading] = useState(false);
   const [listError, setListError] = useState("");
 
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [detail, setDetail] = useState<(SubmissionSummary & { sections: ChecklistSubmissionSection[] }) | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -55,6 +106,10 @@ export default function PorterChecklistSubmissionsPage() {
   const [reportPending, setReportPending] = useState(false);
   const [reportError, setReportError] = useState("");
 
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [sharePending, setSharePending] = useState(false);
+  const [shareError, setShareError] = useState("");
+
   // canShare() existing isn't enough — some browsers implement navigator.share
   // for text/URLs only and report false from canShare() specifically for
   // files, so this probes with a real (throwaway) File the same shape as
@@ -62,6 +117,7 @@ export default function PorterChecklistSubmissionsPage() {
   const [canShareFiles, setCanShareFiles] = useState(false);
 
   useEffect(() => {
+    setAccountFilter(new URLSearchParams(window.location.search).get("accountId") ?? "");
     if (typeof navigator === "undefined" || typeof navigator.canShare !== "function") {
       return;
     }
@@ -86,6 +142,7 @@ export default function PorterChecklistSubmissionsPage() {
         throw new Error(data.error ?? "Could not load submissions.");
       }
       setSubmissions(data.submissions ?? []);
+      setSupplyRequests(data.supplyRequests ?? []);
       setFlaggedAccounts(data.flaggedAccounts ?? []);
     } catch (err) {
       setListError(err instanceof Error ? err.message : "Could not load submissions.");
@@ -95,20 +152,72 @@ export default function PorterChecklistSubmissionsPage() {
   }
 
   useEffect(() => {
+    if (accountFilter === null) return;
     loadSubmissions(accountFilter);
+    // Keep the address in step, so a refresh or a shared link shows the same account.
+    const url = new URL(window.location.href);
+    if (accountFilter) url.searchParams.set("accountId", accountFilter);
+    else url.searchParams.delete("accountId");
+    window.history.replaceState(null, "", url.toString());
   }, [accountFilter]);
 
-  async function handleExpand(id: number) {
-    if (expandedId === id) {
-      setExpandedId(null);
+  // A new account, type or range starts a fresh selection.
+  useEffect(() => {
+    setSelected(new Set());
+    setShareError("");
+  }, [accountFilter, typeFilter, rangePreset, customStart, customEnd]);
+
+  // The report range, as days (inclusive). It only decides what Share Report
+  // puts in the PDF; the list and Share selected ignore it.
+  // null while a custom range is missing a date.
+  const reportRange = useMemo((): { start: string; end: string } | null => {
+    if (rangePreset === "custom") {
+      return customStart && customEnd ? { start: customStart, end: customEnd } : null;
+    }
+    const start = new Date();
+    start.setDate(start.getDate() - (rangePreset === "7" ? 7 : 30));
+    return { start: localDay(start), end: localDay(new Date()) };
+  }, [rangePreset, customStart, customEnd]);
+
+  // Everything for the account and type filters, newest first (no date limit).
+  const rows = useMemo((): Row[] => {
+    const all: Row[] = [
+      ...(typeFilter === "supplies"
+        ? []
+        : submissions.map((s): Row => ({ key: `c:${s.id}`, kind: "checklist", at: s.submittedAt, checklist: s }))),
+      ...(typeFilter === "checklists"
+        ? []
+        : supplyRequests.map((r): Row => ({ key: `s:${r.id}`, kind: "supplies", at: r.createdAt, supplies: r }))),
+    ];
+    return all.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  }, [submissions, supplyRequests, typeFilter]);
+
+  const allShownSelected = rows.length > 0 && rows.every((row) => selected.has(row.key));
+
+  function toggleRow(key: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allShownSelected ? new Set() : new Set(rows.map((row) => row.key)));
+  }
+
+  async function handleExpandChecklist(row: Row & { kind: "checklist" }) {
+    if (expandedKey === row.key) {
+      setExpandedKey(null);
       setDetail(null);
       return;
     }
-    setExpandedId(id);
+    setExpandedKey(row.key);
     setDetail(null);
     setDetailLoading(true);
     try {
-      const response = await fetch(`/api/checklist-submissions?id=${id}`, { cache: "no-store" });
+      const response = await fetch(`/api/checklist-submissions?id=${row.checklist.id}`, { cache: "no-store" });
       const data = (await response.json()) as DetailResponse;
       if (!response.ok || data.success === false || !data.detail) {
         throw new Error(data.error ?? "Could not load submission detail.");
@@ -121,29 +230,20 @@ export default function PorterChecklistSubmissionsPage() {
     }
   }
 
-  function getReportRange(): { start: string; end: string } {
-    if (rangePreset === "custom") {
-      return { start: customStart, end: customEnd };
-    }
-    const days = rangePreset === "7" ? 7 : 30;
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - days);
-    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  function handleExpandSupplies(key: string) {
+    setDetail(null);
+    setExpandedKey(expandedKey === key ? null : key);
   }
 
   function validateReportRange(): { start: string; end: string } | null {
-    const { start, end } = getReportRange();
-    if (!start || !end) {
+    if (!reportRange) {
       setReportError("Choose a start and end date.");
       return null;
     }
-    return { start, end };
+    return reportRange;
   }
 
-  async function fetchReportPdf(start: string, end: string): Promise<{ blob: Blob; filename: string }> {
-    const url = `/api/porter-checklist-report?accountId=${encodeURIComponent(accountFilter)}&start=${start}&end=${end}`;
-    const response = await fetch(url);
+  async function readPdf(response: Response): Promise<{ blob: Blob; filename: string }> {
     if (!response.ok) {
       const data = await response.json().catch(() => ({} as { error?: string }));
       throw new Error(data.error || "Could not generate the report.");
@@ -152,6 +252,22 @@ export default function PorterChecklistSubmissionsPage() {
     const disposition = response.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="([^"]+)"/);
     return { blob, filename: match ? match[1] : "report.pdf" };
+  }
+
+  async function fetchReportPdf(start: string, end: string): Promise<{ blob: Blob; filename: string }> {
+    const url = `/api/porter-checklist-report?accountId=${encodeURIComponent(accountFilter ?? "")}&start=${start}&end=${end}`;
+    return readPdf(await fetch(url));
+  }
+
+  function downloadBlob(blob: Blob, filename: string) {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   }
 
   async function handleShareReport() {
@@ -166,8 +282,8 @@ export default function PorterChecklistSubmissionsPage() {
       const accountName = flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName || "account";
       await navigator.share({
         files: [file],
-        title: `Crew Link Checklist Report — ${accountName}`,
-        text: `Crew Link checklist report for ${accountName}`,
+        title: `Crew Link Report — ${accountName}`,
+        text: `Crew Link report for ${accountName}`,
       });
     } catch (err) {
       // AbortError means the user closed the native share sheet without
@@ -187,14 +303,7 @@ export default function PorterChecklistSubmissionsPage() {
     setReportPending(true);
     try {
       const { blob, filename } = await fetchReportPdf(range.start, range.end);
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      downloadBlob(blob, filename);
     } catch (err) {
       setReportError(err instanceof Error ? err.message : "Could not download the report.");
     } finally {
@@ -202,19 +311,65 @@ export default function PorterChecklistSubmissionsPage() {
     }
   }
 
+  // Same flow as Share Report (share sheet where the device has one, a
+  // download otherwise), but one PDF with every checked row (the report range
+  // does not apply here).
+  async function handleShareSelected() {
+    const keys = [...selected];
+    if (keys.length === 0) return;
+    const ids = (prefix: string) => keys.filter((k) => k.startsWith(prefix)).map((k) => Number(k.slice(2)));
+    setShareError("");
+    setSharePending(true);
+    try {
+      const { blob, filename } = await readPdf(
+        await fetch("/api/porter-checklist-report/selected", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ checklistIds: ids("c:"), supplyIds: ids("s:") }),
+        })
+      );
+      if (canShareFiles) {
+        const file = new File([blob], filename, { type: "application/pdf" });
+        await navigator.share({
+          files: [file],
+          title: "Crew Link Report",
+          text: `Crew Link report (${keys.length} submission${keys.length === 1 ? "" : "s"})`,
+        });
+      } else {
+        downloadBlob(blob, filename);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setShareError(err instanceof Error ? err.message : "Could not share the selected submissions.");
+    } finally {
+      setSharePending(false);
+    }
+  }
+
+  const accountName = accountFilter ? flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName : "";
+  const typeCounts = {
+    all: submissions.length + supplyRequests.length,
+    checklists: submissions.length,
+    supplies: supplyRequests.length,
+  };
+
   return (
     <div className="ui-screen">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={36} height={36} className="h-9 w-9 object-contain" />
-          <h1 className="ui-screen-title">Crew Link — Checklist Submissions</h1>
+          <h1 className="ui-screen-title">Crew Link — Submitted{accountName ? ` · ${accountName}` : ""}</h1>
         </div>
         <select
-          value={accountFilter}
+          value={accountFilter ?? ""}
           onChange={(event) => setAccountFilter(event.target.value)}
           className="ui-input"
+          aria-label="Account"
         >
           <option value="">All accounts</option>
+          {accountFilter && !flaggedAccounts.some((a) => a.accountId === accountFilter) ? (
+            <option value={accountFilter}>{accountFilter}</option>
+          ) : null}
           {flaggedAccounts.map((a) => (
             <option key={a.accountId} value={a.accountId}>
               {a.accountName}
@@ -222,6 +377,9 @@ export default function PorterChecklistSubmissionsPage() {
           ))}
         </select>
       </div>
+      <Link href="/crew-link" className="ui-link">
+        ← Crew Link
+      </Link>
 
       <div className="ui-card">
         <span className="ui-muted">Report Range</span>
@@ -279,13 +437,36 @@ export default function PorterChecklistSubmissionsPage() {
         )}
       </div>
       {!accountFilter ? (
-        <p className="ui-muted">Choose a specific account above to share or download its report.</p>
+        <p className="ui-muted">Choose a specific account above to share or download its report, or check rows below to share just those.</p>
       ) : null}
+      <p className="ui-muted">The report range only applies to Share Report. The list below shows everything, and Share selected sends exactly the rows you check.</p>
       {reportError ? (
         <p className="ui-field-error">
           {reportError}
         </p>
       ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            ["all", `All ${typeCounts.all}`],
+            ["checklists", `Checklists ${typeCounts.checklists}`],
+            ["supplies", `Supplies ${typeCounts.supplies}`],
+          ] as [TypeFilter, string][]
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTypeFilter(key)}
+            aria-pressed={typeFilter === key}
+            className={`min-h-[48px] rounded-full border-2 px-4 text-base font-bold ${
+              typeFilter === key ? "border-blue-700 bg-blue-700 text-white" : "border-slate-300 bg-white text-slate-800 hover:bg-slate-100"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       {listError ? (
         <p className="ui-field-error">
@@ -293,57 +474,106 @@ export default function PorterChecklistSubmissionsPage() {
         </p>
       ) : null}
 
-      {loading ? <p className="ui-muted">Loading submissions…</p> : null}
+      {loading || accountFilter === null ? <p className="ui-muted">Loading submissions…</p> : null}
 
-      {!loading && submissions.length === 0 ? (
-        <p className="ui-muted">No submissions yet.</p>
+      {!loading && accountFilter !== null && rows.length === 0 ? (
+        <p className="ui-muted">Nothing submitted yet.</p>
+      ) : null}
+
+      {rows.length > 0 ? (
+        <label className="flex min-h-[48px] cursor-pointer items-center gap-3 px-1">
+          <input
+            type="checkbox"
+            checked={allShownSelected}
+            onChange={toggleAll}
+            className="h-6 w-6 shrink-0 accent-blue-700"
+          />
+          <span className="ui-strong">Select all ({rows.length})</span>
+        </label>
       ) : null}
 
       <div className="space-y-3">
-        {submissions.map((submission) => (
-          <div key={submission.id} className="ui-card">
-            <button
-              type="button"
-              onClick={() => handleExpand(submission.id)}
-              className="ui-pick"
-            >
-              <div>
-                <p className="ui-strong">
-                  <AccountLink nested accountId={submission.accountId} name={submission.accountName} /> — {submission.locationName}
-                  {submission.tabName ? (
-                    <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-base font-black text-blue-700">{submission.tabName}</span>
-                  ) : null}
-                </p>
-                <p className="ui-muted">
-                  {(() => {
-                    // New submissions: automatic Started / Finished. Old ones: typed Week Of + times.
-                    const times = describeWorkTimes(submission);
-                    return [
-                      submission.porterName,
-                      submission.startedAt ? null : submission.weekOf || "—",
-                      formatCrewDateTime(submission.submittedAt),
-                      `${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ");
-                  })()}
-                </p>
-              </div>
-              <span
-                className={`shrink-0 rounded-full px-3 py-1 text-base font-black ${
-                  submission.completedCount === submission.totalCount
-                    ? "bg-green-100 text-green-800"
-                    : "bg-amber-100 text-amber-800"
-                }`}
+        {rows.map((row) => (
+          <div key={row.key} className="ui-card">
+            <div className="flex items-stretch gap-2">
+              <label
+                className="flex shrink-0 cursor-pointer items-center px-1"
+                aria-label="Select for sharing"
               >
-                {submission.completedCount}/{submission.totalCount}
-              </span>
-            </button>
+                <input
+                  type="checkbox"
+                  checked={selected.has(row.key)}
+                  onChange={() => toggleRow(row.key)}
+                  className="h-6 w-6 accent-blue-700"
+                />
+              </label>
+              {row.kind === "checklist" ? (
+                <button
+                  type="button"
+                  onClick={() => handleExpandChecklist(row)}
+                  className="ui-pick min-w-0 flex-1"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="ui-strong">
+                      <span className="mr-2 rounded-full bg-green-50 px-2 py-0.5 text-sm font-black text-green-800">Checklist</span>
+                      <AccountLink nested accountId={row.checklist.accountId} name={row.checklist.accountName} /> — {row.checklist.locationName}
+                      {row.checklist.tabName ? (
+                        <span className="ml-2 rounded-full bg-blue-50 px-2 py-0.5 text-base font-black text-blue-700">{row.checklist.tabName}</span>
+                      ) : null}
+                    </p>
+                    <p className="ui-muted">
+                      {(() => {
+                        // New submissions: automatic Started / Finished. Old ones: typed Week Of + times.
+                        const submission = row.checklist;
+                        const times = describeWorkTimes(submission);
+                        return [
+                          submission.porterName,
+                          submission.startedAt ? null : submission.weekOf || "—",
+                          formatCrewDateTime(submission.submittedAt),
+                          `${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ");
+                      })()}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-3 py-1 text-base font-black ${
+                      row.checklist.completedCount === row.checklist.totalCount
+                        ? "bg-green-100 text-green-800"
+                        : "bg-amber-100 text-amber-800"
+                    }`}
+                  >
+                    {row.checklist.completedCount}/{row.checklist.totalCount}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleExpandSupplies(row.key)}
+                  className="ui-pick min-w-0 flex-1"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="ui-strong">
+                      <span className="mr-2 rounded-full bg-violet-50 px-2 py-0.5 text-sm font-black text-violet-800">Supplies</span>
+                      <AccountLink nested accountId={row.supplies.accountId} name={row.supplies.accountName} />
+                    </p>
+                    <p className="ui-muted">
+                      {[row.supplies.reporterName || "Unknown", formatCrewDateTime(row.supplies.createdAt)].join(" · ")}
+                    </p>
+                    <p className="ui-muted truncate">{linesSummary(row.supplies)}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-base font-black text-slate-700">
+                    {SUPPLY_STATUS_LABEL[row.supplies.status] ?? row.supplies.status}
+                  </span>
+                </button>
+              )}
+            </div>
 
-            {expandedId === submission.id ? (
+            {expandedKey === row.key && row.kind === "checklist" ? (
               <div className="border-t border-slate-100 p-4">
                 {detailLoading ? <p className="ui-muted">Loading detail…</p> : null}
-                {detail && detail.id === submission.id ? (
+                {detail && detail.id === row.checklist.id ? (
                   <div className="space-y-4">
                     <a
                       href={`/crew-link/print/submission/${detail.id}`}
@@ -387,9 +617,60 @@ export default function PorterChecklistSubmissionsPage() {
                 ) : null}
               </div>
             ) : null}
+
+            {expandedKey === row.key && row.kind === "supplies" ? (
+              <div className="space-y-3 border-t border-slate-100 p-4">
+                <p className="ui-muted">
+                  Requested by <span className="ui-strong">{row.supplies.reporterName || "Unknown"}</span> ·{" "}
+                  {formatCrewDateTime(row.supplies.createdAt)} · {SUPPLY_STATUS_LABEL[row.supplies.status] ?? row.supplies.status}
+                </p>
+                {row.supplies.lines.length > 0 ? (
+                  <div className="space-y-2">
+                    {row.supplies.lines.map((line, index) => (
+                      <div key={index} className="flex items-start gap-3 rounded-lg border border-slate-100 p-2">
+                        <span className="ui-strong w-12 shrink-0 text-right">{line.qty}×</span>
+                        <p>
+                          {line.itemName}
+                          {line.unit ? <span className="ui-muted"> ({line.unit})</span> : null}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {row.supplies.otherItems ? (
+                  <p><span className="ui-strong">Other supplies:</span> {row.supplies.otherItems}</p>
+                ) : null}
+                {row.supplies.note ? (
+                  <p>
+                    <span className="ui-strong">Note:</span> {row.supplies.note}
+                    {row.supplies.noteEnglish && row.supplies.noteEnglish !== row.supplies.note ? (
+                      <span className="ui-muted"> (English: {row.supplies.noteEnglish})</span>
+                    ) : null}
+                  </p>
+                ) : null}
+                <Link href={`/supply-orders?order=crew-${row.supplies.id}`} className="ui-btn ui-btn-second">
+                  Open in Supply Orders →
+                </Link>
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
+
+      {selected.size > 0 ? (
+        <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-blue-700 bg-white p-3 shadow-lg">
+          <span className="ui-strong">{selected.size} selected</span>
+          {shareError ? <span className="ui-field-error">{shareError}</span> : null}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setSelected(new Set())} className="ui-btn ui-btn-second">
+              Clear
+            </button>
+            <button type="button" onClick={handleShareSelected} disabled={sharePending} className="ui-btn ui-btn-main">
+              {sharePending ? "Preparing…" : canShareFiles ? "Share selected" : "Download selected"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

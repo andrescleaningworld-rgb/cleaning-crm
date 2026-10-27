@@ -5,7 +5,8 @@
 // address, tap an account, and the SAME Crew Link panel the account page
 // shows opens here (link, Share / QR / print sign, checklist tabs + editor,
 // orders & problems, Review translations), plus the account's History. The
-// account page keeps all of it too. Submitted checklists are one tap away.
+// account page keeps all of it too. Submitted checklists and supply requests
+// are one tap away (all accounts at the top, one account on each card).
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ChecklistTemplateEditor from "@/app/components/ChecklistTemplateEditor";
@@ -133,7 +134,7 @@ export default function CrewLinkHomePage() {
             href="/porter-checklist/submissions"
             className="ui-btn ui-btn-second"
           >
-            📋 Submitted checklists
+            📋 Submitted
           </Link>
         </div>
 
@@ -179,24 +180,36 @@ export default function CrewLinkHomePage() {
 
         <div className="grid gap-3 sm:grid-cols-2">
           {shown.map((a) => (
-            <button
-              key={a.accountId}
-              type="button"
-              onClick={() => {
-                setSelected(a);
-                window.scrollTo({ top: 0 });
-              }}
-              className="ui-card ui-stack"
-            >
-              <p className="ui-strong">{a.accountName || a.accountId}</p>
-              {a.address ? <p className="ui-muted">{a.address}</p> : null}
-              <p className={`mt-2 text-base font-bold ${isSetUp(a) ? "text-green-700" : "text-slate-400"}`}>
-                {isSetUp(a) ? "✅ " : ""}
-                {statusLine(a)}
-              </p>
-              {a.lastSubmittedAt ? <p className="ui-muted">Last checklist: {formatCrewDateTime(a.lastSubmittedAt)}</p> : null}
-              {!isActive(a) ? <p className="ui-muted">{a.status || "No status"}</p> : null}
-            </button>
+            <div key={a.accountId} className="ui-card flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelected(a);
+                  window.scrollTo({ top: 0 });
+                }}
+                className="ui-stack flex-1 text-left"
+              >
+                <p className="ui-strong">{a.accountName || a.accountId}</p>
+                {a.address ? <p className="ui-muted">{a.address}</p> : null}
+                <p className={`mt-2 text-base font-bold ${isSetUp(a) ? "text-green-700" : "text-slate-400"}`}>
+                  {isSetUp(a) ? "✅ " : ""}
+                  {statusLine(a)}
+                </p>
+                {a.lastSubmittedAt ? <p className="ui-muted">Last checklist: {formatCrewDateTime(a.lastSubmittedAt)}</p> : null}
+                {!isActive(a) ? <p className="ui-muted">{a.status || "No status"}</p> : null}
+              </button>
+              {/* Its own link beside the card's button, so tapping it never opens the account panel. */}
+              {a.checklistNeeded || a.supplyOrders ? (
+                <div>
+                  <Link
+                    href={`/porter-checklist/submissions?accountId=${encodeURIComponent(a.accountId)}`}
+                    className="inline-flex min-h-[40px] items-center rounded-lg border-2 border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-100"
+                  >
+                    📋 Submitted
+                  </Link>
+                </div>
+              ) : null}
+            </div>
           ))}
         </div>
       </div>

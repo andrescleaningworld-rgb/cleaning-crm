@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/data/accounts";
 import { listSubmissionsForReport } from "@/lib/checklistDb";
 import { renderPorterChecklistReportPdf } from "@/lib/pdf/porter-checklist-report";
+import { listCrewLinkSupplyOrdersForReport } from "@/lib/teamHubDb";
 
 export const maxDuration = 45;
 
@@ -42,19 +43,20 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [account, submissions] = await Promise.all([
+    const [account, submissions, supplyOrders] = await Promise.all([
       getMainAccountById(accountId),
       listSubmissionsForReport(accountId, start, end),
+      listCrewLinkSupplyOrdersForReport(accountId, start, end),
     ]);
 
-    if (submissions.length === 0) {
+    if (submissions.length === 0 && supplyOrders.length === 0) {
       return NextResponse.json(
-        { success: false, error: "No submissions found for this account in the selected date range." },
+        { success: false, error: "No checklists or supply requests for this account in the selected date range." },
         { status: 404 }
       );
     }
 
-    const accountName = account?.accountName || submissions[0].accountName;
+    const accountName = account?.accountName || submissions[0]?.accountName || accountId;
     const periodLabel = `${formatDateLabel(start)} - ${formatDateLabel(end)}`;
     const generatedDate = new Date().toLocaleDateString("en-US", {
       month: "short",
@@ -68,6 +70,15 @@ export async function GET(request: NextRequest) {
       periodLabel,
       generatedDate,
       truncated: submissions.length >= 200,
+      supplyRequests: supplyOrders.map((o) => ({
+        id: o.id,
+        createdAt: o.createdAt,
+        reporterName: o.reporterName || o.workerFirstName || "",
+        status: o.status,
+        note: o.noteEnglish || o.note,
+        otherItems: o.otherItems,
+        lines: o.lines.map((l) => ({ itemName: l.itemName, unit: l.unit, qty: l.qty })),
+      })),
       submissions: submissions.map((s) => ({
         id: s.id,
         submittedAt: s.submittedAt,

@@ -200,6 +200,11 @@ const styles = StyleSheet.create({
     fontSize: 9.5,
     fontFamily: "Helvetica-Bold",
   },
+  supplyQty: {
+    width: 30,
+    fontSize: 9.5,
+    fontFamily: "Helvetica-Bold",
+  },
   checklistItemText: {
     flex: 1,
   },
@@ -262,7 +267,9 @@ export type PorterChecklistReportData = {
   address: string;
   periodLabel: string;
   generatedDate: string;
+  // Both newest first; the report shows checklists, then supply requests.
   submissions: PorterChecklistReportSubmission[];
+  supplyRequests: SelectedSupplyRequest[];
   truncated: boolean;
 };
 
@@ -317,8 +324,10 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
         <View style={styles.accentBar} />
 
         <View style={styles.body}>
+          {data.submissions.length > 0 ? (
+          <>
           <View style={styles.summarySection}>
-            <Text style={styles.sectionTitle}>Summary</Text>
+            <Text style={styles.sectionTitle}>Checklist summary</Text>
 
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.tableHeaderCell, styles.colDate]}>Date</Text>
@@ -348,63 +357,198 @@ export function PorterChecklistReportDocument(data: PorterChecklistReportData) {
           </View>
 
           <Text style={styles.detailIntro} break>
-            Submission Detail
+            Checklists
           </Text>
 
           {data.submissions.map((submission) => (
-            <View key={submission.id} style={styles.submissionBlock} wrap={false}>
-              <View style={styles.submissionHeaderRow}>
-                <View>
-                  <Text style={styles.submissionHeaderTitle}>
-                    {formatCrewDateTime(submission.submittedAt)}
-                    {submission.tabName ? ` · ${submission.tabName}` : ""}
-                  </Text>
-                  <Text style={styles.submissionHeaderMeta}>
-                    {(() => {
-                      const times = describeWorkTimes(submission);
-                      return `${submission.porterName || "Unknown porter"} · ${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`;
-                    })()}
-                  </Text>
-                </View>
-                <CompletionBadge completed={submission.completedCount} total={submission.totalCount} />
-              </View>
+            <ChecklistBlock key={submission.id} submission={submission} />
+          ))}
+          </>
+          ) : null}
 
-              {submission.generalNotes ? (
-                <View style={styles.generalNotesBox}>
-                  <Text style={styles.generalNotesText}>{submission.generalNotes}</Text>
-                </View>
-              ) : null}
-
-              {submission.sections.map((section) => (
-                <View key={section.key} style={styles.checklistSection}>
-                  <Text style={styles.checklistSectionTitle}>{section.title}</Text>
-                  {section.items.map((item) => (
-                    <View key={item.key} style={styles.checklistItemRow}>
-                      <Text style={styles.checklistMark}>{item.checked ? "✓" : "○"}</Text>
-                      <View style={styles.checklistItemText}>
-                        <Text style={styles.checklistItemLabel}>{item.label}</Text>
-                        {item.subNote ? <Text style={styles.checklistItemSubNote}>{item.subNote}</Text> : null}
-                        {item.note ? <Text style={styles.checklistItemSubNote}>Note: {item.note}</Text> : null}
-                      </View>
-                    </View>
-                  ))}
-                </View>
+          {data.supplyRequests.length > 0 ? (
+            <View break={data.submissions.length > 0}>
+              <Text style={styles.detailIntro}>Supply requests</Text>
+              {data.supplyRequests.map((request) => (
+                <SupplyBlock key={request.id} request={request} />
               ))}
+            </View>
+          ) : null}
+        </View>
+
+        <ReportFooter />
+      </Page>
+    </Document>
+  );
+}
+
+function ReportFooter() {
+  return (
+    <View style={styles.footer}>
+      <View>
+        <Text style={styles.footerCompany}>Cleaning World Inc.</Text>
+        <Text style={styles.footerLine}>90 Burlews Ct, Hackensack, NJ 07601</Text>
+        <Text style={styles.footerLine}>201-487-1313</Text>
+      </View>
+      <Text style={styles.footerNote}>Thank you for choosing Cleaning World.</Text>
+    </View>
+  );
+}
+
+function ChecklistBlock({ submission }: { submission: PorterChecklistReportSubmission }) {
+  return (
+    <View style={styles.submissionBlock} wrap={false}>
+      <View style={styles.submissionHeaderRow}>
+        <View>
+          <Text style={styles.submissionHeaderTitle}>
+            {formatCrewDateTime(submission.submittedAt)}
+            {submission.tabName ? ` · ${submission.tabName}` : ""}
+          </Text>
+          <Text style={styles.submissionHeaderMeta}>
+            {(() => {
+              const times = describeWorkTimes(submission);
+              return `${submission.porterName || "Unknown porter"} · ${times.startLabel} ${times.start} · ${times.endLabel} ${times.end}`;
+            })()}
+          </Text>
+        </View>
+        <CompletionBadge completed={submission.completedCount} total={submission.totalCount} />
+      </View>
+
+      {submission.generalNotes ? (
+        <View style={styles.generalNotesBox}>
+          <Text style={styles.generalNotesText}>{submission.generalNotes}</Text>
+        </View>
+      ) : null}
+
+      {submission.sections.map((section) => (
+        <View key={section.key} style={styles.checklistSection}>
+          <Text style={styles.checklistSectionTitle}>{section.title}</Text>
+          {section.items.map((item) => (
+            <View key={item.key} style={styles.checklistItemRow}>
+              <Text style={styles.checklistMark}>{item.checked ? "✓" : "○"}</Text>
+              <View style={styles.checklistItemText}>
+                <Text style={styles.checklistItemLabel}>{item.label}</Text>
+                {item.subNote ? <Text style={styles.checklistItemSubNote}>{item.subNote}</Text> : null}
+                {item.note ? <Text style={styles.checklistItemSubNote}>Note: {item.note}</Text> : null}
+              </View>
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// A Crew Link supply request in the "Share selected" report: who asked,
+// when, and what they asked for. No prices or costs.
+export type SelectedSupplyRequest = {
+  id: number;
+  createdAt: string;
+  reporterName: string;
+  status: string;
+  note: string;
+  otherItems: string | null;
+  lines: { itemName: string; unit: string; qty: number }[];
+};
+
+function SupplyBlock({ request }: { request: SelectedSupplyRequest }) {
+  return (
+    <View style={styles.submissionBlock} wrap={false}>
+      <View style={styles.submissionHeaderRow}>
+        <View>
+          <Text style={styles.submissionHeaderTitle}>
+            {formatCrewDateTime(request.createdAt)} · Supply request
+          </Text>
+          <Text style={styles.submissionHeaderMeta}>{request.reporterName || "Unknown crew member"}</Text>
+        </View>
+      </View>
+      {request.lines.map((line, index) => (
+        <View key={index} style={styles.checklistItemRow}>
+          <Text style={styles.supplyQty}>{line.qty}×</Text>
+          <View style={styles.checklistItemText}>
+            <Text style={styles.checklistItemLabel}>
+              {line.itemName}
+              {line.unit ? ` (${line.unit})` : ""}
+            </Text>
+          </View>
+        </View>
+      ))}
+      {request.otherItems ? (
+        <View style={styles.generalNotesBox}>
+          <Text style={styles.generalNotesText}>Other supplies: {request.otherItems}</Text>
+        </View>
+      ) : null}
+      {request.note ? (
+        <View style={styles.generalNotesBox}>
+          <Text style={styles.generalNotesText}>Note: {request.note}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+export type SelectedReportItem =
+  | { kind: "checklist"; at: string; checklist: PorterChecklistReportSubmission }
+  | { kind: "supplies"; at: string; supplies: SelectedSupplyRequest };
+
+export type SelectedReportGroup = { accountName: string; address: string; items: SelectedReportItem[] };
+
+export type SelectedReportData = {
+  title: string;
+  generatedDate: string;
+  // One group per account; the caller sorts groups and items newest first.
+  groups: SelectedReportGroup[];
+};
+
+// "Share selected" on the Submitted page: only the picked checklists and
+// supply requests, grouped by account, newest first.
+export function SelectedSubmissionsReportDocument(data: SelectedReportData) {
+  const total = data.groups.reduce((n, g) => n + g.items.length, 0);
+  return (
+    <Document title={`Cleaning Report - ${data.title}`}>
+      <Page size="LETTER" style={styles.page} wrap>
+        <View style={styles.header}>
+          <View style={styles.logoBox}>
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- @react-pdf/renderer's Image has no alt prop */}
+            <Image src={{ data: getLogoBuffer(), format: "jpg" }} style={styles.logo} />
+          </View>
+          <View style={styles.headerTitleBlock}>
+            <Text style={styles.headerTitle}>Cleaning Report</Text>
+            <Text style={styles.headerSubtitle}>{data.title}</Text>
+            <Text style={styles.headerMeta}>
+              {total} submission{total === 1 ? "" : "s"} &middot; Generated {data.generatedDate}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.accentBar} />
+
+        <View style={styles.body}>
+          {data.groups.map((group, index) => (
+            <View key={`${group.accountName}-${index}`} break={index > 0}>
+              <Text style={styles.sectionTitle}>
+                {group.accountName}
+                {group.address ? ` · ${group.address}` : ""}
+              </Text>
+              {group.items.map((item) =>
+                item.kind === "checklist" ? (
+                  <ChecklistBlock key={`c-${item.checklist.id}`} submission={item.checklist} />
+                ) : (
+                  <SupplyBlock key={`s-${item.supplies.id}`} request={item.supplies} />
+                )
+              )}
             </View>
           ))}
         </View>
 
-        <View style={styles.footer}>
-          <View>
-            <Text style={styles.footerCompany}>Cleaning World Inc.</Text>
-            <Text style={styles.footerLine}>90 Burlews Ct, Hackensack, NJ 07601</Text>
-            <Text style={styles.footerLine}>201-487-1313</Text>
-          </View>
-          <Text style={styles.footerNote}>Thank you for choosing Cleaning World.</Text>
-        </View>
+        <ReportFooter />
       </Page>
     </Document>
   );
+}
+
+export async function renderSelectedSubmissionsReportPdf(data: SelectedReportData): Promise<Buffer> {
+  return renderToBuffer(<SelectedSubmissionsReportDocument {...data} />);
 }
 
 export async function renderPorterChecklistReportPdf(data: PorterChecklistReportData): Promise<Buffer> {
