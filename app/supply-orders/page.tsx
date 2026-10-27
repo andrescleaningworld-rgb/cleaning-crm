@@ -8,10 +8,12 @@
 // Printing is the card's 🖨 Print (app/supply-orders/print).
 
 import Link from "next/link";
-import { AddBar, AddButton, CHEER } from "@/app/ui";
+import { AddBar, AddButton, CHEER, ErrorBox } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import OrderCards, { type OrderSummary, type SubOrder } from "./order-cards";
 import Deliveries from "./deliveries";
+import { useShelves } from "./shelves-data";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import SupplyOrderSheet from "../components/supply-order-sheet";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { ORDER_STATUSES } from "@/lib/supplyOrderStatus";
@@ -37,14 +39,15 @@ export default function SupplyOrdersPage() {
   const [deliveryFilter, setDeliveryFilter] = useState("All");
   const [dateSort, setDateSort] = useState("Newest First");
   const [ordering, setOrdering] = useState(false);
-  // Bumped after a change, so the panels above the cards load again.
-  const [version, setVersion] = useState(0);
+  // What is on its way and what arrived different: one load for the panels
+  // above the cards and for the cards themselves.
+  const shelves = useShelves();
 
   async function loadOrders() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch("/api/supply-orders", { cache: "no-store" });
+      const res = await fetchWithTimeout("/api/supply-orders", { cache: "no-store" });
       const data = (await res.json()) as SupplyOrdersResponse;
       if (!res.ok || data.success === false) throw new Error(data.error || data.message || "Failed to load supply orders.");
       setOrders(data.supplyOrders ?? data.orders ?? data.data ?? []);
@@ -53,8 +56,13 @@ export default function SupplyOrdersPage() {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
-      setVersion((n) => n + 1);
     }
+  }
+
+  /** Refresh, and after a new order: the orders and the shelves. */
+  function loadAll() {
+    void loadOrders();
+    void shelves.reload();
   }
 
   useEffect(() => {
@@ -74,7 +82,8 @@ export default function SupplyOrdersPage() {
         </AddBar>
         <AccountScopeBar scope={scope} what="supply orders" />
         {/* What arrived different, and what the office sent with no order. */}
-        <Deliveries key={version} accountId={scope.active ? scope.accountId : ""} />
+        {shelves.error ? <ErrorBox title={shelves.error} text="Deliveries, back orders and what arrived different may be missing or out of date." onRetry={() => void shelves.reload()} /> : null}
+        <Deliveries accountId={scope.active ? scope.accountId : ""} data={shelves.data} onChanged={() => void shelves.reload()} />
 
         <section className="ui-card">
           <div className="ui-stack">
@@ -85,7 +94,7 @@ export default function SupplyOrdersPage() {
               <p className="ui-cheer">{CHEER.order}</p>
             </div>
             <div className="ui-actions-row">
-              <button type="button" onClick={() => void loadOrders()} disabled={loading} className="ui-btn ui-btn-second">
+              <button type="button" onClick={loadAll} disabled={loading} className="ui-btn ui-btn-second">
                 {loading ? "Refreshing..." : "Refresh"}
               </button>
               <Link href="/supplies" className="ui-btn ui-btn-second">
@@ -156,6 +165,7 @@ export default function SupplyOrdersPage() {
           newestFirst={dateSort !== "Oldest First"}
           onChanged={loadOrders}
           onSummary={setSummary}
+          shelves={shelves}
         />
       </div>
 
@@ -165,7 +175,7 @@ export default function SupplyOrdersPage() {
         onClose={() => setOrdering(false)}
         onOrdered={() => {
           setOrdering(false);
-          void loadOrders();
+          loadAll();
         }}
       />
     </main>

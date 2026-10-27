@@ -38,12 +38,14 @@ import AccountLink from "../components/AccountLink";
 import { HandoffCard, postHandoff, useHandoffs } from "../components/handoffs";
 import { orderForSync } from "../components/my-work";
 import { SquareTiles, pinIsOn, pinRecord, usePinInfo, type BoardSpot } from "../components/pin-to-board";
-import { BigButton, ConfirmSheet, Counts, EmptyState, Field, Sheet, StatusPill, Tips, showToast, type StatusKind } from "@/app/ui";
+import { BigButton, ConfirmSheet, Counts, EmptyState, ErrorBox, Field, Sheet, StatusPill, Tips, showToast, type StatusKind } from "@/app/ui";
 import { ORDER_STEPS, isLate, isMine, orderStepFromStatus, type HandoffItem } from "@/lib/handoffs";
 import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import ApproveSheet, { FILL_WORDS, FillButtons, postShelves, type FillChoice, type OrderPick } from "./approve-sheet";
-import { BackOrderBox, DifferentBox, type BackOrderLine } from "./back-order";
+import { BackOrderBox, DifferentBox } from "./back-order";
+import type { ShelfDifferent, ShelfWaiting, ShelvesState } from "./shelves-data";
 import { BigStepper, rowTone } from "@/app/porter/[code]/CrewArrived";
 
 export type SubOrder = Record<string, unknown> & {
@@ -74,8 +76,8 @@ type CrewOrder = {
   editedBy: string;
   editedAt: string;
 };
-type Waiting = { key: string; source: "crew-order" | "sub-order" | "office"; ref: string; sentAt: string; backOrder?: boolean; fill?: FillChoice | ""; lines: BackOrderLine[] };
-type Different = { id: number; source: string; ref: string; title: string; lines: string[] };
+type Waiting = ShelfWaiting;
+type Different = ShelfDifferent;
 
 type Item = { itemId: string; text: string; delivery: string; status: string; step: string; row?: SubOrder };
 type Card = {
@@ -119,6 +121,13 @@ const STEP_LABEL = new Map(ORDER_STEPS.map((step) => [step.key, step.label]));
 const CREW_STEP: Record<CrewOrder["status"], string> = { new: "ordered", ordered: "bought", delivered: "delivered", cancelled: "" };
 const CREW_STATUS: Record<CrewOrder["status"], string> = { new: "New", ordered: "Pending / In Progress", delivered: "Completed", cancelled: "Cancelled" };
 const STEP_INDEX = new Map(ORDER_STEPS.map((step, index) => [step.key, index]));
+/** Cards drawn at first, and added by each "Show more". */
+const PAGE_SIZE = 30;
+const NO_SHELVES: Waiting[] = [];
+const NO_DIFFERENT: Different[] = [];
+const CREW_FAILED = "The Crew Link orders did not load.";
+const sameSummary = (a: OrderSummary | null, b: OrderSummary) =>
+  a !== null && a.total === b.total && a.newOrReview === b.newOrReview && a.approved === b.approved && a.pending === b.pending && a.completed === b.completed;
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const crewItemId = (id: number) => `crew-${id}`;
@@ -170,6 +179,7 @@ export default function OrderCards({
   newestFirst,
   onChanged,
   onSummary,
+  shelves,
 }: {
   orders: SubOrder[];
   loading: boolean;
@@ -186,12 +196,21 @@ export default function OrderCards({
   onChanged: () => Promise<void> | void;
   /** The top numbers: how many ORDERS (not lines) are in each status. */
   onSummary?: (summary: OrderSummary) => void;
+  /** The page's one /api/shelves load (shelves-data.ts): what is on its way and what arrived different. */
+  shelves: ShelvesState;
 }) {
   const handoffs = useHandoffs();
+  // The cards are built from these, not from the whole handoffs object.
+  const { state: handoffState, items: handoffItems, settings: handoffSettings, me: handoffMe, reload: reloadHandoffs } = handoffs;
   const { info: pinInfo } = usePinInfo();
   const [crewOrders, setCrewOrders] = useState<CrewOrder[]>([]);
-  const [waiting, setWaiting] = useState<Waiting[]>([]);
-  const [different, setDifferent] = useState<Different[]>([]);
+  // Why the Crew Link orders did not load. "" = they did. What loaded before stays shown.
+  const [crewError, setCrewError] = useState("");
+  const waiting = shelves.data?.waiting ?? NO_SHELVES;
+  const different = shelves.data?.different ?? NO_DIFFERENT;
+  const reloadShelves = shelves.reload;
+  // "Show more": how many cards are drawn, for the filters it was opened under.
+  const [more, setMore] = useState({ key: "", count: PAGE_SIZE });
   const [quick, setQuick] = useState<"all" | "late" | "mine">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState("");
@@ -206,42 +225,50 @@ export default function OrderCards({
   const [pinBusy, setPinBusy] = useState("");
   const synced = useRef(false);
 
-  const loadExtras = useCallback(async () => {
-    const [crew, shelves] = await Promise.all([
-      fetch("/api/admin/crew-supplies?view=orders", { cache: "no-store" })
-        .then((response) => response.json())
-        .catch(() => ({})) as Promise<{ success?: boolean; ready?: boolean; orders?: CrewOrder[] }>,
-      fetch("/api/shelves", { cache: "no-store" })
-        .then((response) => response.json())
-        .catch(() => ({})) as Promise<{ success?: boolean; ready?: boolean; waiting?: Waiting[]; different?: Different[] }>,
-    ]);
-    setCrewOrders(crew.success && crew.ready ? (crew.orders ?? []) : []);
-    setWaiting(shelves.success && shelves.ready ? (shelves.waiting ?? []) : []);
-    setDifferent(shelves.success && shelves.ready ? (shelves.different ?? []) : []);
+  // Only the newest Crew Link load may change what is shown.
+  const crewLoad = useRef(0);
+  const loadCrewOrders = useCallback(async () => {
+    const id = ++crewLoad.current;
+    try {
+      const response = await fetchWithTimeout("/api/admin/crew-supplies?view=orders", { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as { success?: boolean; ready?: boolean; error?: string; orders?: CrewOrder[] };
+      if (id !== crewLoad.current) return;
+      if (!response.ok || body.success !== true) throw new Error(body.error || CREW_FAILED);
+      setCrewOrders(body.ready ? (body.orders ?? []) : []);
+      setCrewError("");
+    } catch (error) {
+      if (id !== crewLoad.current) return;
+      setCrewError(error instanceof Error ? error.message : CREW_FAILED);
+    }
   }, []);
 
+  /** The shelves. Always called with onChanged(), whose order list reload also reloads the Crew Link orders (below). */
+  const loadExtras = reloadShelves;
+
   useEffect(() => {
-    void loadExtras();
-  }, [loadExtras]);
+    // The Crew Link orders load with the page's order list: at the start, on
+    // Refresh and after every change. The shelves load in shelves-data.ts.
+    if (loading) void loadCrewOrders();
+  }, [loading, loadCrewOrders]);
 
   /** The step tracking for these orders, from what the cards now say. */
   const syncFor = useCallback(
     (list: { itemId: string; step: string; seed: Record<string, unknown> }[]) => {
       if (list.length === 0) return Promise.resolve();
       return postHandoff({ action: "syncOrders", orders: list.map((entry) => ({ ...entry.seed, itemId: entry.itemId, step: entry.step })) })
-        .then(() => handoffs.reload())
+        .then(() => reloadHandoffs())
         .catch(() => {});
     },
-    [handoffs]
+    [reloadHandoffs]
   );
 
   // Line the step tracking up with the orders, once per load: sub-portal lines
   // from their Status, Crew Link orders only forward (their own status has no
   // Approved), closed when delivered or cancelled.
   useEffect(() => {
-    if (handoffs.state !== "ready" || loading || synced.current) return;
+    if (handoffState !== "ready" || loading || synced.current) return;
     synced.current = true;
-    const tracked = new Map(handoffs.items.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
+    const tracked = new Map(handoffItems.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
     const send: Record<string, unknown>[] = orders.map(orderForSync).filter((order) => {
       if (!order.itemId) return false;
       const row = tracked.get(order.itemId);
@@ -270,16 +297,16 @@ export default function OrderCards({
     }
     if (send.length === 0) return;
     postHandoff({ action: "syncOrders", orders: send })
-      .then(() => handoffs.reload())
+      .then(() => reloadHandoffs())
       .catch(() => {});
-  }, [handoffs, orders, crewOrders, loading]);
+  }, [handoffState, handoffItems, reloadHandoffs, orders, crewOrders, loading]);
 
   const cards = useMemo<Card[]>(() => {
-    if (handoffs.state !== "ready") return [];
-    const tracked = new Map(handoffs.items.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
+    if (handoffState !== "ready") return [];
+    const tracked = new Map(handoffItems.filter((item) => item.kind === "order").map((item) => [item.itemId, item]));
     const lateOrMine = (itemIds: string[], sent: boolean) => {
       const rows = itemIds.map((id) => tracked.get(id)).filter((row): row is HandoffItem => Boolean(row && !row.doneAt));
-      return { late: rows.some((row) => isLate(row, handoffs.settings)), mine: !sent && rows.some((row) => isMine(row, handoffs.settings, handoffs.me)) };
+      return { late: rows.some((row) => isLate(row, handoffSettings)), mine: !sent && rows.some((row) => isMine(row, handoffSettings, handoffMe)) };
     };
     const leastStep = (items: Item[]) => {
       const inFlow = items.filter((item) => item.step !== "");
@@ -362,7 +389,7 @@ export default function OrderCards({
       });
     }
     return out;
-  }, [handoffs, orders, crewOrders, waiting, different]);
+  }, [handoffState, handoffItems, handoffSettings, handoffMe, orders, crewOrders, waiting, different]);
 
   // Search, delivery mode and account first; then In progress / Late / Waiting on me, or a Status.
   const matching = useMemo(() => {
@@ -383,7 +410,12 @@ export default function OrderCards({
     const count = (...statuses: string[]) => mineOnly.filter((card) => statuses.includes(card.status)).length;
     return { total: mineOnly.length, newOrReview: count("New", "Needs Review"), approved: count("Approved"), pending: count("Pending / In Progress"), completed: count("Completed") };
   }, [cards, accountId]);
+  // Told to the page only when a number changes: a new object with the same
+  // numbers would re-render the page for nothing.
+  const sentSummary = useRef<OrderSummary | null>(null);
   useEffect(() => {
+    if (sameSummary(sentSummary.current, summary)) return;
+    sentSummary.current = summary;
     onSummary?.(summary);
   }, [summary, onSummary]);
   const late = inProgress.filter((card) => card.late);
@@ -400,12 +432,19 @@ export default function OrderCards({
     return [...list].sort((a, b) => (newestFirst ? b.at - a.at : a.at - b.at));
   }, [matching, statusFilter, quick, late, mine, inProgress, newestFirst]);
 
-  useEffect(() => {
-    if (!focusId || handoffs.state !== "ready") return;
-    document.querySelector(`[data-order-items~="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: "center" });
-  }, [focusId, handoffs.state, cards.length]);
+  // About 30 cards at a time. A new search, filter or sort starts from 30
+  // again; the order opened from My work is always drawn.
+  const listKey = [search, statusFilter, deliveryFilter, accountId, quick, newestFirst ? "new" : "old"].join("|");
+  const focusIndex = focusId ? shown.findIndex((card) => card.items.some((item) => item.itemId === focusId)) : -1;
+  const drawCount = Math.max(more.key === listKey ? more.count : PAGE_SIZE, focusIndex + 1);
+  const drawn = shown.length > drawCount ? shown.slice(0, drawCount) : shown;
 
-  if (handoffs.state !== "ready") return null;
+  useEffect(() => {
+    if (!focusId || handoffState !== "ready") return;
+    document.querySelector(`[data-order-items~="${CSS.escape(focusId)}"]`)?.scrollIntoView({ block: "center" });
+  }, [focusId, handoffState, cards.length]);
+
+  if (handoffState !== "ready") return null;
 
   /** The step tracking entries for one card, at its new step ("" = closed). */
   const trackingFor = (card: Card, step: string) =>
@@ -522,7 +561,8 @@ export default function OrderCards({
   }
   const canPin = pinInfo !== null && pinIsOn(pinInfo, "order");
 
-  const picked = shown.filter((card) => selected.has(card.key));
+  // Only cards on screen: a picked card that a filter or "Show more" reset hid is not acted on.
+  const picked = drawn.filter((card) => selected.has(card.key));
   /** Who a bulk button works for: ✓ Delivered, orders with something on its way; the rest, new or approved orders (a Crew Link order is new until it is filled). */
   const pickedFor = (action: Bulk) =>
     action === "delivered" ? picked.filter((card) => openOf(card).length > 0) : picked.filter((card) => card.step === "ordered" || (card.step === "approved" && (action !== "decline" || !card.delivery)));
@@ -554,6 +594,8 @@ export default function OrderCards({
         />
       ) : null}
 
+      {crewError ? <ErrorBox title={crewError} text="Crew Link orders may be missing below." onRetry={() => void loadCrewOrders()} /> : null}
+
       <div data-tip="order-list" className="ui-stack">
         {loading ? <p className="ui-muted">Loading supply orders…</p> : null}
         {!loading && shown.length === 0 ? (
@@ -562,7 +604,7 @@ export default function OrderCards({
             text={statusFilter !== "All" ? "Pick All statuses to see the orders in progress." : "New orders from subs, crews and managers show up here."}
           />
         ) : null}
-        {shown.map((card) => {
+        {drawn.map((card) => {
           const stepLabel = card.step === "" ? card.status : STEP_LABEL.get(card.step) ?? card.step;
           const itemIds = [...new Set(card.items.map((item) => item.itemId))].join(" ");
           const pill = card.backOrders.length > 0 ? "⏳ Back order" : card.step === "bought" && card.delivery?.fill ? `${FILL_WORDS[card.delivery.fill].icon} ${stepLabel}` : stepLabel;
@@ -664,10 +706,15 @@ export default function OrderCards({
                   🗑 Delete order
                 </button>
               </div>
-              <HandoffDetail card={card} items={handoffs.items} settings={handoffs.settings} />
+              <HandoffDetail card={card} items={handoffItems} settings={handoffSettings} />
             </article>
           );
         })}
+        {shown.length > drawn.length ? (
+          <button type="button" className="ui-btn ui-btn-second w-full" onClick={() => setMore({ key: listKey, count: drawn.length + PAGE_SIZE })} data-order-show-more>
+            Show more ({shown.length - drawn.length} more)
+          </button>
+        ) : null}
       </div>
 
       {picked.length > 0 ? (
