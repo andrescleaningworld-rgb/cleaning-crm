@@ -1,4 +1,5 @@
-const CACHE_NAME = "cleaning-world-shell-v4";
+// v5: page data is no longer cached. A new name makes every phone drop the old cache.
+const CACHE_NAME = "cleaning-world-shell-v5";
 const STATIC_ASSETS = [
   "/",
   "/manifest.webmanifest",
@@ -22,9 +23,12 @@ function isAuthRoute(pathname) {
 
 self.addEventListener("install", function (event) {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
+    // One file at a time, and a file that fails is skipped: with addAll, one
+    // missing file would stop this worker from installing and leave phones
+    // on the old one.
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(STATIC_ASSETS.map((asset) => cache.add(asset).catch(() => undefined)))
+    )
   );
   self.skipWaiting();
 });
@@ -61,6 +65,18 @@ self.addEventListener("fetch", function (event) {
     return;
   }
 
+  // Only GETs are ever answered from the cache.
+  if (event.request.method !== "GET") {
+    return;
+  }
+
+  // Next.js page data (what a tap on a link inside the app fetches) must
+  // always come fresh from the server. Serving it from the cache showed old
+  // pages after a deploy, and a failed fetch made the tap do nothing.
+  if (url.searchParams.has("_rsc") || event.request.headers.get("RSC") === "1") {
+    return;
+  }
+
   const isNavigationRequest =
     event.request.mode === "navigate" || event.request.destination === "document";
 
@@ -83,7 +99,13 @@ self.addEventListener("fetch", function (event) {
     return;
   }
 
-  // For other static assets: cache first, then network
+  // Everything else (images, icons, the manifest) goes to the network as usual.
+  if (!url.pathname.startsWith("/_next/static/")) {
+    return;
+  }
+
+  // Next.js build files: their names change with every build, so cache first
+  // is safe for them, and only for them.
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {

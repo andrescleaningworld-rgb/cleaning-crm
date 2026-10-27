@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AccountLink from "../components/AccountLink";
 import { AddButton } from "@/app/ui";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 type AdminVisit = {
   sheetRow: number;
@@ -88,7 +89,7 @@ export default function SubVisitLog() {
     setLoading(true);
     setLoadError("");
     try {
-      const res = await fetch("/api/admin/visits");
+      const res = await fetchWithTimeout("/api/admin/visits");
       const data = (await res.json()) as { visits?: AdminVisit[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
       setVisits(data.visits ?? []);
@@ -178,7 +179,7 @@ export default function SubVisitLog() {
     setEditSaving(true);
     setEditError("");
     try {
-      const res = await fetch("/api/admin/visits", {
+      const res = await fetchWithTimeout("/api/admin/visits", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -214,7 +215,7 @@ export default function SubVisitLog() {
     if (confirmDeleteRow !== sheetRow) { setConfirmDeleteRow(sheetRow); return; }
     setDeleting(true);
     try {
-      const res = await fetch("/api/admin/visits", {
+      const res = await fetchWithTimeout("/api/admin/visits", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sheetRow }),
@@ -224,8 +225,9 @@ export default function SubVisitLog() {
       setVisits((prev) => prev.filter((v) => v.sheetRow !== sheetRow));
       setConfirmDeleteRow(null);
       flash("Visit deleted.");
-    } catch {
+    } catch (err) {
       setConfirmDeleteRow(null);
+      flash(err instanceof Error ? err.message : "Delete failed");
     } finally {
       setDeleting(false);
     }
@@ -239,7 +241,7 @@ export default function SubVisitLog() {
     setAddSaving(true);
     setAddError("");
     try {
-      const res = await fetch("/api/admin/visits", {
+      const res = await fetchWithTimeout("/api/admin/visits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
