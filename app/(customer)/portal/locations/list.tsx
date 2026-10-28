@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorBox } from "@/app/ui";
-import { usePortalWords } from "../portal-ui";
+import { PREVIEW_ONLY, usePortalPreview, usePortalWords } from "../portal-ui";
 
 type Location = { accountId: string; accountName: string; address: string };
 
 export default function LocationList({ locations, currentId }: { locations: Location[]; currentId: string }) {
   const words = usePortalWords();
+  const preview = usePortalPreview();
   const router = useRouter();
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
@@ -41,7 +42,8 @@ export default function LocationList({ locations, currentId }: { locations: Loca
             type="button"
             className="ui-tile"
             aria-current={location.accountId === currentId ? "true" : undefined}
-            disabled={busyId !== ""}
+            disabled={busyId !== "" || Boolean(preview)}
+            title={preview ? PREVIEW_ONLY : undefined}
             onClick={() => pick(location.accountId)}
           >
             <span className="ui-tile-icon" aria-hidden="true">

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { adminSessionOptions, type AdminIdentitySession } from "@/lib/adminSession";
+import { PORTAL_PREVIEW_COOKIE, PORTAL_SHARE_COOKIE } from "@/lib/portalPreviewCookie";
 
 // No cookie of any kind required. /api/subcontractor-portal stays here even
 // though most of its actions require a logged-in sub — it's a single POST
@@ -12,6 +13,9 @@ const PUBLIC_PATHS = [
   "/login",
   "/portal",
   "/api/portal",
+  // A shared, read-only preview of one account's customer portal (lib/portalPreviewLink.ts):
+  // the route checks its signed link itself.
+  "/portal-preview",
   "/subcontractor-portal",
   "/subcontractor-page",
   // Covers /api/login, /api/login/identities, and /api/login/setup-password
@@ -162,6 +166,14 @@ export async function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/_next")) {
     return NextResponse.next();
+  }
+
+  // Staff "View as customer" and a shared preview link (lib/portalPreview.ts)
+  // are read only: while either cookie is on this browser, nothing is sent to
+  // the customer portal's API (no problem report, request, password, login,
+  // location pick or log out).
+  if ((request.cookies.get(PORTAL_PREVIEW_COOKIE)?.value || request.cookies.get(PORTAL_SHARE_COOKIE)?.value) && matchesPath(pathname, ["/api/portal"]) && request.method !== "GET" && request.method !== "HEAD") {
+    return NextResponse.json({ success: false, error: "Preview only, nothing is sent." }, { status: 403 });
   }
 
   if (matchesPath(pathname, PUBLIC_PATHS)) {

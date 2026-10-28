@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BigButton, ErrorBox, Field, PhotoPicker, Screen, SelectField, TextAreaField } from "@/app/ui";
-import { LangToggle, usePortalLang, usePortalWords } from "./portal-ui";
+import { LangToggle, PREVIEW_ONLY, usePortalLang, usePortalPreview, usePortalWords } from "./portal-ui";
 import { portalDay } from "./words";
 
 async function post(url: string, body: unknown): Promise<void> {
@@ -36,6 +36,7 @@ function FormScreen({
   children: React.ReactNode;
 }) {
   const words = usePortalWords();
+  const preview = usePortalPreview();
   return (
     <Screen title={title} subtitle={subtitle} backHref="/portal" headerRight={<LangToggle />}>
       <form
@@ -43,14 +44,14 @@ function FormScreen({
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit();
+          if (!preview) onSubmit();
         }}
       >
         {children}
         {error ? <ErrorBox title={error} /> : null}
         <div className="ui-actionbar">
-          <BigButton type="submit" busy={busy} busyLabel={busyLabel ?? words.sendingForm}>
-            {words.send}
+          <BigButton type="submit" busy={busy} busyLabel={busyLabel ?? words.sendingForm} disabled={Boolean(preview)}>
+            {preview ? PREVIEW_ONLY : words.send}
           </BigButton>
         </div>
       </form>

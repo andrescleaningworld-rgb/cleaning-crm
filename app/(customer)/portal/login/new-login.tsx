@@ -5,10 +5,11 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BigButton, ErrorBox, Field, Screen } from "@/app/ui";
-import { LangToggle, PasswordField, usePortalWords } from "../portal-ui";
+import { LangToggle, PasswordField, PREVIEW_ONLY, usePortalPreview, usePortalWords } from "../portal-ui";
 
 export default function NewPortalLogin() {
   const words = usePortalWords();
+  const preview = usePortalPreview();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -67,8 +68,8 @@ export default function NewPortalLogin() {
         {error ? <ErrorBox title={error} /> : null}
 
         <div className="ui-actionbar">
-          <BigButton type="submit" busy={busy} busyLabel={words.loggingIn}>
-            {words.logIn}
+          <BigButton type="submit" busy={busy} busyLabel={words.loggingIn} disabled={Boolean(preview)}>
+            {preview ? PREVIEW_ONLY : words.logIn}
           </BigButton>
         </div>
       </form>

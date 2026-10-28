@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { BigButton, ErrorBox, Screen } from "@/app/ui";
-import { LangToggle, PasswordField, usePortalWords } from "../portal-ui";
+import { LangToggle, PasswordField, PREVIEW_ONLY, usePortalPreview, usePortalWords } from "../portal-ui";
 
 export default function SetPasswordForm({ token, email }: { token: string; email: string }) {
   const words = usePortalWords();
+  const preview = usePortalPreview();
   const router = useRouter();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,8 +46,8 @@ export default function SetPasswordForm({ token, email }: { token: string; email
         <PasswordField id="portal-new-password" label={words.newPassword} hint={words.passwordHint} value={password} onChange={setPassword} autoComplete="new-password" />
         {error ? <ErrorBox title={error} /> : null}
         <div className="ui-actionbar">
-          <BigButton type="submit" busy={busy} busyLabel={words.saving}>
-            {words.savePassword}
+          <BigButton type="submit" busy={busy} busyLabel={words.saving} disabled={Boolean(preview)}>
+            {preview ? PREVIEW_ONLY : words.savePassword}
           </BigButton>
         </div>
       </form>

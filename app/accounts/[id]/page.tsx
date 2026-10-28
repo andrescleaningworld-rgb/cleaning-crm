@@ -43,6 +43,8 @@ import PrintOrPinSheet from "./print-or-pin";
 import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-packet-sheet";
 import SubPacketSheet from "../../components/sub-packet-sheet";
 import PortalInviteSheet, { invitedLine, type PortalInviteRecord } from "./portal-invite-sheet";
+import PreviewLinks from "./preview-links";
+import TaxExemptButton from "./tax-exempt";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { payShare } from "@/lib/payShare";
@@ -1222,9 +1224,17 @@ export default function AccountDetailPage() {
                 >
                   {`Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
                 </BigButton>
+                {/* Prices are before sales tax; ON = the customer sees the price with no tax note (migration 065). */}
+                <TaxExemptButton accountId={thisAccountId} />
                 <BigButton kind="second" icon={portalInvites[0] ? "check" : undefined} onClick={() => setShowPortalInvite(true)}>
                   {portalInvites[0] ? `Invite to portal: ${invitedLine(portalInvites[0])}` : "Invite to portal"}
                 </BigButton>
+                {/* The customer portal as this account's customer sees it, read only, in a new tab (lib/portalPreview.ts). */}
+                <a className="ui-btn ui-btn-second" href={`/api/admin/portal-preview?accountId=${encodeURIComponent(thisAccountId)}`} target="_blank" rel="noopener">
+                  <span>👁 View as customer</span>
+                </a>
+                {/* Shared preview links of this account (made from the View as customer bar): active / Turn off. */}
+                <PreviewLinks accountId={thisAccountId} />
                 <BigButton kind="second" onClick={() => setShowOnboardingWizard(true)}>
                   Onboarding checklist
                 </BigButton>

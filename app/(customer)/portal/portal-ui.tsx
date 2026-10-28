@@ -11,12 +11,26 @@ import { PORTAL_LANG_COOKIE, PORTAL_WORDS, type PortalLang, type PortalWords } f
 
 const LangContext = createContext<PortalLang>("en");
 
-export function PortalLangProvider({ lang, children }: { lang: PortalLang; children: ReactNode }) {
+/** Staff "View as customer" (lib/portalPreview.ts): the account being viewed, or null for a real customer. */
+export type PortalPreviewInfo = { accountId: string; accountName: string; shared: boolean } | null;
+const PreviewContext = createContext<PortalPreviewInfo>(null);
+
+/** The words staff see on a button that would send something during a preview. */
+export const PREVIEW_ONLY = "Preview only, nothing is sent";
+
+export function PortalLangProvider({ lang, preview = null, children }: { lang: PortalLang; preview?: PortalPreviewInfo; children: ReactNode }) {
   return (
     <LangContext.Provider value={lang}>
-      <UiWordsProvider lang={lang}>{children}</UiWordsProvider>
+      <PreviewContext.Provider value={preview}>
+        <UiWordsProvider lang={lang}>{children}</UiWordsProvider>
+      </PreviewContext.Provider>
     </LangContext.Provider>
   );
+}
+
+/** Non-null while staff view the portal as a customer: every Send / Save is off. */
+export function usePortalPreview(): PortalPreviewInfo {
+  return useContext(PreviewContext);
 }
 
 export function usePortalLang(): PortalLang {
@@ -51,6 +65,16 @@ export function PortalLogoutButton() {
   const words = usePortalWords();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  // A preview has no customer session to end. Staff end the preview; a shared link has nothing to end.
+  const preview = usePortalPreview();
+  if (preview?.shared) return null;
+  if (preview) {
+    return (
+      <a className="ui-btn ui-btn-second" href="/api/admin/portal-preview?exit=1">
+        Exit preview
+      </a>
+    );
+  }
   return (
     <button
       type="button"
