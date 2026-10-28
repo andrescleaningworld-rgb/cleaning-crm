@@ -14,6 +14,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AddPhotos from "./add-photos";
+import ImportPhotos from "./import-photos";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { AddButton, BigButton, Counts, EmptyState, ErrorBox, Field, PullToRefresh, Screen, SearchBar, Sheet, SkeletonList, Tips, showToast } from "@/app/ui";
@@ -456,6 +457,8 @@ function PhotosContent() {
       addAction={state === "ready" ? <AddButton onClick={() => setAdding(true)}>Add photos</AddButton> : undefined}
     >
       {account && account === (params.get("account") ?? "") ? <AccountScopeBar scope={scope} what="photos" /> : null}
+      {/* One account's Photos (from its page): bring in old crew photos for the customer portal. */}
+      {state === "ready" && accountId && account === (params.get("account") ?? "") ? <ImportPhotos accountId={accountId} accountName={account} onImported={() => void refresh()} /> : null}
       <AddPhotos open={adding} onClose={() => setAdding(false)} onAdded={() => void refresh()} startAccount={account} />
       <Tips
         id="photos"

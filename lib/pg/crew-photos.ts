@@ -131,3 +131,56 @@ export async function setPhotoHiddenFromCustomer(photoId: number, hidden: boolea
   const rows = await typed<unknown[]>(getSql()`UPDATE photo_index SET hidden_from_customer = ${hidden} WHERE id = ${photoId} AND kind = 'Crew' RETURNING id`);
   return rows.length > 0;
 }
+
+/* ---------- Photos -> Import photos (staff) ---------- */
+
+// Old crew photos (sent on WhatsApp, kept in a Google Drive folder) put into
+// an account as "Crew" photos, so the customer portal shows them under the
+// day they were taken. Each file is known by its own fingerprint (SHA-256 of
+// the original file, worked out in the browser): the same file imported
+// again for the same account is skipped, so an import can be run again.
+
+const importKey = (accountId: string, hash: string) => `import:${accountId}:${hash}`;
+
+/** Which of these fingerprints this account already has. */
+export async function importedAlready(accountId: string, hashes: string[]): Promise<Set<string>> {
+  const clean = [...new Set(hashes.filter((hash) => /^[0-9a-f]{64}$/.test(hash)))];
+  if (clean.length === 0) return new Set();
+  const keys = clean.map((hash) => importKey(accountId, hash));
+  const rows = await typed<{ source_key: string }[]>(getSql()`SELECT source_key FROM photo_index WHERE source_key = ANY(${keys})`);
+  const prefix = importKey(accountId, "");
+  return new Set(rows.map((row) => row.source_key.slice(prefix.length)));
+}
+
+/** A believable "taken" moment: from 2000 up to tomorrow. Anything else is refused. */
+function importMoment(value: string): string {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time) || time < Date.UTC(2000, 0, 1) || time > Date.now() + 86_400_000) throw new CrewPhotoError("The photo's date is not a real date.");
+  return new Date(time).toISOString();
+}
+
+export async function addImportedPhoto(input: { accountId: string; accountName: string; hash: string; takenAt: string; full: File; thumb: File | null; by: string }): Promise<{ id: number; already: boolean }> {
+  if (!/^[0-9a-f]{64}$/.test(input.hash)) throw new CrewPhotoError("The photo has no fingerprint.");
+  const sourceKey = importKey(input.accountId, input.hash);
+  const sql = getSql();
+  const existing = await typed<{ id: number | string }[]>(sql`SELECT id FROM photo_index WHERE source_key = ${sourceKey} LIMIT 1`);
+  if (existing[0]) return { id: Number(existing[0].id), already: true };
+  if (!/^image\//i.test(input.full.type)) throw new CrewPhotoError("That is not a photo.");
+  if (input.full.size > MAX_BYTES || (input.thumb && input.thumb.size > MAX_BYTES)) throw new CrewPhotoError("That photo is too big.");
+  const takenAt = importMoment(input.takenAt);
+
+  const folder = `crew-photos/${encodeURIComponent(input.accountId)}`;
+  const file = `import-${input.hash.slice(0, 24)}`;
+  const full = await put(`${folder}/${file}.jpg`, input.full, { access: "public", contentType: input.full.type || "image/jpeg", addRandomSuffix: true });
+  const thumb = input.thumb ? await put(`${folder}/${file}-thumb.jpg`, input.thumb, { access: "public", contentType: input.thumb.type || "image/jpeg", addRandomSuffix: true }) : null;
+  const rows = await typed<{ id: number | string }[]>(sql`
+    INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href,
+                             taken_by, taken_at, is_image, caption, thumb_url, tag, hidden_from_customer)
+    VALUES (${sourceKey}, 'blob', ${full.url}, ${input.accountId}, ${input.accountName}, 'Crew', '', 'account', ${input.accountId}, 'Open the account',
+            ${`/accounts/${input.accountId}`}, ${`Imported by ${input.by}`.slice(0, 120)}, ${takenAt}, true, '', ${thumb?.url ?? ""}, '', false)
+    ON CONFLICT (source_key) DO NOTHING
+    RETURNING id
+  `);
+  if (!rows[0]) return { id: 0, already: true };
+  return { id: Number(rows[0].id), already: false };
+}
