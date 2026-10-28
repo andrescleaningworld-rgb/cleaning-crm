@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { BigButton, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import AccountPickerField from "../../components/AccountPickerField";
 
 type Account = {
   id?: string;
@@ -56,6 +57,8 @@ function NewVisitPageContent() {
 
   const [date, setDate] = useState(todayDate());
   const [accountName, setAccountName] = useState(accountFromUrl);
+  // The picked account's ID: the visit links to the account page.
+  const [accountId, setAccountId] = useState(accountIdFromUrl);
   const [manager, setManager] = useState("");
   const [subcontractor, setSubcontractor] = useState("");
   const [visitType, setVisitType] = useState("Routine Visit");
@@ -114,6 +117,7 @@ function NewVisitPageContent() {
 
           if (matchingAccount) {
             setAccountName(clean(matchingAccount.accountName));
+            setAccountId(clean(matchingAccount.accountId) || clean(matchingAccount.id));
             setManager(clean(matchingAccount.manager));
             setSubcontractor(clean(matchingAccount.subcontractor));
           }
@@ -131,8 +135,11 @@ function NewVisitPageContent() {
   }, [accountFromUrl, accountIdFromUrl]);
 
   const selectedAccount = useMemo(() => {
-    return accounts.find((account) => clean(account.accountName) === accountName);
-  }, [accounts, accountName]);
+    return (
+      (accountId ? accounts.find((account) => clean(account.accountId) === accountId || clean(account.id) === accountId) : undefined) ??
+      accounts.find((account) => clean(account.accountName) === accountName)
+    );
+  }, [accounts, accountId, accountName]);
 
   useEffect(() => {
     if (!selectedAccount) return;
@@ -154,7 +161,7 @@ function NewVisitPageContent() {
       }
 
       if (!accountName) {
-        throw new Error("Please select or enter an account name.");
+        throw new Error("Please pick the account.");
       }
 
       const response = await fetchWithTimeout("/api/visits", {
@@ -165,6 +172,7 @@ function NewVisitPageContent() {
         cache: "no-store",
         body: JSON.stringify({
           date,
+          accountId,
           accountName,
           manager,
           subcontractor,
@@ -225,19 +233,15 @@ function NewVisitPageContent() {
       <form onSubmit={handleSubmit} className="ui-screen-body" noValidate>
         <Field label="Visit date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />
 
-        <Field
+        <AccountPickerField
           label="Account"
-          hint="Type a few letters, then pick the account from the list."
-          list="account-list"
-          value={accountName}
-          onChange={(event) => setAccountName(event.target.value)}
-          placeholder={loadingAccounts ? "Loading accounts…" : "Search or type account name"}
+          hint={loadingAccounts ? undefined : "Type a few letters, or tap to see every account, then pick it."}
+          value={accountName || accountId ? { id: accountId, name: accountName } : null}
+          onChange={(next) => {
+            setAccountId(next?.id ?? "");
+            setAccountName(next?.name ?? "");
+          }}
         />
-        <datalist id="account-list">
-          {accounts.map((account, index) => (
-            <option key={`${account.id || account.accountName || "account"}-${index}`} value={clean(account.accountName)} />
-          ))}
-        </datalist>
 
         <Field label="Manager / visited by" optional value={manager} onChange={(event) => setManager(event.target.value)} placeholder="Manager" />
         <Field label="Subcontractor" optional value={subcontractor} onChange={(event) => setSubcontractor(event.target.value)} placeholder="Subcontractor" />

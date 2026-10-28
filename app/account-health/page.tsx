@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import AccountPickerField from "../components/AccountPickerField";
 import {
   AddButton,
   BigButton,
@@ -24,6 +25,8 @@ type ImprovementStatus = "Open" | "In Progress" | "Completed";
 type AccountHealthItem = {
   id: number;
   date: string;
+  /** The account picked in Add health item ("" on the sample items). */
+  accountId?: string;
   accountName: string;
   manager: string;
   subcontractor: string;
@@ -89,13 +92,6 @@ const startingHealthItems: AccountHealthItem[] = [
     subcontractorInstructions:
       "Please keep customer-facing areas, floors, and back-of-house areas consistent every service.",
   },
-];
-
-const accountOptions = [
-  "Lehmann Pools",
-  "4Wall Entertainment",
-  "Paris Baguette",
-  "Independent Chemical",
 ];
 
 const managerOptions = ["Andrés", "Greg", "Drew"];
@@ -184,7 +180,8 @@ export default function AccountHealthPage() {
 
   const [formData, setFormData] = useState({
     date: getTodayDate(),
-    accountName: "Lehmann Pools",
+    accountId: "",
+    accountName: "",
     manager: "Andrés",
     subcontractor: "Edgar",
     healthScore: 8,
@@ -254,6 +251,10 @@ export default function AccountHealthPage() {
   function handleAddHealthItem(event?: React.FormEvent<HTMLFormElement>) {
     event?.preventDefault();
 
+    if (!formData.accountName.trim()) {
+      setFormError("Pick the account.");
+      return;
+    }
     if (!formData.internalNotes.trim()) {
       setFormError("Internal notes are required.");
       return;
@@ -266,6 +267,7 @@ export default function AccountHealthPage() {
     const newHealthItem: AccountHealthItem = {
       id: healthItems.length + 1,
       date: formData.date,
+      accountId: formData.accountId,
       accountName: formData.accountName,
       manager: formData.manager,
       subcontractor: formData.subcontractor,
@@ -296,7 +298,8 @@ export default function AccountHealthPage() {
   function clearForm() {
     setFormData({
       date: getTodayDate(),
-      accountName: "Lehmann Pools",
+      accountId: "",
+      accountName: "",
       manager: "Andrés",
       subcontractor: "Edgar",
       healthScore: 8,
@@ -426,18 +429,11 @@ export default function AccountHealthPage() {
         actions={<BigButton onClick={() => handleAddHealthItem()}>Add health item</BigButton>}
       >
         <Field label="Date" type="date" value={formData.date} onChange={(event) => updateField("date", event.target.value)} />
-        <Field
+        <AccountPickerField
           label="Account"
-          list="health-account-options"
-          value={formData.accountName}
-          onChange={(event) => updateField("accountName", event.target.value)}
-          placeholder="Type account name..."
+          value={formData.accountName || formData.accountId ? { id: formData.accountId, name: formData.accountName } : null}
+          onChange={(next) => setFormData((current) => ({ ...current, accountId: next?.id ?? "", accountName: next?.name ?? "" }))}
         />
-        <datalist id="health-account-options">
-          {accountOptions.map((account) => (
-            <option key={account} value={account} />
-          ))}
-        </datalist>
         <SelectField label="Manager" value={formData.manager} onChange={(event) => updateField("manager", event.target.value)}>
           {managerOptions.map((manager) => (
             <option key={manager}>{manager}</option>
