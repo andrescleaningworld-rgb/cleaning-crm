@@ -67,9 +67,10 @@ export default async function PortalHomePage() {
         <PortalLogoutButton />
       </div>
 
-      {/* Shown once, the first time this customer opens the portal on this device. */}
+      {/* Shown once, the first time this customer opens the portal on this device. Never in a staff preview: nothing is marked as seen. */}
       <Tips
         id="portal-home"
+        ready={!login.preview}
         steps={[
           { target: '[data-tip="problem"]', text: words.tipProblem },
           { target: '[data-tip="extra"]', text: words.tipExtra },

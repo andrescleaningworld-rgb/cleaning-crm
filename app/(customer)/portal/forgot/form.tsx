@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { BigButton, Card, ErrorBox, Field, Screen } from "@/app/ui";
-import { LangToggle, usePortalWords } from "../portal-ui";
+import { LangToggle, PREVIEW_ONLY, usePortalPreview, usePortalWords } from "../portal-ui";
 
 export default function LinkRequestForm({ first }: { first: boolean }) {
   const words = usePortalWords();
+  const preview = usePortalPreview();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -74,8 +75,8 @@ export default function LinkRequestForm({ first }: { first: boolean }) {
         />
         {error ? <ErrorBox title={error} /> : null}
         <div className="ui-actionbar">
-          <BigButton type="submit" busy={busy} busyLabel={words.sending}>
-            {words.sendLink}
+          <BigButton type="submit" busy={busy} busyLabel={words.sending} disabled={Boolean(preview)}>
+            {preview ? PREVIEW_ONLY : words.sendLink}
           </BigButton>
         </div>
       </form>

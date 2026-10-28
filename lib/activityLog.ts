@@ -4,8 +4,8 @@
 
 import { getSql } from "@/lib/db";
 
-export type ActivityActorRole = "manager" | "owner" | "porter" | "team-hub";
-export type ActivityAction = "create" | "update" | "delete" | "login" | "logout";
+export type ActivityActorRole = "manager" | "owner" | "porter" | "team-hub" | "guest";
+export type ActivityAction = "create" | "update" | "delete" | "login" | "logout" | "view";
 
 export type LogActivityInput = {
   actorAccountId: string | null;

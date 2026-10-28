@@ -1,0 +1,11 @@
+-- 065: "Tax exempt" per account (Account page -> More -> Tax exempt).
+-- Every account price in the app is before sales tax. Wherever the customer
+-- sees their monthly price (the customer portal's My bill, and the staff
+-- "View as customer" preview of it) it reads "$X / month + sales tax", or
+-- just "$X / month" for a tax-exempt account (lib/pg/tax-exempt.ts).
+-- Display only: no amount is stored differently, and sub pay and margins are
+-- worked out exactly as before.
+--
+-- One column, off for every account. No row is changed. Running it again
+-- changes nothing.
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS tax_exempt BOOLEAN NOT NULL DEFAULT false;

@@ -169,7 +169,9 @@ const en = {
   // my bill
   myBill: "My bill",
   monthlyPrice: "Your monthly price",
-  perMonth: "per month",
+  // Every price is before sales tax (lib/pg/tax-exempt.ts): "$X / month + sales tax", or "$X / month" when tax exempt.
+  perMonth: "/ month + sales tax",
+  perMonthTaxExempt: "/ month",
   noPrice: "We do not have your price here yet. Email us and we will tell you.",
   billQuestions: "Questions about your bill?",
   emailTo: (address: string) => `Email ${address}`,
@@ -330,7 +332,8 @@ const es: PortalWords = {
 
   myBill: "Mi factura",
   monthlyPrice: "Su precio mensual",
-  perMonth: "al mes",
+  perMonth: "/ mes + impuesto sobre las ventas",
+  perMonthTaxExempt: "/ mes",
   noPrice: "Todavía no tenemos su precio aquí. Escríbanos y se lo decimos.",
   billQuestions: "¿Preguntas sobre su factura?",
   emailTo: (address: string) => `Escriba a ${address}`,

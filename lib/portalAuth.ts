@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { accountsForEmail, type PortalAccount } from "@/lib/pg/portal-auth";
+import { previewLogin } from "@/lib/portalPreview";
 
 /** True outside production: local dev and Vercel previews. A built app with no sign of being a preview counts as production. */
 export function isNonProduction(): boolean {
@@ -25,6 +26,8 @@ export type PortalLogin = {
   accounts: PortalAccount[];
   /** The location in use, or null when none is picked yet (or the picked one is no longer theirs). */
   current: PortalAccount | null;
+  /** Set only for staff "View as customer" or a shared preview link (lib/portalPreview.ts): read only, nothing is sent. */
+  preview?: { staffName: string; shared: boolean };
 };
 
 /**
@@ -33,6 +36,9 @@ export type PortalLogin = {
  * was closed again stops working at once, not when the cookie runs out.
  */
 export async function getPortalLogin(): Promise<PortalLogin | null> {
+  // Staff "View as customer": that one account, read only, and never a customer session.
+  const preview = await previewLogin();
+  if (preview) return { email: preview.email, accounts: [preview.account], current: preview.account, preview: { staffName: preview.staffName, shared: preview.shared } };
   const session = await readPortalSession();
   if (!session.email) return null;
   const accounts = await accountsForEmail(session.email);
