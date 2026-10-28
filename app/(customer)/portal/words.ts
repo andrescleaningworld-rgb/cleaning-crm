@@ -55,7 +55,7 @@ const en = {
   savePassword: "Save password",
   saving: "Saving…",
   linkBadTitle: "This link does not work",
-  linkBadText: "It was already used, or it is more than 24 hours old. Ask for a new one.",
+  linkBadText: "It was already used, or it is too old. Ask for a new one.",
   askNewLink: "Send me a new link",
 
   // locations
@@ -226,7 +226,7 @@ const es: PortalWords = {
   savePassword: "Guardar contraseña",
   saving: "Guardando…",
   linkBadTitle: "Este enlace no funciona",
-  linkBadText: "Ya se usó, o tiene más de 24 horas. Pida uno nuevo.",
+  linkBadText: "Ya se usó, o ya venció. Pida uno nuevo.",
   askNewLink: "Enviarme un enlace nuevo",
 
   whichLocation: "¿Cuál lugar?",

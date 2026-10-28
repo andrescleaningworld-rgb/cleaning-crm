@@ -8,7 +8,8 @@
 //     is not cancelled and has portal access turned on in Settings → Portal.
 //   - While the portal is not open to customers, only test accounts
 //     (accounts.is_test) count. Everyone else is treated as "not found".
-//   - A link is valid 24 hours and works once. Only its SHA-256 is stored.
+//   - A link works once. It is valid 24 hours (INVITE_LINK_HOURS = 7 days for a
+//     staff portal invite). Only its SHA-256 is stored.
 //   - Passwords are bcrypt hashes. The password is never stored or logged.
 //   - 5 wrong passwords lock that email for 15 minutes.
 
@@ -18,6 +19,8 @@ import { isPostgres } from "@/lib/dataSource";
 import { getSql } from "@/lib/db";
 
 export const LINK_HOURS = 24;
+/** A portal invite from staff (Account page -> Invite to portal): 7 days. */
+export const INVITE_LINK_HOURS = 7 * 24;
 export const MAX_TRIES = 5;
 export const LOCK_MINUTES = 15;
 export const MIN_PASSWORD_LENGTH = 8;
@@ -119,7 +122,9 @@ export async function accountsForEmail(email: string): Promise<PortalAccount[]> 
 export async function createPasswordLink(
   email: string,
   kind: "set" | "reset",
-  createdBy = ""
+  createdBy = "",
+  /** How long it works. Default 24 hours (a link the customer asked for); a staff invite passes INVITE_LINK_HOURS. */
+  hours = LINK_HOURS
 ): Promise<{ token: string; email: string; testOnly: boolean } | null> {
   const wanted = cleanEmail(email);
   const accounts = await accountsForEmail(wanted);
@@ -129,12 +134,12 @@ export async function createPasswordLink(
   await sql.query(
     `INSERT INTO portal_tokens (email, token_hash, kind, expires_at, created_by)
      VALUES ($1::text, $2::text, $3::text, now() + ($4::int || ' hours')::interval, $5::text)`,
-    [wanted, sha256(token), kind, LINK_HOURS, createdBy]
+    [wanted, sha256(token), kind, Math.max(1, Math.round(hours)), createdBy]
   );
   return { token, email: wanted, testOnly: accounts.every((a) => a.isTest) };
 }
 
-/** The email a link belongs to, or null when the link is unknown, used or older than 24 hours. */
+/** The email a link belongs to, or null when the link is unknown, used or past its time (24 hours; 7 days for an invite). */
 export async function emailForToken(token: string): Promise<string | null> {
   if (!token) return null;
   const sql = getSql();
