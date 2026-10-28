@@ -61,7 +61,8 @@ export const SETUP_SCREENS: SetupScreenDef[] = [
   { key: "scope", title: "What do they clean?", short: "Scope of work", required: true },
   { key: "access", title: "Key, alarm, access", short: "Key / alarm / access", required: true },
   { key: "contact", title: "Who do we call?", short: "Contact phone", required: true },
-  { key: "supplies", title: "Supplies", short: "Supplies", required: true },
+  // Still asked and counted in "X of Y done", but not needed for "Ready to start" (Oct 28, 2026).
+  { key: "supplies", title: "Supplies", short: "Supplies", required: false },
   { key: "walkthrough", title: "Is the crew walkthrough done?", short: "Walkthrough", required: true },
   { key: "startDate", title: "Start date", short: "Start date", required: true },
 ];
@@ -179,9 +180,9 @@ const PIN_STEPS_TO_START: FlowStep[] = ["packet", "sub", "subOk"];
  *   - Packet, Sub picked, Sub OK done on the pin,
  *   - Customer called, Site survey, Walkthrough done,
  *   - every required wizard screen filled in (how often, days, sub pay,
- *     scope, access, contact phone, supplies),
+ *     scope, access, contact phone),
  *   - and a start date.
- * Cleaning time and pictures are not needed.
+ * Cleaning time, pictures and supplies are not needed.
  */
 export function isReadyToStart(facts: SetupFacts): boolean {
   const flow = facts.flow;
