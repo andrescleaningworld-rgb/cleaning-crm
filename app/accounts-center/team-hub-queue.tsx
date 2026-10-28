@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import TranslatedText from "../components/TranslatedText";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import { BigButton, Card, ErrorBox, Screen, SkeletonList } from "@/app/ui";
+import CrewSkips from "./crew-skips";
 
 type QueueSource = "team-hub" | "crew-link";
 
@@ -83,7 +84,8 @@ export default function TeamHubStaffQueue() {
   }
 
   return (
-    <Screen title="Crew Link" subtitle="Open problems sent by the crews. Their supply orders are in Supply Orders.">
+    <Screen title="Crew Link" subtitle="What the crews could not do, and open problems they sent. Their supply orders are in Supply Orders.">
+      <CrewSkips />
       {error ? <ErrorBox title="That did not work." text={error} onRetry={() => void load()} /> : null}
 
       {loading ? (

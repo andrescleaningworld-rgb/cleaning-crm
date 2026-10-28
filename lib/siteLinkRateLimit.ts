@@ -15,13 +15,13 @@ const MAX_REQUESTS_PER_WINDOW = 20;
 // rate-limited. `key` should combine the token with the action (e.g.
 // "order:<token>") so ordering and issue-reporting on the same link have
 // independent budgets.
-export async function checkRateLimit(key: string): Promise<boolean> {
+export async function checkRateLimit(key: string, max = MAX_REQUESTS_PER_WINDOW): Promise<boolean> {
   const windowBucket = Math.floor(Date.now() / 1000 / WINDOW_SECONDS);
   const cacheKey = `${key}:${windowBucket}`;
 
   try {
     const current = ((await cache.get(cacheKey)) as number | null) ?? 0;
-    if (current >= MAX_REQUESTS_PER_WINDOW) return false;
+    if (current >= max) return false;
 
     await cache.set(cacheKey, current + 1, { ttl: WINDOW_SECONDS + 5 });
     return true;

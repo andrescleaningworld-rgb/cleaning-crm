@@ -38,6 +38,9 @@ type Photo = {
   thumbUrl?: string;
   /** The shot's label ("Alarm panel"). */
   caption?: string;
+  /** Crew photos: their tag, and hidden from the customer portal. */
+  tag?: string;
+  hiddenFromCustomer?: boolean;
 };
 
 type ApiAnswer = {
@@ -49,7 +52,7 @@ type ApiAnswer = {
   accounts?: { name: string; count: number }[] | null;
 };
 
-const KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey"];
+const KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey", "Crew"];
 type DateChoice = "all" | "today" | "week" | "month" | "pick";
 const DATE_LABEL: Record<DateChoice, string> = { all: "Date", today: "Today", week: "This week", month: "This month", pick: "Dates" };
 
@@ -87,7 +90,8 @@ const dayKey = (iso: string) => {
 };
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const longDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-const label = (photo: Photo) => `${photo.moment === "before" ? "Before" : photo.moment === "after" ? "After" : photo.caption || photo.kind} · ${shortDate(photo.takenAt)}`;
+const label = (photo: Photo) =>
+  `${photo.moment === "before" ? "Before" : photo.moment === "after" ? "After" : photo.tag === "problem" ? "Problem" : photo.caption || photo.kind} · ${shortDate(photo.takenAt)}${photo.hiddenFromCustomer ? " · hidden" : ""}`;
 
 function isoDay(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -121,9 +125,24 @@ function Thumb({ photo, onOpen }: { photo: Photo; onOpen: () => void }) {
 
 /* ---------- full screen ---------- */
 
-function Viewer({ photos, index, onIndex, onClose, onStar }: { photos: Photo[]; index: number; onIndex: (next: number) => void; onClose: () => void; onStar: (photo: Photo, on: boolean) => Promise<void> }) {
+function Viewer({
+  photos,
+  index,
+  onIndex,
+  onClose,
+  onStar,
+  onHide,
+}: {
+  photos: Photo[];
+  index: number;
+  onIndex: (next: number) => void;
+  onClose: () => void;
+  onStar: (photo: Photo, on: boolean) => Promise<void>;
+  onHide: (photo: Photo, hidden: boolean) => Promise<void>;
+}) {
   const photo = photos[index];
   const [starring, setStarring] = useState(false);
+  const [hiding, setHiding] = useState(false);
   const touch = useRef<{ x: number; y: number } | null>(null);
   const go = useCallback((delta: number) => onIndex(Math.min(photos.length - 1, Math.max(0, index + delta))), [index, photos.length, onIndex]);
 
@@ -221,6 +240,21 @@ function Viewer({ photos, index, onIndex, onClose, onStar }: { photos: Photo[]; 
               {photo.showOnTv ? "★ On the TV" : "☆ Show on TV"}
             </button>
           ) : null}
+          {/* Crew photos show in the customer portal unless hidden here (a Problem photo starts hidden). */}
+          {photo.kind === "Crew" ? (
+            <button
+              type="button"
+              className={photo.hiddenFromCustomer ? "ui-btn ui-btn-main" : "ui-btn ui-btn-second"}
+              aria-pressed={photo.hiddenFromCustomer === true}
+              disabled={hiding}
+              onClick={() => {
+                setHiding(true);
+                void onHide(photo, !photo.hiddenFromCustomer).finally(() => setHiding(false));
+              }}
+            >
+              {photo.hiddenFromCustomer ? "🚫 Hidden from customer · Show it" : "👁 Customer sees it · Hide"}
+            </button>
+          ) : null}
           <a className="ui-btn ui-btn-second ph-viewer-original" href={photo.url} target="_blank" rel="noopener noreferrer">
             Original file
           </a>
@@ -249,6 +283,19 @@ function PhotosContent() {
       if (!response.ok || data.success !== true) throw new Error(data.error || "That did not save. Try again.");
       setPhotos((current) => current.map((item) => (item.id === photo.id ? { ...item, showOnTv: on } : item)));
       showToast(on ? "It will show on the TV." : "Taken off the TV.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "That did not save. Try again.", "bad");
+    }
+  }, []);
+
+  // A crew photo hidden from the customer portal, or shown again.
+  const hidePhoto = useCallback(async (photo: Photo, hidden: boolean) => {
+    try {
+      const response = await fetch("/api/photo-index/hide", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: photo.id, hidden }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || data.success !== true) throw new Error(data.error || "That did not save. Try again.");
+      setPhotos((current) => current.map((item) => (item.id === photo.id ? { ...item, hiddenFromCustomer: hidden } : item)));
+      showToast(hidden ? "Hidden from the customer." : "The customer sees it now.");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "That did not save. Try again.", "bad");
     }
@@ -565,7 +612,7 @@ function PhotosContent() {
         <Field label="To" type="date" optional value={to} onChange={(event) => (setTo(event.target.value), setDateChoice("pick"))} />
       </Sheet>
 
-      {viewer !== null ? <Viewer photos={photos} index={viewer} onIndex={setViewer} onClose={() => setViewer(null)} onStar={starPhoto} /> : null}
+      {viewer !== null ? <Viewer photos={photos} index={viewer} onIndex={setViewer} onClose={() => setViewer(null)} onStar={starPhoto} onHide={hidePhoto} /> : null}
     </Screen>
   );
 }

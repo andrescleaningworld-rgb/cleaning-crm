@@ -479,6 +479,7 @@ function toPaper(row: PaperRow): Paper {
     progress: null,
     setup: null,
     flow: paperFlow(row),
+    alert: row.kind === "note" && clean(row.data?.red) === "1",
     href: paperHref(row),
     pdfHref: paperPdfHref(row),
     forWho: clean(row.data?.forWho),

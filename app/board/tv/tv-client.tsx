@@ -750,7 +750,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const renderNote = (paper: Paper) => {
     const overdue = isOverdue(paper, now);
     // A new account in the 8-step flow is late by its own rule: 2 work days with no progress on one step.
-    const stuck = paper.flow ? paper.flow.red : data ? isOld(paper, data.settings, now) : false;
+    const stuck = paper.alert ? true : paper.flow ? paper.flow.red : data ? isOld(paper, data.settings, now) : false;
     return (
       <div className={`${styles.note} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${overdue || stuck ? styles.late : ""}`} data-late={overdue || stuck ? "1" : "0"}>
         <p className={styles.noteType}>

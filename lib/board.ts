@@ -53,6 +53,8 @@ export type Paper = {
   setup?: SetupSummary | null;
   /** A new account made with "New Accepted Account": its 8-step pizza tracker. null for every other paper. */
   flow: FlowView | null;
+  /** Red on the board and TV: a crew "Couldn't do" paper with the same item skipped 3 nights in a row (lib/pg/crew-skips.ts). */
+  alert?: boolean;
   /**
    * Set only on the copy papersIn puts in "New accepted" for a new account
    * that is in a manager's square (it stays there too until Live). The same
