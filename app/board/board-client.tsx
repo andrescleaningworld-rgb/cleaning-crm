@@ -33,6 +33,7 @@ import { StuckNote, setupStepsText } from "../components/account-flow";
 import { SetupButton } from "../components/OnboardingChecklist";
 import OnboardingWizardModal from "../components/OnboardingWizardModal";
 import ReadyBadge from "../components/ready-badge";
+import AccountPickerField, { type PickedAccount } from "../components/AccountPickerField";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
@@ -569,6 +570,9 @@ function MySquare({
 function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: boolean; data: BoardData; defaultSquare: string; onClose: () => void; onPinned: () => void }) {
   const [text, setText] = useState("");
   const [square, setSquare] = useState(defaultSquare);
+  // Optional: the account the paper is about (saved by its ID, so the paper links to the account page).
+  const [account, setAccount] = useState<PickedAccount | null>(null);
+  const [accountQuery, setAccountQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -577,6 +581,8 @@ function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: bool
     if (!open) return;
     setText("");
     setSquare(defaultSquare);
+    setAccount(null);
+    setAccountQuery("");
     setError("");
   }, [open, defaultSquare]);
 
@@ -584,9 +590,11 @@ function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: bool
     setError("");
     if (!text.trim()) return setError("Write what needs doing.");
     if (!square) return setError("Pick whose square it goes in.");
+    // Words typed in Account and not picked would be lost: ask to pick or clear.
+    if (!account && accountQuery.trim()) return setError("Pick the account from the list, or clear the Account box.");
     setSaving(true);
     try {
-      await postBoard({ action: "pin", kind: "note", text, square });
+      await postBoard({ action: "pin", kind: "note", text, square, accountId: account?.id ?? "", accountName: account?.name ?? "" });
       showToast(CHEER.logged);
       onPinned();
       onClose();
@@ -611,6 +619,7 @@ function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: bool
     >
       <div className="ui-stack">
         <TextAreaField label="What needs doing?" rows={3} maxLength={500} value={text} onChange={(event) => setText(event.target.value)} />
+        {open ? <AccountPickerField label="Account (optional)" value={account} onChange={setAccount} onQueryChange={setAccountQuery} /> : null}
         <SelectField label="Whose square" value={square} onChange={(event) => setSquare(event.target.value)}>
           <option value="">Pick a manager</option>
           {data.managers.map((manager) => (

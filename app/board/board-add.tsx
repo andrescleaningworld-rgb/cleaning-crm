@@ -5,14 +5,16 @@
 //
 //   a person's square  -> a new to-do, assigned to them, pinned on their square
 //   Office             -> a new account update, pinned in the Office box
-//   any other box      -> a simple sticky note that hangs in that box
+//   any other box      -> a simple sticky note that hangs in that box, with an
+//                         optional account picked from the same search (saved
+//                         by its ID, so the paper links to the account page)
 //
 // (Extra jobs and New accepted open their own full forms; see board-client.)
 // The to-do and the account update are saved by their own APIs, exactly as
 // from their own pages; this only also hangs the paper in the box.
 
-import { useEffect, useMemo, useState } from "react";
-import { AutocompleteField, type SearchOption } from "@/app/sub-schedules/autocomplete";
+import { useEffect, useState } from "react";
+import AccountPickerField, { type PickedAccount } from "@/app/components/AccountPickerField";
 import { BigButton, CHEER, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
 import type { BoardManager } from "@/lib/board";
 
@@ -20,37 +22,6 @@ export type AddTarget =
   | { kind: "todo"; manager: BoardManager }
   | { kind: "update" }
   | { kind: "note"; box: string; boxName: string };
-
-type AccountOption = { id: string; name: string; address: string; city: string };
-
-// How many matches the account search shows under the field.
-const ACCOUNT_MATCHES = 8;
-
-// The key a picked account is held by (the same value the old dropdown used).
-const accountKey = (entry: AccountOption) => `${entry.id}|${entry.name}`;
-
-function accountSearchOption(entry: AccountOption): SearchOption {
-  const town = entry.city && !entry.address.toLowerCase().includes(entry.city.toLowerCase()) ? entry.city : "";
-  return { id: accountKey(entry), label: entry.name, detail: [entry.address, town].filter(Boolean).join(", ") };
-}
-
-/** Accounts whose name, address or town has the typed words anywhere in it; names that start with them first. */
-function matchAccounts(accounts: AccountOption[], query: string): SearchOption[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const rank = (entry: AccountOption) => {
-    const name = entry.name.toLowerCase();
-    if (name.startsWith(q)) return 0;
-    if (name.includes(q)) return 1;
-    return `${entry.address} ${entry.city}`.toLowerCase().includes(q) ? 2 : -1;
-  };
-  return accounts
-    .map((entry) => ({ entry, rank: rank(entry) }))
-    .filter((match) => match.rank >= 0)
-    .sort((a, b) => a.rank - b.rank)
-    .slice(0, ACCOUNT_MATCHES)
-    .map((match) => accountSearchOption(match.entry));
-}
 
 const UPDATE_TYPES = ["Service Change", "Price Change", "Missed Visit", "Sub replacement", "Supplies", "Extra Service", "Approved", "Ongoing", "Other"];
 // The same kinds the To-Do page offers.
@@ -70,72 +41,33 @@ async function post(path: string, body: Record<string, unknown>): Promise<Record
   return data;
 }
 
-function pick(row: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = String(row[key] ?? "").trim();
-    if (value) return value;
-  }
-  return "";
-}
 
 export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target: AddTarget | null; me: string; onClose: () => void; onAdded: () => void }) {
-  const [accounts, setAccounts] = useState<AccountOption[] | null>(null);
-  const [accountsFailed, setAccountsFailed] = useState(false);
-  const [accountId, setAccountId] = useState("");
+  const [account, setAccount] = useState<PickedAccount | null>(null);
   const [accountQuery, setAccountQuery] = useState("");
+  // Goes up on each opening, so the account search starts empty too.
+  const [opening, setOpening] = useState(0);
   const [title, setTitle] = useState("");
   const [type, setType] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
-  const [accountText, setAccountText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const kind = target?.kind ?? "";
-  const needsAccounts = kind === "todo" || kind === "update";
 
   // Each opening starts fresh.
   useEffect(() => {
     if (!kind) return;
-    setAccountId("");
+    setAccount(null);
     setAccountQuery("");
+    setOpening((count) => count + 1);
     setTitle("");
     setType(kind === "update" ? "Other" : "Visit");
     setDueDate("");
     setNotes("");
-    setAccountText("");
     setError("");
   }, [kind, target]);
-
-  // The account list, the first time a form that needs it opens.
-  useEffect(() => {
-    if (!needsAccounts || accounts) return;
-    let alive = true;
-    fetch("/api/accounts", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: { accounts?: Record<string, unknown>[]; data?: Record<string, unknown>[] }) => {
-        if (!alive) return;
-        const rows = (data.accounts ?? data.data ?? [])
-          .filter((row) => !/cancel/i.test(pick(row, ["status", "Status"])))
-          .map((row) => ({
-            id: pick(row, ["accountId", "id", "Account ID"]),
-            name: pick(row, ["accountName", "Account Name", "name"]),
-            address: pick(row, ["address", "Address"]),
-            city: pick(row, ["city", "City"]),
-          }))
-          .filter((row) => row.name)
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setAccounts(rows);
-        setAccountsFailed(false);
-      })
-      .catch(() => alive && setAccountsFailed(true));
-    return () => {
-      alive = false;
-    };
-  }, [needsAccounts, accounts]);
-
-  const account = accounts?.find((entry) => accountKey(entry) === accountId) ?? null;
-  const accountMatches = useMemo(() => (accounts && !account ? matchAccounts(accounts, accountQuery) : []), [accounts, account, accountQuery]);
 
   async function save() {
     if (!target) return;
@@ -168,8 +100,10 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
         await post("/api/board", { action: "pinNew", type: "update", recordId: id, title: `${type}: ${account.name}`, accountId: account.id, accountName: account.name, square: "", forWho: "Office", dueDate: "", notes: notes.trim() });
       } else {
         if (!title.trim()) return setError("Give the note a title.");
+        // The account is optional, but words typed and not picked would be lost: ask to pick or clear.
+        if (!account && accountQuery.trim()) return setError("Pick the account from the list, or clear the Account box.");
         setSaving(true);
-        await post("/api/board", { action: "pin", kind: "note", text: title.trim(), accountName: accountText.trim(), dueDate, notes: notes.trim(), box: target.box });
+        await post("/api/board", { action: "pin", kind: "note", text: title.trim(), accountId: account?.id ?? "", accountName: account?.name ?? "", dueDate, notes: notes.trim(), box: target.box });
       }
       showToast(CHEER.logged);
       onAdded();
@@ -181,28 +115,7 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
     }
   }
 
-  const accountField = (label: string) => (
-    <AutocompleteField
-      label={label}
-      placeholder="Type a name, street or town"
-      hint={accountsFailed ? "The account list did not load. Close this and try again." : accounts ? undefined : "Loading the accounts…"}
-      query={accountQuery}
-      onQueryChange={setAccountQuery}
-      options={accountMatches}
-      loading={!accounts && !accountsFailed}
-      selected={account ? accountSearchOption(account) : null}
-      onSelect={(option) => {
-        setAccountId(option.id);
-        setAccountQuery(option.label);
-      }}
-      onClear={() => {
-        setAccountId("");
-        setAccountQuery("");
-      }}
-      minChars={1}
-      emptyText="No accounts found"
-    />
-  );
+  const accountField = (label: string) => <AccountPickerField key={opening} label={label} value={account} onChange={setAccount} onQueryChange={setAccountQuery} />;
 
   const heading = !target ? "" : target.kind === "todo" ? `New to-do for ${target.manager.name}` : target.kind === "update" ? "New account update" : `New note in ${target.boxName}`;
   const text = !target ? "" : target.kind === "todo" ? `It is assigned to ${target.manager.name} and pinned on their square.` : target.kind === "update" ? "It is saved in Account Updates and pinned in the Office box." : "A sticky note. It hangs in this box until someone unpins it.";
@@ -250,7 +163,7 @@ export default function AddToBoxSheet({ target, me, onClose, onAdded }: { target
         ) : kind === "note" ? (
           <>
             <Field label="Title" maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} />
-            <Field label="Account (optional)" maxLength={120} value={accountText} onChange={(event) => setAccountText(event.target.value)} />
+            {accountField("Account (optional)")}
             <Field label="Due date (optional)" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
             <TextAreaField label="Note (optional)" rows={3} maxLength={1000} value={notes} onChange={(event) => setNotes(event.target.value)} />
           </>

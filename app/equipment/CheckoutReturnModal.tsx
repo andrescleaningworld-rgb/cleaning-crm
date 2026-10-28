@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { EquipmentItem, Staff } from "./types";
 import { getStoredEquipmentStaffId, setStoredEquipmentStaffId } from "./staffIdentity";
 import { BigButton, ErrorBox, Field, FilterChips, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
+import AccountPickerField from "../components/AccountPickerField";
 
 // Raw shape returned by GET /api/subcontractors — the same source used by
 // the Subcontractor dropdown in app/accounts/new/page.tsx and
@@ -235,7 +236,8 @@ export default function CheckoutReturnModal({ mode, equipment, onClose, onDone }
                     ))}
               </SelectField>
 
-              <Field label="Account" optional value={accountId} onChange={(e) => setAccountId(e.target.value)} placeholder="Account ID or name" />
+              {/* Saved as the account's ID; the equipment page shows its name as a link. */}
+              <AccountPickerField label="Account (optional)" value={accountId ? { id: accountId, name: "" } : null} onChange={(next) => setAccountId(next?.id ?? "")} />
               <Field label="Expected Return Date" optional type="date" value={expectedReturnAt} onChange={(e) => setExpectedReturnAt(e.target.value)} />
               <Field
                 label="Work Order # (Markate)"

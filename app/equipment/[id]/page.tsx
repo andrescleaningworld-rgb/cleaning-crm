@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import CheckoutReturnModal from "../CheckoutReturnModal";
+import AccountLink, { keyOf, loadAccountIndex } from "../../components/AccountLink";
 import RepairModal from "../RepairModal";
 import { EquipmentItemReports } from "../EquipmentCheckAdmin";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
@@ -308,7 +309,12 @@ export default function EquipmentDetailPage() {
               <li key={c.id} className="py-3 text-lg">
                 <p className="font-bold text-gray-900">
                   {c.holderName}
-                  {c.accountId ? <span className="font-normal text-gray-600"> · {c.accountId}</span> : null}
+                  {c.accountId ? (
+                    <span className="font-normal text-gray-600">
+                      {" · "}
+                      <CheckoutAccount value={c.accountId} />
+                    </span>
+                  ) : null}
                   {c.workOrderNumber ? <span className="font-normal text-gray-600"> · WO {c.workOrderNumber}</span> : null}
                 </p>
                 <p className="text-base text-gray-600">
@@ -383,4 +389,24 @@ export default function EquipmentDetailPage() {
       ) : null}
     </EquipmentShell>
   );
+}
+
+/**
+ * The account on a check-out. Saved as the account's ID since the account
+ * picker; older ones hold whatever was typed (an ID or a name). An ID shows
+ * the account's name; a name shows as typed, and links when exactly one
+ * account has that name.
+ */
+function CheckoutAccount({ value }: { value: string }) {
+  const [name, setName] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void loadAccountIndex().then((index) => {
+      if (alive) setName(index.names.get(keyOf(value)) ?? "");
+    });
+    return () => {
+      alive = false;
+    };
+  }, [value]);
+  return name ? <AccountLink accountId={value} name={name} known /> : <AccountLink name={value} />;
 }

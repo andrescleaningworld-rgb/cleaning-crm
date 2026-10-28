@@ -20,6 +20,7 @@ import {
 } from "@/app/ui";
 import { useParams } from "next/navigation";
 import AccountLink from "../../components/AccountLink";
+import AccountPickerField from "../../components/AccountPickerField";
 
 type Complaint = {
   rowNumber?: number | string;
@@ -209,6 +210,7 @@ export default function ComplaintDetailPage() {
   const [resending, setResending] = useState(false);
   const [editForm, setEditForm] = useState({
     date: "",
+    accountId: "",
     accountName: "",
     complaintType: "",
     priority: "",
@@ -283,6 +285,7 @@ export default function ComplaintDetailPage() {
 
     setEditForm({
       date: clean(complaint.date),
+      accountId: clean(complaint.accountId),
       accountName: clean(complaint.accountName),
       complaintType: clean(complaint.complaintType),
       priority: clean(complaint.priority),
@@ -330,6 +333,7 @@ export default function ComplaintDetailPage() {
             complaintId: complaint.id || "",
             date: editForm.date,
             complaintDate: editForm.date,
+            accountId: editForm.accountId,
             accountName: editForm.accountName,
             complaintType: editForm.complaintType,
             issue: editForm.description,
@@ -562,7 +566,13 @@ export default function ComplaintDetailPage() {
           </BigButton>
         }
       >
-        <Field label="Account" value={editForm.accountName} onChange={set("accountName")} />
+        {/* The account picker: an older complaint with only a name keeps it, and links when exactly one account has that name. */}
+        <AccountPickerField
+          label="Account"
+          includeCancelled
+          value={editForm.accountName || editForm.accountId ? { id: editForm.accountId, name: editForm.accountName } : null}
+          onChange={(next) => setEditForm((current) => ({ ...current, accountId: next?.id ?? "", accountName: next?.name ?? "" }))}
+        />
         <Field label="Date" value={editForm.date} onChange={set("date")} />
         <Field label="Complaint type" optional value={editForm.complaintType} onChange={set("complaintType")} />
         <SelectField label="Status" value={editForm.status} onChange={set("status")}>
