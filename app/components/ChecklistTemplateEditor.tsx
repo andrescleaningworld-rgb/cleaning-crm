@@ -31,6 +31,7 @@ type TemplateApiResponse = {
     sections: ChecklistSectionDef[];
     supplyOrdersEnabled?: boolean;
     problemReportsEnabled?: boolean;
+    showPhotosToCustomer?: boolean;
   } | null;
   tabs?: ChecklistTabDef[];
 };
@@ -84,6 +85,9 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
   // from the account edit page. The checklist itself stays on checklistNeeded.
   const [supplyOrdersEnabled, setSupplyOrdersEnabled] = useState(false);
   const [problemReportsEnabled, setProblemReportsEnabled] = useState(false);
+  // "Show crew photos to customer": on by default.
+  const [showPhotos, setShowPhotos] = useState(true);
+  const [savingPhotos, setSavingPhotos] = useState(false);
   const [collapsed, setCollapsed] = useState(!defaultOpen);
   const [extracting, setExtracting] = useState(false);
   const [extractPreview, setExtractPreview] = useState<{
@@ -113,6 +117,7 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
         const problemsOn = data.template?.problemReportsEnabled === true;
         setSupplyOrdersEnabled(ordersOn);
         setProblemReportsEnabled(problemsOn);
+        setShowPhotos(data.template?.showPhotosToCustomer !== false);
         if (!data.checklistNeeded && !ordersOn && !problemsOn) return;
 
         let template = data.template ?? null;
@@ -530,6 +535,41 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
 
           <CrewLinkShare accountId={accountId} placeName={place} url={porterUrl} />
 
+          {/* Crew photos ("Send photos" on the crew screen) in the customer portal. */}
+          <div className="space-y-2 rounded-2xl border border-slate-200 p-4">
+            <label className="flex min-h-[48px] items-center gap-3">
+              <input
+                type="checkbox"
+                className="h-6 w-6"
+                checked={showPhotos}
+                disabled={savingPhotos}
+                onChange={async (event) => {
+                  const on = event.target.checked;
+                  setSavingPhotos(true);
+                  setError("");
+                  try {
+                    const response = await fetch("/api/checklist-templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "setShowPhotosToCustomer", accountId, on }) });
+                    const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+                    if (!response.ok || data.success === false) throw new Error(data.error || "That did not save.");
+                    setShowPhotos(on);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "That did not save.");
+                  } finally {
+                    setSavingPhotos(false);
+                  }
+                }}
+              />
+              <span className="text-base font-black text-slate-900">Show crew photos to customer</span>
+            </label>
+            <p className="text-sm text-slate-500">
+              In their customer portal, under Photos. A photo the crew tagged Problem starts hidden. Hide or show any one photo on{" "}
+              <a className="font-bold text-blue-700 underline" href={`/photos?account=${encodeURIComponent(accountName)}&accountId=${encodeURIComponent(accountId)}`}>
+                this account&apos;s Photos
+              </a>
+              .
+            </p>
+          </div>
+
           {checklistNeeded ? <CrewTranslationsReview accountId={accountId} /> : null}
 
           {/* Which catalog items this account's crew can order. */}
@@ -767,6 +807,15 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
                           placeholder="Optional guidance note for the porter…"
                           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600 outline-none focus:border-blue-500"
                         />
+                        {/* The crew sees it at the top with a star. */}
+                        <button
+                          type="button"
+                          aria-pressed={item.mustDo === true}
+                          onClick={() => updateItem(sectionIndex, itemIndex, { mustDo: item.mustDo ? undefined : true })}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-black ${item.mustDo ? "bg-amber-400 text-slate-900" : "border border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+                        >
+                          ★ {item.mustDo ? "Must do every night" : "Mark as must do every night"}
+                        </button>
                       </div>
                       <div className="flex shrink-0 flex-col gap-1">
                         <button type="button" onClick={() => moveItem(sectionIndex, itemIndex, -1)} disabled={itemIndex === 0} className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600 disabled:opacity-30">

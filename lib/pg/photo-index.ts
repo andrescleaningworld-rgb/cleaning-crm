@@ -19,7 +19,7 @@ import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 
 // "Site survey": the setup wizard's shot list (migration 063; lib/pg/setup-wizard.ts).
-export const PHOTO_KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey"] as const;
+export const PHOTO_KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey", "Crew"] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];
 
 export type IndexedPhoto = {
@@ -45,6 +45,9 @@ export type IndexedPhoto = {
   thumbUrl: string;
   /** The shot's label ("Alarm panel"); "" for most photos (migration 063). */
   caption: string;
+  /** Crew photos: the crew's tag (before / after / problem), and hidden from the customer portal (migration 064). */
+  tag: string;
+  hiddenFromCustomer: boolean;
 };
 
 export function photosFlagOn(): boolean {
@@ -298,6 +301,9 @@ type Row = {
   /** Not there until migration 063 is applied. */
   thumb_url?: string;
   caption?: string;
+  /** Not there until migration 064 is applied. */
+  tag?: string;
+  hidden_from_customer?: boolean;
 };
 
 const toPhoto = (row: Row): IndexedPhoto => ({
@@ -319,6 +325,8 @@ const toPhoto = (row: Row): IndexedPhoto => ({
   showOnTv: row.show_on_tv === true,
   thumbUrl: row.thumb_url ?? "",
   caption: row.caption ?? "",
+  tag: row.tag ?? "",
+  hiddenFromCustomer: row.hidden_from_customer === true,
 });
 
 export type PhotoFilter = {

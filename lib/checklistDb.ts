@@ -30,6 +30,8 @@ export type ChecklistTemplateRow = {
   // Sheets. The checklist module itself stays on the Sheets flag above.
   supplyOrdersEnabled: boolean;
   problemReportsEnabled: boolean;
+  /** "Show crew photos to customer" (migration 064; on until then and by default). */
+  showPhotosToCustomer: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -43,6 +45,7 @@ function rowToTemplate(row: Record<string, unknown>): ChecklistTemplateRow {
     sections: (row.sections_json as ChecklistSectionDef[]) ?? [],
     supplyOrdersEnabled: row.supply_orders_enabled === true,
     problemReportsEnabled: row.problem_reports_enabled === true,
+    showPhotosToCustomer: row.show_photos_to_customer !== false,
     createdAt: (row.created_at as Date | string) instanceof Date ? (row.created_at as Date).toISOString() : String(row.created_at),
     updatedAt: (row.updated_at as Date | string) instanceof Date ? (row.updated_at as Date).toISOString() : String(row.updated_at),
   };

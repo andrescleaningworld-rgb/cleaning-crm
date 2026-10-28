@@ -13,6 +13,7 @@ import {
   DEFAULT_TAB_NAME,
   countSubmissionProgress,
   countTabItems,
+  isSkipReason,
   type ChecklistSubmissionSection,
   type ChecklistTabDef,
 } from "@/lib/checklistTemplate";
@@ -20,6 +21,7 @@ import { logActivity } from "@/lib/activityLog";
 import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLink";
 import { getContentTranslations, sectionTexts } from "@/lib/crewTranslations";
 import { shelvesReady, waiting } from "@/lib/pg/shelves";
+import { refreshSkipPin } from "@/lib/pg/crew-skips";
 
 export async function GET(request: NextRequest) {
   try {
@@ -122,7 +124,20 @@ export async function POST(request: NextRequest) {
       tab = (await listActiveTabs(template.accountId))[0] ?? null;
     }
 
-    const sections = Array.isArray(body.sections) ? (body.sections as ChecklistSubmissionSection[]) : [];
+    // Only the known fields are kept; a skip reason only on an item not done.
+    const sections: ChecklistSubmissionSection[] = (Array.isArray(body.sections) ? (body.sections as ChecklistSubmissionSection[]) : []).map((section) => ({
+      key: String(section?.key ?? ""),
+      title: String(section?.title ?? ""),
+      items: (Array.isArray(section?.items) ? section.items : []).map((item) => ({
+        key: String(item?.key ?? ""),
+        label: String(item?.label ?? ""),
+        ...(item?.subNote ? { subNote: String(item.subNote) } : {}),
+        ...(item?.mustDo === true ? { mustDo: true } : {}),
+        checked: item?.checked === true,
+        note: String(item?.note ?? "").slice(0, 1000),
+        ...(item?.checked !== true && isSkipReason(item?.skipReason) ? { skipReason: item.skipReason } : {}),
+      })),
+    }));
     const { done, total } = countSubmissionProgress(sections);
 
     // Automatic "started" time from the crew's first checkbox tap. Only a
@@ -164,6 +179,9 @@ export async function POST(request: NextRequest) {
           .catch((error) => console.error("[porter-checklist note translation]", error))
       );
     }
+
+    // "Couldn't do": the office hears before the customer does (the account's Pin Board paper). After the response.
+    waitUntil(refreshSkipPin(template.accountId, template.accountName, id).catch((error) => console.error("[porter-checklist skip pin]", error instanceof Error ? error.message : error)));
 
     await logActivity({
       actorAccountId: null,

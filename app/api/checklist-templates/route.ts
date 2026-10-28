@@ -18,6 +18,7 @@ import {
 } from "@/lib/checklistDb";
 import { cleanTabName, parseUploadedChecklistFile, validateSections } from "@/lib/checklistTemplate";
 import { extractChecklistFromDocx, extractChecklistFromPdf, MAX_UPLOAD_BYTES } from "@/lib/checklistDocumentExtract";
+import { setPhotosShownToCustomer } from "@/lib/pg/crew-photos";
 
 // The extractTemplateFromDocument action calls the Claude API, which can
 // comfortably exceed the default serverless timeout on a large/slow
@@ -119,6 +120,12 @@ async function handlePost(request: NextRequest) {
         problemReports: body.problemReports === true,
       });
       return NextResponse.json({ success: true, template });
+    }
+
+    // "Show crew photos to customer" (the customer portal's Photos, lib/pg/crew-photos.ts).
+    if (action === "setShowPhotosToCustomer") {
+      await setPhotosShownToCustomer(accountId, body.on === true);
+      return NextResponse.json({ success: true, on: body.on === true });
     }
 
     if (action === "saveTemplate") {

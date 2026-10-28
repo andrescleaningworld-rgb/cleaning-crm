@@ -3,7 +3,7 @@
 // Crew Link (docs/crew-link-spec.md) — the one public link a crew opens on
 // their phone. Built to be as simple as possible: a home screen with up to
 // three huge buttons (Checklist / Supplies / Problem — only the ones
-// switched on). A link with just one of them skips the home screen. Every
+// switched on), under the giant "Send photos" (CrewPhotos.tsx, always there). A link with just one of them skips the home screen. Every
 // form starts with "Your name" (required, prefilled with the last name used
 // on this phone) and today's date/time. Every Send ends on a full-screen
 // green "Sent!" with one "Back to start" button. Crews only ever see the
@@ -20,6 +20,7 @@ import CrewSupplies from "./CrewSupplies";
 import CrewProblem from "./CrewProblem";
 import CrewArrived from "./CrewArrived";
 import CrewEmpty from "./CrewEmpty";
+import CrewPhotos from "./CrewPhotos";
 import { PreviewNotSentScreen, useCrewLinkPreview } from "./preview";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
@@ -175,6 +176,20 @@ export default function CrewLinkPage() {
         {header}
 
         {currentScreen !== rootScreen ? <BackButton label={s.back} onClick={goToStart} /> : null}
+
+        {/* Send photos: first thing on the start screen. Always mounted, so the sending never stops and its status shows on every screen. */}
+        {(
+          <CrewPhotos
+            showButton={currentScreen === rootScreen}
+            code={code}
+            s={s}
+            lang={lang}
+            name={name}
+            onNameChange={setName}
+            onNameUsed={() => storeName(name.trim().slice(0, 80))}
+            preview={preview ? () => setSent(true) : undefined}
+          />
+        )}
 
         {currentScreen === "home" ? (
           <div className="grid gap-4">

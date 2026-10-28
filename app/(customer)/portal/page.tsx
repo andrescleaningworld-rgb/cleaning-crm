@@ -2,6 +2,7 @@ import { Screen, Tips } from "@/app/ui";
 import { getMyRequests } from "@/lib/pg/portal-home";
 import { LangToggle, PortalBigTile, PortalLogoutButton, PortalStatus } from "./portal-ui";
 import { requireCustomer } from "./server";
+import { listPortalPhotos } from "@/lib/pg/crew-photos";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,9 @@ export const dynamic = "force-dynamic";
 // cleanings, the monthly price under My bill).
 export default async function PortalHomePage() {
   const { login, account, words } = await requireCustomer();
-  const requests = await getMyRequests(account.accountId);
+  const [requests, photos] = await Promise.all([getMyRequests(account.accountId), listPortalPhotos(account.accountId, 1).catch(() => [])]);
+  // Photos: only when the crew has sent some this customer may see (the account's setting is on).
+  const showPhotos = photos.length > 0;
   const latest = requests.slice(0, 3);
 
   return (
@@ -26,6 +29,7 @@ export default async function PortalHomePage() {
         <PortalBigTile href="/portal/problem" icon="⚠️" label={words.reportProblem} tip="problem" />
         <PortalBigTile href="/portal/service" icon="✨" label={words.extraService} tip="extra" />
         <PortalBigTile href="/portal/visits" icon="🧹" label={words.myCleanings} />
+        {showPhotos ? <PortalBigTile href="/portal/photos" icon="📷" label={words.photos} /> : null}
         <PortalBigTile href="/portal/contact" icon="📞" label={words.contactUs} tip="contact" />
       </nav>
 

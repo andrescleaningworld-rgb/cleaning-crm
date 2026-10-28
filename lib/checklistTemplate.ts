@@ -12,6 +12,8 @@ export type ChecklistItemDef = {
   key: string;
   label: string;
   subNote?: string;
+  /** "Must do every night": the crew sees it at the top with a star. Set by staff in the Crew Link editor. */
+  mustDo?: boolean;
 };
 
 export type ChecklistSectionDef = {
@@ -68,7 +70,21 @@ export function describeWorkTimes(submission: {
 export type ChecklistSubmissionItemState = ChecklistItemDef & {
   checked: boolean;
   note: string;
+  /** "Some things I couldn't do": why this one was not done (unchecked items only). */
+  skipReason?: SkipReason;
 };
+
+/** The crew's one-tap reasons for a skipped item. */
+export const SKIP_REASONS = ["no_time", "blocked", "no_supplies", "other"] as const;
+export type SkipReason = (typeof SKIP_REASONS)[number];
+export const isSkipReason = (value: unknown): value is SkipReason => SKIP_REASONS.includes(value as SkipReason);
+/** The office's words for a reason (the Pin Board, Accounts Center). */
+export const SKIP_REASON_WORDS: Record<SkipReason, string> = { no_time: "No time", blocked: "Blocked / locked", no_supplies: "No supplies", other: "Other" };
+
+/** Must-do items first, the rest in their order (a stable sort). */
+export function mustDoFirst<T extends { mustDo?: boolean }>(items: T[]): T[] {
+  return [...items.filter((item) => item.mustDo), ...items.filter((item) => !item.mustDo)];
+}
 
 export type ChecklistSubmissionSection = {
   key: string;
