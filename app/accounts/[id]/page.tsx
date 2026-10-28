@@ -42,6 +42,7 @@ import { PinButton, usePinInfo } from "../../components/pin-to-board";
 import PrintOrPinSheet from "./print-or-pin";
 import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-packet-sheet";
 import SubPacketSheet from "../../components/sub-packet-sheet";
+import PortalInviteSheet, { invitedLine, type PortalInviteRecord } from "./portal-invite-sheet";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { payShare } from "@/lib/payShare";
@@ -321,9 +322,9 @@ export default function AccountDetailPage() {
   const activeTab = "details" as const;
   // "Send Sub Packet": the preview with Send / Cancel (app/components/sub-packet-sheet.tsx).
   const [showSubPacket, setShowSubPacket] = useState(false);
-  // Customer portal invite ("Set your password" email): what the server answered, shown in a sheet.
-  const [sendingPortalInvite, setSendingPortalInvite] = useState(false);
-  const [portalInvite, setPortalInvite] = useState<{ ok: boolean; message: string; devLink?: string } | null>(null);
+  // "Invite to portal": the preview and share sheet (./portal-invite-sheet.tsx), and the last invites ("Invited Oct 28 by Greg").
+  const [showPortalInvite, setShowPortalInvite] = useState(false);
+  const [portalInvites, setPortalInvites] = useState<PortalInviteRecord[]>([]);
   // The customer Welcome Packet sheet. The version goes up after a send, so the checklist and History read again.
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
   const [welcomeVersion, setWelcomeVersion] = useState(0);
@@ -581,6 +582,21 @@ export default function AccountDetailPage() {
     };
   }, [welcomeAccountId]);
 
+  // "Invited <date> by <name>" on the Invite to portal button: the last invite in the account's History.
+  useEffect(() => {
+    if (!welcomeAccountId) return;
+    let alive = true;
+    fetch(`/api/admin/portal-invite?accountId=${encodeURIComponent(welcomeAccountId)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; invites?: PortalInviteRecord[] }) => {
+        if (alive && data.success) setPortalInvites(data.invites ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [welcomeAccountId]);
+
   const hasContactPhone =contactPhone !== "N/A" && /[0-9]/.test(contactPhone);
 
   function makeTelLink(phone: string | undefined | null): string {
@@ -634,28 +650,6 @@ export default function AccountDetailPage() {
     matchedSubcontractor.companyName !== subcontractorContactDisplay
       ? matchedSubcontractor.companyName
       : "";
-
-  async function handleSendPortalInvite() {
-    if (sendingPortalInvite) return;
-    setSendingPortalInvite(true);
-    try {
-      const res = await fetch("/api/admin/portal-invite", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: decodeURIComponent(accountIdForUrl) }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string; error?: string; devLink?: string };
-      setPortalInvite({
-        ok: res.ok && data.success === true,
-        message: data.success ? data.message || "Invite sent." : data.error || "Failed to send the invite.",
-        devLink: data.devLink,
-      });
-    } catch {
-      setPortalInvite({ ok: false, message: "Failed to send the invite." });
-    } finally {
-      setSendingPortalInvite(false);
-    }
-  }
 
   function openPdfModal() {
     if (!account) return;
@@ -1196,20 +1190,6 @@ export default function AccountDetailPage() {
               </BigButton>
             </Sheet>
 
-            <Sheet
-              open={portalInvite !== null}
-              title={portalInvite?.ok ? "Portal invite" : "Portal invite not sent"}
-              text={portalInvite?.message}
-              onClose={() => setPortalInvite(null)}
-            >
-              {portalInvite?.devLink ? (
-                <div className="ui-stack">
-                  <p>Test account: emails are not sent here. This is the link the email would carry.</p>
-                  <p className="ui-code">{portalInvite.devLink}</p>
-                </div>
-              ) : null}
-            </Sheet>
-
             {/* Everything else lives behind the More tile. */}
             <div id="account-more" hidden={!showMore} className="ui-screen-body">
               <h2 className="ui-section-title account-detail-print-hide">More for this account</h2>
@@ -1242,8 +1222,8 @@ export default function AccountDetailPage() {
                 >
                   {`Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
                 </BigButton>
-                <BigButton kind="second" busy={sendingPortalInvite} busyLabel="Sending portal invite…" onClick={() => void handleSendPortalInvite()}>
-                  Send portal invite
+                <BigButton kind="second" icon={portalInvites[0] ? "check" : undefined} onClick={() => setShowPortalInvite(true)}>
+                  {portalInvites[0] ? `Invite to portal: ${invitedLine(portalInvites[0])}` : "Invite to portal"}
                 </BigButton>
                 <BigButton kind="second" onClick={() => setShowOnboardingWizard(true)}>
                   Onboarding checklist
@@ -1327,6 +1307,18 @@ export default function AccountDetailPage() {
             </div>
 
             <SubPacketSheet open={showSubPacket} accountId={thisAccountId} accountName={accountName} onClose={() => setShowSubPacket(false)} />
+
+            <PortalInviteSheet
+              open={showPortalInvite}
+              accountId={thisAccountId}
+              accountName={accountName}
+              onClose={() => setShowPortalInvite(false)}
+              onInvited={(invites) => {
+                setPortalInvites(invites);
+                // The invite is a new line in History.
+                setWelcomeVersion((version) => version + 1);
+              }}
+            />
 
             <WelcomePacketSheet
               open={showWelcomePacket}
