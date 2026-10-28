@@ -48,6 +48,8 @@ function forTv(paper: Paper): Paper {
     doneAt: "",
     doneBy: "",
     progress: null,
+    // Only the gold "Ready to start", not the setup count.
+    setup: paper.setup?.ready ? { done: 0, total: 0, ready: true } : null,
     // The pizza tracker and who the step is with ("with Greg"), as the office asked for the TV. The stuck note stays off the TV.
     flow: paper.flow ? { ...paper.flow, stuckNote: "", stuckNoteBy: "", stuckNoteAt: "" } : null,
     href: "",

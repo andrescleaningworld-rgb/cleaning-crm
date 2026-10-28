@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "setMode") {
-      const mode = body.mode === "billed" ? "billed" : "included";
+      const mode = body.mode === "billed" || body.mode === "customer" ? body.mode : "included";
       await setAccountSupplyMode(clean(body.accountId), clean(body.accountName), mode, by);
       return NextResponse.json({ success: true, mode });
     }

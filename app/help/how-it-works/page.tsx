@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { BigButton, Screen } from "@/app/ui";
 import { ONBOARDING_DEFAULTS, ORDER_STEPS, UPDATE_STEPS, sectionName } from "@/lib/handoffs";
-import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
+import { LEGACY_ONBOARDING_SECTIONS as ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 
 type Box = { label: string; who: string };
 

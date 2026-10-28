@@ -15,7 +15,6 @@ import { accountsOnPostgres, setOnboardingChecklistItem } from "@/lib/data/accou
 import { sendHtmlEmail } from "@/lib/email";
 import { WELCOME_PACKET_ITEM } from "@/lib/onboardingChecklist";
 import { renderWelcomePacketPdf } from "@/lib/pdf/welcome-packet";
-import { syncAccountStep } from "@/lib/pg/handoffs";
 import { emailProblem, lastWelcomePacketSentAt, loadWelcomePacketInfo, managerProblem, packetData, welcomePacketProblems, type WelcomePacketInfo } from "@/lib/pg/welcome-packet";
 import { welcomePacketHtml, welcomePacketText, welcomePdfFilename, welcomeSubject } from "@/lib/welcomePacket";
 
@@ -114,7 +113,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     let checklistTicked = false;
     try {
-      const checklist = await setOnboardingChecklistItem({
+      await setOnboardingChecklistItem({
         accountId: info.accountId,
         accountName: info.accountName,
         itemKey: WELCOME_PACKET_ITEM,
@@ -122,8 +121,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
         note: `Sent to ${to} on ${data.sentDate} by ${by}`,
       });
       checklistTicked = true;
-      // New accounts board: same as a tick by hand (app/api/onboarding-checklist).
-      await syncAccountStep(info.accountId, checklist.items, by);
     } catch (err) {
       console.error("[welcome-packet] checklist tick failed:", err instanceof Error ? err.message : err);
     }

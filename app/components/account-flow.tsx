@@ -10,7 +10,7 @@
 //   2 Choose subcontractor       the suggested subs (distance + room), then "Send to <sub>"
 //   3 Sub confirms               the sub's Yes / No in their portal, or Mark done / "Sub said no" here
 //   4 Contact customer           Mark done
-//   5 Site survey + onboarding   opens the Onboarding Checklist; done when it is
+//   5 Site survey                Mark done (also a Yes in the setup wizard)
 //   6 Crew walkthrough           Mark done
 //   7 Confirm start date         saves the account's Start Date
 //   8 Follow up                  a note, then Done: the account is live
@@ -21,13 +21,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, ErrorBox, Field, SelectField, Sheet, TextAreaField, friendlyDate, showToast } from "@/app/ui";
 import PizzaTracker, { type TrackerActions } from "./pizza-tracker";
-import FinishSetup from "./finish-setup";
+import { SetupButton } from "./OnboardingChecklist";
 import PlusMinus from "./plus-minus";
 import SubSuggestions, { suggestionDays } from "./sub-suggestions";
 import { FLOW_SETUP_STEPS, FLOW_STEPS, type FlowDetail, type FlowEvent, type FlowStep } from "@/lib/accountFlow";
 
 /** The current step's own big button already marks it done, so its line has no small "Mark done". */
-const BIG_BUTTON_MARKS: FlowStep[] = ["subOk", "call", "walkthrough", "startDate", "followUp"];
+const BIG_BUTTON_MARKS: FlowStep[] = ["subOk", "call", "survey", "walkthrough", "startDate", "followUp"];
 
 const trackerWord = (step: FlowStep) => FLOW_STEPS.find((def) => def.key === step)?.tracker ?? step;
 
@@ -127,8 +127,8 @@ export default function AccountFlowPanel({
           <p className="ui-strong">{setupStepsText(view)}</p>
           {/* The same vertical list as the pin popup on the board: green check, big blue dot "with <name>", gray. */}
           <PizzaTracker view={view} size="list" actions={trackerActions} />
-          {/* The account fields still empty, on one short screen (not Edit Account). */}
-          <FinishSetup accountId={accountId} />
+          {/* The setup wizard (the Onboarding Checklist): "Setup · X of Y done" and the gold badge. */}
+          <SetupButton accountId={accountId} onOpen={onOpenChecklist} refreshKey={refreshKey} />
           {view.red ? <p className="ui-field-error">No progress for 2 work days. Add a note below if it is stuck.</p> : null}
           {error ? <ErrorBox title="Not saved" text={error} /> : null}
 
@@ -175,9 +175,9 @@ export default function AccountFlowPanel({
 
           {view.step === "survey" ? (
             <>
-              <p className="ui-card-text">Do the site survey and fill in the Onboarding Checklist. This step is done when the checklist is.</p>
-              <BigButton disabled={busy} onClick={onOpenChecklist}>
-                Open onboarding checklist
+              <p className="ui-card-text">Walk the site with the customer. Take the pictures in Setup.</p>
+              <BigButton busy={busy} busyLabel="Saving…" onClick={() => void act({ action: "markDone", step: "survey" }, "Site survey done ✓")}>
+                Mark done: site survey
               </BigButton>
             </>
           ) : null}

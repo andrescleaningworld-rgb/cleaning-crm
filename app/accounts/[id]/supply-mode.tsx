@@ -8,9 +8,10 @@
 import { useEffect, useState } from "react";
 import { BigButton, showToast } from "@/app/ui";
 import SupplyOrderSheet from "../../components/supply-order-sheet";
+import type { SupplyMode as Mode } from "@/lib/setupWizard";
 
 export default function SupplyMode({ accountId, accountName }: { accountId: string; accountName: string }) {
-  const [mode, setMode] = useState<"" | "included" | "billed">("");
+  const [mode, setMode] = useState<"" | Mode>("");
   const [ordering, setOrdering] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -19,7 +20,7 @@ export default function SupplyMode({ accountId, accountName }: { accountId: stri
     let alive = true;
     fetch(`/api/supply-control?view=account&accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { ready?: boolean; mode?: "included" | "billed" }) => alive && setMode(data.ready ? (data.mode ?? "included") : ""))
+      .then((data: { ready?: boolean; mode?: Mode }) => alive && setMode(data.ready ? (data.mode ?? "included") : ""))
       .catch(() => alive && setMode(""));
     return () => {
       alive = false;
@@ -28,7 +29,7 @@ export default function SupplyMode({ accountId, accountName }: { accountId: stri
 
   if (!mode) return null;
 
-  async function change(next: "included" | "billed") {
+  async function change(next: Mode) {
     setSaving(true);
     try {
       const response = await fetch("/api/supply-control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "setMode", accountId, accountName, mode: next }) });
@@ -45,9 +46,11 @@ export default function SupplyMode({ accountId, accountName }: { accountId: stri
 
   return (
     <div className="ui-stack" data-supply-mode={mode}>
-      <BigButton kind="second" onClick={() => setOrdering(true)}>
-        Order supplies
-      </BigButton>
+      {mode === "customer" ? null : (
+        <BigButton kind="second" onClick={() => setOrdering(true)}>
+          Order supplies
+        </BigButton>
+      )}
       <div className="ui-checks" role="radiogroup" aria-label="Supplies for this account">
         <label className="ui-check">
           <input type="radio" name="supply-mode" checked={mode === "included"} disabled={saving} onChange={() => void change("included")} />
@@ -56,6 +59,10 @@ export default function SupplyMode({ accountId, accountName }: { accountId: stri
         <label className="ui-check">
           <input type="radio" name="supply-mode" checked={mode === "billed"} disabled={saving} onChange={() => void change("billed")} />
           <span>Supplies billed to customer</span>
+        </label>
+        <label className="ui-check">
+          <input type="radio" name="supply-mode" checked={mode === "customer"} disabled={saving} onChange={() => void change("customer")} />
+          <span>Provided by customer (not included)</span>
         </label>
       </div>
       <SupplyOrderSheet open={ordering} site={{ id: accountId, name: accountName }} onClose={() => setOrdering(false)} />

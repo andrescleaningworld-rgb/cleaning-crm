@@ -21,7 +21,7 @@ import {
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
 import { AccountPacketPrintView } from "./account-packet-print-view";
-import OnboardingChecklist from "../../components/OnboardingChecklist";
+import OnboardingChecklist, { SetupReadyBadge } from "../../components/OnboardingChecklist";
 import OnboardingWizardModal from "../../components/OnboardingWizardModal";
 import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
@@ -44,9 +44,6 @@ import WelcomePacketSheet, { welcomeSentLabel } from "../../components/welcome-p
 import SubPacketSheet from "../../components/sub-packet-sheet";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
-import { sentToText, useHandoffs } from "../../components/handoffs";
-import { accountDaysLeft, onboardingRules, ownerLabel, ACCOUNT_DONE_STEP } from "@/lib/handoffs";
-import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 import { payShare } from "@/lib/payShare";
 import { cleaningsPerMonth, cleaningsPerMonthText, perCleaningFromMonthlyPay } from "@/lib/frequency";
 import { describeCleaningTime } from "@/lib/cleaningTime";
@@ -333,6 +330,9 @@ export default function AccountDetailPage() {
   const [welcomeSentAt, setWelcomeSentAt] = useState<string | null>(null);
   // Goes up when the Onboarding Checklist closes, so the new-account steps read again.
   const [flowVersion, setFlowVersion] = useState(0);
+  // The setup wizard saved something: the page reads the account again when it closes.
+  const [accountVersion, setAccountVersion] = useState(0);
+  const setupChanged = useRef(false);
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [error, setError] = useState("");
   const [showPdfModal, setShowPdfModal] = useState(false);
@@ -348,8 +348,6 @@ export default function AccountDetailPage() {
   const [showMore, setShowMore] = useState(false);
   const [showToDo, setShowToDo] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
-  // New accounts board: this account's place on it, if it is on it.
-  const handoffs = useHandoffs();
   // Pin Board: the "Pin to board" button (only where accounts are switched on in Settings -> Pin Board).
   const { info: pinInfo, reload: reloadPinInfo } = usePinInfo();
 
@@ -489,7 +487,7 @@ export default function AccountDetailPage() {
     }
 
     loadAccount();
-  }, [decodedAccountIdFromUrl, normalizedUrlValue]);
+  }, [decodedAccountIdFromUrl, normalizedUrlValue, accountVersion]);
 
   const accountAddress = useMemo(() => {
     if (!account) return "";
@@ -1002,84 +1000,6 @@ export default function AccountDetailPage() {
     });
   }
 
-  // Fired once by OnboardingChecklist the moment its last item becomes
-  // checked, with a consolidated summary of every note left on the
-  // checklist ("" if none). Reuses the exact same two-call path
-  // handleSaveStatusChange above uses (updateAccountFields, then
-  // addAccountUpdate for the history note) rather than a new update
-  // mechanism — just targeting Account Health, since "Stable" is a value of
-  // that field, not of Status (Status's valid values are Active/Cancelled/
-  // Paused/Suspended/Cancelled or an older status — "Stable" was never one
-  // of them).
-  //
-  // The notes summary rides along in this SAME addAccountUpdate call rather
-  // than its own — account-updates emails info@/crm@ on every call
-  // regardless of the notifyEmail flag (confirmed live), so per-note-save
-  // history logging was removed entirely (see OnboardingChecklist's
-  // saveItem) in favor of exactly one call/email for the whole checklist,
-  // fired here at completion.
-  async function applyOnboardingCompletionStable(notesSummary: string) {
-    if (!account) return;
-
-    const accountId = getAccountId(account, rawAccountIdFromUrl);
-    const accountName = cleanText(account.accountName) || "Unnamed Account";
-
-    try {
-      const accountResponse = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "updateAccountFields",
-          accountId,
-          fields: { accountHealth: "Stable" },
-        }),
-      });
-
-      const accountData = await readApiResponse(accountResponse);
-      if (!accountResponse.ok || accountData.success === false) {
-        throw new Error(accountData.error || "Could not update Account Health.");
-      }
-
-      setAccount((current) => (current ? { ...current, accountHealth: "Stable" } : current));
-
-      const completionNote = "Onboarding checklist completed — Account Health automatically set to Stable.";
-      const notes = notesSummary ? `${completionNote}\n\n${notesSummary}` : completionNote;
-
-      await fetch("/api/account-updates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "addAccountUpdate",
-          accountId,
-          accountName,
-          updateType: "Onboarding",
-          manager: account.manager || "",
-          notes,
-          notifyEmail: "No",
-        }),
-      }).catch(() => {
-        // Best-effort — Account Health already saved above; a failed
-        // history write here isn't worth blocking the completion banner.
-      });
-
-      // Idempotency flag so a later reload of this (already-complete)
-      // checklist never re-fires this whole side effect again.
-      await fetch("/api/onboarding-checklist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "markAutoStableApplied", accountId }),
-      }).catch(() => {});
-
-      setStatusMessage("🎉 Onboarding complete — Account Health automatically set to Stable.");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? `Onboarding checklist completed, but Account Health could not be updated automatically: ${err.message}`
-          : "Onboarding checklist completed, but Account Health could not be updated automatically."
-      );
-    }
-  }
-
   if (loading) {
     return (
       <Screen title="Account" backHref="/accounts">
@@ -1105,27 +1025,6 @@ export default function AccountDetailPage() {
 
   // This account on the New accounts board (null when it is not on it).
   const thisAccountId = getAccountId(account, rawAccountIdFromUrl);
-  const onboardingHandoff = handoffs.items.find((item) => item.kind === "account" && item.itemId === thisAccountId) ?? null;
-  const onboardingRulesNow = onboardingRules(handoffs.settings);
-  const sectionGuide = onboardingHandoff
-    ? Object.fromEntries(
-        ONBOARDING_CHECKLIST_SECTIONS.map((section) => {
-          const rule = onboardingRulesNow[section.key];
-          const current = onboardingHandoff.step === section.key;
-          const left = accountDaysLeft({ ...onboardingHandoff, step: section.key }, handoffs.settings);
-          const accepted = onboardingHandoff.data.acceptedOn ? new Date(`${onboardingHandoff.data.acceptedOn}T00:00:00`) : null;
-          const due = accepted && !Number.isNaN(accepted.getTime()) ? new Date(accepted.getTime() + rule.days * 86400000).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-          return [section.key, { owner: ownerLabel(rule.owner, onboardingHandoff), due, late: current && left !== null && left < 0, current }];
-        })
-      )
-    : undefined;
-  // After a checklist save: when the account moved to another section, say who has it now.
-  const handleOnboardingHandoff = (step: string) => {
-    if (onboardingHandoff && step !== onboardingHandoff.step) {
-      showToast(step === ACCOUNT_DONE_STEP ? "Done ✓ — onboarding finished" : sentToText(onboardingHandoff, step, handoffs.settings));
-      void handoffs.reload();
-    }
-  };
   const grossMarginText = estimatedGrossMargin ? formatCalculatedMoney(estimatedGrossMargin) : account.grossMargin || "N/A";
   const addressLink = accountAddress ? (
     <a href={getGoogleMapsUrl(accountAddress)} target="_blank" rel="noopener noreferrer" className="ui-link">
@@ -1183,6 +1082,8 @@ export default function AccountDetailPage() {
               cancelled={isCancelledStatus(account.status)}
               finalCleaningDate={isCancelledStatus(account.status) ? account.finalCleaningDate || "" : ""}
             >
+              {/* Gold "Ready to start" (lib/setupWizard.ts isReadyToStart); nothing otherwise. */}
+              <SetupReadyBadge accountId={thisAccountId} refreshKey={welcomeVersion + flowVersion} />
               {/* The Snapshot and the More button live in the banner. */}
               <div className="ui-next-snapshot" data-account-snapshot>
                 <p className="ui-next-label">Snapshot</p>
@@ -1226,10 +1127,7 @@ export default function AccountDetailPage() {
               accountId={thisAccountId}
               refreshKey={welcomeVersion + flowVersion}
               onSendPacket={() => setShowWelcomePacket(true)}
-              onOpenChecklist={() => {
-                setShowMore(true);
-                setShowOnboardingWizard(true);
-              }}
+              onOpenChecklist={() => setShowOnboardingWizard(true)}
             />
 
             {/* The old 7-step "New account" card is retired (migration 051): new accounts use the 8-step flow above. */}
@@ -1396,24 +1294,18 @@ export default function AccountDetailPage() {
             </Card>
 
             {/* --------------------------------------------------------------- */}
-            {/* Onboarding section — persistent, always editable, revisitable    */}
-            {/* even for accounts created before this feature existed. Renders   */}
-            {/* the exact same OnboardingChecklist component the wizard modal    */}
-            {/* uses, just inline rather than in a modal.                        */}
+            {/* Setup: "X of Y done", what is missing, and the button to the     */}
+            {/* setup wizard (the Onboarding Checklist). Every account has it,  */}
+            {/* old ones too; the answers are this account's own fields.        */}
             {/* --------------------------------------------------------------- */}
             {/* "Add accepted estimate" (the old 7-step board) is retired: a new account is made with New Accepted Account. */}
 
             <section className="ui-card account-detail-print-hide">
               <OnboardingChecklist
-                key={welcomeVersion}
-                accountId={getAccountId(account, rawAccountIdFromUrl)}
+                accountId={thisAccountId}
                 accountName={accountName}
-                manager={account.manager}
-                accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
-                onAllItemsComplete={applyOnboardingCompletionStable}
-                sectionGuide={sectionGuide}
-                onHandoff={handleOnboardingHandoff}
                 variant="section"
+                refreshKey={welcomeVersion + flowVersion}
                 onOpenWizard={() => setShowOnboardingWizard(true)}
               />
             </section>
@@ -1462,17 +1354,20 @@ export default function AccountDetailPage() {
 
             {showOnboardingWizard ? (
               <OnboardingWizardModal
-                accountId={getAccountId(account, rawAccountIdFromUrl)}
+                accountId={thisAccountId}
                 accountName={accountName}
-                manager={account.manager}
-                accountStartDate={account.accountStartDate || account.startDate || account.serviceStartDate}
-                onAllItemsComplete={applyOnboardingCompletionStable}
-                sectionGuide={sectionGuide}
-                onHandoff={handleOnboardingHandoff}
+                onChanged={() => {
+                  setupChanged.current = true;
+                  // The tracker above follows the wizard's taps.
+                  setFlowVersion((version) => version + 1);
+                }}
                 onClose={() => {
                   setShowOnboardingWizard(false);
-                  // Step 5 of a new account's flow finishes when the checklist does.
-                  setFlowVersion((version) => version + 1);
+                  // The account's own fields (days, pay, contact, ...) were saved by the wizard: read them again.
+                  if (setupChanged.current) {
+                    setupChanged.current = false;
+                    setAccountVersion((version) => version + 1);
+                  }
                 }}
               />
             ) : null}

@@ -28,7 +28,7 @@ type Level = "green" | "yellow" | "red" | "none";
 type Tile = { supplyId: number; name: string; code: string; unit: string; photoUrl: string; qty: number | null; level: Level };
 type Site = { accountId: string; accountName: string; tiles: Tile[]; held: Tile[] };
 type ShelfItem = { id: number; name: string; category: string; unit: string; photoUrl: string; unitCost: number | null; vendor: string; shelfLocation: string; minLevel: number | null; shelfCount: number | null; low: boolean };
-type SpendRow = { accountId: string; accountName: string; amount: number; items: number; mode: "included" | "billed"; invoiced: boolean };
+type SpendRow = { accountId: string; accountName: string; amount: number; items: number; mode: "included" | "billed" | "customer"; invoiced: boolean };
 export type Move = { id: number; itemName: string; qty: number; kind: string; accountId: string; accountName: string; cost: number; staffName: string; note: string; source: string; at: string };
 type Warehouse = { shelf: ShelfItem[]; reorder: ShelfItem[]; spend: { month: string; rows: SpendRow[]; total: number }; moves: Move[] };
 
@@ -273,7 +273,7 @@ export default function Shelves() {
               <p className="ui-strong">{row.accountId ? <AccountLink accountId={row.accountId} name={row.accountName} /> : row.accountName}</p>
               <p className="ui-muted">
                 {row.items} item{row.items === 1 ? "" : "s"}
-                {row.accountId ? ` · ${row.mode === "billed" ? "Billed to customer" : "Supplies included"}` : ""}
+                {row.accountId ? ` · ${row.mode === "billed" ? "Billed to customer" : row.mode === "customer" ? "Provided by customer" : "Supplies included"}` : ""}
               </p>
             </div>
             <div className="ui-actions-row">

@@ -11,6 +11,7 @@ import { getSql } from "@/lib/db";
 import { ACTIVE_ITEM } from "@/lib/pg/supply-active";
 import { syncCrewItem } from "@/lib/pg/supply-list";
 import { shelvesReady } from "@/lib/pg/shelves";
+import type { SupplyMode } from "@/lib/setupWizard";
 
 /* ---------- on / off ---------- */
 
@@ -224,7 +225,12 @@ export async function listMoves(limit = 60, accountId = ""): Promise<SupplyMove[
 
 /* ---------- spend, and accounts billed for supplies ---------- */
 
-export type SpendRow = { accountId: string; accountName: string; amount: number; items: number; mode: "included" | "billed"; invoiced: boolean };
+/** Supplies for one account: included in the price (the default), billed to the customer, or provided by the customer (migration 063). */
+export type { SupplyMode };
+const SUPPLY_MODES: SupplyMode[] = ["included", "billed", "customer"];
+export const isSupplyMode = (value: unknown): value is SupplyMode => SUPPLY_MODES.includes(value as SupplyMode);
+
+export type SpendRow = { accountId: string; accountName: string; amount: number; items: number; mode: SupplyMode; invoiced: boolean };
 
 const monthOf = (value: string) => (/^\d{4}-\d{2}$/.test(value) ? value : new Date().toISOString().slice(0, 7));
 
@@ -258,23 +264,36 @@ export async function monthSpend(month: string): Promise<{ month: string; rows: 
     GROUP BY s.account_id, s.account_name, a.mode, i.account_id
     HAVING sum(s.items) <> 0 OR sum(s.amount) <> 0
     ORDER BY sum(s.amount) DESC, s.account_name
-  `) as { account_id: string | null; account_name: string; amount: string | null; items: number | null; mode: "included" | "billed"; invoiced: boolean }[];
+  `) as { account_id: string | null; account_name: string; amount: string | null; items: number | null; mode: SupplyMode; invoiced: boolean }[];
   const out = rows.map((row) => ({ accountId: text(row.account_id), accountName: row.account_name || OFFICE_USE, amount: money(row.amount ?? 0), items: row.items ?? 0, mode: row.mode, invoiced: row.invoiced }));
   return { month: m, rows: out, total: money(out.reduce((sum, row) => sum + row.amount, 0)) };
 }
 
-/** "Supplies included" (the default) or "Supplies billed to customer", per account. */
-export async function getAccountSupplyMode(accountId: string): Promise<"included" | "billed"> {
-  const rows = (await getSql()`SELECT mode FROM supply_account_modes WHERE account_id = ${accountId}`) as { mode: "included" | "billed" }[];
-  return rows[0]?.mode ?? "included";
+/** "Supplies included" (the default), "Supplies billed to customer" or "Provided by customer", per account. */
+export async function getAccountSupplyMode(accountId: string): Promise<SupplyMode> {
+  return (await pickedSupplyMode(accountId)) || "included";
 }
 
-export async function setAccountSupplyMode(accountId: string, accountName: string, mode: "included" | "billed", by: string): Promise<void> {
+/** The choice someone made for this account; "" when nobody picked one yet (the setup wizard asks). */
+export async function pickedSupplyMode(accountId: string): Promise<SupplyMode | ""> {
+  const rows = (await getSql()`SELECT mode FROM supply_account_modes WHERE account_id = ${accountId}`) as { mode: string }[];
+  const mode = rows[0]?.mode;
+  return isSupplyMode(mode) ? mode : "";
+}
+
+export async function setAccountSupplyMode(accountId: string, accountName: string, mode: SupplyMode, by: string): Promise<void> {
   if (!text(accountId)) throw new Error("That account has no id.");
-  await getSql()`
-    INSERT INTO supply_account_modes (account_id, account_name, mode, updated_by) VALUES (${accountId}, ${accountName}, ${mode}, ${by})
-    ON CONFLICT (account_id) DO UPDATE SET account_name = EXCLUDED.account_name, mode = EXCLUDED.mode, updated_by = EXCLUDED.updated_by, updated_at = now()
-  `;
+  if (!isSupplyMode(mode)) throw new Error("Pick one of the supplies choices.");
+  try {
+    await getSql()`
+      INSERT INTO supply_account_modes (account_id, account_name, mode, updated_by) VALUES (${accountId}, ${accountName}, ${mode}, ${by})
+      ON CONFLICT (account_id) DO UPDATE SET account_name = EXCLUDED.account_name, mode = EXCLUDED.mode, updated_by = EXCLUDED.updated_by, updated_at = now()
+    `;
+  } catch (error) {
+    // 23514: "Provided by customer" before migration 063 is in this database.
+    if ((error as { code?: string })?.code === "23514") throw new Error("\"Provided by customer\" needs a database update first (migration 063). Ask the office admin.");
+    throw error;
+  }
 }
 
 /** "Mark invoiced" (true) or take the mark off (false) for one billed account and month. */

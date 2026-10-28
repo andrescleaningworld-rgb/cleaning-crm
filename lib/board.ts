@@ -3,6 +3,7 @@
 // use it directly. The database side is lib/pg/board.ts.
 
 import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
+import type { SetupSummary } from "@/lib/setupWizard";
 
 export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note";
 
@@ -46,8 +47,10 @@ export type Paper = {
   takenAt: string;
   doneAt: string;
   doneBy: string;
-  /** New accounts only: Onboarding Checklist items ticked, out of how many. */
+  /** New accounts not in the 8-step flow: the setup wizard's screens done, out of how many. */
   progress: { done: number; total: number } | null;
+  /** New accounts: the setup wizard's count and the gold "Ready to start" (lib/setupWizard.ts). null for every other paper. */
+  setup?: SetupSummary | null;
   /** A new account made with "New Accepted Account": its 8-step pizza tracker. null for every other paper. */
   flow: FlowView | null;
   /**

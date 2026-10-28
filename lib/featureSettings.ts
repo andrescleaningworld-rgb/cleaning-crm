@@ -2,6 +2,8 @@
 // features read (feature_settings, migration 056; lib/pg/feature-settings.ts).
 // Plain TS, safe in the browser. A setting nobody saved is its default here.
 
+import { DEFAULT_SURVEY_SHOTS } from "@/lib/setupWizard";
+
 /** Sub portal insurance upload, the banner and the reminder emails to subs (sub-facing; on from the start since Oct 24, 2026). */
 export type SubInsurancePortalSetting = { on: boolean };
 
@@ -30,11 +32,15 @@ export type CheckinSetting = { on: boolean };
  */
 export type BaselinesSetting = { priceReviewStartedOn: string };
 
+/** The setup wizard's "Take pictures" shot list, in order. "Anything else" is always added at the end. */
+export type SurveyShotsSetting = { labels: string[] };
+
 export type FeatureSettings = {
   subInsurancePortal: SubInsurancePortalSetting;
   atRisk: AtRiskSetting;
   checkin: CheckinSetting;
   baselines: BaselinesSetting;
+  surveyShots: SurveyShotsSetting;
 };
 
 export type FeatureSettingKey = keyof FeatureSettings;
@@ -55,6 +61,7 @@ export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   },
   checkin: { on: false },
   baselines: { priceReviewStartedOn: "" },
+  surveyShots: { labels: [...DEFAULT_SURVEY_SHOTS] },
 };
 
 export const FEATURE_SETTING_KEYS = Object.keys(DEFAULT_FEATURE_SETTINGS) as FeatureSettingKey[];
@@ -74,6 +81,15 @@ export function readFeatureSetting<K extends FeatureSettingKey>(key: K, saved: u
     if (typeof fallback === "boolean" && typeof value === "boolean") out[field] = value;
     if (typeof fallback === "number" && typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 10_000) out[field] = value;
     if (typeof fallback === "string" && typeof value === "string") out[field] = value.slice(0, 40);
+    // A list of short words (the shot list): trimmed, no blanks or repeats, at most 30.
+    if (Array.isArray(fallback) && Array.isArray(value)) {
+      const seen = new Set<string>();
+      const list = value
+        .map((entry) => String(entry ?? "").trim().slice(0, 40))
+        .filter((entry) => entry && !seen.has(entry.toLowerCase()) && seen.add(entry.toLowerCase()))
+        .slice(0, 30);
+      out[field] = list;
+    }
   }
   return out as FeatureSettings[K];
 }

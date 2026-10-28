@@ -4009,7 +4009,7 @@ export async function getAllAccountsForSubEnrichment(): Promise<RawAccountForSub
 // Deliberately NOT wired into every action:"updateAccountFields" caller —
 // app/accounts-center/keys.tsx sends "KeyCode"/"Copy" fields that match no
 // column on this 35-column sheet (confirmed live via a full-width header
-// read), and lib/onboardingFieldSync.ts maps ~24 checklist items to fields
+// read), and the old checklist field sync (since removed) mapped items to fields
 // not yet individually audited against this alias list. Both keep using
 // the slower but already-working Apps-Script path until those are
 // checked; only the edit page's own save

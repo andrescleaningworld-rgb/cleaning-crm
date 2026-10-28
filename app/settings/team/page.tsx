@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, Tips } from "@/app/ui";
 import { onboardingRules, sectionName, type HandoffMe, type HandoffSettings, type OnboardingRule } from "@/lib/handoffs";
-import { ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
+import { LEGACY_ONBOARDING_SECTIONS as ONBOARDING_CHECKLIST_SECTIONS } from "@/lib/onboardingChecklist";
 import { postHandoff } from "../../components/handoffs";
 import ConnectedTvs from "./connected-tvs";
 
