@@ -4,7 +4,7 @@
 // Supply Orders). Plain TS with no server imports, so client components can
 // use it directly.
 
-import { ONBOARDING_CHECKLIST_SECTIONS, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
+import { LEGACY_ONBOARDING_SECTIONS as ONBOARDING_CHECKLIST_SECTIONS, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 import { canonicalOrderStatus } from "@/lib/supplyOrderStatus";
 
 export type HandoffKind = "account" | "update" | "order" | "issue" | "extra";

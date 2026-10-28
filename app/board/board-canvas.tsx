@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactM
 import { Sheet } from "@/app/ui";
 import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, pinStatusLabel, statusLine, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import PizzaTracker from "@/app/components/pizza-tracker";
+import ReadyBadge from "@/app/components/ready-badge";
 import styles from "./board.module.css";
 
 const handwriting = Caveat({ subsets: ["latin"], weight: ["700"], display: "swap" });
@@ -46,6 +47,8 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
           <span className={styles.meta}>{flowStepLine(paper)}</span>
         </>
       ) : null}
+      {/* Gold "Ready to start" (lib/setupWizard.ts), until the account goes Live. */}
+      {paper.setup?.ready ? <ReadyBadge size={tv ? "tv" : "pin"} /> : null}
       {/* A new account in the 8-step flow: its pizza tracker, on the board and on the TV. */}
       {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
       {!tv && paper.flow?.stuckNote ? <span className={styles.meta}>Stuck: {paper.flow.stuckNote}</span> : null}

@@ -125,11 +125,12 @@ export type TvSlide = { url: string; caption: string };
 export async function tvSlides(limit = 30): Promise<TvSlide[]> {
   try {
     const rows = (await getSql()`
-      SELECT url, account_name FROM photo_index
+      SELECT url, account_name, COALESCE(to_jsonb(photo_index) ->> 'thumb_url', '') AS thumb_url FROM photo_index
       WHERE show_on_tv AND is_image AND store = 'blob'
       ORDER BY taken_at DESC, id DESC LIMIT ${limit}
-    `) as { url: string; account_name: string }[];
-    return rows.map((row) => ({ url: row.url, caption: row.account_name.trim() }));
+    `) as { url: string; account_name: string; thumb_url: string }[];
+    // The small copy when the photo has one (site survey shots, migration 063).
+    return rows.map((row) => ({ url: row.thumb_url || row.url, caption: row.account_name.trim() }));
   } catch {
     return [];
   }

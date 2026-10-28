@@ -9,8 +9,6 @@
 import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 import {
-  ACCOUNT_DONE_STEP,
-  currentOnboardingSection,
   sameName,
   type HandoffItem,
   type HandoffKind,
@@ -18,7 +16,6 @@ import {
   type HandoffSettings,
   type OnboardingRule,
 } from "@/lib/handoffs";
-import type { OnboardingChecklistItems } from "@/lib/onboardingChecklist";
 import { handoffLive } from "@/lib/pg/account-live";
 
 let ready: boolean | null = null;
@@ -200,22 +197,6 @@ export async function patchHandoff(kind: HandoffKind, itemId: string, patch: { m
      WHERE kind = $1 AND item_id = $2`,
     [kind, itemId, patch.manager ?? null, patch.accountName ?? null, JSON.stringify(patch.data ?? {})]
   );
-}
-
-/**
- * A new account moves by itself: its step is the first checklist section
- * that still has an unchecked item. Called after every checklist save.
- * Does nothing for an account that is not on the New accounts board.
- */
-export async function syncAccountStep(accountId: string, items: OnboardingChecklistItems, by: string): Promise<HandoffItem | null> {
-  if (!(await handoffsReady())) return null;
-  const current = await getHandoff("account", accountId);
-  if (!current) return null;
-  // A new account in the 8-step flow moves by its own steps (lib/pg/account-flow.ts), not by the checklist.
-  if (current.data.flow) return current;
-  const step = currentOnboardingSection(items);
-  if (step === current.step) return current;
-  return moveHandoff({ kind: "account", itemId: accountId, toStep: step, by, done: step === ACCOUNT_DONE_STEP });
 }
 
 /* ---------- Settings -> Team ---------- */

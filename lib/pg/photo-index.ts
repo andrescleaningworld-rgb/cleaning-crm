@@ -18,7 +18,8 @@ import { isPostgres } from "@/lib/dataSource";
 import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
 
-export const PHOTO_KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit"] as const;
+// "Site survey": the setup wizard's shot list (migration 063; lib/pg/setup-wizard.ts).
+export const PHOTO_KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey"] as const;
 export type PhotoKind = (typeof PHOTO_KINDS)[number];
 
 export type IndexedPhoto = {
@@ -40,6 +41,10 @@ export type IndexedPhoto = {
   viaApp: boolean;
   /** The "Show on TV" star: the photo is in the TV slideshow (migration 030). */
   showOnTv: boolean;
+  /** A small copy (about 400px) for grids and the TV; "" = none, use the full photo (migration 063). */
+  thumbUrl: string;
+  /** The shot's label ("Alarm panel"); "" for most photos (migration 063). */
+  caption: string;
 };
 
 export function photosFlagOn(): boolean {
@@ -290,6 +295,9 @@ type Row = {
   is_image: boolean;
   /** Not there until migration 030 is applied. */
   show_on_tv?: boolean;
+  /** Not there until migration 063 is applied. */
+  thumb_url?: string;
+  caption?: string;
 };
 
 const toPhoto = (row: Row): IndexedPhoto => ({
@@ -309,6 +317,8 @@ const toPhoto = (row: Row): IndexedPhoto => ({
   isImage: row.is_image,
   viaApp: row.source_key.startsWith("drive-import:"),
   showOnTv: row.show_on_tv === true,
+  thumbUrl: row.thumb_url ?? "",
+  caption: row.caption ?? "",
 });
 
 export type PhotoFilter = {

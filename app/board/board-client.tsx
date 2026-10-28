@@ -30,7 +30,9 @@ import PinStatusBox from "./pin-status";
 import AccountLink from "../components/AccountLink";
 import PizzaTracker from "../components/pizza-tracker";
 import { StuckNote, setupStepsText } from "../components/account-flow";
-import FinishSetup from "../components/finish-setup";
+import { SetupButton } from "../components/OnboardingChecklist";
+import OnboardingWizardModal from "../components/OnboardingWizardModal";
+import ReadyBadge from "../components/ready-badge";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
@@ -95,6 +97,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   }, []);
   const [busy, setBusy] = useState(false);
   const [whose, setWhose] = useState("");
+  // The setup wizard for a new-account pin. The pin's panel closes while it is open and comes back after.
+  const [setupFor, setSetupFor] = useState<{ accountId: string; accountName: string; paperKey: string } | null>(null);
   const changeTab = useBoardTabs(tab, setTab);
 
   const load = useCallback(async () => {
@@ -351,12 +355,26 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               />
             ) : null}
 
+            {/* A new account: the gold "Ready to start", and the button to its setup wizard ("Setup · X of Y done"). */}
+            {open.kind === "account" ? (
+              <>
+                {open.setup?.ready ? <ReadyBadge size="panel" /> : null}
+                <SetupButton
+                  key={open.accountId || open.itemId}
+                  accountId={open.accountId || open.itemId}
+                  onOpen={() => {
+                    setSetupFor({ accountId: open.accountId || open.itemId, accountName: open.accountName || open.title, paperKey: `${open.kind}:${open.itemId}` });
+                    setOpenKey("");
+                  }}
+                />
+              </>
+            ) : null}
+
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (
               <>
                 <p className="ui-strong">{setupStepsText(open.flow)}</p>
                 <PizzaTracker view={open.flow} size="list" />
-                <FinishSetup key={open.accountId || open.itemId} accountId={open.accountId || open.itemId} />
                 {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}
               </>
             ) : null}
@@ -445,6 +463,18 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       ) : null}
       {data ? <AddToBoxSheet target={adding} me={data.me.name} onClose={() => setAdding(null)} onAdded={() => void load()} /> : null}
       {data ? <PinSheet open={pinning} data={data} defaultSquare={data.me.squareId} onClose={() => setPinning(false)} onPinned={() => void load()} /> : null}
+      {setupFor ? (
+        <OnboardingWizardModal
+          accountId={setupFor.accountId}
+          accountName={setupFor.accountName}
+          onClose={() => {
+            // Back to the pin's panel, with its tracker, count and badge read again.
+            setOpenKey(setupFor.paperKey);
+            setSetupFor(null);
+            void load();
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }

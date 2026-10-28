@@ -30,7 +30,7 @@ import { estimatesReady, extraJobsReady } from "@/lib/pg/extra-jobs";
 import { ESTIMATE_BADGE } from "@/lib/extraJobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
 import { handoffLive } from "@/lib/pg/account-live";
-import { countChecklistProgress, createEmptyChecklistItems, type OnboardingChecklistItems } from "@/lib/onboardingChecklist";
+import { setupSummariesFor } from "@/lib/pg/setup-wizard";
 import { doneStepsOf, flowView, isFlowStep } from "@/lib/accountFlow";
 
 let ready: boolean | null = null;
@@ -106,16 +106,6 @@ export async function listBoardManagers(): Promise<BoardManager[]> {
 }
 
 /* ---------- papers pin themselves ---------- */
-
-function checklistItems(value: unknown): OnboardingChecklistItems {
-  const items = createEmptyChecklistItems();
-  if (value && typeof value === "object") {
-    for (const [key, entry] of Object.entries(value as Record<string, { checked?: unknown }>)) {
-      if (items[key] && entry && typeof entry === "object") items[key] = { ...items[key], checked: entry.checked === true };
-    }
-  }
-  return items;
-}
 
 async function insertPaper(input: {
   kind: PaperKind;
@@ -485,8 +475,9 @@ function toPaper(row: PaperRow): Paper {
     takenAt: iso(row.taken_at),
     doneAt: iso(row.board_done_at),
     doneBy: row.board_done_by ?? "",
-    // A paper in the 8-step flow shows its tracker instead of the checklist count.
-    progress: row.kind === "account" && !paperFlow(row) ? countChecklistProgress(checklistItems(row.checklist_items)) : null,
+    // A new account's setup count and "Ready to start": filled in by withSetup (the setup wizard's own count).
+    progress: null,
+    setup: null,
     flow: paperFlow(row),
     href: paperHref(row),
     pdfHref: paperPdfHref(row),
@@ -543,7 +534,31 @@ export async function listPapers(doneDays = DEFAULT_BOARD_SETTINGS.doneDays): Pr
     sql.query(`${SELECT_PAPER} AND i.board_done_at IS NULL ORDER BY i.board_pinned_at ASC, i.item_id ASC`),
     sql.query(`${SELECT_PAPER} AND i.board_done_at > now() - ($1::int || ' days')::interval ORDER BY i.board_done_at DESC LIMIT 200`, [doneDays]),
   ]);
-  return { papers: (open as PaperRow[]).map(toPaper), done: (done as PaperRow[]).map(toPaper) };
+  return { papers: await withSetup((open as PaperRow[]).map(toPaper)), done: (done as PaperRow[]).map(toPaper) };
+}
+
+/**
+ * New-account papers: the setup wizard's "X of Y done" and the gold "Ready
+ * to start" (lib/setupWizard.ts). A paper in the 8-step flow shows its
+ * tracker, so only the others get the bar. Never fails the board: without
+ * it the papers show as before.
+ */
+async function withSetup(papers: Paper[]): Promise<Paper[]> {
+  const accounts = papers.filter((paper) => paper.kind === "account");
+  if (accounts.length === 0) return papers;
+  try {
+    const ids = accounts.map((paper) => paper.accountId || paper.itemId);
+    const flows = new Map(accounts.filter((paper) => paper.flow).map((paper) => [paper.accountId || paper.itemId, { step: paper.flow!.step, done: paper.flow!.done }]));
+    const summaries = await setupSummariesFor(ids, flows);
+    return papers.map((paper) => {
+      const summary = paper.kind === "account" ? summaries.get(paper.accountId || paper.itemId) : undefined;
+      if (!summary) return paper;
+      return { ...paper, setup: summary, progress: paper.flow ? null : { done: summary.done, total: summary.total } };
+    });
+  } catch (error) {
+    console.error("[board] setup counts:", error instanceof Error ? error.message : error);
+    return papers;
+  }
 }
 
 /**

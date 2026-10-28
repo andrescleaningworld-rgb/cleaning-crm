@@ -1,10 +1,20 @@
-// Shared onboarding-checklist domain definitions — imported by both the
-// client-side checklist component (app/components/OnboardingChecklist.tsx)
-// and the server-side storage layer (lib/googleSheets.ts) / API route
-// (app/api/onboarding-checklist/route.ts), so the section/item shape and
-// item keys can never drift between what's rendered and what's stored.
-// Deliberately plain TS with no server-only imports (no googleapis, no env
-// reads) so client components can import it directly.
+// The checklist's own saved ticks and notes (onboarding_checklists.items,
+// one row per account). Shared by the setup wizard
+// (app/components/OnboardingChecklist.tsx), the storage layer
+// (lib/pg/accounts.ts, lib/googleSheets.ts) and the API route
+// (app/api/onboarding-checklist/route.ts). Plain TS with no server-only
+// imports so client components can import it directly.
+//
+// Since the one setup wizard (lib/setupWizard.ts) most answers live in the
+// account's own fields, not here. What is kept here:
+//   setup.call / setup.survey / setup.walkthrough
+//                              the wizard's Yes taps for an account with no
+//                              new-account steps (older accounts)
+//   supplies.specialEquipment  the "Special equipment?" note (Supplies screen)
+//   contact.welcomePacketSent  ticked by itself when the Welcome Packet is sent
+// The 24 items of the old 7-section checklist are still read and kept, so no
+// saved tick or note is ever lost; they are no longer shown. Their sections
+// still name the steps of old new-account papers on the board (lib/handoffs.ts).
 
 export type OnboardingItemDef = {
   key: string;
@@ -17,14 +27,23 @@ export type OnboardingSectionDef = {
   items: OnboardingItemDef[];
 };
 
-/** "Welcome packet sent to customer" (section 6). */
+/** "Welcome packet sent to customer": ticked by app/api/accounts/[id]/welcome-packet. */
 export const WELCOME_PACKET_ITEM = "contact.welcomePacketSent";
 
-// Mirrors the 7 sections of the "New Account Onboarding Checklist" PDF.
-// Keys are stable identifiers persisted in the ItemsJson column — renaming a
-// label here is safe, changing a key is not (it would orphan any already-
-// saved progress for that item).
-export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingSectionDef[] = [
+/** The Supplies screen's "Special equipment?" note. */
+export const SPECIAL_EQUIPMENT_ITEM = "supplies.specialEquipment";
+
+/** The setup wizard's own ticks (keys match TICK_KEY in lib/setupWizard.ts). */
+export const SETUP_TICK_ITEMS: OnboardingItemDef[] = [
+  { key: "setup.call", label: "Customer called" },
+  { key: "setup.survey", label: "Site survey" },
+  { key: "setup.walkthrough", label: "Walkthrough" },
+];
+
+// The old 7-section checklist (the "New Account Onboarding Checklist" PDF).
+// Not shown any more. Keys are stable identifiers in the saved JSON: never
+// rename one (it would orphan saved progress).
+export const LEGACY_ONBOARDING_SECTIONS: OnboardingSectionDef[] = [
   {
     key: "sale",
     title: "1. Sale Confirmed",
@@ -69,7 +88,7 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingSectionDef[] = [
     title: "5. Supplies and Equipment",
     items: [
       { key: "supplies.provisionConfirmed", label: "Confirm what Cleaning World vs. customer provides" },
-      { key: "supplies.specialEquipment", label: "Special equipment needs communicated" },
+      { key: SPECIAL_EQUIPMENT_ITEM, label: "Special equipment needs communicated" },
     ],
   },
   {
@@ -79,7 +98,6 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingSectionDef[] = [
       { key: "contact.primaryContactConfirmed", label: "Primary contact name/phone/email confirmed and saved" },
       { key: "contact.portalAccessSetup", label: "Customer portal access set up/login shared (if applicable)" },
       { key: "contact.billingConfirmed", label: "Billing/invoicing details confirmed" },
-      // Ticked by itself when the packet is sent (app/api/accounts/[id]/welcome-packet).
       { key: WELCOME_PACKET_ITEM, label: "Welcome packet sent to customer" },
     ],
   },
@@ -95,27 +113,17 @@ export const ONBOARDING_CHECKLIST_SECTIONS: OnboardingSectionDef[] = [
   },
 ];
 
-export const ONBOARDING_ITEM_KEYS: string[] = ONBOARDING_CHECKLIST_SECTIONS.flatMap((section) =>
-  section.items.map((item) => item.key)
-);
-
-const ITEM_LABEL_BY_KEY: Record<string, string> = Object.fromEntries(
-  ONBOARDING_CHECKLIST_SECTIONS.flatMap((section) => section.items.map((item) => [item.key, item.label]))
-);
-
-export function getOnboardingItemLabel(itemKey: string): string {
-  return ITEM_LABEL_BY_KEY[itemKey] ?? itemKey;
-}
+/** Every key that may be saved: the wizard's ticks, then the old checklist's (kept, not shown). */
+export const ONBOARDING_ITEM_KEYS: string[] = [
+  ...SETUP_TICK_ITEMS.map((item) => item.key),
+  ...LEGACY_ONBOARDING_SECTIONS.flatMap((section) => section.items.map((item) => item.key)),
+];
 
 export type OnboardingItemState = {
   checked: boolean;
   note: string;
   completedAt: string | null;
-  // Set only when this item feeds a real Accounts-sheet field (see
-  // ONBOARDING_FIELD_WRITES / ONBOARDING_COMBINED_FIELD below) and that
-  // field already held a different, non-empty value at write time —
-  // surfaces the overwrite in the eventual completion summary instead of
-  // silently discarding whatever was there before. Null/absent otherwise.
+  /** From the old checklist's field sync: a field it overwrote. Kept as saved. */
   fieldOverwriteNote?: string | null;
 };
 
@@ -129,110 +137,9 @@ export function createEmptyChecklistItems(): OnboardingChecklistItems {
   return items;
 }
 
+/** The checklist's own part is done: the wizard's three ticks (an account with no new-account steps). */
 export function isChecklistComplete(items: OnboardingChecklistItems): boolean {
-  return ONBOARDING_ITEM_KEYS.every((key) => items[key]?.checked === true);
-}
-
-export function countChecklistProgress(items: OnboardingChecklistItems): { done: number; total: number } {
-  const total = ONBOARDING_ITEM_KEYS.length;
-  const done = ONBOARDING_ITEM_KEYS.filter((key) => items[key]?.checked === true).length;
-  return { done, total };
-}
-
-// One consolidated, section-grouped summary of every non-empty note (plus
-// any field-overwrite notices — see OnboardingItemState.fieldOverwriteNote)
-// — written to the account's update history exactly once, at full checklist
-// completion, rather than per note-save. Per-save history logging was
-// removed after the live smoke test showed the account-updates endpoint
-// emails info@/crm@ on every call regardless of the notifyEmail flag; a
-// completion-only summary keeps a real audit trail without an email per
-// keystroke/checkbox. Returns "" when there's nothing to report (caller
-// should skip appending an empty section list in that case).
-export function buildOnboardingNotesSummary(items: OnboardingChecklistItems): string {
-  const sectionBlocks: string[] = [];
-  const overwriteLines: string[] = [];
-
-  for (const section of ONBOARDING_CHECKLIST_SECTIONS) {
-    const lines = section.items
-      .filter((item) => items[item.key]?.note.trim())
-      .map((item) => `  - ${item.label}: ${items[item.key].note.trim()}`);
-
-    if (lines.length > 0) {
-      sectionBlocks.push(`${section.title}\n${lines.join("\n")}`);
-    }
-
-    for (const item of section.items) {
-      const overwrite = items[item.key]?.fieldOverwriteNote;
-      if (overwrite) overwriteLines.push(`  - ${item.label}: ${overwrite}`);
-    }
-  }
-
-  const blocks = [...sectionBlocks];
-  if (overwriteLines.length > 0) {
-    blocks.push(`Field updates\n${overwriteLines.join("\n")}`);
-  }
-
-  return blocks.join("\n\n");
-}
-
-// ─── Checklist item -> real Accounts-sheet field mapping ────────────────────
-//
-// Confirmed by reading the live "Accounts" tab header row directly
-// (GOOGLE_MAIN_SHEET_ID) rather than guessing from app-side field names —
-// column G is literally titled "Key / Alarm / Access Info", a single
-// free-text column covering keys, alarm codes, AND access notes together
-// (there is no separate "alarm code" column feeding that same UI label; the
-// app's own "Has Key" (Yes/No/N/A) and "Alarm Code" fields are separate
-// columns entirely — see ONBOARDING_COMBINED_FIELD's comment for why those
-// two are deliberately NOT auto-written here).
-//
-// Of the 24 checklist items, only these 4 have a clean, direct 1:1 match to
-// a single free-text field where the note IS the field's content (not a
-// description of a separate action). Every other item either has no
-// matching field at all (e.g. "New account packet sent") or maps to a field
-// expecting a specific format — a bare name, a dollar figure, a date — that
-// a free-text confirmation note can't reliably supply (e.g. "Manager
-// assigned" -> Manager is a name field, but the note is more likely "Greg
-// confirmed by phone" than just "Greg"). Those stay checklist/summary-only
-// rather than risking a bad write, per this feature's guardrails.
-
-export type OnboardingFieldWriteConfig = {
-  // Written redundantly under every alias the app's own Account types read,
-  // matching this codebase's established redundant-key-name convention
-  // (see app/accounts-center/keys.tsx's getKeyCode/getHasCopy comments).
-  fieldNames: string[];
-  fieldLabel: string;
-};
-
-export const ONBOARDING_FIELD_WRITES: Record<string, OnboardingFieldWriteConfig> = {
-  "sale.scopeDocumented": { fieldNames: ["scopeOfWork", "scope"], fieldLabel: "Scope of Work" },
-};
-
-// Three checklist items compose into this ONE shared field rather than each
-// having its own, matching the sheet's actual schema.
-export const ONBOARDING_COMBINED_FIELD: {
-  fieldNames: string[];
-  fieldLabel: string;
-  items: { key: string; composeLabel: string }[];
-} = {
-  fieldNames: ["keyAlarmAccessInfo", "alarmInfo"],
-  fieldLabel: "Key / Alarm / Access Info",
-  items: [
-    { key: "access.keyArranged", composeLabel: "Key" },
-    { key: "access.alarmDocumented", composeLabel: "Alarm" },
-    { key: "access.specialAccessNotes", composeLabel: "Access" },
-  ],
-};
-
-// Recomputed from ALL THREE items' current notes every time any one of them
-// saves, in fixed (Key, Alarm, Access) order — not save order — so the
-// composed value is deterministic regardless of which item was edited last.
-// Empty items are omitted rather than written as blank lines.
-export function composeOnboardingFieldValue(items: OnboardingChecklistItems): string {
-  return ONBOARDING_COMBINED_FIELD.items
-    .filter((entry) => items[entry.key]?.note.trim())
-    .map((entry) => `${entry.composeLabel}: ${items[entry.key].note.trim()}`)
-    .join("\n");
+  return SETUP_TICK_ITEMS.every((item) => items[item.key]?.checked === true);
 }
 
 export type OnboardingChecklistState = {

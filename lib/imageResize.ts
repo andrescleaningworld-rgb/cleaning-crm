@@ -56,3 +56,30 @@ export async function resizeImageForUpload(file: File): Promise<ResizedImage> {
     bitmap.close();
   }
 }
+
+/**
+ * A copy no bigger than `maxSide` on its long side, as JPEG at `quality`
+ * (0-1). null when the browser cannot read the photo (HEIC outside Safari).
+ * The setup wizard's site survey photos: 1600px for the photo, 400px for
+ * its small copy.
+ */
+export async function shrinkImage(file: Blob, maxSide: number, quality: number): Promise<Blob | null> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  try {
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+  } finally {
+    bitmap.close();
+  }
+}

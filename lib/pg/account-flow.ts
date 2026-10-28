@@ -2,13 +2,12 @@
 // The rules and words are in lib/accountFlow.ts.
 //
 // Only accounts made with the "New Accepted Account" form have a flow.
-// account_flows.step is the current step: the first one not done yet. Four
+// account_flows.step is the current step: the first one not done yet. Three
 // steps are marked done by themselves when the record already exists, even
 // ahead of the current step (syncAutoSteps, run on every read):
 //   1 packet     the account's History has "Welcome packet sent to: ..."
 //                (written by the Welcome Packet send, app/api/accounts/[id]/welcome-packet)
 //   2 sub        the account has a Subcontractor
-//   5 survey     the account's Onboarding Checklist is complete
 //   7 startDate  the account has a Start Date
 // Any step can also be marked done by a person (markStepDone), and undone
 // (undoStep). Step 3 is answered by the sub in their portal, or marked
@@ -267,7 +266,7 @@ export async function createAcceptedAccount(input: NewAcceptedAccount, by: strin
  * deleted, cancelled, inactive or test account). Safe to call on
  * every read: it only marks a step that is not done yet and whose record
  * says it is. A step someone undid is not marked again from the same record:
- *   packet, survey  only when the packet / checklist is newer than the undo
+ *   packet          only when the packet is newer than the undo
  *   sub, startDate  not again after an undo (or the sub's No); a person marks it
  */
 export async function syncAutoSteps(accountId?: string): Promise<void> {
@@ -277,11 +276,9 @@ export async function syncAutoSteps(accountId?: string): Promise<void> {
     SELECT f.account_id, f.step, f.follow_up_due,
            btrim(COALESCE(a.subcontractor_raw, '')) AS account_sub,
            a.start_date,
-           c.completed_at AS checklist_done_at,
            p.created_at AS packet_at, p.actor_name AS packet_by
     FROM account_flows f
     LEFT JOIN accounts a ON a.id = f.account_id
-    LEFT JOIN onboarding_checklists c ON c.account_id = f.account_id
     LEFT JOIN LATERAL (
       SELECT created_at, actor_name FROM activity_log
       WHERE entity_type = 'account' AND entity_id = f.account_id AND detail LIKE 'Welcome packet sent to:%' AND created_at >= f.created_at
@@ -298,7 +295,6 @@ export async function syncAutoSteps(accountId?: string): Promise<void> {
     follow_up_due: string | Date | null;
     account_sub: string;
     start_date: string | Date | null;
-    checklist_done_at: string | Date | null;
     packet_at: string | Date | null;
     packet_by: string | null;
   }[];
@@ -318,8 +314,6 @@ export async function syncAutoSteps(accountId?: string): Promise<void> {
     const packetAt = iso(row.packet_at);
     if (packetAt && open("packet") && lastUndo("packet") < packetAt) marks.push({ step: "packet", by: clean(row.packet_by) || "Welcome Packet", note: "" });
     if (clean(row.account_sub) && open("sub") && !undoneEver("sub")) marks.push({ step: "sub", by: "Automatic", note: `Sub on the account: ${clean(row.account_sub)}` });
-    const checklistAt = iso(row.checklist_done_at);
-    if (checklistAt && open("survey") && lastUndo("survey") < checklistAt) marks.push({ step: "survey", by: "Onboarding Checklist", note: "" });
     const startDate = day(row.start_date);
     if (startDate && open("startDate") && !undoneEver("startDate")) {
       marks.push({ step: "startDate", by: "Automatic", note: `Start date on the account: ${startDate}` });
@@ -450,6 +444,33 @@ export async function markStepDone(accountId: string, step: FlowStep, by: string
     return;
   }
   if (!(await advance(accountId, step, by))) throw new FlowError("That step is already done. The page shows where it is now.");
+}
+
+/**
+ * The setup wizard's Yes / Not yet on Customer called, Site survey and
+ * Walkthrough: the same mark as the pin's tracker (Mark done / Undo), from
+ * any step. Nothing happens when the step is already that way.
+ */
+export async function setTapStep(accountId: string, step: "call" | "survey" | "walkthrough", done: boolean, by: string): Promise<void> {
+  const row = await flowRow(accountId);
+  if (!row) throw new FlowError("This account has no new-account steps.");
+  if (row.step === "live") return;
+  const pointer = isFlowStep(row.step) ? row.step : "packet";
+  const isDone = isDoneOn(pointer, await doneStepsFor(accountId), step);
+  if (done && !isDone) await markStepDone(accountId, step, by);
+  if (!done && isDone) await undoStep(accountId, step, by);
+}
+
+/**
+ * The setup wizard saved the account's Start Date (from any step): step 7 is
+ * done, and step 8 is due the day after, as when the date is saved on step 7.
+ */
+export async function startDateSaved(accountId: string, startDate: string, by: string): Promise<void> {
+  const row = await flowRow(accountId);
+  if (!row || row.step === "live" || !/^d{4}-d{2}-d{2}$/.test(startDate)) return;
+  await getSql()`UPDATE account_flows SET follow_up_due = ${dayAfter(startDate)}::date WHERE account_id = ${accountId}`;
+  const pointer = isFlowStep(row.step) ? row.step : "packet";
+  if (!isDoneOn(pointer, await doneStepsFor(accountId), "startDate")) await markStepDone(accountId, "startDate", by);
 }
 
 /** Step 3 from the office: the sub said no. Back to step 2 to pick another sub (the procedure). */

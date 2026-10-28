@@ -1,51 +1,39 @@
 "use client";
 
-import OnboardingChecklist, { type OnboardingChecklistProps } from "./OnboardingChecklist";
+import OnboardingChecklist from "./OnboardingChecklist";
 
-type OnboardingWizardModalProps = Omit<OnboardingChecklistProps, "variant"> & {
+type OnboardingWizardModalProps = {
+  accountId: string;
+  accountName: string;
   onClose: () => void;
+  /** After any answer is saved. */
+  onChanged?: () => void;
 };
 
-// Modal chrome only — the checklist itself (progress, autosave, notes) is
-// the same OnboardingChecklist component the account detail page's
-// persistent "Onboarding" section renders inline. Closing this modal never
-// loses progress: every change is already autosaved server-side, so "close"
-// doubles as "minimize and resume later" with no separate state to reconcile.
-export default function OnboardingWizardModal({ onClose, ...checklistProps }: OnboardingWizardModalProps) {
-  function handleOverlayClick(event: React.MouseEvent<HTMLDivElement>) {
-    if (event.target === event.currentTarget) onClose();
-  }
-
-  function handleOverlayKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") onClose();
-  }
-
+// The setup wizard, full screen on a phone and a big centred card on a
+// computer. Only the frame: the wizard is the same OnboardingChecklist the
+// account page's Setup card opens. Every answer is already saved, so Close
+// never loses anything, and it opens again where it was left.
+export default function OnboardingWizardModal({ accountId, accountName, onClose, onChanged }: OnboardingWizardModalProps) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-      onClick={handleOverlayClick}
-      onKeyDown={handleOverlayKeyDown}
+      className="fixed inset-0 z-[60] flex items-stretch justify-center bg-slate-950/50 sm:items-center sm:p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
       role="presentation"
     >
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-700">Onboarding Checklist</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">{checklistProps.accountName || "Onboarding"}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close onboarding checklist"
-            className="rounded-full bg-slate-100 px-3 py-2 text-sm font-black text-slate-600 hover:bg-slate-200"
-          >
-            X
+      <div role="dialog" aria-modal="true" aria-label={`Set up ${accountName}`} className="h-full w-full max-w-xl overflow-y-auto bg-slate-50 p-4 shadow-2xl sm:h-auto sm:max-h-[94vh] sm:rounded-3xl sm:p-6">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <p className="truncate text-lg font-black text-slate-700">{accountName || "Setup"}</p>
+          <button type="button" onClick={onClose} className="min-h-[48px] rounded-full bg-slate-200 px-5 text-lg font-black text-slate-700 active:bg-slate-300">
+            Close
           </button>
         </div>
-
-        <div className="mt-6">
-          <OnboardingChecklist {...checklistProps} variant="modal" />
-        </div>
+        <OnboardingChecklist accountId={accountId} accountName={accountName} variant="modal" onChanged={onChanged} />
       </div>
     </div>
   );

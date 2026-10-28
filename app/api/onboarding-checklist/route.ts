@@ -1,13 +1,14 @@
+// The checklist's own ticks and notes (lib/onboardingChecklist.ts): the setup
+// wizard's Yes taps for an account with no new-account steps, and the
+// "Special equipment?" note. Everything else the wizard asks is saved on the
+// account itself (app/api/setup-wizard).
+//
+// GET  ?accountId=X                                        the checklist
+// POST { action: "setItem", accountId, itemKey, checked, note }
+
 import { NextRequest, NextResponse } from "next/server";
-import {
-  fetchOnboardingChecklist,
-  markOnboardingAutoStableApplied,
-  setOnboardingChecklistItem,
-} from "@/lib/data/accounts";
-import { createEmptyChecklistItems, isChecklistComplete } from "@/lib/onboardingChecklist";
-import { syncOnboardingFieldWrite } from "@/lib/onboardingFieldSync";
-import { getAdminIdentity } from "@/lib/adminSession";
-import { syncAccountStep } from "@/lib/pg/handoffs";
+import { fetchOnboardingChecklist, setOnboardingChecklistItem } from "@/lib/data/accounts";
+import { createEmptyChecklistItems } from "@/lib/onboardingChecklist";
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,72 +56,15 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const accountName = String(body.accountName ?? "");
-      const checked = Boolean(body.checked);
-      const note = String(body.note ?? "");
+      const checklist = await setOnboardingChecklistItem({
+        accountId,
+        accountName: String(body.accountName ?? ""),
+        itemKey,
+        checked: Boolean(body.checked),
+        note: String(body.note ?? ""),
+      });
 
-      let checklist = await setOnboardingChecklistItem({ accountId, accountName, itemKey, checked, note });
-
-      // Best-effort, silent field sync — never lets a field-write failure
-      // fail the checklist save itself (the item is already saved above by
-      // the time this runs), and never triggers account-updates/an email:
-      // see syncOnboardingFieldWrite's comment for why per-save history
-      // logging was removed. Only items in ONBOARDING_FIELD_WRITES /
-      // ONBOARDING_COMBINED_FIELD do anything here; every other item is a
-      // no-op.
-      try {
-        const sync = await syncOnboardingFieldWrite({
-          accountId,
-          itemKey,
-          items: checklist.items,
-          requestOrigin: new URL(request.url).origin,
-          cookieHeader: request.headers.get("cookie") ?? "",
-        });
-        if (sync.overwriteNote) {
-          checklist = await setOnboardingChecklistItem({
-            accountId,
-            accountName,
-            itemKey,
-            checked,
-            note,
-            fieldOverwriteNote: sync.overwriteNote,
-          });
-        }
-      } catch (err) {
-        console.error(
-          "[onboarding-checklist] field sync failed:",
-          err instanceof Error ? err.message : err
-        );
-      }
-
-      // True exactly once — the moment every item first becomes checked and
-      // the completion side effect (Account Health -> Stable) hasn't run
-      // yet. The client is responsible for applying that side effect (via
-      // the existing updateAccountFields/addAccountUpdate path) and then
-      // calling markAutoStableApplied below so this never re-fires.
-      const justCompleted = isChecklistComplete(checklist.items) && !checklist.autoStableAppliedAt;
-
-      // New accounts board: when the last item of a section is ticked, the
-      // account moves to the next section and to that section's owner.
-      // Best effort: a failure here never fails the checklist save.
-      let handoff = null;
-      try {
-        const identity = await getAdminIdentity(request);
-        handoff = await syncAccountStep(accountId, checklist.items, identity?.name ?? "");
-      } catch (err) {
-        console.error("[onboarding-checklist] handoff sync failed:", err instanceof Error ? err.message : err);
-      }
-
-      return NextResponse.json({ success: true, checklist, justCompleted, handoff });
-    }
-
-    if (action === "markAutoStableApplied") {
-      const accountId = String(body.accountId ?? "").trim();
-      if (!accountId) {
-        return NextResponse.json({ success: false, error: "accountId is required." }, { status: 400 });
-      }
-      await markOnboardingAutoStableApplied(accountId);
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, checklist });
     }
 
     return NextResponse.json({ success: false, error: `Unknown action "${action}".` }, { status: 400 });

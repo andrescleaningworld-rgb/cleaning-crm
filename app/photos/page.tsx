@@ -34,6 +34,10 @@ type Photo = {
   viaApp?: boolean;
   /** The "Show on TV" star. */
   showOnTv?: boolean;
+  /** Small copy saved with the photo (site survey shots); "" = none. */
+  thumbUrl?: string;
+  /** The shot's label ("Alarm panel"). */
+  caption?: string;
 };
 
 type ApiAnswer = {
@@ -45,7 +49,7 @@ type ApiAnswer = {
   accounts?: { name: string; count: number }[] | null;
 };
 
-const KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit"];
+const KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey"];
 type DateChoice = "all" | "today" | "week" | "month" | "pick";
 const DATE_LABEL: Record<DateChoice, string> = { all: "Date", today: "Today", week: "This week", month: "This month", pick: "Dates" };
 
@@ -57,6 +61,8 @@ function driveId(url: string): string {
 
 /** A small version for the grid: Next's image resizer for Blob files, Drive's own thumbnail for Drive files. */
 function thumbUrl(photo: Photo): string {
+  // Saved with its own small copy (site survey shots): no resizing needed.
+  if (photo.thumbUrl) return photo.thumbUrl;
   if (photo.store === "drive") {
     const id = driveId(photo.url);
     // Added from Drive by hand: the file may be shared only with the app, so the app fetches its picture.
@@ -81,7 +87,7 @@ const dayKey = (iso: string) => {
 };
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const longDate = (iso: string) => new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-const label = (photo: Photo) => `${photo.moment === "before" ? "Before" : photo.moment === "after" ? "After" : photo.kind} · ${shortDate(photo.takenAt)}`;
+const label = (photo: Photo) => `${photo.moment === "before" ? "Before" : photo.moment === "after" ? "After" : photo.caption || photo.kind} · ${shortDate(photo.takenAt)}`;
 
 function isoDay(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;

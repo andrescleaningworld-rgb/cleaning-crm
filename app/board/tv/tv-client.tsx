@@ -45,6 +45,7 @@ import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
 import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
 import PizzaTracker from "@/app/components/pizza-tracker";
+import ReadyBadge from "@/app/components/ready-badge";
 import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported } from "../full-screen";
 import styles from "./tv.module.css";
 
@@ -766,6 +767,8 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
             Handed to {data?.managers.find((manager) => manager.id === paper.square)?.name || "a manager"} · {flowStepLine(paper)}
           </p>
         ) : null}
+        {/* Gold "Ready to start": big enough to read from across the room. */}
+        {paper.setup?.ready ? <ReadyBadge size="tv" /> : null}
         {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
         {overdue || stuck ? <span className={styles.lateCorner} aria-hidden="true" /> : null}
       </div>

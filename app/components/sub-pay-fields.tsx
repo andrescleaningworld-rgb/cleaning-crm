@@ -1,7 +1,7 @@
 "use client";
 
 // The sub's pay on every account form (Add Account, New Accepted Account,
-// Edit Account, Finish setting up), the same everywhere:
+// Edit Account, the setup wizard), the same everywhere:
 //   - a grey reminder above: "CW gets $495 / month · We keep $155 (31%)", live;
 //   - Frequency asked right here when the account has none (the price per
 //     cleaning needs it), unless the form shows Frequency just above;
