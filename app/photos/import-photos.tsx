@@ -8,15 +8,19 @@
 //      else the file name's, else the file's date) and its fingerprint
 //      (SHA-256), and asks which are already in (skipped).
 //   3. Photos with no date get one date for all of them, picked here.
-//   4. Import: shrunk here (1600px + 400px copy), three at a time,
-//      "120 of 340 imported", then what was imported, skipped and failed.
+//   4. Import: made small here (1600px + 400px copy, one photo at a time,
+//      lib/imageResize.ts preparePhoto), sent three at a time, "120 of 340
+//      imported", then what was imported, skipped and failed, each with why.
+//      A full-size original is never sent (Vercel refuses uploads over 4.5 MB).
+// On a phone there are two buttons: "Choose photos" (the phone's photos or
+// camera; an iPhone hands over JPEGs) and "Choose a .zip".
 // Server: app/api/photo-index/import (lib/pg/crew-photos.ts addImportedPhoto).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { BigButton, ErrorBox, Field, Sheet } from "@/app/ui";
 import { readZip } from "@/lib/zipReader";
 import { newYorkTime, photoDate, type PhotoDate, type PhotoDateSource } from "@/lib/photoDate";
-import { shrinkImage } from "@/lib/imageResize";
+import { photoProblemText, preparePhoto, readUploadReply } from "@/lib/imageResize";
 import { CREW_PHOTO_QUALITY, CREW_PHOTO_SIZE, CREW_THUMB_SIZE } from "@/lib/crewPhotos";
 
 type Item = { name: string; modified: number | null; read: () => Promise<Blob>; hash: string; date: PhotoDate; duplicate: boolean };
@@ -24,7 +28,6 @@ type Failed = { name: string; why: string };
 type Stage = "pick" | "reading" | "review" | "importing" | "done";
 
 const PHOTO_NAME = /\.(jpe?g|png|heic|heif|webp)$/i;
-const MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif" };
 const AT_ONCE = 3;
 const SOURCE_WORDS: Record<Exclude<PhotoDateSource, "">, string> = { photo: "the camera's date", name: "the file name", file: "the file's date" };
 
@@ -34,6 +37,11 @@ async function fingerprint(blob: Blob): Promise<string> {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// A phone: the photo picker takes photos only (with .heic on the list an iPhone
+// hands over HEIC files instead of JPEGs, and Android opens its Files app).
+const onPhone = () => window.matchMedia?.("(pointer: coarse)").matches === true;
+const noChange = () => () => {};
 
 export default function ImportPhotos({ accountId, accountName, onImported }: { accountId: string; accountName: string; onImported: () => void }) {
   const [open, setOpen] = useState(false);
@@ -46,6 +54,8 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
   const [result, setResult] = useState({ imported: 0, duplicates: 0, failed: [] as Failed[] });
   const [error, setError] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const zipInput = useRef<HTMLInputElement>(null);
+  const phone = useSyncExternalStore(noChange, onPhone, () => false);
 
   // Closing the page mid-import: the browser asks first.
   useEffect(() => {
@@ -97,6 +107,7 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
           list.push({ ...each, hash, date, duplicate: seen.has(hash) });
           seen.add(hash);
         } catch (err) {
+          // Shown as "could not be read" in the review, and as failed after the import.
           list.push({ ...each, hash: "", date: { at: "", source: "" }, duplicate: false });
           console.error("[import photos] could not read", each.name, err);
         }
@@ -108,9 +119,9 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
       const already = new Set<string>();
       for (let i = 0; i < hashes.length; i += 500) {
         const response = await fetch("/api/photo-index/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "check", accountId, hashes: hashes.slice(i, i + 500) }) });
-        const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; already?: string[] };
-        if (!response.ok || !data.success) throw new Error(data.error || "Could not check which photos are already in.");
-        for (const hash of data.already ?? []) already.add(hash);
+        const reply = await readUploadReply<{ success?: boolean; error?: string; already?: string[] }>(response);
+        if (!reply.ok) throw new Error(`Could not check which photos are already in: ${reply.error}`);
+        for (const hash of reply.data.already ?? []) already.add(hash);
       }
       setItems(list.map((item) => (already.has(item.hash) ? { ...item, duplicate: true } : item)));
       setStage("review");
@@ -131,14 +142,9 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
   async function importOne(item: Item): Promise<"" | "dup" | string> {
     if (!item.hash) return "This file could not be read.";
     const blob = await item.read();
-    const extension = (item.name.split(".").pop() ?? "").toLowerCase();
-    let full = await shrinkImage(blob, CREW_PHOTO_SIZE, CREW_PHOTO_QUALITY);
-    if (!full) {
-      // This browser cannot open it (an iPhone HEIC photo outside Safari): a JPEG / PNG goes as it is.
-      if ((extension === "jpg" || extension === "jpeg" || extension === "png") && blob.size <= 8 * 1024 * 1024) full = new Blob([blob], { type: MIME[extension] });
-      else return extension === "heic" || extension === "heif" ? "An iPhone photo (HEIC) this browser cannot open. Import it from Safari on a Mac or iPhone." : "This photo cannot be opened.";
-    }
-    const thumb = await shrinkImage(blob, CREW_THUMB_SIZE, CREW_PHOTO_QUALITY);
+    const prepared = await preparePhoto(blob, item.name, { fullSide: CREW_PHOTO_SIZE, thumbSide: CREW_THUMB_SIZE, quality: CREW_PHOTO_QUALITY });
+    if (!prepared.ok) return photoProblemText(prepared.problem);
+    const { full, thumb } = prepared;
     const [y, m, d] = batchDay.split("-").map(Number);
     const takenAt = item.date.at || newYorkTime(y, m, d);
     for (let attempt = 1; ; attempt++) {
@@ -148,15 +154,16 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
         form.append("accountName", accountName);
         form.append("hash", item.hash);
         form.append("takenAt", takenAt);
-        form.append("full", new File([full], "photo.jpg", { type: full.type || "image/jpeg" }));
+        form.append("full", new File([full], "photo.jpg", { type: "image/jpeg" }));
         if (thumb) form.append("thumb", new File([thumb], "thumb.jpg", { type: "image/jpeg" }));
         const response = await fetch("/api/photo-index/import", { method: "POST", body: form });
-        const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; already?: boolean };
-        if (response.ok && data.success) return data.already ? "dup" : "";
-        if (response.status === 400 || response.status === 401 || response.status === 409) return data.error || "It was refused.";
-        if (attempt >= 4) return data.error || "It did not save.";
+        const reply = await readUploadReply<{ success?: boolean; error?: string; already?: boolean }>(response);
+        if (reply.ok) return reply.data.already ? "dup" : "";
+        // Trying again will not change these: say why now.
+        if (response.status < 500) return reply.error;
+        if (attempt >= 4) return reply.error;
       } catch {
-        if (attempt >= 4) return "No connection.";
+        if (attempt >= 4) return "No connection. Check the signal and import again (photos already in are skipped).";
       }
       await sleep(1500 * attempt);
     }
@@ -200,11 +207,24 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
       <BigButton kind="second" onClick={() => setOpen(true)}>
         ⬆ Import photos
       </BigButton>
+      {/* On a phone: photos only (gallery or camera). On a computer: photos, iPhone HEIC files or a .zip. */}
       <input
         ref={input}
         type="file"
         multiple
-        accept="image/*,.heic,.heif,.zip,application/zip"
+        accept={phone ? "image/*" : "image/*,.heic,.heif,.zip,application/zip"}
+        className="hidden"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          if (files.length) void readPicked(files);
+        }}
+      />
+      <input
+        ref={zipInput}
+        type="file"
+        accept=".zip,application/zip,application/x-zip-compressed"
         className="hidden"
         style={{ display: "none" }}
         onChange={(event) => {
@@ -225,7 +245,16 @@ export default function ImportPhotos({ accountId, accountName, onImported }: { a
         }}
         actions={
           stage === "pick" ? (
-            <BigButton onClick={() => input.current?.click()}>Choose photos or a .zip</BigButton>
+            phone ? (
+              <>
+                <BigButton onClick={() => input.current?.click()}>Choose photos</BigButton>
+                <BigButton kind="second" onClick={() => zipInput.current?.click()}>
+                  Choose a .zip
+                </BigButton>
+              </>
+            ) : (
+              <BigButton onClick={() => input.current?.click()}>Choose photos or a .zip</BigButton>
+            )
           ) : stage === "review" ? (
             <>
               <BigButton disabled={toImport.length === 0 || !dayOk} onClick={() => void runImport()}>
