@@ -152,19 +152,34 @@ export async function POST(request: NextRequest) {
     }));
     const { done, total } = countSubmissionProgress(sections);
 
+    // Route screen, sent later (no signal at Finish): the moment Finish was
+    // tapped, from the phone. Kept when believable (not ahead of now, at
+    // most 7 days old); else the arrival time. A wrong phone clock never
+    // fails a submit.
+    const now = Date.now();
+    let finishedAt: string | null = null;
+    if (typeof body.finishedAt === "string") {
+      const finished = new Date(body.finishedAt).getTime();
+      if (Number.isFinite(finished) && finished <= now + 5 * 60 * 1000 && finished >= now - 7 * 24 * 60 * 60 * 1000) {
+        finishedAt = new Date(Math.min(finished, now)).toISOString();
+      }
+    }
+    const finishedMs = finishedAt ? new Date(finishedAt).getTime() : now;
+    // The phone-made id of this checklist (same rule as photo ids).
+    const clientId = typeof body.clientId === "string" && /^[A-Za-z0-9-]{8,64}$/.test(body.clientId) ? body.clientId : null;
+
     // Automatic "started" time from the crew's first checkbox tap. Only a
-    // sane value is kept (not in the future, not more than 24h ago) — a
+    // sane value is kept (not after Finish, not more than 24h before it) — a
     // wrong phone clock just means no start time, never a failed submit.
     let startedAt: string | null = null;
     if (typeof body.startedAt === "string") {
       const started = new Date(body.startedAt).getTime();
-      const now = Date.now();
-      if (Number.isFinite(started) && started <= now + 5 * 60 * 1000 && started >= now - 24 * 60 * 60 * 1000) {
-        startedAt = new Date(Math.min(started, now)).toISOString();
+      if (Number.isFinite(started) && started <= finishedMs + 5 * 60 * 1000 && started >= finishedMs - 24 * 60 * 60 * 1000) {
+        startedAt = new Date(Math.min(started, finishedMs)).toISOString();
       }
     }
 
-    const id = await insertSubmission({
+    const { id, already } = await insertSubmission({
       accountId: template.accountId,
       accountName: template.accountName,
       locationName: template.locationName,
@@ -179,7 +194,12 @@ export async function POST(request: NextRequest) {
       sections,
       completedCount: done,
       totalCount: total,
+      clientId,
+      submittedAt: finishedAt,
     });
+
+    // Sent again after a lost answer: already saved, nothing more to do.
+    if (already) return NextResponse.json({ success: true, id, already: true, completedCount: done, totalCount: total });
 
     // English copy of the crew's note for staff + the sub portal (English
     // first, "Show original"). After the response, so Send never waits.

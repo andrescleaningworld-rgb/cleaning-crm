@@ -15,8 +15,11 @@
 //     and "Note for night crew" (sent with Finish, shown on the other route
 //     tabs the same day)
 // Everything is kept on the phone until Finish, so a reload loses nothing.
-// What's sent stays English (the office reads it); photos go through the
-// page's one photo sender (photo-queue.ts) and are linked to the row by id.
+// Works with no signal (normal inside some buildings): Finish saves the
+// checklist on the phone and the page's one sender (photo-queue.ts) sends it
+// and the row photos when signal comes back; RouteSendStatus says how it is
+// going. What's sent stays English (the office reads it); photos are linked
+// to the row by id.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -50,8 +53,20 @@ export const ROUTE_WORDS = {
   takePhoto: "Take photo / Saca foto",
   another: "Another / Otra",
   photoFailed: "The photo didn't work. Try again. / La foto no funcionó. Prueba otra vez.",
-  noSignal: "No signal. Try again. / Sin señal. Prueba otra vez.",
-  notSent: "It didn't send. Try again. / No se envió. Prueba otra vez.",
+  notSaved: "It didn't save. Try again. / No se guardó. Prueba otra vez.",
+  // Sending what is waiting on the phone (top of the screen, and after Finish).
+  allSent: "✓ Sent / Enviado",
+  waitingSignal: "⏳ Waiting for signal / Esperando señal",
+  sendingNow: "⏳ Sending… / Enviando…",
+  savedWillSend: "Saved, will send when you have signal / Guardado, se enviará cuando tengas señal",
+  keepOpen: "Keep this page open to send / Deja esta página abierta para enviar",
+  waitingCount: (checklists: number, photos: number) => {
+    const en = [checklists ? `${checklists} checklist${checklists === 1 ? "" : "s"}` : "", photos ? `${photos} photo${photos === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
+    const es = [checklists ? `${checklists} lista${checklists === 1 ? "" : "s"}` : "", photos ? `${photos} foto${photos === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
+    return `(${en} / ${es})`;
+  },
+  couldNotSend: (n: number) => `${n} could not be sent. Tell the office. / ${n} no se pudo enviar. Avisa a la oficina.`,
+  savedBadge: "⏳ Saved / Guardado",
   what: "What? / ¿Qué?",
   who: "Who asked? / ¿Quién pidió?",
   details: "Details (optional) / Detalle (opcional)",
@@ -334,31 +349,22 @@ export default function CrewRoute({
           })),
         });
       }
-      const response = await fetch("/api/porter-checklist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "submit",
-          code,
-          tabId: tab.id,
-          porterName: name.trim(),
-          startedAt: progress.startedAt,
-          generalNotes: noteRow ? progress.note.trim() : "",
-          sections,
-        }),
+      // Saved on the phone first, then sent whenever there is signal
+      // (photo-queue.ts). No signal at Finish is normal inside the building.
+      queue.addChecklist(tab.id, {
+        action: "submit",
+        porterName: name.trim(),
+        startedAt: progress.startedAt,
+        generalNotes: noteRow ? progress.note.trim() : "",
+        sections,
       });
-      const data = (await response.json()) as { success?: boolean; error?: string };
-      if (!response.ok || data.success === false) {
-        setError(ROUTE_WORDS.notSent);
-        return;
-      }
       removeKey(storeKey);
       removeKey(reqKey);
       markSentToday(code, tab.id);
       navigator.vibrate?.([15, 60, 15]);
       onSent(tab.id);
     } catch {
-      setError(ROUTE_WORDS.noSignal);
+      setError(ROUTE_WORDS.notSaved);
     } finally {
       setSending(false);
     }
@@ -730,6 +736,36 @@ function UrgentBox({
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+/* ---------- what is still on the phone (top of every route screen) ---------- */
+
+/**
+ * "⏳ Waiting for signal / Esperando señal (1 checklist, 3 photos / …)",
+ * "⏳ Sending… / Enviando… (…)", then "✓ Sent / Enviado". Nothing before
+ * anything was finished or photographed.
+ */
+export function RouteSendStatus({ queue }: { queue: PhotoQueue }) {
+  const { state } = queue;
+  const photos = state.waiting + state.preparing;
+  const waiting = state.checklists + photos;
+  const failed = state.checklistsFailed + state.failed.length;
+  const anySent = state.checklistsSent + state.sent > 0;
+  if (waiting === 0 && !anySent && failed === 0) return null;
+  return (
+    <div className="space-y-2" role="status" aria-live="polite">
+      {waiting > 0 ? (
+        <div className={`rounded-2xl border-4 p-3 text-center ${state.offline ? "border-amber-500 bg-amber-50 text-amber-900" : "border-blue-600 bg-blue-50 text-blue-900"}`}>
+          <p className="text-2xl font-black leading-tight">{state.offline ? ROUTE_WORDS.waitingSignal : ROUTE_WORDS.sendingNow}</p>
+          <p className="mt-1 text-lg font-bold">{ROUTE_WORDS.waitingCount(state.checklists, photos)}</p>
+          <p className="mt-1 text-base font-semibold">⚠️ {ROUTE_WORDS.keepOpen}</p>
+        </div>
+      ) : anySent ? (
+        <div className="rounded-2xl bg-green-600 p-3 text-center text-2xl font-black text-white">{ROUTE_WORDS.allSent}</div>
+      ) : null}
+      {failed > 0 ? <p className="rounded-2xl border-4 border-red-600 bg-red-50 p-3 text-center text-lg font-black text-red-800">{ROUTE_WORDS.couldNotSend(failed)}</p> : null}
     </div>
   );
 }
