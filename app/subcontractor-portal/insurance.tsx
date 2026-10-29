@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { UiLang } from "@/app/ui/words";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { prepareDocOrPhoto } from "@/lib/imageResize";
+import { photoProblemWords } from "@/lib/photoProblemWords";
 import { INSURANCE_LOCALE, SUB_INSURANCE_WORDS, niceDay, type InsuranceState } from "@/lib/subInsurance";
 
 type Status = { on: boolean; expiresOn?: string; state?: InsuranceState; waiting?: boolean; rejectedReason?: string };
@@ -54,15 +55,20 @@ export default function SubInsurance({ lang }: { lang: UiLang }) {
     setBusy(true);
     setError("");
     try {
-      let upload: File = file;
-      if (file.type.startsWith("image/")) {
-        const { blob, wasResized } = await resizeImageForUpload(file);
-        if (wasResized) upload = new File([blob], "insurance.jpg", { type: blob.type || "image/jpeg" });
+      // A photo is made small here, a PDF goes as it is; a full-size original is never sent (Vercel takes up to 4.5 MB).
+      const prepared = await prepareDocOrPhoto(file);
+      if (!prepared.ok) {
+        setError(photoProblemWords(lang, prepared.problem));
+        return;
       }
       const form = new FormData();
-      form.set("file", upload);
+      form.set("file", prepared.file.type === "image/jpeg" ? new File([prepared.file], "insurance.jpg", { type: "image/jpeg" }) : prepared.file);
       form.set("expiresOn", day);
       const response = await fetch("/api/subcontractor-portal/insurance", { method: "POST", body: form });
+      if (response.status === 413) {
+        setError(photoProblemWords(lang, "tooBig"));
+        return;
+      }
       const data = (await response.json().catch(() => ({}))) as { success?: boolean } & Status;
       if (!data.success) throw new Error();
       setStatus({ ...data, on: true });

@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { Screen } from "@/app/ui";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { photoProblemText, preparePhoto, readUploadReply } from "@/lib/imageResize";
 import type { EquipmentCategory, EquipmentItem } from "./types";
 
 // ─── Status ──────────────────────────────────────────────────────────────
@@ -233,16 +233,20 @@ export function PhotoUploadButton({
     onUploadingChange?.(true);
     onError("");
     try {
-      const { blob } = await resizeImageForUpload(file);
+      // Made small here (never the full-size original). A receipt keeps more detail so the print stays readable.
+      const prepared = await preparePhoto(file, file.name, kind === "receipt" ? { fullSide: 2000, quality: 0.85 } : { fullSide: 1600, quality: 0.82 });
+      if (!prepared.ok) {
+        onError(photoProblemText(prepared.problem));
+        return;
+      }
       const formData = new FormData();
-      formData.set("photo", blob, "photo.jpg");
+      formData.set("photo", prepared.full, "photo.jpg");
       if (kind === "receipt") formData.set("kind", "receipt");
-      const res = await fetch("/api/equipment/photo", { method: "POST", body: formData });
-      const data = (await res.json()) as { success?: boolean; url?: string; error?: string };
-      if (!data.success || !data.url) onError(data.error || "Photo upload failed.");
-      else onUploaded(data.url);
+      const reply = await readUploadReply<{ success?: boolean; url?: string; error?: string }>(await fetch("/api/equipment/photo", { method: "POST", body: formData }));
+      if (!reply.ok || !reply.data.url) onError(`Photo upload failed: ${reply.error || "no photo address came back."}`);
+      else onUploaded(reply.data.url);
     } catch {
-      onError("Photo upload failed. Try again.");
+      onError("Photo upload failed: no connection. Check the signal and try again.");
     } finally {
       setUploading(false);
       onUploadingChange?.(false);

@@ -6,7 +6,8 @@
 // Types and their EN/ES labels are the shared Team Hub list for now.
 import { useState } from "react";
 import { TEAM_HUB_STRINGS, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { preparePhoto } from "@/lib/imageResize";
+import { photoProblemWords } from "@/lib/photoProblemWords";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
 import { useCrewLinkPreview } from "./preview";
@@ -25,7 +26,6 @@ const CATEGORIES: { key: Category; icon: string }[] = [
 ];
 
 const MAX_PHOTOS = 5;
-const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 
 type PendingPhoto = { id: string; blob: Blob; previewUrl: string };
 
@@ -62,11 +62,13 @@ export default function CrewProblem({
     const room = MAX_PHOTOS - photos.length;
     if (files.length > room) setError(s.tooManyPhotos);
     for (const file of files.slice(0, room)) {
-      if (file.size > MAX_PHOTO_BYTES) {
-        setError(s.photoTooBig);
+      // Made small here (never the full-size original): a big phone photo is fine.
+      const prepared = await preparePhoto(file, file.name, { fullSide: 1600, quality: 0.82 });
+      if (!prepared.ok) {
+        setError(photoProblemWords(lang, prepared.problem));
         continue;
       }
-      const { blob } = await resizeImageForUpload(file);
+      const blob = prepared.full;
       setPhotos((prev) => [...prev, { id: crypto.randomUUID(), blob, previewUrl: URL.createObjectURL(blob) }]);
     }
   }
@@ -95,7 +97,12 @@ export default function CrewProblem({
       formData.set("reporterName", name.trim());
       photos.forEach((photo, i) => formData.append("photos", photo.blob, `photo-${i}.jpg`));
       const res = await fetch(`${apiBase}/issues`, { method: "POST", body: formData });
-      const data = await res.json();
+      // Vercel refuses uploads over 4.5 MB with its own page, not our answer.
+      if (res.status === 413) {
+        setError(photoProblemWords(lang, "tooBig"));
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!res.ok || !data.success) {
         setError(lang === "en" && data.error ? data.error : s.somethingWrong);
         return;
