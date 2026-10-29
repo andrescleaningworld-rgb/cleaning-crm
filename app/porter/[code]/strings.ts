@@ -43,7 +43,6 @@ export const CREW_LINK_STRINGS = {
     takePhoto: "Take photo",
     photoCount: (n: number, max: number) => `${n} of ${max} photos`,
     tooManyPhotos: "Up to 5 photos.",
-    photoTooBig: "That photo is too big.",
     noteRequired: "Write what it is (required)",
     removePhoto: "Remove photo",
     // The two shelves (migration 038): Supplies arrived, Case empty.
@@ -128,7 +127,6 @@ export const CREW_LINK_STRINGS = {
     takePhoto: "Tomar foto",
     photoCount: (n: number, max: number) => `${n} de ${max} fotos`,
     tooManyPhotos: "Hasta 5 fotos.",
-    photoTooBig: "Esa foto es muy grande.",
     noteRequired: "Escribe qué es (obligatorio)",
     removePhoto: "Quitar foto",
     arrived: "Llegaron los materiales",
@@ -212,7 +210,6 @@ export const CREW_LINK_STRINGS = {
     takePhoto: "Tirar foto",
     photoCount: (n: number, max: number) => `${n} de ${max} fotos`,
     tooManyPhotos: "Até 5 fotos.",
-    photoTooBig: "Essa foto é grande demais.",
     noteRequired: "Escreva o que é (obrigatório)",
     removePhoto: "Remover foto",
     arrived: "Os materiais chegaram",
