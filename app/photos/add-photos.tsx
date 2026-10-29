@@ -4,6 +4,8 @@
 //   From this device   pick one or many from the phone or the computer
 //   From Google Drive  paste a link to a photo, or to a folder of photos
 // Drive photos stay in Drive: they are listed here, not copied or moved.
+// Except "Crew" photos: the customer sees those in their portal, so they are
+// copied into the app (a customer's browser cannot open the Drive file).
 // Photos from the device are made small here first (2400px, lib/imageResize.ts
 // preparePhoto) and sent one per upload: Vercel refuses any upload over 4.5 MB,
 // and a full-size phone photo is often bigger. Each one that fails says why.
@@ -18,7 +20,17 @@ type Result = { added: number; already: number; notPhotos: number; problems: str
 /** The size photos from the device are kept at: sharp on a screen, well under the upload limit. */
 const DEVICE_PHOTO = { fullSide: 2400, quality: 0.85 };
 
-const KINDS = ["Visit", "Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment"];
+/** [saved kind, what the picker says]. "Crew" = regular job photos the customer sees. */
+const KINDS: [string, string][] = [
+  ["Visit", "Visit"],
+  ["Crew", "Crew (customer sees these)"],
+  ["Complaint", "Complaint"],
+  ["Crew problem", "Crew problem"],
+  ["Sub photo", "Sub photo"],
+  ["Extra job", "Extra job"],
+  ["Estimate", "Estimate"],
+  ["Equipment", "Equipment"],
+];
 
 const today = () => {
   const now = new Date();
@@ -151,7 +163,7 @@ export default function AddPhotos({ open, onClose, onAdded, startAccount }: { op
       }}
       busy={busy}
       actions={
-        <BigButton busy={busy} busyLabel={from === "drive" ? "Looking in Drive…" : progress || "Adding…"} onClick={() => void save()}>
+        <BigButton busy={busy} busyLabel={from === "drive" ? (kind === "Crew" ? "Copying from Drive… (can take a few minutes)" : "Looking in Drive…") : progress || "Adding…"} onClick={() => void save()}>
           {from === "device" ? (files.length > 0 ? `Add ${files.length} photo${files.length === 1 ? "" : "s"}` : "Add photos") : "Add from Google Drive"}
         </BigButton>
       }
@@ -187,12 +199,18 @@ export default function AddPhotos({ open, onClose, onAdded, startAccount }: { op
       </div>
 
       <SelectField label="What are the photos of?" value={kind} onChange={(event) => setKind(event.target.value)} disabled={busy}>
-        {KINDS.map((entry) => (
-          <option key={entry} value={entry}>
-            {entry}
+        {KINDS.map(([value, text]) => (
+          <option key={value} value={value}>
+            {text}
           </option>
         ))}
       </SelectField>
+      {kind === "Crew" ? (
+        <p className="ui-hint">
+          The customer sees these in their portal (if the account&apos;s &quot;Show crew photos to customer&quot; is on).
+          {from === "drive" ? " From Drive they are copied into the app, up to 60 at a time." : ""}
+        </p>
+      ) : null}
 
       <div className="ui-field">
         <span className="ui-label">Before or after?</span>
@@ -242,7 +260,7 @@ export default function AddPhotos({ open, onClose, onAdded, startAccount }: { op
         <>
           <TextAreaField
             label="Google Drive links"
-            hint="A link to one photo, or to a folder of photos. One per line. The photos stay in Drive."
+            hint={kind === "Crew" ? "A link to one photo, or to a folder of photos. One per line. Copies are made; the files in Drive are not changed." : "A link to one photo, or to a folder of photos. One per line. The photos stay in Drive."}
             rows={3}
             placeholder="https://drive.google.com/drive/folders/…"
             value={links}

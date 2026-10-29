@@ -3,11 +3,18 @@
 // Drive (indexed where they are; nothing is copied, moved or changed in
 // Drive). Drive is only ever read here, with a read-only scope.
 //
+// "Crew" photos are the exception: the customer portal shows them, and a
+// customer's browser cannot open a Drive file shared only with the app. So a
+// Crew photo from Drive is COPIED into Blob storage (crew-photos/<account>/,
+// a 2400px copy and a 400px small copy); the file in Drive is left as it is.
+//
 // For Drive, the app signs in as its service account, so it can see a file
 // or folder only if that file or folder is shared with the service account's
 // email (Viewer is enough) or set to "Anyone with the link".
 
 import { google } from "googleapis";
+import { put } from "@vercel/blob";
+import sharp from "sharp";
 import { getSql } from "@/lib/db";
 import { PHOTO_KINDS, type PhotoKind } from "@/lib/pg/photo-index";
 
@@ -54,16 +61,79 @@ export function cleanDetails(input: Record<string, unknown>, addedBy: string): P
   };
 }
 
-/** One photo into the index. Returns false when that photo was already there. */
-async function addRow(sourceKey: string, store: "blob" | "drive", url: string, details: PhotoDetails, takenAt: string | null, isImage = true): Promise<boolean> {
+/**
+ * One photo into the index. Returns false when that photo was already there.
+ * Crew photos also carry their before / after as the tag the portal shows.
+ */
+async function addRow(sourceKey: string, store: "blob" | "drive", url: string, details: PhotoDetails, takenAt: string | null, isImage = true, thumbUrl = ""): Promise<boolean> {
+  const tag = details.kind === "Crew" ? details.moment : "";
   const rows = (await getSql().query(
-    `INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href, taken_by, taken_at, is_image)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'account', $4, 'Open the account', $8, $9, COALESCE($10::timestamptz, now()), $11)
+    `INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href, taken_by, taken_at, is_image, thumb_url, tag)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'account', $4, 'Open the account', $8, $9, COALESCE($10::timestamptz, now()), $11, $12, $13)
      ON CONFLICT (source_key) DO NOTHING RETURNING id`,
-    [sourceKey, store, url, details.accountId, details.accountName, details.kind, details.moment, details.accountId ? `/accounts/${details.accountId}` : "", details.addedBy, takenAt, isImage]
+    [sourceKey, store, url, details.accountId, details.accountName, details.kind, details.moment, details.accountId ? `/accounts/${details.accountId}` : "", details.addedBy, takenAt, isImage, thumbUrl, tag]
   )) as unknown[];
   return rows.length > 0;
 }
+
+const sourceKeyTaken = async (sourceKey: string) =>
+  ((await getSql().query(`SELECT 1 FROM photo_index WHERE source_key = $1 LIMIT 1`, [sourceKey])) as unknown[]).length > 0;
+
+/* ---------- Crew photos from Drive: copied into Blob ---------- */
+
+const CREW_COPY = { fullSide: 2400, fullQuality: 85, thumbSide: 400, thumbQuality: 75 };
+
+/** Photo types the copy can read. iPhone HEIC is not one of them (it must be saved as JPEG first). */
+export const COPYABLE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/tiff"];
+
+/** A Drive photo that cannot be copied (wrong type, unreadable): trying again will not help. */
+export class DriveCopyError extends Error {}
+
+/**
+ * Copies one Drive photo into Blob storage: a 2400px JPEG (turned the right
+ * way up) and a 400px small copy. Read-only on Drive. The Blob names come
+ * from the Drive file id, so copying the same file again replaces the same
+ * two files instead of making new ones.
+ */
+export async function copyDrivePhotoToBlob(fileId: string, accountId: string): Promise<{ url: string; thumbUrl: string }> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) throw new Error("File storage is not set up here.");
+  const { full, thumb } = await makeCrewCopies(fileId);
+  const base = `crew-photos/${encodeURIComponent(accountId || "no-account")}/drive-${fileId}`;
+  const options = { access: "public", contentType: "image/jpeg", addRandomSuffix: false, allowOverwrite: true } as const;
+  const [fullBlob, thumbBlob] = await Promise.all([put(`${base}.jpg`, full, options), put(`${base}-thumb.jpg`, thumb, options)]);
+  return { url: fullBlob.url, thumbUrl: thumbBlob.url };
+}
+
+/** A Drive file's type and size, or null when the app cannot see it. Read-only. */
+export async function driveFileInfo(fileId: string): Promise<{ mimeType: string; bytes: number } | null> {
+  try {
+    const { data } = await readOnlyDrive().files.get({ fileId, fields: "mimeType, size", supportsAllDrives: true });
+    return { mimeType: String(data.mimeType ?? ""), bytes: Number(data.size ?? 0) };
+  } catch {
+    return null;
+  }
+}
+
+/** The two JPEG copies of a Drive photo, made in memory (nothing is saved). */
+export async function makeCrewCopies(fileId: string): Promise<{ full: Buffer; thumb: Buffer; originalBytes: number }> {
+  const drive = readOnlyDrive();
+  const { data: meta } = await drive.files.get({ fileId, fields: "mimeType", supportsAllDrives: true });
+  if (!COPYABLE_TYPES.includes(String(meta.mimeType ?? "").toLowerCase())) throw new DriveCopyError(`This kind of file (${meta.mimeType || "unknown"}) cannot be copied. Save it as JPEG first.`);
+  const { data } = await drive.files.get({ fileId, alt: "media", supportsAllDrives: true }, { responseType: "arraybuffer" });
+  const original = Buffer.from(data as ArrayBuffer);
+  let full: Buffer;
+  let thumb: Buffer;
+  try {
+    full = await sharp(original).rotate().resize({ width: CREW_COPY.fullSide, height: CREW_COPY.fullSide, fit: "inside", withoutEnlargement: true }).jpeg({ quality: CREW_COPY.fullQuality }).toBuffer();
+    thumb = await sharp(original).rotate().resize({ width: CREW_COPY.thumbSide, height: CREW_COPY.thumbSide, fit: "cover" }).jpeg({ quality: CREW_COPY.thumbQuality }).toBuffer();
+  } catch {
+    throw new DriveCopyError("This photo could not be read.");
+  }
+  return { full, thumb, originalBytes: original.length };
+}
+
+/** Crew Drive photos copied per "Add from Google Drive": each copy takes a few seconds. Run again for the rest. */
+const MAX_CREW_COPIES = 60;
 
 // Noon on the chosen day, so the photo lands on that day in any US time zone.
 const noonOf = (day: string) => (day ? `${day}T12:00:00-05:00` : null);
@@ -128,6 +198,9 @@ export async function importFromDrive(text: string, details: PhotoDetails): Prom
   const drive = readOnlyDrive();
   const share = `Share it with ${serviceAccountEmail() || "the app's Google account"} (Viewer), or set it to "Anyone with the link", then try again.`;
 
+  const crew = details.kind === "Crew";
+  let copies = 0;
+  let copyLimitHit = false;
   const addFile = async (file: { id?: string | null; mimeType?: string | null; createdTime?: string | null; imageMediaMetadata?: { time?: string | null } | null }) => {
     if (!file.id) return;
     if (!String(file.mimeType ?? "").startsWith("image/")) {
@@ -136,9 +209,32 @@ export async function importFromDrive(text: string, details: PhotoDetails): Prom
     }
     // The day typed on the form wins; else the file's own date.
     const takenAt = noonOf(details.takenOn) ?? file.createdTime ?? null;
-    const added = await addRow(`drive-import:${file.id}`, "drive", `https://drive.google.com/file/d/${file.id}/view`, details, takenAt);
-    if (added) result.added++;
-    else result.already++;
+    const sourceKey = `drive-import:${file.id}`;
+    if (!crew) {
+      const added = await addRow(sourceKey, "drive", `https://drive.google.com/file/d/${file.id}/view`, details, takenAt);
+      if (added) result.added++;
+      else result.already++;
+      return;
+    }
+    // Crew: copied into Blob, so the customer can open it. Checked first, so
+    // a photo already here is never copied again.
+    if (await sourceKeyTaken(sourceKey)) {
+      result.already++;
+      return;
+    }
+    if (copies >= MAX_CREW_COPIES) {
+      copyLimitHit = true;
+      return;
+    }
+    copies++;
+    try {
+      const copy = await copyDrivePhotoToBlob(file.id, details.accountId);
+      const added = await addRow(sourceKey, "blob", copy.url, details, takenAt, true, copy.thumbUrl);
+      if (added) result.added++;
+      else result.already++;
+    } catch (error) {
+      result.problems.push(error instanceof DriveCopyError ? `${file.id}: ${error.message}` : `${file.id}: could not be copied. Try again.`);
+    }
   };
 
   let unchecked = false;
@@ -171,7 +267,11 @@ export async function importFromDrive(text: string, details: PhotoDetails): Prom
       }
     } catch (error) {
       if (driveIsOff(error)) {
-        if (ref.kind === "file") {
+        if (crew) {
+          // A Crew photo must be copied, and the app cannot read Drive at all.
+          const text = "Crew photos are copied from Drive into the app, and the app cannot read Google Drive yet (the Google Drive API is not turned on). Upload them from this device instead.";
+          if (!result.problems.includes(text)) result.problems.push(text);
+        } else if (ref.kind === "file") {
           // The app cannot check the file, so it is listed as given. Its picture
           // shows as long as the file is set to "Anyone with the link" in Drive.
           const added = await addRow(`drive-link:${ref.id}`, "drive", `https://drive.google.com/file/d/${ref.id}/view`, details, noonOf(details.takenOn));
@@ -186,6 +286,7 @@ export async function importFromDrive(text: string, details: PhotoDetails): Prom
       }
     }
   }
+  if (copyLimitHit) result.problems.push(`${MAX_CREW_COPIES} photos were copied this time. Tap "Add from Google Drive" again with the same link for the rest (photos already copied are skipped).`);
   if (unchecked) result.problems.push("These were added without the app being able to look at them. If a photo shows blank, open it in Drive, tap Share and set \"Anyone with the link\".");
   return result;
 }
