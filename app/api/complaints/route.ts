@@ -8,6 +8,7 @@ import {
   appendComplaint,
   closeComplaint,
   complaintsOnPostgres,
+  editComplaint,
   getComplaintForResend,
   getComplaintsAppsScriptShape,
 } from "@/lib/data/complaints";
@@ -515,6 +516,65 @@ export async function POST(request: NextRequest) {
         message: data.message || "Resend attempted.",
         scriptResponse: data,
       });
+    }
+
+    // The complaint page's Edit -> Save: the SAME complaint is updated (same
+    // number). Never a new complaint, and nothing is sent to the office or
+    // the sub. Before, this request fell through to "create" below, so every
+    // Save made a copy and sent "New complaint" emails and texts.
+    if (requestedAction === "editComplaint") {
+      if (!onPostgres) {
+        return NextResponse.json({ success: false, error: "Editing a complaint works only with the complaints in the database. Nothing was saved." }, { status: 409 });
+      }
+      const editActor = await getAdminIdentity(request);
+      if (!editActor) return NextResponse.json({ success: false, error: "Log in first. Nothing was saved." }, { status: 401 });
+      const id = clean(complaint.id || complaint.complaintId || body.id);
+      const accountName = clean(complaint.accountName || getText(complaint, "Account Name"));
+      if (!id) return NextResponse.json({ success: false, error: "Which complaint? Reload the page. Nothing was saved." }, { status: 400 });
+      if (!accountName) return NextResponse.json({ success: false, error: "Pick the account. Nothing was saved." }, { status: 400 });
+      let edited: Awaited<ReturnType<typeof editComplaint>>;
+      try {
+        edited = await editComplaint({
+          rowNumber: complaint.rowNumber || body.rowNumber || "",
+          id,
+          accountId: clean(complaint.accountId || getText(complaint, "Account ID")),
+          accountName,
+          complaintDate: clean(complaint.complaintDate || complaint.date),
+          issue: clean(complaint.issue || complaint.description),
+          priority: clean(complaint.priority || complaint.severity),
+          status: clean(complaint.status),
+          complaintValidity: clean(complaint.complaintValidity || complaint.validity),
+          assignedTo: clean(complaint.assignedTo || complaint.manager),
+          reportedBy: clean(complaint.reportedBy),
+          followUpDate: clean(complaint.followUpDate || complaint.lastFollowUp),
+          notes: clean(complaint.notes),
+          resolution: clean(complaint.resolution || complaint.resolutionNotes),
+        });
+      } catch (error) {
+        console.error("[complaints editComplaint]", error instanceof Error ? error.message : error);
+        const message = error instanceof Error && error.message.startsWith("Complaint not found") ? error.message : "The changes were not saved. Try again.";
+        return NextResponse.json({ success: false, error: message }, { status: error instanceof Error && error.message.startsWith("Complaint not found") ? 404 : 500 });
+      }
+      if (edited.changes.length > 0) {
+        // "Complaint edited" with what changed (long texts shortened in the log line).
+        const short = (text: string) => (text.length > 60 ? `${text.slice(0, 57)}...` : text || "(blank)");
+        await logActivity({
+          actorAccountId: editActor.accountId ?? null,
+          actorRole: editActor.role ?? "manager",
+          actorName: editActor.name || "",
+          action: "update",
+          entityType: "complaint",
+          entityId: edited.id,
+          detail: `Complaint edited: ${edited.changes.map((change) => `${change.label}: ${short(change.before)} → ${short(change.after)}`).join("; ")}`,
+        }).catch((error) => console.error("[complaints editComplaint] log:", error instanceof Error ? error.message : error));
+      }
+      return NextResponse.json({ success: true, id: edited.id, rowNumber: edited.rowNumber, changes: edited.changes, message: edited.changes.length ? "Complaint updated." : "Nothing changed." });
+    }
+
+    // Only an add makes a new complaint. Anything else this route does not
+    // know is refused (it used to become a new complaint).
+    if (requestedAction !== "addComplaint") {
+      return NextResponse.json({ success: false, error: `Unknown action "${requestedAction}". Nothing was saved.` }, { status: 400 });
     }
 
     // Creation writes directly to the Complaints tab via the Sheets API

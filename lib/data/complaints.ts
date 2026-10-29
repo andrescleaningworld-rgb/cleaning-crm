@@ -12,7 +12,7 @@ import * as sheets from "@/lib/googleSheets";
 import * as pg from "@/lib/pg/complaints";
 
 export type { ComplaintInput } from "@/lib/googleSheets";
-export type { AppsScriptComplaint, CloseComplaintInput, ComplaintForResend } from "@/lib/pg/complaints";
+export type { AppsScriptComplaint, CloseComplaintInput, ComplaintChange, ComplaintForResend, EditComplaintInput } from "@/lib/pg/complaints";
 
 export const complaintsOnPostgres = () => isPostgres("COMPLAINTS");
 
@@ -23,4 +23,6 @@ export const appendComplaint: typeof sheets.appendComplaint = (...args) =>
 // resendComplaintNotification replacements.
 export const getComplaintsAppsScriptShape = pg.getComplaintsAppsScriptShape;
 export const closeComplaint = pg.closeComplaint;
+// The complaint page's Edit -> Save: updates the same complaint (Postgres only).
+export const editComplaint = pg.editComplaint;
 export const getComplaintForResend = pg.getComplaintForResend;
