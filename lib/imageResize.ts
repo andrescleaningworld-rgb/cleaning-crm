@@ -185,9 +185,28 @@ export function preparePhoto(file: Blob, name: string, sizes: { fullSide: number
   });
 }
 
-/** Plain English for staff screens. (Crew Link has its own EN/ES/PT words.) */
-export function photoProblemText(problem: PhotoProblem): string {
+/** Why a file for a "PDF or photo" upload (insurance, estimates) cannot go: a photo problem, or a PDF too big to send. */
+export type UploadProblem = PhotoProblem | "pdfTooBig";
+
+/**
+ * A file for an upload that takes a PDF or a photo. A PDF goes as it is (when
+ * it fits in one upload); anything else is made small as a photo (2000px, so
+ * the print on a certificate or estimate stays readable) and sent as a JPEG.
+ */
+export async function prepareDocOrPhoto(file: File): Promise<{ ok: true; file: File } | { ok: false; problem: UploadProblem }> {
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+    return file.size > MAX_SEND_BYTES ? { ok: false, problem: "pdfTooBig" } : { ok: true, file };
+  }
+  const prepared = await preparePhoto(file, file.name, { fullSide: 2000, quality: 0.85 });
+  if (!prepared.ok) return prepared;
+  return { ok: true, file: new File([prepared.full], `${file.name.replace(/\.[^.]*$/, "") || "photo"}.jpg`, { type: "image/jpeg" }) };
+}
+
+/** Plain English for staff screens. (Crew and sub screens: lib/photoProblemWords.ts.) */
+export function photoProblemText(problem: UploadProblem): string {
   switch (problem) {
+    case "pdfTooBig":
+      return "This PDF is bigger than 4 MB, too big to send. Save a smaller copy, or take a photo of it instead.";
     case "heic":
       return 'An iPhone photo (HEIC) this device cannot open. Add it from the iPhone itself, or on the iPhone set Settings → Camera → Formats → "Most Compatible".';
     case "unreadable":

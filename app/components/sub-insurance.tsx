@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { BigButton, Card, EmptyState, ErrorBox, Field, StatusPill, TextAreaField, showToast } from "@/app/ui";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { photoProblemText, prepareDocOrPhoto, readUploadReply } from "@/lib/imageResize";
 import { INSURANCE_BADGE, findInsurance, niceDay, type CoiDoc, type SubInsurance } from "@/lib/subInsurance";
 
 /* ---------- reading ---------- */
@@ -72,20 +72,20 @@ export function InsuranceBadge({ map, sub, showSoon = false }: { map: Map<string
 
 /* ---------- uploading ---------- */
 
-/** A photo is made smaller first (Vercel takes up to 4.5 MB). A PDF goes as it is. */
-async function prepareFile(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  const { blob, wasResized } = await resizeImageForUpload(file);
-  return wasResized ? new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: blob.type || "image/jpeg" }) : file;
-}
-
+/**
+ * Sends a certificate. A photo is made small first and a PDF goes as it is
+ * (lib/imageResize.ts prepareDocOrPhoto): Vercel takes up to 4.5 MB, and a
+ * full-size original is never sent. When it cannot go, `error` says why.
+ */
 export async function sendCoi(url: string, file: File, expiresOn: string, extra: Record<string, string> = {}): Promise<{ success?: boolean; error?: string }> {
+  const prepared = await prepareDocOrPhoto(file);
+  if (!prepared.ok) return { success: false, error: photoProblemText(prepared.problem) };
   const form = new FormData();
-  form.set("file", await prepareFile(file));
+  form.set("file", prepared.file);
   form.set("expiresOn", expiresOn);
   for (const [key, value] of Object.entries(extra)) form.set(key, value);
-  const response = await fetch(url, { method: "POST", body: form });
-  return (await response.json().catch(() => ({ success: false }))) as { success?: boolean; error?: string };
+  const reply = await readUploadReply<{ success?: boolean; error?: string }>(await fetch(url, { method: "POST", body: form }));
+  return reply.ok ? reply.data : { success: false, error: reply.error };
 }
 
 function UploadForm({ subId, onDone, onCancel }: { subId: string; onDone: () => void; onCancel: () => void }) {
@@ -106,7 +106,8 @@ function UploadForm({ subId, onDone, onCancel }: { subId: string; onDone: () => 
       insuranceChanged();
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "That did not save. Try again.");
+      // A dropped connection throws a TypeError ("Failed to fetch"): say it plainly.
+      setError(err instanceof Error && !(err instanceof TypeError) ? err.message : "That did not save: no connection. Check the signal and try again.");
     } finally {
       setBusy(false);
     }

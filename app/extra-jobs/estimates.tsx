@@ -7,28 +7,33 @@
 
 import { friendlyDate } from "@/app/ui";
 import { isPdfEstimate, type ExtraJob, type ExtraJobEstimate } from "@/lib/extraJobs";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { photoProblemText, prepareDocOrPhoto, readUploadReply } from "@/lib/imageResize";
 import styles from "./extra-jobs.module.css";
 
 /** What the file picker takes: PDFs and photos (a phone can take one right away). */
 export const ESTIMATE_ACCEPT = "application/pdf,image/*";
 
-/** A photo is made smaller first (Vercel takes up to 4.5 MB in one request). A PDF goes as it is. */
-async function prepare(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  const { blob, wasResized } = await resizeImageForUpload(file);
-  return wasResized ? new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: blob.type || "image/jpeg" }) : file;
-}
-
-/** Uploads one estimate file to the job. Gives back the job as it is now; throws a plain sentence when it did not upload. */
+/**
+ * Uploads one estimate file to the job. A photo is made small first and a PDF
+ * goes as it is (lib/imageResize.ts prepareDocOrPhoto): Vercel takes up to
+ * 4.5 MB in one request, and a full-size original is never sent. Gives back
+ * the job as it is now; throws a plain sentence when it did not upload.
+ */
 export async function uploadEstimate(jobId: string, file: File): Promise<ExtraJob> {
+  const prepared = await prepareDocOrPhoto(file);
+  if (!prepared.ok) throw new Error(photoProblemText(prepared.problem));
   const form = new FormData();
   form.set("jobId", jobId);
-  form.set("file", await prepare(file));
-  const response = await fetch("/api/extra-jobs/estimates", { method: "POST", body: form });
-  const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; job?: ExtraJob };
-  if (!response.ok || body.success !== true || !body.job) throw new Error(body.error ?? "The estimate did not upload. Try again.");
-  return body.job;
+  form.set("file", prepared.file);
+  let response: Response;
+  try {
+    response = await fetch("/api/extra-jobs/estimates", { method: "POST", body: form });
+  } catch {
+    throw new Error("No connection. Check the signal and try again.");
+  }
+  const reply = await readUploadReply<{ success?: boolean; error?: string; job?: ExtraJob }>(response);
+  if (!reply.ok || !reply.data.job) throw new Error(reply.error || "The estimate did not upload. Try again.");
+  return reply.data.job;
 }
 
 /** Each estimate: a picture (or PDF), its name, View, and who added it when. */

@@ -12,7 +12,8 @@ import Link from "next/link";
 import PinKeypad from "@/app/components/PinKeypad";
 import LangToggle from "@/app/team-hub/[token]/LangToggle";
 import { useTeamHubLang, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { preparePhoto } from "@/lib/imageResize";
+import { photoProblemWords } from "@/lib/photoProblemWords";
 import { equipmentCheckStrings, INSTALL_STEPS, type InstallPlatform } from "../strings";
 
 type Person = { staffId: string; name: string; isNew: boolean };
@@ -34,7 +35,6 @@ type Screen =
 const IDLE_SIGN_OUT_MS = 2 * 60 * 1000;
 const DONE_SCREEN_MS = 3000;
 const MAX_PHOTOS = 3;
-const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 
 function useEquipmentCheckManifestLink(key: string) {
   useEffect(() => {
@@ -302,6 +302,7 @@ export default function EquipmentCheckPage() {
             item={screen.item}
             condition={screen.condition}
             s={s}
+            lang={lang}
             onExpired={() => signOut(s.signedOut)}
             onSent={finishReport}
           />
@@ -643,7 +644,7 @@ async function sendReport(
   condition: Condition,
   notes: string,
   photos: Photo[]
-): Promise<"ok" | "expired" | "error" | "offline"> {
+): Promise<"ok" | "expired" | "error" | "offline" | "tooBig"> {
   const form = new FormData();
   form.append("equipmentId", equipmentId);
   form.append("condition", condition);
@@ -652,7 +653,9 @@ async function sendReport(
   try {
     const res = await fetch(`${apiBase}/reports`, { method: "POST", body: form });
     if (res.status === 401) return "expired";
-    const data = (await res.json()) as { success?: boolean };
+    // Vercel refuses uploads over 4.5 MB with its own page, not our answer.
+    if (res.status === 413) return "tooBig";
+    const data = (await res.json().catch(() => ({}))) as { success?: boolean };
     return res.ok && data.success ? "ok" : "error";
   } catch {
     return "offline";
@@ -867,6 +870,7 @@ function DetailsScreen({
   item,
   condition,
   s,
+  lang,
   onExpired,
   onSent,
 }: {
@@ -874,6 +878,7 @@ function DetailsScreen({
   item: EquipmentCard;
   condition: Exclude<Condition, "good">;
   s: Strings;
+  lang: TeamHubLang;
   onExpired: () => void;
   onSent: () => void;
 }) {
@@ -896,11 +901,13 @@ function DetailsScreen({
     const room = MAX_PHOTOS - photos.length;
     const added: Photo[] = [];
     for (const file of Array.from(files).slice(0, room)) {
-      const { blob } = await resizeImageForUpload(file);
-      if (blob.size > MAX_PHOTO_BYTES) {
-        setError(s.photoTooBig);
+      // Made small here (never the full-size original): a big phone photo is fine.
+      const prepared = await preparePhoto(file, file.name, { fullSide: 1600, quality: 0.82 });
+      if (!prepared.ok) {
+        setError(photoProblemWords(lang, prepared.problem));
         continue;
       }
+      const blob = prepared.full;
       added.push({ blob, previewUrl: URL.createObjectURL(blob) });
     }
     setPhotos((current) => [...current, ...added].slice(0, MAX_PHOTOS));
@@ -921,7 +928,7 @@ function DetailsScreen({
     setSending(false);
     if (result === "ok") onSent();
     else if (result === "expired") onExpired();
-    else setError(result === "offline" ? s.noSignal : s.somethingWrong);
+    else setError(result === "tooBig" ? photoProblemWords(lang, "tooBig") : result === "offline" ? s.noSignal : s.somethingWrong);
   }
 
   const conditionBanner =

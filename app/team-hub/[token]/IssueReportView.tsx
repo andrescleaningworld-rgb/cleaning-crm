@@ -21,7 +21,8 @@ import WorkerAndTime from "./WorkerAndTime";
 import { useState } from "react";
 import type { TeamHubLang } from "../teamHubStrings";
 import { teamHubStrings, TEAM_HUB_STRINGS } from "../teamHubStrings";
-import { resizeImageForUpload } from "@/lib/imageResize";
+import { preparePhoto } from "@/lib/imageResize";
+import { photoProblemWords } from "@/lib/photoProblemWords";
 
 type Category = keyof (typeof TEAM_HUB_STRINGS)["en"]["issues"]["categories"];
 const CATEGORIES: { key: Category; icon: string }[] = [
@@ -76,11 +77,13 @@ export default function IssueReportView({
       setError(s.tooManyPhotos);
     }
     for (const file of files.slice(0, room)) {
-      if (file.size > 8 * 1024 * 1024) {
-        setError(s.photoTooBig);
+      // Made small here (never the full-size original): a big phone photo is fine.
+      const prepared = await preparePhoto(file, file.name, { fullSide: 1600, quality: 0.82 });
+      if (!prepared.ok) {
+        setError(photoProblemWords(lang, prepared.problem));
         continue;
       }
-      const { blob } = await resizeImageForUpload(file);
+      const blob = prepared.full;
       setPhotos((prev) => [...prev, { id: crypto.randomUUID(), blob, previewUrl: URL.createObjectURL(blob) }]);
     }
   }
@@ -108,7 +111,12 @@ export default function IssueReportView({
       photos.forEach((p, i) => formData.append("photos", p.blob, `photo-${i}.jpg`));
 
       const res = await fetch(`${apiBase ?? `/api/team-hub/${encodeURIComponent(token)}`}/issues`, { method: "POST", body: formData });
-      const data = await res.json();
+      // Vercel refuses uploads over 4.5 MB with its own page, not our answer.
+      if (res.status === 413) {
+        setError(photoProblemWords(lang, "tooBig"));
+        return;
+      }
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!res.ok || !data.success) {
         setError(lang === "en" && data.error ? data.error : common.somethingWrong);
         return;

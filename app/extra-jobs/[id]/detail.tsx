@@ -72,10 +72,19 @@ export default function ExtraJobDetail({ id }: { id: string }) {
     setError("");
     setUploadingEstimate(true);
     try {
-      for (const file of Array.from(files)) setJob(await uploadEstimate(job.id, file));
-      showToast("Estimate added.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The estimate did not upload. Try again.");
+      // Each file on its own: one that fails does not stop the others, and each failure says why.
+      const failed: string[] = [];
+      let added = 0;
+      for (const file of Array.from(files)) {
+        try {
+          setJob(await uploadEstimate(job.id, file));
+          added++;
+        } catch (err) {
+          failed.push(`${file.name}: ${err instanceof Error ? err.message : "did not upload."}`);
+        }
+      }
+      if (added > 0) showToast(added === 1 ? "Estimate added." : `${added} estimates added.`);
+      if (failed.length > 0) setError(`Not uploaded: ${failed.join(" · ")}`);
     } finally {
       setUploadingEstimate(false);
       if (estimateInput.current) estimateInput.current.value = "";
