@@ -1,7 +1,8 @@
 "use client";
 
 // Crew Link "Send photos": the photos waiting on the phone. Each photo is
-// made small first (lib/crewPhotos.ts sizes), kept in the phone's own storage
+// made small first (lib/crewPhotos.ts sizes, lib/imageResize.ts preparePhoto,
+// one photo at a time), kept in the phone's own storage
 // (IndexedDB), and sent one at a time to app/api/porter-checklist/[code]/photos.
 // When the signal drops it waits and tries again by itself (and right away
 // when the phone says it is back online). Close the page and the photos stay
@@ -11,9 +12,13 @@
 //
 // Without IndexedDB (some private windows) the list lives only while the
 // page is open.
+//
+// The full-size original is never sent (Vercel refuses uploads over 4.5 MB).
+// A photo that cannot be made small, or that the server refuses, is not
+// sent, and the screen says why (state.failed, words in strings.ts photoWhy).
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { shrinkImage } from "@/lib/imageResize";
+import { preparePhoto, type PhotoProblem } from "@/lib/imageResize";
 import { CREW_PHOTO_QUALITY, CREW_PHOTO_SIZE, CREW_THUMB_SIZE, type CrewPhotoTag } from "@/lib/crewPhotos";
 
 type Waiting = {
@@ -26,6 +31,9 @@ type Waiting = {
   thumb: Blob | null;
   addedAt: number;
 };
+
+/** Why a photo was not sent: it could not be made small, the server refused it, or the link is off. */
+export type CrewPhotoFail = PhotoProblem | "refused" | "linkOff";
 
 /* ---------- the phone's storage ---------- */
 
@@ -85,8 +93,8 @@ async function listWaiting(code: string): Promise<Waiting[]> {
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** "sent": done. "drop": this photo can never go (not a photo, link off). "later": no signal or a server hiccup. */
-async function sendOne(item: Waiting): Promise<"sent" | "drop" | "later"> {
+/** "sent": done. "drop": this photo can never go (and why). "later": no signal or a server hiccup. */
+async function sendOne(item: Waiting): Promise<{ result: "sent" | "later" } | { result: "drop"; why: CrewPhotoFail }> {
   try {
     const form = new FormData();
     form.append("clientId", item.id);
@@ -96,12 +104,14 @@ async function sendOne(item: Waiting): Promise<"sent" | "drop" | "later"> {
     form.append("full", new File([item.full], "photo.jpg", { type: item.full.type || "image/jpeg" }));
     if (item.thumb) form.append("thumb", new File([item.thumb], "thumb.jpg", { type: "image/jpeg" }));
     const response = await fetch(`/api/porter-checklist/${encodeURIComponent(item.code)}/photos`, { method: "POST", body: form });
-    if (response.ok) return "sent";
-    // 404 (link off) and 400 (bad photo) will not change by trying again.
-    if (response.status === 400 || response.status === 404 || response.status === 413) return "drop";
-    return "later";
+    if (response.ok) return { result: "sent" };
+    // 404 (link off), 413 (too big) and 400 (bad photo) will not change by trying again.
+    if (response.status === 404) return { result: "drop", why: "linkOff" };
+    if (response.status === 413) return { result: "drop", why: "tooBig" };
+    if (response.status === 400) return { result: "drop", why: "refused" };
+    return { result: "later" };
   } catch {
-    return "later";
+    return { result: "later" };
   }
 }
 
@@ -110,8 +120,8 @@ export type PhotoQueueState = {
   waiting: number;
   /** Sent in this round (since the last time everything was sent). */
   sent: number;
-  /** Photos that could never go (not a photo, or the link was turned off). */
-  dropped: number;
+  /** Photos that could not go in this round, each with why. */
+  failed: CrewPhotoFail[];
   /** Getting photos ready (made small) before they go in the list. */
   preparing: number;
   /** Waiting for the signal to come back. */
@@ -121,7 +131,7 @@ export type PhotoQueueState = {
 };
 
 export function usePhotoQueue(code: string) {
-  const [state, setState] = useState<PhotoQueueState>({ waiting: 0, sent: 0, dropped: 0, preparing: 0, offline: false, resumed: 0 });
+  const [state, setState] = useState<PhotoQueueState>({ waiting: 0, sent: 0, failed: [], preparing: 0, offline: false, resumed: 0 });
   const working = useRef(false);
   const wake = useRef<(() => void) | null>(null);
 
@@ -134,8 +144,8 @@ export function usePhotoQueue(code: string) {
         const list = await listWaiting(code);
         setState((current) => ({ ...current, waiting: list.length }));
         if (list.length === 0) break;
-        const result = await sendOne(list[0]);
-        if (result === "later") {
+        const outcome = await sendOne(list[0]);
+        if (outcome.result === "later") {
           setState((current) => ({ ...current, offline: true }));
           // Wait, longer each time (up to 30 seconds), or until the phone is back online.
           await Promise.race([sleep(delay), new Promise<void>((resolve) => (wake.current = resolve))]);
@@ -145,7 +155,12 @@ export function usePhotoQueue(code: string) {
         }
         delay = 2000;
         await dropWaiting(list[0].id);
-        setState((current) => ({ ...current, offline: false, sent: current.sent + (result === "sent" ? 1 : 0), dropped: current.dropped + (result === "drop" ? 1 : 0) }));
+        setState((current) => ({
+          ...current,
+          offline: false,
+          sent: current.sent + (outcome.result === "sent" ? 1 : 0),
+          failed: outcome.result === "drop" ? [...current.failed, outcome.why] : current.failed,
+        }));
       }
     } finally {
       working.current = false;
@@ -191,10 +206,14 @@ export function usePhotoQueue(code: string) {
   const add = useCallback(
     async (files: File[], name: string, tag: CrewPhotoTag) => {
       // A new round starts when nothing is waiting.
-      setState((current) => (current.waiting === 0 ? { ...current, sent: 0, dropped: 0, resumed: 0, preparing: files.length } : { ...current, preparing: current.preparing + files.length }));
+      setState((current) => (current.waiting === 0 ? { ...current, sent: 0, failed: [], resumed: 0, preparing: files.length } : { ...current, preparing: current.preparing + files.length }));
       for (const file of files) {
-        const full = (await shrinkImage(file, CREW_PHOTO_SIZE, CREW_PHOTO_QUALITY)) ?? file;
-        const thumb = await shrinkImage(file, CREW_THUMB_SIZE, CREW_PHOTO_QUALITY);
+        const prepared = await preparePhoto(file, file.name, { fullSide: CREW_PHOTO_SIZE, thumbSide: CREW_THUMB_SIZE, quality: CREW_PHOTO_QUALITY });
+        if (!prepared.ok) {
+          setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), failed: [...current.failed, prepared.problem] }));
+          continue;
+        }
+        const { full, thumb } = prepared;
         // The camera's own time when the phone gives it, else now.
         const takenAt = new Date(file.lastModified || Date.now()).toISOString();
         await saveWaiting({ id: newId(), code, name, tag, takenAt, full, thumb, addedAt: Date.now() });

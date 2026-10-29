@@ -18,7 +18,7 @@ import ReadyBadge from "./ready-badge";
 import { FREQUENCY_OPTIONS, afterFrequencyChange, frequencyChoice, perCleaningText } from "@/lib/frequency";
 import { cleaningTimeText, parseCleaningTime } from "@/lib/cleaningTime";
 import { parseClock, toClock } from "@/lib/schedule-time";
-import { shrinkImage } from "@/lib/imageResize";
+import { photoProblemText, preparePhoto, readUploadReply } from "@/lib/imageResize";
 import {
   ANYTHING_ELSE_SHOT,
   SETUP_SCREENS,
@@ -484,27 +484,37 @@ function PhotosScreen({ wizard, accountId, accountName, busy, run, next }: Scree
     const label = shotFor.current;
     setProblem("");
     let added = 0;
+    // Every photo that did not save, with why (not just the last one).
+    const failed: string[] = [];
     for (const [i, file] of files.entries()) {
       setUploading(files.length > 1 ? `Saving photo ${i + 1} of ${files.length}…` : "Saving the photo…");
+      const which = files.length > 1 ? `Photo ${i + 1}: ` : "";
       try {
-        // Small in the browser: the photo (1600px) and its copy for screens (400px).
-        const full = (await shrinkImage(file, 1600, 0.8)) ?? file;
-        const thumb = await shrinkImage(file, 400, 0.8);
+        // Small in the browser: the photo (1600px) and its copy for screens (400px). Never the full-size original.
+        const prepared = await preparePhoto(file, file.name, { fullSide: 1600, thumbSide: 400, quality: 0.8 });
+        if (!prepared.ok) {
+          failed.push(`${which}${photoProblemText(prepared.problem)}`);
+          continue;
+        }
+        const { full, thumb } = prepared;
         const form = new FormData();
         form.append("accountId", accountId);
         form.append("accountName", accountName);
         form.append("label", label);
-        form.append("full", new File([full], "photo.jpg", { type: full.type || "image/jpeg" }));
+        form.append("full", new File([full], "photo.jpg", { type: "image/jpeg" }));
         if (thumb) form.append("thumb", new File([thumb], "thumb.jpg", { type: "image/jpeg" }));
-        const response = await fetch("/api/setup-wizard", { method: "POST", body: form });
-        const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
-        if (!response.ok || !data.success) throw new Error(data.error || "That photo did not save.");
+        const reply = await readUploadReply(await fetch("/api/setup-wizard", { method: "POST", body: form }));
+        if (!reply.ok) {
+          failed.push(`${which}${reply.error}`);
+          continue;
+        }
         added++;
-      } catch (err) {
-        setProblem(err instanceof Error ? err.message : "That photo did not save. Try again.");
+      } catch {
+        failed.push(`${which}No connection. Check the signal and take it again.`);
       }
     }
     setUploading("");
+    if (failed.length) setProblem([failed.length === files.length ? "Not saved:" : `${failed.length} of ${files.length} not saved:`, ...failed].join("\n"));
     if (added > 0) await run(async () => undefined);
   };
 
@@ -565,7 +575,11 @@ function PhotosScreen({ wizard, accountId, accountName, busy, run, next }: Scree
         })}
       </div>
       {uploading ? <p className="text-xl font-bold text-slate-700">{uploading}</p> : null}
-      {problem ? <p className="rounded-2xl bg-red-50 px-4 py-3 text-lg font-bold text-red-800">{problem}</p> : null}
+      {problem ? (
+        <p className="whitespace-pre-line rounded-2xl bg-red-50 px-4 py-3 text-lg font-bold text-red-800" role="alert">
+          {problem}
+        </p>
+      ) : null}
       <button type="button" className={BIG_GREEN} disabled={working} onClick={next}>
         Next
       </button>

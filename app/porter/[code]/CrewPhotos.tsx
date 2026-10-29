@@ -10,8 +10,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { CREW_PHOTO_MAX_BATCH, CREW_PHOTO_TAGS, type CrewPhotoTag } from "@/lib/crewPhotos";
 import type { CrewLinkStrings } from "./strings";
-import { usePhotoQueue } from "./photo-queue";
+import { usePhotoQueue, type CrewPhotoFail } from "./photo-queue";
 import { WhoAndWhen } from "./ui";
+
+/** Each reason once, with how many photos it was. */
+function reasons(failed: CrewPhotoFail[]): [CrewPhotoFail, number][] {
+  const counts = new Map<CrewPhotoFail, number>();
+  for (const why of failed) counts.set(why, (counts.get(why) ?? 0) + 1);
+  return [...counts];
+}
 
 export default function CrewPhotos({
   code,
@@ -141,10 +148,25 @@ export default function CrewPhotos({
           <p className="mt-3 text-xl font-bold text-blue-900">⚠️ {s.keepOpen}</p>
           {state.offline ? <p className="mt-2 text-lg font-semibold text-amber-800">{s.waitingForSignal}</p> : null}
         </div>
-      ) : state.sent > 0 ? (
+      ) : state.sent > 0 && state.failed.length === 0 ? (
         <div className="rounded-3xl bg-green-600 p-4 text-center text-3xl font-black text-white" role="status">
           {s.allSent}
-          {state.dropped > 0 ? <p className="mt-1 text-lg font-semibold">{s.notSent(state.dropped)}</p> : null}
+        </div>
+      ) : null}
+
+      {/* Photos that did not go, with why (also while others are still sending). */}
+      {state.failed.length > 0 ? (
+        <div className="rounded-3xl border-4 border-red-600 bg-red-50 p-4" role="alert">
+          {!going && state.sent > 0 ? <p className="text-2xl font-black text-green-800">{`✓ ${state.sent}`}</p> : null}
+          <p className="text-2xl font-black text-red-800">{s.notSent(state.failed.length)}</p>
+          <ul className="mt-2 space-y-2">
+            {reasons(state.failed).map(([why, count]) => (
+              <li key={why} className="text-lg font-semibold text-red-900">
+                {count > 1 ? `${count} × ` : ""}
+                {s.photoWhy[why]}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </div>
