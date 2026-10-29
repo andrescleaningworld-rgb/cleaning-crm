@@ -21,6 +21,21 @@ function isAuthRoute(pathname) {
   );
 }
 
+const CREW_LINK_WAIT_MS = 4000;
+
+async function crewLinkPage(event) {
+  const cache = await caches.open(CACHE_NAME);
+  const kept = await cache.match(event.request);
+  const network = fetch(event.request).then((response) => {
+    if (response && response.status === 200) cache.put(event.request, response.clone()).catch(() => undefined);
+    return response;
+  });
+  if (!kept) return network.catch(() => Response.error());
+  network.catch(() => undefined); // a later failure is fine: the kept copy was shown
+  const slow = new Promise((resolve) => setTimeout(() => resolve(kept), CREW_LINK_WAIT_MS));
+  return Promise.race([network.catch(() => kept), slow]);
+}
+
 self.addEventListener("install", function (event) {
   event.waitUntil(
     // One file at a time, and a file that fails is skipped: with addAll, one
@@ -79,6 +94,16 @@ self.addEventListener("fetch", function (event) {
 
   const isNavigationRequest =
     event.request.mode === "navigate" || event.request.destination === "document";
+
+  // Crew Link pages (/porter/<code>): crews open them inside buildings with
+  // almost no signal. Network first, but when a kept copy exists, a page
+  // that takes longer than a few seconds gets the kept copy (the network
+  // answer still refreshes it for next time). Its checklist data is kept by
+  // the page itself (app/porter/[code]/page.tsx).
+  if (isNavigationRequest && url.pathname.startsWith("/porter/")) {
+    event.respondWith(crewLinkPage(event));
+    return;
+  }
 
   if (isNavigationRequest) {
     // Network-first for HTML/navigation so users always get the latest shell;

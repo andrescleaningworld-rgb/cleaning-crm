@@ -284,23 +284,74 @@ export type NewSubmissionInput = {
   sections: ChecklistSubmissionSection[];
   completedCount: number;
   totalCount: number;
+  /** Route screen: the id the phone made for this checklist (sent again after a lost answer = kept once). */
+  clientId?: string | null;
+  /** Route screen: when the crew tapped Finish (already checked to be believable). Null = now. */
+  submittedAt?: string | null;
 };
 
-export async function insertSubmission(input: NewSubmissionInput): Promise<number> {
+let clientIdReadyCache = false;
+
+/** Migration 066 is in: checklists carry the phone's id, so one sent twice is kept once. */
+export async function submissionClientIdReady(): Promise<boolean> {
+  if (clientIdReadyCache) return true;
+  try {
+    const rows = await getSql()`
+      SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'checklist_submissions' AND column_name = 'client_id') AS ok
+    `;
+    clientIdReadyCache = (rows[0] as { ok: boolean } | undefined)?.ok === true;
+  } catch {
+    clientIdReadyCache = false;
+  }
+  return clientIdReadyCache;
+}
+
+/**
+ * Saves one checklist. `already` = the same checklist (same phone id) was
+ * saved before: nothing new is written and its first id comes back. Before
+ * migration 066 the phone id is not kept (no check for a second copy).
+ */
+export async function insertSubmission(input: NewSubmissionInput): Promise<{ id: number; already: boolean }> {
   const sql = getSql();
+  const clientId = input.clientId && (await submissionClientIdReady()) ? input.clientId : null;
+  if (clientId) {
+    const existing = await sql`SELECT id FROM checklist_submissions WHERE client_id = ${clientId} LIMIT 1`;
+    if (existing[0]) return { id: (existing[0] as { id: number }).id, already: true };
+    const rows = await sql`
+      INSERT INTO checklist_submissions (
+        account_id, account_name, location_name, porter_name, week_of, time_in, time_out,
+        completed_count, total_count, general_notes, items_snapshot_json, tab_id, tab_name, started_at,
+        submitted_at, client_id
+      ) VALUES (
+        ${input.accountId}, ${input.accountName}, ${input.locationName}, ${input.porterName},
+        ${input.weekOf}, ${input.timeIn}, ${input.timeOut},
+        ${input.completedCount}, ${input.totalCount}, ${input.generalNotes},
+        ${JSON.stringify(input.sections)}::jsonb, ${input.tabId}, ${input.tabName}, ${input.startedAt},
+        COALESCE(${input.submittedAt ?? null}::timestamptz, now()), ${clientId}
+      )
+      ON CONFLICT (client_id) WHERE client_id IS NOT NULL DO NOTHING
+      RETURNING id
+    `;
+    if (rows[0]) return { id: (rows[0] as { id: number }).id, already: false };
+    // The same checklist arrived twice at the same moment: the first one is kept.
+    const again = await sql`SELECT id FROM checklist_submissions WHERE client_id = ${clientId} LIMIT 1`;
+    return { id: (again[0] as { id: number }).id, already: true };
+  }
   const rows = await sql`
     INSERT INTO checklist_submissions (
       account_id, account_name, location_name, porter_name, week_of, time_in, time_out,
-      completed_count, total_count, general_notes, items_snapshot_json, tab_id, tab_name, started_at
+      completed_count, total_count, general_notes, items_snapshot_json, tab_id, tab_name, started_at,
+      submitted_at
     ) VALUES (
       ${input.accountId}, ${input.accountName}, ${input.locationName}, ${input.porterName},
       ${input.weekOf}, ${input.timeIn}, ${input.timeOut},
       ${input.completedCount}, ${input.totalCount}, ${input.generalNotes},
-      ${JSON.stringify(input.sections)}::jsonb, ${input.tabId}, ${input.tabName}, ${input.startedAt}
+      ${JSON.stringify(input.sections)}::jsonb, ${input.tabId}, ${input.tabName}, ${input.startedAt},
+      COALESCE(${input.submittedAt ?? null}::timestamptz, now())
     )
     RETURNING id
   `;
-  return (rows[0] as { id: number }).id;
+  return { id: (rows[0] as { id: number }).id, already: false };
 }
 
 export type SubmissionSummary = {

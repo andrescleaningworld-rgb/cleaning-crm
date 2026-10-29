@@ -174,7 +174,10 @@ export function SentScreen({ s, onDone, title, button }: { s: CrewLinkStrings; o
       <div className="flex h-36 w-36 items-center justify-center rounded-full bg-white text-8xl font-black text-green-600" aria-hidden="true">
         ✔
       </div>
-      <p className="text-5xl font-black">{title ?? s.sent}</p>
+      {/* A long message (route "Saved, will send when you have signal / …") gets a smaller size to fit a small phone. */}
+      <p className={`${(title ?? s.sent).length > 30 ? "text-3xl leading-tight" : "text-5xl"} font-black`} role="status" aria-live="polite">
+        {title ?? s.sent}
+      </p>
       <button
         type="button"
         onClick={onDone}

@@ -22,8 +22,9 @@ import CrewProblem from "./CrewProblem";
 import CrewArrived from "./CrewArrived";
 import CrewEmpty from "./CrewEmpty";
 import CrewPhotos from "./CrewPhotos";
-import CrewRoute, { ROUTE_WORDS, sentTodayOnThisPhone } from "./CrewRoute";
+import CrewRoute, { ROUTE_WORDS, RouteSendStatus, sentTodayOnThisPhone } from "./CrewRoute";
 import { usePhotoQueue } from "./photo-queue";
+import { loadLink } from "./link-cache";
 import { PreviewNotSentScreen, useCrewLinkPreview } from "./preview";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
@@ -95,6 +96,8 @@ export default function CrewLinkPage() {
   const [nightNote, setNightNote] = useState<NightNote | null>(null);
   // The one photo sender for the page: "Send photos" and the route rows' cameras.
   const queue = usePhotoQueue(preview ? "" : code);
+  // The admin preview never keeps anything on the phone.
+  const keepOnPhone = !preview;
   const [arrived, setArrived] = useState(false);
 
   const [name, setName] = useState<string | null>(null); // null = not read from the phone yet
@@ -118,11 +121,7 @@ export default function CrewLinkPage() {
       setLoading(true);
       setLoadError("");
       try {
-        const response = await fetch(`/api/porter-checklist?code=${encodeURIComponent(code)}`, { cache: "no-store" });
-        const data = (await response.json()) as LoadResponse;
-        if (!response.ok || data.success === false) {
-          throw new Error(data.error ?? "Could not load this link.");
-        }
+        const data = await loadLink<LoadResponse>(code, keepOnPhone);
         if (cancelled) return;
         setAvailable(Boolean(data.available));
         setLocationName(data.locationName ?? "");
@@ -144,7 +143,7 @@ export default function CrewLinkPage() {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, keepOnPhone]);
 
   const features: Feature[] = [
     ...(modules.checklist ? (["checklist"] as const) : []),
@@ -212,10 +211,13 @@ export default function CrewLinkPage() {
       <div className="mx-auto max-w-xl space-y-4">
         {header}
 
+        {/* Route links: what is still on the phone (checklists + row photos), on every screen. */}
+        {routeMode && !preview ? <RouteSendStatus queue={queue} /> : null}
+
         {currentScreen !== rootScreen ? <BackButton label={routeMode ? ROUTE_WORDS.back : s.back} onClick={goToStart} /> : null}
 
-        {/* Send photos: first thing on the start screen. Always mounted, so the sending never stops and its status shows on every screen. */}
-        {(
+        {/* Send photos: first thing on the start screen. Its status shows on every screen (route links: RouteSendStatus above). The sender itself is the page's queue, so it never stops. */}
+        {routeMode ? null : (
           <CrewPhotos
             showButton={currentScreen === rootScreen && !routeMode}
             queue={queue}
@@ -241,7 +243,11 @@ export default function CrewLinkPage() {
                 className="flex min-h-[120px] items-center justify-between gap-3 rounded-3xl bg-white px-6 text-left text-3xl font-black leading-tight text-slate-900 shadow-sm active:bg-gray-100"
               >
                 <span>{t.name}</span>
-                {sentToday.includes(t.id) ? <span className="shrink-0 rounded-2xl bg-green-600 px-3 py-2 text-lg font-black text-white">✓ {ROUTE_WORDS.sentToday}</span> : null}
+                {queue.state.checklistTabs.includes(t.id) ? (
+                  <span className="shrink-0 rounded-2xl bg-amber-500 px-3 py-2 text-lg font-black text-white">{ROUTE_WORDS.savedBadge}</span>
+                ) : sentToday.includes(t.id) ? (
+                  <span className="shrink-0 rounded-2xl bg-green-600 px-3 py-2 text-lg font-black text-white">✓ {ROUTE_WORDS.sentToday}</span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -360,7 +366,13 @@ export default function CrewLinkPage() {
         preview ? (
           <PreviewNotSentScreen onDone={goToStart} onClose={preview.onClose} />
         ) : (
-          <SentScreen s={s} onDone={goToStart} title={routeMode ? ROUTE_WORDS.sent : undefined} button={routeMode ? ROUTE_WORDS.backToStart : undefined} />
+          <SentScreen
+            s={s}
+            onDone={goToStart}
+            // Route Finish: saved on the phone first; the words follow the sending.
+            title={!routeMode ? undefined : queue.state.checklists === 0 ? ROUTE_WORDS.sent : queue.state.offline ? ROUTE_WORDS.savedWillSend : ROUTE_WORDS.sending}
+            button={routeMode ? ROUTE_WORDS.backToStart : undefined}
+          />
         )
       ) : null}
     </main>
