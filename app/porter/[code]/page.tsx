@@ -51,6 +51,11 @@ type Feature = "checklist" | "supplies" | "problem" | "arrived" | "empty";
 const FEATURE_ICON: Record<Feature, string> = { checklist: "✅", supplies: "🛒", problem: "⚠️", arrived: "📦", empty: "🗑" };
 type Screen = "home" | Feature;
 
+/** A start-screen button's words in one language. */
+function featureLabel(strings: ReturnType<typeof crewLinkStrings>, feature: Feature): string {
+  return feature === "checklist" ? strings.checklist : feature === "supplies" ? strings.supplies : feature === "problem" ? strings.problem : feature === "arrived" ? strings.arrived : strings.caseEmpty;
+}
+
 const NAME_STORAGE_KEY = "crew-link-name";
 
 function readStoredName(): string {
@@ -254,7 +259,15 @@ export default function CrewLinkPage() {
                 <span className="text-6xl" aria-hidden="true">
                   {FEATURE_ICON[feature]}
                 </span>
-                {feature === "checklist" ? s.checklist : feature === "supplies" ? s.supplies : feature === "problem" ? s.problem : feature === "arrived" ? s.arrived : s.caseEmpty}
+                {routeMode ? (
+                  // Route links have no language switch: English with the Spanish under it.
+                  <span className="min-w-0 leading-tight">
+                    <span className="block">{featureLabel(crewLinkStrings("en"), feature)}</span>
+                    <span className="mt-1 block text-xl font-bold text-slate-600">{featureLabel(crewLinkStrings("es"), feature)}</span>
+                  </span>
+                ) : (
+                  featureLabel(s, feature)
+                )}
               </button>
             ))}
           </div>

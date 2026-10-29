@@ -33,7 +33,6 @@ import { translated, type ContentTranslations } from "@/lib/translationKey";
 import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
 import type { NightNote } from "@/lib/checklistDb";
 import type { PhotoQueue } from "./photo-queue";
-import { SendBar } from "./ui";
 
 /** The fixed words, always both languages (no language switch on route screens). */
 export const ROUTE_WORDS = {
@@ -49,6 +48,7 @@ export const ROUTE_WORDS = {
   full: "Full / Lleno",
   tapEach: "Tap each one / Toca cada uno",
   takePhoto: "Take photo / Saca foto",
+  another: "Another / Otra",
   photoFailed: "The photo didn't work. Try again. / La foto no funcionó. Prueba otra vez.",
   noSignal: "No signal. Try again. / Sin señal. Prueba otra vez.",
   notSent: "It didn't send. Try again. / No se envió. Prueba otra vez.",
@@ -140,6 +140,19 @@ function dropOldProgress(code: string, dateKey: string) {
   } catch {
     // best-effort
   }
+}
+
+/**
+ * A row name for a phone: "Warehouse office: trash, desks, floor" →
+ * ["Warehouse office", "trash, desks, floor"]; a long name with no colon is
+ * split at its first comma. The office still gets the whole name.
+ */
+export function splitName(text: string): [string, string] {
+  const colon = text.indexOf(": ");
+  if (colon > 0) return [text.slice(0, colon), text.slice(colon + 2)];
+  const comma = text.indexOf(", ");
+  if (text.length > 28 && comma > 0) return [text.slice(0, comma), text.slice(comma + 2)];
+  return [text, ""];
 }
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: TEAM_HUB_TIMEZONE, hour: "numeric", minute: "2-digit" });
@@ -394,24 +407,39 @@ export default function CrewRoute({
     </div>
   );
 
-  const labelBlock = (item: ChecklistItemDef) => {
+  // Phone layout (a 360px-wide phone is the target): time on the left, the
+  // name in at most two lines, the checkbox always on the right. Long names
+  // are split into a short name and a smaller detail line (splitName), so
+  // they never stack one word per line.
+  const timeCell = (item: ChecklistItemDef) =>
+    item.time ? <span className="w-11 shrink-0 self-start pt-0.5 text-base font-black leading-tight text-blue-800">{item.time}</span> : null;
+
+  const checkBox = (done: boolean, skipped: boolean) => (
+    <span
+      className={`flex h-12 w-12 shrink-0 items-center justify-center self-center rounded-xl border-4 text-3xl font-black ${done ? "border-green-600 bg-green-600 text-white" : skipped ? "border-amber-500 bg-white text-amber-600" : "border-slate-400 bg-white"}`}
+      aria-hidden="true"
+    >
+      {done ? "✓" : skipped ? "✕" : ""}
+    </span>
+  );
+
+  const nameLines = (item: ChecklistItemDef, dark = false) => {
+    const [main, detail] = splitName(item.label);
     const es = spanish(item.label, item.es);
     const subEs = item.subNote ? spanish(item.subNote, item.subNoteEs) : "";
     return (
       <span className="block min-w-0 flex-1">
-        <span className="block text-2xl font-black leading-tight text-slate-900">
-          {item.time ? <span className="mr-2 text-blue-800">{item.time}</span> : null}
-          {item.label}
-        </span>
-        {es ? <span className="mt-1 block text-xl font-semibold leading-tight text-slate-600">{es}</span> : null}
-        {item.subNote ? <span className="mt-1 block text-base leading-snug text-slate-500">{item.subNote}</span> : null}
-        {subEs ? <span className="block text-base italic leading-snug text-slate-500">{subEs}</span> : null}
+        <span className={`line-clamp-2 text-[17px] font-black leading-tight ${dark ? "text-white" : "text-slate-900"}`}>{main}</span>
+        {detail ? <span className={`mt-0.5 line-clamp-2 text-base font-semibold leading-snug ${dark ? "text-slate-200" : "text-slate-600"}`}>{detail}</span> : null}
+        {es ? <span className={`mt-1 line-clamp-3 text-base italic leading-snug ${dark ? "text-slate-300" : "text-slate-500"}`}>{es}</span> : null}
+        {item.subNote ? <span className="mt-1 block text-sm leading-snug text-slate-500">{item.subNote}</span> : null}
+        {subEs ? <span className="block text-sm italic leading-snug text-slate-500">{subEs}</span> : null}
       </span>
     );
   };
 
   const skipLine = (item: ChecklistItemDef) =>
-    progress.skipped[item.key] ? <span className="mt-1 block text-xl font-black text-amber-800">✕ {ROUTE_WORDS.reasons[progress.skipped[item.key]] ?? progress.skipped[item.key]}</span> : null;
+    progress.skipped[item.key] ? <p className="px-3 pb-2 text-lg font-black text-amber-800">✕ {ROUTE_WORDS.reasons[progress.skipped[item.key]] ?? progress.skipped[item.key]}</p> : null;
 
   const couldntButton = (item: ChecklistItemDef) =>
     progress.skipped[item.key] ? null : (
@@ -420,88 +448,99 @@ export default function CrewRoute({
           type="button"
           onClick={() => setAsking(asking === item.key ? "" : item.key)}
           aria-expanded={asking === item.key}
-          className="min-h-[48px] rounded-xl border-2 border-amber-400 bg-white px-4 text-lg font-bold text-amber-800 active:bg-amber-50"
+          className="min-h-[48px] rounded-xl border-2 border-amber-400 bg-white px-3 text-base font-bold text-amber-800 active:bg-amber-50"
         >
           {ROUTE_WORDS.couldnt}
         </button>
       </div>
     );
 
-  const row = (item: ChecklistItemDef) => {
+  /** Dumpster status: its own dark card, one big button per dumpster, stacked. */
+  const choicesCard = (item: ChecklistItemDef) => {
     const skipped = Boolean(progress.skipped[item.key]);
     const done = !skipped && isDone(item);
-    const box = `rounded-2xl shadow-sm ${skipped ? "bg-amber-50 ring-4 ring-amber-400" : done ? "bg-green-50 ring-4 ring-green-500" : "bg-white"}`;
+    const picks = progress.choices[item.key] ?? {};
+    return (
+      <div key={item.key} className={`overflow-hidden rounded-2xl bg-white shadow-md ring-4 ${skipped ? "ring-amber-400" : done ? "ring-green-500" : "ring-slate-800"}`}>
+        <button
+          type="button"
+          onClick={() => {
+            // A skipped dumpster card: tap the top to undo the skip.
+            if (skipped) tapRow(item);
+          }}
+          className="flex w-full items-center gap-2 bg-slate-800 px-2.5 py-3 text-left"
+        >
+          {item.time ? <span className="w-11 shrink-0 self-start pt-0.5 text-base font-black leading-tight text-blue-200">{item.time}</span> : null}
+          <span className="shrink-0 text-2xl" aria-hidden="true">
+            🗑️
+          </span>
+          {nameLines(item, true)}
+          {checkBox(done, skipped)}
+        </button>
+        {skipLine(item)}
+        {!skipped ? (
+          <div className="space-y-2 p-3">
+            {!done ? <p className="text-base font-bold text-blue-800">{ROUTE_WORDS.tapEach}</p> : null}
+            {item.choices!.map((choice, index) => {
+              const state = picks[choice];
+              const choiceEs = item.choicesEs?.[index] ?? spanish(choice);
+              return (
+                <button
+                  key={choice}
+                  type="button"
+                  onClick={() => tapChoice(item, choice)}
+                  aria-pressed={Boolean(state)}
+                  className={`flex min-h-[72px] w-full items-center justify-between gap-3 rounded-2xl px-4 text-left shadow-sm ${state === "full" ? "bg-red-600 text-white" : state === "ok" ? "bg-green-600 text-white" : "border-2 border-slate-300 bg-slate-100 text-slate-900 active:bg-slate-200"}`}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-xl font-black leading-tight">{choice}</span>
+                    {choiceEs && choiceEs !== choice ? <span className="block text-base font-semibold leading-tight opacity-80">{choiceEs}</span> : null}
+                  </span>
+                  {/* English over Spanish, so the label never runs into the dumpster name. */}
+                  <span className={`flex shrink-0 flex-col items-center rounded-xl px-2.5 py-1.5 text-center text-sm font-black leading-tight ${state ? "bg-white/20" : "min-w-[2.5rem] bg-white text-slate-500"}`}>
+                    {(state === "full" ? ROUTE_WORDS.full : state === "ok" ? ROUTE_WORDS.notFull : "?").split(" / ").map((part) => (
+                      <span key={part}>{part}</span>
+                    ))}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+        {asking === item.key ? reasonPicker(item) : couldntButton(item)}
+      </div>
+    );
+  };
 
-    if (item.choices?.length) {
-      const picks = progress.choices[item.key] ?? {};
-      return (
-        <div key={item.key} className={box}>
-          <button type="button" onClick={() => {
-              // A skipped dumpster row: tap to undo the skip.
-              if (skipped) tapRow(item);
-            }} className="flex w-full items-start gap-3 p-4 text-left">
-            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-4 text-3xl font-black ${done ? "border-green-600 bg-green-600 text-white" : "border-slate-300 bg-white"}`} aria-hidden="true">
-              {done ? "✓" : ""}
-            </span>
-            <span className="block min-w-0 flex-1">
-              {labelBlock(item)}
-              {!done && !skipped ? <span className="mt-1 block text-lg font-bold text-blue-800">{ROUTE_WORDS.tapEach}</span> : null}
-              {skipLine(item)}
-            </span>
-          </button>
-          {!skipped ? (
-            <div className="grid grid-cols-3 gap-2 px-3 pb-3">
-              {item.choices.map((choice, index) => {
-                const state = picks[choice];
-                const choiceEs = item.choicesEs?.[index] ?? spanish(choice);
-                return (
-                  <button
-                    key={choice}
-                    type="button"
-                    onClick={() => tapChoice(item, choice)}
-                    aria-pressed={Boolean(state)}
-                    className={`flex min-h-[96px] flex-col items-center justify-center rounded-2xl px-1 text-center shadow-sm ${state === "full" ? "bg-red-600 text-white" : state === "ok" ? "bg-green-600 text-white" : "bg-slate-200 text-slate-800 active:bg-slate-300"}`}
-                  >
-                    <span className="text-base font-black leading-tight">{choice}</span>
-                    {choiceEs ? <span className="text-sm font-semibold leading-tight opacity-90">{choiceEs}</span> : null}
-                    <span className="mt-1 text-sm font-black leading-tight">{state === "full" ? ROUTE_WORDS.full : state === "ok" ? ROUTE_WORDS.notFull : "?"}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-          {asking === item.key ? reasonPicker(item) : couldntButton(item)}
-        </div>
-      );
-    }
-
+  const row = (item: ChecklistItemDef) => {
+    if (item.choices?.length) return choicesCard(item);
+    const skipped = Boolean(progress.skipped[item.key]);
+    const done = !skipped && isDone(item);
     const photos = progress.photos[item.key] ?? [];
     return (
-      <div key={item.key} className={box}>
-        <div className="flex items-stretch">
-          <button type="button" onClick={() => tapRow(item)} aria-pressed={done} className="flex min-h-[96px] min-w-0 flex-1 items-center gap-3 p-4 text-left">
-            <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border-4 text-3xl font-black ${done ? "border-green-600 bg-green-600 text-white" : skipped ? "border-amber-500 bg-white text-amber-600" : "border-slate-300 bg-white"}`} aria-hidden="true">
-              {done ? "✓" : skipped ? "✕" : ""}
-            </span>
-            <span className="block min-w-0 flex-1">
-              {labelBlock(item)}
-              {item.photo && !photos.length && !skipped ? <span className="mt-1 block text-lg font-bold text-blue-800">📷 {ROUTE_WORDS.takePhoto}</span> : null}
-              {skipLine(item)}
-            </span>
-          </button>
-          {item.photo && !skipped ? (
+      <div key={item.key} className={`rounded-2xl shadow-sm ${skipped ? "bg-amber-50 ring-4 ring-amber-400" : done ? "bg-green-50 ring-4 ring-green-500" : "bg-white"}`}>
+        {/* The whole top of the row is one tap target. */}
+        <button type="button" onClick={() => tapRow(item)} aria-pressed={done} className="flex min-h-[80px] w-full items-center gap-2 px-2.5 py-3 text-left">
+          {timeCell(item)}
+          {nameLines(item)}
+          {checkBox(done, skipped)}
+        </button>
+        {skipLine(item)}
+        {item.photo && !skipped ? (
+          <div className="px-3 pb-2">
             <button
               type="button"
               onClick={() => openCamera(item)}
               disabled={photoBusy === item.key}
-              aria-label={ROUTE_WORDS.takePhoto}
-              className={`flex w-20 shrink-0 flex-col items-center justify-center rounded-r-2xl text-4xl text-white ${photos.length ? "bg-green-600 active:bg-green-700" : "bg-blue-600 active:bg-blue-700"} disabled:opacity-60`}
+              className={`flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl text-lg font-black text-white shadow-sm ${photos.length ? "bg-green-600 active:bg-green-700" : "bg-blue-600 active:bg-blue-700"} disabled:opacity-60`}
             >
-              {photoBusy === item.key ? "…" : "📷"}
-              {photos.length ? <span className="text-lg font-black">✓ {photos.length}</span> : null}
+              <span className="text-2xl" aria-hidden="true">
+                📷
+              </span>
+              {photoBusy === item.key ? "…" : photos.length ? `✓ ${photos.length} · ${ROUTE_WORDS.another}` : ROUTE_WORDS.takePhoto}
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
         {asking === item.key ? reasonPicker(item) : couldntButton(item)}
       </div>
     );
@@ -525,7 +564,7 @@ export default function CrewRoute({
 
       {/* Progress, always in view. */}
       <div className="sticky top-0 z-20 -mx-4 bg-slate-100 px-4 pb-2 pt-2">
-        <p className="text-2xl font-black text-slate-900">{ROUTE_WORDS.done(handled, rows.length)}</p>
+        <p className="text-xl font-black leading-tight text-slate-900">{ROUTE_WORDS.done(handled, rows.length)}</p>
         <div className="mt-2 h-6 w-full overflow-hidden rounded-full bg-slate-300" role="progressbar" aria-valuemin={0} aria-valuemax={rows.length} aria-valuenow={handled}>
           <div className="h-full rounded-full bg-green-600 transition-all" style={{ width: `${rows.length ? Math.round((handled / rows.length) * 100) : 0}%` }} />
         </div>
@@ -572,14 +611,18 @@ export default function CrewRoute({
 
       {error ? <p className="rounded-2xl bg-amber-100 px-4 py-3 text-xl font-bold text-amber-900">{error}</p> : null}
 
-      <SendBar
-        label={ROUTE_WORDS.finish}
-        busyLabel={ROUTE_WORDS.sending}
-        busy={sending}
-        disabled={left > 0 || nameMissing || rows.length === 0}
-        onClick={() => void finish()}
-        hint={nameMissing ? ROUTE_WORDS.yourName : left > 0 ? ROUTE_WORDS.left(left) : undefined}
-      />
+      {/* Finish: a solid bar (never see-through over the rows), lit only when every row is done or skipped. */}
+      <div className="sticky bottom-0 z-20 -mx-4 border-t-2 border-slate-300 bg-slate-100 px-4 pb-4 pt-3">
+        {nameMissing || left > 0 ? <p className="mb-2 text-center text-lg font-bold text-slate-700">{nameMissing ? ROUTE_WORDS.yourName : ROUTE_WORDS.left(left)}</p> : null}
+        <button
+          type="button"
+          onClick={() => void finish()}
+          disabled={left > 0 || nameMissing || rows.length === 0 || sending}
+          className="min-h-[72px] w-full rounded-3xl bg-green-600 text-2xl font-black text-white shadow-lg active:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
+        >
+          {sending ? ROUTE_WORDS.sending : ROUTE_WORDS.finish}
+        </button>
+      </div>
     </div>
   );
 }
