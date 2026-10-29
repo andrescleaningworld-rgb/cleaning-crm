@@ -365,11 +365,12 @@ export default function ComplaintDetailPage() {
         throw new Error("Complaints API did not return valid JSON while saving.");
       }
 
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || "Failed to save complaint changes.");
+      // Only a real "saved" from the server counts (the server now updates this same complaint, or says why not).
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "The changes were not saved. Try again.");
       }
 
-      setSuccessMessage("Complaint updated successfully.");
+      setSuccessMessage(data.message || "Complaint updated.");
       setIsEditing(false);
       await loadComplaints();
     } catch (err) {

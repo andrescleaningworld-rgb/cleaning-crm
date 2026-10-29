@@ -30,12 +30,14 @@ type ComplaintRow = {
   sheet_row: number;
   /** The account's sub when the complaint was filed; null = not recorded (migration 031). */
   sub_at_filing: string | null;
+  /** The text typed when it was closed, or saved from the edit page (not a sheet column). */
+  resolution_note: string;
 };
 
 // sub_at_filing is read through to_jsonb so the list still loads in a
 // database where migration 031 has not been applied yet (it is null there).
 const COMPLAINT_COLUMNS =
-  "complaint_id, account_id_raw, account_name, account_ref, complaint_date_raw, issue, priority, complaint_validity, status, reported_by, assigned_to, last_follow_up_date_raw, notes, sheet_row, to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing";
+  "complaint_id, account_id_raw, account_name, account_ref, complaint_date_raw, issue, priority, complaint_validity, status, reported_by, assigned_to, last_follow_up_date_raw, notes, sheet_row, to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing, resolution_note";
 
 async function allComplaintRows(): Promise<ComplaintRow[]> {
   const sql = getSql();
@@ -104,8 +106,9 @@ export async function getComplaintsAppsScriptShape(): Promise<AppsScriptComplain
     // uses it; the score reads it in lib/pg/performance.ts.
     subAtFiling: r.sub_at_filing,
     description: scriptText(r.issue),
-    resolution: "",
-    followUpDate: "",
+    // The real values, so the edit page starts from what is saved (it used to start them blank and a Save wiped them).
+    resolution: scriptText(r.resolution_note ?? ""),
+    followUpDate: scriptDate(r.last_follow_up_date_raw),
     notes: scriptText(r.notes),
     reportedBy: scriptText(r.reported_by),
   }));
@@ -223,6 +226,134 @@ export async function closeComplaint(input: CloseComplaintInput): Promise<{ rowN
     [row.sheet_row, status, stamp, input.resolution]
   );
   return { rowNumber: row.sheet_row, status };
+}
+
+/* ---------- Edit (the complaint page's Edit -> Save) ---------- */
+
+export type EditComplaintInput = {
+  rowNumber?: string | number;
+  id: string;
+  accountId: string;
+  accountName: string;
+  complaintDate: string;
+  issue: string;
+  priority: string;
+  status: string;
+  complaintValidity: string;
+  assignedTo: string;
+  reportedBy: string;
+  followUpDate: string;
+  notes: string;
+  resolution: string;
+};
+
+/** One field that changed, in the words of the edit form. */
+export type ComplaintChange = { label: string; before: string; after: string };
+
+// The edit form's fields: its label, the column, what the form sent, and
+// whether it is a date (compared by the day it means, so "6/15/2026" and
+// "2026-06-15" are the same).
+type Editable = { label: string; column: "account_name" | "complaint_date_raw" | "issue" | "priority" | "status" | "complaint_validity" | "assigned_to" | "reported_by" | "last_follow_up_date_raw" | "notes" | "resolution_note"; value: (input: EditComplaintInput) => string; date?: boolean };
+const EDITABLE: Editable[] = [
+  { label: "Account", column: "account_name", value: (input) => input.accountName },
+  { label: "Date", column: "complaint_date_raw", value: (input) => input.complaintDate, date: true },
+  { label: "Description", column: "issue", value: (input) => input.issue },
+  { label: "Priority", column: "priority", value: (input) => input.priority },
+  { label: "Status", column: "status", value: (input) => input.status },
+  { label: "Validity", column: "complaint_validity", value: (input) => input.complaintValidity },
+  { label: "Assigned to", column: "assigned_to", value: (input) => input.assignedTo },
+  { label: "Reported by", column: "reported_by", value: (input) => input.reportedBy },
+  { label: "Follow-up date", column: "last_follow_up_date_raw", value: (input) => input.followUpDate, date: true },
+  { label: "Notes", column: "notes", value: (input) => input.notes },
+  { label: "Resolution", column: "resolution_note", value: (input) => input.resolution },
+];
+
+const sameValue = (field: Editable, before: string, after: string) => {
+  if (field.date) {
+    const a = dateOrNull(before);
+    const b = dateOrNull(after);
+    if (a || b) return a === b;
+  }
+  // The list shows a cell holding "0" as blank (scriptText): that is no change either.
+  return scriptText(before).trim() === after.trim();
+};
+
+/**
+ * Saves the complaint page's Edit on THE SAME complaint (same number, same
+ * row). Only the fields that really changed are written; every other field
+ * stays exactly as stored. Updated At is stamped. Never makes a new
+ * complaint and never sends anything. The sub at filing is kept as it was.
+ * Returns what changed ([] = nothing did, and nothing is written).
+ */
+export async function editComplaint(input: EditComplaintInput): Promise<{ rowNumber: number; id: string; changes: ComplaintChange[] }> {
+  const found = await findComplaint(input.rowNumber, input.id.trim());
+  if (!found) throw new Error("Complaint not found. It may have been removed; reload the page.");
+
+  const next: Record<Editable["column"], string> = {
+    account_name: found.account_name,
+    complaint_date_raw: found.complaint_date_raw,
+    issue: found.issue,
+    priority: found.priority,
+    status: found.status,
+    complaint_validity: found.complaint_validity,
+    assigned_to: found.assigned_to,
+    reported_by: found.reported_by,
+    last_follow_up_date_raw: found.last_follow_up_date_raw,
+    notes: found.notes,
+    resolution_note: found.resolution_note ?? "",
+  };
+  const changes: ComplaintChange[] = [];
+  for (const field of EDITABLE) {
+    const before = String(next[field.column] ?? "");
+    const after = String(field.value(input) ?? "").trim();
+    if (sameValue(field, before, after)) continue;
+    changes.push({ label: field.label, before: before.trim(), after });
+    next[field.column] = after;
+  }
+  // A different account picked (its Account ID), even with the same name.
+  const accountId = input.accountId.trim();
+  const accountIdChanged = accountId !== "" && accountId !== found.account_id_raw.trim();
+  if (accountIdChanged && !changes.some((change) => change.label === "Account")) changes.push({ label: "Account", before: found.account_name.trim(), after: input.accountName.trim() });
+  if (changes.length === 0) return { rowNumber: found.sheet_row, id: found.complaint_id.trim(), changes };
+
+  const accountTouched = changes.some((change) => change.label === "Account");
+  const sql = getSql();
+  await sql.query(
+    `UPDATE complaints SET
+       account_id_raw = CASE WHEN $17::boolean AND btrim($2::text) <> '' THEN btrim($2::text) ELSE account_id_raw END,
+       account_name = $3::text,
+       account_ref = CASE WHEN NOT $17::boolean THEN account_ref ELSE COALESCE(
+         (SELECT id FROM accounts WHERE id = btrim($2::text) LIMIT 1),
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
+       ) END,
+       complaint_date_raw = $4::text, complaint_date = CASE WHEN $4::text = complaint_date_raw THEN complaint_date ELSE $5::date END,
+       issue = $6::text, priority = $7::text, status = $8::text, complaint_validity = $9::text,
+       assigned_to = $10::text, reported_by = $11::text,
+       last_follow_up_date_raw = $12::text, last_follow_up_date = CASE WHEN $12::text = last_follow_up_date_raw THEN last_follow_up_date ELSE $13::date END,
+       notes = $14::text, resolution_note = $15::text,
+       updated_at_raw = $16::text, complaint_updated_at = now(), updated_at = now()
+     WHERE sheet_row = $1`,
+    [
+      found.sheet_row,
+      accountId,
+      next.account_name,
+      next.complaint_date_raw,
+      dateOrNull(next.complaint_date_raw),
+      next.issue,
+      next.priority,
+      next.status,
+      next.complaint_validity,
+      next.assigned_to,
+      next.reported_by,
+      next.last_follow_up_date_raw,
+      dateOrNull(next.last_follow_up_date_raw),
+      next.notes,
+      next.resolution_note,
+      newYorkStamp(),
+      accountTouched,
+    ]
+  );
+  return { rowNumber: found.sheet_row, id: found.complaint_id.trim(), changes };
 }
 
 /* ---------- Resend the subcontractor email ---------- */
