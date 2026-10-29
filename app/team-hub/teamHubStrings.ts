@@ -108,7 +108,6 @@ export const TEAM_HUB_STRINGS = {
       send: "Send",
       sending: "Sending…",
       sent: "Sent to your office.",
-      photoTooBig: "That photo is too big (max 8MB).",
       tooManyPhotos: "Up to 5 photos.",
     },
     supplies: {
@@ -208,7 +207,6 @@ export const TEAM_HUB_STRINGS = {
       send: "Enviar",
       sending: "Enviando…",
       sent: "Enviado a tu oficina.",
-      photoTooBig: "Esa foto es muy grande (máximo 8MB).",
       tooManyPhotos: "Hasta 5 fotos.",
     },
     supplies: {
@@ -308,7 +306,6 @@ export const TEAM_HUB_STRINGS = {
       send: "Enviar",
       sending: "Enviando…",
       sent: "Enviado ao seu escritório.",
-      photoTooBig: "Essa foto é grande demais (máximo 8MB).",
       tooManyPhotos: "Até 5 fotos.",
     },
     supplies: {
