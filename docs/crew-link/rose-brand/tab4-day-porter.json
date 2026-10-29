@@ -1,0 +1,28 @@
+[
+  { "section": "Today", "item": "Urgent request", "es": "Pedido urgente", "type": "urgent",
+    "what": ["Spill", "Restroom", "Trash", "Meeting room", "Other"],
+    "what_es": ["Derrame", "Baño", "Basura", "Sala de reuniones", "Otro"],
+    "who": ["Front desk", "Office staff", "Manager", "Warehouse", "Other"],
+    "who_es": ["Recepción", "Oficina", "Gerente", "Almacén", "Otro"] },
+
+  { "section": "Today", "item": "Restroom round 1 (both floors)", "es": "Vuelta de baños 1 (los dos pisos)", "time": "9:15",
+    "sub_note": "Refill, sinks, toilets/urinals, trash", "sub_note_es": "Repón, lavamanos, inodoros/mingitorios, basura" },
+  { "section": "Today", "item": "Entry, lounge, showroom", "es": "Entrada, sala de estar, showroom", "time": "10:00",
+    "sub_note": "Glass, spot vacuum", "sub_note_es": "Vidrios, aspira donde haga falta" },
+  { "section": "Today", "item": "Offices and conference rooms", "es": "Oficinas y salas de reuniones", "time": "10:30",
+    "sub_note": "Full trash cans, tables after meetings", "sub_note_es": "Botes llenos, mesas después de reuniones" },
+  { "section": "Today", "item": "Restroom round 2", "es": "Vuelta de baños 2", "time": "11:15",
+    "sub_note": "Refill, sinks, toilets/urinals, trash", "sub_note_es": "Repón, lavamanos, inodoros/mingitorios, basura" },
+  { "section": "Today", "item": "Lunchroom during lunch", "es": "Comedor durante el almuerzo", "time": "12:00",
+    "sub_note": "Tables, spills", "sub_note_es": "Mesas, derrames" },
+  { "section": "Today", "item": "Lunchroom after lunch", "es": "Comedor después del almuerzo", "time": "1:00", "photo": true,
+    "sub_note": "Tables, sinks, microwaves, trash", "sub_note_es": "Mesas, lavaderos, microondas, basura" },
+  { "section": "Today", "item": "Restroom round 3", "es": "Vuelta de baños 3", "time": "1:30", "photo": true,
+    "sub_note": "Refill, sinks, toilets/urinals, trash", "sub_note_es": "Repón, lavamanos, inodoros/mingitorios, basura" },
+  { "section": "Today", "item": "Warehouse trash pass", "es": "Pasada de basura del almacén", "time": "2:00", "photo": true,
+    "sub_note": "Sewing, cutting, packing, shipping, cardboard to dumpster", "sub_note_es": "Costura, corte, empaque, envíos, cartón al contenedor" },
+  { "section": "Today", "item": "Dumpster status", "es": "Estado de contenedores", "time": "2:45",
+    "choices": ["Cardboard", "Garbage", "Pallets"], "choices_es": ["Cartón", "Basura", "Pallets"] },
+
+  { "section": "Today", "item": "Note for night crew", "es": "Nota para el equipo de la noche", "type": "night_note" }
+]

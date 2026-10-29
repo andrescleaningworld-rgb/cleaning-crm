@@ -10,7 +10,8 @@
 // building name — nothing else about the account.
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import type { ChecklistSectionDef, ChecklistTabDef } from "@/lib/checklistTemplate";
+import { isRouteTab, type ChecklistSectionDef, type ChecklistTabDef } from "@/lib/checklistTemplate";
+import type { NightNote } from "@/lib/checklistDb";
 import type { ContentTranslations } from "@/lib/translationKey";
 import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { crewLinkStrings } from "./strings";
@@ -21,6 +22,8 @@ import CrewProblem from "./CrewProblem";
 import CrewArrived from "./CrewArrived";
 import CrewEmpty from "./CrewEmpty";
 import CrewPhotos from "./CrewPhotos";
+import CrewRoute, { ROUTE_WORDS, sentTodayOnThisPhone } from "./CrewRoute";
+import { usePhotoQueue } from "./photo-queue";
 import { PreviewNotSentScreen, useCrewLinkPreview } from "./preview";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
@@ -39,6 +42,8 @@ type LoadResponse = {
   shelves?: boolean;
   /** "Supplies arrived" alone: supply orders on, or something on its way to this site. */
   arrived?: boolean;
+  /** Route tabs: today's note from the day porter. */
+  nightNote?: NightNote | null;
 };
 
 type Feature = "checklist" | "supplies" | "problem" | "arrived" | "empty";
@@ -82,6 +87,9 @@ export default function CrewLinkPage() {
   // Older API responses (before Crew Link) had no modules — treat as checklist-only.
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
   const [shelves, setShelves] = useState(false);
+  const [nightNote, setNightNote] = useState<NightNote | null>(null);
+  // The one photo sender for the page: "Send photos" and the route rows' cameras.
+  const queue = usePhotoQueue(preview ? "" : code);
   const [arrived, setArrived] = useState(false);
 
   const [name, setName] = useState<string | null>(null); // null = not read from the phone yet
@@ -119,6 +127,7 @@ export default function CrewLinkPage() {
         setShelves(data.shelves === true);
         setArrived(data.arrived === true || data.shelves === true);
         setTranslations(data.translations ?? {});
+        setNightNote(data.nightNote ?? null);
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this link.");
       } finally {
@@ -139,7 +148,10 @@ export default function CrewLinkPage() {
     ...(arrived ? (["arrived"] as const) : []),
     ...(shelves ? (["empty"] as const) : []),
   ];
-  const onlyFeature = features.length === 1 ? features[0] : null;
+  // Route links (every checklist tab is a route tab): the start screen is one
+  // giant button per tab, both languages, no language switch, no "Send photos".
+  const routeMode = modules.checklist && tabs.length > 0 && tabs.every(isRouteTab);
+  const onlyFeature = features.length === 1 && !routeMode ? features[0] : null;
   const rootScreen: Screen = onlyFeature ?? "home";
   const currentScreen: Screen = onlyFeature ?? screen;
 
@@ -166,7 +178,27 @@ export default function CrewLinkPage() {
     setSent(true);
   }
 
-  const header = <CrewHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName} />;
+  const header = <CrewHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName} hideLang={routeMode} />;
+
+  // Route links ask the name once, first, and the phone remembers it.
+  if (routeMode && !name.trim()) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-4">
+        <div className="mx-auto max-w-xl space-y-4">
+          {header}
+          <RouteNameScreen
+            onDone={(typed) => {
+              setName(typed);
+              if (!preview) storeName(typed);
+            }}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  const sentToday = routeMode && !preview ? sentTodayOnThisPhone(code) : [];
+  const activeRouteTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
 
   const checklistTabId = activeTabId ?? tabs[0]?.id ?? 0;
 
@@ -175,13 +207,13 @@ export default function CrewLinkPage() {
       <div className="mx-auto max-w-xl space-y-4">
         {header}
 
-        {currentScreen !== rootScreen ? <BackButton label={s.back} onClick={goToStart} /> : null}
+        {currentScreen !== rootScreen ? <BackButton label={routeMode ? ROUTE_WORDS.back : s.back} onClick={goToStart} /> : null}
 
         {/* Send photos: first thing on the start screen. Always mounted, so the sending never stops and its status shows on every screen. */}
         {(
           <CrewPhotos
-            showButton={currentScreen === rootScreen}
-            code={code}
+            showButton={currentScreen === rootScreen && !routeMode}
+            queue={queue}
             s={s}
             lang={lang}
             name={name}
@@ -191,9 +223,28 @@ export default function CrewLinkPage() {
           />
         )}
 
+        {currentScreen === "home" && routeMode ? (
+          <div className="grid gap-4">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => {
+                  setActiveTabId(t.id);
+                  open("checklist");
+                }}
+                className="flex min-h-[120px] items-center justify-between gap-3 rounded-3xl bg-white px-6 text-left text-3xl font-black leading-tight text-slate-900 shadow-sm active:bg-gray-100"
+              >
+                <span>{t.name}</span>
+                {sentToday.includes(t.id) ? <span className="shrink-0 rounded-2xl bg-green-600 px-3 py-2 text-lg font-black text-white">✓ {ROUTE_WORDS.sentToday}</span> : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {currentScreen === "home" ? (
           <div className="grid gap-4">
-            {features.map((feature) => (
+            {features.filter((feature) => !(routeMode && feature === "checklist")).map((feature) => (
               <button
                 key={feature}
                 type="button"
@@ -209,7 +260,22 @@ export default function CrewLinkPage() {
           </div>
         ) : null}
 
-        {currentScreen === "checklist" ? (
+        {currentScreen === "checklist" && routeMode && activeRouteTab ? (
+          <CrewRoute
+            key={activeRouteTab.id}
+            code={code}
+            tab={activeRouteTab}
+            name={name}
+            onNameChange={setName}
+            translations={translations}
+            nightNote={nightNote}
+            queue={queue}
+            preview={Boolean(preview)}
+            onSent={markSent}
+          />
+        ) : null}
+
+        {currentScreen === "checklist" && !routeMode ? (
           <CrewChecklist
             code={code}
             s={s}
@@ -218,6 +284,8 @@ export default function CrewLinkPage() {
             onNameChange={setName}
             tabs={tabs}
             translations={translations}
+            nightNote={nightNote}
+            queue={queue}
             activeTabId={checklistTabId}
             onSelectTab={(tabId) => {
               setActiveTabId(tabId);
@@ -275,7 +343,42 @@ export default function CrewLinkPage() {
         ) : null}
       </div>
 
-      {sent ? preview ? <PreviewNotSentScreen onDone={goToStart} onClose={preview.onClose} /> : <SentScreen s={s} onDone={goToStart} /> : null}
+      {sent ? (
+        preview ? (
+          <PreviewNotSentScreen onDone={goToStart} onClose={preview.onClose} />
+        ) : (
+          <SentScreen s={s} onDone={goToStart} title={routeMode ? ROUTE_WORDS.sent : undefined} button={routeMode ? ROUTE_WORDS.backToStart : undefined} />
+        )
+      ) : null}
     </main>
+  );
+}
+
+/** Route links: the name, once, before anything else. */
+function RouteNameScreen({ onDone }: { onDone: (name: string) => void }) {
+  const [typed, setTyped] = useState("");
+  const clean = typed.trim().slice(0, 80);
+  return (
+    <form
+      className="space-y-4 rounded-3xl bg-white p-5 shadow-sm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (clean) onDone(clean);
+      }}
+    >
+      <label className="block">
+        <span className="text-3xl font-black text-slate-900">👤 {ROUTE_WORDS.yourName}</span>
+        <input
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          autoComplete="name"
+          maxLength={80}
+          className="mt-3 min-h-[72px] w-full rounded-2xl border-4 border-slate-300 px-4 text-3xl font-bold outline-none focus:border-blue-600"
+        />
+      </label>
+      <button type="submit" disabled={!clean} className="min-h-[88px] w-full rounded-3xl bg-green-600 text-4xl font-black text-white shadow-lg active:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500">
+        {ROUTE_WORDS.ok}
+      </button>
+    </form>
   );
 }

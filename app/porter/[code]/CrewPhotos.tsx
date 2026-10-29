@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { CREW_PHOTO_MAX_BATCH, CREW_PHOTO_TAGS, type CrewPhotoTag } from "@/lib/crewPhotos";
 import type { CrewLinkStrings } from "./strings";
-import { usePhotoQueue, type CrewPhotoFail } from "./photo-queue";
+import type { CrewPhotoFail, PhotoQueue } from "./photo-queue";
 import { WhoAndWhen } from "./ui";
 
 /** Each reason once, with how many photos it was. */
@@ -21,7 +21,7 @@ function reasons(failed: CrewPhotoFail[]): [CrewPhotoFail, number][] {
 }
 
 export default function CrewPhotos({
-  code,
+  queue,
   s,
   lang,
   name,
@@ -32,7 +32,8 @@ export default function CrewPhotos({
 }: {
   /** false on the other screens: only the sending status shows there. */
   showButton?: boolean;
-  code: string;
+  /** The page's one photo sender (shared with the route rows' cameras, so only one sends). */
+  queue: PhotoQueue;
   s: CrewLinkStrings;
   lang: TeamHubLang;
   name: string;
@@ -42,7 +43,7 @@ export default function CrewPhotos({
   /** Admin preview: nothing is sent (shows "Preview only"). */
   preview?: () => void;
 }) {
-  const { state, add } = usePhotoQueue(preview ? "" : code);
+  const { state, add } = queue;
   const [picked, setPicked] = useState<File[]>([]);
   const [tag, setTag] = useState<CrewPhotoTag>("");
   const input = useRef<HTMLInputElement>(null);

@@ -30,6 +30,8 @@ type Waiting = {
   full: Blob;
   thumb: Blob | null;
   addedAt: number;
+  /** Route rows: the row it was taken on. */
+  caption?: string;
 };
 
 /** Why a photo was not sent: it could not be made small, the server refused it, or the link is off. */
@@ -101,6 +103,7 @@ async function sendOne(item: Waiting): Promise<{ result: "sent" | "later" } | { 
     form.append("name", item.name);
     form.append("tag", item.tag);
     form.append("takenAt", item.takenAt);
+    if (item.caption) form.append("caption", item.caption);
     form.append("full", new File([item.full], "photo.jpg", { type: item.full.type || "image/jpeg" }));
     if (item.thumb) form.append("thumb", new File([item.thumb], "thumb.jpg", { type: "image/jpeg" }));
     const response = await fetch(`/api/porter-checklist/${encodeURIComponent(item.code)}/photos`, { method: "POST", body: form });
@@ -202,9 +205,14 @@ export function usePhotoQueue(code: string) {
     return () => window.removeEventListener("beforeunload", warn);
   }, [state.waiting, state.preparing]);
 
-  /** The photos the crew picked: made small, put in the list, and sending starts. */
+  /**
+   * The photos the crew picked: made small, put in the list, and sending
+   * starts. Returns the ids of the photos now on the phone (a route row
+   * keeps them; a photo that could not be made small is not among them).
+   */
   const add = useCallback(
-    async (files: File[], name: string, tag: CrewPhotoTag) => {
+    async (files: File[], name: string, tag: CrewPhotoTag, caption?: string): Promise<string[]> => {
+      const ids: string[] = [];
       // A new round starts when nothing is waiting.
       setState((current) => (current.waiting === 0 ? { ...current, sent: 0, failed: [], resumed: 0, preparing: files.length } : { ...current, preparing: current.preparing + files.length }));
       for (const file of files) {
@@ -216,13 +224,18 @@ export function usePhotoQueue(code: string) {
         const { full, thumb } = prepared;
         // The camera's own time when the phone gives it, else now.
         const takenAt = new Date(file.lastModified || Date.now()).toISOString();
-        await saveWaiting({ id: newId(), code, name, tag, takenAt, full, thumb, addedAt: Date.now() });
+        const id = newId();
+        await saveWaiting({ id, code, name, tag, takenAt, full, thumb, addedAt: Date.now(), ...(caption ? { caption } : {}) });
+        ids.push(id);
         setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), waiting: current.waiting + 1 }));
         void pump();
       }
+      return ids;
     },
     [code, pump]
   );
 
   return { state, add };
 }
+
+export type PhotoQueue = ReturnType<typeof usePhotoQueue>;

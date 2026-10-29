@@ -10,7 +10,10 @@
 // own; "Everything done" is only the tab on screen. The skips go to the office
 // right away (the Pin Board paper "Couldn't do", lib/pg/crew-skips.ts).
 import type { ChecklistItemDef, ChecklistSubmissionSection, ChecklistTabDef, SkipReason } from "@/lib/checklistTemplate";
-import { SKIP_REASONS } from "@/lib/checklistTemplate";
+import { SKIP_REASONS, isRouteTab } from "@/lib/checklistTemplate";
+import type { NightNote } from "@/lib/checklistDb";
+import type { PhotoQueue } from "./photo-queue";
+import CrewRoute from "./CrewRoute";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import type { CrewLinkStrings } from "./strings";
 import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
@@ -31,6 +34,8 @@ export default function CrewChecklist({
   onNameChange,
   tabs,
   translations,
+  nightNote,
+  queue,
   activeTabId,
   onSelectTab,
   progressByTab,
@@ -46,6 +51,9 @@ export default function CrewChecklist({
   // Crews see names/items in their language; what's SENT stays English
   // (the submission snapshot managers read).
   translations: ContentTranslations;
+  /** A route tab on a link that also has classic tabs gets the route screen (CrewRoute.tsx). */
+  nightNote: NightNote | null;
+  queue: PhotoQueue;
   activeTabId: number;
   onSelectTab: (tabId: number) => void;
   progressByTab: Record<number, TabProgress>;
@@ -198,7 +206,20 @@ export default function CrewChecklist({
         </div>
       ) : null}
 
-      {allItems.length === 0 ? (
+      {tab && isRouteTab(tab) ? (
+        <CrewRoute
+          key={tab.id}
+          code={code}
+          tab={tab}
+          name={name}
+          onNameChange={onNameChange}
+          translations={translations}
+          nightNote={nightNote}
+          queue={queue}
+          preview={Boolean(preview)}
+          onSent={onSent}
+        />
+      ) : allItems.length === 0 ? (
         <p className="rounded-2xl bg-white p-6 text-center text-xl text-slate-600 shadow-sm">{s.nothingHere}</p>
       ) : !progress.picking ? (
         <>

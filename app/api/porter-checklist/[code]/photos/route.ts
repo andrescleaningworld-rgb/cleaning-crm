@@ -51,6 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       takenAt: String(form.get("takenAt") ?? ""),
       full,
       thumb: thumb instanceof File ? thumb : null,
+      caption: String(form.get("caption") ?? ""),
     });
     return NextResponse.json({ success: true, ...saved });
   } catch (error) {

@@ -1,0 +1,18 @@
+[
+  { "section": "Tonight", "item": "Warehouse office: trash, desks, floor", "es": "Oficina del almacén: basura, escritorios, piso", "time": "6:00", "photo": true },
+  { "section": "Tonight", "item": "Warehouse trash, all areas, to dumpsters", "es": "Basura de todo el almacén a los contenedores", "time": "6:20", "photo": true },
+  { "section": "Tonight", "item": "Dock and dumpsters cleared, cardboard broken down", "es": "Muelles y contenedores despejados, cartón desarmado", "time": "7:30", "photo": true },
+  { "section": "Tonight", "item": "Second trash round: sewing, cutting, packing, shipping", "es": "Segunda vuelta: costura, corte, empaque, envíos", "time": "8:00" },
+
+  { "section": "Tonight", "item": "Wipe office desks", "es": "Limpia los escritorios de la oficina", "time": "8:35", "days": "Mon", "slot": "detail" },
+  { "section": "Tonight", "item": "Cobwebs: office and break areas", "es": "Saca telarañas: oficina y áreas de descanso", "time": "8:35", "days": "Tue", "slot": "detail" },
+  { "section": "Tonight", "item": "Wash trash cans (half each week)", "es": "Lava los botes de basura (la mitad cada semana)", "time": "8:35", "days": "Wed", "slot": "detail" },
+  { "section": "Tonight", "item": "Office edges, corners, baseboards", "es": "Bordes, rincones y zócalos de la oficina", "time": "8:35", "days": "Thu", "slot": "detail" },
+  { "section": "Tonight", "item": "Extra cleanup at dock", "es": "Limpieza extra en el muelle", "time": "8:35", "days": "Fri", "slot": "detail" },
+
+  { "section": "Tonight", "item": "Office light switches and door handles", "es": "Interruptores y manijas de la oficina", "time": "8:35", "days": "1st Thu", "slot": "detail" },
+  { "section": "Tonight", "item": "Office light fixtures", "es": "Lámparas de la oficina", "time": "8:35", "days": "2nd Tue", "slot": "detail" },
+  { "section": "Tonight", "item": "Deep sweep of dock area", "es": "Barre a fondo el muelle", "time": "8:35", "days": "3rd Thu", "slot": "detail" },
+
+  { "section": "Tonight", "item": "Dumpster status", "es": "Estado de contenedores", "time": "8:50", "choices": ["Cardboard", "Garbage", "Pallets"], "choices_es": ["Cartón", "Basura", "Pallets"] }
+]

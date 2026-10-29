@@ -411,7 +411,7 @@ export async function getSubmissionDetail(id: number): Promise<SubmissionDetail 
   const row = rows[0] as Record<string, unknown>;
   return {
     ...rowToSummary(row),
-    sections: (row.items_snapshot_json as ChecklistSubmissionSection[]) ?? [],
+    sections: await attachPhotoUrls((row.items_snapshot_json as ChecklistSubmissionSection[]) ?? []),
   };
 }
 
@@ -424,4 +424,53 @@ export async function getSubmissionDetailsByIds(ids: number[]): Promise<Submissi
     const row = r as Record<string, unknown>;
     return { ...rowToSummary(row), sections: (row.items_snapshot_json as ChecklistSubmissionSection[]) ?? [] };
   });
+}
+
+/* ---------- route tabs ---------- */
+
+export type NightNote = { text: string; name: string; at: string };
+
+// Route tabs: the latest "Note for night crew" sent today (office time) from
+// one of these tabs (the day porter's). Null when none today.
+export async function latestNightNoteToday(accountId: string, tabIds: number[]): Promise<NightNote | null> {
+  if (tabIds.length === 0) return null;
+  const sql = getSql();
+  const rows = await sql`
+    SELECT general_notes, porter_name, submitted_at FROM checklist_submissions
+    WHERE account_id = ${accountId} AND tab_id = ANY(${tabIds}) AND btrim(general_notes) <> ''
+      AND (submitted_at AT TIME ZONE ${TEAM_HUB_TIMEZONE})::date = (now() AT TIME ZONE ${TEAM_HUB_TIMEZONE})::date
+    ORDER BY submitted_at DESC
+    LIMIT 1
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const at = row.submitted_at instanceof Date ? row.submitted_at.toISOString() : String(row.submitted_at);
+  return { text: String(row.general_notes ?? "").trim(), name: String(row.porter_name ?? ""), at };
+}
+
+// Staff screens: the addresses of the photos taken on route rows (items'
+// `photos` = phone-made ids, saved as photo_index source_key "crew:<id>").
+// A photo still on its way from the phone simply isn't listed yet.
+export async function attachPhotoUrls(sections: ChecklistSubmissionSection[]): Promise<ChecklistSubmissionSection[]> {
+  const ids = sections.flatMap((section) => section.items.flatMap((item) => item.photos ?? []));
+  if (ids.length === 0) return sections;
+  const sql = getSql();
+  const rows = await sql`
+    SELECT source_key, url, thumb_url FROM photo_index WHERE source_key = ANY(${ids.map((id) => `crew:${id}`)})
+  `;
+  const byId = new Map(
+    rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      const url = String(row.url ?? "");
+      return [String(row.source_key).slice("crew:".length), { url, thumbUrl: String(row.thumb_url ?? "") || url }];
+    })
+  );
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.map((item) => {
+      if (!item.photos?.length) return item;
+      const photoUrls = item.photos.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+      return { ...item, photoUrls };
+    }),
+  }));
 }

@@ -48,6 +48,20 @@ function makeEmptySection(): ChecklistSectionDef {
   return { key: slugifyKey(`section-${Date.now()}`), title: "New Section", items: [] };
 }
 
+/** Route tab fields on an item, as short tags ("6:00", "Mon", "📷 Photo"). */
+function routeTags(item: ChecklistItemDef): string[] {
+  return [
+    item.time ?? "",
+    item.days ?? "",
+    item.slot ? `Slot: ${item.slot}` : "",
+    item.photo ? "📷 Photo needed" : "",
+    item.choices?.length ? `Buttons: ${item.choices.join(", ")}` : "",
+    item.kind === "urgent" ? "⚡ Urgent request button" : "",
+    item.kind === "night_note" ? "📝 Note for night crew" : "",
+    item.es ? `ES: ${item.es}` : "",
+  ].filter(Boolean);
+}
+
 function makeEmptyItem(): ChecklistItemDef {
   return { key: `${slugifyKey(`item-${Date.now()}-${Math.random()}`)}`, label: "New item", subNote: "" };
 }
@@ -807,6 +821,16 @@ export default function ChecklistTemplateEditor({ accountId, accountName, defaul
                           placeholder="Optional guidance note for the porter…"
                           className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600 outline-none focus:border-blue-500"
                         />
+                        {/* Route fields come from the uploaded file and are kept when you save here. */}
+                        {routeTags(item).length ? (
+                          <p className="flex flex-wrap gap-1 text-xs font-bold text-blue-800">
+                            {routeTags(item).map((tag) => (
+                              <span key={tag} className="rounded-full bg-blue-50 px-2 py-0.5">
+                                {tag}
+                              </span>
+                            ))}
+                          </p>
+                        ) : null}
                         {/* The crew sees it at the top with a star. */}
                         <button
                           type="button"

@@ -5,7 +5,7 @@
 // the staff submissions screen and the PDF report (lib/pdf/porter-checklist-report.tsx).
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { SKIP_REASON_WORDS, describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import CrewPrintSheet, { PrintBox, PrintFact } from "../../CrewPrintSheet";
 
@@ -78,11 +78,20 @@ export default function CrewLinkPrintSubmissionPage() {
           <div className="mt-2 space-y-2">
             {section.items.map((item) => (
               <div key={item.key} className="crew-print-row flex items-start gap-3">
-                <PrintBox checked={item.checked} />
+                {item.info ? <span className="w-6 text-xl" aria-hidden="true">⚡</span> : <PrintBox checked={item.checked} />}
                 <div>
                   <p className="text-lg font-semibold leading-snug">{item.label}</p>
                   {item.subNote ? <p className="text-base">{item.subNote}</p> : null}
                   {item.note ? <p className="text-base">Note: {item.note}</p> : null}
+                  {!item.checked && item.skipReason ? <p className="text-base">Couldn&apos;t do: {SKIP_REASON_WORDS[item.skipReason]}</p> : null}
+                  {item.photoUrls?.length ? (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {item.photoUrls.map((photo) => (
+                        // eslint-disable-next-line @next/next/no-img-element -- Vercel Blob photo
+                        <img key={photo.url} src={photo.thumbUrl} alt="" className="h-24 w-24 rounded border border-black object-cover" />
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}

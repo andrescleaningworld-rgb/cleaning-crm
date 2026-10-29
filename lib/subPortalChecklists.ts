@@ -15,6 +15,7 @@
 import { getSql } from "@/lib/db";
 import { fetchSubSchedules } from "@/lib/data/scheduling";
 import type { ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { attachPhotoUrls } from "@/lib/checklistDb";
 
 export const SUB_PORTAL_CHECKLIST_DAYS = 60;
 
@@ -126,7 +127,7 @@ export async function getCrewLinkChecklistDetail(accountId: string, id: number):
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
   if (!row) return null;
-  const sections = (row.items_snapshot_json as ChecklistSubmissionSection[] | null) ?? [];
+  const sections = await attachPhotoUrls((row.items_snapshot_json as ChecklistSubmissionSection[] | null) ?? []);
   return {
     source: "crew-link",
     id,
@@ -147,7 +148,7 @@ export async function getCrewLinkChecklistDetail(accountId: string, id: number):
         checked: Boolean(item.checked),
         status: item.checked ? "done" : "not done",
         note: item.note ?? "",
-        photos: [],
+        photos: (item.photoUrls ?? []).map((photo) => photo.url),
       })),
     })),
   };
