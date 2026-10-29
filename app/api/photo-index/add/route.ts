@@ -3,7 +3,9 @@
 //   multipart form: photos from the person's device -> Blob storage (photos/)
 //                   and into the photo index
 //   JSON { links }: photos already in Google Drive -> indexed where they are
-//                   (read-only on Drive; nothing is copied or moved)
+//                   (read-only on Drive; nothing in Drive is moved or
+//                   changed). "Crew" photos are copied into Blob so the
+//                   customer portal can show them (lib/photoImport.ts).
 
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -11,7 +13,8 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { addUploadedPhoto, cleanDetails, importFromDrive, serviceAccountEmail } from "@/lib/photoImport";
 import { photosReady } from "@/lib/pg/photo-index";
 
-export const maxDuration = 60;
+// Up to 60 Crew photos are copied from Drive per request, a few seconds each.
+export const maxDuration = 300;
 
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 20;
