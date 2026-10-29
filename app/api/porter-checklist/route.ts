@@ -5,7 +5,7 @@
 // public.
 import { NextRequest, NextResponse } from "next/server";
 import { getMainAccountById } from "@/lib/data/accounts";
-import { getTabForAccount, getTemplateByPorterCode, insertSubmission, listActiveTabs, setSubmissionNotesTranslation } from "@/lib/checklistDb";
+import { getTabForAccount, getTemplateByPorterCode, insertSubmission, latestNightNoteToday, listActiveTabs, setSubmissionNotesTranslation } from "@/lib/checklistDb";
 import { waitUntil } from "@vercel/functions";
 import { dateOrNull } from "@/lib/dateUtils";
 import { translateToEnglish } from "@/lib/translate";
@@ -14,6 +14,7 @@ import {
   countSubmissionProgress,
   countTabItems,
   isSkipReason,
+  routeSpecialRow,
   type ChecklistSubmissionSection,
   type ChecklistTabDef,
 } from "@/lib/checklistTemplate";
@@ -59,6 +60,10 @@ export async function GET(request: NextRequest) {
     // ES/PT for every tab name, section and item (English if missing).
     const translations = await getContentTranslations(tabs.flatMap((tab) => [tab.name, ...sectionTexts(tab.sections)]));
 
+    // Route tabs: today's "Note for night crew" from a tab that has one (the day porter's).
+    const noteTabIds = tabs.filter((tab) => routeSpecialRow(tab.sections, "night_note")).map((tab) => tab.id);
+    const nightNote = noteTabIds.length ? await latestNightNoteToday(template.accountId, noteTabIds) : null;
+
     const shelvesOn = await shelvesReady();
     // Crews see the building name only — no account name, ids or details.
     return NextResponse.json({
@@ -69,6 +74,7 @@ export async function GET(request: NextRequest) {
       tabs,
       modules,
       translations,
+      nightNote,
       // "Supplies arrived" and "Case empty" (migrations 038, 039), with supply orders on.
       shelves: modules.supplyOrders && shelvesOn,
       // "Supplies arrived" alone also shows when something is on its way to
@@ -136,6 +142,12 @@ export async function POST(request: NextRequest) {
         checked: item?.checked === true,
         note: String(item?.note ?? "").slice(0, 1000),
         ...(item?.checked !== true && isSkipReason(item?.skipReason) ? { skipReason: item.skipReason } : {}),
+        // Route rows: the photos taken on the row (phone-made ids, same rule as the photo upload).
+        ...(Array.isArray(item?.photos) && item.photos.length
+          ? { photos: item.photos.map((id) => String(id)).filter((id) => /^[A-Za-z0-9-]{8,64}$/.test(id)).slice(0, 10) }
+          : {}),
+        // An urgent request: not a task.
+        ...(item?.info === true ? { info: true } : {}),
       })),
     }));
     const { done, total } = countSubmissionProgress(sections);

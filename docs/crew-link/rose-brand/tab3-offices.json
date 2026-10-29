@@ -1,0 +1,17 @@
+[
+  { "section": "Tonight", "item": "2nd floor offices", "es": "Oficinas 2º piso", "time": "6:00",
+    "sub_note": "Trash, glass spots, check tables and copiers, vacuum and mop",
+    "sub_note_es": "Basura, manchas en vidrios, revisa mesas y copiadoras, aspira y trapea" },
+  { "section": "Tonight", "item": "1st floor offices and conference rooms", "es": "Oficinas y salas de reuniones 1er piso", "time": "7:20",
+    "sub_note": "Trash, glass spots, check tables and copiers, vacuum and mop",
+    "sub_note_es": "Basura, manchas en vidrios, revisa mesas y copiadoras, aspira y trapea" },
+
+  { "section": "Tonight", "item": "Tables and chairs", "es": "Mesas y sillas", "time": "8:30", "days": "Mon,Fri", "slot": "detail" },
+  { "section": "Tonight", "item": "Copiers, dust furniture", "es": "Copiadoras, sacude los muebles", "time": "8:30", "days": "Tue", "slot": "detail" },
+  { "section": "Tonight", "item": "Lobby and showroom tables, dust common areas", "es": "Mesas del lobby y showroom, sacude áreas comunes", "time": "8:30", "days": "Wed", "slot": "detail" },
+  { "section": "Tonight", "item": "Copiers, door handles", "es": "Copiadoras, manijas de puertas", "time": "8:30", "days": "Thu", "slot": "detail" },
+
+  { "section": "Tonight", "item": "Light switches and door handles", "es": "Interruptores y manijas", "time": "8:30", "days": "1st Thu", "slot": "detail" },
+  { "section": "Tonight", "item": "Baseboards and ceilings", "es": "Zócalos y techos", "time": "8:30", "days": "2nd Tue", "slot": "detail" },
+  { "section": "Tonight", "item": "Light fixtures and ceiling fans", "es": "Lámparas y ventiladores de techo", "time": "8:30", "days": "3rd Thu", "slot": "detail" }
+]

@@ -455,6 +455,11 @@ function ChecklistBlock({ submission }: { submission: PorterChecklistReportSubmi
                 <Text style={styles.checklistItemLabel}>{item.label}</Text>
                 {item.subNote ? <Text style={styles.checklistItemSubNote}>{item.subNote}</Text> : null}
                 {item.note ? <Text style={styles.checklistItemSubNote}>Note: {item.note}</Text> : null}
+                {item.photos?.length ? (
+                  <Text style={styles.checklistItemSubNote}>
+                    Photos: {item.photos.length} (on the account&apos;s Photos page)
+                  </Text>
+                ) : null}
               </View>
             </View>
           ))}

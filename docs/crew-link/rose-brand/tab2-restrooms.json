@@ -1,0 +1,20 @@
+[
+  { "section": "Tonight", "item": "1st floor restrooms", "es": "Baños 1er piso", "time": "6:10", "photo": true,
+    "sub_note": "Toilets, urinals and walls by urinals, sinks, mirrors, refill soap/paper/towels, trash, floors",
+    "sub_note_es": "Inodoros, mingitorios y paredes junto a ellos, lavamanos, espejos, repón jabón/papel/toallas, basura, pisos" },
+  { "section": "Tonight", "item": "2nd floor restrooms", "es": "Baños 2º piso", "time": "6:55", "photo": true,
+    "sub_note": "Toilets, urinals and walls by urinals, sinks, mirrors, refill soap/paper/towels, trash, floors",
+    "sub_note_es": "Inodoros, mingitorios y paredes junto a ellos, lavamanos, espejos, repón jabón/papel/toallas, basura, pisos" },
+  { "section": "Tonight", "item": "Lunchroom", "es": "Comedor", "time": "7:40", "photo": true },
+  { "section": "Tonight", "item": "Entry, lounge, showroom", "es": "Entrada, sala de estar, showroom", "time": "8:10" },
+
+  { "section": "Tonight", "item": "Microwaves and water fountains", "es": "Microondas y bebederos", "time": "8:35", "days": "Mon", "slot": "detail" },
+  { "section": "Tonight", "item": "Restroom doors and handles, wash trash cans", "es": "Puertas y manijas de baños, lava los botes de basura", "time": "8:35", "days": "Tue", "slot": "detail" },
+  { "section": "Tonight", "item": "Descale urinals, wipe stall walls", "es": "Desincrusta mingitorios, limpia paredes de cubículos", "time": "8:35", "days": "Wed", "slot": "detail" },
+  { "section": "Tonight", "item": "Lunchroom appliances", "es": "Electrodomésticos del comedor", "time": "8:35", "days": "Thu", "slot": "detail" },
+  { "section": "Tonight", "item": "Restroom floor edges and corners", "es": "Bordes y rincones del piso de baños", "time": "8:35", "days": "Fri", "slot": "detail" },
+
+  { "section": "Tonight", "item": "Restroom light switches and kick plates", "es": "Interruptores y placas de puertas de baños", "time": "8:35", "days": "1st Thu", "slot": "detail" },
+  { "section": "Tonight", "item": "Organize janitor's closet", "es": "Ordena el cuarto de limpieza", "time": "8:35", "days": "2nd Tue", "slot": "detail" },
+  { "section": "Tonight", "item": "Clean fridges", "es": "Limpia las refrigeradoras", "time": "8:35", "days": "3rd Thu", "slot": "detail" }
+]

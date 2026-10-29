@@ -70,12 +70,20 @@ export default function CrewLinkPrintBlankChecklistPage() {
         <div key={section.key}>
           <h2 className="crew-print-row border-b border-black pb-1 text-xl font-black">{section.title}</h2>
           <div className="mt-2 space-y-2">
-            {section.items.map((item) => (
+            {/* Route tabs: the time and days print with each row; the special rows (urgent / night note) are screen-only. */}
+            {section.items.filter((item) => !item.kind).map((item) => (
               <div key={item.key} className="crew-print-row flex items-start gap-3">
                 <PrintBox />
                 <div>
-                  <p className="text-lg font-semibold leading-snug">{item.label}</p>
+                  <p className="text-lg font-semibold leading-snug">
+                    {item.time ? `${item.time} ` : ""}
+                    {item.label}
+                    {item.days ? ` (${item.days})` : ""}
+                    {item.photo ? " 📷" : ""}
+                  </p>
+                  {item.es ? <p className="text-base italic">{item.es}</p> : null}
                   {item.subNote ? <p className="text-base">{item.subNote}</p> : null}
+                  {item.choices?.length ? <p className="text-base">{item.choices.map((choice) => `${choice}: Full / Not full`).join(" · ")}</p> : null}
                 </div>
               </div>
             ))}

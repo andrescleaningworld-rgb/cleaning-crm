@@ -37,12 +37,15 @@ export function CrewHeader({
   onLangChange,
   locationName,
   children,
+  hideLang = false,
 }: {
   s: CrewLinkStrings;
   lang: TeamHubLang;
   onLangChange: (lang: TeamHubLang) => void;
   locationName: string;
   children?: ReactNode;
+  /** Route links show English and Spanish together: no switch. */
+  hideLang?: boolean;
 }) {
   return (
     <header className="rounded-3xl bg-blue-700 p-4 text-white shadow-sm">
@@ -58,9 +61,11 @@ export function CrewHeader({
       </div>
       <h1 className="mt-2 text-3xl font-black leading-tight">{locationName || s.defaultTitle}</h1>
       {children}
-      <div className="mt-3">
-        <LangSwitch lang={lang} onChange={onLangChange} />
-      </div>
+      {hideLang ? null : (
+        <div className="mt-3">
+          <LangSwitch lang={lang} onChange={onLangChange} />
+        </div>
+      )}
     </header>
   );
 }
@@ -163,19 +168,19 @@ export function ErrorBox({ message }: { message: string }) {
 }
 
 // Full-screen green confirmation after any Send, with one way out.
-export function SentScreen({ s, onDone }: { s: CrewLinkStrings; onDone: () => void }) {
+export function SentScreen({ s, onDone, title, button }: { s: CrewLinkStrings; onDone: () => void; title?: string; button?: string }) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-8 bg-green-600 px-6 text-center text-white">
       <div className="flex h-36 w-36 items-center justify-center rounded-full bg-white text-8xl font-black text-green-600" aria-hidden="true">
         ✔
       </div>
-      <p className="text-5xl font-black">{s.sent}</p>
+      <p className="text-5xl font-black">{title ?? s.sent}</p>
       <button
         type="button"
         onClick={onDone}
         className="min-h-[72px] w-full max-w-sm rounded-3xl bg-white text-2xl font-black text-green-700 shadow-lg active:bg-green-50"
       >
-        {s.backToStart}
+        {button ?? s.backToStart}
       </button>
     </div>
   );

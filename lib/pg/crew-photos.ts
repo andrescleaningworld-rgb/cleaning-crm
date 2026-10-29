@@ -53,6 +53,8 @@ export async function addCrewPhoto(input: {
   takenAt: string;
   full: File;
   thumb: File | null;
+  /** Route rows: the row it was taken on ("Warehouse office"). */
+  caption?: string;
 }): Promise<{ id: number; already: boolean }> {
   const sourceKey = `crew:${input.clientId}`;
   const sql = getSql();
@@ -70,7 +72,7 @@ export async function addCrewPhoto(input: {
     INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href,
                              taken_by, taken_at, is_image, caption, thumb_url, tag, hidden_from_customer)
     VALUES (${sourceKey}, 'blob', ${full.url}, ${input.accountId}, ${input.accountName}, 'Crew', ${moment}, 'account', ${input.accountId}, 'Open the account',
-            ${`/accounts/${input.accountId}`}, ${input.name}, ${photoMoment(input.takenAt)}, true, '', ${thumb?.url ?? ""}, ${input.tag}, ${hiddenAtFirst(input.tag)})
+            ${`/accounts/${input.accountId}`}, ${input.name}, ${photoMoment(input.takenAt)}, true, ${clean(input.caption).slice(0, 200)}, ${thumb?.url ?? ""}, ${input.tag}, ${hiddenAtFirst(input.tag)})
     ON CONFLICT (source_key) DO NOTHING
     RETURNING id
   `);

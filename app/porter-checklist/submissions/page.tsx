@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
+import { SKIP_REASON_WORDS, describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import AccountLink from "../../components/AccountLink";
 
@@ -606,10 +606,23 @@ export default function PorterChecklistSubmissionsPage() {
                         <div className="mt-2 space-y-2">
                           {section.items.map((item) => (
                             <div key={item.key} className="flex items-start gap-2 rounded-lg border border-slate-100 p-2">
-                              <span className={item.checked ? "text-green-600" : "text-slate-300"}>{item.checked ? "✓" : "○"}</span>
+                              <span className={item.info ? "text-orange-500" : item.checked ? "text-green-600" : "text-slate-300"}>{item.info ? "⚡" : item.checked ? "✓" : "○"}</span>
                               <div>
                                 <p className="ui-strong">{item.label}</p>
                                 {item.note ? <p className="ui-muted">{item.note}</p> : null}
+                                {!item.checked && item.skipReason ? <p className="ui-muted">Couldn&apos;t do: {SKIP_REASON_WORDS[item.skipReason]}</p> : null}
+                                {item.photoUrls?.length ? (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {item.photoUrls.map((photo) => (
+                                      <a key={photo.url} href={photo.url} target="_blank" rel="noreferrer">
+                                        {/* eslint-disable-next-line @next/next/no-img-element -- Vercel Blob photo */}
+                                        <img src={photo.thumbUrl} alt="" className="h-20 w-20 rounded-lg border border-slate-200 object-cover" />
+                                      </a>
+                                    ))}
+                                  </div>
+                                ) : item.photos?.length ? (
+                                  <p className="ui-muted">📷 {item.photos.length} photo(s) still on their way from the phone</p>
+                                ) : null}
                               </div>
                             </div>
                           ))}
