@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, Sheet, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
-import { ESTIMATE_BADGE, EXTRA_JOB_COMMISSION_PERCENT, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
+import { ESTIMATE_BADGE, EXTRA_JOB_COMMISSION_PERCENT, IN_HOUSE_LONG, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../../components/AccountLink";
 import { ESTIMATE_ACCEPT, EstimateList, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
@@ -42,6 +42,14 @@ export default function ExtraJobDetail({ id }: { id: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Done ✓ on the Pin Board opens this page at #done: once the job is on screen, go straight to its Done section.
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (state !== "ready" || jumped.current || window.location.hash !== "#done") return;
+    jumped.current = true;
+    window.requestAnimationFrame(() => document.getElementById("done")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [state]);
 
   async function addPhotos(files: FileList | null) {
     if (!files || files.length === 0 || !job) return;
@@ -196,12 +204,22 @@ export default function ExtraJobDetail({ id }: { id: string }) {
               </div>
               <div>
                 <dt>Sub</dt>
-                <dd>{job.subName}</dd>
+                <dd>{job.inHouse ? IN_HOUSE_LONG : job.subName}</dd>
               </div>
-              <div>
-                <dt>Sub pay</dt>
-                <dd>{money(job.subPay)}</dd>
-              </div>
+              {/* In-house: our own crew, no sub pay. */}
+              {job.inHouse ? (
+                job.crewNames ? (
+                  <div>
+                    <dt>Who did it</dt>
+                    <dd>{job.crewNames}</dd>
+                  </div>
+                ) : null
+              ) : (
+                <div>
+                  <dt>Sub pay</dt>
+                  <dd>{money(job.subPay)}</dd>
+                </div>
+              )}
               <div>
                 <dt>Came in by</dt>
                 <dd>{SOURCE_LABEL[job.source]}</dd>
@@ -308,6 +326,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
           </Card>
 
           {cancelled ? null : (
+          <div id="done" style={{ scrollMarginTop: 80 }}>
           <Card title={done ? "After photos" : "When the job is done"}>
             {done ? null : <p className="ui-card-text">Add an after photo if you have one, then tap Done. The office is told it is ready to invoice.</p>}
             {job.photos.length > 0 ? (
@@ -343,6 +362,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
               )}
             </div>
           </Card>
+          </div>
           )}
 
           {error ? <ErrorBox title="Not saved yet." text={error} /> : null}

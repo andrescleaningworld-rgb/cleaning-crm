@@ -97,7 +97,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, ready: true, settings, links, pinTypes, pinReady }, noStore);
     }
 
-    await syncBoard();
+    // fresh=1: right after a change made elsewhere (an extra job marked Done from its popup), so it comes down now, not up to 15 seconds later.
+    await syncBoard(request.nextUrl.searchParams.get("fresh") === "1");
     // New accounts in the 8-step flow: the Welcome Packet and the Onboarding Checklist finish steps 1 and 5 by themselves.
     if (await flowsReady().catch(() => false)) await syncAutoSteps().catch((error) => console.error("[board] account flows:", error instanceof Error ? error.message : error));
     // Pinned to-dos get their green check (and come down the day after) from the to-do itself.

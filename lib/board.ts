@@ -55,6 +55,8 @@ export type Paper = {
   flow: FlowView | null;
   /** Red on the board and TV: a crew "Couldn't do" paper with the same item skipped 3 nights in a row (lib/pg/crew-skips.ts). */
   alert?: boolean;
+  /** An extra job our own crew does (migration 067): no sub, so no "Waiting on sub". */
+  inHouse?: boolean;
   /**
    * Set only on the copy papersIn puts in "New accepted" for a new account
    * that is in a manager's square (it stays there too until Live). The same

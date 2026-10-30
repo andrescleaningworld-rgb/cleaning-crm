@@ -65,7 +65,8 @@ export default function PinStatusBox({ paper, canFinish, onSaved }: { paper: Pap
     }
   }
 
-  const choices = PIN_STATUSES.filter((entry) => entry.key !== "done" || canFinish);
+  // An extra job has its own Done ✓ above this box (canFinish false). An in-house one has no sub to wait on.
+  const choices = PIN_STATUSES.filter((entry) => (entry.key !== "done" || canFinish) && (entry.key !== "waiting_sub" || !paper.inHouse));
   return (
     <section className="ui-stack" data-pin-status>
       <p className="ui-strong" style={{ margin: 0 }}>
@@ -81,7 +82,6 @@ export default function PinStatusBox({ paper, canFinish, onSaved }: { paper: Pap
         ))}
       </div>
       <Field label="Note" optional value={note} maxLength={STATUS_NOTE_MAX} onChange={(event) => setNote(event.target.value)} placeholder="A few words (optional)" />
-      {canFinish ? null : <p className="ui-muted">Done for an extra job is on the job&apos;s own page.</p>}
 
       <details>
         <summary className="ui-link">Status history</summary>

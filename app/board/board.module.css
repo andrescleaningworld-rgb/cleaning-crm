@@ -388,6 +388,13 @@ button.paper:hover {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
+/* An extra job's Done ✓ in its popup: big, green (the main button), full width, above the status chips. */
+.jobDoneButton {
+  width: 100%;
+  min-height: 68px;
+  font-size: 24px;
+}
+
 .give {
   display: grid;
   gap: 8px;
