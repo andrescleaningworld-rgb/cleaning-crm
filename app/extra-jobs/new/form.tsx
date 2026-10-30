@@ -13,11 +13,14 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BigButton, CHEER, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField, showToast } from "@/app/ui";
-import { EXTRA_JOBS_RULE, SOURCES, checkNewExtraJob, searchAccounts, todayDay, type AccountChoice, type ExtraJob, type ExtraJobSource, type FormChoices } from "@/lib/extraJobs";
+import { EXTRA_JOBS_RULE, IN_HOUSE_LONG, SOURCES, checkNewExtraJob, searchAccounts, todayDay, type AccountChoice, type ExtraJob, type ExtraJobSource, type FormChoices } from "@/lib/extraJobs";
 import { ESTIMATE_ACCEPT, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
 
 type State = "loading" | "off" | "missing" | "locked" | "failed" | "ready";
+
+/** The Sub dropdown's value for "In-house (Cleaning World crew)". Never a real sub ID: it is saved as inHouse, not as a sub. */
+const IN_HOUSE_CHOICE = "__in_house__";
 
 /**
  * Find the account by typing: 2 letters or more show up to 8 accounts whose
@@ -80,6 +83,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   const [price, setPrice] = useState("");
   const [subId, setSubId] = useState("");
   const [subPay, setSubPay] = useState("");
+  const [crewNames, setCrewNames] = useState("");
   const [soldBy, setSoldBy] = useState("");
   const [woNumber, setWoNumber] = useState("");
   const [estimateNumber, setEstimateNumber] = useState("");
@@ -98,7 +102,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       if (body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
       setEstimatesOn(body.estimatesOn === true);
-      const loaded: FormChoices = { accounts: body.accounts ?? [], subs: body.subs ?? [], sellers: body.sellers ?? [], me: body.me ?? "" };
+      const loaded: FormChoices = { accounts: body.accounts ?? [], subs: body.subs ?? [], sellers: body.sellers ?? [], me: body.me ?? "", inHouseOn: body.inHouseOn === true };
 
       if (editId) {
         const jobResponse = await fetch(`/api/extra-jobs?id=${encodeURIComponent(editId)}`, { cache: "no-store" });
@@ -119,8 +123,9 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         setDescription(job.description);
         setJobDate(job.jobDate);
         setPrice(String(job.customerPrice));
-        setSubId(job.subId);
-        setSubPay(String(job.subPay));
+        setSubId(job.inHouse ? IN_HOUSE_CHOICE : job.subId);
+        setSubPay(job.inHouse ? "" : String(job.subPay));
+        setCrewNames(job.crewNames);
         setSoldBy(job.soldBy);
         setWoNumber(job.woNumber);
         setEstimateNumber(job.estimateNumber);
@@ -139,13 +144,14 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   }, [startAccountId, editId]);
 
   const account = choices?.accounts.find((option) => option.id === accountId) ?? null;
+  const inHouse = subId === IN_HOUSE_CHOICE;
   const sub = choices?.subs.find((option) => option.id === subId) ?? null;
   const backHref = editId ? `/extra-jobs/${encodeURIComponent(editId)}` : from === "board" ? "/board" : startAccountId ? `/accounts/${encodeURIComponent(startAccountId)}` : "/extra-jobs";
 
   function pickAccount(picked: AccountChoice) {
     setAccountId(picked.id);
-    // The account's usual sub is the likely one; the manager can still change it.
-    if (choices?.subs.some((option) => option.id === picked.subId)) setSubId(picked.subId);
+    // The account's usual sub is the likely one; the manager can still change it. In-house, once picked, stays.
+    if (!inHouse && choices?.subs.some((option) => option.id === picked.subId)) setSubId(picked.subId);
   }
 
   async function save() {
@@ -157,9 +163,12 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       jobDate,
       // An empty box is "not filled in", not $0.
       customerPrice: price.trim() === "" ? Number.NaN : Number(price),
-      subId: sub?.id ?? "",
-      subName: sub?.name ?? "",
-      subPay: subPay.trim() === "" ? Number.NaN : Number(subPay),
+      // In-house: no sub and no sub pay; "Who did it" instead.
+      subId: inHouse ? "" : (sub?.id ?? ""),
+      subName: inHouse ? "" : (sub?.name ?? ""),
+      subPay: inHouse ? 0 : subPay.trim() === "" ? Number.NaN : Number(subPay),
+      inHouse,
+      crewNames: inHouse ? crewNames.trim() : "",
       soldBy,
       woNumber: woNumber.trim(),
       ...(estimatesOn ? { estimateNumber: estimateNumber.trim() } : {}),
@@ -265,13 +274,26 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
           <div className={styles.two}>
             <SelectField label="Sub" value={subId} disabled={saving} onChange={(event) => setSubId(event.target.value)}>
               <option value="">Pick the sub</option>
-              {choices.subs.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name}
-                </option>
-              ))}
+              {/* Our own crew, first and set apart from the subs (migration 067). */}
+              {choices.inHouseOn ? (
+                <>
+                  <option value={IN_HOUSE_CHOICE}>{IN_HOUSE_LONG}</option>
+                  <option disabled>──────────</option>
+                </>
+              ) : null}
+              <optgroup label="Subs">
+                {choices.subs.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </optgroup>
             </SelectField>
-            <Field label="Sub pay ($)" type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={subPay} disabled={saving} onChange={(event) => setSubPay(event.target.value)} />
+            {inHouse ? (
+              <Field label="Who did it" hint="Crew member names. No sub pay for an in-house job." optional maxLength={200} autoComplete="off" value={crewNames} disabled={saving} onChange={(event) => setCrewNames(event.target.value)} />
+            ) : (
+              <Field label="Sub pay ($)" type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={subPay} disabled={saving} onChange={(event) => setSubPay(event.target.value)} />
+            )}
           </div>
 
           <div className={styles.two}>

@@ -57,6 +57,25 @@ export async function estimatesReady(): Promise<boolean> {
   return estimatesOn;
 }
 
+let inHouseOn = false;
+
+/** True once migration 067 is in: a job can be In-house (our own crew, no sub). Until then the choice is hidden. */
+export async function inHouseReady(): Promise<boolean> {
+  if (inHouseOn) return true;
+  try {
+    const rows = (await getSql()`
+      SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'extra_jobs' AND column_name = 'performed_by') AS ok
+    `) as { ok: boolean }[];
+    inHouseOn = rows[0]?.ok === true;
+  } catch {
+    inHouseOn = false;
+  }
+  return inHouseOn;
+}
+
+/** "Who did it" on an in-house job, as typed. */
+const crewNamesOf = (input: { crewNames?: string }) => (input.crewNames ?? "").trim().slice(0, 200);
+
 const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
 
 /** The optional Customer WO #, as typed (free text, at most 60 characters). */
@@ -77,6 +96,8 @@ type JobRow = {
   sub_id: string;
   sub_name: string;
   sub_pay: string;
+  performed_by: string;
+  crew_names: string;
   sold_by: string;
   manager: string;
   status: ExtraJobStatus;
@@ -130,6 +151,8 @@ function toJob(row: JobRow): ExtraJob {
     subId: row.sub_id,
     subName: row.sub_name,
     subPay: Number(row.sub_pay) || 0,
+    inHouse: row.performed_by === "in_house",
+    crewNames: row.crew_names ?? "",
     soldBy: row.sold_by,
     manager: row.manager,
     status: row.status,
@@ -162,9 +185,11 @@ async function selectJob(): Promise<string> {
            FROM extra_job_estimates e WHERE e.job_id = j.id
          ), '[]'::jsonb) AS estimates`
     : `'' AS estimate_number, false AS estimates_on, '[]'::jsonb AS estimates`;
+  // In-house (migration 067). Before it, every job is a sub job.
+  const inHouse = (await inHouseReady()) ? `j.performed_by, j.crew_names` : `'sub' AS performed_by, '' AS crew_names`;
   return `
   SELECT j.id::text, j.job_number, j.wo_number, j.account_id, j.account_name, j.source, j.description, j.job_date::text AS job_day,
-         j.customer_price::text, j.sub_id, j.sub_name, j.sub_pay::text, j.sold_by, j.manager, j.status, j.sale_id,
+         j.customer_price::text, j.sub_id, j.sub_name, j.sub_pay::text, ${inHouse}, j.sold_by, j.manager, j.status, j.sale_id,
          j.created_by, j.created_at, j.setup_emailed_at, j.done_by, j.done_at, j.done_note, j.done_emailed_at,
          j.cancelled_by, j.cancelled_at, j.cancel_reason, j.cancel_emailed_at, j.edited_by, j.edited_at,
          COALESCE((
@@ -238,6 +263,7 @@ export async function getFormChoices(me: string): Promise<FormChoices> {
     subs,
     sellers: sellers.map((row) => row.name),
     me,
+    inHouseOn: await inHouseReady(),
   };
 }
 
@@ -260,6 +286,10 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
   // The optional Estimate # (migration 061). Before 061 it is not asked for.
   if (estimateNumberOf(input) && (await estimatesReady())) {
     await sql`UPDATE extra_jobs SET estimate_number = ${estimateNumberOf(input)} WHERE id = ${id}::bigint`;
+  }
+  // In-house (migration 067): our own crew, so the sub fields are already empty and the sub pay 0.
+  if (input.inHouse && (await inHouseReady())) {
+    await sql`UPDATE extra_jobs SET performed_by = 'in_house', crew_names = ${crewNamesOf(input)} WHERE id = ${id}::bigint`;
   }
 
   try {
@@ -358,6 +388,12 @@ export async function updateExtraJob(id: string, input: NewExtraJob, by: string)
   if (input.estimateNumber !== undefined && (await estimatesReady())) {
     await sql`UPDATE extra_jobs SET estimate_number = ${estimateNumberOf(input)} WHERE id = ${id}::bigint`;
   }
+  if (await inHouseReady()) {
+    await sql`
+      UPDATE extra_jobs SET performed_by = ${input.inHouse ? "in_house" : "sub"}, crew_names = ${input.inHouse ? crewNamesOf(input) : ""}
+      WHERE id = ${id}::bigint
+    `;
+  }
 
   if (job.saleId) {
     const commission = Math.round(input.customerPrice * EXTRA_JOB_COMMISSION_PERCENT) / 100;
@@ -419,12 +455,14 @@ export async function cancelExtraJob(id: string, by: string, reason: string): Pr
 /**
  * "Extra jobs to pay": the Done jobs whose job date is in the pay period,
  * per sub. Jobs that are not in the app, or not marked Done, are not here.
+ * In-house jobs are not here either: no sub is paid for them.
  */
 export async function getPayReport(from: string, to: string): Promise<PayRow[]> {
   const sql = getSql();
   const rows = (await sql.query(`${await selectJob()} WHERE j.status = 'done' AND j.job_date BETWEEN $1::date AND $2::date ORDER BY lower(j.sub_name), j.job_date, j.id`, [from, to])) as JobRow[];
   const bySub = new Map<string, PayRow>();
   for (const job of rows.map(toJob)) {
+    if (job.inHouse) continue;
     const key = job.subId || job.subName.toLowerCase();
     const row = bySub.get(key) ?? { subId: job.subId, subName: job.subName, jobs: [], total: 0 };
     row.jobs.push(job);

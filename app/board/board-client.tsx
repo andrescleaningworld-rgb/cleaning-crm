@@ -39,7 +39,7 @@ import styles from "./board.module.css";
 
 export type BoardTab = "board" | "mine" | "calendar" | "tv";
 
-/** A blue paper that mirrors a real extra job: it is finished on the job's page, not on the board. */
+/** A blue paper that mirrors a real extra job: it is finished on the job's page (Done ✓ in its popup goes there), never with Unpin. */
 const isExtraJob = (paper: Paper) => paper.kind === "extra" && paper.itemId.startsWith("job-");
 
 export const BOARD_TABS: { value: BoardTab; label: string }[] = [
@@ -102,9 +102,10 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   const [setupFor, setSetupFor] = useState<{ accountId: string; accountName: string; paperKey: string } | null>(null);
   const changeTab = useBoardTabs(tab, setTab);
 
-  const load = useCallback(async () => {
+  // fresh: the board lines itself up with the records right now (back from an extra job marked Done), instead of within 15 seconds.
+  const load = useCallback(async (fresh = false) => {
     try {
-      const response = await fetch("/api/board", { cache: "no-store" });
+      const response = await fetch(fresh ? "/api/board?fresh=1" : "/api/board", { cache: "no-store" });
       const body = (await response.json()) as { success?: boolean; ready?: boolean } & Partial<BoardData>;
       if (!response.ok || body.success !== true) throw new Error("failed");
       if (body.ready !== true) {
@@ -125,7 +126,14 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
   // New papers pin themselves, so the board looks again every minute.
   useEffect(() => {
-    void load();
+    // Back from an extra job's page (it may have just been marked Done there): its paper comes down on this first look.
+    let backFromJob = false;
+    try {
+      backFromJob = (window.sessionStorage.getItem(BOARD_FROM_KEY) ?? "").startsWith("/extra-jobs/");
+    } catch {
+      // No storage: the usual look.
+    }
+    void load(backFromJob);
     const timer = window.setInterval(() => void load(), 60_000);
     return () => window.clearInterval(timer);
   }, [load]);
@@ -179,7 +187,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   // A tap opens the note as a large card. "Open full details" on the card goes to the item itself.
   const openPaper = (paper: Paper) => setOpenKey(`${paper.kind}:${paper.itemId}`);
 
-  const openDetails = (paper: Paper) => {
+  // section: a part of that page to open at, e.g. "#done" (an extra job's Done section).
+  const openDetails = (paper: Paper, section = "") => {
     if (!paper.href) return;
     try {
       window.sessionStorage.setItem(BOARD_SCROLL_KEY, String(window.scrollY));
@@ -187,7 +196,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
     } catch {
       // No storage: it still opens; the board simply starts at the top afterwards.
     }
-    router.push(paper.href);
+    router.push(`${paper.href}${section}`);
   };
 
   // Tap empty space in a box: the right form for that box, already filled in for it.
@@ -343,6 +352,13 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               </dl>
             </div>
 
+            {/* An extra job: Done ✓ opens the job's page at its Done section (after photo, note, Done). The paper comes down by itself. */}
+            {isExtraJob(open) && !open.recordDone && open.href ? (
+              <BigButton className={styles.jobDoneButton} icon="check" disabled={busy} onClick={() => openDetails(open, "#done")} data-extra-job-done>
+                Done ✓
+              </BigButton>
+            ) : null}
+
             {/* The status check: one tap, an optional note, and the history. */}
             {data.statusOn ? (
               <PinStatusBox
@@ -406,7 +422,6 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 </BigButton>
               )}
             </div>
-            {isExtraJob(open) ? <p className="ui-muted">To finish it, tap Open full details and tap Done on the job. The paper then comes down by itself.</p> : null}
 
             <p className="ui-label">Hand it to</p>
             <div className={styles.give}>

@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AddButton, BigButton, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, Tabs } from "@/app/ui";
-import { ESTIMATE_BADGE, EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, type ExtraJob } from "@/lib/extraJobs";
+import { ESTIMATE_BADGE, EXTRA_JOBS_RULE, STATUS_LABEL, dayLabel, jobMatches, money, subLabel, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import styles from "./extra-jobs.module.css";
@@ -130,7 +130,7 @@ export default function ExtraJobsPage() {
                     </span>
                     <span className={styles.jobWhat}>{job.description}</span>
                     <span className={styles.jobFacts}>
-                      {dayLabel(job.jobDate)} · {job.subName} · {money(job.customerPrice)}
+                      {dayLabel(job.jobDate)} · {subLabel(job)} · {money(job.customerPrice)}
                     </span>
                   </Link>
                 </li>

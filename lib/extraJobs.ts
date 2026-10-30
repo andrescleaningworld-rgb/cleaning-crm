@@ -31,6 +31,15 @@ export type ExtraJobEstimate = { id: string; url: string; fileName: string; cont
 export const isPdfEstimate = (estimate: Pick<ExtraJobEstimate, "contentType" | "fileName" | "url">) =>
   /pdf/i.test(estimate.contentType) || /\.pdf$/i.test(estimate.fileName || estimate.url);
 
+/** The Sub choice for a job our own crew does instead of a sub (migration 067). Not a sub: no sub row, no sub pay. */
+export const IN_HOUSE = "In-house";
+export const IN_HOUSE_LONG = "In-house (Cleaning World crew)";
+/** What the sub copy of the work order says for an in-house job. */
+export const IN_HOUSE_WORK_ORDER = "In-house – Cleaning World crew";
+
+/** Who does the job, in a few words: the sub's name, or "In-house". */
+export const subLabel = (job: { inHouse: boolean; subName: string }) => (job.inHouse ? IN_HOUSE : job.subName);
+
 /** "Estimate ✓" on the list and the board, when a job has one. */
 export const ESTIMATE_BADGE = "Estimate ✓";
 
@@ -51,6 +60,10 @@ export type ExtraJob = {
   subId: string;
   subName: string;
   subPay: number;
+  /** Done by Cleaning World's own crew, not a sub (migration 067). Then subId and subName are "" and subPay is 0. */
+  inHouse: boolean;
+  /** In-house only, optional: who on the crew did it. */
+  crewNames: string;
   soldBy: string;
   manager: string;
   status: ExtraJobStatus;
@@ -90,6 +103,9 @@ export type NewExtraJob = {
   subId: string;
   subName: string;
   subPay: number;
+  /** In-house (migration 067): no sub and no sub pay. Left out = a sub job. */
+  inHouse?: boolean;
+  crewNames?: string;
   soldBy: string;
   woNumber: string;
   /** Optional; saved only once migration 061 has run. */
@@ -103,6 +119,8 @@ export type FormChoices = {
   subs: { id: string; name: string }[];
   sellers: string[];
   me: string;
+  /** False until migration 067 runs here: no In-house choice on the form. */
+  inHouseOn?: boolean;
 };
 
 export type PayRow = { subId: string; subName: string; jobs: ExtraJob[]; total: number };
@@ -162,7 +180,7 @@ export function searchAccounts(accounts: AccountChoice[], text: string, limit = 
 export function jobMatches(job: ExtraJob, text: string): boolean {
   const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const haystack = [job.jobNumber, job.woNumber, job.estimateNumber, job.accountName, job.description, job.subName, job.soldBy].join(" ").toLowerCase();
+  const haystack = [job.jobNumber, job.woNumber, job.estimateNumber, job.accountName, job.description, job.inHouse ? `${IN_HOUSE} ${job.crewNames}` : job.subName, job.soldBy].join(" ").toLowerCase();
   return words.every((word) => haystack.includes(word));
 }
 
@@ -172,8 +190,8 @@ export function checkNewExtraJob(job: NewExtraJob): string {
   if (!job.description.trim()) return "Write what the job is.";
   if (!isDay(job.jobDate)) return "Pick the date.";
   if (!Number.isFinite(job.customerPrice) || job.customerPrice <= 0) return "Enter the customer price.";
-  if (!job.subName.trim()) return "Pick the sub.";
-  if (!Number.isFinite(job.subPay) || job.subPay < 0) return "Enter the sub pay.";
+  if (!job.inHouse && !job.subName.trim()) return "Pick the sub.";
+  if (!job.inHouse && (!Number.isFinite(job.subPay) || job.subPay < 0)) return "Enter the sub pay.";
   if (!job.soldBy.trim()) return "Pick who sold it.";
   return "";
 }

@@ -26,7 +26,7 @@ import {
   type PaperKind,
   type TvLink,
 } from "@/lib/board";
-import { estimatesReady, extraJobsReady } from "@/lib/pg/extra-jobs";
+import { estimatesReady, extraJobsReady, inHouseReady } from "@/lib/pg/extra-jobs";
 import { ESTIMATE_BADGE } from "@/lib/extraJobs";
 import { notDeleted } from "@/lib/pg/supply-deleted";
 import { handoffLive } from "@/lib/pg/account-live";
@@ -287,7 +287,11 @@ async function syncExtraJobs(): Promise<void> {
   const estimate = (await estimatesReady())
     ? `CASE WHEN EXISTS (SELECT 1 FROM extra_job_estimates e WHERE e.job_id = j.id) THEN '1' ELSE '' END`
     : `''`;
-  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', j.sub_name, 'estimate', ${estimate})`;
+  // In-house (migration 067): the paper says "Sub: In-house", and inHouse "1" hides "Waiting on sub" in its popup.
+  const inHouse = await inHouseReady();
+  const sub = inHouse ? `CASE WHEN j.performed_by = 'in_house' THEN 'In-house' ELSE j.sub_name END` : `j.sub_name`;
+  const inHouseFlag = inHouse ? `, 'inHouse', CASE WHEN j.performed_by = 'in_house' THEN '1' ELSE '' END` : "";
+  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', ${sub}, 'estimate', ${estimate}${inHouseFlag})`;
   await sql.query(`
     INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
     SELECT 'extra', 'job-' || j.id::text, j.account_name, j.account_id, j.account_name, j.manager, 'setup', j.created_at, ${facts}, j.created_by, j.created_at
@@ -315,7 +319,11 @@ async function syncExtraJobs(): Promise<void> {
   `;
 }
 
-/** True for a blue paper that mirrors a real extra job: it is finished on the job's page, not on the board. */
+/**
+ * True for a blue paper that mirrors a real extra job. It is never unpinned by
+ * hand: it comes down when the job is marked Done on its page (Done ✓ in its
+ * board popup opens that page at its Done section) or cancelled.
+ */
 export function isExtraJobPaper(kind: string, itemId: string): boolean {
   return kind === "extra" && itemId.startsWith("job-");
 }
@@ -480,6 +488,7 @@ function toPaper(row: PaperRow): Paper {
     setup: null,
     flow: paperFlow(row),
     alert: row.kind === "note" && clean(row.data?.red) === "1",
+    inHouse: row.kind === "extra" && clean(row.data?.inHouse) === "1",
     href: paperHref(row),
     pdfHref: paperPdfHref(row),
     forWho: clean(row.data?.forWho),

@@ -4,7 +4,7 @@
 // Server only.
 
 import { sendInternalNotification, type EmailAttachment } from "@/lib/email";
-import { SOURCE_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
+import { IN_HOUSE_LONG, SOURCE_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 
 const MAX_PHOTOS = 3;
 const MAX_PHOTO_BYTES = 6 * 1024 * 1024;
@@ -18,8 +18,8 @@ function facts(job: ExtraJob): string[] {
     `Job: ${job.description}`,
     `Date: ${dayLabel(job.jobDate)}`,
     `Customer price: ${money(job.customerPrice)}`,
-    `Sub: ${job.subName}`,
-    `Sub pay: ${money(job.subPay)}`,
+    // In-house: our own crew, so there is no sub and no sub pay.
+    ...(job.inHouse ? [`Sub: ${IN_HOUSE_LONG}`, ...(job.crewNames ? [`Who did it: ${job.crewNames}`] : [])] : [`Sub: ${job.subName}`, `Sub pay: ${money(job.subPay)}`]),
     `Manager: ${job.createdBy}`,
     `Sold by: ${job.soldBy}`,
     `Came in by: ${SOURCE_LABEL[job.source]}`,

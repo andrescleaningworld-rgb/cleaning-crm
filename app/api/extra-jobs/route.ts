@@ -16,6 +16,7 @@ import {
   getFormChoices,
   getJobAccount,
   getPayReport,
+  inHouseReady,
   listExtraJobs,
   stampEmailed,
   updateExtraJob,
@@ -85,6 +86,9 @@ export async function POST(request: NextRequest) {
     if (action === "create" || action === "update") {
       const source = clean(body.source) as ExtraJobSource;
       if (!SOURCES.some((option) => option.value === source)) return refuse("Pick how it came in.");
+      // In-house: our own crew did it. No sub, no sub pay (migration 067).
+      const inHouse = body.inHouse === true;
+      if (inHouse && !(await inHouseReady())) return refuse("In-house is not set up in this database yet. Pick the sub.", 409);
       const input: NewExtraJob = {
         accountId: clean(body.accountId),
         accountName: clean(body.accountName),
@@ -92,9 +96,11 @@ export async function POST(request: NextRequest) {
         description: clean(body.description),
         jobDate: clean(body.jobDate),
         customerPrice: Math.round(Number(body.customerPrice) * 100) / 100,
-        subId: clean(body.subId),
-        subName: clean(body.subName),
-        subPay: Math.round(Number(body.subPay) * 100) / 100,
+        subId: inHouse ? "" : clean(body.subId),
+        subName: inHouse ? "" : clean(body.subName),
+        subPay: inHouse ? 0 : Math.round(Number(body.subPay) * 100) / 100,
+        inHouse,
+        crewNames: inHouse ? clean(body.crewNames) : "",
         soldBy: clean(body.soldBy),
         woNumber: clean(body.woNumber),
         // Optional (migration 061). Left out = left as it is.

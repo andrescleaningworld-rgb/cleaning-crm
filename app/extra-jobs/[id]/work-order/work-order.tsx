@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { BigButton, EmptyState, ErrorBox, Screen, SkeletonList } from "@/app/ui";
-import { EXTRA_JOBS_RULE, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob, type ExtraJobAccount } from "@/lib/extraJobs";
+import { EXTRA_JOBS_RULE, IN_HOUSE_WORK_ORDER, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob, type ExtraJobAccount } from "@/lib/extraJobs";
 import styles from "../../extra-jobs.module.css";
 
 type State = "loading" | "off" | "missing" | "failed" | "ready";
@@ -94,12 +94,22 @@ export default function WorkOrder({ id, copy }: { id: string; copy: "sub" | "off
                 </div>
                 <div>
                   <dt>Sub</dt>
-                  <dd>{job.subName}</dd>
+                  <dd>{job.inHouse ? IN_HOUSE_WORK_ORDER : job.subName}</dd>
                 </div>
-                <div>
-                  <dt>Sub pay</dt>
-                  <dd>{money(job.subPay)}</dd>
-                </div>
+                {/* In-house: our own crew, no sub pay. "Who did it" when it was written down. */}
+                {job.inHouse ? (
+                  job.crewNames ? (
+                    <div>
+                      <dt>Who did it</dt>
+                      <dd>{job.crewNames}</dd>
+                    </div>
+                  ) : null
+                ) : (
+                  <div>
+                    <dt>Sub pay</dt>
+                    <dd>{money(job.subPay)}</dd>
+                  </div>
+                )}
                 <div>
                   <dt>Manager</dt>
                   <dd>{job.createdBy}</dd>
