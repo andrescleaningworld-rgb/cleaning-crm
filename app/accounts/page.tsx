@@ -1380,7 +1380,10 @@ export default function AccountsPage() {
     [filteredAccounts, lastVisits, today]
   );
 
-  const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
+  // The money totals count only the Active accounts in view: a search, Status "All" or "Never visited"
+  // can show Cancelled or Paused accounts, and their price is not money coming in.
+  const activeInView = useMemo(() => filteredAccounts.filter((a) => a._statusCategory === "Active"), [filteredAccounts]);
+  const filteredRevenue = useMemo(() => activeInView.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [activeInView]);
 
   const visibleAccounts = useMemo(() => {
     const sliced = filteredAccounts.slice(0, visibleCount);
@@ -1389,7 +1392,8 @@ export default function AccountsPage() {
       // This account's share of the revenue of the accounts shown. One decimal:
       // most accounts are well under 1% of the total, and a whole number
       // printed "(0%)" on nearly every row.
-      const pct = filteredRevenue > 0 ? Math.round((revNum / filteredRevenue) * 1000) / 10 : 0;
+      // Only an Active account has a share: the others are not in the total.
+      const pct = account._statusCategory !== "Active" ? undefined : filteredRevenue > 0 ? Math.round((revNum / filteredRevenue) * 1000) / 10 : 0;
       return {
         ...account,
         _revenuePercent: pct,
@@ -1421,12 +1425,12 @@ export default function AccountsPage() {
   const highRiskCount = useMemo(() => accounts.filter((a) => normalizeLower(a.accountHealth).includes("high risk")).length, [accounts]);
 
   const filteredSubPay = useMemo(
-    () => filteredAccounts.reduce((sum, account) => sum + (account._subPayNum ?? 0), 0),
-    [filteredAccounts]
+    () => activeInView.reduce((sum, account) => sum + (account._subPayNum ?? 0), 0),
+    [activeInView]
   );
   const filteredGrossMargin = useMemo(
-    () => filteredAccounts.reduce((sum, a) => sum + ((a._grossMarginNum ?? 0)), 0),
-    [filteredAccounts]
+    () => activeInView.reduce((sum, a) => sum + ((a._grossMarginNum ?? 0)), 0),
+    [activeInView]
   );
 
   const activeSubcontractors = useMemo(() => {
@@ -3444,19 +3448,21 @@ async function handleSaveTransferProposal() {
       {showMoney ? (
         <div className="ui-stats">
           <div className="ui-stat">
-            <p className="ui-stat-label">Revenue In Current View</p>
+            <p className="ui-stat-label">Active Revenue In Current View</p>
             <p className="ui-stat-value">{money0(filteredRevenue)}</p>
-            <p className="ui-muted">Updates when you filter accounts.</p>
+            <p className="ui-muted">
+              Active accounts only ({activeInView.length} of {filteredAccounts.length} shown). Updates when you filter accounts.
+            </p>
           </div>
           <div className="ui-stat">
             <p className="ui-stat-label">Sub Pay In Current View</p>
             <p className="ui-stat-value">{money0(filteredSubPay)}</p>
-            <p className="ui-muted">{shareOfRevenue(filteredSubPay, filteredRevenue)} of revenue · total subcontractor pay for the filtered accounts.</p>
+            <p className="ui-muted">{shareOfRevenue(filteredSubPay, filteredRevenue)} of revenue · total subcontractor pay for the active accounts in view.</p>
           </div>
           <div className="ui-stat">
             <p className="ui-stat-label">We keep (Gross Margin) In Current View</p>
             <p className="ui-stat-value">{money0(filteredGrossMargin)}</p>
-            <p className="ui-muted">{shareOfRevenue(filteredGrossMargin, filteredRevenue)} of revenue</p>
+            <p className="ui-muted">{shareOfRevenue(filteredGrossMargin, filteredRevenue)} of revenue · active accounts only</p>
           </div>
         </div>
       ) : null}
@@ -3800,7 +3806,9 @@ function AccountMoneyBlock({ account }: { account: Account }) {
       <p className="ui-strong ui-nowrap">
         {formatMoney(account.monthlyRevenue)}{" "}
         <span className="ui-muted">
-          ({(account._monthlyRevenueNum ?? 0) > 0 && (account._revenuePercent ?? 0) < 0.1 ? "under 0.1" : account._revenuePercent ?? 0}% of total)
+          {account._revenuePercent === undefined
+            ? "(not active: not in the totals)"
+            : `(${(account._monthlyRevenueNum ?? 0) > 0 && account._revenuePercent < 0.1 ? "under 0.1" : account._revenuePercent}% of total)`}
         </span>
       </p>
       <p className="ui-muted ui-nowrap">
