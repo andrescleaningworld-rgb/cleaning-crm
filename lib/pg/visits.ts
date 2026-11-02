@@ -322,3 +322,49 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
   )) as { visit_id: string }[];
   return { id: rows[0].visit_id };
 }
+
+/**
+ * Each account's last manager visit, as "YYYY-MM-DD" by account ID (the
+ * Accounts list's "Last visited" filter, its sort and its Print column).
+ * A visit counts by its account link, or, when it has none, by an exact
+ * account name that only one account has. Visits dated after today (Eastern) are not counted.
+ * Accounts with no visit are not in the map.
+ */
+export async function lastVisitByAccount(): Promise<Record<string, string>> {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `WITH today AS (SELECT (now() AT TIME ZONE 'America/New_York')::date AS d),
+     linked AS (
+       SELECT v.account_ref AS id, max(v.visit_date) AS last_visit
+       FROM visits v, today
+       WHERE v.account_ref IS NOT NULL AND v.visit_date IS NOT NULL AND v.visit_date <= today.d
+       GROUP BY v.account_ref
+     ),
+     -- Names that belong to exactly one account: a visit with no link counts
+     -- only then (the same rule as AccountLink), never for two accounts at once.
+     unique_names AS (
+       SELECT lower(btrim(a.account_name)) AS name_key, min(a.id) AS id
+       FROM accounts a
+       WHERE a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND btrim(a.account_name) <> ''
+       GROUP BY lower(btrim(a.account_name))
+       HAVING count(*) = 1
+     ),
+     named AS (
+       SELECT u.id, max(v.visit_date) AS last_visit
+       FROM visits v
+       CROSS JOIN today
+       JOIN unique_names u ON u.name_key = lower(btrim(v.account_name))
+       WHERE v.account_ref IS NULL AND btrim(v.account_name) <> '' AND v.visit_date IS NOT NULL AND v.visit_date <= today.d
+       GROUP BY u.id
+     )
+     SELECT id, max(last_visit)::text AS last_visit
+     FROM (SELECT id, last_visit FROM linked UNION ALL SELECT id, last_visit FROM named) both_ways
+     GROUP BY id`
+  )) as { id: string; last_visit: string | null }[];
+  const byAccount: Record<string, string> = {};
+  for (const row of rows) {
+    const id = String(row.id ?? "").trim();
+    if (id && row.last_visit) byAccount[id] = row.last_visit.slice(0, 10);
+  }
+  return byAccount;
+}

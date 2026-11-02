@@ -162,7 +162,8 @@ type SortOption =
   | "Monthly Revenue - Highest First"
   | "Monthly Revenue - Lowest First"
   | "Sub Pay - Highest First"
-  | "Sub Pay - Lowest First";
+  | "Sub Pay - Lowest First"
+  | "Last Visit - Oldest First";
 
 type QuickStatusOption = "Active" | "Paused" | "Suspended" | "Cancelled";
 
@@ -285,10 +286,25 @@ const sortOptions: SortOption[] = [
   "Monthly Revenue - Lowest First",
   "Sub Pay - Highest First",
   "Sub Pay - Lowest First",
+  "Last Visit - Oldest First",
 ];
 
 const NEAR_ACCOUNT_RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 const DEFAULT_NEAR_ACCOUNT_RADIUS_MILES = 10;
+
+// "Last visited": days since the account's last manager visit (the Visits
+// log, the same data as Reports -> Last Visit by Account). "Over N days"
+// means N days or more, and leaves out accounts never visited: those have
+// their own option.
+type LastVisitedFilter = "any" | "30" | "60" | "90" | "180" | "never";
+const LAST_VISITED_OPTIONS: { value: LastVisitedFilter; label: string }[] = [
+  { value: "any", label: "Any" },
+  { value: "30", label: "Over 30 days" },
+  { value: "60", label: "Over 60 days" },
+  { value: "90", label: "Over 90 days" },
+  { value: "180", label: "Over 180 days" },
+  { value: "never", label: "Never visited" },
+];
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -409,6 +425,30 @@ function getDateTime(value: string | undefined): number {
   if (!value) return 0;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+/** Today's date in Eastern time, as YYYY-MM-DD (the visit dates are plain dates). */
+function easternTodayIso(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+/** Whole days from a YYYY-MM-DD date to today; null when there is no date. */
+function daysSince(isoDate: string | null | undefined, today: string): number | null {
+  if (!isoDate) return null;
+  const from = Date.parse(`${isoDate.slice(0, 10)}T00:00:00Z`);
+  const to = Date.parse(`${today}T00:00:00Z`);
+  if (Number.isNaN(from) || Number.isNaN(to)) return null;
+  return Math.max(0, Math.round((to - from) / 86_400_000));
+}
+
+/** "Oct 3, 2026 (30 days ago)", or "Never visited". */
+function lastVisitText(isoDate: string | null | undefined, today: string): string {
+  const days = daysSince(isoDate, today);
+  if (!isoDate || days === null) return "Never visited";
+  const [year, month, day] = isoDate.slice(0, 10).split("-").map(Number);
+  const shown = new Date(year, month - 1, day).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  const ago = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+  return `${shown} (${ago})`;
 }
 
 function formatDate(value: string | undefined): string {
@@ -847,6 +887,25 @@ export default function AccountsPage() {
       alive = false;
     };
   }, []);
+  // "Last visited": each account's last visit date by account ID (GET /api/visits?last=1). null until loaded.
+  const [lastVisits, setLastVisits] = useState<Record<string, string> | null>(null);
+  const [lastVisitsFailed, setLastVisitsFailed] = useState(false);
+  const [lastVisitedFilter, setLastVisitedFilter] = useState<LastVisitedFilter>("any");
+  const today = useMemo(() => easternTodayIso(), []);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/visits?last=1", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; lastVisits?: Record<string, string> }) => {
+        if (!alive) return;
+        if (data.success && data.lastVisits) setLastVisits(data.lastVisits);
+        else setLastVisitsFailed(true);
+      })
+      .catch(() => alive && setLastVisitsFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [townFilter, setTownFilter] = useState("");
   const [picker, setPicker] = useState<"sub" | "town" | null>(null);
   const [moreAccount, setMoreAccount] = useState<Account | null>(null);
@@ -1160,6 +1219,7 @@ export default function AccountsPage() {
     maxRevenueFilter,
     minSubPayFilter,
     maxSubPayFilter,
+    lastVisitedFilter,
     sortOption,
   ]);
 
@@ -1200,6 +1260,17 @@ export default function AccountsPage() {
       if (needsYouOnly && !nonLocationFilterParams.cleanSearch && !problemLineOf(account, openTeamHubProblems[getAccountId(account)] ?? 0)) return false;
       if (riskOnly && !nonLocationFilterParams.cleanSearch && (riskFlags[getAccountId(account)]?.level ?? "green") === "green") return false;
       if (priceDueOnly && !nonLocationFilterParams.cleanSearch && !priceDue[getAccountId(account)]) return false;
+
+      if (lastVisitedFilter !== "any") {
+        // Until the dates load, nothing is shown rather than a wrong list.
+        if (!lastVisits) return false;
+        const days = daysSince(lastVisits[getAccountId(account)], today);
+        if (lastVisitedFilter === "never") {
+          if (days !== null) return false;
+        } else if (days === null || days < Number(lastVisitedFilter)) {
+          return false;
+        }
+      }
 
       if (nearAccountRef) {
         if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
@@ -1253,11 +1324,22 @@ export default function AccountsPage() {
         return (a._subPayNum ?? 0) - (b._subPayNum ?? 0);
       }
 
+      // Never visited first, then the oldest visit first (like Reports -> Last Visit by Account).
+      if (sortOption === "Last Visit - Oldest First" && lastVisits) {
+        const aLast = lastVisits[getAccountId(a)] ?? "";
+        const bLast = lastVisits[getAccountId(b)] ?? "";
+        if (aLast !== bLast) {
+          if (!aLast) return -1;
+          if (!bLast) return 1;
+          return aLast < bLast ? -1 : 1;
+        }
+      }
+
       return normalizeText(a.accountName).localeCompare(
         normalizeText(b.accountName)
       );
     });
-  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems, riskOnly, riskFlags, priceDueOnly, priceDue]);
+  }, [accounts, nonLocationFilterParams, nearAccountRef, nearAccountCoords, nearAccountRadius, sortOption, townFilter, needsYouOnly, openTeamHubProblems, riskOnly, riskFlags, priceDueOnly, priceDue, lastVisitedFilter, lastVisits, today]);
 
   // Accounts that would otherwise match the current filters but are hidden
   // from Near Account results only because they have no stored coordinates —
@@ -1293,8 +1375,9 @@ export default function AccountsPage() {
         service: normalizeText(account.serviceType),
         health: normalizeText(account.accountHealth),
         keys: getKeysAlarmRequired(account),
+        lastVisit: lastVisits ? lastVisitText(lastVisits[getAccountId(account)], today) : "",
       })),
-    [filteredAccounts]
+    [filteredAccounts, lastVisits, today]
   );
 
   const filteredRevenue = useMemo(() => filteredAccounts.reduce((sum, a) => sum + (a._monthlyRevenueNum ?? 0), 0), [filteredAccounts]);
@@ -2379,6 +2462,7 @@ async function handleSaveTransferProposal() {
     setMaxRevenueFilter("");
     setMinSubPayFilter("");
     setMaxSubPayFilter("");
+    setLastVisitedFilter("any");
     setSortOption("Account Name");
     void fetchAccounts("");
   }
@@ -2536,6 +2620,7 @@ async function handleSaveTransferProposal() {
     (subcontractorFilter !== "All" ? 1 : 0) +
     (townFilter ? 1 : 0) +
     (nearAccountRef ? 1 : 0) +
+    (lastVisitedFilter !== "any" ? 1 : 0) +
     [minRevenueFilter, maxRevenueFilter, minSubPayFilter, maxSubPayFilter].filter((v) => v.trim() !== "").length +
     (!nearAccountRef && sortOption !== "Account Name" ? 1 : 0);
 
@@ -2824,6 +2909,19 @@ async function handleSaveTransferProposal() {
           {NEAR_ACCOUNT_RADIUS_OPTIONS.map((miles) => (
             <option key={miles} value={miles}>
               {miles} mi
+            </option>
+          ))}
+        </SelectField>
+
+        <SelectField
+          label="Last visited"
+          hint={lastVisitsFailed ? "Couldn't load the visit dates. Refresh the page to try again." : lastVisits ? "Days since the last manager visit." : "Loading visit dates..."}
+          value={lastVisitedFilter}
+          onChange={(e) => setLastVisitedFilter(e.target.value as LastVisitedFilter)}
+        >
+          {LAST_VISITED_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </SelectField>
@@ -3317,6 +3415,7 @@ async function handleSaveTransferProposal() {
                     onToggle={() => toggleBulkToDoAccount(account)}
                     showMoney={showMoney}
                     risk={riskFlags[getAccountId(account)]}
+                    lastVisit={lastVisits ? lastVisitText(lastVisits[getAccountId(account)], today) : ""}
                     onMore={setMoreAccount}
                     onToDo={openQuickToDoModal}
                     onSeeCrewProblems={seeCrewProblems}
@@ -3593,6 +3692,7 @@ function AccountCard({
   onToggle,
   showMoney,
   risk,
+  lastVisit,
   onMore,
   onToDo,
   onSeeCrewProblems,
@@ -3605,6 +3705,8 @@ function AccountCard({
   showMoney: boolean;
   /** The "At risk" flag (active accounts only). */
   risk?: RiskFlag;
+  /** "Oct 3, 2026 (30 days ago)" or "Never visited"; "" while the dates load. */
+  lastVisit: string;
   onMore: (account: Account) => void;
   onToDo: (account: Account) => void;
   onSeeCrewProblems: () => void;
@@ -3654,6 +3756,7 @@ function AccountCard({
           )}
         </p>
         {account._distanceMiles != null ? <p className="ui-strong">{formatMiles(account._distanceMiles)} away</p> : null}
+        {lastVisit ? <p className="ui-acct-line">{lastVisit === "Never visited" ? lastVisit : `Last visit ${lastVisit}`}</p> : null}
         <div className="ui-actions-row">
           {problem ? <StatusPill kind="needs-you">Needs you</StatusPill> : null}
           <StatusPill kind={accountStatusKind(account.status)}>{account.status || "N/A"}</StatusPill>
