@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { listPhotos, photoAccounts, photoCounts, photosReady, syncPhotoIndex } from "@/lib/pg/photo-index";
+import { listPhotos, photoAccountCards, photoAccounts, photoCounts, photosReady, syncPhotoIndex } from "@/lib/pg/photo-index";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +14,19 @@ export async function GET(request: NextRequest) {
     if (!(await photosReady())) return NextResponse.json({ success: true, on: false });
     const params = new URL(request.url).searchParams;
     if (params.get("flag") === "1") return NextResponse.json({ success: true, on: true });
+    // The first view: one card per account (count, newest photo as thumbnail), no photo list.
+    if (params.get("view") === "accounts") {
+      await syncPhotoIndex().catch(() => undefined);
+      const filter = {
+        search: params.get("q") ?? "",
+        kind: params.get("kind") ?? "",
+        group: params.get("group") ?? "",
+        from: params.get("from") ?? "",
+        to: params.get("to") ?? "",
+      };
+      const [cards, counts, accounts] = await Promise.all([photoAccountCards(filter), photoCounts(params.get("weekStart") ?? undefined), photoAccounts()]);
+      return NextResponse.json({ success: true, on: true, cards, counts, accounts }, { headers: { "Cache-Control": "no-store" } });
+    }
     const first = !params.get("beforeAt");
     // New photos saved anywhere in the app are picked up here (at most once a minute).
     if (first) await syncPhotoIndex().catch(() => undefined);
