@@ -5,6 +5,7 @@
 // like Edit Account; this route saves the rest and the start date's step.
 //
 // GET  ?accountId=X                                   everything the wizard shows
+// GET  ?ready=1                                       { ids }: every account that is Ready to start
 // POST { action: "tap", accountId, step, done }       Customer called / Site survey / Walkthrough
 // POST { action: "startDate", accountId, startDate }  after the date is saved on the account: the step
 // POST { action: "supplies", accountId, mode }        included | billed | customer
@@ -18,7 +19,7 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { invalidateAccountLists } from "@/app/api/accounts/route";
 import { FlowError, flowsReady, setTapStep, startDateSaved } from "@/lib/pg/account-flow";
 import { setAccountSupplyMode, supplyControlReady } from "@/lib/pg/supply-control";
-import { addSurveyPhoto, deleteSurveyPhoto, getSetupWizard, setBillingContact, setSpecialEquipment, setTick } from "@/lib/pg/setup-wizard";
+import { addSurveyPhoto, deleteSurveyPhoto, getSetupWizard, readyToStartAccountIds, setBillingContact, setSpecialEquipment, setTick } from "@/lib/pg/setup-wizard";
 import { TAP_STEPS, type SupplyMode, type TapStep } from "@/lib/setupWizard";
 
 export const maxDuration = 60;
@@ -30,6 +31,8 @@ const refuse = (error: string, status = 400) => NextResponse.json({ success: fal
 export async function GET(request: NextRequest) {
   try {
     if (!(await getAdminIdentity(request))) return refuse("Log in first.", 401);
+    // Every account that is "Ready to start" (the gold badge next to account names everywhere).
+    if (request.nextUrl.searchParams.get("ready") === "1") return NextResponse.json({ success: true, ids: await readyToStartAccountIds() }, noStore);
     const accountId = clean(request.nextUrl.searchParams.get("accountId"));
     if (!accountId) return refuse("accountId is required.");
     const wizard = await getSetupWizard(accountId);

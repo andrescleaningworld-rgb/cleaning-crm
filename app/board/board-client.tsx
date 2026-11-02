@@ -319,14 +319,14 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 {open.badge ? `, ${open.badge}` : ""}
               </p>
               <h2 className={styles.bigTitle}>
-                {open.accountName && open.accountName === open.title ? <AccountLink accountId={open.accountId} name={open.accountName} /> : open.title || KIND_LABEL[open.kind]}
+                {open.accountName && open.accountName === open.title ? <AccountLink badge={false} accountId={open.accountId} name={open.accountName} /> : open.title || KIND_LABEL[open.kind]}
               </h2>
               <dl className={styles.bigFacts}>
                 {open.accountName && open.accountName !== open.title ? (
                   <>
                     <dt>Account</dt>
                     <dd>
-                      <AccountLink accountId={open.accountId} name={open.accountName} />
+                      <AccountLink badge={false} accountId={open.accountId} name={open.accountName} />
                     </dd>
                   </>
                 ) : null}

@@ -44,7 +44,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
       {/* A sticky note linked to an account: its name opens the account (the rest of the paper still opens the paper). */}
       {!tv && paper.kind === "note" && paper.accountName && paper.accountName !== title ? (
         <span className={styles.meta}>
-          <AccountLink nested accountId={paper.accountId} name={paper.accountName} />
+          <AccountLink nested badge={false} accountId={paper.accountId} name={paper.accountName} />
         </span>
       ) : null}
       {/* Its copy in "New accepted" while a manager has it: who has it and the step it is on. */}

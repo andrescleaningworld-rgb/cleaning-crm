@@ -11,12 +11,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AddButton, BigButton, Counts, EmptyState, ErrorBox, PullToRefresh, Screen, SkeletonList, StatusPill, Tips, showToast } from "@/app/ui";
 import PizzaTracker from "../components/pizza-tracker";
+import ReadyBadge, { useReadyToStart } from "../components/ready-badge";
 import FromMarkate from "./from-markate";
 import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
 
 type OpenFlow = { accountId: string; accountName: string; manager: string; view: FlowView; mine: boolean };
 
 const STEPS = FLOW_STEPS.length - 1;
+
+/** The gold "Ready to start" on a card, while that account is ready and not live yet. */
+function CardReadyBadge({ accountId }: { accountId: string }) {
+  return useReadyToStart(accountId) ? <ReadyBadge size="inline" /> : null;
+}
 
 export default function NewAccountsBoard() {
   const [state, setState] = useState<"loading" | "ready" | "off" | "failed">("loading");
@@ -103,6 +109,7 @@ export default function NewAccountsBoard() {
                       <Link href={`/accounts/${encodeURIComponent(flow.accountId)}`} className={`ui-acct ui-acct-link ${flow.view.red ? "ui-acct-problem" : ""}`.trim()}>
                         <span className="ui-acct-name">{flow.accountName || flow.accountId}</span>
                         <span className="ui-actions-row">
+                          <CardReadyBadge accountId={flow.accountId} />
                           <StatusPill kind={flow.view.red ? "needs-you" : "waiting"}>
                             {flow.view.red ? "Late · " : ""}Step {flow.view.index + 1} of {STEPS}
                           </StatusPill>
