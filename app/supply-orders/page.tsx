@@ -8,7 +8,7 @@
 // Printing is the card's 🖨 Print (app/supply-orders/print).
 
 import Link from "next/link";
-import { AddBar, AddButton, CHEER, ErrorBox } from "@/app/ui";
+import { AddBar, AddButton, CHEER, ErrorBox, SearchBar } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import OrderCards, { type OrderSummary, type SubOrder } from "./order-cards";
 import Deliveries from "./deliveries";
@@ -81,6 +81,8 @@ export default function SupplyOrdersPage() {
           </AddButton>
         </AddBar>
         <AccountScopeBar scope={scope} what="supply orders" />
+        {/* Search first, at the top: no scrolling down to find an order. The other filters stay with the orders below. */}
+        <SearchBar value={search} onChange={setSearch} label="Find an order" placeholder="Search subcontractor, account, item, status..." />
         {/* What arrived different, and what the office sent with no order. */}
         {shelves.error ? <ErrorBox title={shelves.error} text="Deliveries, back orders and what arrived different may be missing or out of date." onRetry={() => void shelves.reload()} /> : null}
         <Deliveries accountId={scope.active ? scope.accountId : ""} data={shelves.data} onChanged={() => void shelves.reload()} />
@@ -130,7 +132,6 @@ export default function SupplyOrdersPage() {
           </div>
 
           <div className="ui-two">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search subcontractor, account, item, status..." className="ui-input w-full" />
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="ui-input w-full">
               <option value="All">All statuses</option>
               {ORDER_STATUSES.map((status) => (

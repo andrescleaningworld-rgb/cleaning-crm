@@ -553,6 +553,8 @@ function PhotosContent() {
         <ErrorBox title="The photos did not load." onRetry={() => void refresh()} />
       ) : (
         <>
+          <SearchBar value={typed} onChange={setTyped} label="Find an account" placeholder="Find an account" />
+
           <Counts
             data-tip="counts"
             items={[
@@ -561,8 +563,6 @@ function PhotosContent() {
               { label: "Before / After", value: counts.beforeAfter, tone: "good", pressed: group === "before-after", onClick: () => setGroup(group === "before-after" ? "" : "before-after") },
             ]}
           />
-
-          <SearchBar value={typed} onChange={setTyped} label="Find an account" placeholder="Find an account" />
 
           <div className="ui-chips" role="group" aria-label="Filters" data-tip="chips">
             <button type="button" className="ui-chip" aria-pressed={account !== ""} onClick={() => setPicker("account")}>

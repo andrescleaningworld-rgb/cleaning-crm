@@ -644,6 +644,8 @@ export default function ComplaintsPage() {
         }}
       />
 
+      <SearchBar value={search} onChange={setSearch} label="Find a complaint" placeholder="Find a complaint" />
+
       {/* At a glance: tap a number to see those complaints. */}
       <Counts
         data-tip="counts"
@@ -653,8 +655,6 @@ export default function ComplaintsPage() {
           { label: "Closed", value: resolvedComplaints, tone: "off", pressed: quick === "closed", onClick: () => setQuick(quick === "closed" ? "all" : "closed") },
         ]}
       />
-
-      <SearchBar value={search} onChange={setSearch} label="Find a complaint" placeholder="Find a complaint" />
 
       <div className="ui-actions-row">
         <BigButton kind="second" onClick={() => setShowFilters(true)}>

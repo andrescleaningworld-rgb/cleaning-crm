@@ -96,6 +96,8 @@ export default function MissingEmails() {
 
       {answer?.available ? (
         <>
+          <SearchBar value={search} onChange={setSearch} label="Search accounts without an email" placeholder="Search by account, contact or manager" />
+
           <div className="ui-stats">
             <div className="ui-stat">
               <p className="ui-stat-label">Without an email</p>
@@ -111,7 +113,6 @@ export default function MissingEmails() {
             </div>
           </div>
 
-          <SearchBar value={search} onChange={setSearch} label="Search accounts without an email" placeholder="Search by account, contact or manager" />
           <p className="ui-muted">
             {shown.length} of {answer.counts.missing}
           </p>

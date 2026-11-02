@@ -1516,6 +1516,83 @@ export default function ToDoPage() {
           }}
         />
 
+        <div className="no-print flex flex-col gap-2 sm:flex-row">
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Find a to-do"
+            aria-label="Find a to-do"
+            className="ui-input min-w-0 flex-1"
+          />
+          <button type="button" className="ui-btn ui-btn-second" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}>
+            {showFilters ? "Hide" : "Filters and more"}
+          </button>
+        </div>
+
+        <section className="ui-card no-print" hidden={!showFilters}>
+          <div className="grid gap-3 md:grid-cols-5">
+
+            <select
+              value={assignedFilter}
+              onChange={(event) => setAssignedFilter(event.target.value)}
+              className="ui-input"
+            >
+              {assignedOptions.map((name) => (
+                <option key={name}>{name}</option>
+              ))}
+            </select>
+
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                // Picking a status by hand leaves the two quick filters.
+                setOverdueOnly(false);
+                setDoneWeekOnly(false);
+                setStatusFilter(event.target.value);
+              }}
+              className="ui-input"
+            >
+              <option>Open</option>
+              <option>All</option>
+              {statuses.map((status) => (
+                <option key={status}>{status}</option>
+              ))}
+            </select>
+
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+              className="ui-input"
+            >
+              <option>All</option>
+              {taskTypes.map((taskType) => (
+                <option key={taskType}>{taskType}</option>
+              ))}
+            </select>
+
+            <select
+              value={priorityFilter}
+              onChange={(event) => setPriorityFilter(event.target.value)}
+              className="ui-input"
+            >
+              <option>All</option>
+              {TO_DO_PRIORITIES.map((priority) => (
+                <option key={priority}>{priority}</option>
+              ))}
+            </select>
+
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest")}
+              className="ui-input"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
+          </div>
+        </section>
+
         {/* At a glance: tap a number to see those to-dos. */}
         <div className="no-print">
           <Counts
@@ -1975,83 +2052,6 @@ export default function ToDoPage() {
               </button>
             </div>
           </form>
-        </section>
-
-        <div className="no-print flex flex-col gap-2 sm:flex-row">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Find a to-do"
-            aria-label="Find a to-do"
-            className="ui-input min-w-0 flex-1"
-          />
-          <button type="button" className="ui-btn ui-btn-second" aria-expanded={showFilters} onClick={() => setShowFilters((value) => !value)}>
-            {showFilters ? "Hide" : "Filters and more"}
-          </button>
-        </div>
-
-        <section className="ui-card no-print" hidden={!showFilters}>
-          <div className="grid gap-3 md:grid-cols-5">
-
-            <select
-              value={assignedFilter}
-              onChange={(event) => setAssignedFilter(event.target.value)}
-              className="ui-input"
-            >
-              {assignedOptions.map((name) => (
-                <option key={name}>{name}</option>
-              ))}
-            </select>
-
-            <select
-              value={statusFilter}
-              onChange={(event) => {
-                // Picking a status by hand leaves the two quick filters.
-                setOverdueOnly(false);
-                setDoneWeekOnly(false);
-                setStatusFilter(event.target.value);
-              }}
-              className="ui-input"
-            >
-              <option>Open</option>
-              <option>All</option>
-              {statuses.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-
-            <select
-              value={typeFilter}
-              onChange={(event) => setTypeFilter(event.target.value)}
-              className="ui-input"
-            >
-              <option>All</option>
-              {taskTypes.map((taskType) => (
-                <option key={taskType}>{taskType}</option>
-              ))}
-            </select>
-
-            <select
-              value={priorityFilter}
-              onChange={(event) => setPriorityFilter(event.target.value)}
-              className="ui-input"
-            >
-              <option>All</option>
-              {TO_DO_PRIORITIES.map((priority) => (
-                <option key={priority}>{priority}</option>
-              ))}
-            </select>
-
-            <select
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest")}
-              className="ui-input"
-            >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-            </select>
-          </div>
         </section>
 
         <section className="space-y-3" data-tip="todo-list">

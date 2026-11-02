@@ -606,10 +606,7 @@ function AccountUpdatesPageContent() {
         </p>
       ) : null}
 
-      {/* To process: only when not looking at one account's history. */}
-      {!openedFromAccountDetail ? <ToProcess handoffs={handoffs} focusId={focusProcessId} /> : null}
-
-      <h2 className="ui-section-title">All updates</h2>
+      {/* Search first, at the top: no scrolling down to find an update. */}
       <SearchBar value={searchText} onChange={setSearchText} label="Find an update" placeholder="Find an update" />
 
       <div className="ui-actions-row">
@@ -620,6 +617,11 @@ function AccountUpdatesPageContent() {
           Clear filters
         </BigButton>
       </div>
+
+      {/* To process: only when not looking at one account's history, and not while searching (the results come right under the box). */}
+      {!openedFromAccountDetail && !searchText.trim() && filtersOn === 0 ? <ToProcess handoffs={handoffs} focusId={focusProcessId} /> : null}
+
+      <h2 className="ui-section-title">All updates</h2>
 
       <div role="status">
         <p className="ui-strong">

@@ -2590,6 +2590,18 @@ async function handleSaveTransferProposal() {
       {error ? <ErrorBox title="Something did not load." text={error} onRetry={handleSearch} /> : null}
       {subcontractorWarning ? <ErrorBox title="Some subcontractor details did not load." text={subcontractorWarning} /> : null}
 
+      {/* One search box. The list narrows as you type; Enter (or the
+          keyboard's Search key) also asks the server, exactly as the old
+          Search button did. */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleSearch();
+        }}
+      >
+        <SearchBar value={searchText} onChange={setSearchText} label="Find an account" placeholder="Find an account" />
+      </form>
+
       {/* Three big counts. Tapping one shows only those accounts. */}
       <div className="ui-counts" data-tip="counts" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
         <button type="button" className="ui-count ui-count-good" aria-pressed={!searchingAll && !needsYouOnly && !riskOnly && !priceDueOnly && statusFilter === "Active"} onClick={() => showOnly("Active")}>
@@ -2625,18 +2637,6 @@ async function handleSaveTransferProposal() {
           {priceDueOnly ? `💲 Overdue price reviews (${Object.keys(priceDue).length}) · tap to see all` : `💲 Overdue price reviews (${Object.keys(priceDue).length})`}
         </button>
       ) : null}
-
-      {/* One search box. The list narrows as you type; Enter (or the
-          keyboard's Search key) also asks the server, exactly as the old
-          Search button did. */}
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          handleSearch();
-        }}
-      >
-        <SearchBar value={searchText} onChange={setSearchText} label="Find an account" placeholder="Find an account" />
-      </form>
 
       <div className="ui-chips" role="group" aria-label="Filters">
         <button type="button" className="ui-chip" aria-pressed={myAccountsOn} onClick={toggleMyAccounts}>
