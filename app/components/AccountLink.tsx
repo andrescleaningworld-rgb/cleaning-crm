@@ -13,6 +13,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import ReadyBadge, { useReadyToStart } from "./ready-badge";
 
 type AccountRow = { accountId?: string | number; id?: string | number; accountName?: string };
 type AccountsResponse = { success?: boolean; accounts?: AccountRow[]; data?: AccountRow[] };
@@ -88,6 +89,7 @@ export default function AccountLink({
   known = false,
   className = "ui-account-link",
   nested = false,
+  badge = true,
   children,
 }: {
   accountId?: string | number | null;
@@ -98,6 +100,8 @@ export default function AccountLink({
   className?: string;
   /** Set when the name sits inside another link or a button: only the name opens the account. */
   nested?: boolean;
+  /** The gold "Ready to start" after the name, while the new account is ready and not live yet. Off where the screen shows its own (the Pin Board). */
+  badge?: boolean;
   children?: ReactNode;
 }) {
   const router = useRouter();
@@ -105,18 +109,20 @@ export default function AccountLink({
   const trusted = known && Boolean(givenId);
   const checkedId = useCheckedAccountId(givenId, name ?? "", trusted);
   const id = trusted ? givenId : checkedId;
+  const ready = useReadyToStart(badge ? id : "");
   const text = children ?? name;
 
   if (!id) return <>{text}</>;
   const href = `/accounts/${encodeURIComponent(id)}`;
 
+  let link: ReactNode;
   if (nested) {
     const open = (event: { preventDefault: () => void; stopPropagation: () => void }) => {
       event.preventDefault();
       event.stopPropagation();
       router.push(href);
     };
-    return (
+    link = (
       <span
         role="link"
         tabIndex={0}
@@ -129,11 +135,18 @@ export default function AccountLink({
         {text}
       </span>
     );
+  } else {
+    link = (
+      <Link href={href} className={className} onClick={(event) => event.stopPropagation()}>
+        {text}
+      </Link>
+    );
   }
 
+  if (!ready) return link;
   return (
-    <Link href={href} className={className} onClick={(event) => event.stopPropagation()}>
-      {text}
-    </Link>
+    <>
+      {link} <ReadyBadge size="inline" />
+    </>
   );
 }

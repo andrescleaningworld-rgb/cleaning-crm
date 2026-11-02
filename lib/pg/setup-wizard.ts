@@ -154,6 +154,18 @@ function ticksOf(raw: string): Record<TapStep, boolean> {
 }
 
 /** The pins' "X of Y done" and "Ready to start", per account. */
+/**
+ * Every account that is "Ready to start" now (isReadyToStart): the new
+ * accounts not yet live, checked with the same rule as the board's badge.
+ * The gold badge next to an account's name on every staff page uses this.
+ */
+export async function readyToStartAccountIds(): Promise<string[]> {
+  if (!accountsOnPostgres() || !(await tableHas("account_flows"))) return [];
+  const rows = (await getSql()`SELECT account_id FROM account_flows WHERE step <> 'live'`) as { account_id: string }[];
+  const summaries = await setupSummariesFor(rows.map((row) => row.account_id));
+  return [...summaries].filter(([, summary]) => summary.ready).map(([id]) => id);
+}
+
 export async function setupSummariesFor(accountIds: string[], flows?: Map<string, FlowState>): Promise<Map<string, SetupSummary>> {
   const facts = await setupFactsFor(accountIds, flows);
   return new Map([...facts].map(([id, each]) => [id, setupSummary(each)]));
