@@ -331,6 +331,11 @@ export default function AccountHealthPage() {
       }
     >
       <div className="ui-print-view ui-screen-body">
+      <div className="no-print">
+        <SearchBar value={searchText} onChange={setSearchText} label="Search account health" placeholder="Search account health" />
+        <p className="ui-hint">Search by account, manager, subcontractor, status, issue category, follow-up date, or notes.</p>
+      </div>
+
       <div className="ui-stats">
         <div className="ui-stat">
           <p className="ui-stat-label">Tracked Items</p>
@@ -366,11 +371,6 @@ export default function AccountHealthPage() {
             ))}
           </div>
         </Card>
-      </div>
-
-      <div className="no-print">
-        <SearchBar value={searchText} onChange={setSearchText} label="Search account health" placeholder="Search account health" />
-        <p className="ui-hint">Search by account, manager, subcontractor, status, issue category, follow-up date, or notes.</p>
       </div>
 
       <div>

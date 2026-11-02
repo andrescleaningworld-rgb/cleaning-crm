@@ -142,6 +142,27 @@ export default function FollowUpsPage() {
           </Link>
         </div>
 
+        <div className="ui-card">
+          <label className="ui-label">
+            Search Follow-Ups
+          </label>
+
+          <input
+            type="text"
+            placeholder="Search by account, subcontractor, manager, assigned person, due date, status, or notes..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            className="ui-input w-full"
+          />
+
+          {searchTerm && (
+            <p className="ui-muted">
+              Showing {filteredFollowups.length} result
+              {filteredFollowups.length === 1 ? "" : "s"} for “{searchTerm}”
+            </p>
+          )}
+        </div>
+
         <form
           onSubmit={addFollowup}
           className="ui-card"
@@ -261,27 +282,6 @@ export default function FollowUpsPage() {
             comes next when we connect storage.
           </p>
         </form>
-
-        <div className="ui-card">
-          <label className="ui-label">
-            Search Follow-Ups
-          </label>
-
-          <input
-            type="text"
-            placeholder="Search by account, subcontractor, manager, assigned person, due date, status, or notes..."
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            className="ui-input w-full"
-          />
-
-          {searchTerm && (
-            <p className="ui-muted">
-              Showing {filteredFollowups.length} result
-              {filteredFollowups.length === 1 ? "" : "s"} for “{searchTerm}”
-            </p>
-          )}
-        </div>
 
         <div className="mb-6 grid gap-4 md:grid-cols-4">
           <div className="ui-card">

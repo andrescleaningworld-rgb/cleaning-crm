@@ -227,6 +227,8 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
 
   return (
     <div className="ui-stack">
+      <SearchBar value={search} onChange={setSearch} label="Search accounts" placeholder="Search accounts" />
+
       {/* Stats */}
       <div className="ui-stats">
         <div className="ui-stat">
@@ -246,7 +248,6 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
       {error && !editing ? <ErrorBox title={error} /> : null}
 
       {/* Filters */}
-      <SearchBar value={search} onChange={setSearch} label="Search accounts" placeholder="Search accounts" />
       <div className="ui-two">
         <SelectField label="Portal access" value={accessFilter} onChange={(e) => setAccessFilter(e.target.value as typeof accessFilter)} required={false}>
           <option value="all">All Access</option>

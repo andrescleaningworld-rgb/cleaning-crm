@@ -113,6 +113,8 @@ export default function SubmissionsView({ initial }: { initial: PortalSubmission
 
   return (
     <div className="ui-stack">
+      <SearchBar value={search} onChange={setSearch} label="Search requests by account" placeholder="Search by account" />
+
       {/* Stats row */}
       <div className="ui-stats">
         <div className="ui-stat">
@@ -134,7 +136,6 @@ export default function SubmissionsView({ initial }: { initial: PortalSubmission
       </div>
 
       {/* Filters */}
-      <SearchBar value={search} onChange={setSearch} label="Search requests by account" placeholder="Search by account" />
       <div className="ui-two">
         <SelectField label="Kind" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} required={false}>
           {TYPE_FILTERS.map((f) => (

@@ -731,6 +731,8 @@ export default function SubcontractorsPage() {
             }}
           />
 
+          <SearchBar value={search} onChange={setSearch} label="Find a sub" placeholder="Find a sub" />
+
           {/* At a glance: tap a number to see those subs. */}
           <Counts
             data-tip="counts"
@@ -740,8 +742,6 @@ export default function SubcontractorsPage() {
               { label: "No schedule", value: noScheduleSubCount, tone: "info", pressed: scheduleFilter === "noSchedule", onClick: () => setScheduleFilter(scheduleFilter === "noSchedule" ? "all" : "noSchedule") },
             ]}
           />
-
-          <SearchBar value={search} onChange={setSearch} label="Find a sub" placeholder="Find a sub" />
 
           <div className="ui-actions-row">
             <BigButton kind="second" onClick={() => setShowFilters(true)}>

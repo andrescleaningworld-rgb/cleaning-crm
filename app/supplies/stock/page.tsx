@@ -561,6 +561,13 @@ export default function SuppliesPage() {
 
       <Tabs tabs={PAGE_TABS} value={pageTab} onChange={setPageTab} label="Warehouse or products" />
 
+      <SearchBar
+        value={search}
+        onChange={setSearch}
+        label="Find a supply"
+        placeholder="Find a supply"
+      />
+
       {/* At a glance: tap a number to see those supplies. */}
       <Counts
         data-tip="counts"
@@ -569,13 +576,6 @@ export default function SuppliesPage() {
           { label: "Low stock", value: lowStockCount, tone: lowStockCount > 0 ? "bad" : "good", pressed: quick === "low", onClick: () => setQuick(quick === "low" ? "all" : "low") },
           { label: "Inactive", value: inactiveCount, tone: "off", pressed: quick === "inactive", onClick: () => setQuick(quick === "inactive" ? "all" : "inactive") },
         ]}
-      />
-
-      <SearchBar
-        value={search}
-        onChange={setSearch}
-        label="Find a supply"
-        placeholder="Find a supply"
       />
 
       {successMessage ? (
