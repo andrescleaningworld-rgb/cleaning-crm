@@ -32,6 +32,8 @@ const ADMIN_GROUPS: NavGroup[] = [
     items: [
       { href: "/board", label: "Board", icon: "board" },
       { href: "/accounts-center", label: "Accounts center", icon: "accounts" },
+      // Every photo in the app, by account (Crew Link crew photos too). The page itself says when it is not turned on.
+      { href: "/photos", label: "Photos", icon: "camera" },
       { href: "/to-do", label: "To-Do", icon: "todo" },
       { href: "/sub-center", label: "Sub Center", icon: "subs" },
     ],
@@ -63,9 +65,6 @@ const ADMIN_GROUPS: NavGroup[] = [
     ],
   },
 ];
-
-// Added to the Work group where FEATURE_PHOTOS is on.
-const PHOTOS_ITEM: NavItem = { href: "/photos", label: "Photos", icon: "camera" };
 
 // Pinned to the bottom of the sidebar, above Logout.
 const ADMIN_FOOT: NavItem[] = [
@@ -121,22 +120,6 @@ export default function CWHeader() {
   const [menuOpen, setMenuOpen] = useState(false);
   // Wide screens: icons only, remembered on this device.
   const [collapsed, setCollapsed] = useState(false);
-  // Photos shows in the sidebar only where FEATURE_PHOTOS is on.
-  const [photosOn, setPhotosOn] = useState(false);
-
-  useEffect(() => {
-    if (role !== "admin") return;
-    let cancelled = false;
-    fetch("/api/photo-index?flag=1")
-      .then((response) => response.json())
-      .then((data: { on?: boolean }) => {
-        if (!cancelled) setPhotosOn(data.on === true);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [role]);
 
   useEffect(() => {
     // Deferred read: localStorage isn't available during SSR, so reading it
@@ -258,14 +241,11 @@ export default function CWHeader() {
 
   const navGroups = useMemo<NavGroup[]>(() => {
     if (!mounted) return [];
-    if (role === "admin") {
-      if (!photosOn) return ADMIN_GROUPS;
-      return ADMIN_GROUPS.map((group) => (group.name === "Work" ? { ...group, items: [...group.items, PHOTOS_ITEM] } : group));
-    }
+    if (role === "admin") return ADMIN_GROUPS;
     if (role === "subcontractor") return SUBCONTRACTOR_GROUPS;
     if (role === "customer") return CUSTOMER_GROUPS;
     return [];
-  }, [role, mounted, photosOn]);
+  }, [role, mounted]);
 
   // While the slide-in menu is open on a phone, the page behind it does not scroll.
   useEffect(() => {
