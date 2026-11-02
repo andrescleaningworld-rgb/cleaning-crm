@@ -24,6 +24,8 @@ import {
 } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
+import { managerMatches } from "@/lib/managerNames";
+import { useManagerNames } from "../components/manager-options";
 
 type Visit = {
   id?: string;
@@ -165,10 +167,9 @@ export default function VisitsPage() {
     () => [...new Set(visits.map((v) => clean(v.subcontractor)).filter(Boolean))].sort(),
     [visits],
   );
-  const uniqueManagers = useMemo(
-    () => [...new Set(visits.map((v) => clean(v.manager)).filter(Boolean))].sort(),
-    [visits],
-  );
+  // The Manager filter: the active managers on the Staff list. Old visits keep the
+  // name they were saved with; "Andres" is found under Andrés, "Drew/Greg" under both.
+  const uniqueManagers = useManagerNames().names;
 
   const thisMonthPrefix = toISO(new Date()).slice(0, 7);
   const needsFollowUp = (visit: Visit) => {
@@ -184,7 +185,7 @@ export default function VisitsPage() {
       if (quick === "follow-up" && !needsFollowUp(visit)) return false;
       if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
       if (filterSub && clean(visit.subcontractor) !== filterSub) return false;
-      if (filterManager && clean(visit.manager) !== filterManager) return false;
+      if (filterManager && !managerMatches(visit.manager, filterManager)) return false;
       if (filterStatus && deriveStatus(visit) !== filterStatus) return false;
       if (dateFrom && iso && iso < dateFrom) return false;
       if (dateTo && iso && iso > dateTo) return false;

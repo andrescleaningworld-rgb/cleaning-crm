@@ -7,6 +7,8 @@
 import { useEffect, useState } from "react";
 import { BigButton, CHEER, ErrorBox, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "./pin-to-board";
+import { loadManagerNames } from "./manager-options";
+import { pickManager } from "@/lib/managerNames";
 
 const TASK_TYPES = [
   "Visit",
@@ -18,17 +20,6 @@ const TASK_TYPES = [
   "Reminder",
   "Other",
 ];
-
-type ManagerRow = { name?: string; status?: string };
-
-// Accounts and the managers list don't always agree on accents (e.g.
-// "Andres" vs "Andrés"), so strip diacritics before comparing.
-const foldAccents = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .trim();
 
 const EMPTY_FORM = { assignedTo: "", taskType: "Visit", dueDate: "", why: "", notes: "" };
 
@@ -59,26 +50,14 @@ export default function QuickToDoSheet({
     if (!open) return;
     let cancelled = false;
     setError("");
-    fetch("/api/admin/managers", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: { managers?: ManagerRow[]; data?: ManagerRow[] } | ManagerRow[]) => {
-        if (cancelled) return;
-        const rows: ManagerRow[] = Array.isArray(data) ? data : (data.managers ?? data.data ?? []);
-        const names = Array.from(
-          new Set(
-            rows
-              .filter((row) => !row.status || row.status === "Active")
-              .map((row) => (row.name ?? "").trim())
-              .filter(Boolean)
-          )
-        ).sort();
-        setManagers(names);
-        const mine = names.find((name) => foldAccents(name) === foldAccents(manager ?? ""));
-        setForm({ ...EMPTY_FORM, assignedTo: mine ?? "" });
-      })
-      .catch(() => {
-        if (!cancelled) setManagers([]);
-      });
+    // The same list as every Manager dropdown: active managers on the Staff list.
+    void loadManagerNames().then((loaded) => {
+      if (cancelled) return;
+      const names = loaded ?? [];
+      setManagers(names);
+      // "Andres" picks Andrés; with two managers saved ("Greg , Andres"), the first one written.
+      setForm({ ...EMPTY_FORM, assignedTo: pickManager(manager, names) });
+    });
     return () => {
       cancelled = true;
     };

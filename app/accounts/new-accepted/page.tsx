@@ -16,6 +16,7 @@ import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast } from
 import GoogleAddressAutocompleteInput, { type PlaceAddressDetails } from "@/app/components/GoogleAddressAutocompleteInput";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import SubPayFields from "@/app/components/sub-pay-fields";
+import { useManagerNames } from "@/app/components/manager-options";
 
 type MarkatePrefill = {
   id: string;
@@ -52,7 +53,8 @@ export default function NewAcceptedAccountPage() {
   // Contacts after the first (main) one; saved once the account is made.
   const [extraContacts, setExtraContacts] = useState<NewContact[]>([]);
   const [manager, setManager] = useState("");
-  const [managers, setManagers] = useState<string[]>([]);
+  // The active managers on the Staff list.
+  const managers = useManagerNames().names;
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -80,20 +82,6 @@ export default function NewAcceptedAccountPage() {
         setEmail(filled.email);
       })
       .catch(() => setError("The Markate estimate did not load. Type the details in."));
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/admin/managers", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: unknown) => {
-        if (!Array.isArray(data)) return;
-        const names = (data as { name?: string; status?: string }[])
-          .filter((row) => String(row.status ?? "").trim().toLowerCase() !== "inactive")
-          .map((row) => String(row.name ?? "").trim())
-          .filter(Boolean);
-        setManagers(Array.from(new Set(names)).sort());
-      })
-      .catch(() => setManagers([]));
   }, []);
 
   const missing = useMemo(() => {

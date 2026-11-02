@@ -6,6 +6,8 @@ import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from
 import { BigButton, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import AccountPickerField from "../../components/AccountPickerField";
+import { ManagerOptions, useManagerNames } from "../../components/manager-options";
+import { pickManager } from "@/lib/managerNames";
 
 type Account = {
   id?: string;
@@ -59,7 +61,11 @@ function NewVisitPageContent() {
   const [accountName, setAccountName] = useState(accountFromUrl);
   // The picked account's ID: the visit links to the account page.
   const [accountId, setAccountId] = useState(accountIdFromUrl);
-  const [manager, setManager] = useState("");
+  // What is typed on the account ("Andres", "Greg , Andres") starts it; the
+  // dropdown shows the listed manager it stands for, and that is what is saved.
+  const [rawManager, setManager] = useState("");
+  const managerList = useManagerNames();
+  const manager = managerList.names.includes(rawManager) ? rawManager : pickManager(rawManager, managerList.names) || rawManager;
   const [subcontractor, setSubcontractor] = useState("");
   const [visitType, setVisitType] = useState("Routine Visit");
   const [condition, setCondition] = useState("8");
@@ -243,7 +249,10 @@ function NewVisitPageContent() {
           }}
         />
 
-        <Field label="Manager / visited by" optional value={manager} onChange={(event) => setManager(event.target.value)} placeholder="Manager" />
+        <SelectField label="Manager / visited by" optional value={manager} onChange={(event) => setManager(event.target.value)}>
+          <option value="">{managerList.loading ? "Loading managers…" : "Pick a manager"}</option>
+          <ManagerOptions names={managerList.names} current={manager} />
+        </SelectField>
         <Field label="Subcontractor" optional value={subcontractor} onChange={(event) => setSubcontractor(event.target.value)} placeholder="Subcontractor" />
 
         <SelectField label="Visit type" value={visitType} onChange={(event) => setVisitType(event.target.value)}>

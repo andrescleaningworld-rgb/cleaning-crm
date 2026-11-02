@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
+import { loadManagerNames } from "../../components/manager-options";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 
 type AnyRow = Record<string, unknown>;
@@ -24,14 +25,6 @@ type ComplaintForm = {
   todoDueDate: string;
 };
 
-type Manager = {
-  name?: string;
-  status?: string;
-};
-
-type ManagersApiResponse =
-  | Manager[]
-  | { managers?: Manager[]; data?: Manager[] };
 
 type AccountsApiResponse = {
   success?: boolean;
@@ -272,36 +265,11 @@ function NewComplaintPageContent() {
   const [selectedPhotos, setSelectedPhotos] = useState<SelectedPhoto[]>([]);
   const [todoDueDateTouched, setTodoDueDateTouched] = useState(false);
 
+  // The same list as every Manager dropdown: active managers on the Staff list.
   async function loadManagers() {
-    try {
-      setLoadingManagers(true);
-
-      const response = await fetch("/api/admin/managers", {
-        cache: "no-store",
-      });
-
-      const data = (await response.json()) as ManagersApiResponse;
-
-      const rows: Manager[] = Array.isArray(data)
-        ? data
-        : data.managers || data.data || [];
-
-      const activeNames = Array.from(
-        new Set(
-          rows
-            .filter((row) => !row.status || row.status === "Active")
-            .map((row) => cleanText(row.name))
-            .filter(Boolean)
-        )
-      ).sort();
-
-      setManagers(activeNames);
-    } catch (error) {
-      console.error("Load managers error:", error);
-      setManagers([]);
-    } finally {
-      setLoadingManagers(false);
-    }
+    setLoadingManagers(true);
+    setManagers((await loadManagerNames()) ?? []);
+    setLoadingManagers(false);
   }
 
   async function loadAccounts() {

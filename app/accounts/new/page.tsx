@@ -16,6 +16,7 @@ import SubPayFields from "@/app/components/sub-pay-fields";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import { afterFrequencyChange } from "@/lib/frequency";
 import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
+import { ManagerOptions, useManagerNames } from "../../components/manager-options";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 
 type AccountForm = {
@@ -49,13 +50,6 @@ type AccountForm = {
   checklistNeeded: string;
 };
 
-type Manager = {
-  sheetRow?: number;
-  managerId?: string;
-  name?: string;
-  phone?: string;
-  status?: string;
-};
 
 type Subcontractor = {
   id?: string;
@@ -217,10 +211,10 @@ export default function NewAccountPage() {
 
   const [form, setForm] = useState<AccountForm>(emptyForm);
   const [portalAccess, setPortalAccess] = useState<"Yes" | "No">("Yes");
-  const [managers, setManagers] = useState<Manager[]>([]);
   // Contacts after the first (main) one; saved once the account is made.
   const [extraContacts, setExtraContacts] = useState<NewContact[]>([]);
-  const [loadingManagers, setLoadingManagers] = useState(true);
+  // The Manager dropdown: the active managers on the Staff list.
+  const { names: managerOptions, loading: loadingManagers } = useManagerNames();
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [saving, setSaving] = useState(false);
   const [loadingSubcontractors, setLoadingSubcontractors] = useState(true);
@@ -232,28 +226,6 @@ export default function NewAccountPage() {
   const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
 
   useEffect(() => {
-    async function loadManagers() {
-      try {
-        setLoadingManagers(true);
-
-        const response = await fetch("/api/admin/managers", {
-          cache: "no-store",
-        });
-
-        const data = await readJsonResponse<Manager[] | { error?: string }>(
-          response
-        );
-
-        if (!response.ok || !Array.isArray(data)) return;
-
-        setManagers(data);
-      } catch {
-        // Do not block the form if manager options fail to load.
-      } finally {
-        setLoadingManagers(false);
-      }
-    }
-
     async function loadSubcontractors() {
       try {
         setLoadingSubcontractors(true);
@@ -280,19 +252,8 @@ export default function NewAccountPage() {
       }
     }
 
-    loadManagers();
     loadSubcontractors();
   }, []);
-
-  const managerOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        managers
-          .map((manager) => cleanText(manager.name))
-          .filter(Boolean)
-      )
-    ).sort();
-  }, [managers]);
 
   // Subs whose insurance expired say so in the list (app/components/sub-insurance.tsx).
   const insuranceMap = useInsuranceMap();
@@ -546,11 +507,7 @@ export default function NewAccountPage() {
               disabled={loadingManagers}
             >
               <option value="">{loadingManagers ? "Loading managers…" : "Select manager"}</option>
-              {managerOptions.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
+              <ManagerOptions names={managerOptions} current={form.manager} />
             </SelectField>
 
             <SelectField

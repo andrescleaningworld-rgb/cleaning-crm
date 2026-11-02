@@ -8,6 +8,8 @@ import AccountLink from "../components/AccountLink";
 import "leaflet/dist/leaflet.css";
 import type { DivIcon } from "leaflet";
 import { distanceInMiles, formatMiles } from "../lib/distance";
+import { managerMatches } from "@/lib/managerNames";
+import { useManagerNames } from "../components/manager-options";
 import { BigButton, Card, EmptyState, ErrorBox, Screen, SearchBar, SelectField, Sheet, StatusPill } from "@/app/ui";
 
 const MapContainer = dynamic(
@@ -540,13 +542,9 @@ export default function MapPage() {
     setPinLimit(INITIAL_PIN_LIMIT);
   }, [searchText, managerFilter, subFilter]);
 
-  const managerOptions = useMemo(() => {
-    const managers = Array.from(
-      new Set(accounts.map((account) => account.manager).filter(Boolean))
-    ).sort((a, b) => a.localeCompare(b));
-
-    return ["All Managers", ...managers];
-  }, [accounts]);
+  // The active managers on the Staff list, not whatever is typed on the accounts.
+  const managerList = useManagerNames();
+  const managerOptions = useMemo(() => ["All Managers", ...managerList.names], [managerList.names]);
 
   const subOptions = useMemo(() => {
     const subs = Array.from(
@@ -588,7 +586,7 @@ export default function MapPage() {
         const matchesManager =
           managerFilter === "All Managers"
             ? true
-            : account.manager === managerFilter;
+            : managerMatches(account.manager, managerFilter);
 
         const matchesSub =
           subFilter === "All Subs" ? true : account.subcontractor === subFilter;

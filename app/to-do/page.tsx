@@ -21,6 +21,8 @@ import {
   type ToDoPriority,
 } from "@/lib/toDoPriority";
 import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
+import { managerMatches } from "@/lib/managerNames";
+import { loadManagerNames } from "../components/manager-options";
 
 // Shape returned by GET /api/to-do/[id]/sms-status — mirrors lib/googleSheets.ts's
 // SmsLogEntry closely enough for badge rendering without importing a server-only type.
@@ -125,12 +127,6 @@ function getOnboardingAccountHref(todo: ToDo, accounts: Account[]): string | nul
   const matchedId = getAccountId(match);
   return matchedId ? `/accounts/${encodeURIComponent(matchedId)}?onboarding=1` : null;
 }
-
-type Manager = {
-  managerId?: string;
-  name?: string;
-  status?: string;
-};
 
 type ToDoForm = {
   dueDate: string;
@@ -963,33 +959,11 @@ export default function ToDoPage() {
     }
   }
 
-  // Mirrors app/complaints/new/page.tsx's loadManagers(): missing/blank
-  // status is treated as Active so a manager row that predates the Status
-  // column (or was left blank by mistake) still shows up here rather than
-  // silently disappearing from the dropdown.
+  // The same list as every Manager dropdown: active managers on the Staff list.
   async function loadManagers() {
     setLoadingManagers(true);
-
     try {
-      const response = await fetch("/api/admin/managers", {
-        cache: "no-store",
-      });
-
-      const data = await response.json();
-      const rows: Manager[] = Array.isArray(data)
-        ? data
-        : data.managers || data.data || [];
-
-      const activeRows = rows.filter((row) => !row.status || row.status === "Active");
-
-      const activeNames = Array.from(
-        new Set(activeRows.map((row) => (row.name || "").trim()).filter(Boolean))
-      ).sort();
-
-      setManagers(activeNames);
-    } catch (error) {
-      console.error("Failed to load managers:", error);
-      setManagers([]);
+      setManagers((await loadManagerNames()) ?? []);
     } finally {
       setLoadingManagers(false);
     }
@@ -1015,10 +989,8 @@ export default function ToDoPage() {
     return options;
   }, [accounts]);
 
-  const assignedOptions = useMemo(() => {
-    const names = todos.map((todo) => todo.assignedTo).filter(Boolean);
-    return ["All", ...Array.from(new Set(names)).sort()];
-  }, [todos]);
+  // The active managers on the Staff list; the filter finds a to-do saved as "Andres" under Andrés.
+  const assignedOptions = useMemo(() => ["All", ...managers], [managers]);
 
   // Counts to-dos sharing a groupId (recurring multi-account batches) across
   // the full list, not just the currently filtered view, so the "Recurring
@@ -1051,7 +1023,7 @@ export default function ToDoPage() {
       .filter((todo) => !doneWeekOnly || isToDoDoneThisWeek(todo))
       .filter((todo) => {
         if (assignedFilter === "All") return true;
-        return todo.assignedTo === assignedFilter;
+        return managerMatches(todo.assignedTo, assignedFilter);
       })
       .filter((todo) => {
         if (typeFilter === "All") return true;

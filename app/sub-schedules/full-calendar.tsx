@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SubSchedule } from "./schedule-modal";
 import AccountLink from "../components/AccountLink";
+import { managerMatches } from "@/lib/managerNames";
+import { useManagerNames } from "../components/manager-options";
 import type { SearchOption } from "./autocomplete";
 import {
   generateScheduleDates,
@@ -256,13 +258,9 @@ export default function FullCalendar({
     return map;
   }, [accountOptions]);
 
-  const managerOptions = useMemo(() => {
-    const managers = new Set<string>();
-    for (const option of accountOptions) {
-      if (option.manager) managers.add(option.manager.trim());
-    }
-    return Array.from(managers).sort().map((m) => ({ id: m, label: m }));
-  }, [accountOptions]);
+  // The active managers on the Staff list; an account with two managers shows under both.
+  const managerList = useManagerNames();
+  const managerOptions = useMemo(() => managerList.names.map((m) => ({ id: m, label: m })), [managerList.names]);
 
   const subFilterOptions = useMemo(
     () => Object.entries(teamLeaderNamesById).map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label)),
@@ -289,7 +287,7 @@ export default function FullCalendar({
       if (selectedSubIds.size > 0 && !selectedSubIds.has(normalizeForMatch(s.subId))) return false;
       if (selectedAccountIds.size > 0 && !selectedAccountIds.has(s.accountId)) return false;
       if (selectedFrequencies.size > 0 && !selectedFrequencies.has(s.frequency)) return false;
-      if (selectedManagers.size > 0 && !selectedManagers.has(accountManagerById[s.accountId] || "")) return false;
+      if (selectedManagers.size > 0 && ![...selectedManagers].some((picked) => managerMatches(accountManagerById[s.accountId] || "", picked))) return false;
       return true;
     });
   }, [activeSchedules, selectedSubIds, selectedAccountIds, selectedFrequencies, selectedManagers, accountManagerById]);
