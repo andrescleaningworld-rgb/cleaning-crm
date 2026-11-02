@@ -5,7 +5,9 @@
 // Behind FEATURE_PHOTOS. The page reads the photo index
 // (/api/photo-index); the files stay where they are.
 //
-// Default view: grouped by account, newest first, a grid under each account.
+// First view: one card per account (its newest photo as the thumbnail, how
+// many photos, when the last one was taken), newest first. No photos load
+// until an account is tapped. Then: that account's photos, newest first.
 // Before / After photos of the same day sit side by side. Tap a photo for
 // full screen: swipe left / right, who and when, and a button to the item it
 // belongs to. Small thumbnails; more load as you scroll.
@@ -51,7 +53,16 @@ type ApiAnswer = {
   more?: boolean;
   counts?: { total: number; week: number; problems: number; beforeAfter: number } | null;
   accounts?: { name: string; count: number }[] | null;
+  /** view=accounts: one card per account. */
+  cards?: Card[];
 };
+
+type Cover = { store: "blob" | "drive"; url: string; thumbUrl: string; viaApp: boolean };
+type Card = { name: string; accountId: string; count: number; lastAt: string; cover: Cover | null };
+
+/** The Account filter for photos saved with no account (lib/pg/photo-index.ts NO_ACCOUNT). */
+const NO_ACCOUNT = "__none__";
+const accountTitle = (name: string) => (name === NO_ACCOUNT || !name ? "No account" : name);
 
 const KINDS = ["Complaint", "Crew problem", "Sub photo", "Extra job", "Estimate", "Equipment", "Visit", "Site survey", "Crew"];
 type DateChoice = "all" | "today" | "week" | "month" | "pick";
@@ -64,7 +75,7 @@ function driveId(url: string): string {
 }
 
 /** A small version for the grid: Next's image resizer for Blob files, Drive's own thumbnail for Drive files. */
-function thumbUrl(photo: Photo): string {
+function thumbUrl(photo: Pick<Photo, "store" | "url" | "thumbUrl" | "viaApp">): string {
   // Saved with its own small copy (site survey shots): no resizing needed.
   if (photo.thumbUrl) return photo.thumbUrl;
   if (photo.store === "drive") {
@@ -120,6 +131,29 @@ function Thumb({ photo, onOpen }: { photo: Photo; onOpen: () => void }) {
         <span className="ph-file">PDF</span>
       )}
       <span className="ph-label">{label(photo)}</span>
+    </button>
+  );
+}
+
+/** One account on the first view: tap it to see its photos. */
+function AccountCard({ card, onOpen }: { card: Card; onOpen: () => void }) {
+  const title = accountTitle(card.name);
+  return (
+    <button type="button" className="ph-account" onClick={onOpen} aria-label={`${title}: ${card.count} photo${card.count === 1 ? "" : "s"}. Open.`}>
+      <span className="ph-account-thumb">
+        {card.cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumbUrl(card.cover)} alt="" loading="lazy" decoding="async" />
+        ) : (
+          <span className="ph-file">PDF</span>
+        )}
+      </span>
+      <span className="ph-account-text">
+        <span className="ph-account-name">{title}</span>
+        <span className="ui-muted">
+          {card.count} photo{card.count === 1 ? "" : "s"} · last {shortDate(card.lastAt)}
+        </span>
+      </span>
     </button>
   );
 }
@@ -275,6 +309,7 @@ function PhotosContent() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [counts, setCounts] = useState({ total: 0, week: 0, problems: 0, beforeAfter: 0 });
   const [accounts, setAccounts] = useState<{ name: string; count: number }[]>([]);
+  const [cards, setCards] = useState<Card[]>([]);
 
   // The "Show on TV" star: starred photos are the slideshow on the office TV.
   const starPhoto = useCallback(async (photo: Photo, on: boolean) => {
@@ -349,6 +384,8 @@ function PhotosContent() {
   const load = useCallback(
     async (cursor?: Photo) => {
       const q = new URLSearchParams(query);
+      // No account picked: the account cards only, no photos.
+      if (!account) q.set("view", "accounts");
       if (cursor) {
         q.set("beforeAt", cursor.takenAt);
         q.set("beforeId", String(cursor.id));
@@ -358,7 +395,7 @@ function PhotosContent() {
       if (!response.ok || data.success === false) throw new Error("failed");
       return data;
     },
-    [query]
+    [query, account]
   );
 
   const refresh = useCallback(async () => {
@@ -370,6 +407,8 @@ function PhotosContent() {
       }
       setPhotos(data.photos ?? []);
       setMore(data.more === true);
+      // Kept while one account is open, so its name still links to its account page.
+      if (data.cards) setCards(data.cards);
       if (data.counts) setCounts(data.counts);
       if (data.accounts) setAccounts(data.accounts);
       setState("ready");
@@ -383,7 +422,7 @@ function PhotosContent() {
   }, [refresh]);
 
   const loadMore = useCallback(async () => {
-    if (loadingMore || !more || photos.length === 0) return;
+    if (!account || loadingMore || !more || photos.length === 0) return;
     setLoadingMore(true);
     try {
       const data = await load(photos[photos.length - 1]);
@@ -394,7 +433,7 @@ function PhotosContent() {
     } finally {
       setLoadingMore(false);
     }
-  }, [load, loadingMore, more, photos]);
+  }, [account, load, loadingMore, more, photos]);
 
   // More load as you scroll: when the marker under the list comes into view.
   useEffect(() => {
@@ -437,6 +476,34 @@ function PhotosContent() {
     });
   }, [photos]);
 
+  // A card was tapped: that account's photos, with a step in the history so Back comes back to the cards.
+  function openAccount(card: Card) {
+    const name = card.name || NO_ACCOUNT;
+    try {
+      window.history.pushState(null, "", `/photos?account=${encodeURIComponent(name)}`);
+    } catch {
+      // No history: it still opens.
+    }
+    setViewer(null);
+    setAccount(name);
+    window.scrollTo({ top: 0 });
+  }
+  function showAllAccounts() {
+    try {
+      window.history.pushState(null, "", "/photos");
+    } catch {
+      // No history: it still goes back to the cards.
+    }
+    setViewer(null);
+    setAccount("");
+  }
+  // The phone's Back button: the account in the address again (none = the cards).
+  useEffect(() => {
+    const onPop = () => setAccount(new URLSearchParams(window.location.search).get("account") ?? "");
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const filtersOn = Boolean(search || account || kind || group || dateChoice !== "all");
   function clearFilters() {
     setTyped("");
@@ -466,6 +533,7 @@ function PhotosContent() {
         steps={[
           { target: '[data-tip="counts"]', text: "Every photo in the app is here. Tap a number to see only those." },
           { target: '[data-tip="chips"]', text: "Narrow it down by account, by issue or by date." },
+          { target: ".ph-account", text: "Tap an account to see its photos." },
           { target: ".ph-thumb", text: "Tap a photo to see it full screen. Swipe left or right for the next one." },
           { target: ".ui-page-add .ui-btn-main", text: "Have photos on your phone or in Google Drive? Tap Add photos to put them here." },
         ]}
@@ -498,7 +566,7 @@ function PhotosContent() {
 
           <div className="ui-chips" role="group" aria-label="Filters" data-tip="chips">
             <button type="button" className="ui-chip" aria-pressed={account !== ""} onClick={() => setPicker("account")}>
-              {account ? `Account: ${account}` : "Account"}
+              {account ? `Account: ${accountTitle(account)}` : "Account"}
             </button>
             <button type="button" className="ui-chip" aria-pressed={kind !== ""} onClick={() => setPicker("kind")}>
               {kind ? `Issue: ${kind}` : "Issue"}
@@ -508,8 +576,21 @@ function PhotosContent() {
             </button>
           </div>
 
+          {account ? (
+            <div className="ph-account-head">
+              <BigButton kind="second" onClick={showAllAccounts}>
+                ← All accounts
+              </BigButton>
+              <h2 className="ui-section-title">{account === NO_ACCOUNT ? "No account" : <AccountLink accountId={accountId || cards.find((card) => card.name === account)?.accountId || ""} name={account} />}</h2>
+            </div>
+          ) : null}
+
           <p className="ui-muted" role="status">
-            {photos.length === 0 ? "No photos" : `Showing ${photos.length}${more ? "+" : ""} of ${counts.total} photos`}
+            {!account
+              ? `${cards.length} account${cards.length === 1 ? "" : "s"} with photos · ${counts.total} photos in all`
+              : photos.length === 0
+                ? "No photos"
+                : `Showing ${photos.length}${more ? "+" : ""} photos`}
             {filtersOn ? " · " : ""}
             {filtersOn ? (
               <button type="button" className="ui-link ph-clear" onClick={clearFilters}>
@@ -518,7 +599,27 @@ function PhotosContent() {
             ) : null}
           </p>
 
-          {photos.length === 0 ? (
+          {!account ? (
+            cards.length === 0 ? (
+              <EmptyState
+                title={filtersOn ? "No accounts match" : "No photos yet"}
+                text={filtersOn ? "Tap Clear filters to see every account." : "Photos show up here as soon as someone adds one: on a complaint, a crew problem, an extra job, or from the sub portal. Have some already? Tap Add photos."}
+                action={
+                  filtersOn ? (
+                    <BigButton kind="second" onClick={clearFilters}>
+                      Clear filters
+                    </BigButton>
+                  ) : undefined
+                }
+              />
+            ) : (
+              <div className="ph-accounts">
+                {cards.map((card) => (
+                  <AccountCard key={card.name || NO_ACCOUNT} card={card} onOpen={() => openAccount(card)} />
+                ))}
+              </div>
+            )
+          ) : photos.length === 0 ? (
             <EmptyState
               title={filtersOn ? "No photos match" : "No photos yet"}
               text={filtersOn ? "Tap Clear filters to see them all, or Add photos to put some here." : "Photos show up here as soon as someone adds one: on a complaint, a crew problem, an extra job, or from the sub portal. Have some already? Tap Add photos."}
@@ -558,7 +659,7 @@ function PhotosContent() {
 
           <div ref={sentinel} aria-hidden="true" />
           {loadingMore ? <SkeletonList rows={1} /> : null}
-          {more && !loadingMore ? (
+          {account && more && !loadingMore ? (
             <BigButton kind="second" onClick={() => void loadMore()}>
               Show more photos
             </BigButton>
@@ -576,7 +677,7 @@ function PhotosContent() {
           {accounts.map((entry) => (
             <li key={entry.name}>
               <button type="button" className="ui-picker-option" aria-pressed={account === entry.name} onClick={() => (setAccount(entry.name), setPicker(null))}>
-                {entry.name} ({entry.count})
+                {accountTitle(entry.name)} ({entry.count})
               </button>
             </li>
           ))}

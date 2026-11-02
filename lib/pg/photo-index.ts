@@ -346,6 +346,9 @@ export type PhotoFilter = {
   limit?: number;
 };
 
+/** The account filter for photos with no account. */
+export const NO_ACCOUNT = "__none__";
+
 const isMoment = (value: string | undefined): value is string => Boolean(value) && !Number.isNaN(new Date(value as string).getTime());
 
 function where(filter: PhotoFilter): { clause: string; params: unknown[] } {
@@ -356,7 +359,9 @@ function where(filter: PhotoFilter): { clause: string; params: unknown[] } {
     parts.push(sqlText.replace("?", `$${params.length}`));
   };
   if (filter.search?.trim()) add(`lower(account_name) LIKE '%' || ? || '%'`, filter.search.trim().toLowerCase());
-  if (filter.accountId?.trim() && filter.account?.trim()) {
+  // The "No account" card on the accounts view: photos saved with no account (equipment, mostly).
+  if (filter.account === NO_ACCOUNT) parts.push(`btrim(account_name) = ''`);
+  else if (filter.accountId?.trim() && filter.account?.trim()) {
     params.push(filter.accountId.trim(), filter.account.trim().toLowerCase());
     parts.push(`(account_id = $${params.length - 1} OR lower(account_name) = $${params.length})`);
   } else if (filter.account?.trim()) add(`lower(account_name) = ?`, filter.account.trim().toLowerCase());
@@ -396,6 +401,56 @@ export async function photoCounts(weekStart?: string): Promise<PhotoCounts> {
     FROM photo_index`) as { total: number; week: number; problems: number; before_after: number }[];
   const row = rows[0];
   return { total: row?.total ?? 0, week: row?.week ?? 0, problems: row?.problems ?? 0, beforeAfter: row?.before_after ?? 0 };
+}
+
+let hasThumbColumn: boolean | null = null;
+
+/** One account on the Photos page's first view: how many photos, when the last one was taken, and that photo as its thumbnail. */
+export type PhotoAccountCard = {
+  /** The account name as saved; "" = photos with no account. */
+  name: string;
+  accountId: string;
+  count: number;
+  lastAt: string;
+  /** The newest picture (not a PDF), for the thumbnail; null when the account has only PDFs. */
+  cover: { store: "blob" | "drive"; url: string; thumbUrl: string; viaApp: boolean } | null;
+};
+
+/**
+ * The accounts that have photos, newest photo first, with the same filters as
+ * the photo list (search, issue, problems / before-after, dates). No photo
+ * list is loaded for this: one row per account.
+ */
+export async function photoAccountCards(filter: PhotoFilter): Promise<PhotoAccountCard[]> {
+  const { clause, params } = where({ ...filter, account: "", accountId: "" });
+  // thumb_url came with migration 063; until then the full photo stands in.
+  hasThumbColumn ??= ((await getSql()`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'photo_index' AND column_name = 'thumb_url') AS ok`) as { ok: boolean }[])[0]?.ok === true;
+  const hasThumb = hasThumbColumn;
+  const rows = (await getSql().query(
+    `WITH f AS (SELECT * FROM photo_index ${clause}),
+     g AS (
+       SELECT lower(btrim(account_name)) AS key, max(btrim(account_name)) AS name, COALESCE(max(NULLIF(account_id, '')), '') AS account_id,
+              count(*)::int AS count, max(taken_at) AS last_at
+       FROM f GROUP BY 1
+     )
+     SELECT g.name, g.account_id, g.count, g.last_at, c.store, c.url, c.thumb_url, c.source_key
+     FROM g
+     LEFT JOIN LATERAL (
+       SELECT store, url, ${hasThumb ? "thumb_url" : "''::text AS thumb_url"}, source_key FROM f
+       WHERE lower(btrim(f.account_name)) = g.key AND f.is_image
+       ORDER BY taken_at DESC, id DESC LIMIT 1
+     ) c ON true
+     ORDER BY g.last_at DESC
+     LIMIT 1000`,
+    params
+  )) as { name: string; account_id: string; count: number; last_at: string | Date; store: "blob" | "drive" | null; url: string | null; thumb_url: string | null; source_key: string | null }[];
+  return rows.map((row) => ({
+    name: row.name ?? "",
+    accountId: row.account_id ?? "",
+    count: row.count,
+    lastAt: new Date(row.last_at).toISOString(),
+    cover: row.url && row.store ? { store: row.store, url: row.url, thumbUrl: row.thumb_url ?? "", viaApp: (row.source_key ?? "").startsWith("drive-import:") } : null,
+  }));
 }
 
 /** The accounts that have photos, most photos first: the Account chip's list. */
