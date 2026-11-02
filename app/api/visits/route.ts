@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { addVisit, getVisitsAppsScriptShape, visitsOnPostgres } from "@/lib/data/visits";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { lastVisitByAccount } from "@/lib/pg/visits";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -41,8 +43,20 @@ function clean(value: unknown): string {
 
 const LIST_HEADERS = { "Cache-Control": "public, max-age=30, stale-while-revalidate=60" };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    // ?last=1: each account's last visit date, read from Postgres (the
+    // Accounts list's "Last visited" filter, sort and Print column).
+    // Managers and the owner only.
+    if (request.nextUrl.searchParams.get("last") === "1") {
+      const noStore = { "Cache-Control": "no-store" };
+      const identity = await getAdminIdentity(request);
+      if (identity?.role !== "manager" && identity?.role !== "owner") {
+        return NextResponse.json({ success: false, error: "Only managers and the owner can see last visits." }, { status: 403, headers: noStore });
+      }
+      return NextResponse.json({ success: true, lastVisits: await lastVisitByAccount() }, { headers: noStore });
+    }
+
     // DATA_SOURCE_VISITS=postgres: the same list, in the same shape, without
     // Apps Script.
     if (visitsOnPostgres()) {

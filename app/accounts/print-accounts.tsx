@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { BigButton, Sheet } from "@/app/ui";
 import PrintSheet from "../components/print-sheet";
 
-export type PrintColumn = "name" | "address" | "sub" | "manager" | "frequency" | "status" | "price" | "subPay" | "margin" | "startDate" | "contact" | "phone" | "email" | "service" | "health" | "keys";
+export type PrintColumn = "name" | "address" | "sub" | "manager" | "frequency" | "status" | "price" | "subPay" | "margin" | "startDate" | "lastVisit" | "contact" | "phone" | "email" | "service" | "health" | "keys";
 
 /** One account as the table prints it: a text per column. */
 export type PrintRow = Record<PrintColumn, string>;
@@ -25,6 +25,7 @@ export const PRINT_COLUMNS: { key: PrintColumn; label: string }[] = [
   { key: "subPay", label: "Sub pay" },
   { key: "margin", label: "Margin" },
   { key: "startDate", label: "Start date" },
+  { key: "lastVisit", label: "Last visit" },
   { key: "contact", label: "Contact" },
   { key: "phone", label: "Phone" },
   { key: "email", label: "Email" },
