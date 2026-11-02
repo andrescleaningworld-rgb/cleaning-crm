@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SkeletonList, StatusPill, friendlyDate, showToast } from "@/app/ui";
+import MarkateCheckNow from "@/app/components/MarkateCheckNow";
 
 type Status = { connected: boolean; connectedAt: string; connectedBy: string; lastCheckedAt: string; lastError: string; lastFound: number };
 
@@ -21,7 +22,7 @@ function lastResult(status: Status): string {
 }
 type Item = { id: string; name: string; addedBy: string; addedAt: string };
 /** What Check now looked at (lib/pg/markate.ts CheckResult): shown on this page only, not saved. */
-type Seen = { number: string; status: string; customerType: string; items: string[]; outcome: "brought in" | "left out" | "already in the CRM"; kind: string; why: string };
+type Seen = { number: string; customerName?: string; status: string; customerType: string; items: string[]; outcome: "brought in" | "left out" | "already in the CRM"; kind: string; why: string };
 type Lookup = { id: string; found: boolean; error: string; number: string; fields: string[]; day: string; countsAsAccepted: boolean; inLists: string[]; inCrm: string };
 type CheckSummary = { checked: number; added: number; finished: boolean; since: string; notes: string[]; seen: Seen[]; leftOut: Record<string, number>; lookup: Lookup | null };
 
@@ -35,7 +36,7 @@ function leftOutLine(leftOut: Record<string, number>): string {
 function SeenRow({ seen }: { seen: Seen }) {
   return (
     <li className="ui-acct">
-      <span className="ui-acct-name">{seen.number}</span>
+      <span className="ui-acct-name">{[seen.number, seen.customerName].filter(Boolean).join(" · ")}</span>
       <span className="ui-actions-row">
         <StatusPill kind={seen.outcome === "brought in" ? "done" : seen.outcome === "left out" ? "off" : "waiting"}>
           {seen.outcome === "brought in" ? "Brought in" : seen.outcome === "left out" ? "Left out" : "Already in the CRM"}
@@ -98,21 +99,7 @@ export default function MarkateSettingsPage() {
     try {
       const data = await post(body);
       if (Array.isArray(data.items) && settings) setSettings({ ...settings, items: data.items as Item[] });
-      if (body.action === "checkNow") {
-        const result = data.result as Partial<CheckSummary> | undefined;
-        setSummary({
-          checked: result?.checked ?? 0,
-          added: result?.added ?? 0,
-          finished: result?.finished !== false,
-          since: result?.since ?? "",
-          notes: result?.notes ?? [],
-          seen: result?.seen ?? [],
-          leftOut: result?.leftOut ?? {},
-          lookup: result?.lookup ?? null,
-        });
-        showToast(`${result?.added ?? 0} new estimate${result?.added === 1 ? "" : "s"} found.${result?.finished === false ? " The rest come in on the next check." : ""}`);
-        await load();
-      } else if (body.action === "disconnect") {
+      if (body.action === "disconnect") {
         setNotice("");
         await load();
         showToast(done);
@@ -122,11 +109,25 @@ export default function MarkateSettingsPage() {
       if (body.action === "addItem") setName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
-      // A check that failed still ran: show its time and why.
-      if (body.action === "checkNow") void load();
     } finally {
       setBusy("");
     }
+  }
+
+  /** After Check Markate now: the full details below (what it looked at, the lookup), and the connection's last check. */
+  function showCheck(raw: unknown) {
+    const result = raw as Partial<CheckSummary> | undefined;
+    setSummary({
+      checked: result?.checked ?? 0,
+      added: result?.added ?? 0,
+      finished: result?.finished !== false,
+      since: result?.since ?? "",
+      notes: result?.notes ?? [],
+      seen: result?.seen ?? [],
+      leftOut: result?.leftOut ?? {},
+      lookup: result?.lookup ?? null,
+    });
+    void load();
   }
 
   const status = settings?.status;
@@ -158,23 +159,22 @@ export default function MarkateSettingsPage() {
                     Last checked {whenText(status.lastCheckedAt)}. {lastResult(status)}
                   </p>
                 ) : (
-                  <p className="ui-card-text">Not checked yet. Tap Check now, or wait for the next check.</p>
+                  <p className="ui-card-text">Not checked yet. Tap Check Markate now, or wait for the next check.</p>
                 )}
                 {status.lastError && !status.lastError.startsWith("Stopped at the time limit") ? <p className="ui-field-error">The last check did not finish: {status.lastError}</p> : null}
                 <p className="ui-muted">It checks every 30 minutes. Only estimates accepted on or after Oct 22, 2026 come in.</p>
                 <Field
                   label="Look up one Markate estimate"
                   optional
-                  hint="For troubleshooting: the estimate's Markate id (a number). Check now then shows its status and dates."
+                  hint="For troubleshooting: the estimate's Markate id (a number). Check Markate now then shows its status and dates."
                   inputMode="numeric"
                   value={lookupId}
                   disabled={busy !== ""}
                   onChange={(event) => setLookupId(event.target.value.replace(/\D/g, ""))}
                 />
                 <div className="ui-actions-row">
-                  <BigButton kind="second" busy={busy === "check"} busyLabel="Checking…" disabled={busy !== ""} onClick={() => void run("check", { action: "checkNow", lookupId }, "")}>
-                    Check now
-                  </BigButton>
+                  {/* The same button as on the Pin Board's New accepted square: the popup says who came in and what was skipped. */}
+                  <MarkateCheckNow lookupId={lookupId} onDone={(_added, result) => showCheck(result)} />
                   <BigButton kind="danger" busy={busy === "disconnect"} busyLabel="Disconnecting…" disabled={busy !== ""} onClick={() => void run("disconnect", { action: "disconnect" }, "Markate is disconnected.")}>
                     Disconnect
                   </BigButton>
@@ -198,7 +198,7 @@ export default function MarkateSettingsPage() {
           </Card>
 
           {summary ? (
-            <Card title="What Check now looked at">
+            <Card title="What Check Markate now looked at">
               <p className="ui-card-text">
                 Looked at {summary.checked} new estimate{summary.checked === 1 ? "" : "s"}
                 {summary.since ? ` since ${friendlyDate(new Date(`${summary.since}T00:00:00`))}` : ""}. {summary.added} brought in.

@@ -180,7 +180,10 @@ export default function BoardCanvas({
   onOpen,
   onMove,
   onAdd,
+  squareExtra,
 }: {
+  /** Something shown under a square's name, by square key (e.g. "shared:account": Check Markate now). Never in TV mode. */
+  squareExtra?: Partial<Record<string, ReactNode>>;
   papers: Paper[];
   managers: BoardManager[];
   settings: BoardSettings;
@@ -393,6 +396,7 @@ export default function BoardCanvas({
           <h2 className={styles.squareName}>{name}</h2>
           <span className={styles.squareCount}>{list.length}</span>
         </div>
+        {!tv && squareExtra?.[key] ? squareExtra[key] : null}
         {list.length === 0 ? <p className={styles.emptySquare}>{canAdd ? "Tap to add" : "Nothing pinned"}</p> : <SquarePapers list={list} settings={settings} now={now} renderPaper={renderPaper} renderPile={(hidden) => renderPile(key, name, hidden, list.length)} />}
         {/* Always some empty room at the bottom to tap, even in a full box. */}
         {canAdd ? (

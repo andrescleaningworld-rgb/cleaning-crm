@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
     if (action === "checkNow") {
       // lookupId (optional): one Markate estimate to look up and show, for troubleshooting.
       const result = await checkForEstimates({ lookupId: clean(body.lookupId).replace(/\D/g, "") });
+      if (result.busy) return refuse("Already checking, try again in a minute.", 409);
       if (result.error) return refuse(result.error, 502);
       return NextResponse.json({ success: true, result });
     }

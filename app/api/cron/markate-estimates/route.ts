@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     if (!(await markateReady())) return NextResponse.json({ success: true, skipped: "Markate tables are not on this database." });
     if (!(await markateStatus()).connected) return NextResponse.json({ success: true, skipped: "Markate is not connected." });
     const result = await checkForEstimates();
+    // Check Markate now is running: it does the same work, so this run lets it.
+    if (result.busy) return NextResponse.json({ success: true, skipped: "A check is already running." });
     if (result.error) console.error("[cron markate-estimates]", result.error);
     return NextResponse.json({ success: !result.error, result });
   } catch (error) {
