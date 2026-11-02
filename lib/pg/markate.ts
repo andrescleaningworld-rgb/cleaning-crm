@@ -74,7 +74,18 @@ export type MarkateStatus = {
   lastError: string;
   /** How many estimates the last check brought in. */
   lastFound: number;
+  /** A check is running right now (Check Markate now waits for it). */
+  checking: boolean;
 };
+
+/**
+ * While a check runs, markate_connection.last_check_error holds this word and
+ * last_checked_at is when it started: that is the lock that stops two checks
+ * (the cron, Check Markate now) running at once. Every check writes over it
+ * when it ends. One that died is let go after CHECK_LEASE.
+ */
+const CHECK_RUNNING = "Checking now…";
+const CHECK_LEASE = "5 minutes";
 
 async function connectionRow(): Promise<ConnectionRow | null> {
   const rows = (await getSql()`SELECT * FROM markate_connection WHERE id = 1`) as ConnectionRow[];
@@ -87,14 +98,34 @@ export async function markateStatus(): Promise<MarkateStatus> {
   const found = row?.last_checked_at
     ? (((await getSql()`SELECT count(*)::int AS n FROM markate_estimates WHERE found_at >= ${iso(row.last_checked_at)}`) as { n: number }[])[0]?.n ?? 0)
     : 0;
+  const running = row?.last_check_error === CHECK_RUNNING;
+  const startedAt = row?.last_checked_at ? new Date(row.last_checked_at).getTime() : 0;
+  const checking = running && startedAt > 0 && Date.now() - startedAt < 5 * 60_000;
   return {
     connected: Boolean(row),
     connectedAt: iso(row?.connected_at),
     connectedBy: row?.connected_by ?? "",
     lastCheckedAt: iso(row?.last_checked_at),
-    lastError: row?.last_check_error ?? "",
+    lastError: running ? (checking ? "" : "The last check stopped before it finished.") : (row?.last_check_error ?? ""),
     lastFound: found,
+    checking,
   };
+}
+
+/** Takes the lock for one check. false when another check is running. */
+async function claimCheck(): Promise<boolean> {
+  const rows = (await getSql().query(
+    `UPDATE markate_connection SET last_check_error = $1, last_checked_at = now()
+     WHERE id = 1 AND (last_check_error <> $1 OR last_checked_at IS NULL OR last_checked_at < now() - interval '${CHECK_LEASE}')
+     RETURNING id`,
+    [CHECK_RUNNING]
+  )) as unknown[];
+  return rows.length > 0;
+}
+
+/** Lets the lock go if the check ended without writing over it (it threw). */
+async function releaseCheck(): Promise<void> {
+  await getSql()`UPDATE markate_connection SET last_check_error = 'The check did not work.' WHERE id = 1 AND last_check_error = ${CHECK_RUNNING}`;
 }
 
 export async function saveConnection(tokens: MarkateTokens, by: string): Promise<void> {
@@ -192,6 +223,7 @@ class OutOfTime extends Error {}
 /** One estimate a check looked at, and what it decided: shown after Check now (read only). */
 export type SeenEstimate = {
   number: string;
+  customerName: string;
   /** Markate's status letter and its words: "A Accepted". */
   status: string;
   /** "Commercial", "Residential", or "Not looked up". */
@@ -233,10 +265,66 @@ export type CheckResult = {
   /** How many were left out, by reason ("residential": 8, ...). */
   leftOut: Record<string, number>;
   lookup: EstimateLookup | null;
+  /** Another check was already running, so this one did nothing. */
+  busy: boolean;
+  /** The ones this check brought in (Check Markate now: "X new account(s) added"). */
+  addedList: { number: string; customerName: string }[];
+  /**
+   * Check Markate now's "Skipped" list, in plain words: the ones this check
+   * left out, and the recent ones in the pages read that were decided before
+   * (left out, skipped, or already in the CRM). Never the Oct 22 baseline.
+   */
+  skipped: { number: string; customerName: string; reason: string }[];
 };
 
 /** At most this many left-out estimates are listed under "Show details". */
 const MAX_LEFT_OUT_SHOWN = 100;
+/** Check Markate now lists the ones decided before only when they were found this recently. */
+const RECENT_DAYS = 14;
+/** At most this many lines in the Skipped list. */
+const MAX_SKIPPED_SHOWN = 40;
+
+/** Why an estimate was left out, in the office's words. */
+function plainLeftOut(kind: string): string {
+  switch (kind) {
+    case "no recurring item":
+      return "No monthly line item";
+    case "residential":
+      return "Customer is not Commercial in Markate";
+    case "customer not found":
+      return "Customer not found in Markate";
+    case "no customer":
+      return "Estimate has no customer";
+    case "not accepted":
+      return "Not accepted yet";
+    default:
+      return kind || "Left out";
+  }
+}
+
+/** A row decided before, in plain words: why it is not coming in now. */
+function plainEarlier(known: KnownRow): string {
+  if (known.outcome === "waiting") return "Already in the CRM (waiting in New accepted)";
+  if (known.outcome === "started") return "Already in the CRM (account started)";
+  const by = known.outcome_by;
+  const day = known.found_at ? ` (decided ${new Date(known.found_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" })})` : "";
+  if (by.startsWith("Left out: ")) return `${plainLeftOut(by.slice("Left out: ".length))}${day}`;
+  if (by.startsWith("Accepted before Oct 22")) return "Accepted before Oct 22";
+  if (by.endsWith(" (taken off the Pin Board)")) return `Taken off the Pin Board by ${by.slice(0, -" (taken off the Pin Board)".length)}`;
+  return by ? `Skipped by ${by}` : "Skipped";
+}
+
+/** A check's error in plain words, with what to do about it. */
+export function plainCheckError(error: string): string {
+  if (!error) return "";
+  if (/not connected/i.test(error)) return "Markate is not connected. The owner connects it in Settings → Markate.";
+  if (/app keys are missing/i.test(error)) return "Markate is not set up here (the app keys are missing).";
+  if (/said no|invalid_grant|invalid_token|cannot be read|: 401\b|: 403\b/i.test(error)) return "Markate connection expired — reconnect in Settings → Markate.";
+  if (/: 429\b|too many/i.test(error)) return "Markate is busy right now (too many requests). Try again in a few minutes.";
+  if (/: 5\d\d\b/.test(error)) return "Markate is having trouble right now. Try again in a few minutes.";
+  if (/fetch failed|network|ENOTFOUND|ECONNRESET|ETIMEDOUT|timeout/i.test(error)) return "Could not reach Markate. Try again in a few minutes.";
+  return `The Markate check did not work: ${error}`;
+}
 
 /**
  * A Markate date as an Eastern calendar day (YYYY-MM-DD). A date with no time
@@ -326,15 +414,24 @@ const customerTypeLabel = (customer: MarkateCustomer | null | undefined) =>
  * still to go are sent (new ones, and any that failed before).
  */
 export async function checkForEstimates(options: { lookupId?: string } = {}): Promise<CheckResult> {
-  const result = await importEstimates(options.lookupId?.trim() ?? "");
-  await sendEstimateEmails();
-  return result;
+  // Only one check at a time: the cron and Check Markate now can come together.
+  if (!(await connectionRow())) return { ...emptyResult(), error: "Markate is not connected." };
+  if (!(await claimCheck())) return { ...emptyResult(), busy: true };
+  try {
+    const result = await importEstimates(options.lookupId?.trim() ?? "");
+    await sendEstimateEmails();
+    return result;
+  } finally {
+    await releaseCheck();
+  }
 }
 
-type KnownRow = { markate_estimate_id: string; outcome: string; outcome_by: string };
+type KnownRow = { markate_estimate_id: string; outcome: string; outcome_by: string; estimate_number: string; customer_name: string; found_at: string | Date | null };
+
+const emptyResult = (): CheckResult => ({ checked: 0, added: 0, finished: false, error: "", since: "", notes: [], seen: [], leftOut: {}, lookup: null, busy: false, addedList: [], skipped: [] });
 
 async function importEstimates(lookupId: string): Promise<CheckResult> {
-  const result: CheckResult = { checked: 0, added: 0, finished: false, error: "", since: "", notes: [], seen: [], leftOut: {}, lookup: null };
+  const result = emptyResult();
   const row = await connectionRow();
   if (!row) return { ...result, error: "Markate is not connected." };
   const startedAt = new Date();
@@ -367,24 +464,32 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
     const customers = new Map<string, MarkateCustomer | null>();
     const knownOf = async (ids: string[]): Promise<Map<string, KnownRow>> => {
       if (ids.length === 0) return new Map();
-      const rows = (await sql`SELECT markate_estimate_id, outcome, outcome_by FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as KnownRow[];
+      const rows = (await sql`SELECT markate_estimate_id, outcome, outcome_by, estimate_number, customer_name, found_at FROM markate_estimates WHERE markate_estimate_id = ANY(${ids})`) as KnownRow[];
       return new Map(rows.map((known) => [known.markate_estimate_id, known]));
     };
 
     // Brought in and already in the CRM are always listed; left out ones are counted by reason, and listed up to a limit.
     let leftOutShown = 0;
-    const see = (estimate: MarkateEstimate, customerType: string, outcome: SeenEstimate["outcome"], why: string, kind = "") => {
+    const numberOf = (estimate: MarkateEstimate) => text(estimate.custom_number) || `id ${text(estimate.id)}`;
+    const skip = (number: string, customerName: string, reason: string) => {
+      if (result.skipped.length < MAX_SKIPPED_SHOWN) result.skipped.push({ number, customerName, reason });
+    };
+    const see = (estimate: MarkateEstimate, customerName: string, customerType: string, outcome: SeenEstimate["outcome"], why: string, kind = "") => {
+      const number = numberOf(estimate);
+      if (outcome === "brought in") result.addedList.push({ number, customerName });
+      else skip(number, customerName, outcome === "left out" ? plainLeftOut(kind) : "Already in the CRM");
       if (outcome === "left out") {
         result.leftOut[kind] = (result.leftOut[kind] ?? 0) + 1;
         if (leftOutShown >= MAX_LEFT_OUT_SHOWN) return;
         leftOutShown += 1;
       }
-      result.seen.push({ number: text(estimate.custom_number) || `id ${text(estimate.id)}`, status: statusLabel(estimate), customerType, items: itemNames(estimate), outcome, kind, why });
+      result.seen.push({ number, customerName, status: statusLabel(estimate), customerType, items: itemNames(estimate), outcome, kind, why });
     };
+    const nameOf = (estimate: MarkateEstimate, customer?: MarkateCustomer | null) => (customer && (text(customer.company) || text(customer.display_name))) || text(estimate.customer?.name);
 
     /** A left out one is remembered as skipped (no paper, no email), so it is not looked at again. */
     const rememberLeftOut = async (estimate: MarkateEstimate, customer: MarkateCustomer | null | undefined, kind: string) => {
-      const customerName = (customer && (text(customer.company) || text(customer.display_name))) || text(estimate.customer?.name);
+      const customerName = nameOf(estimate, customer);
       await sql`
         INSERT INTO markate_estimates (markate_estimate_id, estimate_number, customer_id, customer_name, customer, total, status, estimate_date, url_public, raw, outcome, outcome_by, outcome_at)
         VALUES (${text(estimate.id)}, ${text(estimate.custom_number)}, ${text(estimate.customer_id) || text(estimate.customer?.id)}, ${customerName}, ${JSON.stringify(customer ?? {})}::jsonb,
@@ -400,12 +505,12 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       result.checked += 1;
       if (!wasAccepted(listed)) {
         // Only the lookup can get here (the list is the Accepted one). Not remembered: it may still be accepted.
-        see(listed, "Not looked up", "left out", `Not accepted (status ${statusLabel(listed)}).`, "not accepted");
+        see(listed, nameOf(listed), "Not looked up", "left out", `Not accepted (status ${statusLabel(listed)}).`, "not accepted");
         return;
       }
       const customerId = text(listed.customer_id) || text(listed.customer?.id);
       if (!customerId) {
-        see(listed, "Not found", "left out", "The estimate has no customer.", "no customer");
+        see(listed, nameOf(listed), "Not found", "left out", "The estimate has no customer.", "no customer");
         await rememberLeftOut(listed, null, "no customer");
         return;
       }
@@ -416,7 +521,7 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       const customer = customers.get(customerId);
       if (!customer || !isCommercial(customer)) {
         const kind = customer ? "residential" : "customer not found";
-        see(listed, customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.", kind);
+        see(listed, nameOf(listed, customer), customerTypeLabel(customer), "left out", customer ? "The customer is not Commercial." : "The customer was not found in Markate.", kind);
         await rememberLeftOut(listed, customer, kind);
         return;
       }
@@ -428,7 +533,7 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       }
       const match = recurringMatch(Array.isArray(estimate.items) ? estimate.items : [], names);
       if (!match) {
-        see(estimate, customerTypeLabel(customer), "left out", "No recurring item (no name on the list, no \"per Month\").", "no recurring item");
+        see(estimate, nameOf(estimate, customer), customerTypeLabel(customer), "left out", "No recurring item (no name on the list, no \"per Month\").", "no recurring item");
         await rememberLeftOut(estimate, customer, "no recurring item");
         return;
       }
@@ -447,17 +552,34 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
       if (inserted[0]) {
         result.added += 1;
         await pinEstimatePaper(inserted[0].id, customerName, estimateTotal(estimate), match.item);
-        see(estimate, customerTypeLabel(customer), "brought in", `Recurring item: ${match.item}${match.why === "per month" ? " (says per month)" : ""}.`);
+        see(estimate, customerName, customerTypeLabel(customer), "brought in", `Recurring item: ${match.item}${match.why === "per month" ? " (says per month)" : ""}.`);
       } else {
-        see(estimate, customerTypeLabel(customer), "already in the CRM", "Brought in by a check running at the same time.");
+        see(estimate, customerName, customerTypeLabel(customer), "already in the CRM", "Brought in by a check running at the same time.");
       }
     };
 
-    /** A known one that is a real import (waiting or started) is listed as already in the CRM; the rest are only counted. */
+    /**
+     * A known one that is a real import (waiting or started) is listed as already in the CRM; the rest are only counted.
+     * Check Markate now's Skipped list also gets the recent ones decided before (never the Oct 22 baseline), with why.
+     */
     let alreadyDecided = 0;
+    const recentFrom = Date.now() - RECENT_DAYS * 86_400_000;
     const seeKnown = (estimate: MarkateEstimate, known: KnownRow) => {
       alreadyDecided += 1;
-      if (known.outcome !== "skipped") see(estimate, "Not looked up", "already in the CRM", known.outcome === "started" ? "The account was started from it." : "Waiting in From Markate.");
+      if (known.outcome !== "skipped") {
+        result.seen.push({
+          number: numberOf(estimate),
+          customerName: known.customer_name,
+          status: statusLabel(estimate),
+          customerType: "Not looked up",
+          items: itemNames(estimate),
+          outcome: "already in the CRM",
+          kind: "",
+          why: known.outcome === "started" ? "The account was started from it." : "Waiting in From Markate.",
+        });
+      }
+      const recent = known.found_at ? new Date(known.found_at).getTime() >= recentFrom : false;
+      if (recent && !known.outcome_by.startsWith("Accepted before Oct 22")) skip(known.estimate_number || numberOf(estimate), known.customer_name || nameOf(estimate), plainEarlier(known));
     };
 
     const getPage = async (page: number) => {

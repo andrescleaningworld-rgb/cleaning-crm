@@ -34,6 +34,7 @@ import { SetupButton } from "../components/OnboardingChecklist";
 import OnboardingWizardModal from "../components/OnboardingWizardModal";
 import ReadyBadge from "../components/ready-badge";
 import AccountPickerField, { type PickedAccount } from "../components/AccountPickerField";
+import MarkateCheckNow from "../components/MarkateCheckNow";
 import { enterFullScreen } from "./full-screen";
 import styles from "./board.module.css";
 
@@ -266,7 +267,17 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
           {tab === "board" ? (
             <>
-              <BoardCanvas papers={papers} managers={data.managers} settings={data.settings} mySquare={data.me.squareId} onOpen={openPaper} onMove={move} onAdd={addTo} />
+              <BoardCanvas
+                papers={papers}
+                managers={data.managers}
+                settings={data.settings}
+                mySquare={data.me.squareId}
+                onOpen={openPaper}
+                onMove={move}
+                onAdd={addTo}
+                // New accepted: run the Markate import now; a new estimate's paper shows at once.
+                squareExtra={{ "shared:account": <MarkateCheckNow compact onDone={(added) => (added > 0 ? void load(true) : undefined)} /> }}
+              />
               <p className="ui-muted">Tap empty space in a box to add something there. Tap a note to open it. Drag it into a square to hand it off (on a phone, hold it first).</p>
               <Tips id="board-add" steps={[{ target: "[data-square]", text: "Tap empty space in a box to add something there." }]} />
             </>
