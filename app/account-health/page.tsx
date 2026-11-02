@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import AccountPickerField from "../components/AccountPickerField";
+import { ManagerOptions, useManagerNames } from "../components/manager-options";
 import {
   AddButton,
   BigButton,
@@ -94,8 +95,6 @@ const startingHealthItems: AccountHealthItem[] = [
   },
 ];
 
-const managerOptions = ["Andrés", "Greg", "Drew"];
-
 const subcontractorOptions = ["Edgar", "Fernando", "Juana", "Vicky"];
 
 const issueCategoryOptions = [
@@ -170,6 +169,8 @@ function improvementKind(status: ImprovementStatus): StatusKind {
 }
 
 export default function AccountHealthPage() {
+  // The Manager dropdown: the active managers on the Staff list.
+  const managerList = useManagerNames();
   const [healthItems, setHealthItems] =
     useState<AccountHealthItem[]>(startingHealthItems);
 
@@ -435,9 +436,7 @@ export default function AccountHealthPage() {
           onChange={(next) => setFormData((current) => ({ ...current, accountId: next?.id ?? "", accountName: next?.name ?? "" }))}
         />
         <SelectField label="Manager" value={formData.manager} onChange={(event) => updateField("manager", event.target.value)}>
-          {managerOptions.map((manager) => (
-            <option key={manager}>{manager}</option>
-          ))}
+          <ManagerOptions names={managerList.names} current={formData.manager} />
         </SelectField>
         <SelectField label="Subcontractor" value={formData.subcontractor} onChange={(event) => updateField("subcontractor", event.target.value)}>
           {subcontractorOptions.map((subcontractor) => (

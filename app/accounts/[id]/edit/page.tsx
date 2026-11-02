@@ -12,6 +12,7 @@ import FrequencyField from "@/app/components/frequency-field";
 import SubPayFields from "@/app/components/sub-pay-fields";
 import CleaningTimeField from "@/app/components/cleaning-time-field";
 import SubSuggestions from "@/app/components/sub-suggestions";
+import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
 import { cleaningStartMinutes } from "@/lib/cleaningTime";
 import { DEFAULT_START_TIME } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
@@ -236,6 +237,8 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 export default function EditAccountPage() {
   const params = useParams();
+  // The Manager dropdown: the active managers on the Staff list.
+  const managerList = useManagerNames();
   const rawAccountIdFromUrl = String(params?.id || "");
   const decodedAccountIdFromUrl = decodeURIComponent(rawAccountIdFromUrl);
   const normalizedUrlValue = normalizeValue(decodedAccountIdFromUrl);
@@ -742,7 +745,11 @@ export default function EditAccountPage() {
 
         <Card title="Service & Assignment">
           <div style={sectionStyle}>
-            <Field label="Manager" optional value={formData.manager || ""} onChange={(event) => updateField("manager", event.target.value)} />
+            {/* A saved value that is not one active manager ("Greg , Andres") stays as its own choice, so saving never wipes it. */}
+            <SelectField label="Manager" optional value={formData.manager || ""} onChange={(event) => updateField("manager", event.target.value)}>
+              <option value="">{managerList.loading ? "Loading managers…" : "No manager"}</option>
+              <ManagerOptions names={managerList.names} current={formData.manager || ""} />
+            </SelectField>
 
             <SubSuggestions
               lat={formData.latitude && Number.isFinite(Number(formData.latitude)) ? Number(formData.latitude) : null}

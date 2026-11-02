@@ -21,6 +21,7 @@ import {
 import { useParams } from "next/navigation";
 import AccountLink from "../../components/AccountLink";
 import AccountPickerField from "../../components/AccountPickerField";
+import { ManagerOptions, useManagerNames } from "../../components/manager-options";
 
 type Complaint = {
   rowNumber?: number | string;
@@ -198,6 +199,8 @@ function getGoogleDrivePreviewUrl(url: string): string {
 
 export default function ComplaintDetailPage() {
   const params = useParams();
+  // "Assigned to": the active managers on the Staff list.
+  const managerList = useManagerNames();
   const complaintId = decodeURIComponent(String(params.id || ""));
 
   const [complaints, setComplaints] = useState<Complaint[]>([]);
@@ -603,7 +606,10 @@ export default function ComplaintDetailPage() {
           <option value="Not Valid">Not Valid</option>
           <option value="Subjective">Subjective</option>
         </SelectField>
-        <Field label="Assigned to" optional value={editForm.manager} onChange={set("manager")} />
+        <SelectField label="Assigned to" optional value={editForm.manager} onChange={set("manager")}>
+          <option value="">{managerList.loading ? "Loading managers…" : "No one"}</option>
+          <ManagerOptions names={managerList.names} current={editForm.manager} />
+        </SelectField>
         <Field label="Follow-up date" optional value={editForm.followUpDate} onChange={set("followUpDate")} />
         <TextAreaField label="Description" rows={5} value={editForm.description} onChange={set("description")} />
         <TextAreaField label="Notes" optional rows={4} value={editForm.notes} onChange={set("notes")} />

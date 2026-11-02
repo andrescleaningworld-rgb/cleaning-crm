@@ -5,6 +5,7 @@ import AccountMultiSelect, {
   type AccountMultiSelectOption,
 } from "@/app/components/AccountMultiSelect";
 import type { ToDo } from "./page";
+import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
 
 // Distinct vocabulary from ToDo's taskType — "Visit" (the to-do type that
 // triggers this modal) has no equivalent entry here, since Visits categorizes
@@ -61,6 +62,8 @@ export default function VisitCompletionModal({
   const [selectedAccount, setSelectedAccount] = useState<string[]>(
     todo.accountName ? [todo.accountName] : []
   );
+  // The active managers on the Staff list; it starts on whoever the to-do is assigned to.
+  const managerList = useManagerNames();
   const [manager, setManager] = useState(todo.assignedTo);
   const [subcontractor, setSubcontractor] = useState("");
   const [visitType, setVisitType] = useState("Routine Visit");
@@ -170,13 +173,15 @@ export default function VisitCompletionModal({
             <label className="ui-label" htmlFor="visit-modal-manager">
               Manager / Visited By
             </label>
-            <input
+            <select
               id="visit-modal-manager"
               value={manager}
               onChange={(event) => setManager(event.target.value)}
-              placeholder="Manager"
               className="ui-input w-full"
-            />
+            >
+              <option value="">{managerList.loading ? "Loading managers…" : "Pick a manager"}</option>
+              <ManagerOptions names={managerList.names} current={manager} />
+            </select>
           </div>
 
           <div>

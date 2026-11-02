@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import AccountLink from "../components/AccountLink";
 import { shareOfRevenue } from "@/lib/payShare";
+import { managerMatches } from "@/lib/managerNames";
+import { useManagerNames } from "../components/manager-options";
 
 type AnyRow = Record<string, unknown>;
 
@@ -489,19 +491,10 @@ export default function ReportsPage() {
     };
   }, [datePreset, customStartDate, customEndDate]);
 
-  const managers = useMemo(() => {
-    const names = new Set<string>();
-
-    [...accounts, ...visits, ...complaints, ...sales].forEach((row) => {
-      const manager =
-        getAccountManager(row) ||
-        getValue(row, ["visitedBy", "Visited By", "assignedTo", "Assigned To"]);
-
-      if (manager) names.add(manager);
-    });
-
-    return ["All", ...Array.from(names).sort()];
-  }, [accounts, visits, complaints, sales]);
+  // The active managers on the Staff list. The filters match with managerMatches,
+  // so "Andres", "Andrés" and "Drew/Greg" are all found under the right people.
+  const managerList = useManagerNames();
+  const managers = useMemo(() => ["All", ...managerList.names], [managerList.names]);
 
   const subcontractors = useMemo(() => {
     const names = new Set<string>();
@@ -555,7 +548,7 @@ export default function ReportsPage() {
       const revenue = getMonthlyRevenue(account);
 
       return (
-        (managerFilter === "All" || manager === managerFilter) &&
+        (managerFilter === "All" || managerMatches(manager, managerFilter)) &&
         (subcontractorFilter === "All" ||
           subcontractor === subcontractorFilter) &&
         (statusFilter === "All" || status === statusFilter) &&
@@ -623,7 +616,7 @@ export default function ReportsPage() {
 
       return (
         isDateInRangeOrMissing(date, dateRange.start, dateRange.end) &&
-        (managerFilter === "All" || manager === managerFilter) &&
+        (managerFilter === "All" || managerMatches(manager, managerFilter)) &&
         (salespersonFilter === "All" || soldBy === salespersonFilter) &&
         rowMatchesSearch(sale, search)
       );
@@ -647,7 +640,7 @@ export default function ReportsPage() {
 
       return (
         isDateInRangeOrMissing(date, dateRange.start, dateRange.end) &&
-        (managerFilter === "All" || manager === managerFilter) &&
+        (managerFilter === "All" || managerMatches(manager, managerFilter)) &&
         rowMatchesSearch(visit, search)
       );
     });
@@ -670,7 +663,7 @@ export default function ReportsPage() {
 
       return (
         isDateInRangeOrMissing(date, dateRange.start, dateRange.end) &&
-        (managerFilter === "All" || manager === managerFilter) &&
+        (managerFilter === "All" || managerMatches(manager, managerFilter)) &&
         rowMatchesSearch(complaint, search)
       );
     });
@@ -701,7 +694,7 @@ export default function ReportsPage() {
         if (!isDateInRange(getVisitDate(visit), dateRange.start, dateRange.end)) return false;
         const account = accountForVisit(visit);
         return (
-          (managerFilter === "All" || getVisitManager(visit) === managerFilter) &&
+          (managerFilter === "All" || managerMatches(getVisitManager(visit), managerFilter)) &&
           (subcontractorFilter === "All" || (account ? getSubcontractor(account) : "") === subcontractorFilter) &&
           (statusFilter === "All" || (account ? getStatus(account) : "") === statusFilter) &&
           rowMatchesSearch(visit, search)
@@ -739,7 +732,7 @@ export default function ReportsPage() {
         const status = getStatus(account);
         return (
           (statusFilter === "All" ? isActiveNow(account) : status === statusFilter) &&
-          (managerFilter === "All" || getAccountManager(account) === managerFilter) &&
+          (managerFilter === "All" || managerMatches(getAccountManager(account), managerFilter)) &&
           (subcontractorFilter === "All" || getSubcontractor(account) === subcontractorFilter) &&
           rowMatchesSearch(account, search)
         );
@@ -936,7 +929,7 @@ export default function ReportsPage() {
   const performance = useMemo(() => {
     const now = new Date();
     const rows = accounts
-      .filter((account) => managerFilter === "All" || getAccountManager(account) === managerFilter)
+      .filter((account) => managerFilter === "All" || managerMatches(getAccountManager(account), managerFilter))
       .map((account) => {
         const cancelled = getStatus(account).toLowerCase().includes("cancel");
         return {

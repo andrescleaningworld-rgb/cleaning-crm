@@ -26,6 +26,8 @@ import AccountLink from "../components/AccountLink";
 import { PinButton, PutOnBoard, putUpdateOnBoard, usePinInfo, type PinChoice } from "../components/pin-to-board";
 import { OFFICE_SQUARE, squareForManager } from "@/lib/boardPins";
 import ToProcess, { handoffForUpdate, processedLine } from "./to-process";
+import { managerMatches } from "@/lib/managerNames";
+import { ManagerOptions, useManagerNames } from "../components/manager-options";
 
 type RawAccount = {
   id?: string;
@@ -343,17 +345,10 @@ function AccountUpdatesPageContent() {
     return ["All Types", ...uniqueTypes];
   }, [updates]);
 
-  const managerOptions = useMemo(() => {
-    const uniqueManagers = Array.from(
-      new Set(
-        updates
-          .map((update) => update.manager)
-          .filter((managerName) => managerName && managerName !== "N/A")
-      )
-    ).sort((a, b) => a.localeCompare(b));
-
-    return ["All Managers", ...uniqueManagers];
-  }, [updates]);
+  // The active managers on the Staff list. Old updates keep the name they were saved with;
+  // the filter still finds "Andres" under Andrés and "Andres , Greg" under both.
+  const managerList = useManagerNames();
+  const managerOptions = useMemo(() => ["All Managers", ...managerList.names], [managerList.names]);
 
   const filteredUpdates = useMemo(() => {
     const search = searchText.toLowerCase().trim();
@@ -378,7 +373,7 @@ function AccountUpdatesPageContent() {
         typeFilter === "All Types" ? true : update.updateType === typeFilter;
 
       const matchesManager =
-        managerFilter === "All Managers" ? true : update.manager === managerFilter;
+        managerFilter === "All Managers" ? true : managerMatches(update.manager, managerFilter);
 
       return matchesAccount && matchesSearch && matchesType && matchesManager;
     });
@@ -786,7 +781,10 @@ function AccountUpdatesPageContent() {
           <option value="Customer Note">Customer Note</option>
           <option value="Other">Other</option>
         </SelectField>
-        <Field label="Manager" value={manager} onChange={(event) => setManager(event.target.value)} placeholder="Andrés, Greg, Drew..." />
+        <SelectField label="Manager" value={manager} onChange={(event) => setManager(event.target.value)}>
+          <option value="">{selectedManager ? `The account's manager (${selectedManager})` : managerList.loading ? "Loading managers..." : "Pick a manager"}</option>
+          <ManagerOptions names={managerList.names} current={manager} />
+        </SelectField>
         <TextAreaField
           label="Notes"
           rows={4}

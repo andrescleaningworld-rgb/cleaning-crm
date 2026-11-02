@@ -40,6 +40,8 @@ import { cancellationNote, cancellationProblem } from "@/lib/cancellation";
 import { shareOfRevenue } from "@/lib/payShare";
 import { RiskPill, RiskReason, useRiskFlags } from "../components/account-risk";
 import type { RiskFlag } from "@/lib/accountRisk";
+import { managerMatches, pickManager } from "@/lib/managerNames";
+import { loadManagerNames, useManagerNames } from "../components/manager-options";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,11 +119,6 @@ type SubcontractorDisplay = {
   contactName: string;
   companyName: string;
   fallback: string;
-};
-
-type Manager = {
-  name?: string;
-  status?: string;
 };
 
 // Mirrors app/to-do/page.tsx's taskTypes — kept as a separate local copy
@@ -363,7 +360,8 @@ function accountMatchesNonLocationFilters(
     params.cleanSearch !== "" || params.statusFilter === "All" || account._statusCategory === params.statusFilter;
 
   const matchesManager =
-    params.managerFilter === "All" || normalizeText(account.manager) === params.managerFilter;
+    // One of the account's managers ("Drew/Greg" is found under Greg too); "Andres" is "Andrés".
+    params.managerFilter === "All" || managerMatches(account.manager, params.managerFilter);
 
   const matchesSubcontractor =
     params.subcontractorFilter === "All" ||
@@ -1157,12 +1155,9 @@ export default function AccountsPage() {
   // Derived filter options (managers + subcontractors)
   // -------------------------------------------------------------------------
 
-  const managers = useMemo(() => {
-    const unique = Array.from(
-      new Set(filterOptionAccounts.map((a) => normalizeText(a.manager)).filter(Boolean))
-    );
-    return ["All", ...unique.sort()];
-  }, [filterOptionAccounts]);
+  // The active managers on the Staff list (role Manager), not whatever is typed on the accounts.
+  const managerList = useManagerNames();
+  const managers = useMemo(() => ["All", ...managerList.names], [managerList.names]);
 
   const subcontractors = useMemo<SubcontractorFilterOption[]>(() => {
     const unique = Array.from(
@@ -1543,28 +1538,9 @@ export default function AccountsPage() {
     });
   }
 
-  // Mirrors app/to-do/page.tsx's loadManagers(): missing/blank status is
-  // treated as Active so a manager row that predates the Status column
-  // still shows up here rather than silently disappearing from the dropdown.
+  // The same list as every Manager dropdown: active managers on the Staff list.
   async function loadBulkToDoManagers() {
-    try {
-      const response = await fetch("/api/admin/managers", { cache: "no-store" });
-      const data = await readJson<{ managers?: Manager[]; data?: Manager[] } | Manager[]>(response);
-      const rows: Manager[] = Array.isArray(data) ? data : data.managers ?? data.data ?? [];
-
-      const activeNames = Array.from(
-        new Set(
-          rows
-            .filter((row) => !row.status || row.status === "Active")
-            .map((row) => (row.name ?? "").trim())
-            .filter(Boolean)
-        )
-      ).sort();
-
-      setBulkToDoManagers(activeNames);
-    } catch {
-      setBulkToDoManagers([]);
-    }
+    setBulkToDoManagers((await loadManagerNames()) ?? []);
   }
 
   async function submitBulkToDos() {
@@ -1633,12 +1609,8 @@ export default function AccountsPage() {
   function openQuickToDoModal(account: Account) {
     // Accounts and the managers list don't always agree on accents (e.g.
     // "Andres" vs "Andrés"), so strip diacritics before comparing.
-    const foldAccents = (value: string) =>
-      value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-    const managerName = foldAccents(normalizeText(account.manager));
-    const matchedManager = bulkToDoManagers.find(
-      (name) => foldAccents(name) === managerName
-    );
+    // "Andres" picks Andrés; with two managers saved ("Greg , Andres"), the first one written.
+    const matchedManager = pickManager(account.manager, bulkToDoManagers) || undefined;
     setQuickToDoAccount(account);
     setQuickToDoForm({
       assignedTo: matchedManager ?? "",

@@ -10,6 +10,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AddButton, BigButton, Counts, EmptyState, ErrorBox, MOTTO, Screen, SelectField, Sheet, SkeletonList, Tabs, showToast } from "@/app/ui";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { managerMatches } from "@/lib/managerNames";
+import { useManagerNames } from "../../components/manager-options";
 import {
   PROOF_LABEL,
   STATUS_LABEL,
@@ -139,9 +141,11 @@ export default function CalendarClient() {
 
   const today = data?.today ?? officeDay();
   // The cleanings on screen belong to the days in the title (not to the view that was open a moment ago).
+  // The Manager filter: the active managers on the Staff list.
+  const managerList = useManagerNames();
   const fresh = data !== null && data.from === range.from;
   const shown = useMemo(
-    () => (fresh ? (data?.cleanings ?? []) : []).filter((cleaning) => (!manager || cleaning.manager === manager) && (!sub || cleaning.sub === sub)),
+    () => (fresh ? (data?.cleanings ?? []) : []).filter((cleaning) => (!manager || managerMatches(cleaning.manager, manager)) && (!sub || cleaning.sub === sub)),
     [data, fresh, manager, sub]
   );
   const counts = countCleanings(shown);
@@ -277,7 +281,7 @@ export default function CalendarClient() {
           <div className={styles.filters}>
             <SelectField label="Manager" value={manager} onChange={(event) => setManager(event.target.value)}>
               <option value="">All managers</option>
-              {(data?.managers ?? []).map((name) => (
+              {managerList.names.map((name) => (
                 <option key={name} value={name}>
                   {name}
                 </option>
