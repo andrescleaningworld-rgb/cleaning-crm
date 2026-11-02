@@ -778,6 +778,14 @@ export default function SubcontractorDetailPage() {
     });
   }, [subcontractorAccounts]);
 
+  // Money and the Active count: only accounts whose status is Active (the
+  // same words the Accounts list treats as Active). Paused and Suspended stay
+  // in the current list but are not money coming in.
+  const activeAccounts = useMemo(
+    () => currentAccounts.filter((account) => ["active", "active account", "current"].includes(normalize(getAccountStatus(account)))),
+    [currentAccounts]
+  );
+
   const pastAccounts = useMemo(() => {
     return subcontractorAccounts.filter((account) => {
       const status = normalize(getAccountStatus(account));
@@ -826,12 +834,12 @@ export default function SubcontractorDetailPage() {
   });
 
   const totals = useMemo(() => {
-    const activeRevenue = currentAccounts.reduce(
+    const activeRevenue = activeAccounts.reduce(
       (sum, account) => sum + getMonthlyRevenue(account),
       0
     );
 
-    const activeSubPay = currentAccounts.reduce(
+    const activeSubPay = activeAccounts.reduce(
       (sum, account) => sum + getMonthlySubPay(account),
       0
     );
@@ -860,7 +868,7 @@ export default function SubcontractorDetailPage() {
       lostSubPay,
       lostMargin: lostRevenue - lostSubPay,
     };
-  }, [currentAccounts, pastAccounts]);
+  }, [activeAccounts, pastAccounts]);
 
   if (loading) {
     return (
@@ -922,7 +930,7 @@ export default function SubcontractorDetailPage() {
         </div>
 
         <div className="sub-detail-print-hide ui-stats">
-          <StatCard label="Active Accounts" value={String(currentAccounts.length)} />
+          <StatCard label="Active Accounts" value={String(activeAccounts.length)} />
           <StatCard label="Past Accounts" value={String(pastAccounts.length)} />
           <StatCard label="Monthly Revenue" value={money(totals.activeRevenue)} />
           <StatCard label="Monthly Sub Pay" value={`${money(totals.activeSubPay)} (${shareOfRevenue(totals.activeSubPay, totals.activeRevenue)})`} />
