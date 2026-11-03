@@ -5,8 +5,9 @@
 // Built like the Equipment Check page: giant rows, very few words, English
 // and Spanish together, no menus, one hand on a cheap phone.
 //   - only tonight's rows, in route order, with the time on each
-//   - tap anywhere on a row to check it; a photo row opens the camera first
-//     and is checked once the photo is taken
+//   - tap anywhere on a row to check it; a photo row asks "Take photo" or
+//     "Choose from gallery" first (several at once from the gallery) and is
+//     checked once a photo is added
 //   - dumpster-style rows: one button per choice, grey → Not full ↔ Full
 //   - "Couldn't do / No se pudo" on each row: Locked / Occupied / No time / Other
 //   - progress bar on top, Finish at the bottom (lit when every row is done
@@ -52,6 +53,9 @@ export const ROUTE_WORDS = {
   tapEach: "Tap each one / Toca cada uno",
   takePhoto: "Take photo / Saca foto",
   another: "Another / Otra",
+  // The two choices under the blue photo button.
+  useCamera: "Take photo / Sacar foto",
+  fromGallery: "Choose from gallery / Elegir de la galería",
   photoFailed: "The photo didn't work. Try again. / La foto no funcionó. Prueba otra vez.",
   notSaved: "It didn't save. Try again. / No se guardó. Prueba otra vez.",
   // Sending what is waiting on the phone (top of the screen, and after Finish).
@@ -92,6 +96,9 @@ type RouteProgress = {
 };
 
 type UrgentRequest = { at: string; what: string; who: string; text: string };
+
+/** Most photos one row keeps (the server keeps 10 per row). */
+const MAX_ROW_PHOTOS = 10;
 
 const EMPTY: RouteProgress = { checked: [], skipped: {}, choices: {}, photos: {}, note: "", startedAt: null };
 
@@ -211,7 +218,10 @@ export default function CrewRoute({
   const [editingName, setEditingName] = useState(false);
   const [urgentOpen, setUrgentOpen] = useState(false);
   const camera = useRef<HTMLInputElement>(null);
+  const gallery = useRef<HTMLInputElement>(null);
   const cameraFor = useRef<ChecklistItemDef | null>(null);
+  // The row whose "Take photo / Choose from gallery" choice is open.
+  const [photoAsk, setPhotoAsk] = useState("");
 
   useEffect(() => {
     if (!preview) dropOldProgress(code, night.dateKey);
@@ -272,20 +282,31 @@ export default function CrewRoute({
     save({ ...progress, checked: progress.checked.filter((key) => key !== item.key), skipped: { ...progress.skipped, [item.key]: reason } });
   }
 
+  /** The blue photo button: asks "Take photo" or "Choose from gallery". */
   function openCamera(item: ChecklistItemDef) {
     if (nameMissing) return setError(ROUTE_WORDS.yourName);
     setError("");
-    cameraFor.current = item;
-    camera.current?.click();
+    setAsking("");
+    setPhotoAsk(photoAsk === item.key ? "" : item.key);
   }
 
-  async function photoTaken(file: File) {
+  function pickPhotos(item: ChecklistItemDef, from: "camera" | "gallery") {
+    navigator.vibrate?.(10);
+    setPhotoAsk("");
+    cameraFor.current = item;
+    (from === "camera" ? camera : gallery).current?.click();
+  }
+
+  async function photoTaken(picked: File[]) {
     const item = cameraFor.current;
     cameraFor.current = null;
     if (!item) return;
+    // The office keeps at most MAX_ROW_PHOTOS on one row (app/api/porter-checklist).
+    const files = picked.slice(0, Math.max(0, MAX_ROW_PHOTOS - (progress.photos[item.key]?.length ?? 0)));
+    if (files.length === 0) return;
     setPhotoBusy(item.key);
     try {
-      const ids = preview ? [`preview-${Date.now()}`] : await queue.add([file], name.trim(), "", item.label);
+      const ids = preview ? files.map((_, index) => `preview-${Date.now()}-${index}`) : await queue.add(files, name.trim(), "", item.label);
       if (ids.length === 0) {
         setError(ROUTE_WORDS.photoFailed);
         return;
@@ -452,7 +473,10 @@ export default function CrewRoute({
       <div className="flex justify-end px-3 pb-3">
         <button
           type="button"
-          onClick={() => setAsking(asking === item.key ? "" : item.key)}
+          onClick={() => {
+            setPhotoAsk("");
+            setAsking(asking === item.key ? "" : item.key);
+          }}
           aria-expanded={asking === item.key}
           className="min-h-[48px] rounded-xl border-2 border-amber-400 bg-white px-3 text-base font-bold text-amber-800 active:bg-amber-50"
         >
@@ -537,14 +561,34 @@ export default function CrewRoute({
             <button
               type="button"
               onClick={() => openCamera(item)}
-              disabled={photoBusy === item.key}
+              aria-expanded={photoAsk === item.key}
+              disabled={photoBusy === item.key || photos.length >= MAX_ROW_PHOTOS}
               className={`flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl text-lg font-black text-white shadow-sm ${photos.length ? "bg-green-600 active:bg-green-700" : "bg-blue-600 active:bg-blue-700"} disabled:opacity-60`}
             >
               <span className="text-2xl" aria-hidden="true">
                 📷
               </span>
-              {photoBusy === item.key ? "…" : photos.length ? `✓ ${photos.length} · ${ROUTE_WORDS.another}` : ROUTE_WORDS.takePhoto}
+              {photoBusy === item.key ? "…" : photos.length >= MAX_ROW_PHOTOS ? `✓ ${photos.length}` : photos.length ? `✓ ${photos.length} · ${ROUTE_WORDS.another}` : ROUTE_WORDS.takePhoto}
             </button>
+            {photoAsk === item.key ? (
+              <div className="mt-2 space-y-2 rounded-2xl bg-blue-50 p-3">
+                <button type="button" onClick={() => pickPhotos(item, "camera")} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-2xl bg-blue-700 px-3 text-xl font-black text-white shadow-sm active:bg-blue-800">
+                  <span className="text-3xl" aria-hidden="true">
+                    📷
+                  </span>
+                  {ROUTE_WORDS.useCamera}
+                </button>
+                <button type="button" onClick={() => pickPhotos(item, "gallery")} className="flex min-h-[72px] w-full items-center justify-center gap-3 rounded-2xl bg-white px-3 text-xl font-black text-blue-900 shadow-sm ring-4 ring-blue-700 active:bg-blue-100">
+                  <span className="text-3xl" aria-hidden="true">
+                    🖼️
+                  </span>
+                  {ROUTE_WORDS.fromGallery}
+                </button>
+                <button type="button" onClick={() => setPhotoAsk("")} className="min-h-[52px] w-full rounded-2xl text-lg font-bold text-slate-600 active:bg-white">
+                  {ROUTE_WORDS.cancel}
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
         {asking === item.key ? reasonPicker(item) : couldntButton(item)}
@@ -561,9 +605,23 @@ export default function CrewRoute({
         capture="environment"
         className="hidden"
         onChange={(event) => {
-          const file = event.target.files?.[0];
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
-          if (file) void photoTaken(file);
+          if (files.length) void photoTaken(files);
+          else cameraFor.current = null;
+        }}
+      />
+      {/* Photos already on the phone (taken earlier): several at once. */}
+      <input
+        ref={gallery}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/") || /\.(heic|heif|jpe?g|png)$/i.test(file.name));
+          event.target.value = "";
+          if (files.length) void photoTaken(files);
           else cameraFor.current = null;
         }}
       />
