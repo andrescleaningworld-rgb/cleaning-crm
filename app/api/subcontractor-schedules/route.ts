@@ -2,6 +2,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { appendSubSchedule, fetchSubSchedules, supersedeActiveSubSchedulesForSub } from "@/lib/data/scheduling";
 import { FREQUENCY_LABELS, validateScheduleEntries } from "@/lib/scheduleRecurrence";
 import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
+import { describeRows } from "@/lib/schedule-plan";
 
 export async function GET() {
   try {
@@ -13,7 +14,18 @@ export async function GET() {
   }
 }
 
-type ScheduleEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
+// The shared schedule form (app/components/schedule-editor.tsx) also sends
+// the day's exact time or its own "between" times. Time on site is not taken
+// from here: subs answer it on their Time on site page (office review rule).
+type ScheduleEntry = {
+  dayOfWeek?: string;
+  timeWindow?: string;
+  monthlyOccurrence?: string;
+  scheduleType?: string;
+  startTime?: string;
+  windowStart?: string;
+  windowEnd?: string;
+};
 
 // One line per entry, e.g. "Monday (Morning)" or "1st Tuesday (Evening)" —
 // AS_NEEDED has no entries, so it isn't described here.
@@ -75,20 +87,25 @@ export async function POST(request: NextRequest) {
     // submission case).
     const superseded = await supersedeActiveSubSchedulesForSub(accountId, subId, submittedBy);
 
-    // The portal form has no exact times. A day the sub sends back unchanged
-    // (same day, same window) keeps the exact time the office set on it.
-    const keptAppointment = (entry: ScheduleEntry) =>
+    // The same day (or monthly visit) as before.
+    const sameDayBefore = (entry: ScheduleEntry) =>
       superseded.find(
-        (row) =>
-          row.scheduleType === "appointment" &&
-          row.timeWindow === (entry.timeWindow?.trim() ?? "") &&
-          row.dayOfWeek === (entry.dayOfWeek?.trim() ?? "") &&
-          row.monthlyOccurrence === (entry.monthlyOccurrence?.trim() ?? "")
+        (row) => row.dayOfWeek === (entry.dayOfWeek?.trim() ?? "") && row.monthlyOccurrence === (entry.monthlyOccurrence?.trim() ?? "")
       );
+    // An older portal page sends no times: a day sent back unchanged (same
+    // day, same window) keeps the exact time the office set on it.
+    const keptAppointment = (entry: ScheduleEntry) => {
+      const before = sameDayBefore(entry);
+      return before?.scheduleType === "appointment" && before.timeWindow === (entry.timeWindow?.trim() ?? "") ? before : undefined;
+    };
+
+    // No end date unless one is sent; a replaced schedule keeps its end date.
+    const carriedEnd = superseded[0]?.effectiveEnd ?? "";
+    const end = effectiveEnd || (frequency !== "AS_NEEDED" && carriedEnd && carriedEnd >= effectiveStart ? carriedEnd : "");
 
     const scheduleIds: string[] = [];
     for (const entry of rowsToCreate) {
-      const kept = keptAppointment(entry);
+      const kept = entry.scheduleType ? undefined : keptAppointment(entry);
       const id = await appendSubSchedule({
         accountId,
         subId,
@@ -96,17 +113,34 @@ export async function POST(request: NextRequest) {
         timeWindow: entry.timeWindow?.trim() ?? "",
         recurring,
         effectiveStart,
-        effectiveEnd,
+        effectiveEnd: end,
         status: "Active",
         submittedBy,
         submittedVia: "Sub Portal",
         frequency,
         monthlyOccurrence: entry.monthlyOccurrence?.trim() ?? "",
-        scheduleType: kept?.scheduleType,
-        startTime: kept?.startTime,
+        scheduleType: entry.scheduleType ?? kept?.scheduleType,
+        startTime: entry.startTime?.trim() || kept?.startTime,
+        windowStart: entry.windowStart?.trim(),
+        windowEnd: entry.windowEnd?.trim(),
+        // The office's time on site for this day stays; subs do not set it here.
+        minutesOnSite: sameDayBefore(entry)?.minutesOnSite ?? null,
       });
       scheduleIds.push(id);
     }
+
+    const summary = describeRows(
+      rowsToCreate.map((entry) => ({
+        frequency,
+        dayOfWeek: entry.dayOfWeek ?? "",
+        monthlyOccurrence: entry.monthlyOccurrence ?? "",
+        timeWindow: entry.timeWindow ?? "",
+        scheduleType: entry.scheduleType,
+        startTime: entry.startTime,
+        windowStart: entry.windowStart,
+        windowEnd: entry.windowEnd,
+      }))
+    );
 
     // Best-effort — runs after the response is already sent, so a slow/failed
     // send never delays or fails the schedule save. Same pattern as the
@@ -123,7 +157,7 @@ export async function POST(request: NextRequest) {
           [
             `Account: ${accountName || accountId}`,
             `Frequency: ${FREQUENCY_LABELS[frequency] || frequency}`,
-            frequency === "AS_NEEDED" ? null : `Schedule: ${describeEntries(frequency, rowsToCreate)}`,
+            frequency === "AS_NEEDED" ? null : `Schedule: ${summary}`,
             `Effective Start: ${effectiveStart || "-"}`,
           ].filter((line): line is string => line !== null)
         );
@@ -151,7 +185,7 @@ export async function POST(request: NextRequest) {
               `Previous: ${FREQUENCY_LABELS[oldFrequency] || oldFrequency} — ${describeEntries(oldFrequency, supersededAdminRows)}`,
               frequency === "AS_NEEDED"
                 ? `New: ${FREQUENCY_LABELS[frequency] || frequency}`
-                : `New: ${FREQUENCY_LABELS[frequency] || frequency} — ${describeEntries(frequency, rowsToCreate)}`,
+                : `New: ${summary}`,
             ]
           );
         } catch (error) {

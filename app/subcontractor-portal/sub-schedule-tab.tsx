@@ -1,6 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+// Sub portal → My Schedule: the sub sets the schedule for each of their
+// accounts with the same schedule form the office uses
+// (app/components/schedule-editor.tsx), without "Time on site": subs answer
+// that on their own Time on site page, where the office's review rule
+// applies. Saved through POST /api/subcontractor-schedules.
+//
+// Same rules as before: a sub sets a schedule when there is none, and may
+// update one the office set up (the office is emailed); their own submitted
+// schedule is changed by the office.
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BigButton } from "@/app/ui";
+import ScheduleEditor from "@/app/components/schedule-editor";
+import { pickGroup } from "@/app/components/account-schedule";
+import { describeRows, emptyPlan, groupScheduleRows, planProblems, planToEntries, rowsToPlan, type ScheduleGroup, type SchedulePlan } from "@/lib/schedule-plan";
+import { isScheduleEffectivelyActive } from "@/lib/scheduleRecurrence";
 
 type ScheduleAccount = {
   id?: string;
@@ -32,6 +47,7 @@ type SubScheduleRecord = {
   recurring: string;
   effectiveStart: string;
   effectiveEnd: string;
+  storedEffectiveEnd?: string;
   status: string;
   submittedBy: string;
   submittedDate: string;
@@ -40,54 +56,17 @@ type SubScheduleRecord = {
   frequency: string;
   monthlyOccurrence: string;
   submittedVia: string;
+  scheduleType?: string;
+  startTime?: string;
+  windowStart?: string;
+  windowEnd?: string;
+  minutesOnSite?: number | null;
 };
-
-type Occurrence = { position: string; weekday: string; timeWindow: string };
-
-const EMPTY_OCCURRENCE: Occurrence = { position: "", weekday: "", timeWindow: "" };
-
-const POSITIONS = ["1st", "2nd", "3rd", "4th", "Last"];
-
-const FREQUENCIES: { id: string; label: string }[] = [
-  { id: "WEEKLY", label: "Weekly" },
-  { id: "BIWEEKLY", label: "Every Other Week" },
-  { id: "MONTHLY_1X", label: "1x per Month" },
-  { id: "MONTHLY_2X", label: "2x per Month" },
-  { id: "AS_NEEDED", label: "As Needed" },
-];
-
-function describeScheduleRecord(record: SubScheduleRecord): string {
-  switch (record.frequency) {
-    case "WEEKLY":
-      return `${record.dayOfWeek} — ${record.timeWindow} (weekly)`;
-    case "BIWEEKLY":
-      return `${record.dayOfWeek} — ${record.timeWindow} (every other week)`;
-    case "MONTHLY_1X":
-      return `${record.monthlyOccurrence.replace(":", " ")} — ${record.timeWindow} (1x per month)`;
-    case "MONTHLY_2X":
-      return `${record.monthlyOccurrence.replace(":", " ")} — ${record.timeWindow} (2x per month)`;
-    case "AS_NEEDED":
-      return "As needed — visits added manually";
-    default:
-      // Pre-migration rows without a Frequency value shouldn't exist after
-      // the SubSchedules backfill, but keep them readable just in case.
-      return `${record.dayOfWeek} — ${record.timeWindow}${record.recurring === "Y" ? " (every week)" : " (one-time)"}`;
-  }
-}
 
 type Props = {
   accounts: ScheduleAccount[];
   subcontractor: ScheduleSubcontractor | null;
 };
-
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-const TIME_WINDOWS = [
-  { id: "Morning", label: "Morning", hours: "7am – 10am" },
-  { id: "Midday", label: "Midday", hours: "10am – 1pm" },
-  { id: "Afternoon", label: "Afternoon", hours: "1pm – 5pm" },
-  { id: "Evening", label: "Evening", hours: "5pm+" },
-] as const;
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
@@ -110,9 +89,7 @@ function getFullAddress(account: ScheduleAccount): string {
 
 function getSubDisplayName(sub: ScheduleSubcontractor | null): string {
   if (!sub) return "";
-  return cleanText(
-    sub.name || sub.subcontractorName || sub.companyName || sub.contactName || sub.email
-  );
+  return cleanText(sub.name || sub.subcontractorName || sub.companyName || sub.contactName || sub.email);
 }
 
 function getSubId(sub: ScheduleSubcontractor | null): string {
@@ -120,12 +97,8 @@ function getSubId(sub: ScheduleSubcontractor | null): string {
   return cleanText(sub.email || sub.id || sub.subcontractorId);
 }
 
-// This runs in the browser, but Date#toISOString() always returns the UTC
-// calendar date — in the evening (US Eastern), UTC has already rolled to the
-// next day, which would save effectiveStart as tomorrow and hide the
-// schedule from the calendar's "todayISO >= effectiveStart" gate check.
-// Matches the same Intl.DateTimeFormat approach used server-side in
-// app/api/portal/schedule-visit/route.ts's getEasternToday().
+// The office's day (US Eastern), not the browser's UTC date: in the evening
+// UTC is already tomorrow, which would start the schedule a day late.
 function todayISO(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -135,329 +108,73 @@ function todayISO(): string {
   }).format(new Date());
 }
 
-function yearEndISO(): string {
-  // Derived from the same Eastern-time reference as todayISO() (rather than
-  // new Date().getFullYear(), which reads the browser's local system
-  // timezone) so the two can never disagree at a year boundary.
-  const year = todayISO().slice(0, 4);
-  return `${year}-12-31`;
-}
-
-function OccurrencePicker({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: Occurrence;
-  onChange: (next: Occurrence) => void;
-}) {
-  return (
-    <div className="ui-card">
-      <p className="ui-strong">{label}</p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <select
-          value={value.position}
-          onChange={(e) => onChange({ ...value, position: e.target.value })}
-          className="ui-input"
-        >
-          <option value="">Which week...</option>
-          {POSITIONS.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <select
-          value={value.weekday}
-          onChange={(e) => onChange({ ...value, weekday: e.target.value })}
-          className="ui-input"
-        >
-          <option value="">Weekday...</option>
-          {DAYS.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {TIME_WINDOWS.map((w) => (
-          <button
-            key={w.id}
-            type="button"
-            onClick={() => onChange({ ...value, timeWindow: w.id })}
-            className={`rounded-2xl border px-3 py-2 text-left transition ${
-              value.timeWindow === w.id
-                ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
-                : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
-            }`}
-          >
-            <p className="ui-strong">{w.label}</p>
-            <p className="ui-muted">{w.hours}</p>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function AccountScheduleForm({
   account,
   subId,
   submittedBy,
+  current,
   onSaved,
 }: {
   account: ScheduleAccount;
   subId: string;
   submittedBy: string;
-  onSaved: (accountId: string, records: SubScheduleRecord[]) => void;
+  /** The schedule being updated (one the office set up), or null for a new one. */
+  current: ScheduleGroup<SubScheduleRecord> | null;
+  onSaved: () => void;
 }) {
-  const [frequency, setFrequency] = useState("");
-  const [selectedDays, setSelectedDays] = useState<string[]>([]);
-  const [dayWindows, setDayWindows] = useState<Record<string, string>>({});
-  const [occurrence1, setOccurrence1] = useState<Occurrence>(EMPTY_OCCURRENCE);
-  const [occurrence2, setOccurrence2] = useState<Occurrence>(EMPTY_OCCURRENCE);
+  const [plan, setPlan] = useState<SchedulePlan>(() => (current ? rowsToPlan(current.rows) : emptyPlan()));
+  const [tried, setTried] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  function handleFrequencyChange(next: string) {
-    setFrequency(next);
-    setSelectedDays([]);
-    setDayWindows({});
-    setOccurrence1(EMPTY_OCCURRENCE);
-    setOccurrence2(EMPTY_OCCURRENCE);
-    setError("");
-  }
-
-  function toggleDay(day: string) {
-    setSelectedDays((prev) => {
-      if (prev.includes(day)) {
-        setDayWindows((w) => {
-          const next = { ...w };
-          delete next[day];
-          return next;
-        });
-        return prev.filter((d) => d !== day);
-      }
-      return [...prev, day];
-    });
-  }
-
-  function setWindowForDay(day: string, windowId: string) {
-    setDayWindows((prev) => ({ ...prev, [day]: windowId }));
-  }
-
-  const allDaysHaveWindows =
-    selectedDays.length > 0 && selectedDays.every((day) => Boolean(dayWindows[day]));
-  const occurrence1Complete = Boolean(occurrence1.position && occurrence1.weekday && occurrence1.timeWindow);
-  const occurrence2Complete = Boolean(occurrence2.position && occurrence2.weekday && occurrence2.timeWindow);
-
-  function computeCanSubmit(): boolean {
-    if (submitting) return false;
-    if (frequency === "WEEKLY" || frequency === "BIWEEKLY") return allDaysHaveWindows;
-    if (frequency === "MONTHLY_1X") return occurrence1Complete;
-    if (frequency === "MONTHLY_2X") return occurrence1Complete && occurrence2Complete;
-    if (frequency === "AS_NEEDED") return true;
-    return false;
-  }
-  const canSubmit = computeCanSubmit();
-
   async function handleSubmit() {
-    if (!canSubmit) return;
-    setSubmitting(true);
+    setTried(true);
     setError("");
-
-    const accountId = getAccountId(account);
-    const recurring = frequency === "AS_NEEDED" ? "N" : "Y";
-    const effectiveStart = frequency === "AS_NEEDED" ? "" : todayISO();
-    const effectiveEnd = frequency === "AS_NEEDED" ? "" : yearEndISO();
-
-    type SubmitEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string };
-    let entries: SubmitEntry[];
-    if (frequency === "WEEKLY" || frequency === "BIWEEKLY") {
-      entries = selectedDays.map((day) => ({ dayOfWeek: day, timeWindow: dayWindows[day] }));
-    } else if (frequency === "MONTHLY_1X") {
-      entries = [{ monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, timeWindow: occurrence1.timeWindow }];
-    } else if (frequency === "MONTHLY_2X") {
-      entries = [
-        { monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, timeWindow: occurrence1.timeWindow },
-        { monthlyOccurrence: `${occurrence2.position}:${occurrence2.weekday}`, timeWindow: occurrence2.timeWindow },
-      ];
-    } else {
-      entries = [];
-    }
-
+    if (planProblems(plan).length > 0) return;
+    setSubmitting(true);
+    const asNeeded = plan.frequency === "AS_NEEDED";
     try {
       const res = await fetch("/api/subcontractor-schedules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          accountId,
+          accountId: getAccountId(account),
           accountName: getAccountName(account),
           subId,
           submittedBy,
-          frequency,
-          effectiveStart,
-          effectiveEnd,
-          entries,
+          frequency: plan.frequency,
+          effectiveStart: asNeeded ? "" : todayISO(),
+          // No end date: the schedule runs until it is changed.
+          effectiveEnd: "",
+          entries: planToEntries(plan),
         }),
       });
-      const data = (await res.json()) as { success?: boolean; scheduleIds?: string[]; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!res.ok || !data.success) {
-        setError(data.error ?? "Failed to save schedule. Please try again.");
+        setError(data.error ?? "The schedule was not saved. Please try again.");
         return;
       }
-
-      const now = new Date().toISOString();
-      const baseRecord = {
-        accountId,
-        subId,
-        recurring,
-        effectiveStart,
-        effectiveEnd,
-        status: "Active",
-        submittedBy,
-        submittedDate: now,
-        lastEditedBy: "",
-        lastEditedDate: "",
-        frequency,
-        submittedVia: "Sub Portal",
-      };
-      const records: SubScheduleRecord[] =
-        frequency === "AS_NEEDED"
-          ? [
-              {
-                ...baseRecord,
-                sheetRow: -1,
-                scheduleId: data.scheduleIds?.[0] ?? "",
-                dayOfWeek: "",
-                timeWindow: "",
-                monthlyOccurrence: "",
-              },
-            ]
-          : entries.map((entry, i) => ({
-              ...baseRecord,
-              sheetRow: -1,
-              scheduleId: data.scheduleIds?.[i] ?? "",
-              dayOfWeek: entry.dayOfWeek ?? "",
-              timeWindow: entry.timeWindow ?? "",
-              monthlyOccurrence: entry.monthlyOccurrence ?? "",
-            }));
-      onSaved(accountId, records);
+      onSaved();
     } catch {
-      setError("Network error. Please try again.");
+      setError("No connection. Please try again.");
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div className="ui-stat">
-      <div>
-        <p className="ui-strong">How often do you service this account?</p>
-        <select
-          value={frequency}
-          onChange={(e) => handleFrequencyChange(e.target.value)}
-          className="ui-input w-full"
-        >
-          <option value="">Select a frequency...</option>
-          {FREQUENCIES.map((f) => (
-            <option key={f.id} value={f.id}>{f.label}</option>
-          ))}
-        </select>
-      </div>
-
-      {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
-        <>
-          <div className="mt-4">
-            <p className="ui-strong">
-              Which day(s) do you service this account?
-            </p>
-            <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-7">
-              {DAYS.map((day) => (
-                <button
-                  key={day}
-                  type="button"
-                  onClick={() => toggleDay(day)}
-                  className={`rounded-2xl border px-2 py-3 text-center text-base font-black transition ${
-                    selectedDays.includes(day)
-                      ? "border-indigo-500 bg-indigo-600 text-white ring-2 ring-indigo-200"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-100"
-                  }`}
-                >
-                  {day.slice(0, 3)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {selectedDays.length > 0 && (
-            <div className="mt-4 space-y-3">
-              {selectedDays.map((day) => (
-                <div key={day}>
-                  <p className="ui-strong">Time window for {day}</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    {TIME_WINDOWS.map((w) => (
-                      <button
-                        key={w.id}
-                        type="button"
-                        onClick={() => setWindowForDay(day, w.id)}
-                        className={`rounded-2xl border px-3 py-2 text-left transition ${
-                          dayWindows[day] === w.id
-                            ? "border-indigo-500 bg-white ring-2 ring-indigo-200"
-                            : "border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-100"
-                        }`}
-                      >
-                        <p className="ui-strong">{w.label}</p>
-                        <p className="ui-muted">{w.hours}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {frequency === "MONTHLY_1X" && (
-        <div className="mt-4">
-          <OccurrencePicker label="Which week and day?" value={occurrence1} onChange={setOccurrence1} />
-        </div>
-      )}
-
-      {frequency === "MONTHLY_2X" && (
-        <div className="mt-4 space-y-3">
-          <OccurrencePicker label="First visit" value={occurrence1} onChange={setOccurrence1} />
-          <OccurrencePicker label="Second visit" value={occurrence2} onChange={setOccurrence2} />
-        </div>
-      )}
-
-      {frequency === "AS_NEEDED" && (
-        <div className="ui-card">
-          No recurring days needed — the office will add visits for this account one at a time as they come up.
-        </div>
-      )}
-
-      {error ? (
-        <div className="ui-field-error">
-          {error}
-        </div>
-      ) : null}
-
-      {frequency ? (
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          className="ui-btn ui-btn-second w-full"
-        >
-          {submitting ? "Saving..." : "Submit Schedule"}
-        </button>
-      ) : null}
+    <div className="ui-stat" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <ScheduleEditor value={plan} onChange={setPlan} showProblems={tried} disabled={submitting} showTimeOnSite={false} />
+      {error ? <p className="ui-field-error">{error}</p> : null}
+      <BigButton busy={submitting} busyLabel="Saving…" onClick={() => void handleSubmit()}>
+        Save schedule
+      </BigButton>
     </div>
   );
 }
 
 export default function SubScheduleTab({ accounts, subcontractor }: Props) {
-  const [schedulesByAccount, setSchedulesByAccount] = useState<Record<string, SubScheduleRecord[]>>({});
+  const [schedulesByAccount, setSchedulesByAccount] = useState<Record<string, ScheduleGroup<SubScheduleRecord> | null>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [expandedAccountId, setExpandedAccountId] = useState("");
@@ -465,93 +182,77 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
   const subId = getSubId(subcontractor);
   const submittedBy = getSubDisplayName(subcontractor) || subId;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      setLoading(true);
-      setLoadError("");
-      try {
-        const res = await fetch("/api/subcontractor-schedules");
-        const data = (await res.json()) as { schedules?: SubScheduleRecord[]; error?: string };
-        if (!res.ok) {
-          if (!cancelled) setLoadError(data.error ?? "Failed to load schedules.");
-          return;
-        }
-        const grouped: Record<string, SubScheduleRecord[]> = {};
-        for (const record of data.schedules ?? []) {
-          const key = record.accountId.trim();
-          if (!key) continue;
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(record);
-        }
-        if (!cancelled) setSchedulesByAccount(grouped);
-      } catch {
-        if (!cancelled) setLoadError("Network error loading schedules.");
-      } finally {
-        if (!cancelled) setLoading(false);
+  const load = useCallback(async () => {
+    setLoadError("");
+    try {
+      const res = await fetch("/api/subcontractor-schedules", { cache: "no-store" });
+      const data = (await res.json()) as { schedules?: SubScheduleRecord[]; error?: string };
+      if (!res.ok) {
+        setLoadError(data.error ?? "Your schedules did not load.");
+        return;
       }
+      // Only schedules still running count; for each account, the one for this sub.
+      const today = todayISO();
+      const byAccount: Record<string, SubScheduleRecord[]> = {};
+      for (const record of data.schedules ?? []) {
+        const key = record.accountId.trim();
+        if (!key || !isScheduleEffectivelyActive(record, today)) continue;
+        (byAccount[key] ??= []).push(record);
+      }
+      const picked: Record<string, ScheduleGroup<SubScheduleRecord> | null> = {};
+      for (const [key, rows] of Object.entries(byAccount)) picked[key] = pickGroup(groupScheduleRows(rows), subId);
+      setSchedulesByAccount(picked);
+    } catch {
+      setLoadError("No connection. Your schedules did not load.");
+    } finally {
+      setLoading(false);
     }
+  }, [subId]);
 
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const sortedAccounts = useMemo(() => {
     return [...accounts].sort((a, b) => getAccountName(a).localeCompare(getAccountName(b)));
   }, [accounts]);
 
-  function handleSaved(accountId: string, records: SubScheduleRecord[]) {
-    setSchedulesByAccount((prev) => ({ ...prev, [accountId]: records }));
+  function handleSaved() {
     setExpandedAccountId("");
+    void load();
   }
 
   return (
     <section className="ui-card">
       <h2 className="ui-card-title">My Schedule</h2>
       <p className="ui-muted">
-        Set up the recurring service schedule for each account you&apos;re assigned to. Once
-        submitted, contact the office if anything needs to change.
+        Set up the schedule for each account you clean. Once it is saved, call the office if anything needs to change.
       </p>
 
-      {loading ? (
-        <p className="ui-muted">Loading your schedules...</p>
-      ) : null}
+      {loading ? <p className="ui-muted">Loading your schedules...</p> : null}
 
-      {loadError ? (
-        <div className="ui-field-error">
-          {loadError}
-        </div>
-      ) : null}
+      {loadError ? <div className="ui-field-error">{loadError}</div> : null}
 
-      {!loading && !loadError && sortedAccounts.length === 0 ? (
-        <p className="ui-muted">No assigned accounts found.</p>
-      ) : null}
+      {!loading && !loadError && sortedAccounts.length === 0 ? <p className="ui-muted">No assigned accounts found.</p> : null}
 
       <div className="mt-4 space-y-3">
         {sortedAccounts.map((account) => {
           const accountId = getAccountId(account);
-          const existing = schedulesByAccount[accountId];
-          const hasSchedule = Boolean(existing && existing.length > 0);
-          // An admin-created schedule isn't locked the way a sub's own
-          // submission is — the sub can open the same form below to update
-          // it (staff get notified server-side when they do; see
-          // POST /api/subcontractor-schedules). All rows from one
-          // submission share the same origin, so checking the first is
-          // enough.
-          const isAdminCreated = hasSchedule && existing![0]?.submittedVia === "Admin";
-          const isEditingExisting = expandedAccountId === accountId && isAdminCreated;
+          const existing = schedulesByAccount[accountId] ?? null;
+          const hasSchedule = Boolean(existing && existing.rows.length > 0);
+          // A schedule the office set up can be updated here (the office is
+          // emailed, see POST /api/subcontractor-schedules); the sub's own
+          // submission is changed by the office. All days of one schedule
+          // share the same origin, so the first one tells.
+          const isAdminCreated = hasSchedule && existing!.rows[0]?.submittedVia === "Admin";
+          const isOpen = expandedAccountId === accountId;
 
           return (
             <div key={accountId || getAccountName(account)} className="ui-stat">
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="ui-strong">{getAccountName(account)}</p>
-                  {getFullAddress(account) ? (
-                    <p className="ui-muted">{getFullAddress(account)}</p>
-                  ) : null}
+                  {getFullAddress(account) ? <p className="ui-muted">{getFullAddress(account)}</p> : null}
                 </div>
 
                 {!hasSchedule ? (
@@ -560,7 +261,7 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                   </span>
                 ) : isAdminCreated ? (
                   <span className="inline-flex w-fit items-center rounded-full bg-blue-100 px-3 py-1 text-base font-black uppercase text-blue-800">
-                    Set up by admin
+                    Set up by office
                   </span>
                 ) : (
                   <span className="inline-flex w-fit items-center rounded-full bg-green-100 px-3 py-1 text-base font-black uppercase text-green-800">
@@ -569,57 +270,37 @@ export default function SubScheduleTab({ accounts, subcontractor }: Props) {
                 )}
               </div>
 
-              {hasSchedule && !isEditingExisting ? (
+              {hasSchedule && !isOpen ? (
                 <div className="ui-stat">
-                  <p className="ui-muted">
-                    {isAdminCreated ? "Set up by your admin" : "Submitted — contact admin for changes"}
-                  </p>
-                  <div className="mt-2 space-y-1">
-                    {existing!.map((record, i) => (
-                      <p key={i} className="ui-muted">
-                        {describeScheduleRecord(record)}
-                      </p>
-                    ))}
-                  </div>
+                  <p className="ui-sched-line">{describeRows(existing!.rows)}</p>
+                  <p className="ui-muted">{isAdminCreated ? "Set up by the office." : "Submitted. Call the office for changes."}</p>
                   {isAdminCreated ? (
-                    <button
-                      type="button"
-                      onClick={() => setExpandedAccountId(accountId)}
-                      className="ui-btn ui-btn-second w-full"
-                    >
-                      Update Schedule
-                    </button>
+                    <BigButton kind="second" onClick={() => setExpandedAccountId(accountId)}>
+                      Update schedule
+                    </BigButton>
                   ) : null}
                 </div>
-              ) : !hasSchedule && expandedAccountId === accountId ? (
-                <AccountScheduleForm
-                  account={account}
-                  subId={subId}
-                  submittedBy={submittedBy}
-                  onSaved={handleSaved}
-                />
-              ) : isEditingExisting ? (
+              ) : isOpen ? (
                 <>
-                  <p className="ui-strong">
-                    Set up by your admin — update below if this isn&apos;t accurate. The office will be notified
-                    when you make a change.
-                  </p>
+                  {isAdminCreated ? (
+                    <p className="ui-strong">Set up by the office. Change it below if it is not right. The office will be told.</p>
+                  ) : null}
                   <AccountScheduleForm
                     account={account}
                     subId={subId}
                     submittedBy={submittedBy}
+                    current={isAdminCreated ? existing : null}
                     onSaved={handleSaved}
                   />
+                  <BigButton kind="quiet" onClick={() => setExpandedAccountId("")}>
+                    Cancel
+                  </BigButton>
                 </>
-              ) : !hasSchedule ? (
-                <button
-                  type="button"
-                  onClick={() => setExpandedAccountId(accountId)}
-                  className="ui-btn ui-btn-second w-full"
-                >
-                  Set Your Schedule
-                </button>
-              ) : null}
+              ) : (
+                <BigButton kind="second" onClick={() => setExpandedAccountId(accountId)}>
+                  Set your schedule
+                </BigButton>
+              )}
             </div>
           );
         })}

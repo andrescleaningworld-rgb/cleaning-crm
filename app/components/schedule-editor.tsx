@@ -60,12 +60,14 @@ type Props = {
   disabled?: boolean;
   /** Show "Pick at least one day" etc. even before anything is picked (after a save was tried). */
   showProblems?: boolean;
+  /** False hides "Time on site" (the sub portal: subs answer it on their own Time on site page). Values already there are kept. */
+  showTimeOnSite?: boolean;
 };
 
-export default function ScheduleEditor({ value: plan, onChange, disabled = false, showProblems = false }: Props) {
+export default function ScheduleEditor({ value: plan, onChange, disabled = false, showProblems = false, showTimeOnSite = true }: Props) {
   const slots = planSlots(plan);
   const problems = planProblems(plan);
-  const notes = planNotes(plan);
+  const notes = showTimeOnSite ? planNotes(plan) : [];
   const started = !planIsEmpty(plan);
 
   function setDays(days: string[]) {
@@ -189,9 +191,9 @@ export default function ScheduleEditor({ value: plan, onChange, disabled = false
 
       {plan.frequency !== "AS_NEEDED" ? (
         plan.sameTime || slots.length <= 1 ? (
-          <TimeBlock title={slots.length > 1 ? "Time for every day" : "Time"} time={timeFor(plan, slots[0]?.key ?? "")} onChange={(time) => setTime(slots[0]?.key ?? "", time)} />
+          <TimeBlock title={slots.length > 1 ? "Time for every day" : "Time"} time={timeFor(plan, slots[0]?.key ?? "")} onChange={(time) => setTime(slots[0]?.key ?? "", time)} showTimeOnSite={showTimeOnSite} />
         ) : (
-          slots.map((slot) => <TimeBlock key={slot.key} title={slot.label} time={timeFor(plan, slot.key)} onChange={(time) => setTime(slot.key, time)} />)
+          slots.map((slot) => <TimeBlock key={slot.key} title={slot.label} time={timeFor(plan, slot.key)} onChange={(time) => setTime(slot.key, time)} showTimeOnSite={showTimeOnSite} />)
         )
       ) : null}
 
@@ -231,7 +233,7 @@ function DayChips({ label, selected, onToggle }: { label: string; selected: stri
 }
 
 // One day's time: "Anytime between…" or "At exactly…", then the time on site.
-function TimeBlock({ title, time, onChange }: { title: string; time: DayTime; onChange: (time: DayTime) => void }) {
+function TimeBlock({ title, time, onChange, showTimeOnSite }: { title: string; time: DayTime; onChange: (time: DayTime) => void; showTimeOnSite: boolean }) {
   function setKind(kind: DayTime["kind"]) {
     if (kind === time.kind) return;
     // Going back to "between": keep the end when it still fits, else 4 hours later.
@@ -262,7 +264,7 @@ function TimeBlock({ title, time, onChange }: { title: string; time: DayTime; on
         )}
       </div>
 
-      <TimeOnSite minutes={time.minutes} onChange={(minutes) => onChange({ ...time, minutes })} />
+      {showTimeOnSite ? <TimeOnSite minutes={time.minutes} onChange={(minutes) => onChange({ ...time, minutes })} /> : null}
     </div>
   );
 }
