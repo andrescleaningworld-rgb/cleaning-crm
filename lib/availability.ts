@@ -22,7 +22,7 @@
 // on the accounts are used.
 
 import { generateScheduleDates, isScheduleEffectivelyActive, parseISO, toISO } from "@/lib/scheduleRecurrence";
-import { formatClock, parseClock, windowHours } from "@/lib/schedule-time";
+import { formatClock, parseClock, scheduleWindowHours } from "@/lib/schedule-time";
 
 export const SPARE_MINUTES = 30;
 export const WEEKS_CHECKED = 4;
@@ -45,6 +45,10 @@ export type AvailabilitySchedule = {
   timeWindow: string;
   scheduleType: string;
   startTime: string;
+  /** The day's own "between" times (migration 068); "" = use the named window. */
+  windowStart?: string;
+  windowEnd?: string;
+  /** The day's own time on site, else the account's. */
   minutesOnSite: number;
   /** The time on site is still the 1h 30m estimate. */
   estimated: boolean;
@@ -139,7 +143,7 @@ function jobFor(schedule: AvailabilitySchedule, eveningEnds: number): Job | null
   if (schedule.scheduleType === "appointment" && start !== null) {
     return { key: schedule.accountId, earliest: start, latest: start, duration, point: schedule.point, cleaning: { ...cleaning, exact: true } };
   }
-  const hours = windowHours(schedule.timeWindow, eveningEnds);
+  const hours = scheduleWindowHours(schedule, eveningEnds);
   if (!hours) return null;
   return { key: schedule.accountId, earliest: hours.start, latest: Math.max(hours.start, hours.end - duration), duration, point: schedule.point, cleaning };
 }

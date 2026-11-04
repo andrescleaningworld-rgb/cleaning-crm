@@ -18,6 +18,7 @@ import { cancelledLastDays } from "@/lib/pg/accounts";
 import type { ScheduleException, SubcontractorVisitWithRow, SubSchedule } from "@/lib/googleSheets";
 import { dateOrNull, timestampOrNull } from "@/lib/dateUtils";
 import { parseClock, toClock, toScheduleType } from "@/lib/schedule-time";
+import { clampMinutesOnSite } from "@/lib/time-on-site";
 
 // The next row number for a table: after the last row, never before row 2
 // (row 1 is the header in Sheets).
@@ -164,6 +165,15 @@ type ScheduleRow = {
   // Migration 042; missing before it is applied.
   schedule_type?: string;
   start_time?: string | null;
+  // Migration 068; missing before it is applied.
+  window_start?: string | null;
+  window_end?: string | null;
+  minutes_on_site?: number | null;
+};
+
+const clockOrEmpty = (value: string | null | undefined) => {
+  const minutes = parseClock(value);
+  return minutes === null ? "" : toClock(minutes);
 };
 
 // The last day a cancelled account has cleanings: its final cleaning date,
@@ -227,6 +237,9 @@ function toSubSchedule(r: ScheduleRow): SubSchedule {
     submittedVia: r.submitted_via.trim() || "Sub Portal",
     scheduleType: toScheduleType(r.schedule_type),
     startTime: r.start_time ? toClock(parseClock(r.start_time) ?? 0) : "",
+    windowStart: clockOrEmpty(r.window_start),
+    windowEnd: clockOrEmpty(r.window_end),
+    minutesOnSite: typeof r.minutes_on_site === "number" ? r.minutes_on_site : null,
   };
 }
 
@@ -245,6 +258,9 @@ export async function appendSubSchedule(data: {
   monthlyOccurrence?: string;
   scheduleType?: string;
   startTime?: string;
+  windowStart?: string;
+  windowEnd?: string;
+  minutesOnSite?: number | null;
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const rand = Math.random().toString(36).slice(2, 6);
@@ -284,7 +300,31 @@ export async function appendSubSchedule(data: {
     ]
   );
   await saveAppointment(scheduleId, data.scheduleType, data.startTime);
+  await saveDayTimes(scheduleId, data);
   return scheduleId;
+}
+
+// The day's own "between" times and time on site (migration 068), on the row
+// just added. Its own step, so a database without 068 still saves the
+// schedule (named window only).
+async function saveDayTimes(
+  scheduleId: string,
+  data: { scheduleType?: string; windowStart?: string; windowEnd?: string; minutesOnSite?: number | null }
+): Promise<void> {
+  const from = parseClock(data.windowStart);
+  const to = parseClock(data.windowEnd);
+  const between = toScheduleType(data.scheduleType) === "window" && from !== null && to !== null && to > from;
+  const minutes = typeof data.minutesOnSite === "number" && Number.isFinite(data.minutesOnSite) ? clampMinutesOnSite(data.minutesOnSite) : null;
+  if (!between && minutes === null) return;
+  const sql = getSql();
+  try {
+    await sql.query(
+      `UPDATE sub_schedules SET window_start = $2::time, window_end = $3::time, minutes_on_site = $4 WHERE schedule_id = $1`,
+      [scheduleId, between ? toClock(from ?? 0) : null, between ? toClock(to ?? 0) : null, minutes]
+    );
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42703") throw error;
+  }
 }
 
 // An appointment's exact start time, on the row just added. Its own step, so
@@ -396,6 +436,10 @@ export async function applySchedulePatternChange(
     // Not sent: the new row keeps the old one's appointment time.
     scheduleType: newPattern.scheduleType ?? current.scheduleType,
     startTime: newPattern.startTime ?? current.startTime,
+    // The day's own times and time on site stay while its window does.
+    windowStart: newPattern.timeWindow === current.timeWindow ? current.windowStart : "",
+    windowEnd: newPattern.timeWindow === current.timeWindow ? current.windowEnd : "",
+    minutesOnSite: current.minutesOnSite ?? null,
   });
 
   return { scheduleId: newScheduleId, accountId: current.accountId, subId: current.subId };

@@ -189,7 +189,17 @@ export function generateScheduleDates(row: RecurrenceInput, rangeStart: Date, ra
 
 // scheduleType "appointment" comes with an exact startTime ("19:00"); the
 // timeWindow is then the window that start time falls in (lib/schedule-time.ts).
-export type ScheduleEntryInput = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string; scheduleType?: string; startTime?: string };
+export type ScheduleEntryInput = {
+  dayOfWeek?: string;
+  timeWindow?: string;
+  monthlyOccurrence?: string;
+  scheduleType?: string;
+  startTime?: string;
+  /** "Anytime between" times (migration 068), "HH:MM". */
+  windowStart?: string;
+  windowEnd?: string;
+  minutesOnSite?: number | null;
+};
 
 // Shared by both places a schedule can be created — the subcontractor
 // portal's own submission (app/api/subcontractor-schedules/route.ts) and the
@@ -224,6 +234,12 @@ export function validateScheduleEntries(frequency: string, entries: ScheduleEntr
   for (const entry of entries) {
     if (entry.scheduleType === "appointment" && !/^\d{1,2}:\d{2}(:\d{2})?$/.test(entry.startTime?.trim() ?? "")) {
       return "An exact-time cleaning needs its start time";
+    }
+    const clock = /^(d{1,2}):(d{2})(?::d{2})?$/;
+    const from = clock.exec(entry.windowStart?.trim() ?? "");
+    const to = clock.exec(entry.windowEnd?.trim() ?? "");
+    if (from && to && Number(to[1]) * 60 + Number(to[2]) <= Number(from[1]) * 60 + Number(from[2])) {
+      return "The end time must be after the start time";
     }
   }
 

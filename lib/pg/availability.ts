@@ -66,6 +66,9 @@ type ScheduleRow = {
   time_window: string;
   schedule_type: string | null;
   start_time: string | null;
+  window_start: string | null;
+  window_end: string | null;
+  day_minutes: string | null;
 };
 
 export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
@@ -90,7 +93,9 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
         ss.frequency, ss.day_of_week, ss.monthly_occurrence,
         to_char(ss.effective_start, 'YYYY-MM-DD') AS effective_start, to_char(ss.effective_end, 'YYYY-MM-DD') AS effective_end,
         ss.status, ss.time_window,
-        to_jsonb(ss)->>'schedule_type' AS schedule_type, to_jsonb(ss)->>'start_time' AS start_time
+        to_jsonb(ss)->>'schedule_type' AS schedule_type, to_jsonb(ss)->>'start_time' AS start_time,
+        to_jsonb(ss)->>'window_start' AS window_start, to_jsonb(ss)->>'window_end' AS window_end,
+        to_jsonb(ss)->>'minutes_on_site' AS day_minutes
       FROM sub_schedules ss
       WHERE lower(btrim(ss.status)) = 'active' AND (ss.effective_end IS NULL OR ss.effective_end >= current_date)`),
   ])) as [AccountRow[], SubRow[], ScheduleRow[]];
@@ -130,8 +135,11 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
       timeWindow: row.time_window,
       scheduleType: row.schedule_type ?? "window",
       startTime: row.start_time ?? "",
-      minutesOnSite: Number(account.minutes) || DEFAULT_MINUTES_ON_SITE,
-      estimated: (account.source ?? "est") === "est",
+      windowStart: row.window_start ?? "",
+      windowEnd: row.window_end ?? "",
+      // The day's own time on site (migration 068) when it has one, else the account's.
+      minutesOnSite: Number(row.day_minutes) || Number(account.minutes) || DEFAULT_MINUTES_ON_SITE,
+      estimated: !Number(row.day_minutes) && (account.source ?? "est") === "est",
       point: pointOf(account),
     };
     sub.schedules.push(schedule);

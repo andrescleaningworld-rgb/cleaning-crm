@@ -1,11 +1,17 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { parseMonthlyOccurrence } from "@/lib/scheduleRecurrence";
+// Sub Center → Sub Schedules → Edit: one schedule (all its days) in the
+// shared schedule form (app/components/schedule-editor.tsx).
+//   Days or times changed → saved as a new schedule from "Starts on"; the old
+//                           days end the day before (same as every form).
+//   Only the dates changed → each day's start / end date is updated.
+
+import { useState } from "react";
+import { BigButton, ErrorBox, Field, Sheet, showToast } from "@/app/ui";
+import ScheduleEditor from "@/app/components/schedule-editor";
+import { saveSchedule } from "@/app/components/account-schedule";
+import { planProblems, rowsToPlan, samePlan, type SchedulePlan } from "@/lib/schedule-plan";
 import { todayISO } from "@/lib/dateUtils";
-import { BigButton, ErrorBox, Field, SelectField, Sheet } from "@/app/ui";
-import PlusMinus from "@/app/components/plus-minus";
-import { DEFAULT_START_TIME, formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock, windowForStartTime } from "@/lib/schedule-time";
 
 export type SubSchedule = {
   sheetRow: number;
@@ -30,266 +36,140 @@ export type SubSchedule = {
   /** "appointment" with an exact startTime ("19:00"), else a time window. */
   scheduleType?: string;
   startTime?: string;
+  /** The day's own "Anytime between" times (migration 068); "" = the named window. */
+  windowStart?: string;
+  windowEnd?: string;
+  /** The day's time on site in minutes; null = not set. */
+  minutesOnSite?: number | null;
 };
 
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const TIME_WINDOWS = ["Morning", "Midday", "Afternoon", "Evening"];
-// Picked in the time list instead of a window: an appointment at an exact time.
-const EXACT = "Exact";
-const POSITIONS = ["1st", "2nd", "3rd", "4th", "Last"];
-const FREQUENCIES: { id: string; label: string }[] = [
-  { id: "WEEKLY", label: "Weekly" },
-  { id: "BIWEEKLY", label: "Every Other Week" },
-  { id: "MONTHLY_1X", label: "1x per Month" },
-  { id: "MONTHLY_2X", label: "2x per Month" },
-  { id: "AS_NEEDED", label: "As Needed" },
-];
-
 type Props = {
-  target: SubSchedule;
+  /** Every day of the schedule. */
+  rows: SubSchedule[];
   accountName: string;
+  subName: string;
   adminName: string;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function ScheduleModal({ target, accountName, adminName, onClose, onSaved }: Props) {
-  const targetOccurrence = parseMonthlyOccurrence(target.monthlyOccurrence);
-
-  const [frequency, setFrequency] = useState(target.frequency);
-  const [dayOfWeek, setDayOfWeek] = useState(target.dayOfWeek);
-  const targetStart = target.scheduleType === "appointment" ? parseClock(target.startTime) : null;
-  const [timeWindow, setTimeWindow] = useState(targetStart !== null ? EXACT : target.timeWindow);
-  const [start, setStart] = useState(targetStart ?? DEFAULT_START_TIME);
-  // What is sent: an exact time also carries the window it falls in.
-  const isExact = timeWindow === EXACT;
-  const sentWindow = isExact ? windowForStartTime(start) : timeWindow;
-  const [occurrencePosition, setOccurrencePosition] = useState(targetOccurrence?.position ?? "");
-  const [occurrenceWeekday, setOccurrenceWeekday] = useState(targetOccurrence?.weekday ?? "");
-  const [effectiveStart, setEffectiveStart] = useState(target.effectiveStart);
-  // A cancelled account's schedule reads as ending on its last cleaning day.
-  // This sheet edits the end date that is stored, so saving here never ends
-  // the schedule for good.
-  const endedByCancellation = target.storedEffectiveEnd !== undefined;
-  const [effectiveEnd, setEffectiveEnd] = useState(target.storedEffectiveEnd ?? target.effectiveEnd);
-  const [effectiveDate, setEffectiveDate] = useState(todayISO());
-  const [status, setStatus] = useState(target.status || "Active");
-  const [submitting, setSubmitting] = useState(false);
+export default function ScheduleModal({ rows, accountName, subName, adminName, onClose, onSaved }: Props) {
+  const first = rows[0];
+  const [initial] = useState(() => rowsToPlan(rows));
+  const [plan, setPlan] = useState<SchedulePlan>(initial);
+  const [startDate, setStartDate] = useState(todayISO());
+  // A cancelled account's schedule reads as ending on its last cleaning day;
+  // these are the dates really stored, so saving never ends it for good.
+  const endedByCancellation = first.storedEffectiveEnd !== undefined;
+  const [effectiveStart, setEffectiveStart] = useState(first.effectiveStart);
+  const [effectiveEnd, setEffectiveEnd] = useState(first.storedEffectiveEnd ?? first.effectiveEnd);
+  const [tried, setTried] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const monthlyOccurrence =
-    frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X"
-      ? occurrencePosition && occurrenceWeekday
-        ? `${occurrencePosition}:${occurrenceWeekday}`
-        : ""
-      : "";
+  const changed = !samePlan(plan, initial);
+  const datesChanged = effectiveStart !== first.effectiveStart || effectiveEnd !== (first.storedEffectiveEnd ?? first.effectiveEnd);
 
-  // Any change to the pattern itself (as opposed to Status or a manual
-  // Effective window tweak) is versioned rather than patched in place — see
-  // applySchedulePatternChange in lib/googleSheets.ts.
-  const patternChanged =
-    frequency !== target.frequency ||
-    dayOfWeek !== target.dayOfWeek ||
-    sentWindow !== target.timeWindow ||
-    isExact !== (targetStart !== null) ||
-    (isExact && start !== targetStart) ||
-    monthlyOccurrence !== target.monthlyOccurrence;
-
-  async function handleSubmit(e?: FormEvent<HTMLFormElement>) {
-    e?.preventDefault();
-    if (!adminName.trim()) {
-      setError("Enter your name above before saving.");
+  async function save() {
+    setTried(true);
+    setError("");
+    if (changed && planProblems(plan).length > 0) return;
+    if (!changed && !datesChanged) {
+      onClose();
       return;
     }
-
-    if (patternChanged) {
-      if (!effectiveDate) {
-        setError("Choose an effective date for this pattern change.");
-        return;
-      }
-      if ((frequency === "WEEKLY" || frequency === "BIWEEKLY") && (!dayOfWeek || !timeWindow)) {
-        setError("Choose a day of week and time window.");
-        return;
-      }
-      if (
-        (frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") &&
-        (!occurrencePosition || !occurrenceWeekday || !timeWindow)
-      ) {
-        setError("Choose a week position, weekday, and time window.");
-        return;
-      }
-    }
-
-    setSubmitting(true);
-    setError("");
-
+    setSaving(true);
     try {
-      if (patternChanged) {
-        const res = await fetch("/api/admin/sub-schedules", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            scheduleId: target.scheduleId,
-            accountName,
-            lastEditedBy: adminName.trim(),
-            effectiveDate,
-            newPattern: {
-              frequency,
-              dayOfWeek: frequency === "WEEKLY" || frequency === "BIWEEKLY" ? dayOfWeek : "",
-              timeWindow: frequency === "AS_NEEDED" ? "" : sentWindow,
-              monthlyOccurrence,
-              status,
-              scheduleType: isExact && frequency !== "AS_NEEDED" ? "appointment" : "window",
-              startTime: isExact && frequency !== "AS_NEEDED" ? toClock(start) : "",
-            },
-          }),
+      if (changed) {
+        const result = await saveSchedule({
+          accountId: first.accountId,
+          accountName,
+          subId: first.subId,
+          plan,
+          closeScheduleIds: rows.map((row) => row.scheduleId),
+          startDate,
+          submittedBy: adminName.trim(),
         });
-        const data = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || !data.success) {
-          setError(data.error ?? "Failed to apply schedule pattern change.");
+        if (!result.ok) {
+          setError(result.error);
           return;
         }
       } else {
-        const res = await fetch("/api/admin/sub-schedules", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            sheetRow: target.sheetRow,
-            lastEditedBy: adminName.trim(),
-            fields: { status, effectiveStart, effectiveEnd },
-          }),
-        });
-        const data = (await res.json()) as { success?: boolean; error?: string };
-        if (!res.ok || !data.success) {
-          setError(data.error ?? "Failed to update schedule.");
-          return;
+        for (const row of rows) {
+          const response = await fetch("/api/admin/sub-schedules", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sheetRow: row.sheetRow, lastEditedBy: adminName.trim() || "Staff", fields: { effectiveStart, effectiveEnd } }),
+          });
+          const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+          if (!response.ok || !data.success) {
+            setError(data.error ?? "The dates were not saved.");
+            return;
+          }
         }
       }
+      showToast("Schedule saved ✓");
       onSaved();
       onClose();
     } catch {
-      setError("Network error. Please try again.");
+      setError("No connection. Try again.");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
   return (
     <Sheet
       open
-      title="Edit schedule"
-      text={`${accountName} · ${target.subId}`}
-      onClose={onClose}
-      busy={submitting}
+      title="Change schedule"
+      text={`${accountName} · ${subName || "no sub"}`}
+      onClose={() => {
+        if (!saving) onClose();
+      }}
+      busy={saving}
       actions={
-        <BigButton busy={submitting} busyLabel="Saving…" onClick={() => void handleSubmit()}>
-          Save
+        <BigButton busy={saving} busyLabel="Saving…" onClick={() => void save()}>
+          Save schedule
         </BigButton>
       }
     >
-      <SelectField label="Frequency" value={frequency} onChange={(e) => setFrequency(e.target.value)}>
-        {FREQUENCIES.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.label}
-          </option>
-        ))}
-      </SelectField>
+      <ScheduleEditor value={plan} onChange={setPlan} showProblems={tried} disabled={saving} />
 
-      {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
-        <>
-          <SelectField label="Day of week" value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)}>
-            {DAYS.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </SelectField>
-          <TimeSelect value={timeWindow} onChange={setTimeWindow} start={start} onStartChange={setStart} />
-        </>
-      )}
-
-      {(frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") && (
-        <>
-          <SelectField label="Which week" value={occurrencePosition} onChange={(e) => setOccurrencePosition(e.target.value)}>
-            <option value="">Select...</option>
-            {POSITIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </SelectField>
-          <SelectField label="Weekday" value={occurrenceWeekday} onChange={(e) => setOccurrenceWeekday(e.target.value)}>
-            <option value="">Select...</option>
-            {DAYS.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </SelectField>
-          <TimeSelect value={timeWindow} onChange={setTimeWindow} start={start} onStartChange={setStart} />
-        </>
-      )}
-
-      {frequency === "AS_NEEDED" && (
-        <p className="ui-hint">No recurring day needed. Visits for this account are added one at a time via Schedule Exceptions.</p>
-      )}
-
-      <SelectField label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-        <option value="Active">Active</option>
-        <option value="Inactive">Inactive</option>
-      </SelectField>
-
-      {patternChanged ? (
+      {changed ? (
         <Field
-          label="Effective date"
-          hint={`This pattern change takes effect on this date. Visits before it keep the current pattern: this schedule is closed out and a new one starts on ${effectiveDate || "this date"}.`}
+          label="Starts on"
+          hint="Cleanings before this day stay as they were."
           type="date"
-          value={effectiveDate}
-          onChange={(e) => setEffectiveDate(e.target.value)}
+          min={todayISO()}
+          value={startDate}
+          onChange={(event) => setStartDate(event.target.value)}
         />
       ) : (
-        <>
-          <Field label="Effective start" type="date" value={effectiveStart} onChange={(e) => setEffectiveStart(e.target.value)} />
-          <Field
-            label="Effective end"
-            hint={endedByCancellation ? `This account is cancelled, so its calendar stops on ${target.effectiveEnd}. This date is kept for when the account is active again.` : undefined}
-            type="date"
-            value={effectiveEnd}
-            onChange={(e) => setEffectiveEnd(e.target.value)}
-          />
-        </>
+        <details>
+          <summary className="ui-label" style={{ cursor: "pointer" }}>
+            Start and end dates
+          </summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+            <Field label="Start date" type="date" optional value={effectiveStart} onChange={(event) => setEffectiveStart(event.target.value)} />
+            <Field
+              label="End date"
+              optional
+              hint={endedByCancellation ? `This account is cancelled, so its calendar stops on ${first.effectiveEnd}. This date is kept for when the account is active again.` : undefined}
+              type="date"
+              value={effectiveEnd}
+              onChange={(event) => setEffectiveEnd(event.target.value)}
+            />
+          </div>
+        </details>
       )}
 
       <p className="ui-muted">
-        Submitted by {target.submittedBy || "someone not recorded"} on {target.submittedDate || "a date not recorded"}
-        {target.submittedVia ? ` via ${target.submittedVia}` : ""}
-        {target.lastEditedBy ? ` · last edited by ${target.lastEditedBy} on ${target.lastEditedDate}` : ""}
+        Added by {first.submittedBy || "someone not recorded"} on {first.submittedDate || "a date not recorded"}
+        {first.submittedVia ? ` via ${first.submittedVia}` : ""}
+        {first.lastEditedBy ? ` · last changed by ${first.lastEditedBy} on ${first.lastEditedDate}` : ""}
       </p>
 
       {error ? <ErrorBox title="The schedule was not saved." text={error} /> : null}
     </Sheet>
-  );
-}
-
-// The time window, or "📌 Exact time" with big − / + for the start time.
-function TimeSelect({ value, onChange, start, onStartChange }: { value: string; onChange: (value: string) => void; start: number; onStartChange: (start: number) => void }) {
-  return (
-    <>
-      <SelectField label="Time" value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Select...</option>
-        {TIME_WINDOWS.map((w) => (
-          <option key={w} value={w}>
-            {w}
-          </option>
-        ))}
-        <option value={EXACT}>📌 Exact time</option>
-      </SelectField>
-      {value === EXACT ? (
-        <div>
-          <p className="ui-label">Starts at</p>
-          <PlusMinus value={start} onChange={onStartChange} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time" format={formatClock} />
-        </div>
-      ) : null}
-    </>
   );
 }

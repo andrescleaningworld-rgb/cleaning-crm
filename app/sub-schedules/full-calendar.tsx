@@ -14,6 +14,7 @@ import {
   type ScheduleFrequency,
 } from "@/lib/scheduleRecurrence";
 import { BigButton, Card, EmptyState, ErrorBox, FilterChips, SearchBar, Sheet, SkeletonList } from "@/app/ui";
+import { describeRowTime, rowStartMinutes } from "@/lib/schedule-plan";
 
 const FREQUENCY_LABELS: Record<string, string> = {
   WEEKLY: "Weekly",
@@ -31,7 +32,6 @@ const FREQUENCY_BADGE: Record<string, string> = {
   AS_NEEDED: "As Needed",
 };
 
-const TIME_WINDOW_ORDER = ["Morning", "Midday", "Afternoon", "Evening"];
 const DOW_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAYS_MON_FIRST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const MONTH_NAMES = [
@@ -83,14 +83,17 @@ type Visit = {
   date: string;
   accountId: string;
   subId: string;
-  timeWindow: string;
+  /** "between 6:00 pm and 10:00 pm, about 2h 30m" (lib/schedule-plan.ts). */
+  timeWords: string;
+  /** Minutes after midnight it can start, for the order of the day. */
+  startsAt: number;
   frequency: string;
   scheduleId: string;
 };
 
 function sortVisits(visits: Visit[], resolveAccountName: (id: string) => string): Visit[] {
   return [...visits].sort((a, b) => {
-    const timeDiff = TIME_WINDOW_ORDER.indexOf(a.timeWindow) - TIME_WINDOW_ORDER.indexOf(b.timeWindow);
+    const timeDiff = a.startsAt - b.startsAt;
     if (timeDiff !== 0) return timeDiff;
     return resolveAccountName(a.accountId).localeCompare(resolveAccountName(b.accountId));
   });
@@ -184,7 +187,7 @@ function VisitEntry({
         <AccountLink nested accountId={visit.accountId} name={accountName} />
       </span>
       <span>
-        {resolveTeamLeaderName(visit.subId)} · {visit.timeWindow || "No time window"}
+        {resolveTeamLeaderName(visit.subId)} · {visit.timeWords}
       </span>
       <span className="ui-muted">{FREQUENCY_BADGE[visit.frequency] || visit.frequency}</span>
     </button>
@@ -331,7 +334,8 @@ export default function FullCalendar({
           date,
           accountId: s.accountId,
           subId: s.subId,
-          timeWindow: s.timeWindow,
+          timeWords: describeRowTime(s),
+          startsAt: rowStartMinutes(s),
           frequency: s.frequency,
           scheduleId: s.scheduleId,
         });

@@ -17,6 +17,8 @@ import { cleaningStartMinutes } from "@/lib/cleaningTime";
 import { DEFAULT_START_TIME } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
 import { afterFrequencyChange, perCleaningText } from "@/lib/frequency";
+import { AccountScheduleSection, pickGroup, saveSchedule, useAccountSchedule, type StoredScheduleRow } from "@/app/components/account-schedule";
+import { emptyPlan, planIsEmpty, planProblems, rowsToPlan, samePlan, type ScheduleGroup, type SchedulePlan } from "@/lib/schedule-plan";
 
 type Account = {
   id?: string;
@@ -260,6 +262,23 @@ export default function EditAccountPage() {
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // The cleaning schedule (Sub Schedules): the one for the account's sub, as loaded, and the form's copy.
+  const schedule = useAccountSchedule(String(formData?.accountId || formData?.id || "").trim());
+  const [scheduleGroup, setScheduleGroup] = useState<ScheduleGroup<StoredScheduleRow> | null>(null);
+  const [scheduleInitial, setScheduleInitial] = useState<SchedulePlan>(emptyPlan);
+  const [schedulePlan, setSchedulePlan] = useState<SchedulePlan>(emptyPlan);
+  const [scheduleTried, setScheduleTried] = useState(false);
+  const scheduleLoadedRef = useRef(false);
+  useEffect(() => {
+    if (schedule.state !== "ready" || scheduleLoadedRef.current) return;
+    scheduleLoadedRef.current = true;
+    const group = pickGroup(schedule.groups, schedule.accountSub.email);
+    const plan = rowsToPlan(group?.rows ?? []);
+    setScheduleGroup(group);
+    setScheduleInitial(plan);
+    setSchedulePlan(plan);
+  }, [schedule.state, schedule.groups, schedule.accountSub.email]);
+
   useEffect(() => {
     async function loadAccount() {
       try {
@@ -497,6 +516,14 @@ export default function EditAccountPage() {
       formData.accountStartDate || formData.startDate || formData.serviceStartDate
     );
 
+    // A schedule that was started must be finished first; nothing is cleared.
+    const scheduleProblems = planIsEmpty(schedulePlan) ? [] : planProblems(schedulePlan);
+    if (scheduleProblems.length > 0) {
+      setScheduleTried(true);
+      setSaveError(`Cleaning schedule: ${scheduleProblems[0]}`);
+      return;
+    }
+
     try {
       setSaving(true);
       setSaveError("");
@@ -583,10 +610,33 @@ export default function EditAccountPage() {
         }
       }
 
-      // Green message for the save itself; if "Checklist Needed" or the Crew
-      // Link switches did not save, that part stays on screen in a box.
+      // The schedule: saved when it changed, or when the account moved to
+      // another sub (the same days then go under the new sub).
+      let scheduleWarning = "";
+      const pickedSub = subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === cleanText(formData.subcontractor));
+      const newSubEmail = cleanText(pickedSub?.email);
+      const scheduleSub = newSubEmail || scheduleGroup?.subId || schedule.accountSub.email;
+      const subMoved = Boolean(scheduleGroup && newSubEmail && newSubEmail.toLowerCase() !== scheduleGroup.subId.trim().toLowerCase());
+      if (!planIsEmpty(schedulePlan) && (!samePlan(schedulePlan, scheduleInitial) || subMoved)) {
+        const result = await saveSchedule({
+          accountId: String(formData.accountId || formData.id || "").trim(),
+          accountName: formData.accountName || "",
+          subId: scheduleSub,
+          plan: schedulePlan,
+          closeScheduleIds: (scheduleGroup?.rows ?? []).map((row) => row.scheduleId),
+        });
+        if (result.ok) {
+          scheduleLoadedRef.current = false;
+          schedule.reload();
+        } else {
+          scheduleWarning = ` The cleaning schedule did not save: ${result.error}`;
+        }
+      }
+
+      // Green message for the save itself; if "Checklist Needed", the Crew
+      // Link switches or the schedule did not save, that part stays on screen in a box.
       showToast("Account saved");
-      setSavedMessage(((data.checklistFlagWarning || "") + crewLinkWarning).trim());
+      setSavedMessage(((data.checklistFlagWarning || "") + crewLinkWarning + scheduleWarning).trim());
       setSaveError("");
     } catch (err) {
       setSavedMessage("");
@@ -817,6 +867,22 @@ export default function EditAccountPage() {
             {formData.cleaningTimeReady ? <CleaningTimeField value={formData.cleaningTime || ""} onChange={(value) => updateField("cleaningTime", value)} /> : null}
           </div>
         </Card>
+
+        <AccountScheduleSection
+          plan={schedulePlan}
+          onChange={setSchedulePlan}
+          showProblems={scheduleTried}
+          disabled={saving || schedule.state !== "ready"}
+          note={
+            schedule.state === "failed" ? (
+              <p className="ui-field-error">The schedule did not load. Change it on the account page.</p>
+            ) : scheduleGroup && planIsEmpty(schedulePlan) ? (
+              <p className="ui-hint">Left empty, the current schedule stays. To stop it, use Deactivate in Sub Center → Sub Schedules.</p>
+            ) : schedule.groups.length > 1 ? (
+              <p className="ui-hint">This account has {schedule.groups.length} schedules. This is the one for {scheduleGroup?.subId || "no sub"}. Change the others on the account page.</p>
+            ) : null
+          }
+        />
 
         <Card title="Billing & Pay">
           <div style={sectionStyle}>

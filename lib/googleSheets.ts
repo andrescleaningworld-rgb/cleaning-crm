@@ -843,6 +843,11 @@ export type SubSchedule = {
   // ("19:00"), else a plain time window. Sheets rows are all windows.
   scheduleType?: string;
   startTime?: string;
+  // Postgres only (migration 068): the day's own "between" times ("18:00",
+  // "22:00") and its time on site in minutes. Empty / null = not set.
+  windowStart?: string;
+  windowEnd?: string;
+  minutesOnSite?: number | null;
 };
 
 async function fetchSubScheduleRows(): Promise<string[][]> {
@@ -905,6 +910,9 @@ export async function appendSubSchedule(data: {
   // Postgres only; the Sheets tab has no column for them and ignores them.
   scheduleType?: string;
   startTime?: string;
+  windowStart?: string;
+  windowEnd?: string;
+  minutesOnSite?: number | null;
 }): Promise<string> {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   const rand = Math.random().toString(36).slice(2, 6);

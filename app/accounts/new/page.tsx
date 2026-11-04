@@ -18,6 +18,8 @@ import { afterFrequencyChange } from "@/lib/frequency";
 import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { ManagerOptions, useManagerNames } from "../../components/manager-options";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
+import { AccountScheduleSection, saveSchedule } from "@/app/components/account-schedule";
+import { describeDays, emptyPlan, isByWeekday, planIsEmpty, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
 
 type AccountForm = {
   accountName: string;
@@ -222,6 +224,9 @@ export default function NewAccountPage() {
   // Set once the account is saved: the screen then offers "Send Customer Welcome Packet".
   const [saved, setSaved] = useState<{ id: string; name: string } | null>(null);
   const [showWelcomePacket, setShowWelcomePacket] = useState(false);
+  // The optional schedule (Sub Schedules). Empty = the account saves without one.
+  const [schedulePlan, setSchedulePlan] = useState<SchedulePlan>(emptyPlan);
+  const [scheduleTried, setScheduleTried] = useState(false);
   const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
   const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
 
@@ -320,8 +325,18 @@ export default function NewAccountPage() {
       const contactsError = contactsProblem(extraContacts);
       if (contactsError) throw new Error(contactsError);
 
+      // A schedule that was started must be finished first; an empty one is fine.
+      const hasSchedule = !planIsEmpty(schedulePlan);
+      const scheduleProblems = hasSchedule ? planProblems(schedulePlan) : [];
+      if (scheduleProblems.length > 0) {
+        setScheduleTried(true);
+        throw new Error(`Cleaning schedule: ${scheduleProblems[0]} Or tap Clear schedule to save without one.`);
+      }
+
       const accountPayload: AccountForm = {
         ...form,
+        // Cleaning days left empty: filled from the schedule ("Mon–Fri").
+        cleaningDays: form.cleaningDays.trim() || (hasSchedule && isByWeekday(schedulePlan.frequency) ? describeDays(schedulePlan.days) : form.cleaningDays),
         accountName: form.accountName.trim(),
         address: form.address.trim(),
         manager: form.manager.trim(),
@@ -369,12 +384,28 @@ export default function NewAccountPage() {
       // The contacts after the main one. The account is saved either way; a contact that did not save can be added on Edit Account.
       const contactsFailed = data.accountId ? await saveExtraContacts(data.accountId, extraContacts) : 0;
 
+      // The schedule, under the sub picked above (by email, as Sub Schedules keeps it). The account is saved either way.
+      let scheduleFailed = false;
+      if (hasSchedule && data.accountId) {
+        const pickedSub = subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor);
+        const result = await saveSchedule({
+          accountId: data.accountId,
+          accountName: accountPayload.accountName,
+          subId: cleanText(pickedSub?.email),
+          plan: schedulePlan,
+          closeScheduleIds: [],
+        });
+        scheduleFailed = !result.ok;
+      }
+
       // A "Checklist Needed" warning is not a failure: the account is saved.
       showToast(
         contactsFailed
           ? `Account saved, but ${contactsFailed} contact${contactsFailed === 1 ? "" : "s"} did not save. Add ${contactsFailed === 1 ? "it" : "them"} on Edit Account.`
-          : data.checklistFlagWarning || "Account saved",
-        contactsFailed || data.checklistFlagWarning ? "bad" : "good"
+          : scheduleFailed
+            ? "Account saved, but the schedule did not save. Add it on the account page."
+            : data.checklistFlagWarning || "Account saved",
+        contactsFailed || scheduleFailed || data.checklistFlagWarning ? "bad" : "good"
       );
 
       // With the new account's ID the screen stays, to offer the Welcome Packet;
@@ -616,6 +647,8 @@ export default function NewAccountPage() {
             <Field label="Cleaning days" optional value={form.cleaningDays} onChange={(event) => updateField("cleaningDays", event.target.value)} />
           </div>
         </Card>
+
+        <AccountScheduleSection plan={schedulePlan} onChange={setSchedulePlan} showProblems={scheduleTried} disabled={saving} />
 
         <Card title="Access, Scope & Notes">
           <div style={sectionStyle}>

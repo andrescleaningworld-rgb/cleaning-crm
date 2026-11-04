@@ -69,9 +69,32 @@ export const START_TIME_MIN = 5 * 60;
 export const START_TIME_MAX = 23 * 60 + 30;
 export const DEFAULT_START_TIME = 19 * 60;
 
-/** How a schedule day reads: "📌 7:00 pm" for an appointment, else its window. */
-export function describeScheduleTime(schedule: { scheduleType?: string; startTime?: string; timeWindow: string }): string {
+/**
+ * The hours a time-window day may be cleaned in: its own "between" times
+ * when it has them (migration 068), else its named window's hours.
+ */
+export function scheduleWindowHours(
+  schedule: { timeWindow: string; windowStart?: string | null; windowEnd?: string | null },
+  eveningEnds = DEFAULT_EVENING_ENDS
+): { start: number; end: number } | null {
+  const from = parseClock(schedule.windowStart);
+  const to = parseClock(schedule.windowEnd);
+  if (from !== null && to !== null && to > from) return { start: from, end: to };
+  return windowHours(schedule.timeWindow, eveningEnds);
+}
+
+/** How a schedule day reads: "📌 7:00 pm" for an appointment, "6:00 pm – 10:00 pm" for its own window, else the window's name. */
+export function describeScheduleTime(schedule: {
+  scheduleType?: string;
+  startTime?: string;
+  timeWindow: string;
+  windowStart?: string | null;
+  windowEnd?: string | null;
+}): string {
   const start = parseClock(schedule.startTime);
   if (schedule.scheduleType === "appointment" && start !== null) return `📌 ${formatClock(start)}`;
+  const from = parseClock(schedule.windowStart);
+  const to = parseClock(schedule.windowEnd);
+  if (from !== null && to !== null && to > from) return `${formatClock(from)} – ${formatClock(to)}`;
   return schedule.timeWindow;
 }
