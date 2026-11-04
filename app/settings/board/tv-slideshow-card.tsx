@@ -1,12 +1,17 @@
 "use client";
 
 // Settings -> Pin Board -> "TV slideshow": how long the board sits idle
-// before the slideshow starts, and the Google Drive folder whose pictures are
+// before the slideshow starts, how long each picture stays up and how many
+// show in one round, and the Google Drive folder whose pictures are
 // mixed in with the starred photos. Owner only. GET/POST /api/board/tv-slideshow.
 
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, CHEER, Card, ErrorBox, Field, friendlyDate, showToast } from "@/app/ui";
 import type { TvSlideshowSettings } from "@/lib/pg/tv-slideshow";
+
+// Same limits as SLIDE_SECONDS_RANGE / SLIDES_PER_SHOW_RANGE in lib/pg/tv-slideshow.ts (that file is server only).
+const SECONDS = { min: 5, max: 60 };
+const PER_ROUND = { min: 1, max: 50 };
 
 type Loaded = { ready: boolean; settings: TvSlideshowSettings; serviceAccount: string };
 type SyncResult = { ran: boolean; reason?: string; copied: number; removed: number; skipped: number; left: number; error: string };
@@ -28,6 +33,8 @@ export default function TvSlideshowCard() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);
   const [idle, setIdle] = useState("5");
+  const [seconds, setSeconds] = useState("10");
+  const [perRound, setPerRound] = useState("6");
   const [folder, setFolder] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState<"" | "save" | "sync">("");
@@ -37,6 +44,8 @@ export default function TvSlideshowCard() {
   const show = useCallback((data: Loaded) => {
     setLoaded(data);
     setIdle(String(data.settings.idleMinutes));
+    setSeconds(String(data.settings.slideSeconds));
+    setPerRound(String(data.settings.slidesPerShow));
     setFolder(data.settings.driveFolderId);
     setEnabled(data.settings.driveEnabled);
   }, []);
@@ -67,11 +76,26 @@ export default function TvSlideshowCard() {
   async function save() {
     setError("");
     const minutes = Math.round(Number(idle));
+    const slideSeconds = Math.round(Number(seconds));
+    const slidesPerShow = Math.round(Number(perRound));
+    const timingReady = loaded?.settings.timingReady === true;
+    if (timingReady && (!Number.isFinite(slideSeconds) || slideSeconds < SECONDS.min || slideSeconds > SECONDS.max)) {
+      return setError(`Seconds per picture must be a number from ${SECONDS.min} to ${SECONDS.max}.`);
+    }
+    if (timingReady && (!Number.isFinite(slidesPerShow) || slidesPerShow < PER_ROUND.min || slidesPerShow > PER_ROUND.max)) {
+      return setError(`Pictures per round must be a number from ${PER_ROUND.min} to ${PER_ROUND.max}.`);
+    }
     if (!Number.isFinite(minutes) || minutes < 1 || minutes > 60) return setError("Minutes must be a number from 1 to 60.");
     if (!folder.trim()) return setError("Paste the Google Drive folder link, or its ID.");
     setBusy("save");
     try {
-      const body = await post({ action: "save", idleMinutes: minutes, driveFolder: folder, driveEnabled: enabled });
+      const body = await post({
+        action: "save",
+        idleMinutes: minutes,
+        driveFolder: folder,
+        driveEnabled: enabled,
+        ...(timingReady ? { slideSeconds, slidesPerShow } : {}),
+      });
       if (body.settings && loaded) show({ ...loaded, settings: body.settings });
       showToast(CHEER.logged);
     } catch (err) {
@@ -101,7 +125,13 @@ export default function TvSlideshowCard() {
 
   const settings = loaded.settings;
   const disabled = busy !== "" || !loaded.ready;
-  const saved = settings.driveEnabled === enabled && settings.driveFolderId === folder.trim() && String(settings.idleMinutes) === idle.trim();
+  const saved =
+    settings.driveEnabled === enabled &&
+    settings.driveFolderId === folder.trim() &&
+    String(settings.idleMinutes) === idle.trim() &&
+    String(settings.slideSeconds) === seconds.trim() &&
+    String(settings.slidesPerShow) === perRound.trim();
+  const roundSeconds = Math.round(Number(seconds)) * Math.round(Number(perRound));
 
   return (
     <Card title="TV slideshow">
@@ -121,6 +151,35 @@ export default function TvSlideshowCard() {
           disabled={disabled}
           onChange={(event) => setIdle(event.target.value)}
         />
+        <Field
+          label="Seconds per picture"
+          hint={`How long each picture stays up. From ${SECONDS.min} to ${SECONDS.max}.`}
+          type="number"
+          inputMode="numeric"
+          min={SECONDS.min}
+          max={SECONDS.max}
+          value={seconds}
+          disabled={disabled || !settings.timingReady}
+          onChange={(event) => setSeconds(event.target.value)}
+        />
+        <Field
+          label="Pictures per round"
+          hint={`How many pictures show before the board comes back. From ${PER_ROUND.min} to ${PER_ROUND.max}. Today's birthdays and events count as one.`}
+          type="number"
+          inputMode="numeric"
+          min={PER_ROUND.min}
+          max={PER_ROUND.max}
+          value={perRound}
+          disabled={disabled || !settings.timingReady}
+          onChange={(event) => setPerRound(event.target.value)}
+        />
+        {settings.timingReady ? (
+          Number.isFinite(roundSeconds) && roundSeconds > 0 ? (
+            <p className="ui-muted">One round lasts about {roundSeconds >= 90 ? `${Math.round(roundSeconds / 60)} minutes` : `${roundSeconds} seconds`}, then the board comes back.</p>
+          ) : null
+        ) : loaded.ready ? (
+          <p className="ui-savestatus">Seconds per picture and pictures per round can be changed once this database has had its update. Until then: 10 seconds, 6 pictures.</p>
+        ) : null}
         <Field
           label="Google Drive slideshow folder"
           hint={`The folder link or its ID. Share the folder with ${loaded.serviceAccount || "the app's Google account"} as Viewer. The app only reads it: nothing in Drive is ever changed.`}

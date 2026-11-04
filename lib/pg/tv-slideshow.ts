@@ -14,10 +14,19 @@ import heicConvert from "heic-convert";
 import { getSql } from "@/lib/db";
 
 export const DEFAULT_IDLE_MINUTES = 5;
+/** How long each picture stays up, and how many slides one round shows (migration 070). */
+export const DEFAULT_SLIDE_SECONDS = 10;
+export const DEFAULT_SLIDES_PER_SHOW = 6;
+export const SLIDE_SECONDS_RANGE = { min: 5, max: 60 };
+export const SLIDES_PER_SHOW_RANGE = { min: 1, max: 50 };
 export const DEFAULT_DRIVE_FOLDER = "1STnQFkkCZ1Bb79iVkDSlSPs5cF1N4oG3";
 
 export type TvSlideshowSettings = {
   idleMinutes: number;
+  slideSeconds: number;
+  slidesPerShow: number;
+  /** False until migration 070: the two timing numbers stay at 10 seconds and 6 slides. */
+  timingReady: boolean;
   driveFolderId: string;
   driveEnabled: boolean;
   lastSyncedAt: string;
@@ -30,6 +39,9 @@ export type TvSlideshowSettings = {
 
 const DEFAULTS: TvSlideshowSettings = {
   idleMinutes: DEFAULT_IDLE_MINUTES,
+  slideSeconds: DEFAULT_SLIDE_SECONDS,
+  slidesPerShow: DEFAULT_SLIDES_PER_SHOW,
+  timingReady: false,
   driveFolderId: DEFAULT_DRIVE_FOLDER,
   driveEnabled: false,
   lastSyncedAt: "",
@@ -55,15 +67,21 @@ export async function getTvSlideshowSettings(): Promise<TvSlideshowSettings> {
   try {
     const sql = getSql();
     const rows = (await sql`
-      SELECT idle_minutes, drive_folder_id, drive_enabled, last_synced_at, last_error,
+      SELECT idle_minutes, to_jsonb(s) ->> 'slide_seconds' AS slide_seconds, to_jsonb(s) ->> 'slides_per_show' AS slides_per_show, drive_folder_id, drive_enabled, last_synced_at, last_error,
              sync_started_at IS NOT NULL AND sync_started_at > now() - interval '10 minutes' AS syncing,
              (SELECT count(*)::int FROM tv_drive_slides WHERE folder_id = s.drive_folder_id) AS picture_count
       FROM tv_slideshow_settings s WHERE id = true
-    `) as { idle_minutes: number; drive_folder_id: string; drive_enabled: boolean; last_synced_at: string | Date | null; last_error: string; syncing: boolean; picture_count: number }[];
+    `) as { idle_minutes: number; slide_seconds: string | null; slides_per_show: string | null; drive_folder_id: string; drive_enabled: boolean; last_synced_at: string | Date | null; last_error: string; syncing: boolean; picture_count: number }[];
     const row = rows[0];
     if (!row) return DEFAULTS;
+    const seconds = Number(row.slide_seconds);
+    const perShow = Number(row.slides_per_show);
+    const timingReady = row.slide_seconds !== null && row.slides_per_show !== null;
     return {
       idleMinutes: row.idle_minutes,
+      slideSeconds: timingReady && seconds > 0 ? seconds : DEFAULT_SLIDE_SECONDS,
+      slidesPerShow: timingReady && perShow > 0 ? perShow : DEFAULT_SLIDES_PER_SHOW,
+      timingReady,
       driveFolderId: row.drive_folder_id,
       driveEnabled: row.drive_enabled,
       lastSyncedAt: iso(row.last_synced_at),
@@ -85,14 +103,31 @@ export function folderIdFrom(value: string): string {
   return /^[A-Za-z0-9_-]{10,}$/.test(text) ? text : "";
 }
 
-export async function saveTvSlideshowSettings(input: { idleMinutes: number; driveFolderId: string; driveEnabled: boolean }, by: string): Promise<TvSlideshowSettings> {
+const within = (value: number, range: { min: number; max: number }) => Math.min(range.max, Math.max(range.min, Math.round(value)));
+
+export async function saveTvSlideshowSettings(
+  input: { idleMinutes: number; driveFolderId: string; driveEnabled: boolean; slideSeconds?: number; slidesPerShow?: number },
+  by: string
+): Promise<TvSlideshowSettings> {
   const idle = Math.min(60, Math.max(1, Math.round(input.idleMinutes)));
-  await getSql()`
+  const sql = getSql();
+  await sql`
     INSERT INTO tv_slideshow_settings (id, idle_minutes, drive_folder_id, drive_enabled, updated_by, updated_at)
     VALUES (true, ${idle}, ${input.driveFolderId}, ${input.driveEnabled}, ${by}, now())
     ON CONFLICT (id) DO UPDATE SET idle_minutes = EXCLUDED.idle_minutes, drive_folder_id = EXCLUDED.drive_folder_id,
       drive_enabled = EXCLUDED.drive_enabled, updated_by = EXCLUDED.updated_by, updated_at = now()
   `;
+  // Its own step: the two columns are only there once migration 070 is applied.
+  if (input.slideSeconds !== undefined && input.slidesPerShow !== undefined) {
+    try {
+      await sql`
+        UPDATE tv_slideshow_settings SET slide_seconds = ${within(input.slideSeconds, SLIDE_SECONDS_RANGE)},
+          slides_per_show = ${within(input.slidesPerShow, SLIDES_PER_SHOW_RANGE)} WHERE id = true
+      `;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "42703") throw error;
+    }
+  }
   return getTvSlideshowSettings();
 }
 
