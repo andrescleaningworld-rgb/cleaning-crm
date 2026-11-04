@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { generateScheduleDates, isScheduleEffectivelyActive, todayISO as scheduleTodayISO } from "@/lib/scheduleRecurrence";
+import { describeScheduleTime, windowHours } from "@/lib/schedule-time";
+import { rowHasTime, rowStartMinutes } from "@/lib/schedule-plan";
+import { formatMinutes } from "@/lib/time-on-site";
 
 type ScheduleAccount = {
   id?: string;
@@ -32,7 +35,22 @@ type SubSchedule = {
   status: string;
   frequency: string;
   monthlyOccurrence: string;
+  /** "appointment" with an exact startTime, else a window (migration 042). */
+  scheduleType?: string;
+  startTime?: string;
+  /** The day's own "between" times (migration 068); "" = the named window. */
+  windowStart?: string;
+  windowEnd?: string;
+  /** Time on site for the day, set by the office; null = not set. */
+  minutesOnSite?: number | null;
 };
+
+// What a cleaning's box says: "6:00 pm – 10:00 pm · about 2h 30m",
+// "📌 7:00 pm", or the window's name for an old schedule.
+function timeWords(schedule: SubSchedule): string {
+  const time = rowHasTime(schedule) ? describeScheduleTime(schedule) : "No time set";
+  return schedule.minutesOnSite ? `${time} · about ${formatMinutes(schedule.minutesOnSite)}` : time;
+}
 
 type ScheduleException = {
   sheetRow: number;
@@ -47,7 +65,10 @@ type ScheduleException = {
 
 type Occurrence = {
   accountId: string;
+  /** The time in words, as shown. */
   timeWindow: string;
+  /** Minutes after midnight it can start, for the order of the day. */
+  startsAt: number;
   kind: "recurring" | "oneoff" | "rescheduled-in";
   note?: string;
 };
@@ -58,7 +79,6 @@ type Props = {
 };
 
 const DAYS_MON_FIRST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-const TIME_WINDOW_ORDER = ["Morning", "Midday", "Afternoon", "Evening"];
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
@@ -209,7 +229,7 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
       } else if (ex && ex.type === "Reschedule") {
         notes[date].push(`Moved: ${nameFor(schedule.accountId)} → ${formatDateLabel(ex.newDate)}`);
       } else {
-        occByDate[date].push({ accountId: schedule.accountId, timeWindow: schedule.timeWindow, kind });
+        occByDate[date].push({ accountId: schedule.accountId, timeWindow: timeWords(schedule), startsAt: rowStartMinutes(schedule), kind });
       }
     }
 
@@ -255,13 +275,14 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
         occByDate[e.newDate].push({
           accountId: e.accountId,
           timeWindow: e.newTimeWindow || "Unspecified",
+          startsAt: windowHours(e.newTimeWindow)?.start ?? 24 * 60,
           kind: "rescheduled-in",
           note: `from ${formatDateLabel(e.originalDate)}`,
         });
       });
 
     Object.values(occByDate).forEach((list) => {
-      list.sort((a, b) => TIME_WINDOW_ORDER.indexOf(a.timeWindow) - TIME_WINDOW_ORDER.indexOf(b.timeWindow));
+      list.sort((a, b) => a.startsAt - b.startsAt);
     });
 
     return { occurrencesByDate: occByDate, notesByDate: notes };
