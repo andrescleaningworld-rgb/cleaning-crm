@@ -3,11 +3,11 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ScheduleModal, { type SubSchedule } from "./schedule-modal";
-import { describeScheduleTime } from "@/lib/schedule-time";
+import { describeRows, groupScheduleRows, type ScheduleGroup } from "@/lib/schedule-plan";
 import ExceptionModal, { type ScheduleException } from "./exception-modal";
 import AddScheduleModal from "./add-schedule-modal";
 import FullCalendar from "./full-calendar";
-import { isScheduleEffectivelyActive, parseMonthlyOccurrence, todayISO } from "@/lib/scheduleRecurrence";
+import { isScheduleEffectivelyActive, todayISO } from "@/lib/scheduleRecurrence";
 import {
   AutocompleteField,
   useAllAccountOptions,
@@ -70,26 +70,8 @@ function getStoredAdminName(): string {
   return window.localStorage.getItem("cwAdminName") ?? "";
 }
 
-const FREQUENCY_LABELS: Record<string, string> = {
-  WEEKLY: "Weekly",
-  BIWEEKLY: "Every Other Week",
-  MONTHLY_1X: "1x per Month",
-  MONTHLY_2X: "2x per Month",
-  AS_NEEDED: "As Needed",
-};
-
-function describeFrequency(schedule: SubSchedule): string {
-  return FREQUENCY_LABELS[schedule.frequency] || (schedule.recurring === "Y" ? "Weekly" : "One-time");
-}
-
-function describeDayOrOccurrence(schedule: SubSchedule): string {
-  if (schedule.frequency === "MONTHLY_1X" || schedule.frequency === "MONTHLY_2X") {
-    const occurrence = parseMonthlyOccurrence(schedule.monthlyOccurrence);
-    return occurrence ? `${occurrence.position} ${occurrence.weekday}` : "—";
-  }
-  if (schedule.frequency === "AS_NEEDED") return "—";
-  return schedule.dayOfWeek || "—";
-}
+// One card per schedule: its days are saved as one row each (lib/schedule-plan.ts).
+type Group = ScheduleGroup<SubSchedule>;
 
 export default function SubSchedulesPage() {
   return (
@@ -137,7 +119,7 @@ function SubSchedulesPageInner() {
     return map;
   }, [allAccountOptions]);
 
-  const [scheduleModal, setScheduleModal] = useState<SubSchedule | null>(null);
+  const [scheduleModal, setScheduleModal] = useState<Group | null>(null);
   const [exceptionModal, setExceptionModal] = useState<"new" | ScheduleException | null>(null);
   const [addScheduleModalOpen, setAddScheduleModalOpen] = useState(false);
   // Layout only: the "are you sure?" step before deleting an exception is a sheet now.
@@ -338,6 +320,8 @@ function SubSchedulesPageInner() {
     });
   }, [schedules, customer.selected, selectedTeamLeader]);
 
+  const filteredGroups = useMemo(() => groupScheduleRows(filteredSchedules), [filteredSchedules]);
+
   const accountIdsForTeamLeader = useMemo(() => {
     if (!selectedTeamLeader) return null;
     const targetId = normalizeForMatch(selectedTeamLeader.id);
@@ -354,26 +338,29 @@ function SubSchedulesPageInner() {
     });
   }, [exceptions, customer.selected, accountIdsForTeamLeader]);
 
-  async function toggleScheduleStatus(schedule: SubSchedule) {
+  // Every day of the schedule together.
+  async function toggleScheduleStatus(group: Group) {
     if (!adminName.trim()) {
       setError("Enter your name above before making changes.");
       return;
     }
-    const nextStatus = isScheduleEffectivelyActive(schedule) ? "Inactive" : "Active";
+    const nextStatus = isScheduleEffectivelyActive(group.rows[0]) ? "Inactive" : "Active";
     try {
-      const res = await fetch("/api/admin/sub-schedules", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sheetRow: schedule.sheetRow,
-          lastEditedBy: adminName.trim(),
-          fields: { status: nextStatus },
-        }),
-      });
-      const data = (await res.json()) as { success?: boolean; error?: string };
-      if (!res.ok || !data.success) {
-        setError(data.error ?? "Failed to update status.");
-        return;
+      for (const schedule of group.rows) {
+        const res = await fetch("/api/admin/sub-schedules", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sheetRow: schedule.sheetRow,
+            lastEditedBy: adminName.trim(),
+            fields: { status: nextStatus },
+          }),
+        });
+        const data = (await res.json()) as { success?: boolean; error?: string };
+        if (!res.ok || !data.success) {
+          setError(data.error ?? "Failed to update status.");
+          break;
+        }
       }
       loadSchedules();
     } catch {
@@ -403,19 +390,21 @@ function SubSchedulesPageInner() {
     }
   }
 
-  const scheduleActions = (s: SubSchedule) => (
+  const scheduleActions = (g: Group) => (
     <div className="ui-actions-row">
-      <BigButton kind="second" onClick={() => setScheduleModal(s)} aria-label={`Edit the schedule for ${resolveAccountName(s.accountId)}`}>
+      <BigButton kind="second" onClick={() => setScheduleModal(g)} aria-label={`Change the schedule for ${resolveAccountName(g.accountId)}`}>
         {LABELS.edit}
       </BigButton>
-      <BigButton kind="quiet" onClick={() => void toggleScheduleStatus(s)}>
-        {isScheduleEffectivelyActive(s, today) ? "Deactivate" : "Reactivate"}
+      <BigButton kind="quiet" onClick={() => void toggleScheduleStatus(g)}>
+        {isScheduleEffectivelyActive(g.rows[0], today) ? "Deactivate" : "Reactivate"}
       </BigButton>
     </div>
   );
-  const scheduleStatus = (s: SubSchedule) => (
-    <StatusPill kind={isScheduleEffectivelyActive(s, today) ? "done" : "off"}>{s.status || "No status"}</StatusPill>
+  const scheduleStatus = (g: Group) => (
+    <StatusPill kind={isScheduleEffectivelyActive(g.rows[0], today) ? "done" : "off"}>{g.rows[0].status || "No status"}</StatusPill>
   );
+  const scheduleLine = (g: Group) => <span className="ui-sched-line">{describeRows(g.rows)}</span>;
+  const subText = (g: Group) => (g.subId ? resolveTeamLeaderName(g.subId) : "No sub yet");
   const effectiveText = (s: SubSchedule) => `${s.effectiveStart || "No start date"}${s.effectiveEnd ? ` to ${s.effectiveEnd}` : ""}`;
   const submittedText = (s: SubSchedule) =>
     `${s.submittedBy || "Not known"}${s.submittedVia === "Admin" ? " (Admin)" : ""}${s.submittedDate ? `, ${s.submittedDate}` : ""}`;
@@ -527,34 +516,30 @@ function SubSchedulesPageInner() {
           ) : loading ? (
             <SkeletonList rows={3} />
           ) : adminTab === "schedules" ? (
-            filteredSchedules.length === 0 ? (
+            filteredGroups.length === 0 ? (
               <EmptyState title="No sub schedules found" text="Nothing is scheduled for this search yet." />
             ) : (
               <CardList
                 label="Sub schedules"
-                items={filteredSchedules}
-                getKey={(s) => String(s.sheetRow)}
-                renderCard={(s) => (
-                  <Card title={resolveAccountName(s.accountId)} right={scheduleStatus(s)}>
-                    <p className="ui-card-text">{resolveTeamLeaderName(s.subId)}</p>
-                    <p className="ui-card-text">
-                      {describeFrequency(s)} · {describeDayOrOccurrence(s)} · {describeScheduleTime(s) || "No time window"}
-                    </p>
-                    <p className="ui-card-text">{effectiveText(s)}</p>
-                    <p className="ui-card-text">Submitted by {submittedText(s)}</p>
-                    <div style={{ marginTop: 12 }}>{scheduleActions(s)}</div>
+                items={filteredGroups}
+                getKey={(g) => g.key}
+                renderCard={(g) => (
+                  <Card title={resolveAccountName(g.accountId)} right={scheduleStatus(g)}>
+                    <p className="ui-card-text">{subText(g)}</p>
+                    <p className="ui-card-text">{scheduleLine(g)}</p>
+                    <p className="ui-card-text">{effectiveText(g.rows[0])}</p>
+                    <p className="ui-card-text">Added by {submittedText(g.rows[0])}</p>
+                    <div style={{ marginTop: 12 }}>{scheduleActions(g)}</div>
                   </Card>
                 )}
                 columns={[
-                  { header: "Customer", cell: (s) => <span className="ui-strong">{resolveAccountName(s.accountId)}</span> },
-                  { header: "Subcontractor", cell: (s) => resolveTeamLeaderName(s.subId) },
-                  { header: "Day / Occurrence", cell: (s) => describeDayOrOccurrence(s) },
-                  { header: "Window", cell: (s) => describeScheduleTime(s) || "None" },
-                  { header: "Frequency", cell: (s) => describeFrequency(s) },
-                  { header: "Effective", cell: (s) => effectiveText(s) },
-                  { header: "Status", cell: (s) => scheduleStatus(s) },
-                  { header: "Submitted", cell: (s) => submittedText(s) },
-                  { header: "Actions", cell: (s) => scheduleActions(s) },
+                  { header: "Customer", cell: (g) => <span className="ui-strong">{resolveAccountName(g.accountId)}</span> },
+                  { header: "Subcontractor", cell: (g) => subText(g) },
+                  { header: "Schedule", cell: (g) => scheduleLine(g) },
+                  { header: "Dates", cell: (g) => effectiveText(g.rows[0]) },
+                  { header: "Status", cell: (g) => scheduleStatus(g) },
+                  { header: "Added", cell: (g) => submittedText(g.rows[0]) },
+                  { header: "Actions", cell: (g) => scheduleActions(g) },
                 ]}
               />
             )
@@ -614,8 +599,9 @@ function SubSchedulesPageInner() {
 
       {scheduleModal ? (
         <ScheduleModal
-          target={scheduleModal}
+          rows={scheduleModal.rows}
           accountName={resolveAccountName(scheduleModal.accountId)}
+          subName={subText(scheduleModal)}
           adminName={adminName}
           onClose={() => setScheduleModal(null)}
           onSaved={loadSchedules}

@@ -28,6 +28,7 @@ import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
 import TimeOnSiteDetail from "./time-on-site";
+import { AccountScheduleDetail } from "../../components/account-schedule";
 import { NoScheduleBanner } from "../../components/no-schedule";
 import CancellationFields from "../../components/CancellationFields";
 import { cancellationNote, cancellationProblem, isCancelledStatus } from "@/lib/cancellation";
@@ -349,6 +350,8 @@ export default function AccountDetailPage() {
   const [showFullAccountInfo, setShowFullAccountInfo] = useState(false);
   // Redesign: everything that is not one of the six tiles sits behind "More".
   const [showMore, setShowMore] = useState(false);
+  // Bumped when the schedule is changed here, so Next cleaning and the banner read it again.
+  const [scheduleVersion, setScheduleVersion] = useState(0);
   const [showToDo, setShowToDo] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   // Pin Board: the "Pin to board" button (only where accounts are switched on in Settings -> Pin Board).
@@ -1058,7 +1061,7 @@ export default function AccountDetailPage() {
             onEdit={() => router.push(`/accounts/${accountIdForUrl}/edit`)}
           >
             {/* Active and no Sub Schedule: Coverage cannot count it. Nothing shows otherwise. */}
-            <NoScheduleBanner accountId={getAccountId(account, rawAccountIdFromUrl)} />
+            <NoScheduleBanner key={`no-schedule-${scheduleVersion}`} accountId={getAccountId(account, rawAccountIdFromUrl)} />
             <Tips
               id="account"
               steps={[
@@ -1069,6 +1072,7 @@ export default function AccountDetailPage() {
             />
 
             <NextCleaning
+              key={`next-${scheduleVersion}`}
               accountId={getAccountId(account, rawAccountIdFromUrl)}
               cleaningDays={cleaningDays}
               frequency={cleaningFrequency}
@@ -1092,9 +1096,19 @@ export default function AccountDetailPage() {
                     </>
                   )}
                   <Detail label="Start Date" value={startDate} />
-                  <Detail label="Cleaning Days" value={cleaningDays} />
-                  <Detail label="Cleaning Time" value={describeCleaningTime(account.cleaningTime) || "Not set"} />
-                  <Detail label="Frequency" value={cleaningFrequency} />
+                  {/* The schedule in words (Sub Schedules); tap to change it. The old text fields show only when there is none. */}
+                  <AccountScheduleDetail
+                    accountId={getAccountId(account, rawAccountIdFromUrl)}
+                    accountName={accountName}
+                    onSaved={() => setScheduleVersion((value) => value + 1)}
+                    fallback={
+                      <>
+                        <Detail label="Cleaning Days" value={cleaningDays} />
+                        <Detail label="Cleaning Time" value={describeCleaningTime(account.cleaningTime) || "Not set"} />
+                        <Detail label="Frequency" value={cleaningFrequency} />
+                      </>
+                    }
+                  />
                   <TimeOnSiteDetail accountId={getAccountId(account, rawAccountIdFromUrl)} />
                   <Detail label="CW Pay" value={formatMoney(account.monthlyRevenue)} />
                   <Detail label="Subcontractor Pay" value={`${formatMoney(subcontractorPay)} (${share.subPercent})`} />

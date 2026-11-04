@@ -1,45 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { todayISO } from "@/lib/scheduleRecurrence";
 import { AutocompleteField, useDebounce, type SearchOption } from "./autocomplete";
-import { BigButton, ErrorBox, SelectField, Sheet } from "@/app/ui";
-import PlusMinus from "@/app/components/plus-minus";
-import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock, windowForStartTime } from "@/lib/schedule-time";
+import { BigButton, ErrorBox, Sheet, showToast } from "@/app/ui";
+import ScheduleEditor from "@/app/components/schedule-editor";
+import { saveSchedule } from "@/app/components/account-schedule";
+import { emptyPlan, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
 
 type TeamLeaderRecord = { id: string; companyName: string; contactName: string };
-
-type Occurrence = { position: string; weekday: string; timeWindow: string; start: number };
-const EMPTY_OCCURRENCE: Occurrence = { position: "", weekday: "", timeWindow: "", start: DEFAULT_START_TIME };
-
-// The fifth chip next to the four windows: an appointment at an exact time.
-const EXACT = "Exact";
-
-/** What one day sends: its window, or for an exact time the window it falls in plus the time. */
-function entryTime(windowId: string, start: number): { timeWindow: string; scheduleType?: string; startTime?: string } {
-  if (windowId !== EXACT) return { timeWindow: windowId };
-  return { timeWindow: windowForStartTime(start), scheduleType: "appointment", startTime: toClock(start) };
-}
-
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const POSITIONS = ["1st", "2nd", "3rd", "4th", "Last"];
-const TIME_WINDOWS = [
-  { id: "Morning", label: "Morning", hours: "7am – 10am" },
-  { id: "Midday", label: "Midday", hours: "10am – 1pm" },
-  { id: "Afternoon", label: "Afternoon", hours: "1pm – 5pm" },
-  { id: "Evening", label: "Evening", hours: "5pm+" },
-] as const;
-const FREQUENCIES: { id: string; label: string }[] = [
-  { id: "WEEKLY", label: "Weekly" },
-  { id: "BIWEEKLY", label: "Every Other Week" },
-  { id: "MONTHLY_1X", label: "1x per Month" },
-  { id: "MONTHLY_2X", label: "2x per Month" },
-  { id: "AS_NEEDED", label: "As Needed" },
-];
-
-function yearEndISO(): string {
-  return `${todayISO().slice(0, 4)}-12-31`;
-}
 
 function formatTeamLeaderLabel(record: TeamLeaderRecord): string {
   return record.contactName && record.companyName
@@ -57,11 +25,9 @@ type Props = {
   onCreated: (created: { account: SearchOption; sub: SearchOption }) => void;
 };
 
-// Admin-side equivalent of AccountScheduleForm in
-// app/subcontractor-portal/sub-schedule-tab.tsx — same fields/flow (a sub
-// submitting their own schedule looks identical from their end), built as
-// its own independent component rather than extracted from that file, so
-// the portal's actual submission UI stays untouched.
+// Sub Center → Add schedule: pick the customer and the sub, then the shared
+// schedule form (app/components/schedule-editor.tsx). Saved like every other
+// schedule form; the sub is emailed and sees it in their portal.
 export default function AddScheduleModal({
   initialAccount,
   initialSub,
@@ -94,119 +60,48 @@ export default function AddScheduleModal({
       .map((r) => ({ id: r.id, label: formatTeamLeaderLabel(r) }));
   }, [allTeamLeaders, debouncedSubQuery, subSelected]);
 
-  const [frequency, setFrequency] = useState("");
-  const [selectedDays, setSelectedDays] = useState<string[]>([]);
-  const [dayWindows, setDayWindows] = useState<Record<string, string>>({});
-  const [dayStarts, setDayStarts] = useState<Record<string, number>>({});
-  const [occurrence1, setOccurrence1] = useState<Occurrence>(EMPTY_OCCURRENCE);
-  const [occurrence2, setOccurrence2] = useState<Occurrence>(EMPTY_OCCURRENCE);
+  const [plan, setPlan] = useState<SchedulePlan>(emptyPlan);
+  const [tried, setTried] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  function handleFrequencyChange(next: string) {
-    setFrequency(next);
-    setSelectedDays([]);
-    setDayWindows({});
-    setOccurrence1(EMPTY_OCCURRENCE);
-    setOccurrence2(EMPTY_OCCURRENCE);
-    setError("");
-  }
-
-  function toggleDay(day: string) {
-    setSelectedDays((prev) => {
-      if (prev.includes(day)) {
-        setDayWindows((w) => {
-          const next = { ...w };
-          delete next[day];
-          return next;
-        });
-        return prev.filter((d) => d !== day);
-      }
-      return [...prev, day];
-    });
-  }
-
-  function setWindowForDay(day: string, windowId: string) {
-    setDayWindows((prev) => ({ ...prev, [day]: windowId }));
-  }
-
-  const allDaysHaveWindows = selectedDays.length > 0 && selectedDays.every((day) => Boolean(dayWindows[day]));
-  const occurrence1Complete = Boolean(occurrence1.position && occurrence1.weekday && occurrence1.timeWindow);
-  const occurrence2Complete = Boolean(occurrence2.position && occurrence2.weekday && occurrence2.timeWindow);
-
-  function computeCanSubmit(): boolean {
-    if (submitting) return false;
-    if (!accountSelected || !subSelected || !adminName.trim()) return false;
-    if (frequency === "WEEKLY" || frequency === "BIWEEKLY") return allDaysHaveWindows;
-    if (frequency === "MONTHLY_1X") return occurrence1Complete;
-    if (frequency === "MONTHLY_2X") return occurrence1Complete && occurrence2Complete;
-    if (frequency === "AS_NEEDED") return true;
-    return false;
-  }
-  const canSubmit = computeCanSubmit();
+  const missing = !accountSelected ? "Pick the customer." : !subSelected ? "Pick the subcontractor." : "";
 
   async function handleSubmit() {
-    if (!canSubmit || !accountSelected || !subSelected) return;
-    setSubmitting(true);
+    setTried(true);
     setError("");
-
-    const effectiveStart = frequency === "AS_NEEDED" ? "" : todayISO();
-    const effectiveEnd = frequency === "AS_NEEDED" ? "" : yearEndISO();
-
-    type SubmitEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string; scheduleType?: string; startTime?: string };
-    let entries: SubmitEntry[];
-    if (frequency === "WEEKLY" || frequency === "BIWEEKLY") {
-      entries = selectedDays.map((day) => ({ dayOfWeek: day, ...entryTime(dayWindows[day], dayStarts[day] ?? DEFAULT_START_TIME) }));
-    } else if (frequency === "MONTHLY_1X") {
-      entries = [{ monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, ...entryTime(occurrence1.timeWindow, occurrence1.start) }];
-    } else if (frequency === "MONTHLY_2X") {
-      entries = [
-        { monthlyOccurrence: `${occurrence1.position}:${occurrence1.weekday}`, ...entryTime(occurrence1.timeWindow, occurrence1.start) },
-        { monthlyOccurrence: `${occurrence2.position}:${occurrence2.weekday}`, ...entryTime(occurrence2.timeWindow, occurrence2.start) },
-      ];
-    } else {
-      entries = [];
+    if (missing || !accountSelected || !subSelected) return;
+    if (planProblems(plan).length > 0) return;
+    setSubmitting(true);
+    const result = await saveSchedule({
+      accountId: accountSelected.id,
+      accountName: accountSelected.label,
+      subId: subSelected.id,
+      plan,
+      closeScheduleIds: [],
+      submittedBy: adminName.trim(),
+    });
+    setSubmitting(false);
+    if (!result.ok) {
+      setError(result.error);
+      return;
     }
-
-    try {
-      const res = await fetch("/api/admin/sub-schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "createSchedule",
-          accountId: accountSelected.id,
-          accountName: accountSelected.label,
-          subId: subSelected.id,
-          submittedBy: adminName.trim(),
-          frequency,
-          effectiveStart,
-          effectiveEnd,
-          entries,
-        }),
-      });
-      const data = (await res.json()) as { success?: boolean; error?: string };
-      if (!res.ok || !data.success) {
-        setError(data.error ?? "Failed to create schedule. Please try again.");
-        return;
-      }
-      onCreated({ account: accountSelected, sub: subSelected });
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
+    showToast("Schedule saved ✓");
+    onCreated({ account: accountSelected, sub: subSelected });
   }
 
   return (
     <Sheet
       open
       title="Add schedule"
-      text="Creates a recurring schedule on behalf of a subcontractor. They'll be emailed and can update it from their own portal later."
-      onClose={onClose}
+      text="The sub is emailed and sees it in their portal."
+      onClose={() => {
+        if (!submitting) onClose();
+      }}
       busy={submitting}
       actions={
-        <BigButton busy={submitting} busyLabel="Saving…" disabled={!canSubmit} onClick={() => void handleSubmit()}>
-          Create schedule
+        <BigButton busy={submitting} busyLabel="Saving…" onClick={() => void handleSubmit()}>
+          Save schedule
         </BigButton>
       }
     >
@@ -245,112 +140,10 @@ export default function AddScheduleModal({
         }}
       />
 
-      <SelectField label="How often does this sub service this account?" value={frequency} onChange={(e) => handleFrequencyChange(e.target.value)}>
-        <option value="">Select a frequency...</option>
-        {FREQUENCIES.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.label}
-          </option>
-        ))}
-      </SelectField>
+      <ScheduleEditor value={plan} onChange={setPlan} showProblems={tried} disabled={submitting} />
 
-      {(frequency === "WEEKLY" || frequency === "BIWEEKLY") && (
-        <>
-          <div>
-            <p className="ui-label">Which day(s)?</p>
-            <div className="ui-chips" role="group" aria-label="Days of the week">
-              {DAYS.map((day) => (
-                <button key={day} type="button" onClick={() => toggleDay(day)} className="ui-chip" aria-pressed={selectedDays.includes(day)} aria-label={day}>
-                  {day.slice(0, 3)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {selectedDays.map((day) => (
-            <div key={day}>
-              <p className="ui-label">Time window for {day}</p>
-              <TimeWindowChips label={`Time window for ${day}`} value={dayWindows[day] ?? ""} onChange={(id) => setWindowForDay(day, id)} />
-              {dayWindows[day] === EXACT ? (
-                <StartTimePicker label={`Start time on ${day}`} value={dayStarts[day] ?? DEFAULT_START_TIME} onChange={(start) => setDayStarts((prev) => ({ ...prev, [day]: start }))} />
-              ) : null}
-            </div>
-          ))}
-        </>
-      )}
-
-      {(frequency === "MONTHLY_1X" || frequency === "MONTHLY_2X") && (
-        <>
-          <OccurrencePicker label={frequency === "MONTHLY_2X" ? "First visit" : "Which week and day?"} value={occurrence1} onChange={setOccurrence1} />
-          {frequency === "MONTHLY_2X" && <OccurrencePicker label="Second visit" value={occurrence2} onChange={setOccurrence2} />}
-        </>
-      )}
-
-      {frequency === "AS_NEEDED" && <p className="ui-hint">No recurring days needed. Visits will be added one at a time as they come up.</p>}
-
-      {!adminName.trim() ? <p className="ui-field-error">Enter your name at the top of the page before creating a schedule.</p> : null}
-
-      {error ? <ErrorBox title="The schedule was not created." text={error} /> : null}
+      {tried && missing ? <p className="ui-field-error">⚠ {missing}</p> : null}
+      {error ? <ErrorBox title="The schedule was not saved." text={error} /> : null}
     </Sheet>
-  );
-}
-
-// The four time windows as big chips; each shows its hours.
-function TimeWindowChips({ label, value, onChange }: { label: string; value: string; onChange: (id: string) => void }) {
-  return (
-    <div className="ui-chips" role="group" aria-label={label}>
-      {TIME_WINDOWS.map((w) => (
-        <button key={w.id} type="button" onClick={() => onChange(w.id)} className="ui-chip" aria-pressed={value === w.id}>
-          {w.label} <span style={{ fontWeight: 500 }}>({w.hours})</span>
-        </button>
-      ))}
-      <button type="button" onClick={() => onChange(EXACT)} className="ui-chip" aria-pressed={value === EXACT}>
-        📌 Exact time
-      </button>
-    </div>
-  );
-}
-
-// An appointment's start time: big − / + in half hours.
-function StartTimePicker({ label, value, onChange }: { label: string; value: number; onChange: (start: number) => void }) {
-  return (
-    <div style={{ marginTop: 10 }}>
-      <p className="ui-label">Starts at</p>
-      <PlusMinus value={value} onChange={onChange} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label={label} format={formatClock} />
-    </div>
-  );
-}
-
-function OccurrencePicker({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: Occurrence;
-  onChange: (next: Occurrence) => void;
-}) {
-  return (
-    <fieldset className="ui-checks" style={{ gap: 12 }}>
-      <legend className="ui-label">{label}</legend>
-      <SelectField label="Which week" value={value.position} onChange={(e) => onChange({ ...value, position: e.target.value })}>
-        <option value="">Which week...</option>
-        {POSITIONS.map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-      </SelectField>
-      <SelectField label="Weekday" value={value.weekday} onChange={(e) => onChange({ ...value, weekday: e.target.value })}>
-        <option value="">Weekday...</option>
-        {DAYS.map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </SelectField>
-      <TimeWindowChips label={`Time window, ${label}`} value={value.timeWindow} onChange={(id) => onChange({ ...value, timeWindow: id })} />
-      {value.timeWindow === EXACT ? <StartTimePicker label={`Start time, ${label}`} value={value.start} onChange={(start) => onChange({ ...value, start })} /> : null}
-    </fieldset>
   );
 }

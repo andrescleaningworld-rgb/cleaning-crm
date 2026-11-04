@@ -4865,3 +4865,130 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---------- Schedule form (app/components/schedule-editor.tsx) ----------
+   One form everywhere a schedule is set. Big green buttons when picked,
+   big selects, a green line that says the schedule in words. */
+.ui-sched {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ui-sched-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.ui-sched-choices-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.ui-sched-choices-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 520px) {
+  .ui-sched-choices-4 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ui-sched-choice {
+  min-height: var(--ui-tap-main);
+  padding: 8px 12px;
+  border: 2px solid var(--ui-line);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ui-sched-choice:active {
+  transform: scale(0.98);
+}
+
+.ui-sched-choice[aria-pressed="true"],
+.ui-chip.ui-sched-chip[aria-pressed="true"] {
+  border-color: var(--ui-green, #3b6d11);
+  background: var(--ui-green, #3b6d11);
+  color: #ffffff;
+}
+
+.ui-sched-days .ui-sched-chip {
+  min-width: 64px;
+  font-size: 18px;
+}
+
+.ui-sched-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 2px solid var(--ui-line-soft);
+  border-radius: var(--ui-r-control);
+  background: var(--ui-surface);
+}
+
+.ui-sched-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ui-sched-row > * {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.ui-sched-select {
+  min-height: var(--ui-tap-main);
+  font-size: 20px;
+}
+
+.ui-sched-same {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ui-sched-summary {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: var(--ui-r-control);
+  background: var(--ui-green-soft, #eaf3de);
+  color: var(--ui-green-ink, #27500a);
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ui-sched-problems,
+.ui-sched-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-weight: 700;
+}
+
+.ui-sched-problems {
+  color: var(--ui-bad);
+}
+
+.ui-sched-notes {
+  color: var(--ui-warn);
+}
+
+/* The schedule line on the account page and in Sub Center. */
+.ui-sched-line {
+  font-weight: 700;
+  color: var(--ui-green-ink, #27500a);
+  overflow-wrap: anywhere;
+}

@@ -73,3 +73,18 @@ export function addScheduleHref(account: Pick<NoScheduleAccount, "accountId" | "
   if (account.subEmail) query.set("subId", account.subEmail);
   return `/sub-schedules?${query}`;
 }
+
+/** The account's own sub (its email and the name shown for it), for its schedule. Empty when it has none. */
+export async function accountSub(accountId: string): Promise<{ email: string; name: string }> {
+  const sql = getSql();
+  const rows = (await sql.query(
+    `SELECT COALESCE(btrim(s.email), '') AS email,
+       COALESCE(NULLIF(btrim(a.subcontractor_raw), ''), NULLIF(btrim(s.company_name), ''), NULLIF(btrim(s.contact_name), ''), '') AS name
+     FROM accounts a
+     LEFT JOIN subcontractors s ON s.id = a.subcontractor_id
+     WHERE a.id = btrim($1)
+     LIMIT 1`,
+    [accountId]
+  )) as { email: string; name: string }[];
+  return rows[0] ?? { email: "", name: "" };
+}

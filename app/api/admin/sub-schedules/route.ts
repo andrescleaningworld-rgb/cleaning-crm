@@ -8,6 +8,8 @@ import {
 import { FREQUENCY_LABELS, SCHEDULE_FREQUENCIES, validateScheduleEntries, type ScheduleFrequency } from "@/lib/scheduleRecurrence";
 import { sendSubcontractorNotification } from "@/lib/email";
 import { formatClock, parseClock } from "@/lib/schedule-time";
+import { replaceSchedule } from "@/lib/schedule-save";
+import { accountSub } from "@/lib/pg/no-schedule";
 
 type CreateScheduleEntry = { dayOfWeek?: string; timeWindow?: string; monthlyOccurrence?: string; scheduleType?: string; startTime?: string };
 
@@ -30,9 +32,19 @@ function describeCreateEntries(frequency: string, entries: CreateScheduleEntry[]
   return entries.map((e) => `${e.dayOfWeek || "-"} (${entryTime(e)})`).join(", ");
 }
 
-export async function GET() {
+// ?accountId=… : only that account's schedules, plus the account's own sub
+// (accountSub: its email and name), for the account page and account forms.
+export async function GET(request: NextRequest) {
   try {
+    const accountId = (request.nextUrl.searchParams.get("accountId") ?? "").trim();
     const schedules = await fetchSubSchedules();
+    if (accountId) {
+      const sub = await accountSub(accountId).catch(() => ({ email: "", name: "" }));
+      return NextResponse.json(
+        { schedules: schedules.filter((schedule) => schedule.accountId.trim() === accountId), accountSub: sub },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
     return NextResponse.json({ schedules });
   } catch (err) {
     console.error("[admin/sub-schedules GET]", err);
@@ -138,6 +150,10 @@ export async function POST(request: NextRequest) {
   // page's "Your Name (for edits)" field) as submittedBy. No `action` field
   // at all is the existing pattern-change request shape below — kept fully
   // backward compatible.
+  // The shared schedule form (account page, Add / Edit Account, Sub
+  // Center): closes the rows it was showing and saves the new ones.
+  if (body.action === "replaceSchedule") return replaceSchedule(request, body as Record<string, unknown>);
+
   if (body.action === "createSchedule") {
     const accountId = body.accountId?.trim() ?? "";
     const accountName = body.accountName?.trim() ?? "";
