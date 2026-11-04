@@ -1,4 +1,5 @@
-// Settings -> Pin Board: how many days before a paper turns yellow, and the
+// Settings -> Pin Board: how many days before a paper turns yellow, the TV
+// slideshow (tv-slideshow-card.tsx), and the
 // secret links that open Office TV mode. Owner only. Hidden behind
 // FEATURE_PIN_BOARD like the board itself.
 

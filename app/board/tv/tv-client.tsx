@@ -15,11 +15,15 @@
 // top strip opens today's cleanings there. Both have a big "Back to board"
 // button and go back by themselves after 60 seconds.
 //
-// Slideshow: after a few minutes on the board, the middle shows about a
-// minute of the photos staff gave the "Show on TV" star (and first, today's
-// birthdays, anniversaries, holidays and company events), then the board
-// again. A click anywhere goes straight back to the board. With no starred
-// photos and nothing today, the board simply stays.
+// Slideshow (a screensaver): once the board has sat with no remote press,
+// click or touch for the idle time set in Settings -> Pin Board (5 minutes
+// unless changed), the middle shows about a minute of pictures: the photos
+// staff gave the "Show on TV" star and the ones from the office's Google
+// Drive folder, shuffled (and first, today's birthdays, anniversaries,
+// holidays and company events), then the board again. Any press, click or
+// touch ends it at once and is used up doing that: it does nothing else on
+// the board. Every press starts the idle time over. With no pictures and
+// nothing today, the board simply stays.
 //
 // The picture keeps a 4% margin from every edge of the screen (a TV cuts off
 // its edges: overscan). Everything inside is sized from the picture itself
@@ -60,8 +64,10 @@ type TvData = {
   papers: Paper[];
   counters: { pinned: number; stuck: number; doneToday: number };
   cleanings: TvCleaning[];
-  /** The photos with the "Show on TV" star. */
+  /** The photos with the "Show on TV" star and the Drive folder's pictures, shuffled. */
   slides: TvSlide[];
+  /** Minutes with no press, click or touch before the slideshow starts. */
+  idleMinutes: number;
   /** Today's birthdays, anniversaries, holidays, office closed, company events. */
   todayNotes: TvNote[];
 };
@@ -82,8 +88,14 @@ const SHIFTS: [number, number][] = [
   [-4, -2],
 ];
 
-/** The slideshow: this long on the board, then SLIDES_PER_SHOW slides of SLIDE_MS each (about a minute), and again. */
-const BOARD_MS = 4 * 60_000;
+/** The slideshow: the board idle this long (unless Settings says otherwise), then SLIDES_PER_SHOW slides of SLIDE_MS each (about a minute), and again. */
+const DEFAULT_IDLE_MINUTES = 5;
+/** After a press ends the slideshow, the rest of that press (its click, or the key let go) is used up too. */
+const SWALLOW_MS = 700;
+/** What counts as someone at the TV: a remote or keyboard press, a click, a touch. */
+const PRESS_EVENTS = ["keydown", "pointerdown", "mousedown", "touchstart", "wheel"] as const;
+/** The rest of a press that ended the slideshow. */
+const PRESS_TAIL_EVENTS = ["keyup", "keypress", "pointerup", "mouseup", "touchend", "click", "contextmenu"] as const;
 const SLIDE_MS = 10_000;
 const SLIDES_PER_SHOW = 6;
 /** A list that was opened (a square, or today's cleanings) closes by itself after this long. */
@@ -535,6 +547,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
         counters: body.counters ?? { pinned: 0, stuck: 0, doneToday: 0 },
         cleanings: body.cleanings ?? [],
         slides: body.slides ?? [],
+        idleMinutes: Number(body.idleMinutes) >= 1 ? Number(body.idleMinutes) : DEFAULT_IDLE_MINUTES,
         todayNotes: body.todayNotes ?? [],
       });
       setProblem("");
@@ -596,15 +609,72 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const photosPerShow = Math.min(photoCount, SLIDES_PER_SHOW - (hasNotes ? 1 : 0));
   const deckLength = (hasNotes ? 1 : 0) + photosPerShow;
 
-  // The board has been up long enough: start a show, if there is anything to show.
+  const idleMs = (data?.idleMinutes ?? DEFAULT_IDLE_MINUTES) * 60_000;
+  /** The last remote press, click or touch (or the end of the last show). */
+  const lastPress = useRef(Date.now());
+  const showRef = useRef<number | null>(null);
+  useEffect(() => {
+    showRef.current = show;
+  }, [show]);
+
+  // Any press, click or touch: the idle time starts over. During the slideshow it
+  // ends the show at once and goes no further, so it does nothing on the board
+  // (capture on the window runs before anything on the page sees it).
+  useEffect(() => {
+    let swallowUntil = 0;
+    const swallow = (event: Event) => {
+      if (event.cancelable) event.preventDefault();
+      event.stopPropagation();
+    };
+    const press = (event: Event) => {
+      lastPress.current = Date.now();
+      if (showRef.current !== null) {
+        swallow(event);
+        swallowUntil = Date.now() + SWALLOW_MS;
+        setShow(null);
+      } else if (Date.now() < swallowUntil) {
+        swallow(event);
+      }
+    };
+    const tail = (event: Event) => {
+      if (Date.now() < swallowUntil) swallow(event);
+    };
+    let lastAt = "";
+    const moved = (event: MouseEvent) => {
+      // A browser also reports a "move" when the picture changes under a still mouse; only a real move counts.
+      const at = `${event.screenX},${event.screenY}`;
+      if (at === lastAt) return;
+      lastAt = at;
+      lastPress.current = Date.now();
+      if (showRef.current !== null) setShow(null);
+    };
+    for (const name of PRESS_EVENTS) window.addEventListener(name, press, { capture: true, passive: false });
+    for (const name of PRESS_TAIL_EVENTS) window.addEventListener(name, tail, { capture: true, passive: false });
+    window.addEventListener("mousemove", moved, { capture: true, passive: true });
+    return () => {
+      for (const name of PRESS_EVENTS) window.removeEventListener(name, press, { capture: true });
+      for (const name of PRESS_TAIL_EVENTS) window.removeEventListener(name, tail, { capture: true });
+      window.removeEventListener("mousemove", moved, { capture: true });
+    };
+  }, []);
+
+  // The board has sat idle long enough: start a show, if there is anything to show.
+  // Checked again when the time is up, since a press may have come in between.
   useEffect(() => {
     if (view !== "board" || show !== null || deckLength === 0) return;
-    const timer = window.setTimeout(() => {
+    let timer = 0;
+    const wait = () => {
+      const left = lastPress.current + idleMs - Date.now();
+      if (left > 0) {
+        timer = window.setTimeout(wait, Math.min(left, 60_000));
+        return;
+      }
       setSlide(0);
       setShow(nextStart.current);
-    }, BOARD_MS);
+    };
+    wait();
     return () => window.clearTimeout(timer);
-  }, [view, show, deckLength]);
+  }, [view, show, deckLength, idleMs]);
 
   // While a show runs: the next slide every few seconds, then back to the board. The next show goes on from where this one stopped.
   useEffect(() => {
@@ -612,6 +682,8 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     const timer = window.setTimeout(() => {
       if (slide + 1 < deckLength) return setSlide(slide + 1);
       nextStart.current = photoCount > 0 ? (show + photosPerShow) % photoCount : 0;
+      // The board again for the whole idle time before the next show.
+      lastPress.current = Date.now();
       setShow(null);
     }, SLIDE_MS);
     return () => window.clearTimeout(timer);
