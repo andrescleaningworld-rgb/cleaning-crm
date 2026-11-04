@@ -68,6 +68,10 @@ type TvData = {
   slides: TvSlide[];
   /** Minutes with no press, click or touch before the slideshow starts. */
   idleMinutes: number;
+  /** Seconds each slide stays up. */
+  slideSeconds: number;
+  /** Slides in one round before the board comes back. */
+  slidesPerShow: number;
   /** Today's birthdays, anniversaries, holidays, office closed, company events. */
   todayNotes: TvNote[];
 };
@@ -88,16 +92,16 @@ const SHIFTS: [number, number][] = [
   [-4, -2],
 ];
 
-/** The slideshow: the board idle this long (unless Settings says otherwise), then SLIDES_PER_SHOW slides of SLIDE_MS each (about a minute), and again. */
+/** The slideshow: the board idle this long, then a round of slides, and again. All three are set in Settings; these are the defaults. */
 const DEFAULT_IDLE_MINUTES = 5;
+const DEFAULT_SLIDE_SECONDS = 10;
+const DEFAULT_SLIDES_PER_SHOW = 6;
 /** After a press ends the slideshow, the rest of that press (its click, or the key let go) is used up too. */
 const SWALLOW_MS = 700;
 /** What counts as someone at the TV: a remote or keyboard press, a click, a touch. */
 const PRESS_EVENTS = ["keydown", "pointerdown", "mousedown", "touchstart", "wheel"] as const;
 /** The rest of a press that ended the slideshow. */
 const PRESS_TAIL_EVENTS = ["keyup", "keypress", "pointerup", "mouseup", "touchend", "click", "contextmenu"] as const;
-const SLIDE_MS = 10_000;
-const SLIDES_PER_SHOW = 6;
 /** A list that was opened (a square, or today's cleanings) closes by itself after this long. */
 const BACK_MS = 60_000;
 /** The picture is a TV's shape, 16:9. On a narrower screen the width decides the size of everything. */
@@ -548,6 +552,8 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
         cleanings: body.cleanings ?? [],
         slides: body.slides ?? [],
         idleMinutes: Number(body.idleMinutes) >= 1 ? Number(body.idleMinutes) : DEFAULT_IDLE_MINUTES,
+        slideSeconds: Number(body.slideSeconds) >= 1 ? Number(body.slideSeconds) : DEFAULT_SLIDE_SECONDS,
+        slidesPerShow: Number(body.slidesPerShow) >= 1 ? Number(body.slidesPerShow) : DEFAULT_SLIDES_PER_SHOW,
         todayNotes: body.todayNotes ?? [],
       });
       setProblem("");
@@ -606,7 +612,10 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const nextStart = useRef(0);
   const photoCount = data?.slides.length ?? 0;
   const hasNotes = (data?.todayNotes.length ?? 0) > 0;
-  const photosPerShow = Math.min(photoCount, SLIDES_PER_SHOW - (hasNotes ? 1 : 0));
+  const slideMs = (data?.slideSeconds ?? DEFAULT_SLIDE_SECONDS) * 1000;
+  const slidesPerShow = data?.slidesPerShow ?? DEFAULT_SLIDES_PER_SHOW;
+  // Today's notes take one of the round's slides; at least one photo still shows when there are photos.
+  const photosPerShow = Math.min(photoCount, Math.max(1, slidesPerShow - (hasNotes ? 1 : 0)));
   const deckLength = (hasNotes ? 1 : 0) + photosPerShow;
 
   const idleMs = (data?.idleMinutes ?? DEFAULT_IDLE_MINUTES) * 60_000;
@@ -685,9 +694,9 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
       // The board again for the whole idle time before the next show.
       lastPress.current = Date.now();
       setShow(null);
-    }, SLIDE_MS);
+    }, slideMs);
     return () => window.clearTimeout(timer);
-  }, [show, slide, deckLength, photoCount, photosPerShow]);
+  }, [show, slide, deckLength, photoCount, photosPerShow, slideMs]);
 
   /** Any click during the slideshow: the board is back at once. */
   const endShow = useCallback(() => setShow(null), []);

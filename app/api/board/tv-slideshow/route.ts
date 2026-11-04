@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { folderIdFrom, getTvSlideshowSettings, saveTvSlideshowSettings, syncDriveSlides, tvSlideshowReady } from "@/lib/pg/tv-slideshow";
+import { SLIDES_PER_SHOW_RANGE, SLIDE_SECONDS_RANGE, folderIdFrom, getTvSlideshowSettings, saveTvSlideshowSettings, syncDriveSlides, tvSlideshowReady } from "@/lib/pg/tv-slideshow";
 
 export const maxDuration = 300;
 
@@ -45,7 +45,20 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(idle) || idle < 1 || idle > 60) return refuse("Minutes must be a number from 1 to 60.");
       const folderId = folderIdFrom(String(body.driveFolder ?? ""));
       if (!folderId) return refuse("Paste the Google Drive folder link, or its ID.");
-      const settings = await saveTvSlideshowSettings({ idleMinutes: idle, driveFolderId: folderId, driveEnabled: body.driveEnabled === true }, by);
+      // Seconds per picture and pictures per round: saved when sent (an older page does not send them).
+      const timing = body.slideSeconds !== undefined && body.slidesPerShow !== undefined;
+      const seconds = Math.round(Number(body.slideSeconds));
+      const perShow = Math.round(Number(body.slidesPerShow));
+      if (timing && (!Number.isFinite(seconds) || seconds < SLIDE_SECONDS_RANGE.min || seconds > SLIDE_SECONDS_RANGE.max)) {
+        return refuse(`Seconds per picture must be a number from ${SLIDE_SECONDS_RANGE.min} to ${SLIDE_SECONDS_RANGE.max}.`);
+      }
+      if (timing && (!Number.isFinite(perShow) || perShow < SLIDES_PER_SHOW_RANGE.min || perShow > SLIDES_PER_SHOW_RANGE.max)) {
+        return refuse(`Pictures per round must be a number from ${SLIDES_PER_SHOW_RANGE.min} to ${SLIDES_PER_SHOW_RANGE.max}.`);
+      }
+      const settings = await saveTvSlideshowSettings(
+        { idleMinutes: idle, driveFolderId: folderId, driveEnabled: body.driveEnabled === true, ...(timing ? { slideSeconds: seconds, slidesPerShow: perShow } : {}) },
+        by
+      );
       return NextResponse.json({ success: true, settings }, noStore);
     }
 

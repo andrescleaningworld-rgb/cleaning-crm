@@ -117,6 +117,9 @@ export async function GET(request: NextRequest) {
         slides,
         // The slideshow starts after the board sits this long with no remote press, click or touch.
         idleMinutes: slideshow?.idleMinutes ?? 5,
+        // How long each picture stays up, and how many slides one round shows.
+        slideSeconds: slideshow?.slideSeconds ?? 10,
+        slidesPerShow: slideshow?.slidesPerShow ?? 6,
         todayNotes: events.map((event) => ({ kind: event.kind, text: eventLine(event) })),
       },
       noStore
