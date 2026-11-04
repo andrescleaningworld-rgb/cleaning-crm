@@ -6,6 +6,7 @@ import type { BoardSettings, TvLink } from "@/lib/board";
 import { DEFAULT_PIN_TYPES, NOT_AVAILABLE_YET, PIN_TYPES, readPinTypes, type PinType, type PinTypes } from "@/lib/boardPins";
 import { postBoard } from "../../board/board-client";
 import TestPushCard from "./test-push";
+import TvSlideshowCard from "./tv-slideshow-card";
 
 type State = "loading" | "off" | "denied" | "failed" | "ready";
 
@@ -253,6 +254,8 @@ export default function BoardSettingsClient() {
               ))}
             </div>
           </Card>
+
+          <TvSlideshowCard />
 
           <TestPushCard />
 

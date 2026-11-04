@@ -6,7 +6,8 @@
 // the account name and the kind of paper, nothing else. No note text, no
 // order details, no money, no addresses, no phone numbers, no record ids.
 // The slideshow is the photos staff gave the "Show on TV" star, with the
-// account name under each; "today" is the day's birthdays, anniversaries,
+// account name under each, mixed with the pictures copied from the office's
+// Google Drive folder (no caption; lib/pg/tv-slideshow.ts); "today" is the day's birthdays, anniversaries,
 // holidays and company events (first names and titles only).
 
 import { createHash } from "node:crypto";
@@ -18,9 +19,22 @@ import { boardReady, getBoardSettings, listBoardManagers, listPapers, syncBoard,
 import { listCleanings } from "@/lib/pg/cleanings";
 import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
 import { eventLine } from "@/lib/officeEvents";
-import { listOfficeEvents, tvSlides } from "@/lib/pg/office-events";
+import { listOfficeEvents, tvSlides, type TvSlide } from "@/lib/pg/office-events";
+import { driveSlideUrls, getTvSlideshowSettings } from "@/lib/pg/tv-slideshow";
 
 const noStore = { headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
+
+/**
+ * Starred photos and Drive pictures shuffled together. The order is the same
+ * all day (it only changes with the date), so the TV, which asks again every
+ * minute, carries on through the pictures instead of starting over.
+ */
+function mixed(slides: TvSlide[], day: string): TvSlide[] {
+  const rank = (slide: TvSlide) => createHash("sha256").update(`${day}|${slide.url}`).digest("hex");
+  const ranked = slides.map((slide) => ({ slide, rank: rank(slide) }));
+  ranked.sort((a, b) => a.rank.localeCompare(b.rank));
+  return ranked.map((entry) => entry.slide);
+}
 
 /** A stand-in for the record id: steady (so a paper keeps its tilt) but not the id itself. */
 const shortId = (paper: Paper) => createHash("sha256").update(`${paper.kind}:${paper.itemId}`).digest("hex").slice(0, 12);
@@ -73,14 +87,17 @@ export async function GET(request: NextRequest) {
     if (await flowsReady().catch(() => false)) await syncAutoSteps().catch((error) => console.error("[board tv] account flows:", error instanceof Error ? error.message : error));
     const today = officeDay();
     const settings = await getBoardSettings();
-    const [managers, lists, calendar, slides, events] = await Promise.all([
+    const [managers, lists, calendar, starred, drive, slideshow, events] = await Promise.all([
       listBoardManagers(),
       listPapers(settings.doneDays),
       listCleanings(today, today),
       // Neither may stop the board: no photos and no days is a fine answer.
       tvSlides().catch(() => []),
+      driveSlideUrls(),
+      getTvSlideshowSettings().catch(() => null),
       listOfficeEvents(today, today).catch(() => []),
     ]);
+    const slides = mixed([...starred, ...drive.map((url) => ({ url, caption: "" }))], today);
     const squares = new Set(managers.map((manager) => manager.id));
     const papers = lists.papers.map((paper) => (paper.square && !squares.has(paper.square) ? { ...paper, square: "" } : paper));
     return NextResponse.json(
@@ -98,6 +115,8 @@ export async function GET(request: NextRequest) {
         },
         cleanings: calendar.cleanings.map((cleaning) => ({ accountName: cleaning.accountName, sub: cleaning.sub, status: cleaning.status })),
         slides,
+        // The slideshow starts after the board sits this long with no remote press, click or touch.
+        idleMinutes: slideshow?.idleMinutes ?? 5,
         todayNotes: events.map((event) => ({ kind: event.kind, text: eventLine(event) })),
       },
       noStore
