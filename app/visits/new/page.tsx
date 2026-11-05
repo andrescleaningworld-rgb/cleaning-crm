@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { BigButton, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import AccountPickerField from "../../components/AccountPickerField";
 import { ManagerOptions, useManagerNames } from "../../components/manager-options";
@@ -80,6 +81,27 @@ function NewVisitPageContent() {
   const pinChoice = pinPicked ?? startingPin(pinInfo, "visit", manager);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
+  const draft = useFormDraft(
+    `new-visit:${accountIdFromUrl || accountFromUrl}`,
+    { date, accountName, accountId, rawManager, subcontractor, visitType, condition, followUpNeeded, followUpDate, notes, pinPicked },
+    {
+      ready: !loadingAccounts,
+      onRestore: (kept) => {
+        setDate(kept.date);
+        setAccountName(kept.accountName);
+        setAccountId(kept.accountId);
+        setManager(kept.rawManager);
+        setSubcontractor(kept.subcontractor);
+        setVisitType(kept.visitType);
+        setCondition(kept.condition);
+        setFollowUpNeeded(kept.followUpNeeded);
+        setFollowUpDate(kept.followUpDate);
+        setNotes(kept.notes);
+        setPinPicked(kept.pinPicked);
+      },
+    }
+  );
 
   useEffect(() => {
     async function loadAccounts() {
@@ -203,6 +225,7 @@ function NewVisitPageContent() {
         throw new Error(data.error || "Failed to save visit.");
       }
 
+      draft.clear();
       await pinAfterSave(pinInfo, "visit", pinChoice, { recordId: clean(data.id), title: [visitType, accountName].filter(Boolean).join(" · "), accountName });
 
       setMessage(data.message || "Visit saved successfully.");
@@ -235,6 +258,7 @@ function NewVisitPageContent() {
         </p>
       ) : null}
       {error ? <ErrorBox title="That did not work." text={error} /> : null}
+      <DraftNotice draft={draft} />
 
       <form onSubmit={handleSubmit} className="ui-screen-body" noValidate>
         <Field label="Visit date" type="date" value={date} onChange={(event) => setDate(event.target.value)} />

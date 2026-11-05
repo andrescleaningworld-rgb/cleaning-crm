@@ -21,6 +21,7 @@ import {
   CHEER,
   showToast,
 } from "@/app/ui";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import { useHandoffs } from "../components/handoffs";
 import AccountLink from "../components/AccountLink";
 import { PinButton, PutOnBoard, putUpdateOnBoard, usePinInfo, type PinChoice } from "../components/pin-to-board";
@@ -223,6 +224,28 @@ function AccountUpdatesPageContent() {
   };
   const focusProcessId = searchParams.get("process") ?? "";
   const [savedMessage, setSavedMessage] = useState("");
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
+  // Closing the sheet keeps it; opening it again offers it.
+  const draft = useFormDraft(
+    `new-update:${accountIdFromUrl || accountNameFromUrl}`,
+    { accountSearchText, selectedAccountId, selectedAccountName, selectedManager, updateDate, updateType, manager, notes, notifyEmail, boardOn, boardSquare },
+    {
+      ready: showForm && !isLoadingAccounts,
+      onRestore: (kept) => {
+        setAccountSearchText(kept.accountSearchText);
+        setSelectedAccountId(kept.selectedAccountId);
+        setSelectedAccountName(kept.selectedAccountName);
+        setSelectedManager(kept.selectedManager);
+        setUpdateDate(kept.updateDate);
+        setUpdateType(kept.updateType);
+        setManager(kept.manager);
+        setNotes(kept.notes);
+        setNotifyEmail(kept.notifyEmail);
+        setBoardOn(kept.boardOn);
+        setBoardSquare(kept.boardSquare);
+      },
+    }
+  );
 
   useEffect(() => {
     async function loadAccounts() {
@@ -519,6 +542,7 @@ function AccountUpdatesPageContent() {
       setBoardOn(null);
       setBoardSquare(null);
 
+      draft.clear();
       setSavedMessage("Account update saved successfully.");
       // With handoffs on, the office has it now; either way it is logged.
       showToast(handoffs.state === "ready" ? "Logged ✓ — sent to Office" : CHEER.logged);
@@ -728,6 +752,7 @@ function AccountUpdatesPageContent() {
           </BigButton>
         }
       >
+        <DraftNotice draft={draft} />
         {openedFromAccountDetail ? null : (
           <>
             <Field

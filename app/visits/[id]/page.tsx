@@ -7,6 +7,7 @@ import AccountLink from "../../components/AccountLink";
 import { parseISO } from "@/lib/dateUtils";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 
 type Visit = {
   id: string;
@@ -163,6 +164,9 @@ export default function VisitDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [showFullHistory, setShowFullHistory] = useState(false);
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
+  // Closing the sheet keeps it; Edit offers it again.
+  const draft = useFormDraft(`edit-visit:${visitId}`, form, { ready: editing && form !== null, onRestore: setForm });
 
   const loadVisit = useCallback(async () => {
     if (!visitId) return;
@@ -263,6 +267,7 @@ export default function VisitDetailPage() {
       if (!response.ok || data.success === false) {
         throw new Error(data.error || "Failed to save changes.");
       }
+      draft.clear();
       setEditing(false);
       setForm(null);
       await loadVisit();
@@ -413,6 +418,7 @@ export default function VisitDetailPage() {
       >
         {form ? (
           <>
+            <DraftNotice draft={draft} />
             <Field
               label="Your name"
               hint="Recorded in this visit's edit history."

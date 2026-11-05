@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { loadManagerNames } from "../../components/manager-options";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 
 type AnyRow = Record<string, unknown>;
 
@@ -264,6 +265,21 @@ function NewComplaintPageContent() {
   const [message, setMessage] = useState("");
   const [selectedPhotos, setSelectedPhotos] = useState<SelectedPhoto[]>([]);
   const [todoDueDateTouched, setTodoDueDateTouched] = useState(false);
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx). Photos are not kept.
+  const draft = useFormDraft(
+    `new-complaint:${urlAccountId || urlAccountName}`,
+    { form, accountSearch, pinPicked, todoDueDateTouched },
+    {
+      ready: !loadingAccounts,
+      onRestore: (kept) => {
+        setForm(kept.form);
+        setAccountSearch(kept.accountSearch);
+        setShowAccountResults(false);
+        setPinPicked(kept.pinPicked);
+        setTodoDueDateTouched(kept.todoDueDateTouched);
+      },
+    }
+  );
 
   // The same list as every Manager dropdown: active managers on the Staff list.
   async function loadManagers() {
@@ -665,6 +681,7 @@ function NewComplaintPageContent() {
 
       selectedPhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
 
+      draft.clear();
       setMessage(successMessage);
       setForm(makeEmptyForm());
       setTodoDueDateTouched(false);
@@ -702,6 +719,7 @@ function NewComplaintPageContent() {
 
       {/* The form keeps the browser's own "fill this in" checks (account, date, issue, manager). */}
       <form onSubmit={handleSubmit} className="ui-screen-body">
+        <DraftNotice draft={draft} />
         <div className="ui-field" style={{ position: "relative" }}>
           <Field
             label="Account"

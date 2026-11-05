@@ -16,6 +16,7 @@ import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast } from
 import GoogleAddressAutocompleteInput, { type PlaceAddressDetails } from "@/app/components/GoogleAddressAutocompleteInput";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import SubPayFields from "@/app/components/sub-pay-fields";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import { useManagerNames } from "@/app/components/manager-options";
 
 type MarkatePrefill = {
@@ -60,6 +61,28 @@ export default function NewAcceptedAccountPage() {
   const [error, setError] = useState("");
   // Filled from a Markate estimate: its id and the estimate link that is saved when no file is chosen.
   const [markate, setMarkate] = useState<MarkatePrefill | null>(null);
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
+  // From a Markate estimate: its own draft, started once the estimate has filled the form in.
+  const [markateId] = useState(() => (typeof window === "undefined" ? "" : (new URLSearchParams(window.location.search).get("markate") ?? "")));
+  const draft = useFormDraft(
+    `new-accepted:${markateId}`,
+    { accountName, place, price, contactName, email, phone, frequency, subPay, extraContacts, manager },
+    {
+      ready: !markateId || markate !== null || error !== "",
+      onRestore: (kept) => {
+        setAccountName(kept.accountName);
+        setPlace(kept.place);
+        setPrice(kept.price);
+        setContactName(kept.contactName);
+        setEmail(kept.email);
+        setPhone(kept.phone);
+        setFrequency(kept.frequency);
+        setSubPay(kept.subPay);
+        setExtraContacts(kept.extraContacts);
+        setManager(kept.manager);
+      },
+    }
+  );
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("markate");
@@ -125,6 +148,7 @@ export default function NewAcceptedAccountPage() {
       if (!response.ok || !data.success || !data.accountId) throw new Error(data.error || "The account was not saved. Try again.");
       // The contacts after the main one. The account is saved either way.
       const contactsFailed = await saveExtraContacts(data.accountId, extraContacts);
+      draft.clear();
       // Made from a Markate estimate: it leaves the From Markate list (and the Pin Board's New accepted square).
       if (markate?.waiting) {
         await fetch("/api/markate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "started", id: markate.id, accountId: data.accountId }) }).catch(() => undefined);
@@ -151,6 +175,7 @@ export default function NewAcceptedAccountPage() {
       }
     >
       {error ? <ErrorBox title="Not saved" text={error} /> : null}
+      <DraftNotice draft={draft} />
       <form id="new-accepted-form" onSubmit={save}>
         <Card>
           <div className="ui-stack">

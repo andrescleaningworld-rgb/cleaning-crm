@@ -13,6 +13,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BigButton, CHEER, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField, showToast } from "@/app/ui";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import { EXTRA_JOBS_RULE, IN_HOUSE_LONG, SOURCES, checkNewExtraJob, searchAccounts, todayDay, type AccountChoice, type ExtraJob, type ExtraJobSource, type FormChoices } from "@/lib/extraJobs";
 import { ESTIMATE_ACCEPT, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
@@ -94,6 +95,27 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   const estimateInput = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx). Estimate files are not kept.
+  const draft = useFormDraft(
+    editId ? `edit-extra-job:${editId}` : `new-extra-job:${startAccountId}`,
+    { accountId, source, description, jobDate, price, subId, subPay, crewNames, soldBy, woNumber, estimateNumber },
+    {
+      ready: state === "ready",
+      onRestore: (kept) => {
+        setAccountId(kept.accountId);
+        setSource(kept.source);
+        setDescription(kept.description);
+        setJobDate(kept.jobDate);
+        setPrice(kept.price);
+        setSubId(kept.subId);
+        setSubPay(kept.subPay);
+        setCrewNames(kept.crewNames);
+        setSoldBy(kept.soldBy);
+        setWoNumber(kept.woNumber);
+        setEstimateNumber(kept.estimateNumber);
+      },
+    }
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -185,6 +207,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; job?: ExtraJob; emailed?: boolean };
       if (!response.ok || body.success !== true || !body.job) throw new Error(body.error ?? "That did not save. Try again.");
+      draft.clear();
       // The job is saved. Now the estimate files, if any; one that fails never undoes the save.
       const notUploaded: string[] = [];
       for (const file of estimateFiles) {
@@ -237,6 +260,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       ) : (
         <div className="ui-stack">
           {editId ? null : <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>}
+          <DraftNotice draft={draft} />
 
           {account ? (
             <div className={styles.picked}>
