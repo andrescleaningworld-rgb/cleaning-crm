@@ -6,16 +6,18 @@ import SubcontractorsPage from "../subcontractors/page";
 import SubSchedulesPage from "../sub-schedules/page";
 import SubCenterCoverage from "./coverage";
 import SubCenterActivityLog from "./activity-log";
+import SubCenterRanking from "./ranking";
 import { Screen, Tabs } from "@/app/ui";
 import { InsuranceCenter } from "@/app/components/sub-insurance";
 // Team Hub tab hidden 2026-09-24 (Crew Link replaces it); ./team-hub.tsx kept.
 
-type CenterTab = "subs" | "schedules" | "coverage" | "insurance" | "activity";
+type CenterTab = "subs" | "ranking" | "schedules" | "coverage" | "insurance" | "activity";
 
 const TAB_STORAGE_KEY = "cwSubCenterTab";
 
 const TABS: { value: CenterTab; label: string }[] = [
   { value: "subs", label: "Subs" },
+  { value: "ranking", label: "Ranking" },
   { value: "schedules", label: "Sub Schedules" },
   { value: "coverage", label: "Coverage" },
   { value: "insurance", label: "Insurance" },
@@ -23,7 +25,7 @@ const TABS: { value: CenterTab; label: string }[] = [
 ];
 
 function isCenterTab(value: string | null): value is CenterTab {
-  return value === "subs" || value === "schedules" || value === "coverage" || value === "insurance" || value === "activity";
+  return value === "subs" || value === "ranking" || value === "schedules" || value === "coverage" || value === "insurance" || value === "activity";
 }
 
 function getStoredTab(): CenterTab {
@@ -61,6 +63,7 @@ function SubCenterPageContent() {
       <Tabs label="Sub Center sections" tabs={TABS} value={activeTab} onChange={handleTabChange} />
 
       {activeTab === "subs" && <SubcontractorsPage />}
+      {activeTab === "ranking" && <SubCenterRanking />}
       {activeTab === "schedules" && <SubSchedulesPage />}
       {activeTab === "coverage" && <SubCenterCoverage />}
       {activeTab === "insurance" && (
