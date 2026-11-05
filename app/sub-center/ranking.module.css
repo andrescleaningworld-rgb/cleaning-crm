@@ -1,0 +1,81 @@
+/* Sub Center → Ranking (ranking.tsx). Brand colors from app/globals.css;
+   the gold matches the "Ready to start" badge. */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.row > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The place number on the left. */
+.place {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 64px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-off-soft);
+  color: var(--ui-off);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.placeWin {
+  background: linear-gradient(180deg, #ffe27a 0%, #f2b705 100%);
+  border: 2px solid #b07f00;
+  color: #3d2b00;
+}
+
+.placeWin > span {
+  font-size: 26px;
+}
+
+/* A winner's card gets the gold outline. */
+.win :global(.ui-card) {
+  border: 2px solid #b07f00;
+}
+
+.score {
+  flex: none;
+  padding: 4px 14px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-sky-soft);
+  color: var(--ui-navy);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.win .score {
+  background: var(--ui-green-soft);
+  color: var(--ui-green-ink);
+}
+
+.tieNote {
+  margin: 0;
+  padding: 12px 16px;
+  border: 2px solid #e0b400;
+  border-radius: var(--ui-r-control);
+  background: #fff6c9;
+  color: #3d2f00;
+  font-weight: 700;
+}
