@@ -4992,3 +4992,117 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   color: var(--ui-green-ink, #27500a);
   overflow-wrap: anywhere;
 }
+
+/* ---------- Help page for staff (app/help/staff-help.tsx) ---------- */
+.ui-help-rule {
+  margin: 0;
+  padding: 18px 16px;
+  border-radius: var(--ui-r-panel);
+  background: var(--ui-green);
+  color: #fff;
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: center;
+}
+.ui-help-group {
+  margin-top: 8px;
+}
+.ui-help-grid {
+  display: grid;
+  gap: var(--ui-gap, 12px);
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1024px) {
+  .ui-help-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.ui-help-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ui-help-page {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ui-muted);
+}
+.ui-help-steps {
+  margin: 0;
+  padding-left: 1.6em;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: decimal;
+  font-size: 1.1rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.ui-help-steps strong {
+  color: var(--ui-green-ink);
+}
+.ui-help-tip {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ui-r-control);
+  background: var(--ui-green-soft);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ui-help-link {
+  align-self: flex-start;
+}
+.ui-help-subtitle {
+  margin: 8px 0 0;
+  font-size: 1.1rem;
+}
+.ui-help-table-wrap {
+  overflow-x: auto;
+}
+.ui-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1rem;
+}
+.ui-help-table th,
+.ui-help-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--ui-line-soft);
+  text-align: left;
+  vertical-align: top;
+}
+.ui-help-table th {
+  color: var(--ui-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+.ui-help-who {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--ui-r-pill);
+  background: var(--ui-brand-soft);
+  color: var(--ui-brand-ink);
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* On a phone the table turns into one block per step. */
+@media (max-width: 560px) {
+  .ui-help-table thead {
+    display: none;
+  }
+  .ui-help-table tr {
+    display: block;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--ui-line-soft);
+  }
+  .ui-help-table td {
+    display: block;
+    padding: 2px 0;
+    border: 0;
+  }
+}

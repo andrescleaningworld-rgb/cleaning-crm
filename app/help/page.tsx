@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useHandoffs } from "../components/handoffs";
+import StaffHelp from "./staff-help";
 
 type Language = "en" | "es" | "pt";
 type UserRole = "admin" | "subcontractor" | "customer" | null;
@@ -41,13 +42,9 @@ const content: Record<
     aboutCustomerText: string;
     aboutImportantTitle: string;
     aboutImportantText: string;
-    quickStartTitle: string;
-    quickStartItems: string[];
-    adminTitle: string;
     subTitle: string;
     customerTitle: string;
     footerNote: string;
-    adminSections: HelpSection[];
     subSections: HelpSection[];
     customerSections: HelpSection[];
   }
@@ -72,135 +69,10 @@ const content: Record<
     aboutImportantTitle: "Important",
     aboutImportantText:
       "This app is for Cleaning World work use only. Do not share login information. Only enter accurate information related to accounts, visits, complaints, supplies, photos, or assigned work.",
-    quickStartTitle: "Quick Start",
-    quickStartItems: [
-      "Use the top menu to move between pages.",
-      "Click an account name to see full account details.",
-      "Use filters and search boxes to find information faster.",
-      "Save important notes as visits, complaints, or account updates.",
-      "Subcontractors should only use the subcontractor portal sections.",
-    ],
-    adminTitle: "Admin Instructions",
     subTitle: "Subcontractor Instructions",
     customerTitle: "Customer Instructions",
     footerNote:
       "Need something added to this help page? Tell the office what instruction is missing.",
-    adminSections: [
-      {
-        title: "Dashboard",
-        description:
-          "Use the dashboard to see the main company overview and current activity.",
-        items: [
-          "Review monthly revenue, sub pay, open complaints, and visits.",
-          "Use recent activity to catch problems early.",
-          "Check alerts or items that need attention.",
-        ],
-      },
-      {
-        title: "Accounts",
-        description:
-          "Use Accounts to search, filter, and open customer account details.",
-        items: [
-          "Search by account name, address, manager, or subcontractor.",
-          "Click an account name to open full details.",
-          "Use filters for status, manager, subcontractor, revenue, and frequency.",
-          "Use Transfer Proposal when moving accounts to a new subcontractor.",
-        ],
-      },
-      {
-        title: "Transfer Proposals",
-        description:
-          "Use this when offering accounts to a new subcontractor before changing the account assignment.",
-        items: [
-          "Search or filter for the accounts being transferred.",
-          "Select the accounts and review the proposed monthly pay.",
-          "Save the proposal before sending it.",
-          "Print or email the proposal when ready.",
-          "Only change the actual subcontractor after approval.",
-        ],
-      },
-      {
-        title: "Visits",
-        description:
-          "Use Visits to record account visits, inspections, and follow-ups.",
-        items: [
-          "Add visit notes after checking an account.",
-          "Include the account, date, manager, and important observations.",
-          "Use visits to track service quality and follow-up history.",
-        ],
-      },
-      {
-        title: "Complaints",
-        description:
-          "Use Complaints to track service issues and make sure they are resolved.",
-        items: [
-          "Add the account, complaint details, priority, and follow-up notes.",
-          "Mark whether the complaint is valid, not valid, subjective, or needs review.",
-          "Use photos when available to document the issue.",
-          "Follow up until the issue is closed.",
-        ],
-      },
-      {
-        title: "Account Updates",
-        description:
-          "Use Account Updates for notes that are important but are not complaints.",
-        items: [
-          "Add notes for customer changes, service changes, or important conversations.",
-          "Use updates to keep account history organized.",
-          "Check recent updates before visiting or calling a customer.",
-        ],
-      },
-      {
-        title: "Subcontractors",
-        description:
-          "Use Subcontractors to manage subcontractor information and assigned accounts.",
-        items: [
-          "Review subcontractor contact information.",
-          "Check accounts assigned to each subcontractor.",
-          "Keep email and phone information updated.",
-        ],
-      },
-      {
-        title: "Supplies",
-        description:
-          "Use Supplies and Supply Orders to manage inventory requests.",
-        items: [
-          "Review new supply orders from subcontractors.",
-          "Approve, deny, or update supply requests.",
-          "Keep supply item descriptions and stock information updated.",
-        ],
-      },
-      {
-        title: "Map",
-        description:
-          "Use the map to see account locations and plan efficient routes.",
-        items: [
-          "Use pins to see nearby accounts.",
-          "Open account details when more information is needed.",
-          "Use this when planning visits or route changes.",
-        ],
-      },
-      {
-        title: "Reports",
-        description:
-          "Use Reports for summaries, printing, and company review.",
-        items: [
-          "Review started and cancelled accounts.",
-          "Print reports when needed.",
-          "Use reports to understand trends and account changes.",
-        ],
-      },
-      {
-        title: "To-Do List",
-        description:
-          "Use the To-Do List to assign and track internal tasks.",
-        items: [
-          "Add the task, account, due date, and reason.",
-          "Use it for follow-ups, visits, complaints, and onboarding.",
-          "Keep tasks clear so the assigned person knows what to do.",
-        ],
-      },
-    ],
     subSections: [
       {
         title: "Logging In",
@@ -340,135 +212,10 @@ const content: Record<
     aboutImportantTitle: "Importante",
     aboutImportantText:
       "Esta aplicación es solamente para uso de trabajo de Cleaning World. No comparta información de acceso. Ingrese solamente información correcta relacionada con cuentas, visitas, quejas, suministros, fotos o trabajo asignado.",
-    quickStartTitle: "Inicio Rápido",
-    quickStartItems: [
-      "Use el menú de arriba para moverse entre páginas.",
-      "Haga clic en el nombre de una cuenta para ver los detalles completos.",
-      "Use los filtros y las búsquedas para encontrar información más rápido.",
-      "Guarde notas importantes como visitas, quejas o actualizaciones de cuenta.",
-      "Los subcontratistas deben usar solamente las secciones del portal de subcontratistas.",
-    ],
-    adminTitle: "Instrucciones para Administración",
     subTitle: "Instrucciones para Subcontratistas",
     customerTitle: "Instrucciones para Clientes",
     footerNote:
       "¿Falta alguna instrucción? Avise a la oficina para agregarla a esta página.",
-    adminSections: [
-      {
-        title: "Panel Principal",
-        description:
-          "Use el panel principal para ver el resumen de la compañía y la actividad reciente.",
-        items: [
-          "Revise ingresos mensuales, pagos a subcontratistas, quejas abiertas y visitas.",
-          "Use la actividad reciente para detectar problemas temprano.",
-          "Revise alertas o cuentas que necesitan atención.",
-        ],
-      },
-      {
-        title: "Cuentas",
-        description:
-          "Use Cuentas para buscar, filtrar y abrir detalles de los clientes.",
-        items: [
-          "Busque por nombre de cuenta, dirección, manager o subcontratista.",
-          "Haga clic en el nombre de una cuenta para abrir los detalles completos.",
-          "Use filtros por estado, manager, subcontratista, ingreso y frecuencia.",
-          "Use Propuesta de Transferencia cuando vaya a mover cuentas a otro subcontratista.",
-        ],
-      },
-      {
-        title: "Propuestas de Transferencia",
-        description:
-          "Use esto para ofrecer cuentas a un nuevo subcontratista antes de cambiar la asignación oficial.",
-        items: [
-          "Busque o filtre las cuentas que serán transferidas.",
-          "Seleccione las cuentas y revise el pago mensual propuesto.",
-          "Guarde la propuesta antes de enviarla.",
-          "Imprima o envíe la propuesta por email cuando esté lista.",
-          "Cambie el subcontratista oficial solo después de la aprobación.",
-        ],
-      },
-      {
-        title: "Visitas",
-        description:
-          "Use Visitas para registrar inspecciones, visitas y seguimientos.",
-        items: [
-          "Agregue notas después de revisar una cuenta.",
-          "Incluya cuenta, fecha, manager y observaciones importantes.",
-          "Use las visitas para llevar historial de calidad y seguimiento.",
-        ],
-      },
-      {
-        title: "Quejas",
-        description:
-          "Use Quejas para registrar problemas de servicio y asegurar seguimiento.",
-        items: [
-          "Agregue la cuenta, detalles, prioridad y notas de seguimiento.",
-          "Marque si la queja es válida, no válida, subjetiva o necesita revisión.",
-          "Use fotos cuando estén disponibles para documentar el problema.",
-          "Haga seguimiento hasta que el problema esté cerrado.",
-        ],
-      },
-      {
-        title: "Actualizaciones de Cuenta",
-        description:
-          "Use Actualizaciones para notas importantes que no son quejas.",
-        items: [
-          "Agregue notas de cambios, conversaciones o información importante.",
-          "Use actualizaciones para mantener el historial organizado.",
-          "Revise actualizaciones recientes antes de visitar o llamar al cliente.",
-        ],
-      },
-      {
-        title: "Subcontratistas",
-        description:
-          "Use Subcontratistas para manejar información y cuentas asignadas.",
-        items: [
-          "Revise información de contacto del subcontratista.",
-          "Revise cuentas asignadas a cada subcontratista.",
-          "Mantenga email y teléfono actualizados.",
-        ],
-      },
-      {
-        title: "Suministros",
-        description:
-          "Use Suministros y Órdenes de Suministros para manejar pedidos.",
-        items: [
-          "Revise pedidos nuevos de subcontratistas.",
-          "Apruebe, niegue o actualice pedidos.",
-          "Mantenga descripciones e inventario actualizados.",
-        ],
-      },
-      {
-        title: "Mapa",
-        description:
-          "Use el mapa para ver ubicaciones y planear rutas eficientes.",
-        items: [
-          "Use los pines para ver cuentas cercanas.",
-          "Abra detalles de cuenta cuando necesite más información.",
-          "Use esto para planear visitas o cambios de ruta.",
-        ],
-      },
-      {
-        title: "Reportes",
-        description:
-          "Use Reportes para resúmenes, impresión y revisión de la compañía.",
-        items: [
-          "Revise cuentas nuevas y canceladas.",
-          "Imprima reportes cuando sea necesario.",
-          "Use reportes para entender cambios y tendencias.",
-        ],
-      },
-      {
-        title: "Lista de Tareas",
-        description:
-          "Use la Lista de Tareas para asignar y seguir trabajos internos.",
-        items: [
-          "Agregue tarea, cuenta, fecha límite y razón.",
-          "Úselo para seguimientos, visitas, quejas y onboarding.",
-          "Escriba tareas claras para que la persona asignada sepa qué hacer.",
-        ],
-      },
-    ],
     subSections: [
       {
         title: "Iniciar Sesión",
@@ -609,135 +356,10 @@ const content: Record<
     aboutImportantTitle: "Importante",
     aboutImportantText:
       "Este aplicativo é somente para uso de trabalho da Cleaning World. Não compartilhe informações de login. Insira somente informações corretas relacionadas a contas, visitas, reclamações, suprimentos, fotos ou trabalho atribuído.",
-    quickStartTitle: "Início Rápido",
-    quickStartItems: [
-      "Use o menu superior para navegar entre as páginas.",
-      "Clique no nome de uma conta para ver os detalhes completos.",
-      "Use filtros e campos de busca para encontrar informações mais rápido.",
-      "Salve notas importantes como visitas, reclamações ou atualizações de conta.",
-      "Subcontratados devem usar somente as seções do portal de subcontratados.",
-    ],
-    adminTitle: "Instruções para Administração",
     subTitle: "Instruções para Subcontratados",
     customerTitle: "Instruções para Clientes",
     footerNote:
       "Precisa adicionar alguma instrução? Avise o escritório sobre o que está faltando.",
-    adminSections: [
-      {
-        title: "Painel Principal",
-        description:
-          "Use o painel para ver o resumo da empresa e a atividade atual.",
-        items: [
-          "Revise receita mensal, pagamento dos subcontratados, reclamações abertas e visitas.",
-          "Use a atividade recente para encontrar problemas cedo.",
-          "Verifique alertas ou contas que precisam de atenção.",
-        ],
-      },
-      {
-        title: "Contas",
-        description:
-          "Use Contas para buscar, filtrar e abrir detalhes dos clientes.",
-        items: [
-          "Busque por nome da conta, endereço, gerente ou subcontratado.",
-          "Clique no nome da conta para abrir os detalhes completos.",
-          "Use filtros por status, gerente, subcontratado, receita e frequência.",
-          "Use Proposta de Transferência quando mover contas para outro subcontratado.",
-        ],
-      },
-      {
-        title: "Propostas de Transferência",
-        description:
-          "Use isso para oferecer contas a um novo subcontratado antes de mudar a atribuição oficial.",
-        items: [
-          "Busque ou filtre as contas que serão transferidas.",
-          "Selecione as contas e revise o pagamento mensal proposto.",
-          "Salve a proposta antes de enviar.",
-          "Imprima ou envie a proposta por email quando estiver pronta.",
-          "Mude o subcontratado oficial somente depois da aprovação.",
-        ],
-      },
-      {
-        title: "Visitas",
-        description:
-          "Use Visitas para registrar inspeções, visitas e acompanhamentos.",
-        items: [
-          "Adicione notas depois de verificar uma conta.",
-          "Inclua conta, data, gerente e observações importantes.",
-          "Use visitas para acompanhar qualidade e histórico.",
-        ],
-      },
-      {
-        title: "Reclamações",
-        description:
-          "Use Reclamações para acompanhar problemas de serviço e garantir solução.",
-        items: [
-          "Adicione conta, detalhes, prioridade e notas de acompanhamento.",
-          "Marque se a reclamação é válida, não válida, subjetiva ou precisa revisão.",
-          "Use fotos quando possível para documentar o problema.",
-          "Acompanhe até que o problema seja fechado.",
-        ],
-      },
-      {
-        title: "Atualizações de Conta",
-        description:
-          "Use Atualizações para notas importantes que não são reclamações.",
-        items: [
-          "Adicione notas sobre mudanças, conversas ou informações importantes.",
-          "Use atualizações para manter o histórico organizado.",
-          "Revise atualizações recentes antes de visitar ou ligar para o cliente.",
-        ],
-      },
-      {
-        title: "Subcontratados",
-        description:
-          "Use Subcontratados para gerenciar informações e contas atribuídas.",
-        items: [
-          "Revise informações de contato.",
-          "Verifique contas atribuídas a cada subcontratado.",
-          "Mantenha email e telefone atualizados.",
-        ],
-      },
-      {
-        title: "Suprimentos",
-        description:
-          "Use Suprimentos e Pedidos de Suprimentos para gerenciar pedidos.",
-        items: [
-          "Revise novos pedidos dos subcontratados.",
-          "Aprove, negue ou atualize pedidos.",
-          "Mantenha descrições e estoque atualizados.",
-        ],
-      },
-      {
-        title: "Mapa",
-        description:
-          "Use o mapa para ver locais das contas e planejar rotas eficientes.",
-        items: [
-          "Use os pinos para ver contas próximas.",
-          "Abra detalhes da conta quando precisar de mais informações.",
-          "Use isso para planejar visitas ou mudanças de rota.",
-        ],
-      },
-      {
-        title: "Relatórios",
-        description:
-          "Use Relatórios para resumos, impressão e revisão da empresa.",
-        items: [
-          "Revise contas iniciadas e canceladas.",
-          "Imprima relatórios quando necessário.",
-          "Use relatórios para entender mudanças e tendências.",
-        ],
-      },
-      {
-        title: "Lista de Tarefas",
-        description:
-          "Use a Lista de Tarefas para atribuir e acompanhar tarefas internas.",
-        items: [
-          "Adicione tarefa, conta, prazo e motivo.",
-          "Use para acompanhamentos, visitas, reclamações e onboarding.",
-          "Escreva tarefas claras para que a pessoa designada saiba o que fazer.",
-        ],
-      },
-    ],
     subSections: [
       {
         title: "Fazer Login",
@@ -1020,33 +642,8 @@ export default function HelpPage() {
           ))}
         </div>
 
-        {role === "admin" ? (
-          <div className="ui-card">
-            <h2 className="ui-card-title">
-              {selectedContent.quickStartTitle}
-            </h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {selectedContent.quickStartItems.map((item, index) => (
-                <div
-                  key={`${language}-quick-${index}`}
-                  className="ui-stat"
-                >
-                  <span className="ui-strong">
-                    {index + 1}
-                  </span>
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {role === "admin" ? (
-          <HelpGroup
-            title={selectedContent.adminTitle}
-            sections={selectedContent.adminSections}
-          />
-        ) : null}
+        {/* Staff: the task-by-task help, English or Spanish (lib/helpContent.ts). */}
+        {role === "admin" ? <StaffHelp language={language === "es" ? "es" : "en"} /> : null}
 
         {role === "subcontractor" ? (
           <HelpGroup
