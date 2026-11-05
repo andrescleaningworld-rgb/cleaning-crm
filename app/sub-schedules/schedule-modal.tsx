@@ -33,6 +33,8 @@ export type SubSchedule = {
   submittedVia: string;
   /** On a cancelled account's schedule: the end date really stored (effectiveEnd is then the account's last cleaning day). */
   storedEffectiveEnd?: string;
+  /** The account's Start Date, when it has one: no cleaning shows before it. */
+  accountStart?: string;
   /** "appointment" with an exact startTime ("19:00"), else a time window. */
   scheduleType?: string;
   startTime?: string;

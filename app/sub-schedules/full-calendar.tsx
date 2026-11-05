@@ -324,6 +324,7 @@ export default function FullCalendar({
           monthlyOccurrence: s.monthlyOccurrence,
           effectiveStart: s.effectiveStart,
           effectiveEnd: s.effectiveEnd,
+          accountStart: s.accountStart,
         },
         rangeStart,
         rangeEnd

@@ -14,7 +14,7 @@
 import { getSql } from "@/lib/db";
 import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { addDays, officeDay } from "@/lib/cleanings";
-import { cancelledLastDays } from "@/lib/pg/accounts";
+import { accountStartDays, cancelledLastDays } from "@/lib/pg/accounts";
 import type { ScheduleException, SubcontractorVisitWithRow, SubSchedule } from "@/lib/googleSheets";
 import { dateOrNull, timestampOrNull } from "@/lib/dateUtils";
 import { parseClock, toClock, toScheduleType } from "@/lib/schedule-time";
@@ -195,11 +195,14 @@ async function lastDayByAccount(): Promise<(accountId: string) => string | undef
  * the schedule records stay as they are, and when the account gets another
  * status its schedule is back without re-entering it. The end date that is
  * really stored rides along as storedEffectiveEnd, for the sheet that edits
- * a schedule.
+ * a schedule. Each schedule also carries its account's Start Date as
+ * accountStart, so no screen shows a cleaning before it.
  */
 export async function fetchSubSchedules(): Promise<SubSchedule[]> {
-  const [schedules, lastDayOf] = await Promise.all([storedSubSchedules(), lastDayByAccount()]);
-  return schedules.map(({ schedule, accountId }) => {
+  const [schedules, lastDayOf, startDays] = await Promise.all([storedSubSchedules(), lastDayByAccount(), accountStartDays()]);
+  return schedules.map(({ schedule: stored, accountId }) => {
+    const accountStart = startDays.get(accountId);
+    const schedule = accountStart ? { ...stored, accountStart } : stored;
     const lastDay = lastDayOf(accountId);
     if (!lastDay) return schedule;
     const end = dateOrNull(schedule.effectiveEnd);

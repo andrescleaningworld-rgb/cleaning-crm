@@ -40,6 +40,11 @@ export type RecurrenceInput = {
   monthlyOccurrence: string;
   effectiveStart: string;
   effectiveEnd: string;
+  /**
+   * The account's Start Date (YYYY-MM-DD), when it has one. No cleaning is
+   * ever on a day before it. effectiveStart stays the every-other-week anchor.
+   */
+  accountStart?: string;
 };
 
 const DAYS_MON_FIRST = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -171,6 +176,12 @@ export function generateAsNeededDates(): string[] {
 }
 
 export function generateScheduleDates(row: RecurrenceInput, rangeStart: Date, rangeEnd: Date): string[] {
+  const dates = patternDates(row, rangeStart, rangeEnd);
+  const firstDay = row.accountStart;
+  return firstDay ? dates.filter((iso) => iso >= firstDay) : dates;
+}
+
+function patternDates(row: RecurrenceInput, rangeStart: Date, rangeEnd: Date): string[] {
   switch (row.frequency) {
     case "WEEKLY":
       return generateWeeklyDates(row, rangeStart, rangeEnd);

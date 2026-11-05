@@ -8,7 +8,7 @@
 
 import { getSql } from "@/lib/db";
 import { addDays, officeDay } from "@/lib/cleanings";
-import { cancelledLastDays } from "@/lib/pg/accounts";
+import { accountStartDays, cancelledLastDays } from "@/lib/pg/accounts";
 import { generateScheduleDates, isScheduleEffectivelyActive, toISO, todayISO } from "@/lib/scheduleRecurrence";
 
 const text = (value: unknown) => String(value ?? "").trim();
@@ -128,7 +128,11 @@ async function scheduledDays(accountId: string, fromIso: string, toIso: string):
   // A cancelled account has no cleanings after its final cleaning date (none from today on when it has no such date).
   const cancelled = (await cancelledLastDays()).get(accountId.trim());
   const lastDay = cancelled === undefined ? "" : cancelled || addDays(officeDay(), -1);
-  return [...byDate.values()].filter((cleaning) => !lastDay || cleaning.date <= lastDay).sort((a, b) => a.date.localeCompare(b.date));
+  // None before the account's Start Date.
+  const firstDay = (await accountStartDays()).get(accountId.trim()) ?? "";
+  return [...byDate.values()]
+    .filter((cleaning) => (!lastDay || cleaning.date <= lastDay) && (!firstDay || cleaning.date >= firstDay))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 const isoPlusDays = (iso: string, days: number) => {
