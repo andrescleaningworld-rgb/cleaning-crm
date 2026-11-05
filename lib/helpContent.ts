@@ -897,6 +897,20 @@ const en: StaffHelpContent = {
       tip: "**Back to the start numbers** puts the first numbers back.",
     },
     {
+      id: "settings-checkin",
+      group: "settings",
+      page: "Settings",
+      title: "Ask customers how we are doing each month",
+      steps: [
+        "Open **Settings** and tap **Reminders & check-ins**.",
+        "Find **👍 Customer monthly check-in**.",
+        "Want to see the email first? Tap **Send me a test**.",
+        "Turn on **Send the monthly check-in to customers**.",
+        "From the 25th, each active customer gets one email a month with 👍 or 👎.",
+      ],
+      tip: "A 👎 puts a paper in the manager's square on the Board. The answers show on the account page.",
+    },
+    {
       id: "settings-portal",
       group: "settings",
       page: "Settings",
@@ -1786,6 +1800,20 @@ const es: StaffHelpContent = {
         "Toca **Save**.",
       ],
       tip: "**Back to the start numbers** vuelve a poner los números del principio.",
+    },
+    {
+      id: "settings-checkin",
+      group: "settings",
+      page: "Settings",
+      title: "Preguntar a los clientes cada mes cómo lo hacemos",
+      steps: [
+        "Abre **Settings** y toca **Reminders & check-ins**.",
+        "Busca **👍 Customer monthly check-in**.",
+        "¿Quieres ver el email primero? Toca **Send me a test**.",
+        "Activa **Send the monthly check-in to customers**.",
+        "Desde el día 25, cada cliente activo recibe un email al mes con 👍 o 👎.",
+      ],
+      tip: "Un 👎 pone un papel en el cuadro del gerente en el Board. Las respuestas salen en la página de la cuenta.",
     },
     {
       id: "settings-portal",
