@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import AccountContacts from "../../../components/AccountContacts";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, showToast, SkeletonList, TextAreaField } from "@/app/ui";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
@@ -269,6 +270,8 @@ export default function EditAccountPage() {
   const [schedulePlan, setSchedulePlan] = useState<SchedulePlan>(emptyPlan);
   const [scheduleTried, setScheduleTried] = useState(false);
   const scheduleLoadedRef = useRef(false);
+  // True once the schedule is in the form (the draft starts only then).
+  const [scheduleReady, setScheduleReady] = useState(false);
   useEffect(() => {
     if (schedule.state !== "ready" || scheduleLoadedRef.current) return;
     scheduleLoadedRef.current = true;
@@ -277,7 +280,23 @@ export default function EditAccountPage() {
     setScheduleGroup(group);
     setScheduleInitial(plan);
     setSchedulePlan(plan);
+    setScheduleReady(true);
   }, [schedule.state, schedule.groups, schedule.accountSub.email]);
+
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
+  // Only what was changed is kept, and put back over the account as it loads then.
+  const draft = useFormDraft(
+    `edit-account:${decodedAccountIdFromUrl}`,
+    { formData, crewLinkModules, schedulePlan },
+    {
+      ready: formData !== null && (scheduleReady || schedule.state === "failed"),
+      onRestore: (kept) => {
+        setFormData(kept.formData);
+        setCrewLinkModules(kept.crewLinkModules);
+        setSchedulePlan(kept.schedulePlan);
+      },
+    }
+  );
 
   useEffect(() => {
     async function loadAccount() {
@@ -627,6 +646,7 @@ export default function EditAccountPage() {
         });
         if (result.ok) {
           scheduleLoadedRef.current = false;
+          setScheduleReady(false);
           schedule.reload();
         } else {
           scheduleWarning = ` The cleaning schedule did not save: ${result.error}`;
@@ -635,6 +655,7 @@ export default function EditAccountPage() {
 
       // Green message for the save itself; if "Checklist Needed", the Crew
       // Link switches or the schedule did not save, that part stays on screen in a box.
+      draft.clear();
       showToast("Account saved");
       setSavedMessage(((data.checklistFlagWarning || "") + crewLinkWarning + scheduleWarning).trim());
       setSaveError("");
@@ -694,6 +715,7 @@ export default function EditAccountPage() {
     >
       {saveError ? <ErrorBox title="Your changes were not saved." text={saveError} /> : null}
       {savedMessage ? <ErrorBox title="Saved, but one part did not save." text={savedMessage} /> : null}
+      <DraftNotice draft={draft} />
 
       <div className="ui-stats">
         <div className="ui-stat">

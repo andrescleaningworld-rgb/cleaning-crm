@@ -20,6 +20,7 @@ import { ManagerOptions, useManagerNames } from "../../components/manager-option
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 import { AccountScheduleSection, saveSchedule } from "@/app/components/account-schedule";
 import { describeDays, emptyPlan, isByWeekday, planIsEmpty, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
+import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 
 type AccountForm = {
   accountName: string;
@@ -229,6 +230,21 @@ export default function NewAccountPage() {
   const [scheduleTried, setScheduleTried] = useState(false);
   const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
   const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
+  // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
+  const draft = useFormDraft(
+    "new-account",
+    { form, portalAccess, extraContacts, schedulePlan, suggestionStart, suggestionMinutes },
+    {
+      onRestore: (kept) => {
+        setForm(kept.form);
+        setPortalAccess(kept.portalAccess);
+        setExtraContacts(kept.extraContacts);
+        setSchedulePlan(kept.schedulePlan);
+        setSuggestionStart(kept.suggestionStart);
+        setSuggestionMinutes(kept.suggestionMinutes);
+      },
+    }
+  );
 
   useEffect(() => {
     async function loadSubcontractors() {
@@ -398,6 +414,7 @@ export default function NewAccountPage() {
         scheduleFailed = !result.ok;
       }
 
+      draft.clear();
       // A "Checklist Needed" warning is not a failure: the account is saved.
       showToast(
         contactsFailed
@@ -467,6 +484,7 @@ export default function NewAccountPage() {
       }
     >
       {error ? <ErrorBox title="The account was not saved." text={error} /> : null}
+      <DraftNotice draft={draft} />
 
       <form id="new-account-form" onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <Card title="Account Information">
