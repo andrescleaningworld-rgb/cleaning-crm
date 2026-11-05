@@ -86,6 +86,9 @@ type Subcontractor = {
   Score?: string;
 
   scoreStatus?: string;
+  /** "Yes" / "No" (migration 071). */
+  excludeFromScore?: string;
+  ExcludeFromScore?: string;
   ScoreStatus?: string;
   "Score Status"?: string;
 
@@ -504,6 +507,8 @@ const EMPTY_FORM = {
   insuranceExpiration: "",
   status: "Active",
   notes: "",
+  /** "Yes" / "No": in-house crews and placeholder subs are not scored. */
+  excludeFromScore: "No",
 };
 
 type SubForm = typeof EMPTY_FORM;
@@ -528,6 +533,7 @@ function formFromSubcontractor(subcontractor: Subcontractor): SubForm {
     insuranceExpiration: getValue(subcontractor, "insuranceExpiration", "InsuranceExpiration", "Insurance Expiration"),
     status: subcontractor.status || subcontractor.Status || "Active",
     notes: getValue(subcontractor, "notes", "Notes"),
+    excludeFromScore: getValue(subcontractor, "excludeFromScore", "ExcludeFromScore") === "Yes" ? "Yes" : "No",
   };
 }
 
@@ -570,6 +576,7 @@ function EditSubcontractorSheet({
             insuranceExpiration: values.insuranceExpiration,
             status: values.status,
             notes: values.notes,
+            excludeFromScore: values.excludeFromScore,
           }),
         });
       } catch {
@@ -599,7 +606,7 @@ function EditSubcontractorSheet({
     <Sheet
       open
       title="Change details"
-      text="The performance score is automatic and cannot be changed here. It updates from visits, complaints, and accounts assigned to this subcontractor."
+      text="The performance score is automatic and cannot be changed here. It updates from this sub's complaints and the size of its work (active accounts and monthly sub pay)."
       onClose={onClose}
       busy={save.saving}
       actions={
@@ -637,6 +644,16 @@ function EditSubcontractorSheet({
         <option value="Active">Active</option>
         <option value="Paused">Paused</option>
         <option value="Inactive">Inactive</option>
+      </SelectField>
+      <SelectField
+        label="Exclude from sub score"
+        hint="Yes for in-house crews and placeholder subs: no score (Not scored), no ⚠ alert, no score emails."
+        value={form.excludeFromScore}
+        onChange={(e) => updateForm("excludeFromScore", e.target.value)}
+        disabled={disabled}
+      >
+        <option value="No">No</option>
+        <option value="Yes">Yes</option>
       </SelectField>
       <TextAreaField label="Notes" optional rows={4} value={form.notes} onChange={(e) => updateForm("notes", e.target.value)} disabled={disabled} />
       {save.state === "error" ? <SaveStatus action={save} /> : null}
@@ -941,9 +958,9 @@ export default function SubcontractorDetailPage() {
 
         <div className="sub-detail-print-hide">
           <Card title="Automatic Performance Score" right={<StatusPill kind={scoreStatus.kind}>{scoreStatus.label}</StatusPill>}>
-            <p className="ui-card-text">This score is calculated from visits, complaints, and assigned accounts.</p>
+            <p className="ui-card-text">This score is calculated from complaints and the size of this subcontractor’s work.</p>
             <dl className="ui-details">
-              <Detail label="Score" value={score ? `${score} / 10` : ""} />
+              <Detail label="Score" value={score ? `${score} / 10` : scoreStatus.label === "Not scored" ? "Not scored" : ""} />
               <Detail label="Performance" value={scoreStatus.label} />
               <Detail label="Open Complaints" value={String(openComplaints.length)} />
               <Detail label="Avg Visit Condition" value={avgCondition} />
@@ -951,8 +968,13 @@ export default function SubcontractorDetailPage() {
               <Detail label="Last Activity" value={lastReview} />
             </dl>
             <p className="ui-card-text">
-              Score logic: starts from average visit condition, then subtracts 0.5 for each open complaint. Status: 9–10
-              Excellent, 8–8.9 Good, 7–7.9 Needs Attention, below 7 High Risk.
+              Score logic: every sub starts at 10 (scores began Aug 11, 2026). Each complaint takes off Low 0.5, Medium 1,
+              High 2 or Urgent 2.5, times a size multiplier. Not Valid complaints never count, and a complaint counts for the
+              sub who had the account when it was filed. Size multiplier = 30 ÷ workload points, kept between 0.4 and 2.0,
+              where workload points = active accounts + monthly sub pay ÷ $500: a bigger sub loses less per complaint. Each
+              month with no new complaint adds 1 point back (0.5 a month after a complaint is closed), up to 10. Visit
+              condition is shown but does not change the score. Status: 9–10 Excellent, 8–8.9 Good, 7–7.9 Needs Attention,
+              below 7 High Risk. Below 6 the office gets an alert.
             </p>
           </Card>
         </div>

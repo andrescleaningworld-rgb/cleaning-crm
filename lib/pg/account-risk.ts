@@ -80,7 +80,7 @@ export async function accountRiskFlags(): Promise<Map<string, AccountRisk>> {
       complaints30: Number(row.complaints30) || 0,
       daysSinceVisit: since ? days(since) : null,
       noVisitYet: !visit && Boolean(since),
-      subScore: perf && Number.isFinite(perf.score) && perf.accountsAssigned > 0 ? perf.score : null,
+      subScore: perf && !perf.excluded && Number.isFinite(perf.score) && perf.accountsAssigned > 0 ? perf.score : null,
       thumbsDown60: thumbs.get(row.id) ?? 0,
     };
     flags.set(row.id, { accountId: row.id, accountName: row.account_name, manager: row.manager ?? "", signals, ...riskOf(signals, thresholds) });

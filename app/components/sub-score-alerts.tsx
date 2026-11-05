@@ -86,7 +86,7 @@ export function SubScoreAlertsSheet({ open, alerts, onClose }: { open: boolean; 
             {alert.subName} <span className="ui-score-alert-score">{alert.score} / 10</span>
           </h3>
           <p className="ui-muted">
-            {alert.baseline ? `Already below 6 when alerts were turned on (${when(alert.createdAt)}). No email was sent to the sub.` : `Dropped below 6 on ${when(alert.createdAt)}. ${alert.emailed ? "The sub got an email." : "No email went to the sub (no email on file, or it failed)."}`}
+            {alert.baseline ? `Below 6 when alerts were turned on or the score rules changed (${when(alert.createdAt)}). No email was sent to the sub.` : `Dropped below 6 on ${when(alert.createdAt)}. ${alert.emailed ? "The sub got an email." : "No email went to the sub (no email on file, or it failed)."}`}
           </p>
           <p className="ui-strong">Why</p>
           <ul className="ui-score-alert-why">

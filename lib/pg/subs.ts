@@ -56,6 +56,8 @@ export async function getAllSubcontractorsRaw(): Promise<RawSubcontractorRow[]> 
     for (const [field, column] of Object.entries(FIELD_COLUMNS)) {
       result[field] = String(row[column] ?? "").trim();
     }
+    // "Exclude from sub score" (migration 071): "Yes" / "No".
+    result.excludeFromScore = (row as Record<string, unknown>).exclude_from_score === true ? "Yes" : "No";
     return result;
   });
 }
@@ -137,13 +139,25 @@ export async function updateSubcontractor(id: string, fields: Record<string, unk
   const current = found[0];
 
   const writes = pickFields(fields);
-  if (writes.length === 0) return toHeaderRecord(current);
+  // "Exclude from sub score" (migration 071) is a yes/no column, saved apart from the text fields.
+  const excludeAsked = fields.excludeFromScore;
+  const hasExcludeColumn = "exclude_from_score" in current;
+  const excludeOn = excludeAsked === true || String(excludeAsked ?? "").trim().toLowerCase() === "yes";
+  if (excludeAsked !== undefined && !hasExcludeColumn && excludeOn) {
+    throw new Error("\"Exclude from sub score\" works once this database has its update (migration 071).");
+  }
+  const excludeWrite = excludeAsked !== undefined && hasExcludeColumn && (current as Record<string, unknown>).exclude_from_score !== excludeOn;
+  if (writes.length === 0 && !excludeWrite) return toHeaderRecord(current);
 
   const next: SubRow = { ...current };
   for (const { column, value } of writes) next[column] = value;
 
   const assignments = writes.map(({ column }, i) => `${column} = $${i + 1}`);
-  const params: (string | null)[] = writes.map(({ value }) => value);
+  const params: (string | boolean | null)[] = writes.map(({ value }) => value);
+  if (excludeWrite) {
+    params.push(excludeOn);
+    assignments.push(`exclude_from_score = $${params.length}`);
+  }
   // Keep the derived columns in step with what was written.
   if (writes.some((w) => w.column === "insurance_expiration_raw")) {
     params.push(dateOrNull(String(next.insurance_expiration_raw ?? "")));

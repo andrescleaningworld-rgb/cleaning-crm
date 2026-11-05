@@ -14,6 +14,12 @@
 //     below 6 are listed for the office but get NO email: nothing dropped
 //     today, and nobody should get a surprise email on the day this is
 //     switched on. From then on a drop is emailed.
+//   - The same when the score rules change (SCORE_FORMULA_VERSION): the
+//     first check under new rules lists new drops for the office and emails
+//     nobody, because a complaint did not cause them. Until migration 071 has
+//     run (no formula_version column) every check is like that.
+//   - Subs with "Exclude from sub score" on (in-house crews, placeholder
+//     subs) are never alerted, and an alert they had is closed.
 //
 // Feature flag FEATURE_SUB_SCORE_ALERTS: "1" on, "0" off, unset = off on
 // Production, on in local dev and on Vercel previews (the same rule as the
@@ -26,6 +32,8 @@ import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
 
 /** A score under this is an alert. */
 export const ALERT_BELOW = 6;
+/** The score rules in lib/googleSheets.ts. 2 = workload points (accounts + sub pay ÷ 500), 2026-11-05. */
+const SCORE_FORMULA_VERSION = 2;
 const CHECK_EVERY_MS = 10 * 60_000;
 
 export type SubScoreAlert = {
@@ -158,10 +166,13 @@ async function runCheck(): Promise<void> {
     sql`SELECT id, contact_name, company_name, email, status FROM subcontractors` as unknown as Promise<SubRow[]>,
     sql`SELECT DISTINCT ON (subcontractor_id) id::text AS id, subcontractor_id, recovered_at::text AS recovered_at, acknowledged_at::text AS acknowledged_at
         FROM sub_score_alerts ORDER BY subcontractor_id, created_at DESC` as unknown as Promise<LatestRow[]>,
-    sql`SELECT 1 FROM sub_score_alert_state` as unknown as Promise<unknown[]>,
+    sql`SELECT to_jsonb(s)->>'formula_version' AS formula FROM sub_score_alert_state s` as unknown as Promise<{ formula: string | null }[]>,
   ]);
   // The very first check: whoever is already below 6 is shown to the office, and no sub is emailed.
   const baseline = state.length === 0;
+  // The first check under new score rules: the same, no emails (see the top of this file).
+  const rulesChanged = !baseline && Number(state[0].formula ?? 0) < SCORE_FORMULA_VERSION;
+  const quiet = baseline || rulesChanged;
   const latestBySub = new Map(latest.map((row) => [row.subcontractor_id, row]));
 
   for (const sub of subs) {
@@ -171,6 +182,12 @@ async function runCheck(): Promise<void> {
     if (!found || found.accountsAssigned === 0) continue;
     const last = latestBySub.get(sub.id);
     const open = last && last.recovered_at === null ? last : null;
+
+    if (found.excluded) {
+      // "Exclude from sub score": not scored, so no alert. One it had is closed.
+      if (open) await sql`UPDATE sub_score_alerts SET recovered_at = now() WHERE id = ${Number(open.id)}`;
+      continue;
+    }
 
     if (found.score >= ALERT_BELOW) {
       // Back to 6 or more: this drop is over. (It stays on the office's list until someone taps "Got it".)
@@ -189,12 +206,12 @@ async function runCheck(): Promise<void> {
     const email = sub.email.trim();
     const created = (await sql`
       INSERT INTO sub_score_alerts (subcontractor_id, sub_name, sub_email, score, reasons, baseline)
-      VALUES (${sub.id}, ${name}, ${email}, ${found.score}, ${JSON.stringify(reasons)}::jsonb, ${baseline})
+      VALUES (${sub.id}, ${name}, ${email}, ${found.score}, ${JSON.stringify(reasons)}::jsonb, ${quiet})
       ON CONFLICT (subcontractor_id) WHERE recovered_at IS NULL DO NOTHING
       RETURNING id
     `) as { id: string }[];
     // Another screen opened the same alert a moment ago: it sends the email.
-    if (created.length === 0 || baseline || !email) continue;
+    if (created.length === 0 || quiet || !email) continue;
     try {
       if (await emailSub(email, name, found.score, reasons)) await sql`UPDATE sub_score_alerts SET emailed_at = now() WHERE id = ${Number(created[0].id)}`;
     } catch (error) {
@@ -203,6 +220,15 @@ async function runCheck(): Promise<void> {
     }
   }
   if (baseline) await sql`INSERT INTO sub_score_alert_state (id) VALUES (true) ON CONFLICT (id) DO NOTHING`;
+  if (quiet) {
+    // From the next check on, a drop under these rules is a real drop and is emailed.
+    try {
+      await sql`UPDATE sub_score_alert_state SET formula_version = ${SCORE_FORMULA_VERSION}`;
+    } catch (error) {
+      // 42703: migration 071 has not run here yet, so the checks stay quiet until it has.
+      if ((error as { code?: string }).code !== "42703") throw error;
+    }
+  }
 }
 
 type AlertRow = { id: string; subcontractor_id: string; page_id: string | null; sub_name: string; score: string; reasons: unknown; baseline: boolean; emailed_at: string | null; created_at: string | Date };
@@ -213,7 +239,8 @@ export async function listSubScoreAlerts(): Promise<SubScoreAlert[]> {
   const rows = (await getSql()`
     SELECT a.id::text AS id, a.subcontractor_id, s.legacy_row_id AS page_id, a.sub_name, a.score::text AS score, a.reasons, a.baseline, a.emailed_at::text AS emailed_at, a.created_at
     FROM sub_score_alerts a LEFT JOIN subcontractors s ON s.id = a.subcontractor_id
-    WHERE a.acknowledged_at IS NULL ORDER BY a.created_at DESC LIMIT 50
+    WHERE a.acknowledged_at IS NULL AND NOT COALESCE((to_jsonb(s)->>'exclude_from_score')::boolean, false)
+    ORDER BY a.created_at DESC LIMIT 50
   `) as AlertRow[];
   return rows.map((row) => ({
     id: Number(row.id),

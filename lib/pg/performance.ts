@@ -24,7 +24,10 @@ function cutTrailingBlanks(cells: unknown[]): string[] {
 export async function getSubcontractorPerformanceMap(): Promise<Map<string, SubcontractorPerformance>> {
   const sql = getSql();
   const [accounts, visits, complaints, subs] = (await Promise.all([
-    sql.query(`SELECT account_name, subcontractor_raw, status FROM accounts WHERE NOT is_test AND ${accountLive("accounts")} ORDER BY source_row NULLS LAST, pk`),
+    sql.query(
+      `SELECT account_name, subcontractor_raw, status, COALESCE(monthly_sub_pay::text, '') AS monthly_sub_pay
+       FROM accounts WHERE NOT is_test AND ${accountLive("accounts")} ORDER BY source_row NULLS LAST, pk`
+    ),
     sql.query(
       `SELECT visit_id, account_id_raw, account_name, visit_date_raw, visit_type, completed_by, condition_raw, follow_up_needed,
               follow_up_date_old_raw, notes, created_at_raw, updated_at_raw, follow_up_date_raw
@@ -35,12 +38,17 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
               to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing
        FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`
     ),
-    sql.query(`SELECT display_id_raw, contact_name, company_name FROM subcontractors ORDER BY source_row NULLS LAST, created_at, id`),
+    // exclude_from_score: migration 071 (read this way so it works before that runs: nobody excluded).
+    sql.query(
+      `SELECT display_id_raw, contact_name, company_name, COALESCE((to_jsonb(subcontractors)->>'exclude_from_score')::boolean, false) AS excluded
+       FROM subcontractors ORDER BY source_row NULLS LAST, created_at, id`
+    ),
   ])) as Record<string, string>[][];
+  const subExcluded = (s: Record<string, unknown>) => s.excluded === true;
 
   return buildSubcontractorPerformanceMap(
-    // Accounts A:Z — B name, I subcontractor, Q status
-    accounts.map((a) => row(26, { 1: a.account_name, 8: a.subcontractor_raw, 16: a.status })),
+    // Accounts A:Z — B name, I subcontractor, K monthly sub pay, Q status
+    accounts.map((a) => row(26, { 1: a.account_name, 8: a.subcontractor_raw, 10: a.monthly_sub_pay, 16: a.status })),
     // Visits A:M, every column, cut after the last filled cell exactly as
     // the Sheets API cuts a row. It matters: the rules read a blank
     // condition as 0 when a later cell of the row is filled, and skip the
@@ -62,7 +70,7 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
         17: c.sub_at_filing ?? "",
       })
     ),
-    // Subcontractors A:Z — A id, B contact, C company
-    subs.map((s) => row(26, { 0: s.display_id_raw, 1: s.contact_name, 2: s.company_name }))
+    // Subcontractors A:Z — A id, B contact, C company, and past Z: "1" = Exclude from sub score
+    subs.map((s) => row(27, { 0: s.display_id_raw, 1: s.contact_name, 2: s.company_name, 26: subExcluded(s) ? "1" : "" }))
   );
 }

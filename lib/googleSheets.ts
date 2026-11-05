@@ -3551,8 +3551,15 @@ const ACCOUNTS_TAB = "Accounts";
 const PERFORMANCE_ACCOUNT_COL = {
   ACCOUNT_NAME: 1,
   SUBCONTRACTOR: 8,
+  MONTHLY_SUB_PAY: 10, // K, "Subcontractor pay (monthly)"
   STATUS: 16,
 } as const;
+
+// "Subcontractor pay (monthly)" as a number: "$1,234.50" → 1234.5, blank → 0.
+function monthlySubPayOf(value: unknown): number {
+  const amount = Number(String(value ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(amount) ? amount : 0;
+}
 
 // Same active/inactive rule as isActiveAccount in app/api/subcontractors/route.ts
 // (reused by name here, not reinvented — see computeSubcontractorScore's comment
@@ -3574,6 +3581,7 @@ const PERFORMANCE_SUBCONTRACTOR_COL = {
   ID: 0,
   CONTACT_NAME: 1,
   COMPANY_NAME: 2,
+  EXCLUDED: 26, // past Z: only the Postgres rows have it (lib/pg/performance.ts)
 } as const;
 
 // One pass over the Accounts tab, resolving each distinct raw "Subcontractor"
@@ -3597,7 +3605,12 @@ const PERFORMANCE_SUBCONTRACTOR_COL = {
 function buildAccountAssignmentsBySubKey(
   accountRows: string[][],
   subRows: string[][]
-): { allBySubKey: Map<string, Set<string>>; activeCountBySubKey: Map<string, number>; subKeyOf: (raw: string) => string } {
+): {
+  allBySubKey: Map<string, Set<string>>;
+  activeCountBySubKey: Map<string, number>;
+  activePayBySubKey: Map<string, number>;
+  subKeyOf: (raw: string) => string;
+} {
   const subEntries = subRows.map((subRow) => {
     const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
     const contactName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.CONTACT_NAME] ?? "";
@@ -3611,6 +3624,8 @@ function buildAccountAssignmentsBySubKey(
   const resolveCache = new Map<string, string>();
   const allBySubKey = new Map<string, Set<string>>();
   const activeCountBySubKey = new Map<string, number>();
+  // The monthly sub pay of those same active accounts (the score's workload points).
+  const activePayBySubKey = new Map<string, number>();
 
   for (const row of accountRows) {
     const raw = row[PERFORMANCE_ACCOUNT_COL.SUBCONTRACTOR] ?? "";
@@ -3629,6 +3644,7 @@ function buildAccountAssignmentsBySubKey(
 
     if (isActiveAccountStatus(row[PERFORMANCE_ACCOUNT_COL.STATUS])) {
       activeCountBySubKey.set(resolvedKey, (activeCountBySubKey.get(resolvedKey) ?? 0) + 1);
+      activePayBySubKey.set(resolvedKey, (activePayBySubKey.get(resolvedKey) ?? 0) + monthlySubPayOf(row[PERFORMANCE_ACCOUNT_COL.MONTHLY_SUB_PAY]));
     }
   }
 
@@ -3643,7 +3659,7 @@ function buildAccountAssignmentsBySubKey(
     return resolvedKey;
   };
 
-  return { allBySubKey, activeCountBySubKey, subKeyOf };
+  return { allBySubKey, activeCountBySubKey, activePayBySubKey, subKeyOf };
 }
 
 function normalizeAccountName(value: unknown): string {
@@ -3657,6 +3673,8 @@ export type SubcontractorPerformance = {
   avgCondition: number | null;
   lastReview: string;
   accountsAssigned: number;
+  /** "Exclude from sub score" is on (in-house crews, placeholder subs): shown as Not scored, never alerted. */
+  excluded: boolean;
 };
 
 // ── New scoring algorithm ────────────────────────────────────────────────
@@ -3722,11 +3740,22 @@ function monthIndex(date: Date): number {
   return date.getFullYear() * 12 + date.getMonth();
 }
 
-// clamp(10 / accounts managed, 0.5, 2.0) — division by zero naturally
-// produces Infinity, which Math.min still clamps down to 2.0, so accountsManaged
-// of exactly 0 doesn't need a special case.
-function accountSizeMultiplier(activeAccountsManaged: number): number {
-  return Math.min(2.0, Math.max(0.5, 10 / activeAccountsManaged));
+// How big a sub's work is, so a complaint costs a big sub less than a small one.
+// Workload points = active accounts + monthly sub pay ÷ $500 (sub pay, not what
+// the customer pays). Multiplier = 30 ÷ workload points, kept between 0.4 and
+// 2.0. A typical sub (10 accounts at about $1,000 sub pay each) has about 30
+// points, so 1.0. No accounts and no pay: 30 ÷ 0 = Infinity, clamped to 2.0.
+// Replaced 10 ÷ active accounts (0.5–2.0) on 2026-11-05: that treated 30 small
+// $300 offices as bigger than 10 large $5,000 accounts.
+// docs/sub-score-simulation.md has the before/after on real data.
+export const SCORE_SIZE = { baseline: 30, payStep: 500, min: 0.4, max: 2.0 } as const;
+
+export function scoreWorkloadPoints(activeAccounts: number, monthlySubPay: number): number {
+  return activeAccounts + monthlySubPay / SCORE_SIZE.payStep;
+}
+
+function accountSizeMultiplier(activeAccountsManaged: number, monthlySubPay: number): number {
+  return Math.min(SCORE_SIZE.max, Math.max(SCORE_SIZE.min, SCORE_SIZE.baseline / scoreWorkloadPoints(activeAccountsManaged, monthlySubPay)));
 }
 
 // The date this scoring model went live. Fixed on purpose: this is a fresh
@@ -3790,9 +3819,10 @@ type ScoreableComplaint = {
 function computeSubcontractorScore(
   complaints: ScoreableComplaint[],
   activeAccountsManaged: number,
+  monthlySubPay: number,
   today: Date = new Date()
 ): number {
-  const multiplier = accountSizeMultiplier(activeAccountsManaged);
+  const multiplier = accountSizeMultiplier(activeAccountsManaged, monthlySubPay);
 
   type ScoreEvent = { monthIdx: number; kind: "deduction" | "resolution"; amount: number };
   const events: ScoreEvent[] = [];
@@ -3893,7 +3923,7 @@ export function buildSubcontractorPerformanceMap(
   subRows: string[][]
 ): Map<string, SubcontractorPerformance> {
   const result = new Map<string, SubcontractorPerformance>();
-  const { allBySubKey, activeCountBySubKey, subKeyOf } = buildAccountAssignmentsBySubKey(accountRows, subRows);
+  const { allBySubKey, activeCountBySubKey, activePayBySubKey, subKeyOf } = buildAccountAssignmentsBySubKey(accountRows, subRows);
 
   for (const subRow of subRows) {
     const companyName = subRow[PERFORMANCE_SUBCONTRACTOR_COL.COMPANY_NAME] ?? "";
@@ -3903,6 +3933,9 @@ export function buildSubcontractorPerformanceMap(
 
     const assignedAccountNames = allBySubKey.get(key) ?? new Set<string>();
     const activeAccountsManaged = activeCountBySubKey.get(key) ?? 0;
+    const monthlySubPay = activePayBySubKey.get(key) ?? 0;
+    // Postgres only: a cell past the sheet's columns, "1" when "Exclude from sub score" is on.
+    const excluded = subRow[PERFORMANCE_SUBCONTRACTOR_COL.EXCLUDED] === "1";
 
     const relatedVisits = visitRows.filter((row) =>
       assignedAccountNames.has(normalizeAccountName(row[PERFORMANCE_VISIT_COL.ACCOUNT_NAME]))
@@ -3947,7 +3980,7 @@ export function buildSubcontractorPerformanceMap(
       };
     });
 
-    const score = computeSubcontractorScore(scoreableComplaints, activeAccountsManaged);
+    const score = computeSubcontractorScore(scoreableComplaints, activeAccountsManaged, monthlySubPay);
 
     let scoreStatus: SubcontractorPerformance["scoreStatus"] = "Excellent";
     if (score < 9) scoreStatus = "Good";
@@ -3961,6 +3994,7 @@ export function buildSubcontractorPerformanceMap(
       avgCondition,
       lastReview,
       accountsAssigned: assignedAccountNames.size,
+      excluded,
     });
   }
 

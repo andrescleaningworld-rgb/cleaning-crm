@@ -561,6 +561,20 @@ const en: StaffHelpContent = {
       ],
       tip: "Changing a schedule keeps the old one in the history.",
     },
+    {
+      id: "sub-score",
+      group: "daily",
+      page: "Sub Center",
+      title: "Understand a sub's score",
+      steps: [
+        "Open **Sub Center** and tap the sub. The score is in **Automatic Performance Score**.",
+        "Every sub starts at 10. Each complaint takes off **Low** 0.5, **Medium** 1, **High** 2 or **Urgent** 2.5, times the sub's size multiplier. **Not Valid** complaints never count.",
+        "Size multiplier = 30 ÷ workload points, between 0.4 and 2. Workload points = active accounts + monthly sub pay ÷ $500. A bigger sub loses less per complaint.",
+        "Each month with no new complaint adds 1 point back (0.5 after a complaint is closed), up to 10.",
+        "Below 6, a **⚠** shows next to **Accounts center** in the side menu until someone taps **Got it**.",
+      ],
+      tip: "In-house crews and placeholder subs: tap **Edit** on the sub and set **Exclude from sub score** to **Yes**. They show **Not scored**.",
+    },
 
     /* ---------- Work ---------- */
     {
@@ -1465,6 +1479,20 @@ const es: StaffHelpContent = {
         "¿Saltar un día (un feriado)? Toca **New exception**.",
       ],
       tip: "Al cambiar un horario, el anterior queda en el historial.",
+    },
+    {
+      id: "sub-score",
+      group: "daily",
+      page: "Sub Center",
+      title: "Entender la puntuación de un sub",
+      steps: [
+        "Abre **Sub Center** y toca el sub. La puntuación está en **Automatic Performance Score**.",
+        "Todo sub empieza en 10. Cada queja resta **Low** 0.5, **Medium** 1, **High** 2 o **Urgent** 2.5, por el multiplicador de tamaño del sub. Las quejas **Not Valid** nunca cuentan.",
+        "Multiplicador de tamaño = 30 ÷ puntos de trabajo, entre 0.4 y 2. Puntos de trabajo = cuentas activas + pago mensual al sub ÷ $500. Un sub más grande pierde menos por queja.",
+        "Cada mes sin quejas nuevas suma 1 punto (0.5 después de cerrar una queja), hasta 10.",
+        "Por debajo de 6, aparece un **⚠** junto a **Accounts center** en el menú lateral hasta que alguien toca **Got it**.",
+      ],
+      tip: "Equipos propios y subs de relleno: toca **Edit** en el sub y pon **Exclude from sub score** en **Yes**. Aparecen como **Not scored**.",
     },
 
     /* ---------- Trabajo ---------- */

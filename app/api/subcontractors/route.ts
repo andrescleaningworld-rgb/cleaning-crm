@@ -458,14 +458,17 @@ export async function GET() {
       if (!perf) return sub;
 
       const avgConditionText = perf.avgCondition !== null ? String(perf.avgCondition) : "";
+      // "Exclude from sub score" (in-house crews, placeholder subs): no score anywhere, "Not scored".
+      const scoreText = perf.excluded ? "" : String(perf.score);
+      const statusText = perf.excluded ? "Not scored" : perf.scoreStatus;
 
       return {
         ...sub,
-        score: String(perf.score),
-        Score: String(perf.score),
-        scoreStatus: perf.scoreStatus,
-        ScoreStatus: perf.scoreStatus,
-        "Score Status": perf.scoreStatus,
+        score: scoreText,
+        Score: scoreText,
+        scoreStatus: statusText,
+        ScoreStatus: statusText,
+        "Score Status": statusText,
         complaints: String(perf.openComplaints),
         Complaints: String(perf.openComplaints),
         avgCondition: avgConditionText,
