@@ -66,6 +66,9 @@ export function useBoardTabs(current: BoardTab, onLocal?: (tab: "board" | "mine"
   };
 }
 
+/** The app tutorial on YouTube ("▶ Watch the app tutorial" under the motto). */
+const TUTORIAL_VIDEO_URL = "https://www.youtube.com/watch?v=VgAgj4iRmSM";
+
 type State = "loading" | "off" | "failed" | "ready";
 
 export async function postBoard(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -243,6 +246,12 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       }
     >
       <p className={styles.motto}>{MOTTO.en}</p>
+      {/* The app tutorial video, in a new tab. Only here: the TV page (/board/tv) has its own screen. */}
+      <p>
+        <a className="ui-btn ui-btn-second" href={TUTORIAL_VIDEO_URL} target="_blank" rel="noopener">
+          ▶ Watch the app tutorial
+        </a>
+      </p>
       <Tabs tabs={BOARD_TABS} value={tab} onChange={changeTab} label="Pin Board views" />
 
       {state === "loading" ? (
