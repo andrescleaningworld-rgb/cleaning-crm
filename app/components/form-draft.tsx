@@ -14,11 +14,15 @@
 // newest values. Photos and files are never kept.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { showToast, undoWaiting } from "@/app/ui/toast";
 
 const PREFIX = "cw-draft:";
 const KEEP_DAYS = 14;
 // How long a form may keep filling itself in after it says it is ready.
 const SETTLE_MS = 600;
+const SAVED_MESSAGE = "Draft saved on this computer. Press Save to add it to the CRM.";
+// Typing is kept at once; the pop-up only says so about every 5 minutes of work.
+const TELL_EVERY_MS = 5 * 60_000;
 
 type Stored = { savedAt: number; patch: unknown };
 
@@ -102,6 +106,9 @@ export function useFormDraft<T>(key: string, value: T, { ready = true, onRestore
   const restoreTo = useRef(onRestore);
   // True once this visit's typing has been written, so going back to the start removes only that.
   const keptThisVisit = useRef(false);
+  // When typing on this form started, and when the pop-up last showed (reset after a Save).
+  const workStartedAt = useRef<number | null>(null);
+  const lastToldAt = useRef<number | null>(null);
   // Compared by content, so a form may pass a new object on every render.
   const json = JSON.stringify(value ?? null);
 
@@ -132,8 +139,16 @@ export function useFormDraft<T>(key: string, value: T, { ready = true, onRestore
   // Typing without answering the note replaces the earlier draft.
   useEffect(() => {
     if (patch !== undefined) {
-      write(key, { savedAt: Date.now(), patch });
+      const now = Date.now();
+      write(key, { savedAt: now, patch });
       keptThisVisit.current = true;
+      // The pop-up after about 5 minutes of work, then every 5 minutes while typing goes on.
+      // Not while an Undo is up: any pop-up would finish that waiting save early.
+      workStartedAt.current ??= now;
+      if (now - (lastToldAt.current ?? workStartedAt.current) >= TELL_EVERY_MS && !undoWaiting()) {
+        lastToldAt.current = now;
+        showToast(SAVED_MESSAGE);
+      }
     } else if (keptThisVisit.current) {
       // Back to how it started: this visit's draft goes. An earlier one that is still waiting stays.
       keptThisVisit.current = false;
@@ -154,6 +169,8 @@ export function useFormDraft<T>(key: string, value: T, { ready = true, onRestore
 
   const clear = useCallback(() => {
     keptThisVisit.current = false;
+    workStartedAt.current = null;
+    lastToldAt.current = null;
     write(key, null);
     setBase(null);
     setWaiting(null);

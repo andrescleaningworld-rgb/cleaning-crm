@@ -49,6 +49,11 @@ export function showToast(message: string, kind: "good" | "bad" = "good") {
 type Pending = { run: () => void | Promise<void>; timer: ReturnType<typeof setTimeout> };
 let pending: Pending | null = null;
 
+/** True while an Undo message is up (its save has not run yet). */
+export function undoWaiting(): boolean {
+  return pending !== null;
+}
+
 /** Starts a waiting save right now (used when another one begins, or the page is being left). */
 export function flushUndo() {
   if (!pending) return;
