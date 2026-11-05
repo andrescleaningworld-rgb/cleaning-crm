@@ -152,6 +152,17 @@ export async function cancelledLastDays(): Promise<Map<string, string>> {
 }
 
 /**
+ * Every account with a Start Date: Account ID → that day (YYYY-MM-DD). No
+ * calendar, "next cleaning" or count has a cleaning before it. An account
+ * with no Start Date is not in the map and its schedule works as before.
+ */
+export async function accountStartDays(): Promise<Map<string, string>> {
+  const sql = getSql();
+  const rows = (await sql`SELECT id, start_date::text AS day FROM accounts WHERE id IS NOT NULL AND start_date IS NOT NULL`) as { id: string; day: string }[];
+  return new Map(rows.map((row) => [row.id.trim(), row.day]));
+}
+
+/**
  * The cancellation columns to set for one save, with their old and new
  * values for the account's History. `fields` is what the screen sent;
  * `writes` are the sheet columns being saved with it.

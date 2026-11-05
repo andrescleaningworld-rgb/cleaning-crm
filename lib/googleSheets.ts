@@ -839,6 +839,9 @@ export type SubSchedule = {
   // The Sub Schedules sheet edits this one. See fetchSubSchedules in
   // lib/pg/scheduling.ts.
   storedEffectiveEnd?: string;
+  // Postgres only: the account's Start Date (YYYY-MM-DD) when it has one.
+  // generateScheduleDates gives no day before it. Never saved.
+  accountStart?: string;
   // Postgres only (migration 042): "appointment" with an exact start time
   // ("19:00"), else a plain time window. Sheets rows are all windows.
   scheduleType?: string;

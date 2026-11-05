@@ -32,6 +32,8 @@ type SubSchedule = {
   recurring: string;
   effectiveStart: string;
   effectiveEnd: string;
+  /** The account's Start Date, when it has one: no cleaning shows before it. */
+  accountStart?: string;
   status: string;
   frequency: string;
   monthlyOccurrence: string;
@@ -244,6 +246,7 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
           monthlyOccurrence: s.monthlyOccurrence,
           effectiveStart: s.effectiveStart,
           effectiveEnd: s.effectiveEnd,
+          accountStart: s.accountStart,
         },
         rangeStart,
         rangeEnd

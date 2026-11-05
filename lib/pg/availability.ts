@@ -62,6 +62,7 @@ type ScheduleRow = {
   monthly_occurrence: string;
   effective_start: string | null;
   effective_end: string | null;
+  account_start: string | null;
   status: string;
   time_window: string;
   schedule_type: string | null;
@@ -92,6 +93,7 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
         ) AS sub_key,
         ss.frequency, ss.day_of_week, ss.monthly_occurrence,
         to_char(ss.effective_start, 'YYYY-MM-DD') AS effective_start, to_char(ss.effective_end, 'YYYY-MM-DD') AS effective_end,
+        (SELECT to_char(a.start_date, 'YYYY-MM-DD') FROM accounts a WHERE a.id = COALESCE(ss.account_ref, btrim(ss.account_id)) LIMIT 1) AS account_start,
         ss.status, ss.time_window,
         to_jsonb(ss)->>'schedule_type' AS schedule_type, to_jsonb(ss)->>'start_time' AS start_time,
         to_jsonb(ss)->>'window_start' AS window_start, to_jsonb(ss)->>'window_end' AS window_end,
@@ -131,6 +133,7 @@ export async function loadAvailabilitySubs(): Promise<AvailabilitySub[]> {
       monthlyOccurrence: row.monthly_occurrence,
       effectiveStart: row.effective_start ?? "",
       effectiveEnd: row.effective_end ?? "",
+      accountStart: row.account_start ?? "",
       status: row.status,
       timeWindow: row.time_window,
       scheduleType: row.schedule_type ?? "window",

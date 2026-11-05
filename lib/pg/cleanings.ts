@@ -5,7 +5,7 @@
 
 import { getSql } from "@/lib/db";
 import { addDays, dayToDate, MISSED_COUNTS_FROM, officeDay, OFFICE_TIME_ZONE, type CalendarData, type Cleaning, type CleaningProof } from "@/lib/cleanings";
-import { cancelledLastDays } from "@/lib/pg/accounts";
+import { accountStartDays, cancelledLastDays } from "@/lib/pg/accounts";
 import { generateScheduleDates } from "@/lib/scheduleRecurrence";
 
 type AccountRow = { id: string; account_name: string; checklist_needed: string; manager: string; sub: string; sub_id: string };
@@ -36,7 +36,8 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
   // A cancelled account stays on the calendar up to its final cleaning date
   // (the "Change status" sheet) and has nothing after it. Cancelled with no
   // final date: not on the calendar at all, as before.
-  const finalDays = new Map([...(await cancelledLastDays())].filter(([, day]) => day !== ""));
+  const [lastDays, startDays] = await Promise.all([cancelledLastDays(), accountStartDays()]);
+  const finalDays = new Map([...lastDays].filter(([, day]) => day !== ""));
   const leaving = [...finalDays.keys()];
 
   const [accounts, schedules, exceptions, marks, checklists, subVisits, photos, visits, extras, pinned] = (await Promise.all([
@@ -96,6 +97,11 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
     const finalDay = finalDays.get(accountId);
     return finalDay !== undefined && day > finalDay;
   };
+  // Nothing is scheduled before an account's Start Date, so nothing there can be missed.
+  const beforeStart = (accountId: string, day: string) => {
+    const startDay = startDays.get(accountId);
+    return startDay !== undefined && day < startDay;
+  };
   const rangeStart = dayToDate(from);
   const rangeEnd = dayToDate(last);
 
@@ -106,7 +112,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
     // Rows from before Frequency existed are plain weekly ones (Recurring = Y and a day of the week).
     const frequency = row.frequency.trim() || (row.recurring.trim().toUpperCase() === "Y" && row.day_of_week.trim() ? "WEEKLY" : "");
     const days = generateScheduleDates(
-      { frequency, dayOfWeek: row.day_of_week, monthlyOccurrence: row.monthly_occurrence, effectiveStart: row.effective_start ?? "", effectiveEnd: row.effective_end ?? "" },
+      { frequency, dayOfWeek: row.day_of_week, monthlyOccurrence: row.monthly_occurrence, effectiveStart: row.effective_start ?? "", effectiveEnd: row.effective_end ?? "", accountStart: startDays.get(row.account_id) },
       rangeStart,
       rangeEnd
     );
@@ -130,7 +136,7 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
       if (exception.original_day) planned.delete(key(exception.account_id, exception.original_day));
     } else if (type === "reschedule" && exception.new_day) {
       if (exception.original_day) planned.delete(key(exception.account_id, exception.original_day));
-      if (exception.new_day >= from && exception.new_day <= last && accountById.has(exception.account_id) && !afterFinal(exception.account_id, exception.new_day)) {
+      if (exception.new_day >= from && exception.new_day <= last && accountById.has(exception.account_id) && !afterFinal(exception.account_id, exception.new_day) && !beforeStart(exception.account_id, exception.new_day)) {
         const account = accountById.get(exception.account_id)!;
         planned.set(key(exception.account_id, exception.new_day), {
           accountId: exception.account_id,
@@ -165,6 +171,8 @@ export async function listCleanings(from: string, to: string): Promise<CalendarD
     const k = key(accountId, day);
     const mark = markBy.get(k);
     const found = proof.get(k) ?? "";
+    // Before the Start Date a day shows only when it was cleaned.
+    if (beforeStart(accountId, day) && !found && mark !== "cleaned") return null;
     let status: Cleaning["status"];
     let shown: CleaningProof = found;
     if (mark === "missed") {

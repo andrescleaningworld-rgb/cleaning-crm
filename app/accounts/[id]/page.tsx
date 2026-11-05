@@ -27,6 +27,7 @@ import ChecklistTemplateEditor from "../../components/ChecklistTemplateEditor";
 import AccountHistory from "../../components/AccountHistory";
 import QuickToDoSheet from "../../components/QuickToDoSheet";
 import NextCleaning from "./next-cleaning";
+import { dateOrNull } from "@/lib/dateUtils";
 import TimeOnSiteDetail from "./time-on-site";
 import { AccountScheduleDetail } from "../../components/account-schedule";
 import { NoScheduleBanner } from "../../components/no-schedule";
@@ -1081,6 +1082,7 @@ export default function AccountDetailPage() {
               manager={account.manager || ""}
               cancelled={isCancelledStatus(account.status)}
               finalCleaningDate={isCancelledStatus(account.status) ? account.finalCleaningDate || "" : ""}
+              startDate={dateOrNull(startDate) ?? ""}
             >
               {/* Gold "Ready to start" (lib/setupWizard.ts isReadyToStart); nothing otherwise. */}
               <SetupReadyBadge accountId={thisAccountId} refreshKey={welcomeVersion + flowVersion} />

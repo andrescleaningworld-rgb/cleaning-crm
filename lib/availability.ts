@@ -41,6 +41,8 @@ export type AvailabilitySchedule = {
   monthlyOccurrence: string;
   effectiveStart: string;
   effectiveEnd: string;
+  /** The account's Start Date, "" when none: no cleaning before it. */
+  accountStart?: string;
   status: string;
   timeWindow: string;
   scheduleType: string;
