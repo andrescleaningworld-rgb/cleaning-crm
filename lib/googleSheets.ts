@@ -3747,7 +3747,6 @@ function monthIndex(date: Date): number {
 // points, so 1.0. No accounts and no pay: 30 ÷ 0 = Infinity, clamped to 2.0.
 // Replaced 10 ÷ active accounts (0.5–2.0) on 2026-11-05: that treated 30 small
 // $300 offices as bigger than 10 large $5,000 accounts.
-// docs/sub-score-simulation.md has the before/after on real data.
 export const SCORE_SIZE = { baseline: 30, payStep: 500, min: 0.4, max: 2.0 } as const;
 
 export function scoreWorkloadPoints(activeAccounts: number, monthlySubPay: number): number {
