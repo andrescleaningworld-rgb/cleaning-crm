@@ -454,31 +454,22 @@
   overflow: hidden;
 }
 
-.cwButton {
+.cwBody {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  width: 100%;
   padding: 24px;
-  background: none;
-  border: 0;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
-.cwButton:disabled {
-  cursor: default;
 }
 
 .cwTitle {
+  margin: 0;
   font-size: 26px;
   font-weight: 800;
 }
 
 .cwScoreRow {
+  margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -515,6 +506,7 @@
 }
 
 .cwSmall {
+  margin: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px 24px;
@@ -523,23 +515,4 @@
 
 .cwSmall strong {
   font-size: 22px;
-}
-
-.cwList {
-  padding: 0 24px 24px;
-}
-
-.cwSubs {
-  margin: 12px 0 0;
-  padding-left: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  font-size: 18px;
-}
-
-.cwSubFacts {
-  display: block;
-  color: var(--ui-muted, #475569);
-  font-size: 16px;
 }

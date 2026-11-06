@@ -8,6 +8,7 @@ import SubCenterCoverage from "./coverage";
 import SubCenterActivityLog from "./activity-log";
 import SubCenterRanking from "./ranking";
 import SubCenterScheduleAsk from "./schedule-ask";
+import ScorePull from "./score-pull";
 import { Screen, Tabs } from "@/app/ui";
 import { InsuranceCenter } from "@/app/components/sub-insurance";
 // Team Hub tab hidden 2026-09-24 (Crew Link replaces it); ./team-hub.tsx kept.
@@ -62,6 +63,8 @@ function SubCenterPageContent() {
     // .ui-screen here only sets the type and focus styles for the tab bar;
     // each tab below brings its own Screen (title, back, main action).
     <div className="ui-screen">
+      {/* Who takes the most off the Cleaning World Score (Overview). Nothing when nobody does. */}
+      <ScorePull />
       <Tabs label="Sub Center sections" tabs={TABS} value={activeTab} onChange={handleTabChange} />
 
       {activeTab === "subs" && <SubcontractorsPage />}
