@@ -10,6 +10,7 @@ import type { DivIcon } from "leaflet";
 import { distanceInMiles, formatMiles } from "../lib/distance";
 import { managerMatches } from "@/lib/managerNames";
 import { useManagerNames } from "../components/manager-options";
+import { easternTodayIso, LastVisitedField, matchesLastVisited, useLastVisits, type LastVisitedFilter } from "../components/last-visited";
 import { BigButton, Card, EmptyState, ErrorBox, Screen, SearchBar, SelectField, Sheet, StatusPill } from "@/app/ui";
 
 const MapContainer = dynamic(
@@ -329,6 +330,10 @@ export default function MapPage() {
   const [searchText, setSearchText] = useState("");
   const [managerFilter, setManagerFilter] = useState("All Managers");
   const [subFilter, setSubFilter] = useState("All Subs");
+  // The same "Last visited" filter as the Accounts list (app/components/last-visited.tsx).
+  const { lastVisits, failed: lastVisitsFailed } = useLastVisits();
+  const [lastVisitedFilter, setLastVisitedFilter] = useState<LastVisitedFilter>("any");
+  const today = useMemo(() => easternTodayIso(), []);
   const [pinLimit, setPinLimit] = useState(INITIAL_PIN_LIMIT);
   // Layout only: the manager and sub filters open in a sheet.
   const [showFilters, setShowFilters] = useState(false);
@@ -540,7 +545,7 @@ export default function MapPage() {
 
   useEffect(() => {
     setPinLimit(INITIAL_PIN_LIMIT);
-  }, [searchText, managerFilter, subFilter]);
+  }, [searchText, managerFilter, subFilter, lastVisitedFilter]);
 
   // The active managers on the Staff list, not whatever is typed on the accounts.
   const managerList = useManagerNames();
@@ -591,7 +596,10 @@ export default function MapPage() {
         const matchesSub =
           subFilter === "All Subs" ? true : account.subcontractor === subFilter;
 
-        return matchesSearch && matchesManager && matchesSub;
+        // Until the visit dates load, nothing is shown rather than a wrong list.
+        const matchesLastVisit = matchesLastVisited(lastVisitedFilter, lastVisits, account.id, today);
+
+        return matchesSearch && matchesManager && matchesSub && matchesLastVisit;
       })
       .sort((a, b) => {
         if (a.distance !== null && b.distance !== null) {
@@ -603,7 +611,7 @@ export default function MapPage() {
 
         return a.name.localeCompare(b.name);
       });
-  }, [accountsWithDistance, searchText, managerFilter, subFilter]);
+  }, [accountsWithDistance, searchText, managerFilter, subFilter, lastVisitedFilter, lastVisits, today]);
 
   const selectedAccount = useMemo(() => {
     if (!selectedAccountId) return null;
@@ -698,6 +706,7 @@ export default function MapPage() {
     setSearchText("");
     setManagerFilter("All Managers");
     setSubFilter("All Subs");
+    setLastVisitedFilter("any");
     setSelectedAccountId("");
     setPinLimit(INITIAL_PIN_LIMIT);
   }
@@ -764,7 +773,8 @@ export default function MapPage() {
   }, []); // run once on mount
 
 
-  const filtersOn = (managerFilter !== "All Managers" ? 1 : 0) + (subFilter !== "All Subs" ? 1 : 0);
+  const filtersOn =
+    (managerFilter !== "All Managers" ? 1 : 0) + (subFilter !== "All Subs" ? 1 : 0) + (lastVisitedFilter !== "any" ? 1 : 0);
   const mapBoxStyle = { height: "68vh", minHeight: 460, width: "100%", borderRadius: 16, overflow: "hidden", border: "2px solid var(--ui-line)" } as const;
   const mapsSearchUrl = (address: string) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
 
@@ -802,7 +812,7 @@ export default function MapPage() {
           {filtersOn ? `Filter (${filtersOn} on)` : "Filter"}
         </BigButton>
         <BigButton kind="quiet" onClick={clearFilters}>
-          Clear
+          Clear filters
         </BigButton>
       </div>
 
@@ -811,7 +821,7 @@ export default function MapPage() {
         <p className="ui-muted">
           {isLoading
             ? "Loading accounts…"
-            : `${filteredAccounts.length} found / ${accountsWithPins.length} with pins / showing ${visibleAccountsWithPins.length}`}
+            : `Showing ${filteredAccounts.length} of ${accountsWithDistance.length} accounts · ${accountsWithPins.length} with pins · ${visibleAccountsWithPins.length} pins on the map`}
         </p>
         {!isLoading && geocodingProgress !== null ? (
           <p className="ui-muted">
@@ -1050,6 +1060,12 @@ export default function MapPage() {
             </option>
           ))}
         </SelectField>
+        <LastVisitedField value={lastVisitedFilter} onChange={setLastVisitedFilter} loaded={lastVisits !== null} failed={lastVisitsFailed} />
+        {filtersOn ? (
+          <BigButton kind="quiet" onClick={clearFilters}>
+            Clear filters
+          </BigButton>
+        ) : null}
       </Sheet>
     </Screen>
   );

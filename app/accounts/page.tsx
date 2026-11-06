@@ -42,6 +42,7 @@ import { RiskPill, RiskReason, useRiskFlags } from "../components/account-risk";
 import type { RiskFlag } from "@/lib/accountRisk";
 import { managerMatches, pickManager } from "@/lib/managerNames";
 import { loadManagerNames, useManagerNames } from "../components/manager-options";
+import { easternTodayIso, lastVisitText, LastVisitedField, matchesLastVisited, useLastVisits, type LastVisitedFilter } from "../components/last-visited";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -289,19 +290,7 @@ const sortOptions: SortOption[] = [
 const NEAR_ACCOUNT_RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 const DEFAULT_NEAR_ACCOUNT_RADIUS_MILES = 10;
 
-// "Last visited": days since the account's last manager visit (the Visits
-// log, the same data as Reports -> Last Visit by Account). "Over N days"
-// means N days or more, and leaves out accounts never visited: those have
-// their own option.
-type LastVisitedFilter = "any" | "30" | "60" | "90" | "180" | "never";
-const LAST_VISITED_OPTIONS: { value: LastVisitedFilter; label: string }[] = [
-  { value: "any", label: "Any" },
-  { value: "30", label: "Over 30 days" },
-  { value: "60", label: "Over 60 days" },
-  { value: "90", label: "Over 90 days" },
-  { value: "180", label: "Over 180 days" },
-  { value: "never", label: "Never visited" },
-];
+// "Last visited" lives in app/components/last-visited.tsx (shared with the Map).
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -423,30 +412,6 @@ function getDateTime(value: string | undefined): number {
   if (!value) return 0;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-}
-
-/** Today's date in Eastern time, as YYYY-MM-DD (the visit dates are plain dates). */
-function easternTodayIso(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
-
-/** Whole days from a YYYY-MM-DD date to today; null when there is no date. */
-function daysSince(isoDate: string | null | undefined, today: string): number | null {
-  if (!isoDate) return null;
-  const from = Date.parse(`${isoDate.slice(0, 10)}T00:00:00Z`);
-  const to = Date.parse(`${today}T00:00:00Z`);
-  if (Number.isNaN(from) || Number.isNaN(to)) return null;
-  return Math.max(0, Math.round((to - from) / 86_400_000));
-}
-
-/** "Oct 3, 2026 (30 days ago)", or "Never visited". */
-function lastVisitText(isoDate: string | null | undefined, today: string): string {
-  const days = daysSince(isoDate, today);
-  if (!isoDate || days === null) return "Never visited";
-  const [year, month, day] = isoDate.slice(0, 10).split("-").map(Number);
-  const shown = new Date(year, month - 1, day).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  const ago = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
-  return `${shown} (${ago})`;
 }
 
 function formatDate(value: string | undefined): string {
@@ -886,24 +851,9 @@ export default function AccountsPage() {
     };
   }, []);
   // "Last visited": each account's last visit date by account ID (GET /api/visits?last=1). null until loaded.
-  const [lastVisits, setLastVisits] = useState<Record<string, string> | null>(null);
-  const [lastVisitsFailed, setLastVisitsFailed] = useState(false);
+  const { lastVisits, failed: lastVisitsFailed } = useLastVisits();
   const [lastVisitedFilter, setLastVisitedFilter] = useState<LastVisitedFilter>("any");
   const today = useMemo(() => easternTodayIso(), []);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/visits?last=1", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((data: { success?: boolean; lastVisits?: Record<string, string> }) => {
-        if (!alive) return;
-        if (data.success && data.lastVisits) setLastVisits(data.lastVisits);
-        else setLastVisitsFailed(true);
-      })
-      .catch(() => alive && setLastVisitsFailed(true));
-    return () => {
-      alive = false;
-    };
-  }, []);
   const [townFilter, setTownFilter] = useState("");
   const [picker, setPicker] = useState<"sub" | "town" | null>(null);
   const [moreAccount, setMoreAccount] = useState<Account | null>(null);
@@ -1256,16 +1206,8 @@ export default function AccountsPage() {
       if (riskOnly && !nonLocationFilterParams.cleanSearch && (riskFlags[getAccountId(account)]?.level ?? "green") === "green") return false;
       if (priceDueOnly && !nonLocationFilterParams.cleanSearch && !priceDue[getAccountId(account)]) return false;
 
-      if (lastVisitedFilter !== "any") {
-        // Until the dates load, nothing is shown rather than a wrong list.
-        if (!lastVisits) return false;
-        const days = daysSince(lastVisits[getAccountId(account)], today);
-        if (lastVisitedFilter === "never") {
-          if (days !== null) return false;
-        } else if (days === null || days < Number(lastVisitedFilter)) {
-          return false;
-        }
-      }
+      // Until the dates load, nothing is shown rather than a wrong list.
+      if (!matchesLastVisited(lastVisitedFilter, lastVisits, getAccountId(account), today)) return false;
 
       if (nearAccountRef) {
         if (getAccountId(account) === getAccountId(nearAccountRef)) return false;
@@ -2889,18 +2831,7 @@ async function handleSaveTransferProposal() {
           ))}
         </SelectField>
 
-        <SelectField
-          label="Last visited"
-          hint={lastVisitsFailed ? "Couldn't load the visit dates. Refresh the page to try again." : lastVisits ? "Days since the last manager visit." : "Loading visit dates..."}
-          value={lastVisitedFilter}
-          onChange={(e) => setLastVisitedFilter(e.target.value as LastVisitedFilter)}
-        >
-          {LAST_VISITED_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </SelectField>
+        <LastVisitedField value={lastVisitedFilter} onChange={setLastVisitedFilter} loaded={lastVisits !== null} failed={lastVisitsFailed} />
 
         <Field label="Min revenue" optional inputMode="decimal" value={minRevenueFilter} onChange={(e) => setMinRevenueFilter(e.target.value)} />
         <Field label="Max revenue" optional inputMode="decimal" value={maxRevenueFilter} onChange={(e) => setMaxRevenueFilter(e.target.value)} />
