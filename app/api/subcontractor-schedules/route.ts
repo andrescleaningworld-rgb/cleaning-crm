@@ -1,8 +1,17 @@
 import { after, NextRequest, NextResponse } from "next/server";
+import { getIronSession } from "iron-session";
 import { appendSubSchedule, fetchSubSchedules, supersedeActiveSubSchedulesForSub } from "@/lib/data/scheduling";
 import { FREQUENCY_LABELS, validateScheduleEntries } from "@/lib/scheduleRecurrence";
 import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
-import { describeRows } from "@/lib/schedule-plan";
+import { describeRows, type ScheduleRowLike } from "@/lib/schedule-plan";
+import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
+import { SCHEDULE_SET_BY_SUB, subAccount } from "@/lib/pg/schedule-ask";
+import { accountWithoutSchedule } from "@/lib/pg/no-schedule";
+import { syncAccountScheduleFields } from "@/lib/schedule-save";
+import { officeDay } from "@/lib/cleanings";
+import { logActivity } from "@/lib/activityLog";
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET() {
   try {
@@ -58,27 +67,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Who is saving comes from the sub_session cookie: a sub may only set the
+  // schedule of their own accounts (the sub id sent must be their login email).
+  const session = await getIronSession<SubSessionData>(request, NextResponse.json({}), subSessionOptions());
+  const sessionEmail = session.subcontractorEmail?.trim() ?? "";
+  if (!sessionEmail) return NextResponse.json({ error: "Please log in again." }, { status: 401 });
+
   const accountId = body.accountId?.trim() ?? "";
   const accountName = body.accountName?.trim() ?? "";
-  const subId = body.subId?.trim() ?? "";
-  const submittedBy = body.submittedBy?.trim() ?? "";
+  const subId = body.subId?.trim() || sessionEmail;
+  const submittedBy = body.submittedBy?.trim() || session.subcontractorName?.trim() || sessionEmail;
   const frequency = body.frequency?.trim() ?? "";
-  const effectiveStart = body.effectiveStart?.trim() ?? "";
+  const askedStart = body.effectiveStart?.trim() ?? "";
   const effectiveEnd = body.effectiveEnd?.trim() ?? "";
   const entries = Array.isArray(body.entries) ? body.entries : [];
 
-  if (!accountId || !subId || !submittedBy) {
-    return NextResponse.json({ error: "accountId, subId, and submittedBy are required" }, { status: 400 });
+  if (!accountId) {
+    return NextResponse.json({ error: "Which account?" }, { status: 400 });
+  }
+  if (subId.toLowerCase() !== sessionEmail.toLowerCase()) {
+    return NextResponse.json({ error: "You can only set the schedule of your own accounts." }, { status: 403 });
+  }
+  const owned = await subAccount(sessionEmail, accountId);
+  if (!owned) {
+    return NextResponse.json({ error: "That is not one of your accounts." }, { status: 403 });
   }
   const validationError = validateScheduleEntries(frequency, entries);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
 
+  // No cleanings in the past or before the account's Start Date: the
+  // schedule starts today at the earliest, or on the Start Date when later.
+  const today = officeDay();
+  let effectiveStart = ISO_DAY.test(askedStart) && askedStart > today ? askedStart : today;
+  if (ISO_DAY.test(owned.startDate) && owned.startDate > effectiveStart) effectiveStart = owned.startDate;
+  if (frequency === "AS_NEEDED") effectiveStart = "";
+
   const recurring = frequency === "AS_NEEDED" ? "N" : "Y";
   const rowsToCreate: ScheduleEntry[] = frequency === "AS_NEEDED" ? [{}] : entries;
 
   try {
+    // Set while the account had no schedule at all: counted on Sub Center → Schedules to set.
+    const wasMissing = (await accountWithoutSchedule(accountId)) !== null;
+
     // A sub can overwrite a prior schedule for this account (most notably
     // one an admin set up for them) — close out whatever's currently Active
     // for this exact account+sub pair before appending the new rows, or
@@ -129,8 +161,8 @@ export async function POST(request: NextRequest) {
       scheduleIds.push(id);
     }
 
-    const summary = describeRows(
-      rowsToCreate.map((entry) => ({
+    const savedRows = rowsToCreate.map(
+      (entry): ScheduleRowLike => ({
         frequency,
         dayOfWeek: entry.dayOfWeek ?? "",
         monthlyOccurrence: entry.monthlyOccurrence ?? "",
@@ -139,8 +171,23 @@ export async function POST(request: NextRequest) {
         startTime: entry.startTime,
         windowStart: entry.windowStart,
         windowEnd: entry.windowEnd,
-      }))
+      })
     );
+    const summary = describeRows(savedRows);
+
+    // The account's old Frequency / Cleaning days / Cleaning time follow it, same as the staff forms.
+    await syncAccountScheduleFields(accountId, savedRows);
+    if (wasMissing) {
+      await logActivity({
+        actorAccountId: owned.subRecordId,
+        actorRole: "sub",
+        actorName: submittedBy,
+        action: "create",
+        entityType: SCHEDULE_SET_BY_SUB,
+        entityId: accountId,
+        detail: `${accountName || accountId}: ${summary}`,
+      });
+    }
 
     // Best-effort — runs after the response is already sent, so a slow/failed
     // send never delays or fails the schedule save. Same pattern as the
@@ -194,7 +241,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ success: true, scheduleIds });
+    return NextResponse.json({ success: true, scheduleIds, startDate: effectiveStart });
   } catch (err) {
     console.error("[subcontractor-schedules POST]", err);
     return NextResponse.json({ error: "Failed to save schedule" }, { status: 500 });

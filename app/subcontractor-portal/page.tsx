@@ -7,6 +7,7 @@ import { SUB_WORDS } from "@/app/ui/words";
 import SimpleHome, { PinPad, useSubLang } from "./simple-home";
 import SubInsurance from "./insurance";
 import SubOffers from "./offers";
+import ScheduleAsk from "./schedule-ask";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
@@ -1393,6 +1394,8 @@ export default function SubcontractorPortalPage() {
 
         {subcontractor ? (
           <>
+            {/* "Please set the schedule for these accounts": their Active accounts with no schedule. Nothing when all are set. */}
+            <ScheduleAsk lang={lang} />
             {/* A new account the office offered to this sub: Yes / No. Nothing when none is waiting. */}
             <SubOffers lang={lang} />
             {/* "Upload my insurance" and its banner. Nothing while it is switched off in Settings. */}

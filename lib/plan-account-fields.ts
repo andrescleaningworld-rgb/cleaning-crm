@@ -80,9 +80,14 @@ export function accountFieldsFromPlan(plan: SchedulePlan): PlanAccountFields | n
 const lowerFirst = (text: string) => (text ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
 /** "Old info: 3x per week, Mon, Wed, Friday, between 6:00 pm and 9:00 pm" for an account with old fields and no picker schedule; "" when nothing is there. */
-export function oldScheduleInfo(fields: { frequency?: string; cleaningDays?: string; cleaningTime?: string }, describeTime: (value: string) => string): string {
+export function oldScheduleInfo(
+  fields: { frequency?: string; cleaningDays?: string; cleaningTime?: string },
+  describeTime: (value: string) => string,
+  /** The words before the colon (the sub portal passes its own language). */
+  label = "Old info"
+): string {
   const parts = [fields.frequency, fields.cleaningDays, fields.cleaningTime ? lowerFirst(describeTime(fields.cleaningTime)) || fields.cleaningTime : ""]
     .map((part) => String(part ?? "").trim())
     .filter(Boolean);
-  return parts.length > 0 ? `Old info: ${parts.join(", ")}` : "";
+  return parts.length > 0 ? `${label}: ${parts.join(", ")}` : "";
 }

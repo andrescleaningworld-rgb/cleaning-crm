@@ -56,6 +56,28 @@ function mostCommon(values: number[]): number | null {
   return best;
 }
 
+/**
+ * The account's old Frequency / Cleaning Days / Cleaning Time follow the
+ * schedule (lib/plan-account-fields.ts), whichever screen saved it (staff
+ * forms and the sub portal), so the screens and reports that still read them
+ * see the same schedule. Never throws: a failure is logged.
+ */
+export async function syncAccountScheduleFields(accountId: string, savedRows: ScheduleRowLike[]): Promise<void> {
+  const fields = accountFieldsFromPlan(rowsToPlan(savedRows));
+  if (!fields || !accountsOnPostgres()) return;
+  try {
+    try {
+      await updateAccountFieldsDirect(accountId, { frequency: fields.frequency, cleaningDays: fields.cleaningDays, cleaningTime: fields.cleaningTime });
+    } catch {
+      // Before migration 050 the cleaning time cannot be saved: the other two still are.
+      await updateAccountFieldsDirect(accountId, { frequency: fields.frequency, cleaningDays: fields.cleaningDays });
+    }
+    await invalidateAccountLists();
+  } catch (error) {
+    console.error("[schedule-save] account schedule fields not updated:", error instanceof Error ? error.message : error);
+  }
+}
+
 export async function replaceSchedule(request: NextRequest, body: Record<string, unknown>): Promise<NextResponse> {
   const identity = await getAdminIdentity(request);
   const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
@@ -162,23 +184,7 @@ export async function replaceSchedule(request: NextRequest, body: Record<string,
     );
     const summary = describeRows(savedRows);
 
-    // The account's old Frequency / Cleaning Days / Cleaning Time follow the
-    // schedule (lib/plan-account-fields.ts), whichever screen saved it, so the
-    // screens and reports that still read them see the same schedule.
-    const fields = accountFieldsFromPlan(rowsToPlan(savedRows));
-    if (fields && accountsOnPostgres()) {
-      try {
-        try {
-          await updateAccountFieldsDirect(accountId, { frequency: fields.frequency, cleaningDays: fields.cleaningDays, cleaningTime: fields.cleaningTime });
-        } catch {
-          // Before migration 050 the cleaning time cannot be saved: the other two still are.
-          await updateAccountFieldsDirect(accountId, { frequency: fields.frequency, cleaningDays: fields.cleaningDays });
-        }
-        await invalidateAccountLists();
-      } catch (error) {
-        console.error("[schedule-save] account schedule fields not updated:", error instanceof Error ? error.message : error);
-      }
-    }
+    await syncAccountScheduleFields(accountId, savedRows);
 
     // Best effort, after the answer is sent: the sub hears about it.
     after(async () => {

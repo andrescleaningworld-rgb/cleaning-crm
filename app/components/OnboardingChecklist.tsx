@@ -12,12 +12,15 @@
 //   variant "section"  the account page's short card: "X of Y done", what is
 //                      missing, and the button that opens the wizard
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import SubPayFields from "./sub-pay-fields";
 import ReadyBadge from "./ready-badge";
-import { FREQUENCY_OPTIONS, afterFrequencyChange, frequencyChoice, perCleaningText } from "@/lib/frequency";
-import { cleaningTimeText, parseCleaningTime } from "@/lib/cleaningTime";
-import { parseClock, toClock } from "@/lib/schedule-time";
+import ScheduleEditor from "./schedule-editor";
+import { pickGroup, saveSchedule, useAccountSchedule, type StoredScheduleRow } from "./account-schedule";
+import { afterFrequencyChange, perCleaningText } from "@/lib/frequency";
+import { describeCleaningTime } from "@/lib/cleaningTime";
+import { emptyPlan, planIsEmpty, planProblems, rowsToPlan, type SchedulePlan } from "@/lib/schedule-plan";
+import { accountFieldsFromPlan, oldScheduleInfo } from "@/lib/plan-account-fields";
 import { photoProblemText, preparePhoto, readUploadReply } from "@/lib/imageResize";
 import {
   ANYTHING_ELSE_SHOT,
@@ -261,7 +264,7 @@ function Wizard({ accountId, accountName, onChanged }: { accountId: string; acco
     onChangedRef.current = onChanged;
   });
 
-  const screens = useMemo(() => SETUP_SCREENS.filter((screen) => screen.key !== "time" || wizard?.cleaningTimeReady !== false), [wizard?.cleaningTimeReady]);
+  const screens = SETUP_SCREENS;
 
   const reload = useCallback(async () => {
     const data = await loadWizard(accountId);
@@ -394,12 +397,8 @@ function ScreenBody(props: ScreenProps & { screen: SetupScreenKey }) {
       return <TapScreen key={props.screen} step={props.screen} {...props} />;
     case "photos":
       return <PhotosScreen {...props} />;
-    case "frequency":
-      return <FrequencyScreen {...props} />;
-    case "days":
-      return <DaysScreen {...props} />;
-    case "time":
-      return <TimeScreen {...props} />;
+    case "schedule":
+      return <ScheduleScreen {...props} />;
     case "pay":
       return <PayScreen {...props} />;
     case "scope":
@@ -587,169 +586,67 @@ function PhotosScreen({ wizard, accountId, accountName, busy, run, next }: Scree
   );
 }
 
-/* ---------- 4: how often ---------- */
+/* ---------- 4: the Cleaning schedule (how often, days, time) ---------- */
 
-function FrequencyScreen({ wizard, accountId, busy, run, next }: ScreenProps) {
-  const saved = wizard.facts.frequency;
-  const [other, setOther] = useState(frequencyChoice(saved) === "Other" ? saved : "");
-  const [otherOpen, setOtherOpen] = useState(frequencyChoice(saved) === "Other");
-  const save = (frequency: string) => {
-    const fields: Record<string, string> = { frequency };
-    // A new Frequency keeps the monthly pay and works the price per cleaning out again.
-    if (amount(wizard.facts.subPay) > 0) {
-      const after = afterFrequencyChange(frequency, wizard.facts.subPay, wizard.values.subPricePerCleaning);
-      if (after.per) fields.subPricePerCleaning = after.per;
+// The same picker as Add / Edit Account, saved the same way (the account's
+// Frequency / days / time follow it). Old fields show in grey as a hint only.
+function ScheduleScreen(props: ScreenProps) {
+  const schedule = useAccountSchedule(props.accountId);
+  if (schedule.state === "loading") return <p className="text-xl text-slate-500">Loading…</p>;
+  if (schedule.state === "failed") return <p className="rounded-2xl bg-red-50 p-4 text-xl font-bold text-red-800">The schedule did not load. Skip for now and try again later.</p>;
+  const current = pickGroup(schedule.groups, schedule.accountSub.email);
+  return <ScheduleForm key={current?.key ?? "new"} {...props} current={current} subEmail={schedule.accountSub.email} reloadSchedule={schedule.reload} />;
+}
+
+function ScheduleForm({
+  wizard,
+  accountId,
+  accountName,
+  busy,
+  run,
+  next,
+  current,
+  subEmail,
+  reloadSchedule,
+}: ScreenProps & { current: ReturnType<typeof pickGroup<StoredScheduleRow>>; subEmail: string; reloadSchedule: () => void }) {
+  const [plan, setPlan] = useState<SchedulePlan>(() => (current ? rowsToPlan(current.rows) : emptyPlan()));
+  const [tried, setTried] = useState(false);
+  const oldInfo = current ? "" : oldScheduleInfo(wizard.facts, describeCleaningTime);
+  const save = async () => {
+    setTried(true);
+    if (planIsEmpty(plan) || planProblems(plan).length > 0) return;
+    const ok = await run(async () => {
+      // No cleaning before the Start Date: a later Start Date is where it begins.
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const start = /^\d{4}-\d{2}-\d{2}$/.test(wizard.facts.startDate) && wizard.facts.startDate > today ? wizard.facts.startDate : "";
+      const result = await saveSchedule({
+        accountId,
+        accountName,
+        subId: current?.subId || subEmail,
+        plan,
+        closeScheduleIds: (current?.rows ?? []).map((row) => row.scheduleId),
+        startDate: start,
+      });
+      if (!result.ok) throw new Error(result.error);
+      // A new Frequency keeps the monthly pay and works the price per cleaning out again.
+      const frequency = accountFieldsFromPlan(plan)?.frequency ?? "";
+      if (frequency && frequency !== wizard.facts.frequency && amount(wizard.facts.subPay) > 0) {
+        const after = afterFrequencyChange(frequency, wizard.facts.subPay, wizard.values.subPricePerCleaning);
+        if (after.per) await saveAccountFields(accountId, { subPricePerCleaning: after.per });
+      }
+    });
+    if (ok) {
+      reloadSchedule();
+      next();
     }
-    return run(() => saveAccountFields(accountId, fields));
-  };
-  const typed = useAutosave(async (value) => {
-    if (value.trim() && value.trim() !== saved) await save(value.trim());
-  });
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        {FREQUENCY_OPTIONS.map((option) => (
-          <Choice
-            key={option}
-            on={!otherOpen && saved === option}
-            disabled={busy}
-            onClick={() => {
-              setOtherOpen(false);
-              void save(option).then((ok) => ok && next());
-            }}
-          >
-            {option}
-          </Choice>
-        ))}
-        <Choice on={otherOpen} disabled={busy} onClick={() => setOtherOpen(true)}>
-          Other
-        </Choice>
-      </div>
-      {otherOpen ? (
-        <label className="block space-y-1">
-          <span className={LABEL}>Type it in</span>
-          <input
-            className={BIG_BOX}
-            value={other}
-            placeholder="2x per week office, 1x per month floors"
-            onChange={(event) => {
-              setOther(event.target.value);
-              typed.schedule(event.target.value);
-            }}
-          />
-        </label>
-      ) : null}
-      {otherOpen ? (
-        <button type="button" className={BIG_GREEN} disabled={busy} onClick={() => void typed.flush().then(next)}>
-          Next
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-/* ---------- 5: which days ---------- */
-
-const WEEK = [
-  { short: "Mon", match: /\bmon(day)?s?\b/i },
-  { short: "Tue", match: /\btue(s|sday)?s?\b/i },
-  { short: "Wed", match: /\bwed(nesday)?s?\b/i },
-  { short: "Thu", match: /\bthu(r|rs|rsday)?s?\b/i },
-  { short: "Fri", match: /\bfri(day)?s?\b/i },
-  { short: "Sat", match: /\bsat(urday)?s?\b/i },
-  { short: "Sun", match: /\bsun(day)?s?\b/i },
-];
-
-function DaysScreen({ wizard, accountId, busy, run, next }: ScreenProps) {
-  const saved = wizard.facts.cleaningDays;
-  const [days, setDays] = useState<string[]>(() => WEEK.filter((day) => day.match.test(saved)).map((day) => day.short));
-  // Days written another way ("M-F", "Weekdays") stay as they are until a day is tapped.
-  const unreadable = saved !== "" && days.length === 0;
-  const autosave = useAutosave(async (value) => {
-    if (value !== saved) await run(() => saveAccountFields(accountId, { cleaningDays: value }));
-  }, 700);
-  const toggle = (short: string) => {
-    const nextDays = WEEK.map((day) => day.short).filter((day) => (day === short ? !days.includes(day) : days.includes(day)));
-    setDays(nextDays);
-    if (nextDays.length) autosave.schedule(nextDays.join(", "));
   };
   return (
     <div className="space-y-3">
-      {unreadable ? <p className="text-xl text-slate-600">Saved now: {saved}. Tap days to change it.</p> : null}
-      <div className="grid grid-cols-2 gap-3">
-        {WEEK.map((day) => (
-          <Choice key={day.short} on={days.includes(day.short)} disabled={busy} onClick={() => toggle(day.short)}>
-            {day.short}
-          </Choice>
-        ))}
-      </div>
-      <button type="button" className={BIG_GREEN} disabled={busy} onClick={() => void autosave.flush().then(next)}>
-        Next
-      </button>
-    </div>
-  );
-}
-
-/* ---------- 6: what time (not needed for Ready to start) ---------- */
-
-function TimeScreen({ wizard, accountId, busy, run, next }: ScreenProps) {
-  const saved = parseCleaningTime(wizard.facts.cleaningTime);
-  const [kind, setKind] = useState<"" | "window" | "exact">(saved?.kind ?? "");
-  const [from, setFrom] = useState(saved?.kind === "window" ? toClock(saved.from) : "");
-  const [to, setTo] = useState(saved?.kind === "window" ? toClock(saved.to) : "");
-  const [at, setAt] = useState(saved?.kind === "exact" ? toClock(saved.at) : "");
-  const autosave = useAutosave(async (value) => {
-    if (value && value !== wizard.facts.cleaningTime) await run(() => saveAccountFields(accountId, { cleaningTime: value }));
-  }, 600);
-  const hand = (k: typeof kind, f: string, t: string, a: string) => {
-    const pf = parseClock(f);
-    const pt = parseClock(t);
-    const pa = parseClock(a);
-    if (k === "window" && pf !== null && pt !== null) autosave.schedule(cleaningTimeText({ kind: "window", from: pf, to: pt }));
-    if (k === "exact" && pa !== null) autosave.schedule(cleaningTimeText({ kind: "exact", at: pa }));
-  };
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <Choice on={kind === "window"} disabled={busy} onClick={() => setKind("window")}>
-          A time window
-        </Choice>
-        <Choice on={kind === "exact"} disabled={busy} onClick={() => setKind("exact")}>
-          An exact time
-        </Choice>
-      </div>
-      {kind === "window" ? (
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block space-y-1">
-            <span className={LABEL}>From</span>
-            <input className={BIG_BOX} type="time" value={from} onChange={(event) => {
-                setFrom(event.target.value);
-                hand(kind, event.target.value, to, at);
-              }}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className={LABEL}>To</span>
-            <input className={BIG_BOX} type="time" value={to} onChange={(event) => {
-                setTo(event.target.value);
-                hand(kind, from, event.target.value, at);
-              }}
-            />
-          </label>
-        </div>
-      ) : null}
-      {kind === "exact" ? (
-        <label className="block space-y-1">
-          <span className={LABEL}>At</span>
-          <input className={BIG_BOX} type="time" value={at} onChange={(event) => {
-              setAt(event.target.value);
-              hand(kind, from, to, event.target.value);
-            }}
-          />
-        </label>
-      ) : null}
-      <button type="button" className={BIG_GREEN} disabled={busy} onClick={() => void autosave.flush().then(next)}>
-        Next
+      {oldInfo ? <p className="text-lg text-slate-500">{oldInfo}</p> : null}
+      <ScheduleEditor value={plan} onChange={setPlan} showProblems={tried} disabled={busy} />
+      {tried && planIsEmpty(plan) ? <p className="text-lg font-bold text-red-800">Pick how often and the days first.</p> : null}
+      <button type="button" className={BIG_GREEN} disabled={busy} onClick={() => void save()}>
+        Save schedule
       </button>
     </div>
   );

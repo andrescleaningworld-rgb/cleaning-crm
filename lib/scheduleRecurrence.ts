@@ -246,7 +246,7 @@ export function validateScheduleEntries(frequency: string, entries: ScheduleEntr
     if (entry.scheduleType === "appointment" && !/^\d{1,2}:\d{2}(:\d{2})?$/.test(entry.startTime?.trim() ?? "")) {
       return "An exact-time cleaning needs its start time";
     }
-    const clock = /^(d{1,2}):(d{2})(?::d{2})?$/;
+    const clock = /^(\d{1,2}):(\d{2})(?::\d{2})?$/;
     const from = clock.exec(entry.windowStart?.trim() ?? "");
     const to = clock.exec(entry.windowEnd?.trim() ?? "");
     if (from && to && Number(to[1]) * 60 + Number(to[2]) <= Number(from[1]) * 60 + Number(from[2])) {

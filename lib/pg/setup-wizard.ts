@@ -56,6 +56,7 @@ export async function surveyPhotosReady(): Promise<boolean> {
 
 type AccountRow = {
   id: string;
+  has_schedule: boolean;
   frequency: string | null;
   cleaning_days: string | null;
   cleaning_time: string | null;
@@ -107,7 +108,15 @@ export async function setupFactsFor(accountIds: string[], flows?: Map<string, Fl
   const [accounts, steps, modes, ticks, photos] = await Promise.all([
     // cleaning_time (migration 050) through to_jsonb, so this reads the same before it.
     typed<AccountRow[]>(sql`
-      SELECT a.id, a.frequency, a.cleaning_days, COALESCE(to_jsonb(a) ->> 'cleaning_time', '') AS cleaning_time,
+      SELECT a.id,
+             -- A running schedule: the same rule as the No schedule tile (lib/pg/no-schedule.ts).
+             EXISTS (
+               SELECT 1 FROM sub_schedules ss
+               WHERE COALESCE(ss.account_ref, btrim(ss.account_id)) = a.id
+                 AND lower(btrim(ss.status)) = 'active'
+                 AND (ss.effective_end IS NULL OR ss.effective_end >= current_date)
+             ) AS has_schedule,
+             a.frequency, a.cleaning_days, COALESCE(to_jsonb(a) ->> 'cleaning_time', '') AS cleaning_time,
              COALESCE(NULLIF(btrim(a.monthly_sub_pay_raw), ''), a.monthly_sub_pay::text, '') AS sub_pay,
              a.scope_of_work, a.key_alarm_access_info AS access, a.phone,
              COALESCE(to_char(a.start_date, 'YYYY-MM-DD'), a.start_date_raw, '') AS start_date
@@ -127,6 +136,7 @@ export async function setupFactsFor(accountIds: string[], flows?: Map<string, Fl
     out.set(id, {
       flow: steps.get(id) ?? null,
       ticks: ticksOf(ticks.find((entry) => clean(entry.account_id) === id)?.items_raw ?? ""),
+      hasSchedule: row.has_schedule === true,
       frequency: clean(row.frequency),
       cleaningDays: clean(row.cleaning_days),
       cleaningTime: clean(row.cleaning_time),

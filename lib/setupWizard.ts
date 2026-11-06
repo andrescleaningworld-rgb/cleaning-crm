@@ -9,7 +9,10 @@
 //                               same mark the pin's tracker sets; an account with
 //                               no steps (older ones): a tick in its checklist
 //   photos                      photo_index, kind "Site survey" (the Photos page)
-//   frequency ... contact       the account's own fields (Edit Account's)
+//   cleaning schedule           the Cleaning schedule picker (sub_schedules, the
+//                               same as Add / Edit Account); the account's
+//                               Frequency / days / time follow it on save
+//   pay ... contact             the account's own fields (Edit Account's)
 //   billing contact             the account's Contacts, role "Billing"
 //   supplies                    supply_account_modes (the account page's choice)
 //   special equipment           a note in the checklist
@@ -29,9 +32,7 @@ export type SetupScreenKey =
   | "call"
   | "survey"
   | "photos"
-  | "frequency"
-  | "days"
-  | "time"
+  | "schedule"
   | "pay"
   | "scope"
   | "access"
@@ -54,9 +55,8 @@ export const SETUP_SCREENS: SetupScreenDef[] = [
   { key: "call", title: "Did you call the customer?", short: "Customer called", required: true },
   { key: "survey", title: "Is the site survey done?", short: "Site survey", required: true },
   { key: "photos", title: "Take pictures", short: "Pictures", required: false },
-  { key: "frequency", title: "How often?", short: "How often", required: true },
-  { key: "days", title: "Which days?", short: "Cleaning days", required: true },
-  { key: "time", title: "What time?", short: "Cleaning time", required: false },
+  // One screen with the Cleaning schedule picker (how often, days and time), Nov 6, 2026.
+  { key: "schedule", title: "Cleaning schedule", short: "Cleaning schedule", required: true },
   { key: "pay", title: "Sub pay", short: "Sub pay", required: true },
   { key: "scope", title: "What do they clean?", short: "Scope of work", required: true },
   { key: "access", title: "Key, alarm, access", short: "Key / alarm / access", required: true },
@@ -98,6 +98,8 @@ export type SetupFacts = {
   flow: { step: FlowStep; done: FlowStep[] } | null;
   /** Ticks in the checklist, for an account with no steps. */
   ticks: Record<TapStep, boolean>;
+  /** The account has a running Cleaning schedule (picker). */
+  hasSchedule: boolean;
   frequency: string;
   cleaningDays: string;
   cleaningTime: string;
@@ -128,12 +130,8 @@ export function screenDone(key: SetupScreenKey, facts: SetupFacts): boolean {
       return facts.flow ? stepDone(facts.flow, key) : facts.ticks[key];
     case "photos":
       return facts.surveyPhotos > 0;
-    case "frequency":
-      return filled(facts.frequency);
-    case "days":
-      return filled(facts.cleaningDays);
-    case "time":
-      return filled(facts.cleaningTime);
+    case "schedule":
+      return facts.hasSchedule;
     case "pay":
       return money(facts.subPay) > 0;
     case "scope":
@@ -179,10 +177,10 @@ const PIN_STEPS_TO_START: FlowStep[] = ["packet", "sub", "subOk"];
  * A new account in the steps, not Live yet, with:
  *   - Packet, Sub picked, Sub OK done on the pin,
  *   - Customer called, Site survey, Walkthrough done,
- *   - every required wizard screen filled in (how often, days, sub pay,
+ *   - every required wizard screen filled in (cleaning schedule, sub pay,
  *     scope, access, contact phone),
  *   - and a start date.
- * Cleaning time, pictures and supplies are not needed.
+ * Pictures and supplies are not needed.
  */
 export function isReadyToStart(facts: SetupFacts): boolean {
   const flow = facts.flow;
