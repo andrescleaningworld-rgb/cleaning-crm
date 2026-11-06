@@ -4,7 +4,7 @@
 // needs at least one.
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { addJobPhoto, extraJobsReady, getExtraJob } from "@/lib/pg/extra-jobs";
 

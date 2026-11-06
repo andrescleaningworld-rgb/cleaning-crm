@@ -9,12 +9,13 @@
 // TURNED OFF (SUB_PIN_LOGIN_ON in lib/pg/sub-home.ts): GET answers "not on"
 // and every POST is refused, so the sub portal only ever shows the email login.
 
+import { filesJson } from "@/lib/files";
 import { NextRequest, NextResponse } from "next/server";
 import { getSubPortalByEmail, subPortalOnPostgres } from "@/lib/data/sub-portal";
 import { firstNameOf, readSubDevice, readSubSession } from "@/lib/subDevice";
 import { checkPin, hasPin, isPin, setPin, setupLinkEmail, subHomeReady, markSetupLinkUsed, SUB_PIN_LOGIN_ON } from "@/lib/pg/sub-home";
 
-const refuse = (error: string, status = 400, extra: Record<string, unknown> = {}) => NextResponse.json({ success: false, error, ...extra }, { status });
+const refuse = (error: string, status = 400, extra: Record<string, unknown> = {}) => filesJson({ success: false, error, ...extra }, { status });
 
 async function on() {
   return SUB_PIN_LOGIN_ON && subPortalOnPostgres() && (await subHomeReady());
@@ -50,19 +51,19 @@ async function logIn(request: NextRequest, response: NextResponse, sub: { id: st
 
 export async function GET(request: NextRequest) {
   try {
-    if (!(await on())) return NextResponse.json({ success: true, on: false });
+    if (!(await on())) return filesJson({ success: true, on: false });
     const token = new URL(request.url).searchParams.get("token") ?? "";
     if (token) {
       const email = await setupLinkEmail(token);
       const sub = email ? await subFor(email) : null;
-      return NextResponse.json({ success: true, on: true, linkOk: Boolean(sub), firstName: sub?.firstName ?? "" });
+      return filesJson({ success: true, on: true, linkOk: Boolean(sub), firstName: sub?.firstName ?? "" });
     }
-    const device = await readSubDevice(request, NextResponse.json({}));
+    const device = await readSubDevice(request, filesJson({}));
     const known = device.email && (await hasPin(device.email)) ? { firstName: device.firstName ?? "" } : null;
-    return NextResponse.json({ success: true, on: true, device: known }, { headers: { "Cache-Control": "no-store" } });
+    return filesJson({ success: true, on: true, device: known }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[sub pin GET]", error instanceof Error ? error.message : error);
-    return NextResponse.json({ success: true, on: false });
+    return filesJson({ success: true, on: false });
   }
 }
 
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     const action = String(body.action ?? "");
 
     if (action === "forget") {
-      const response = NextResponse.json({ success: true });
+      const response = filesJson({ success: true });
       (await readSubDevice(request, response)).destroy();
       return response;
     }
@@ -86,13 +87,13 @@ export async function POST(request: NextRequest) {
       if (!sub) return refuse("This link no longer works. Ask your manager for a new one.", 410);
       await setPin(sub.email, body.pin);
       await markSetupLinkUsed(token);
-      const response = NextResponse.json({ success: true, firstName: sub.firstName });
+      const response = filesJson({ success: true, firstName: sub.firstName });
       await logIn(request, response, sub);
       return response;
     }
 
     if (action === "login") {
-      const device = await readSubDevice(request, NextResponse.json({}));
+      const device = await readSubDevice(request, filesJson({}));
       if (!device.email) return refuse("This phone is not set up for a PIN. Use your email.", 401);
       const result = await checkPin(device.email, String(body.pin ?? ""));
       if (!result.ok) {
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
       }
       const sub = await subFor(device.email);
       if (!sub) return refuse("Your account is not active. Call your manager.", 401);
-      const response = NextResponse.json({ success: true, firstName: sub.firstName });
+      const response = filesJson({ success: true, firstName: sub.firstName });
       await logIn(request, response, sub);
       return response;
     }

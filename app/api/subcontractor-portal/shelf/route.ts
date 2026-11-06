@@ -6,17 +6,18 @@
 //   GET ?accountId=                                 that site's shelf and what is on its way
 //   POST { action: "arrive", accountId, key, got }  confirm a delivery
 //   POST { action: "empty", accountId, supplyId }   one case used up
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getSubPortalByEmail } from "@/lib/data/sub-portal";
 import { readSubSession } from "@/lib/subDevice";
 import { caseEmpty, confirmArrival, crewShelfView, shelvesReady } from "@/lib/pg/shelves";
 
 const clean = (value: unknown, max = 200) => String(value ?? "").trim().slice(0, max);
-const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
+const refuse = (error: string, status = 400) => filesJson({ success: false, error }, { status });
 
 /** The sub, and whether this account is one of theirs. Null = not logged in. */
 async function subFor(request: NextRequest, accountId: string): Promise<{ name: string; mine: boolean } | null> {
-  const session = await readSubSession(request, NextResponse.json({}));
+  const session = await readSubSession(request, filesJson({}));
   if (!session.subcontractorEmail) return null;
   const portal = await getSubPortalByEmail(session.subcontractorEmail);
   if (!portal) return null;
@@ -26,14 +27,14 @@ async function subFor(request: NextRequest, accountId: string): Promise<{ name: 
 
 export async function GET(request: NextRequest) {
   try {
-    if (!(await shelvesReady())) return NextResponse.json({ success: true, on: false });
+    if (!(await shelvesReady())) return filesJson({ success: true, on: false });
     const accountId = clean(request.nextUrl.searchParams.get("accountId"));
     const sub = await subFor(request, accountId);
     if (!sub) return refuse("Not logged in.", 401);
     // No site asked for: only whether the two buttons are here (the home screen asks this).
-    if (!accountId) return NextResponse.json({ success: true, on: true });
+    if (!accountId) return filesJson({ success: true, on: true });
     if (!sub.mine) return refuse("That site is not one of yours.", 403);
-    return NextResponse.json({ success: true, on: true, ...(await crewShelfView(accountId)) }, { headers: { "Cache-Control": "no-store" } });
+    return filesJson({ success: true, on: true, ...(await crewShelfView(accountId)) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("[sub shelf GET]", error instanceof Error ? error.message : error);
     return refuse("That did not load.", 500);
@@ -51,11 +52,11 @@ export async function POST(request: NextRequest) {
     try {
       if (body.action === "arrive") {
         const result = await confirmArrival({ accountId, key: clean(body.key), got: (Array.isArray(body.got) ? body.got : []).map((n) => Number(n)), by: sub.name, source: "sub-portal" });
-        return NextResponse.json({ success: true, short: result.short.length, extra: result.extra.length });
+        return filesJson({ success: true, short: result.short.length, extra: result.extra.length });
       }
       if (body.action === "empty") {
         const result = await caseEmpty({ accountId, supplyId: Number(body.supplyId), by: sub.name, source: "sub-portal" });
-        return NextResponse.json({ success: true, qty: result.qty });
+        return filesJson({ success: true, qty: result.qty });
       }
     } catch (error) {
       return refuse(error instanceof Error ? error.message : "That did not save.");

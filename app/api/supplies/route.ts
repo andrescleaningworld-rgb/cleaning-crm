@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
 import {
@@ -175,7 +176,7 @@ export async function GET(request: NextRequest) {
     // without Apps Script.
     if (suppliesOnPostgres()) {
       const normalizedItems = (await getSupplyItemsAdminShape()).map((item) => normalizeSupplyItem(item));
-      return NextResponse.json({
+      return filesJson({
         success: true,
         actionUsed: "getSupplyItemsAdmin",
         count: normalizedItems.length,
@@ -246,7 +247,7 @@ export async function GET(request: NextRequest) {
       const categories = getCategories(normalizedItems, data);
 
       if (normalizedItems.length > 0 || categories.length > 0) {
-        return NextResponse.json({
+        return filesJson({
           success: true,
           actionUsed: action,
           count: normalizedItems.length,
@@ -266,7 +267,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(
+    return filesJson(
       {
         success: false,
         error:
@@ -282,7 +283,7 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof AppsScriptFetchError) {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error: error.message,
@@ -295,7 +296,7 @@ export async function GET(request: NextRequest) {
         { status: error.status }
       );
     }
-    return NextResponse.json(
+    return filesJson(
       {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error.",
@@ -323,23 +324,23 @@ export async function POST(request: NextRequest) {
       try {
         if (action === "updateSupplyItem") {
           await updateSupplyItem(body, updatedBy);
-          return NextResponse.json({ success: true, message: "Supply item updated." });
+          return filesJson({ success: true, message: "Supply item updated." });
         }
         if (action === "deactivateSupplyItem") {
           await deactivateSupplyItem(body, updatedBy);
-          return NextResponse.json({ success: true, message: "Supply item removed from the active list." });
+          return filesJson({ success: true, message: "Supply item removed from the active list." });
         }
         if (action === "addSupplyItem" || action === "saveSupplyItem") {
           const added = await addSupplyItem(body, updatedBy);
-          return NextResponse.json({ success: true, message: "Supply item added.", ...added });
+          return filesJson({ success: true, message: "Supply item added.", ...added });
         }
       } catch (error) {
-        return NextResponse.json(
+        return filesJson(
           { success: false, error: error instanceof Error ? error.message : "Failed to save supply item." },
           { status: 500 }
         );
       }
-      return NextResponse.json({ success: false, error: `Unknown supplies action: ${action}` }, { status: 500 });
+      return filesJson({ success: false, error: `Unknown supplies action: ${action}` }, { status: 500 });
     }
 
     const scriptUrl = getScriptUrl();
@@ -384,7 +385,7 @@ export async function POST(request: NextRequest) {
     const parsed = await readScriptJson(response);
 
     if (!parsed.isJson) {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error:
@@ -402,7 +403,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (!response.ok || data.success === false) {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error: data.error || data.message || "Failed to save supply item.",
@@ -411,15 +412,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(data, { status: 200 });
+    return filesJson(data, { status: 200 });
   } catch (error) {
     if (error instanceof AppsScriptFetchError) {
-      return NextResponse.json(
+      return filesJson(
         { success: false, error: error.message },
         { status: error.status }
       );
     }
-    return NextResponse.json(
+    return filesJson(
       {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error.",

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { accountsForEmail, setPasswordWithToken } from "@/lib/pg/portal-auth";
@@ -10,15 +11,15 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return filesJson({ error: "Invalid request." }, { status: 400 });
   }
 
   try {
     const result = await setPasswordWithToken(String(body.token ?? ""), typeof body.password === "string" ? body.password : "");
-    if (!result.ok) return NextResponse.json({ error: result.reason }, { status: result.reason === "short" ? 400 : 410 });
+    if (!result.ok) return filesJson({ error: result.reason }, { status: result.reason === "short" ? 400 : 410 });
 
     const accounts = await accountsForEmail(result.email);
-    const response = NextResponse.json({ success: true, needsLocation: accounts.length > 1 });
+    const response = filesJson({ success: true, needsLocation: accounts.length > 1 });
     const session = await getIronSession<PortalSessionData>(request, response, sessionOptions());
     session.email = result.email;
     session.accountId = accounts.length === 1 ? accounts[0].accountId : undefined;
@@ -28,6 +29,6 @@ export async function POST(request: NextRequest) {
     return response;
   } catch (err) {
     console.error("[portal/auth/set-password]", err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: "server" }, { status: 500 });
+    return filesJson({ error: "server" }, { status: 500 });
   }
 }

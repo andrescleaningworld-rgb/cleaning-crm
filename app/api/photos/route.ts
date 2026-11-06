@@ -1,4 +1,5 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { after, NextRequest } from "next/server";
 import { isPostgres } from "@/lib/dataSource";
 import { addPhoto, copyDrivePhotos, listPhotosShape } from "@/lib/pg/photos";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
@@ -25,15 +26,15 @@ export async function GET() {
     try {
       const photos = await listPhotosShape();
       after(() => copyDrivePhotos(3).catch((error) => console.error("[photos] Drive copy:", getErrorMessage(error))));
-      return NextResponse.json({ success: true, photos, data: photos }, { headers: { "Cache-Control": "no-store" } });
+      return filesJson({ success: true, photos, data: photos }, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {
       console.error("[photos GET]", getErrorMessage(error));
-      return NextResponse.json({ success: false, message: "The photos did not load.", photos: [], data: [] }, { status: 500 });
+      return filesJson({ success: false, message: "The photos did not load.", photos: [], data: [] }, { status: 500 });
     }
   }
 
   if (!GOOGLE_SCRIPT_URL) {
-    return NextResponse.json(
+    return filesJson(
       {
         success: false,
         message: "GOOGLE_SCRIPT_URL is missing.",
@@ -70,7 +71,7 @@ export async function GET() {
     try {
       data = JSON.parse(text);
     } catch {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           message:
@@ -89,7 +90,7 @@ export async function GET() {
         ? data.data
         : [];
 
-    return NextResponse.json({
+    return filesJson({
       success: data.success !== false,
       message: data.message || data.error || "",
       photos,
@@ -97,12 +98,12 @@ export async function GET() {
     });
   } catch (error) {
     if (error instanceof AppsScriptFetchError) {
-      return NextResponse.json(
+      return filesJson(
         { success: false, message: error.message, photos: [], data: [] },
         { status: error.status }
       );
     }
-    return NextResponse.json(
+    return filesJson(
       {
         success: false,
         message: getErrorMessage(error),
@@ -120,7 +121,7 @@ export async function POST(request: NextRequest) {
   // email for sub portal issues) was removed on Nov 6, 2026: with
   // DATA_SOURCE_PHOTOS off, uploading refuses.
   if (!isPostgres("PHOTOS")) {
-    return NextResponse.json(
+    return filesJson(
       { success: false, message: "Photos can only be saved in the database (DATA_SOURCE_PHOTOS=postgres). Uploading to Google Drive was removed." },
       { status: 503 }
     );
@@ -128,10 +129,10 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as Record<string, unknown>;
     const saved = await addPhoto(body);
-    return NextResponse.json({ success: true, message: "Photo uploaded.", photo: { success: true, photoId: saved.photoId, driveUrl: saved.url } });
+    return filesJson({ success: true, message: "Photo uploaded.", photo: { success: true, photoId: saved.photoId, driveUrl: saved.url } });
   } catch (error) {
     const message = getErrorMessage(error);
     console.error("[photos POST]", message);
-    return NextResponse.json({ success: false, message: message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "The photo did not upload. Try again." }, { status: 400 });
+    return filesJson({ success: false, message: message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "The photo did not upload. Try again." }, { status: 400 });
   }
 }

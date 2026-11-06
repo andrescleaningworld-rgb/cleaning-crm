@@ -5,6 +5,7 @@
 // crm@ with English on top and the original below. Callers wrap this in
 // waitUntil so the crew's "Send" never waits on translation or email.
 import { sendInternalNotification } from "@/lib/email";
+import { absoluteFileLink } from "@/lib/files";
 import { translateToEnglish } from "@/lib/translate";
 import { lookupAccountSummary } from "@/lib/teamHubAccountLookup";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
@@ -103,7 +104,8 @@ export async function notifyNewProblem(input: {
     ...sourceLines(input.source, input.createdAt),
     `Category: ${input.category}`,
     ...noteLines(input.note, englishNote),
-    input.photoUrls.length > 0 ? `Photos: ${input.photoUrls.join(", ")}` : "No photos.",
+    // A private file's link opens after logging in to the CRM (lib/files.ts).
+    input.photoUrls.length > 0 ? `Photos: ${input.photoUrls.map((url) => absoluteFileLink(input.origin, url)).join(", ")}` : "No photos.",
     adminLink(input.origin, input.accountId, input.source),
   ]);
 }

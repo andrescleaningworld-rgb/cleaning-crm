@@ -3,6 +3,7 @@
 // itself (same self-checking pattern /api/subcontractor-portal uses for its
 // login action), and POST is the one action that doesn't require a session
 // yet, since it's what creates one.
+import { filesJson } from "@/lib/files";
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import {
@@ -35,12 +36,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const allowed = await checkRateLimit(`teamhub-whoami:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const found = await getActiveTeamHubCrewByToken(token);
     if (!found) {
-      return NextResponse.json({ success: true, authenticated: false });
+      return filesJson({ success: true, authenticated: false });
     }
 
     // Throwaway response for the read — plain field reads never write a
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       session.crewId !== found.crew.id ||
       session.tokenVersion !== found.crew.tokenVersion
     ) {
-      return NextResponse.json({ success: true, authenticated: false });
+      return filesJson({ success: true, authenticated: false });
     }
 
     const worker = await getTeamHubWorkerById(session.workerId);
@@ -63,13 +64,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       // Unlike the read above, destroy() DOES need to land on the response
       // actually sent back (to clear the stale cookie), so this rebinds to
       // a real response instead of the throwaway one.
-      const clearResponse = NextResponse.json({ success: true, authenticated: false });
+      const clearResponse = filesJson({ success: true, authenticated: false });
       const clearSession = await getIronSession<TeamHubWorkerSessionData>(request, clearResponse, teamHubSessionOptions());
       clearSession.destroy();
       return clearResponse;
     }
 
-    return NextResponse.json({
+    return filesJson({
       success: true,
       authenticated: true,
       worker: { id: worker.id, firstName: worker.firstName },
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
   } catch (error) {
     console.error("[team-hub session GET]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }
 
@@ -90,26 +91,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const allowed = await checkRateLimit(`teamhub-login:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many attempts. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many attempts. Please wait a minute and try again." }, { status: 429 });
     }
 
     const found = await getActiveTeamHubCrewByToken(token);
     if (!found) {
-      return NextResponse.json({ success: false, error: "This link is no longer active." }, { status: 404 });
+      return filesJson({ success: false, error: "This link is no longer active." }, { status: 404 });
     }
 
     const body = (await request.json()) as { workerId?: number; pin?: string };
     const workerId = Number(body.workerId);
     const pin = String(body.pin ?? "");
     if (!Number.isInteger(workerId) || !pin) {
-      return NextResponse.json({ success: false, error: "Choose your name and enter your PIN." }, { status: 400 });
+      return filesJson({ success: false, error: "Choose your name and enter your PIN." }, { status: 400 });
     }
 
     const device = request.headers.get("user-agent")?.slice(0, 255) ?? null;
     const result = await verifyTeamHubWorkerPin(found.crew.id, workerId, pin, device);
 
     if (result.outcome === "not-found") {
-      return NextResponse.json({ success: false, error: "Worker not found." }, { status: 404 });
+      return filesJson({ success: false, error: "Worker not found." }, { status: 404 });
     }
     if (result.outcome === "locked") {
       if (result.justLocked) {
@@ -127,16 +128,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           ]).catch((error) => console.error("[team-hub lockout alert]", error))
         );
       }
-      return NextResponse.json(
+      return filesJson(
         { success: false, error: "Too many incorrect PINs. Locked for a few minutes.", lockedUntil: result.lockedUntil },
         { status: 423 }
       );
     }
     if (result.outcome === "invalid") {
-      return NextResponse.json({ success: false, error: "Incorrect PIN." }, { status: 401 });
+      return filesJson({ success: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
-    const finalResponse = NextResponse.json({
+    const finalResponse = filesJson({
       success: true,
       worker: { id: result.worker.id, firstName: result.worker.firstName },
       crewName: found.crew.name,
@@ -153,13 +154,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return finalResponse;
   } catch (error) {
     console.error("[team-hub session POST]", error);
-    return NextResponse.json({ success: false, error: "Login failed." }, { status: 500 });
+    return filesJson({ success: false, error: "Login failed." }, { status: 500 });
   }
 }
 
 // DELETE /api/team-hub/[token]/session — logout.
 export async function DELETE(request: NextRequest) {
-  const response = NextResponse.json({ success: true });
+  const response = filesJson({ success: true });
   try {
     const session = await getIronSession<TeamHubWorkerSessionData>(request, response, teamHubSessionOptions());
     session.destroy();

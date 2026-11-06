@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { openStoredFile } from "@/lib/files";
 import {
   appendDocumentSend,
   fetchDocumentSends,
@@ -75,12 +76,11 @@ export async function POST(request: NextRequest) {
     let fileBuffer: Buffer;
     let fileContentType: string | undefined;
     try {
-      const fileResponse = await fetch(document.fileUrl);
-      if (!fileResponse.ok) {
-        throw new Error(`File fetch returned ${fileResponse.status}.`);
-      }
-      fileContentType = fileResponse.headers.get("content-type") ?? undefined;
-      fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+      // Private or public storage (lib/files.ts).
+      const file = await openStoredFile(document.fileUrl);
+      if (!file) throw new Error("The file could not be read.");
+      fileContentType = file.contentType;
+      fileBuffer = Buffer.from(file.data);
     } catch (err) {
       console.error("[documents/send] file fetch failed", err);
       return NextResponse.json(

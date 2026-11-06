@@ -9,7 +9,7 @@
 //        unless the app filed it from another record, like an estimate)
 
 import { NextRequest, NextResponse } from "next/server";
-import { del } from "@vercel/blob";
+import { del, privateFilesOn, storedPathname, toStoredUrl } from "@/lib/files";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { DOC_EXTENSIONS, DOC_FOLDER, isDocType } from "@/lib/accountDocuments";
 import {
@@ -27,6 +27,9 @@ const noStore = { headers: { "Cache-Control": "no-store" } };
 
 /** Only files this app put in its own storage folder. */
 function ourFile(url: string): boolean {
+  // A private file (its app address, or the private store's URL a browser upload answered with).
+  const pathname = storedPathname(url);
+  if (pathname) return pathname.startsWith(`${DOC_FOLDER}/`);
   try {
     const parsed = new URL(url);
     return parsed.protocol === "https:" && parsed.hostname.endsWith(".blob.vercel-storage.com") && parsed.pathname.startsWith(`/${DOC_FOLDER}/`);
@@ -42,7 +45,8 @@ export async function GET(request: NextRequest) {
     if (params.get("counts")) return NextResponse.json({ success: true, counts: await documentCounts() }, noStore);
     const accountId = (params.get("accountId") ?? "").trim();
     if (!accountId) return refuse("Which account?");
-    return NextResponse.json({ success: true, ready: await documentsReady(), documents: await listAccountDocuments(accountId) }, noStore);
+    // privateFiles: the page uploads to the private store (lib/files.ts).
+    return NextResponse.json({ success: true, ready: await documentsReady(), privateFiles: privateFilesOn(), documents: await listAccountDocuments(accountId) }, noStore);
   } catch (error) {
     console.error("[account-documents GET]", error instanceof Error ? error.message : error);
     return refuse("The documents did not load.", 500);
@@ -79,7 +83,8 @@ export async function POST(request: NextRequest) {
           name: fileName.replace(/\.[^.]+$/, "") || fileName,
           docType,
           note: text(body.note),
-          fileUrl: url,
+          // A private upload is saved as the app's address (lib/files.ts).
+          fileUrl: toStoredUrl(url),
           fileName,
           fileSize: Number(file.size) || 0,
           contentType: text(file.contentType),

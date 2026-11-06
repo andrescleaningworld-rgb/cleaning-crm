@@ -8,7 +8,8 @@
 //   ?accountId=X                   → { checklists, problems }
 //   ?accountId=X&submissionId=N    → Crew Link checklist, filled in
 //   ?accountId=X&runId=N           → Team Hub run, filled in
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import {
@@ -21,15 +22,15 @@ import {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getIronSession<SubSessionData>(request, NextResponse.json({}), subSessionOptions());
+    const session = await getIronSession<SubSessionData>(request, filesJson({}), subSessionOptions());
     if (!session.subcontractorEmail) {
-      return NextResponse.json({ success: false, error: "Not logged in." }, { status: 401 });
+      return filesJson({ success: false, error: "Not logged in." }, { status: 401 });
     }
 
     const params = new URL(request.url).searchParams;
     const accountId = params.get("accountId")?.trim() ?? "";
     if (!accountId || !(await subCanSeeAccount(session.subcontractorEmail, accountId))) {
-      return NextResponse.json({ success: false, error: "Not available for this account." }, { status: 403 });
+      return filesJson({ success: false, error: "Not available for this account." }, { status: 403 });
     }
 
     const submissionId = Number(params.get("submissionId"));
@@ -38,14 +39,14 @@ export async function GET(request: NextRequest) {
       const detail = params.has("submissionId")
         ? Number.isInteger(submissionId) ? await getCrewLinkChecklistDetail(accountId, submissionId) : null
         : Number.isInteger(runId) ? await getTeamHubRunDetail(accountId, runId) : null;
-      if (!detail) return NextResponse.json({ success: false, error: "Checklist not found." }, { status: 404 });
-      return NextResponse.json({ success: true, detail });
+      if (!detail) return filesJson({ success: false, error: "Checklist not found." }, { status: 404 });
+      return filesJson({ success: true, detail });
     }
 
     const [checklists, problems] = await Promise.all([listChecklistsForAccount(accountId), listProblemsForAccount(accountId)]);
-    return NextResponse.json({ success: true, checklists, problems });
+    return filesJson({ success: true, checklists, problems });
   } catch (error) {
     console.error("[subcontractor-portal/checklists GET]", error);
-    return NextResponse.json({ success: false, error: "Could not load checklists." }, { status: 500 });
+    return filesJson({ success: false, error: "Could not load checklists." }, { status: 500 });
   }
 }

@@ -3,19 +3,19 @@
 // writes down whose it is and which site. With attach=1 it only returns the
 // link, to go with a problem or an extra job. The sub comes from the session.
 
-import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { NextRequest } from "next/server";
+import { put, filesJson } from "@/lib/files";
 import { subPortalOnPostgres } from "@/lib/data/sub-portal";
 import { readSubSession } from "@/lib/subDevice";
 import { addSitePhoto, subHomeReady } from "@/lib/pg/sub-home";
 
 const MAX_BYTES = 8 * 1024 * 1024;
-const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
+const refuse = (error: string, status = 400) => filesJson({ success: false, error }, { status });
 
 export async function POST(request: NextRequest) {
   try {
     if (!subPortalOnPostgres() || !(await subHomeReady())) return refuse("Not available here yet.", 409);
-    const session = await readSubSession(request, NextResponse.json({}));
+    const session = await readSubSession(request, filesJson({}));
     if (!session.subcontractorEmail) return refuse("Not logged in.", 401);
     if (!process.env.BLOB_READ_WRITE_TOKEN) return refuse("Photo storage is not set up here.", 500);
 
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         url: blob.url,
       });
     }
-    return NextResponse.json({ success: true, url: blob.url });
+    return filesJson({ success: true, url: blob.url });
   } catch (error) {
     console.error("[sub home photo POST]", error instanceof Error ? error.message : error);
     return refuse("The photo did not send.", 500);

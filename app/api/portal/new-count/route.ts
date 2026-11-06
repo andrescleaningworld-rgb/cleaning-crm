@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+
 import { getPortalNewCount } from "@/lib/data/customer-portal";
 
 // Exposes getPortalNewCount() (direct Sheets API, internally cached/timeout-
@@ -9,7 +10,7 @@ import { getPortalNewCount } from "@/lib/data/customer-portal";
 export async function GET() {
   const newCount = await getPortalNewCount().catch(() => 0);
 
-  return NextResponse.json(
+  return filesJson(
     { success: true, newCount },
     {
       headers: {

@@ -4,7 +4,7 @@
 // then saves it on the account's handoff (POST /api/handoffs startAccount).
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const ALLOWED = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/i;

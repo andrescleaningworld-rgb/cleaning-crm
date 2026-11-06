@@ -1,4 +1,5 @@
 import { fetchExtraServices } from "@/lib/data/catalogs";
+import { signFileLinks } from "@/lib/files";
 import { ServiceForm } from "../request-forms";
 import { requireCustomer } from "../server";
 
@@ -11,5 +12,6 @@ export default async function PortalExtraServicePage() {
     .filter((service) => service.active)
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map(({ id, name, description, imageUrl }) => ({ id, name, description, imageUrl }));
-  return <ServiceForm accountName={account.accountName} services={services} />;
+  // Private files: short-lived picture links (lib/files.ts).
+  return <ServiceForm accountName={account.accountName} services={signFileLinks(services)} />;
 }

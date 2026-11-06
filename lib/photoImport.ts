@@ -13,7 +13,7 @@
 // email (Viewer is enough) or set to "Anyone with the link".
 
 import { google } from "googleapis";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import sharp from "sharp";
 import { getSql } from "@/lib/db";
 import { PHOTO_KINDS, type PhotoKind } from "@/lib/pg/photo-index";

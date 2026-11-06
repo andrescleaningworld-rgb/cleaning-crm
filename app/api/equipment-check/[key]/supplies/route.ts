@@ -17,7 +17,8 @@
 // arrived. A job or the van: the warehouse goes down (lib/pg/supply-control.ts).
 // Costs are never sent to the tablet.
 
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { fetchAllMainAccounts } from "@/lib/data/accounts";
 import { requireEquipmentCheckSession, startEquipmentCheckSession } from "@/lib/equipmentCheckSession";
 import { extraJobsReady, listExtraJobs } from "@/lib/pg/extra-jobs";
@@ -47,9 +48,9 @@ async function openJobs(): Promise<{ id: string; label: string; date: string }[]
 export async function GET(request: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   try {
     const { key } = await params;
-    if (!(await supplyControlReady())) return NextResponse.json({ success: true, ready: false }, noStore);
+    if (!(await supplyControlReady())) return filesJson({ success: true, ready: false }, noStore);
     const ctx = await requireEquipmentCheckSession(request, key);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401, ...noStore });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401, ...noStore });
 
     const [shelf, accounts, count, onTheWay, jobs] = await Promise.all([listShelf(), fetchAllMainAccounts(), weeklyCount(), waiting(), openJobs()]);
     const sites = (accounts as unknown as Record<string, unknown>[])
@@ -58,7 +59,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .filter((site) => site.name)
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    const response = NextResponse.json(
+    const response = filesJson(
       {
         success: true,
         ready: true,
@@ -80,16 +81,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return response;
   } catch (error) {
     console.error("[supply-check GET]", error instanceof Error ? error.message : error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500, ...noStore });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500, ...noStore });
   }
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ key: string }> }) {
   try {
     const { key } = await params;
-    if (!(await supplyControlReady())) return NextResponse.json({ success: false, error: "Not turned on here yet." }, { status: 409, ...noStore });
+    if (!(await supplyControlReady())) return filesJson({ success: false, error: "Not turned on here yet." }, { status: 409, ...noStore });
     const ctx = await requireEquipmentCheckSession(request, key);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401, ...noStore });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401, ...noStore });
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = clean(body.action);
     const lines = (Array.isArray(body.lines) ? body.lines : []).map((line) => ({ supplyId: Number((line as Record<string, unknown>)?.supplyId), qty: Number((line as Record<string, unknown>)?.qty) }));
@@ -123,15 +124,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       await saveWeeklyCount(counts, ctx.staff.name);
       payload = { success: true };
     } else {
-      return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400, ...noStore });
+      return filesJson({ success: false, error: "Unknown action." }, { status: 400, ...noStore });
     }
 
-    const response = NextResponse.json(payload, noStore);
+    const response = filesJson(payload, noStore);
     await startEquipmentCheckSession(request, response, ctx.staff.id, ctx.keyVersion);
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     console.error("[supply-check POST]", message);
-    return NextResponse.json({ success: false, error: message && message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "That did not save. Try again." }, { status: 400, ...noStore });
+    return filesJson({ success: false, error: message && message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "That did not save. Try again." }, { status: 400, ...noStore });
   }
 }

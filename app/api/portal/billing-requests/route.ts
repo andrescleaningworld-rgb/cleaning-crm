@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
@@ -7,21 +8,21 @@ import { BILLING_EMAIL } from "@/lib/portalContacts";
 export async function POST(request: NextRequest) {
   const session = await requirePortalAccount();
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return filesJson({ error: "Unauthorized" }, { status: 401 });
   }
 
   let body: { requestType?: string; details?: string };
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return filesJson({ error: "Invalid request." }, { status: 400 });
   }
 
   const requestType = body.requestType?.trim() ?? "";
   const details = body.details?.trim() ?? "";
 
   if (!requestType) {
-    return NextResponse.json({ error: "Request type is required." }, { status: 400 });
+    return filesJson({ error: "Request type is required." }, { status: 400 });
   }
 
   const today = new Date().toLocaleDateString("en-US");
@@ -49,9 +50,9 @@ export async function POST(request: NextRequest) {
       ],
     });
 
-    return NextResponse.json({ success: true });
+    return filesJson({ success: true });
   } catch (err) {
     console.error("[portal/billing-requests]", err);
-    return NextResponse.json({ error: "Failed to submit. Please try again." }, { status: 500 });
+    return filesJson({ error: "Failed to submit. Please try again." }, { status: 500 });
   }
 }

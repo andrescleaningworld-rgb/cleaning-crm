@@ -4,8 +4,8 @@
 // photos to Vercel Blob. Response never carries account_id/accountName
 // (see the file comment on _archive/site-link's issue route, this one's
 // direct model) — only success + the issue id/photo count.
-import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { NextRequest } from "next/server";
+import { put, filesJson } from "@/lib/files";
 import {
   reportTeamHubIssue,
   addTeamHubPhoto,
@@ -27,37 +27,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { token } = await params;
     const allowed = await checkRateLimit(`teamhub-issues-post:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const ctx = await requireTeamHubWorkerSession(request, token);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const formData = await request.formData();
     const category = String(formData.get("category") ?? "").trim().toLowerCase();
     const note = String(formData.get("note") ?? "").trim().slice(0, MAX_NOTE_LENGTH);
 
     if (!TEAM_HUB_ISSUE_CATEGORIES.includes(category as TeamHubIssueCategory)) {
-      return NextResponse.json({ success: false, error: "Invalid category." }, { status: 400 });
+      return filesJson({ success: false, error: "Invalid category." }, { status: 400 });
     }
     if (category === "other" && !note) {
-      return NextResponse.json({ success: false, error: "Please write what the problem is." }, { status: 400 });
+      return filesJson({ success: false, error: "Please write what the problem is." }, { status: 400 });
     }
 
     const files = formData.getAll("photos").filter((f): f is File => f instanceof File);
     if (files.length > MAX_PHOTOS) {
-      return NextResponse.json({ success: false, error: `Up to ${MAX_PHOTOS} photos allowed.` }, { status: 400 });
+      return filesJson({ success: false, error: `Up to ${MAX_PHOTOS} photos allowed.` }, { status: 400 });
     }
     for (const file of files) {
       if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
-        return NextResponse.json({ success: false, error: `Unsupported photo format: ${file.type || "unknown"}.` }, { status: 400 });
+        return filesJson({ success: false, error: `Unsupported photo format: ${file.type || "unknown"}.` }, { status: 400 });
       }
       if (file.size > MAX_PHOTO_BYTES) {
-        return NextResponse.json({ success: false, error: "Each photo must be 8MB or smaller." }, { status: 400 });
+        return filesJson({ success: false, error: "Each photo must be 8MB or smaller." }, { status: 400 });
       }
     }
     if (files.length > 0 && !process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ success: false, error: "Photo storage is not configured." }, { status: 500 });
+      return filesJson({ success: false, error: "Photo storage is not configured." }, { status: 500 });
     }
 
     const issue = await reportTeamHubIssue({
@@ -102,9 +102,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }).catch((error) => console.error("[team-hub issues email]", error))
     );
 
-    return NextResponse.json({ success: true, issueId: issue.id, photosUploaded: photoUrls.length });
+    return filesJson({ success: true, issueId: issue.id, photosUploaded: photoUrls.length });
   } catch (error) {
     console.error("[team-hub issues POST]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong submitting this report." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong submitting this report." }, { status: 500 });
   }
 }

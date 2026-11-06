@@ -9,7 +9,7 @@
 // order or in the sub portal. Always optional: nothing waits for it.
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { addJobEstimate, estimatesReady, extraJobsReady, getExtraJob } from "@/lib/pg/extra-jobs";
 

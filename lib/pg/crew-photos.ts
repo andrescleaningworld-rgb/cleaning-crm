@@ -5,7 +5,7 @@
 // (migrations 063 and 064). They show on the account's Photos page, and in
 // the customer portal's Photos unless hidden.
 
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { getSql } from "@/lib/db";
 import { hiddenAtFirst, type CrewPhotoTag, type PortalPhoto } from "@/lib/crewPhotos";
 

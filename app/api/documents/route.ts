@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { del, put } from "@vercel/blob";
+import { del, put } from "@/lib/files";
 import {
   appendDocument,
   deleteDocument,

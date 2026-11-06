@@ -3,7 +3,7 @@
 // Vercel Blob and returns its URL; the calling form saves that URL through
 // its own route. No Sheets access here.
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 
 const MAX_PHOTO_BYTES = 8 * 1024 * 1024;
 const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"]);

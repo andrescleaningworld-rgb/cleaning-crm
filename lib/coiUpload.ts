@@ -3,7 +3,7 @@
 // (app/api/subcontractor-portal/insurance). Server only. Same storage as
 // Documents: a random file name nobody can guess.
 
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { looseDate } from "@/lib/subInsurance";
 
 /** Vercel takes up to 4.5 MB in one request; photos are made smaller on the phone first. */

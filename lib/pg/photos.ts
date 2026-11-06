@@ -4,7 +4,7 @@
 // not change. New photos go to Blob storage. The old ones stay in Google
 // Drive and are also copied to Blob, a few at a time (copyDrivePhotos); the
 // Drive originals are never changed or removed.
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { google } from "googleapis";
 import { getSql } from "@/lib/db";
 

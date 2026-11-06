@@ -5,7 +5,8 @@
 // FEATURE_SUB_HOME is off or the tables are missing: the portal then shows
 // today's screen.
 
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson, toStoredUrl } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getSubPortalByEmail, subPortalOnPostgres } from "@/lib/data/sub-portal";
 import { firstNameOf, readSubSession } from "@/lib/subDevice";
 import { isNonProduction } from "@/lib/portalAuth";
@@ -14,17 +15,17 @@ import { startSubRequest, subHomeReady, subRequests, todaySites } from "@/lib/pg
 const TEST_SUB_EMAIL = "zz-test-sub@example.com";
 
 const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
-const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
+const refuse = (error: string, status = 400) => filesJson({ success: false, error }, { status });
 
 async function identity(request: NextRequest) {
-  const session = await readSubSession(request, NextResponse.json({}));
+  const session = await readSubSession(request, filesJson({}));
   if (!session.subcontractorEmail) return null;
   return { email: session.subcontractorEmail, name: session.subcontractorName ?? "" };
 }
 
 export async function GET(request: NextRequest) {
   try {
-    if (!subPortalOnPostgres() || !(await subHomeReady())) return NextResponse.json({ success: true, on: false });
+    if (!subPortalOnPostgres() || !(await subHomeReady())) return filesJson({ success: true, on: false });
     const me = await identity(request);
     if (!me) return refuse("Not logged in.", 401);
     const portal = await getSubPortalByEmail(me.email);
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
       sites.length === 0 && isNonProduction() && me.email.trim().toLowerCase() === TEST_SUB_EMAIL
         ? [{ accountId: "zz-test-site", accountName: "ZZ Test Site", address: "1 Test Street (made up)", timeWindow: "Morning", done: false }]
         : sites;
-    return NextResponse.json(
+    return filesJson(
       { success: true, on: true, firstName: firstNameOf(contact || me.name), today, requests, waiting: requests.filter((r) => r.status !== "done").length },
       { headers: { "Cache-Control": "no-store" } }
     );
@@ -60,8 +61,8 @@ export async function POST(request: NextRequest) {
     // An extra job the sub saw or was asked for: to the office's To process list.
     if (action === "extraJob") {
       if (!clean(body.notes) && !clean(body.photoUrl)) return refuse("Add a photo or say what the job is.");
-      const item = await startSubRequest({ ...base, kind: "extra", data: { notes: clean(body.notes), photoUrl: clean(body.photoUrl), updateType: "Extra job (from the sub)" } });
-      return NextResponse.json({ success: true, id: item.itemId });
+      const item = await startSubRequest({ ...base, kind: "extra", data: { notes: clean(body.notes), photoUrl: toStoredUrl(clean(body.photoUrl)), updateType: "Extra job (from the sub)" } });
+      return filesJson({ success: true, id: item.itemId });
     }
 
     // A problem at a site: to the account manager's My work. (The portal also
@@ -69,8 +70,8 @@ export async function POST(request: NextRequest) {
     if (action === "problem") {
       const problemType = clean(body.problemType, 80);
       if (!problemType) return refuse("Pick what happened.");
-      const item = await startSubRequest({ ...base, kind: "issue", data: { problemType, notes: clean(body.notes), photoUrl: clean(body.photoUrl) } });
-      return NextResponse.json({ success: true, id: item.itemId });
+      const item = await startSubRequest({ ...base, kind: "issue", data: { problemType, notes: clean(body.notes), photoUrl: toStoredUrl(clean(body.photoUrl)) } });
+      return filesJson({ success: true, id: item.itemId });
     }
 
     // A supply order the portal just placed: it starts the supply steps at once.
@@ -78,7 +79,7 @@ export async function POST(request: NextRequest) {
       const orderId = clean(body.orderId, 200);
       if (!orderId) return refuse("orderId is required.");
       await startSubRequest({ ...base, kind: "order", itemId: orderId, data: { items: clean(body.items, 300) } });
-      return NextResponse.json({ success: true });
+      return filesJson({ success: true });
     }
 
     return refuse(`Unknown action "${action}".`);

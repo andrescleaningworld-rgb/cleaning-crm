@@ -7,7 +7,7 @@
 // "Site survey", the shot's label in caption and a ~400px copy in thumb_url
 // (migration 063). They show in the account's Photos like any other photo.
 
-import { del, put } from "@vercel/blob";
+import { del, put } from "@/lib/files";
 import { getSql } from "@/lib/db";
 import { accountsOnPostgres, fetchOnboardingChecklist, setOnboardingChecklistItem } from "@/lib/data/accounts";
 import { doneStepsOf, FLOW_STEPS, isFlowStep, type FlowStep } from "@/lib/accountFlow";

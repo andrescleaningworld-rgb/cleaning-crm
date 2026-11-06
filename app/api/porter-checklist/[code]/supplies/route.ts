@@ -3,7 +3,8 @@
 // (docs/crew-link-spec.md). Gated by the link's porter_code and its
 // supply-orders switch; rate-limited per code. The orders land in the Supply
 // Orders inbox (lib/pg/shelves.ts). Never returns account ids or other accounts' data.
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { listSupplyItemsLibrary, createCrewLinkSupplyOrder, listCrewLinkSupplyOrdersForAccount } from "@/lib/teamHubDb";
 import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
@@ -21,10 +22,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   try {
     const { code } = await params;
     if (!(await checkRateLimit(`crewlink-supplies-get:${code}`))) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
     const link = await loadEnabled(code);
-    if (!link) return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
+    if (!link) return filesJson({ success: false, error: "Not available." }, { status: 404 });
 
     const [catalog, recentOrders, picked, details] = await Promise.all([
       listSupplyItemsLibrary(true),
@@ -48,7 +49,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       ...recentOrders.flatMap((o) => o.lines.map((l) => l.itemName)),
     ]);
 
-    return NextResponse.json({
+    return filesJson({
       success: true,
       translations,
       // Exactly what a crew is sent for an item, and nothing else: no product
@@ -68,7 +69,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     });
   } catch (error) {
     console.error("[crew-link supplies GET]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }
 
@@ -78,10 +79,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { code } = await params;
     if (!(await checkRateLimit(`crewlink-supplies-post:${code}`))) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
     const link = await loadEnabled(code);
-    if (!link) return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
+    if (!link) return filesJson({ success: false, error: "Not available." }, { status: 404 });
 
     const body = (await request.json().catch(() => ({}))) as {
       reporterName?: string;
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       lines?: { itemId?: number; qty?: number }[];
     };
     const reporterName = cleanReporterName(body.reporterName);
-    if (!reporterName) return NextResponse.json({ success: false, error: "Please enter your name." }, { status: 400 });
+    if (!reporterName) return filesJson({ success: false, error: "Please enter your name." }, { status: 400 });
 
     const lines = (Array.isArray(body.lines) ? body.lines : [])
       .map((l) => ({ itemId: Number(l?.itemId), qty: Number(l?.qty) }))
@@ -117,11 +118,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }).catch((error) => console.error("[crew-link supplies email]", error))
     );
 
-    return NextResponse.json({ success: true, orderId: order.id });
+    return filesJson({ success: true, orderId: order.id });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
     const status = message.includes("at least one item") ? 400 : 500;
     if (status === 500) console.error("[crew-link supplies POST]", error);
-    return NextResponse.json({ success: false, error: status === 500 ? "Something went wrong." : message }, { status });
+    return filesJson({ success: false, error: status === 500 ? "Something went wrong." : message }, { status });
   }
 }

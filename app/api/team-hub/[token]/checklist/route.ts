@@ -3,8 +3,9 @@
 // app/api/team-hub/[token]/session/route.ts documents. Phase 2 crew-facing
 // checklist run flow: GET loads the crew's enabled items + any open run,
 // POST starts or submits a run, PATCH autosaves one item's status/note.
+import { filesJson } from "@/lib/files";
 import { getContentTranslations } from "@/lib/crewTranslations";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import {
   listDueTeamHubChecklistItemsForCrew,
   getOpenTeamHubChecklistRun,
@@ -22,11 +23,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { token } = await params;
     const allowed = await checkRateLimit(`teamhub-checklist-get:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const ctx = await requireTeamHubWorkerSession(request, token);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const items = await listDueTeamHubChecklistItemsForCrew(ctx.crew.id);
     const run = await getOpenTeamHubChecklistRun(ctx.crew.id);
@@ -34,7 +35,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const translations = await getContentTranslations(items.flatMap((i) => [i.area, i.text, i.instanceLabel ?? ""]));
 
-    return NextResponse.json({
+    return filesJson({
       success: true,
       items,
       translations,
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
   } catch (error) {
     console.error("[team-hub checklist GET]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }
 
@@ -53,32 +54,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { token } = await params;
     const allowed = await checkRateLimit(`teamhub-checklist-post:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const ctx = await requireTeamHubWorkerSession(request, token);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as { action?: string };
 
     if (body.action === "start") {
       const run = await startTeamHubChecklistRun(ctx.crew.id, ctx.worker.id);
-      return NextResponse.json({ success: true, run: { id: run.id, startedAt: run.startedAt } });
+      return filesJson({ success: true, run: { id: run.id, startedAt: run.startedAt } });
     }
 
     if (body.action === "submit") {
       const open = await getOpenTeamHubChecklistRun(ctx.crew.id);
       if (!open) {
-        return NextResponse.json({ success: false, error: "No checklist is in progress." }, { status: 400 });
+        return filesJson({ success: false, error: "No checklist is in progress." }, { status: 400 });
       }
       const submitted = await submitTeamHubChecklistRun(ctx.crew.id, open.id);
-      return NextResponse.json({ success: true, run: submitted ? { id: submitted.id, submittedAt: submitted.submittedAt } : null });
+      return filesJson({ success: true, run: submitted ? { id: submitted.id, submittedAt: submitted.submittedAt } : null });
     }
 
-    return NextResponse.json({ success: false, error: "Unknown action." }, { status: 400 });
+    return filesJson({ success: false, error: "Unknown action." }, { status: 400 });
   } catch (error) {
     console.error("[team-hub checklist POST]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }
 
@@ -91,11 +92,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const { token } = await params;
     const allowed = await checkRateLimit(`teamhub-checklist-patch:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const ctx = await requireTeamHubWorkerSession(request, token);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as { crewItemId?: number; status?: string; note?: string };
     const crewItemId = Number(body.crewItemId);
@@ -103,12 +104,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const note = String(body.note ?? "").slice(0, 2000);
 
     if (!Number.isInteger(crewItemId) || !["done", "na", "problem"].includes(status)) {
-      return NextResponse.json({ success: false, error: "Missing or invalid item/status." }, { status: 400 });
+      return filesJson({ success: false, error: "Missing or invalid item/status." }, { status: 400 });
     }
 
     const open = await getOpenTeamHubChecklistRun(ctx.crew.id);
     if (!open) {
-      return NextResponse.json({ success: false, error: "No checklist is in progress." }, { status: 400 });
+      return filesJson({ success: false, error: "No checklist is in progress." }, { status: 400 });
     }
 
     const runItem = await upsertTeamHubChecklistRunItem({
@@ -120,12 +121,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       note,
     });
 
-    return NextResponse.json({ success: true, item: { crewItemId: runItem.crewItemId, status: runItem.status, note: runItem.note, updatedAt: runItem.updatedAt } });
+    return filesJson({ success: true, item: { crewItemId: runItem.crewItemId, status: runItem.status, note: runItem.note, updatedAt: runItem.updatedAt } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
     const status = message.includes("not found") || message.includes("already been submitted") ? 400 : 500;
     if (status === 500) console.error("[team-hub checklist PATCH]", error);
-    return NextResponse.json({ success: false, error: message }, { status });
+    return filesJson({ success: false, error: message }, { status });
   }
 }
 
@@ -137,29 +138,29 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { token } = await params;
     const allowed = await checkRateLimit(`teamhub-checklist-delete:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const ctx = await requireTeamHubWorkerSession(request, token);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as { crewItemId?: number };
     const crewItemId = Number(body.crewItemId);
     if (!Number.isInteger(crewItemId)) {
-      return NextResponse.json({ success: false, error: "Missing item." }, { status: 400 });
+      return filesJson({ success: false, error: "Missing item." }, { status: 400 });
     }
 
     const open = await getOpenTeamHubChecklistRun(ctx.crew.id);
     if (!open) {
-      return NextResponse.json({ success: false, error: "No checklist is in progress." }, { status: 400 });
+      return filesJson({ success: false, error: "No checklist is in progress." }, { status: 400 });
     }
 
     await deleteTeamHubChecklistRunItem(ctx.crew.id, open.id, crewItemId);
-    return NextResponse.json({ success: true });
+    return filesJson({ success: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Something went wrong.";
     const status = message.includes("not found") || message.includes("already been submitted") ? 400 : 500;
     if (status === 500) console.error("[team-hub checklist DELETE]", error);
-    return NextResponse.json({ success: false, error: message }, { status });
+    return filesJson({ success: false, error: message }, { status });
   }
 }

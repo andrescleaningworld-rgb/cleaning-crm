@@ -2,7 +2,8 @@
 // ({ staffId, pin }), DELETE = sign out. Same lockout rule as Team Hub
 // (lib/pinAuth.ts) and the same one-time office alert when someone gets
 // locked out.
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { getStaffById } from "@/lib/data/people";
 import { checkEquipmentCheckLinkKey, verifyEquipmentStaffPin } from "@/lib/equipmentCheckDb";
@@ -16,25 +17,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { key } = await params;
     const allowed = await checkRateLimit(`equipment-check-login:${key}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many attempts. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many attempts. Please wait a minute and try again." }, { status: 429 });
     }
 
     const link = await checkEquipmentCheckLinkKey(key);
-    if (!link) return NextResponse.json({ success: false, error: "This link is no longer active." }, { status: 404 });
+    if (!link) return filesJson({ success: false, error: "This link is no longer active." }, { status: 404 });
 
     const body = (await request.json()) as { staffId?: string; pin?: string };
     const staffId = String(body.staffId ?? "").trim();
     const pin = String(body.pin ?? "");
     if (!staffId || !pin) {
-      return NextResponse.json({ success: false, error: "Choose your name and enter your PIN." }, { status: 400 });
+      return filesJson({ success: false, error: "Choose your name and enter your PIN." }, { status: 400 });
     }
 
     const staff = await getStaffById(staffId);
-    if (!staff || !staff.active) return NextResponse.json({ success: false, error: "Not found." }, { status: 404 });
+    if (!staff || !staff.active) return filesJson({ success: false, error: "Not found." }, { status: 404 });
 
     const result = await verifyEquipmentStaffPin(staffId, pin);
     if (result.outcome === "no-pin") {
-      return NextResponse.json({ success: false, error: "No PIN yet." }, { status: 404 });
+      return filesJson({ success: false, error: "No PIN yet." }, { status: 404 });
     }
     if (result.outcome === "locked") {
       if (result.justLocked) {
@@ -47,26 +48,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           ]).catch((error) => console.error("[equipment-check lockout alert]", error))
         );
       }
-      return NextResponse.json(
+      return filesJson(
         { success: false, error: "Too many incorrect PINs. Locked for a few minutes.", lockedUntil: result.lockedUntil },
         { status: 423 }
       );
     }
     if (result.outcome === "invalid") {
-      return NextResponse.json({ success: false, error: "Incorrect PIN." }, { status: 401 });
+      return filesJson({ success: false, error: "Incorrect PIN." }, { status: 401 });
     }
 
-    const response = NextResponse.json({ success: true, name: staff.name });
+    const response = filesJson({ success: true, name: staff.name });
     await startEquipmentCheckSession(request, response, staffId, link.keyVersion);
     return response;
   } catch (error) {
     console.error("[equipment-check session POST]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  const response = NextResponse.json({ success: true });
+  const response = filesJson({ success: true });
   try {
     await endEquipmentCheckSession(request, response);
   } catch (error) {

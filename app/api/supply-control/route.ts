@@ -5,7 +5,7 @@
 // system, GET answers { ready: false }.
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getAccountSupplyMode, listMoves, listShelf, markInvoiced, monthSpend, moveFromShelf, saveShelfItem, setAccountSupplyMode, supplyControlReady } from "@/lib/pg/supply-control";
 

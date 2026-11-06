@@ -1,5 +1,6 @@
 import { EmptyState, Screen } from "@/app/ui";
 import { listPortalPhotos } from "@/lib/pg/crew-photos";
+import { signFileLinks } from "@/lib/files";
 import type { PortalPhoto } from "@/lib/crewPhotos";
 import { LangToggle } from "../portal-ui";
 import { requireCustomer } from "../server";
@@ -17,7 +18,8 @@ const officeDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: 
 // off (lib/pg/crew-photos.ts listPortalPhotos).
 export default async function PortalPhotosPage() {
   const { account, lang, words } = await requireCustomer();
-  const photos: PortalPhoto[] = await listPortalPhotos(account.accountId).catch(() => []);
+  // Private files: short-lived links this customer may open (lib/files.ts).
+  const photos: PortalPhoto[] = signFileLinks(await listPortalPhotos(account.accountId).catch(() => []));
   const days: { day: string; photos: PortalPhoto[] }[] = [];
   for (const photo of photos) {
     const day = officeDay(photo.takenAt);

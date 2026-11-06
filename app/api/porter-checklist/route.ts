@@ -3,7 +3,8 @@
 // porter_code and submit an entry. No admin/mutation actions live here;
 // template editing is app/api/checklist-templates/route.ts, which is NOT
 // public.
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getMainAccountById } from "@/lib/data/accounts";
 import { getTabForAccount, getTemplateByPorterCode, insertSubmission, latestNightNoteToday, listActiveTabs, setSubmissionNotesTranslation } from "@/lib/checklistDb";
 import { waitUntil } from "@vercel/functions";
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
   try {
     const code = new URL(request.url).searchParams.get("code")?.trim() ?? "";
     if (!code) {
-      return NextResponse.json({ success: false, error: "code is required." }, { status: 400 });
+      return filesJson({ success: false, error: "code is required." }, { status: 400 });
     }
 
     // Re-check the live flags on every load — an account that's since had
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     // what they always did (plus `modules`).
     const link = await resolveCrewLink(code);
     if (!link || !crewLinkIsLive(link.modules)) {
-      return NextResponse.json({ success: true, available: false });
+      return filesJson({ success: true, available: false });
     }
     const { template, modules } = link;
 
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
 
     const shelvesOn = await shelvesReady();
     // Crews see the building name only — no account name, ids or details.
-    return NextResponse.json({
+    return filesJson({
       success: true,
       available: true,
       locationName: template.locationName,
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
       arrived: shelvesOn && (modules.supplyOrders || (await waiting(template.accountId)).length > 0),
     });
   } catch (error) {
-    return NextResponse.json(
+    return filesJson(
       { success: false, error: error instanceof Error ? error.message : "Failed to load checklist." },
       { status: 500 }
     );
@@ -96,23 +97,23 @@ export async function POST(request: NextRequest) {
     const action = typeof body.action === "string" && body.action ? body.action : "submit";
 
     if (action !== "submit") {
-      return NextResponse.json({ success: false, error: `Unknown action "${action}".` }, { status: 400 });
+      return filesJson({ success: false, error: `Unknown action "${action}".` }, { status: 400 });
     }
 
     const code = String(body.code ?? "").trim();
     const porterName = cleanReporterName(body.porterName);
     if (!code || !porterName) {
-      return NextResponse.json({ success: false, error: "code and porterName are required." }, { status: 400 });
+      return filesJson({ success: false, error: "code and porterName are required." }, { status: 400 });
     }
 
     const template = await getTemplateByPorterCode(code);
     if (!template) {
-      return NextResponse.json({ success: false, error: "This checklist link is no longer valid." }, { status: 404 });
+      return filesJson({ success: false, error: "This checklist link is no longer valid." }, { status: 404 });
     }
 
     const account = await getMainAccountById(template.accountId);
     if (!account?.checklistNeeded) {
-      return NextResponse.json(
+      return filesJson(
         { success: false, error: "This checklist is not currently available." },
         { status: 403 }
       );
@@ -199,7 +200,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Sent again after a lost answer: already saved, nothing more to do.
-    if (already) return NextResponse.json({ success: true, id, already: true, completedCount: done, totalCount: total });
+    if (already) return filesJson({ success: true, id, already: true, completedCount: done, totalCount: total });
 
     // English copy of the crew's note for staff + the sub portal (English
     // first, "Show original"). After the response, so Send never waits.
@@ -225,9 +226,9 @@ export async function POST(request: NextRequest) {
       detail: template.accountName,
     });
 
-    return NextResponse.json({ success: true, id, completedCount: done, totalCount: total });
+    return filesJson({ success: true, id, completedCount: done, totalCount: total });
   } catch (error) {
-    return NextResponse.json(
+    return filesJson(
       { success: false, error: error instanceof Error ? error.message : "Failed to submit checklist." },
       { status: 500 }
     );

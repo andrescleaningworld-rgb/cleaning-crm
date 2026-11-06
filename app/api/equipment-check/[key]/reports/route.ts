@@ -7,8 +7,8 @@
 // Never writes to Sheets; the Equipment item itself is only read.
 // Vehicles (id "vehicle:<n>", Postgres) are reported the same way — the row's
 // equipment_id is that "vehicle:<n>" id.
-import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { NextRequest } from "next/server";
+import { absoluteFileLink, put, filesJson } from "@/lib/files";
 import { waitUntil } from "@vercel/functions";
 import { getEquipmentById } from "@/lib/data/equipment";
 import {
@@ -63,22 +63,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { key } = await params;
     const allowed = await checkRateLimit(`equipment-check-report:${key}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const ctx = await requireEquipmentCheckSession(request, key);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const formData = await request.formData();
     const equipmentId = String(formData.get("equipmentId") ?? "").trim();
     const condition = String(formData.get("condition") ?? "").trim().toLowerCase() as EquipmentCondition;
     if (!EQUIPMENT_CONDITIONS.includes(condition)) {
-      return NextResponse.json({ success: false, error: "Invalid condition." }, { status: 400 });
+      return filesJson({ success: false, error: "Invalid condition." }, { status: 400 });
     }
 
     const equipment = await findReportedThing(equipmentId);
     if (!equipment) {
-      return NextResponse.json({ success: false, error: "Equipment not found." }, { status: 404 });
+      return filesJson({ success: false, error: "Equipment not found." }, { status: 404 });
     }
 
     // Green is one tap: anything else sent along with it is ignored.
@@ -86,21 +86,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const files = condition === "good" ? [] : formData.getAll("photos").filter((f): f is File => f instanceof File);
 
     if (files.length > MAX_PHOTOS) {
-      return NextResponse.json({ success: false, error: `Up to ${MAX_PHOTOS} photos allowed.` }, { status: 400 });
+      return filesJson({ success: false, error: `Up to ${MAX_PHOTOS} photos allowed.` }, { status: 400 });
     }
     if (condition === "damaged" && files.length === 0) {
-      return NextResponse.json({ success: false, error: "A photo is required." }, { status: 400 });
+      return filesJson({ success: false, error: "A photo is required." }, { status: 400 });
     }
     for (const file of files) {
       if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
-        return NextResponse.json({ success: false, error: `Unsupported photo format: ${file.type || "unknown"}.` }, { status: 400 });
+        return filesJson({ success: false, error: `Unsupported photo format: ${file.type || "unknown"}.` }, { status: 400 });
       }
       if (file.size > MAX_PHOTO_BYTES) {
-        return NextResponse.json({ success: false, error: "Each photo must be 8MB or smaller." }, { status: 400 });
+        return filesJson({ success: false, error: "Each photo must be 8MB or smaller." }, { status: 400 });
       }
     }
     if (files.length > 0 && !process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ success: false, error: "Photo storage is not configured." }, { status: 500 });
+      return filesJson({ success: false, error: "Photo storage is not configured." }, { status: 500 });
     }
 
     const report = await createEquipmentReport({
@@ -161,7 +161,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               `When: ${when}`,
               notes ? `Notes: ${englishNotes}` : "No notes.",
               ...(notes && englishNotes !== notes ? [`Original: ${notes}`] : []),
-              photoUrls.length > 0 ? `Photos attached (${photoUrls.length}): ${photoUrls.join(", ")}` : "No photos.",
+              photoUrls.length > 0 ? `Photos attached (${photoUrls.length}): ${photoUrls.map((url) => absoluteFileLink(origin, url)).join(", ")}` : "No photos.",
               `Equipment item: ${origin}${equipment.adminPath}`,
               "",
               "Last report only — not proof of who caused it. Someone may have used it after without reporting. Check before acting.",
@@ -172,9 +172,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
 
-    return NextResponse.json({ success: true, reportId: report.id, photosUploaded: photoUrls.length });
+    return filesJson({ success: true, reportId: report.id, photosUploaded: photoUrls.length });
   } catch (error) {
     console.error("[equipment-check reports POST]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong sending this report." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong sending this report." }, { status: 500 });
   }
 }

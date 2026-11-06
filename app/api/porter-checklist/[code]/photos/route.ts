@@ -10,7 +10,8 @@
 //   4xx { success: false, error }  this photo will never go: the phone drops it
 //   5xx                            try again later
 
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { cleanReporterName, crewLinkIsLive, resolveCrewLink } from "@/lib/crewLink";
 import { isCrewPhotoTag } from "@/lib/crewPhotos";
@@ -21,7 +22,7 @@ export const maxDuration = 60;
 // 20 photos picked at once go one after another: room for a few batches a minute.
 const PHOTOS_PER_MINUTE = 150;
 
-const refuse = (error: string, status: number) => NextResponse.json({ success: false, error }, { status });
+const refuse = (error: string, status: number) => filesJson({ success: false, error }, { status });
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   try {
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       thumb: thumb instanceof File ? thumb : null,
       caption: String(form.get("caption") ?? ""),
     });
-    return NextResponse.json({ success: true, ...saved });
+    return filesJson({ success: true, ...saved });
   } catch (error) {
     if (error instanceof CrewPhotoError) return refuse(error.message, 400);
     console.error("[crew-link photos POST]", error instanceof Error ? error.message : error);

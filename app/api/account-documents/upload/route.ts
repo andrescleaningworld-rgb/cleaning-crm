@@ -9,13 +9,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { DOC_CONTENT_TYPES, DOC_EXTENSIONS, DOC_FOLDER, DOC_MAX_BYTES } from "@/lib/accountDocuments";
+import { fileStorageOn, uploadToken } from "@/lib/files";
 
 export async function POST(request: NextRequest) {
   try {
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return NextResponse.json({ error: "File storage is not set up here." }, { status: 500 });
+    if (!fileStorageOn()) return NextResponse.json({ error: "File storage is not set up here." }, { status: 500 });
     if (!(await getAdminIdentity(request))) return NextResponse.json({ error: "Staff only." }, { status: 401 });
     const body = (await request.json()) as HandleUploadBody;
     const result = await handleUpload({
+      // The private store once it is connected (lib/files.ts): the browser's upload goes there.
+      token: uploadToken(),
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {

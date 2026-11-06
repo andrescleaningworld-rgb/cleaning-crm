@@ -3,7 +3,8 @@
 // just what a card shows — id, name, tag (serial number), photo — then every
 // active vehicle (Postgres) as id "vehicle:<n>", tag = plate, kind
 // "vehicle" and its last mileage (the tablet asks for mileage first).
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { fetchEquipmentList } from "@/lib/data/equipment";
 import { listVehicles } from "@/lib/vehiclesDb";
 import { requireEquipmentCheckSession, startEquipmentCheckSession } from "@/lib/equipmentCheckSession";
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { key } = await params;
     const ctx = await requireEquipmentCheckSession(request, key);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const [equipment, vehicles] = await Promise.all([fetchEquipmentList(), listVehicles(false)]);
     const items = [
@@ -30,11 +31,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       })),
     ];
 
-    const response = NextResponse.json({ success: true, equipment: items });
+    const response = filesJson({ success: true, equipment: items });
     await startEquipmentCheckSession(request, response, ctx.staff.id, ctx.keyVersion);
     return response;
   } catch (error) {
     console.error("[equipment-check equipment GET]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }

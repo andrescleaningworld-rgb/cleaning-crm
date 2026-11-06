@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { cleanEmail, createPasswordLink } from "@/lib/pg/portal-auth";
 import { isNonProduction, passwordLinkEmail, passwordLinkUrl } from "@/lib/portalAuth";
 import { sendCustomerEmail } from "@/lib/email";
@@ -16,12 +17,12 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+    return filesJson({ error: "Invalid request." }, { status: 400 });
   }
   const email = cleanEmail(body.email);
   const kind = body.kind === "reset" ? "reset" : "set";
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return NextResponse.json({ error: "email" }, { status: 400 });
+    return filesJson({ error: "email" }, { status: 400 });
   }
 
   try {
@@ -33,9 +34,9 @@ export async function POST(request: NextRequest) {
       await sendCustomerEmail(link.email, mail.subject, mail.lines).catch(() => false);
       if (link.testOnly && isNonProduction()) devLink = url;
     }
-    return NextResponse.json({ success: true, ...(devLink ? { devLink } : {}) });
+    return filesJson({ success: true, ...(devLink ? { devLink } : {}) });
   } catch (err) {
     console.error("[portal/auth/link]", err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: "server" }, { status: 500 });
+    return filesJson({ error: "server" }, { status: 500 });
   }
 }

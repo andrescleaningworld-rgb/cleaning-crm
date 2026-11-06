@@ -11,6 +11,8 @@ import { PORTAL_PREVIEW_COOKIE, PORTAL_SHARE_COOKIE } from "@/lib/portalPreviewC
 // the POST body to tell "login" apart from "everything else").
 const PUBLIC_PATHS = [
   "/login",
+  // Uploaded files (lib/files.ts): the route lets in staff or a signed link itself.
+  "/api/files",
   "/portal",
   "/api/portal",
   // A shared, read-only preview of one account's customer portal (lib/portalPreviewLink.ts):

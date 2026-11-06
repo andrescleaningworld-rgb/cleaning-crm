@@ -2,7 +2,8 @@
 // gated by the secret link key itself. GET returns the tablet's name grid:
 // active Staff (Sheets Staff tab, read only) who have a PIN or an open PIN
 // setup window. Never returns PIN hashes, lock state, or roles.
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { fetchStaff } from "@/lib/data/people";
 import { checkEquipmentCheckLinkKey, listEquipmentStaffPinStatuses } from "@/lib/equipmentCheckDb";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
@@ -13,11 +14,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const { key } = await params;
     const allowed = await checkRateLimit(`equipment-check-people:${key}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const link = await checkEquipmentCheckLinkKey(key);
-    if (!link) return NextResponse.json({ success: true, active: false });
+    if (!link) return filesJson({ success: true, active: false });
 
     const [staff, pins] = await Promise.all([fetchStaff(), listEquipmentStaffPinStatuses()]);
     const pinByStaffId = new Map(pins.map((p) => [p.staffId, p]));
@@ -32,9 +33,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       .sort((a, b) => a.name.localeCompare(b.name));
 
     // The tablet shows its Supplies button only where Supply Check is switched on.
-    return NextResponse.json({ success: true, active: true, people, supplies: await supplyControlReady() });
+    return filesJson({ success: true, active: true, people, supplies: await supplyControlReady() });
   } catch (error) {
     console.error("[equipment-check GET]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }

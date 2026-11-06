@@ -4,6 +4,7 @@
 // Server only.
 
 import { sendInternalNotification, type EmailAttachment } from "@/lib/email";
+import { absoluteFileLink, openStoredFile } from "@/lib/files";
 import { IN_HOUSE_LONG, SOURCE_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 
 const MAX_PHOTOS = 3;
@@ -59,12 +60,13 @@ async function photoAttachments(job: ExtraJob): Promise<EmailAttachment[]> {
   const attachments: EmailAttachment[] = [];
   for (const [index, photo] of job.photos.slice(0, MAX_PHOTOS).entries()) {
     try {
-      const response = await fetch(photo.url);
-      if (!response.ok) continue;
-      const content = Buffer.from(await response.arrayBuffer());
+      // Private or public storage (lib/files.ts).
+      const file = await openStoredFile(photo.url);
+      if (!file) continue;
+      const content = Buffer.from(file.data);
       if (content.length > MAX_PHOTO_BYTES) continue;
       const extension = /\.(jpe?g|png|webp|heic|heif)$/i.exec(photo.fileName || photo.url)?.[0].toLowerCase() ?? ".jpg";
-      attachments.push({ filename: `${job.jobNumber}-after-${index + 1}${extension}`, content, contentType: response.headers.get("content-type") ?? undefined });
+      attachments.push({ filename: `${job.jobNumber}-after-${index + 1}${extension}`, content, contentType: file.contentType });
     } catch {
       // A photo that cannot be fetched is still linked in the email below.
     }
@@ -73,10 +75,11 @@ async function photoAttachments(job: ExtraJob): Promise<EmailAttachment[]> {
 }
 
 /** The approved estimate(s), for invoicing: a link each. None: said so, never a reason to hold the email. */
-function estimateLines(job: ExtraJob): string[] {
+function estimateLines(job: ExtraJob, origin: string): string[] {
   if (!job.estimatesOn) return [];
   if (job.estimates.length === 0) return ["Approved estimate: none attached", ""];
-  return [`Approved estimate (${job.estimates.length}):`, ...job.estimates.map((estimate) => estimate.url), ""];
+  // A private file's link opens after logging in to the CRM (lib/files.ts).
+  return [`Approved estimate (${job.estimates.length}):`, ...job.estimates.map((estimate) => absoluteFileLink(origin, estimate.url)), ""];
 }
 
 /** "Extra job done, ready to invoice": sent when the manager marks it Done. Carries the after photos, if any, and links the approved estimate. */
@@ -91,8 +94,8 @@ export async function sendExtraJobDone(job: ExtraJob, origin: string): Promise<b
       `Marked done by: ${job.doneBy}`,
       ...(job.doneNote ? [`Note: ${job.doneNote}`] : []),
       "",
-      ...estimateLines(job),
-      ...(job.photos.length > 0 ? [`After photos (${job.photos.length}):`, ...job.photos.map((photo) => photo.url)] : ["No photo (labor only)"]),
+      ...estimateLines(job, origin),
+      ...(job.photos.length > 0 ? [`After photos (${job.photos.length}):`, ...job.photos.map((photo) => absoluteFileLink(origin, photo.url))] : ["No photo (labor only)"]),
       "",
       `Office copy of the work order: ${origin}/extra-jobs/${job.id}/work-order?copy=office`,
       `Open it: ${origin}/extra-jobs/${job.id}`,

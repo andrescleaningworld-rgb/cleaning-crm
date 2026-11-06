@@ -4,8 +4,8 @@
 // problem-reports switch; rate-limited per code. Same multipart shape as the
 // Team Hub issues route (category, note, photos[] — plus reporterName) so
 // app/team-hub/[token]/IssueReportView.tsx is reused as-is.
-import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { NextRequest } from "next/server";
+import { put, filesJson } from "@/lib/files";
 import { waitUntil } from "@vercel/functions";
 import { createCrewLinkIssue, addTeamHubPhoto, TEAM_HUB_ISSUE_CATEGORIES, type TeamHubIssueCategory } from "@/lib/teamHubDb";
 import { resolveCrewLink, cleanReporterName } from "@/lib/crewLink";
@@ -21,39 +21,39 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { code } = await params;
     if (!(await checkRateLimit(`crewlink-issues-post:${code}`))) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
     const link = await resolveCrewLink(code);
     if (!link || !link.modules.problemReports) {
-      return NextResponse.json({ success: false, error: "Not available." }, { status: 404 });
+      return filesJson({ success: false, error: "Not available." }, { status: 404 });
     }
 
     const formData = await request.formData();
     const reporterName = cleanReporterName(formData.get("reporterName"));
-    if (!reporterName) return NextResponse.json({ success: false, error: "Please enter your name." }, { status: 400 });
+    if (!reporterName) return filesJson({ success: false, error: "Please enter your name." }, { status: 400 });
     const category = String(formData.get("category") ?? "").trim().toLowerCase();
     if (!TEAM_HUB_ISSUE_CATEGORIES.includes(category as TeamHubIssueCategory)) {
-      return NextResponse.json({ success: false, error: "Invalid category." }, { status: 400 });
+      return filesJson({ success: false, error: "Invalid category." }, { status: 400 });
     }
     const note = String(formData.get("note") ?? "").trim().slice(0, MAX_NOTE_LENGTH);
     if (category === "other" && !note) {
-      return NextResponse.json({ success: false, error: "Please write what the problem is." }, { status: 400 });
+      return filesJson({ success: false, error: "Please write what the problem is." }, { status: 400 });
     }
 
     const files = formData.getAll("photos").filter((f): f is File => f instanceof File);
     if (files.length > MAX_PHOTOS) {
-      return NextResponse.json({ success: false, error: `Up to ${MAX_PHOTOS} photos allowed.` }, { status: 400 });
+      return filesJson({ success: false, error: `Up to ${MAX_PHOTOS} photos allowed.` }, { status: 400 });
     }
     for (const file of files) {
       if (!ALLOWED_PHOTO_TYPES.has(file.type)) {
-        return NextResponse.json({ success: false, error: `Unsupported photo format: ${file.type || "unknown"}.` }, { status: 400 });
+        return filesJson({ success: false, error: `Unsupported photo format: ${file.type || "unknown"}.` }, { status: 400 });
       }
       if (file.size > MAX_PHOTO_BYTES) {
-        return NextResponse.json({ success: false, error: "Each photo must be 8MB or smaller." }, { status: 400 });
+        return filesJson({ success: false, error: "Each photo must be 8MB or smaller." }, { status: 400 });
       }
     }
     if (files.length > 0 && !process.env.BLOB_READ_WRITE_TOKEN) {
-      return NextResponse.json({ success: false, error: "Photo storage is not configured." }, { status: 500 });
+      return filesJson({ success: false, error: "Photo storage is not configured." }, { status: 500 });
     }
 
     const issue = await createCrewLinkIssue({
@@ -93,9 +93,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }).catch((error) => console.error("[crew-link issues email]", error))
     );
 
-    return NextResponse.json({ success: true, issueId: issue.id, photosUploaded: photoUrls.length });
+    return filesJson({ success: true, issueId: issue.id, photosUploaded: photoUrls.length });
   } catch (error) {
     console.error("[crew-link issues POST]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong submitting this report." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong submitting this report." }, { status: 500 });
   }
 }

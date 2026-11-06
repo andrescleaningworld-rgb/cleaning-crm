@@ -4,23 +4,24 @@
 // the sub_session cookie, never from the page. Saving goes through
 // POST /api/subcontractor-schedules, which checks the account is theirs.
 
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { listScheduleAskForSub } from "@/lib/pg/schedule-ask";
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await getIronSession<SubSessionData>(request, NextResponse.json({}), subSessionOptions());
+    const session = await getIronSession<SubSessionData>(request, filesJson({}), subSessionOptions());
     const email = session.subcontractorEmail?.trim() ?? "";
-    if (!email) return NextResponse.json({ success: false, error: "Not logged in." }, { status: 401 });
+    if (!email) return filesJson({ success: false, error: "Not logged in." }, { status: 401 });
     const accounts = await listScheduleAskForSub(email);
-    return NextResponse.json(
+    return filesJson(
       { success: true, subId: email, subName: session.subcontractorName?.trim() || email, accounts },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
     console.error("[subcontractor-portal/schedule-ask GET]", error instanceof Error ? error.message : error);
-    return NextResponse.json({ success: false, error: "Your list did not load." }, { status: 500 });
+    return filesJson({ success: false, error: "Your list did not load." }, { status: 500 });
   }
 }

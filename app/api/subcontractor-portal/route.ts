@@ -1,3 +1,4 @@
+import { filesJson } from "@/lib/files";
 import { NextRequest, NextResponse } from "next/server";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
@@ -140,7 +141,7 @@ async function handleOnPostgres(
     rowNumber: extra.rowNumber ?? "",
     status: extra.status ?? "",
   });
-  const refuse = (error: string, status: number) => NextResponse.json({ success: false, error }, { status });
+  const refuse = (error: string, status: number) => filesJson({ success: false, error }, { status });
 
   const isLogin = action === "getSubcontractorPortalByEmail";
   if (isLogin || action === "getSubcontractorPortalBySession") {
@@ -150,7 +151,7 @@ async function handleOnPostgres(
     if (isInactiveSub(portal.subcontractor)) {
       return refuse("Your account is currently inactive. Please contact your manager.", 401);
     }
-    const response = NextResponse.json(answer({ ...portal, message: "Subcontractor portal loaded." }));
+    const response = filesJson(answer({ ...portal, message: "Subcontractor portal loaded." }));
     if (isLogin) {
       const identity = getSubIdentity(portal.subcontractor);
       const session = await getIronSession<SubSessionData>(request, response, subSessionOptions());
@@ -168,7 +169,7 @@ async function handleOnPostgres(
 
   if (action === "logSubcontractorActivity") {
     await logSubcontractorActivity({ email, name, actionType: String(body.actionType ?? ""), details: String(body.details ?? "") });
-    return NextResponse.json(answer({ message: "Activity logged." }));
+    return filesJson(answer({ message: "Activity logged." }));
   }
 
   if (action === "submitSubPortalIssue") {
@@ -183,7 +184,7 @@ async function handleOnPostgres(
       `Description: ${issue.description}`,
       `Photos: ${issue.photoCount || "0"}`,
     ]).catch(() => false);
-    return NextResponse.json({
+    return filesJson({
       ...answer({ message: "Issue submitted.", rowNumber: issue.rowNumber, status: issue.status }),
       // The screen ties the issue's photos to this id.
       issueId: issue.issueId,
@@ -194,7 +195,7 @@ async function handleOnPostgres(
   if (action === "submitSupplyOrder") {
     const order = await createSupplyOrder({ ...body, subcontractor: name, subcontractorName: name, subcontractorEmail: email });
     await emailNewSupplyOrder(order, new URL(request.url).origin);
-    return NextResponse.json(answer({ message: "Supply order submitted.", orderId: order.orderId, rowNumber: order.rowNumber, status: order.status }));
+    return filesJson(answer({ message: "Supply order submitted.", orderId: order.orderId, rowNumber: order.rowNumber, status: order.status }));
   }
 
   if (action === "resolveComplaintBySubcontractor") {
@@ -206,7 +207,7 @@ async function handleOnPostgres(
       status: "Resolved by Sub",
       resolution: name ? `Resolved by ${name}: ${resolution}` : resolution,
     });
-    return NextResponse.json(answer({ message: "Complaint resolved.", rowNumber: closed.rowNumber, status: closed.status }));
+    return filesJson(answer({ message: "Complaint resolved.", rowNumber: closed.rowNumber, status: closed.status }));
   }
 
   return refuse(`Unknown subcontractor portal action: ${action}`, 400);
@@ -218,7 +219,7 @@ const SAVE_ACTIONS = new Set(["submitSubPortalIssue", "submitSupplyOrder", "reso
 export async function POST(request: NextRequest) {
   try {
     if (!SCRIPT_URL && !subPortalOnPostgres()) {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error:
@@ -233,7 +234,7 @@ export async function POST(request: NextRequest) {
 
     // Logout clears the session locally — no backend call needed.
     if (action === "logout") {
-      const response = NextResponse.json({ success: true });
+      const response = filesJson({ success: true });
       const session = await getIronSession<SubSessionData>(
         request,
         response,
@@ -252,7 +253,7 @@ export async function POST(request: NextRequest) {
     let sessionIdentity: SessionIdentity | null = null;
 
     if (!isLoginAction) {
-      const readResponse = NextResponse.json({});
+      const readResponse = filesJson({});
       const session = await getIronSession<SubSessionData>(
         request,
         readResponse,
@@ -260,7 +261,7 @@ export async function POST(request: NextRequest) {
       );
 
       if (!session.subcontractorEmail) {
-        return NextResponse.json(
+        return filesJson(
           { success: false, error: "Not logged in." },
           { status: 401 }
         );
@@ -283,7 +284,7 @@ export async function POST(request: NextRequest) {
     // own emails) were removed on Nov 6, 2026. With DATA_SOURCE_SUB_PORTAL
     // off only reading (log in, the portal's data) still goes to Apps Script.
     if (SAVE_ACTIONS.has(String(action ?? ""))) {
-      return NextResponse.json(
+      return filesJson(
         { success: false, error: "This can only be saved in the database (DATA_SOURCE_SUB_PORTAL=postgres). Saving to Google Sheets was removed." },
         { status: 503 }
       );
@@ -321,7 +322,7 @@ export async function POST(request: NextRequest) {
       );
     } catch (err) {
       if (err instanceof AppsScriptFetchError) {
-        return NextResponse.json(
+        return filesJson(
           { success: false, error: err.message },
           { status: err.status }
         );
@@ -336,7 +337,7 @@ export async function POST(request: NextRequest) {
     try {
       data = JSON.parse(text) as ScriptResponse;
     } catch {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error:
@@ -348,7 +349,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!response.ok || data.success === false) {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error:
@@ -371,7 +372,7 @@ export async function POST(request: NextRequest) {
     // Block inactive subcontractors. Checked server-side on every response that
     // includes the subcontractor object (covers login + any action that returns it).
     if (data.subcontractor && isInactiveSub(data.subcontractor)) {
-      return NextResponse.json(
+      return filesJson(
         {
           success: false,
           error: "Your account is currently inactive. Please contact your manager.",
@@ -380,7 +381,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const finalResponse = NextResponse.json({
+    const finalResponse = filesJson({
       success: true,
       message: data.message || "Request completed successfully.",
       subcontractor: data.subcontractor || null,
@@ -411,7 +412,7 @@ export async function POST(request: NextRequest) {
 
     return finalResponse;
   } catch (error) {
-    return NextResponse.json(
+    return filesJson(
       {
         success: false,
         error:

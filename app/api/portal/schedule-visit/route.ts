@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   // (the sub portal's "Schedule Visit") or logged-in staff may use it.
   const subSession = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());
   if (!subSession.subcontractorEmail && !(await getAdminIdentity(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return filesJson({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     try {
       body = await request.json();
     } catch {
-      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+      return filesJson({ error: "Invalid request body" }, { status: 400 });
     }
 
     const accountName = typeof body.accountName === "string" ? body.accountName.trim() : "";
@@ -78,17 +79,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (!accountName || !accountId || !subEmail || !timeWindow || visitDates.length === 0) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return filesJson({ error: "Missing required fields" }, { status: 400 });
     }
 
     if (!(VALID_WINDOWS as readonly string[]).includes(timeWindow)) {
-      return NextResponse.json({ error: "Invalid time window" }, { status: 400 });
+      return filesJson({ error: "Invalid time window" }, { status: 400 });
     }
 
     const today = getEasternToday();
     const invalidDate = visitDates.find((d) => d <= today);
     if (invalidDate) {
-      return NextResponse.json({ error: "All dates must be in the future" }, { status: 400 });
+      return filesJson({ error: "All dates must be in the future" }, { status: 400 });
     }
 
     // Sort dates so the first one is earliest (for the label and effective range)
@@ -142,11 +143,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, scheduleLabel, count: sortedDates.length, scheduleIds });
+    return filesJson({ success: true, scheduleLabel, count: sortedDates.length, scheduleIds });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     console.error("[portal/schedule-visit] Unhandled error:", { message, stack, raw: err });
-    return NextResponse.json({ error: "Failed to save schedule" }, { status: 500 });
+    return filesJson({ error: "Failed to save schedule" }, { status: 500 });
   }
 }

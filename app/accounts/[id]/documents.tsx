@@ -142,7 +142,7 @@ function storagePath(accountId: string, file: File): string {
 export default function AccountDocuments({ accountId, accountName }: { accountId: string; accountName: string }) {
   const [lang, toggleLang] = useLang();
   const w = WORDS[lang];
-  const [state, setState] = useState<{ ready: boolean; documents: AccountDocument[] } | null>(null);
+  const [state, setState] = useState<{ ready: boolean; privateFiles: boolean; documents: AccountDocument[] } | null>(null);
   const [version, setVersion] = useState(0);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [editing, setEditing] = useState<AccountDocument | null>(null);
@@ -154,8 +154,8 @@ export default function AccountDocuments({ accountId, accountName }: { accountId
     let alive = true;
     fetch(`/api/account-documents?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { success?: boolean; ready?: boolean; documents?: AccountDocument[] }) => {
-        if (alive && data.success) setState({ ready: data.ready === true, documents: data.documents ?? [] });
+      .then((data: { success?: boolean; ready?: boolean; privateFiles?: boolean; documents?: AccountDocument[] }) => {
+        if (alive && data.success) setState({ ready: data.ready === true, privateFiles: data.privateFiles === true, documents: data.documents ?? [] });
       })
       .catch(() => undefined);
     return () => {
@@ -260,6 +260,7 @@ export default function AccountDocuments({ accountId, accountName }: { accountId
           lang={lang}
           accountId={accountId}
           accountName={accountName}
+          privateFiles={state.privateFiles}
           onClose={() => setUploadOpen(false)}
           onSaved={() => {
             setUploadOpen(false);
@@ -306,7 +307,24 @@ function TypeSelect({ w, lang, value, onChange, disabled }: { w: Words; lang: La
   );
 }
 
-function UploadSheet({ w, lang, accountId, accountName, onClose, onSaved }: { w: Words; lang: Lang; accountId: string; accountName: string; onClose: () => void; onSaved: () => void }) {
+function UploadSheet({
+  w,
+  lang,
+  accountId,
+  accountName,
+  privateFiles,
+  onClose,
+  onSaved,
+}: {
+  w: Words;
+  lang: Lang;
+  accountId: string;
+  accountName: string;
+  /** The private store is connected: upload there (lib/files.ts). */
+  privateFiles: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [files, setFiles] = useState<File[]>([]);
   const [docType, setDocType] = useState<DocType>("Scope of work");
   const [note, setNote] = useState("");
@@ -325,7 +343,7 @@ function UploadSheet({ w, lang, accountId, accountName, onClose, onSaved }: { w:
       const uploaded: { url: string; name: string; size: number; contentType: string }[] = [];
       for (const [index, file] of files.entries()) {
         setBusy(w.saving(index + 1, files.length));
-        const blob = await upload(storagePath(accountId, file), file, { access: "public", handleUploadUrl: "/api/account-documents/upload", contentType: file.type || undefined });
+        const blob = await upload(storagePath(accountId, file), file, { access: privateFiles ? "private" : "public", handleUploadUrl: "/api/account-documents/upload", contentType: file.type || undefined });
         uploaded.push({ url: blob.url, name: file.name, size: file.size, contentType: file.type });
       }
       await post({ action: "add", accountId, accountName, docType, note, shareWithSub: share, files: uploaded });

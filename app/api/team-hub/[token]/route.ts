@@ -5,7 +5,8 @@
 // other-account data. Only the site's own Team Hub label, the crew's name,
 // and its active workers' first names (for the login picker) ever leave
 // this route.
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getActiveTeamHubCrewByToken, listActiveTeamHubWorkerNames } from "@/lib/teamHubDb";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const allowed = await checkRateLimit(`teamhub-get:${token}`);
     if (!allowed) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
 
     const found = await getActiveTeamHubCrewByToken(token);
@@ -24,12 +25,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       // Deliberately identical shape/status for "token doesn't exist",
       // "crew revoked", and "site deactivated" — no way to distinguish the
       // three from the response, so a guessed token reveals nothing.
-      return NextResponse.json({ success: true, active: false });
+      return filesJson({ success: true, active: false });
     }
 
     const workers = await listActiveTeamHubWorkerNames(found.crew.id);
 
-    return NextResponse.json({
+    return filesJson({
       success: true,
       active: true,
       siteLabel: found.site.label,
@@ -38,6 +39,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     });
   } catch (error) {
     console.error("[team-hub token GET]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong loading this link." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong loading this link." }, { status: 500 });
   }
 }

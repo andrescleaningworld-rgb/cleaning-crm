@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { cookies } from "next/headers";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
@@ -7,7 +8,7 @@ import { logSubcontractorVisit, getSubcontractorVisits } from "@/lib/data/schedu
 export async function GET(request: NextRequest) {
   const session = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());
   if (!session.subcontractorEmail) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return filesJson({ error: "Unauthorized" }, { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -15,17 +16,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const visits = await getSubcontractorVisits(session.subcontractorEmail, account ?? undefined);
-    return NextResponse.json({ visits });
+    return filesJson({ visits });
   } catch (err) {
     console.error("[subcontractor-visits GET]", err);
-    return NextResponse.json({ error: "Failed to load visits" }, { status: 500 });
+    return filesJson({ error: "Failed to load visits" }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   const session = await getIronSession<SubSessionData>(await cookies(), subSessionOptions());
   if (!session.subcontractorEmail) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return filesJson({ error: "Unauthorized" }, { status: 401 });
   }
 
   let body: {
@@ -38,19 +39,19 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return filesJson({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const { accountName, visitDate, arrivalTime, notes } = body;
 
   if (!accountName?.trim() || !visitDate?.trim() || !arrivalTime?.trim()) {
-    return NextResponse.json({ error: "accountName, visitDate, and arrivalTime are required" }, { status: 400 });
+    return filesJson({ error: "accountName, visitDate, and arrivalTime are required" }, { status: 400 });
   }
 
   // Reject future dates
   const todayStr = new Date().toISOString().slice(0, 10);
   if (visitDate.trim() > todayStr) {
-    return NextResponse.json({ error: "Cannot log visits for future dates" }, { status: 400 });
+    return filesJson({ error: "Cannot log visits for future dates" }, { status: 400 });
   }
 
   try {
@@ -62,9 +63,9 @@ export async function POST(request: NextRequest) {
       arrivalTime: arrivalTime.trim(),
       notes: notes?.trim() ?? "",
     });
-    return NextResponse.json({ success: true, visitId });
+    return filesJson({ success: true, visitId });
   } catch (err) {
     console.error("[subcontractor-visits POST]", err);
-    return NextResponse.json({ error: "Failed to log visit" }, { status: 500 });
+    return filesJson({ error: "Failed to log visit" }, { status: 500 });
   }
 }

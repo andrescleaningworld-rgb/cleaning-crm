@@ -8,7 +8,7 @@
 // copy runs every hour (app/api/cron/tv-slideshow) and from "Sync now".
 
 import { google } from "googleapis";
-import { del, put } from "@vercel/blob";
+import { del, put } from "@/lib/files";
 import sharp from "sharp";
 import heicConvert from "heic-convert";
 import { getSql } from "@/lib/db";

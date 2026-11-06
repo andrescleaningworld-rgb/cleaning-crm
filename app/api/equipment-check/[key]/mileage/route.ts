@@ -6,7 +6,8 @@
 // { confirmedLower: true } — the tablet asks "Is that right?" first.
 // Postgres only; the session check reads the Staff tab (as every tablet
 // route does).
-import { NextRequest, NextResponse } from "next/server";
+import { filesJson } from "@/lib/files";
+import { NextRequest } from "next/server";
 import { requireEquipmentCheckSession, startEquipmentCheckSession } from "@/lib/equipmentCheckSession";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { getVehicle, recordMileage } from "@/lib/vehiclesDb";
@@ -16,31 +17,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { key } = await params;
     if (!(await checkRateLimit(`equipment-check-mileage:${key}`))) {
-      return NextResponse.json({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
+      return filesJson({ success: false, error: "Too many requests. Please wait a minute and try again." }, { status: 429 });
     }
     const ctx = await requireEquipmentCheckSession(request, key);
-    if (!ctx) return NextResponse.json({ success: false, error: "Not signed in." }, { status: 401 });
+    if (!ctx) return filesJson({ success: false, error: "Not signed in." }, { status: 401 });
 
     const body = (await request.json().catch(() => ({}))) as { vehicleId?: string; mileage?: unknown; confirmedLower?: boolean };
     const vehicleId = vehicleIdFromTabletId(body.vehicleId);
     const vehicle = vehicleId ? await getVehicle(vehicleId) : null;
-    if (!vehicle || !vehicle.active) return NextResponse.json({ success: false, error: "Vehicle not found." }, { status: 404 });
+    if (!vehicle || !vehicle.active) return filesJson({ success: false, error: "Vehicle not found." }, { status: 404 });
 
     const mileage = parseMileage(body.mileage);
     if (mileage === null || Number.isNaN(mileage)) {
-      return NextResponse.json({ success: false, error: "Mileage doesn't look right." }, { status: 400 });
+      return filesJson({ success: false, error: "Mileage doesn't look right." }, { status: 400 });
     }
     if (vehicle.currentMileage !== null && mileage < vehicle.currentMileage && body.confirmedLower !== true) {
-      return NextResponse.json({ success: false, needsConfirm: true, lastMileage: vehicle.currentMileage }, { status: 409 });
+      return filesJson({ success: false, needsConfirm: true, lastMileage: vehicle.currentMileage }, { status: 409 });
     }
 
     await recordMileage({ vehicleId: vehicle.id, mileage, staffId: ctx.staff.id, source: "tablet" });
 
-    const response = NextResponse.json({ success: true });
+    const response = filesJson({ success: true });
     await startEquipmentCheckSession(request, response, ctx.staff.id, ctx.keyVersion);
     return response;
   } catch (error) {
     console.error("[equipment-check mileage POST]", error);
-    return NextResponse.json({ success: false, error: "Something went wrong." }, { status: 500 });
+    return filesJson({ success: false, error: "Something went wrong." }, { status: 500 });
   }
 }

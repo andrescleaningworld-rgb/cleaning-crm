@@ -10,8 +10,9 @@
 // Google Drive folder (no caption; lib/pg/tv-slideshow.ts); "today" is the day's birthdays, anniversaries,
 // holidays and company events (first names and titles only).
 
+import { filesJson } from "@/lib/files";
 import { createHash } from "node:crypto";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { isOld, type Paper } from "@/lib/board";
 import { officeDay } from "@/lib/cleanings";
@@ -78,10 +79,10 @@ function forTv(paper: Paper): Paper {
 
 export async function GET(request: NextRequest) {
   try {
-    if (!(await boardReady())) return NextResponse.json({ success: true, ready: false }, noStore);
+    if (!(await boardReady())) return filesJson({ success: true, ready: false }, noStore);
     const token = request.nextUrl.searchParams.get("k") ?? "";
     const allowed = (token && (await tvTokenIsValid(token))) || Boolean(await getAdminIdentity(request));
-    if (!allowed) return NextResponse.json({ success: false, error: "This TV link is off." }, { status: 401, ...noStore });
+    if (!allowed) return filesJson({ success: false, error: "This TV link is off." }, { status: 401, ...noStore });
 
     await syncBoard();
     if (await flowsReady().catch(() => false)) await syncAutoSteps().catch((error) => console.error("[board tv] account flows:", error instanceof Error ? error.message : error));
@@ -100,7 +101,7 @@ export async function GET(request: NextRequest) {
     const slides = mixed([...starred, ...drive.map((url) => ({ url, caption: "" }))], today);
     const squares = new Set(managers.map((manager) => manager.id));
     const papers = lists.papers.map((paper) => (paper.square && !squares.has(paper.square) ? { ...paper, square: "" } : paper));
-    return NextResponse.json(
+    return filesJson(
       {
         success: true,
         ready: true,
@@ -126,6 +127,6 @@ export async function GET(request: NextRequest) {
     );
   } catch (error) {
     console.error("[board tv GET]", error instanceof Error ? error.message : error);
-    return NextResponse.json({ success: false, error: "The board did not load." }, { status: 500, ...noStore });
+    return filesJson({ success: false, error: "The board did not load." }, { status: 500, ...noStore });
   }
 }

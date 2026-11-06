@@ -8,7 +8,7 @@
 //                   customer portal can show them (lib/photoImport.ts).
 
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { addUploadedPhoto, cleanDetails, importFromDrive, serviceAccountEmail } from "@/lib/photoImport";
 import { photosReady } from "@/lib/pg/photo-index";

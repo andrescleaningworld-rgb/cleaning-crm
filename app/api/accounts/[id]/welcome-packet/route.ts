@@ -9,7 +9,7 @@
 // go to the account manager. Then it is written on the account's History and
 // ticks "Welcome packet sent to customer" on the Onboarding Checklist.
 import { NextRequest, NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { put } from "@/lib/files";
 import { DOC_FOLDER } from "@/lib/accountDocuments";
 import { documentsReady, fileAccountDocument } from "@/lib/pg/account-documents";
 import { getAdminIdentity } from "@/lib/adminSession";
