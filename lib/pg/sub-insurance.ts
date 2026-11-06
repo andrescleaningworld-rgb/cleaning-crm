@@ -334,7 +334,7 @@ export async function runInsuranceChecks(origin: string): Promise<InsuranceCheck
 
     try {
       const office = officeInsuranceEmail({ subName: sub.name, company: sub.company, expiresOn: sub.expiresOn, expired, link: `${origin}/sub-center?tab=insurance` });
-      if (await sendHtmlEmail({ to: [INSURANCE_OFFICE_EMAIL], fromName: "Cleaning World CRM", ...office, log: { type: "Sub insurance", subId: sub.subId, subName: sub.name, sentBy: "System" } })) result.officeEmails += 1;
+      if (await sendHtmlEmail({ to: [INSURANCE_OFFICE_EMAIL], fromName: "Cleaning World", ...office, log: { type: "Sub insurance", subId: sub.subId, subName: sub.name, sentBy: "System" } })) result.officeEmails += 1;
     } catch (error) {
       console.error("[insurance] office email:", error instanceof Error ? error.message : error);
     }

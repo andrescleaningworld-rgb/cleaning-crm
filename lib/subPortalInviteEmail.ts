@@ -10,7 +10,7 @@ import { INVITE_LANGUAGES, subInviteText } from "@/lib/subPortalInvite";
 
 // Same logo and sender name as the transfer proposal email (lib/pg/sub-transfers.ts).
 const LOGO_URL = "https://cleaning-crm-xi.vercel.app/cw-logo.jpg";
-const SENDER_NAME = "Cleaning World App";
+const SENDER_NAME = "Cleaning World";
 
 function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");

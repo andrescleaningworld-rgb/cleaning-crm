@@ -26,7 +26,7 @@ import { sendHtmlEmail } from "@/lib/email";
 
 const LOGO_URL = "https://cleaning-crm-xi.vercel.app/cw-logo.jpg";
 const RESPONSE_NOTICE_TO = ["info@cleaningworldinc.com", "crm@cleaningworldinc.com"];
-const SENDER_NAME = "Cleaning World App";
+const SENDER_NAME = "Cleaning World";
 
 type Body = Record<string, unknown>;
 type TransferAccount = { accountId: string; accountName: string; address: string; cleaningDays: string; scope: string; keysAlarm: string; proposedMonthlyPay: number };

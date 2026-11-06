@@ -406,11 +406,11 @@ export async function POST(request: NextRequest) {
         },
       };
 
-      // DATA_SOURCE_COMPLAINTS=postgres: Apps Script cannot see complaints
-      // that live in Postgres, so the app sends the email itself: the same
-      // "New Complaint" email it sends when a complaint is created, to the
-      // subcontractor named on the complaint's account.
-      if (onPostgres) {
+      // The app sends the email itself (lib/email.ts), whatever the
+      // complaints switch says: the same "New Complaint" email it sends when
+      // a complaint is created, to the subcontractor named on the complaint's
+      // account. (Apps Script used to send it while complaints were on Sheets.)
+      {
         const found = await getComplaintForResend(payload.complaint.rowNumber, payload.complaint.id);
         if (!found) {
           return NextResponse.json({ success: false, error: "Complaint not found.", sentPayload: payload }, { status: 500 });
@@ -433,89 +433,6 @@ export async function POST(request: NextRequest) {
           ? NextResponse.json({ success: true, notification: { sent: true }, message: "Resend attempted." })
           : notSent("The email could not be sent.");
       }
-
-      let response: Response;
-      try {
-        response = await fetchAppsScript(
-          SCRIPT_URL!,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify(payload),
-            cache: "no-store",
-          },
-          undefined,
-          {
-            retryOn5xx: true,
-            // This sends an email — retrying on an ambiguous timeout risks
-            // double-sending the subcontractor notification, a worse outcome
-            // than just failing this one attempt.
-            retryOnThrow: false,
-          }
-        );
-      } catch (error) {
-        if (error instanceof AppsScriptFetchError) {
-          console.error(
-            "[complaints] Apps Script resendComplaintNotification call failed:",
-            error.message,
-            "payload:",
-            payload
-          );
-          return NextResponse.json(
-            { success: false, error: error.message, sentPayload: payload },
-            { status: error.status }
-          );
-        }
-        throw error;
-      }
-
-      const text = await response.text();
-
-      let data: ScriptResponse;
-
-      try {
-        data = JSON.parse(text) as ScriptResponse;
-      } catch {
-        console.error(
-          `[complaints] Apps Script did not return valid JSON on resend (status=${response.status}):`,
-          text.slice(0, 500)
-        );
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              "Google Script did not return valid JSON while resending the subcontractor email.",
-            sentPayload: payload,
-            rawResponse: text,
-          },
-          { status: 500 }
-        );
-      }
-
-      if (!response.ok || data.success === false) {
-        console.error(
-          `[complaints] Apps Script rejected resendComplaintNotification (status=${response.status}):`,
-          data.error || data
-        );
-        return NextResponse.json(
-          {
-            success: false,
-            error: data.error || "Failed to resend subcontractor email.",
-            sentPayload: payload,
-            rawResponse: data,
-          },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        notification: data.notification || undefined,
-        message: data.message || "Resend attempted.",
-        scriptResponse: data,
-      });
     }
 
     // The complaint page's Edit -> Save: the SAME complaint is updated (same

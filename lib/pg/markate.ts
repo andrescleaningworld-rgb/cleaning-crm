@@ -789,7 +789,7 @@ async function sendEstimateEmails(): Promise<void> {
           subject: estimateEmailSubject(data),
           html: estimateEmailHtml(data),
           text: estimateEmailText(data),
-          fromName: "Cleaning World CRM",
+          fromName: "Cleaning World",
           log: { type: "NEW ACCEPTED ACCOUNT", accountName: data.customerName, sentBy: "System" },
         });
         if (!sent) error = "No email sender is set up here.";

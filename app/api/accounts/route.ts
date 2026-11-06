@@ -1,7 +1,7 @@
 import { describeAccountChanges } from "@/lib/accountChanges";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
-import { fetchAppsScript, fetchAppsScriptDirect, AppsScriptFetchError } from "@/lib/appsScriptFetch";
+import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorEmailByName, findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import {
@@ -15,7 +15,6 @@ import {
 } from "@/lib/data/accounts";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
-import { isPostgres } from "@/lib/dataSource";
 import { getSql } from "@/lib/db";
 import { sendSubcontractorNotification } from "@/lib/email";
 
@@ -374,11 +373,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // The new-account packet email is composed by Apps Script (unless
-    // DATA_SOURCE_ACCOUNT_PACKET=postgres), so it needs the URL on either
-    // source; add/update only need it on Sheets.
-    const packetNeedsScript = (action === "sendNewAccountPacket" || body.action === "sendNewAccountPacket") && !isPostgres("ACCOUNT_PACKET");
-    if (!SCRIPT_URL && (!accountsOnPostgres() || packetNeedsScript)) {
+    // The new-account packet email is sent by the app (lib/email.ts); only
+    // add/update on Sheets need the Apps Script URL.
+    if (!SCRIPT_URL && !accountsOnPostgres() && action !== "sendNewAccountPacket" && body.action !== "sendNewAccountPacket") {
       return NextResponse.json(
         { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
         { status: 500 }
@@ -437,40 +434,13 @@ export async function POST(request: NextRequest) {
       fieldChangesDetail = describeAccountChanges(freshAccount, fields as Record<string, unknown>) || "Saved (no field changes)";
     }
 
-    // === NEW: Handle Send New Account Packet ===
-    // (With DATA_SOURCE_ACCOUNT_PACKET=postgres the app sends it itself, just below.)
-    if (action === "sendNewAccountPacket" && !isPostgres("ACCOUNT_PACKET")) {
-      const response = await fetchAppsScriptDirect(SCRIPT_URL!, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(body),
-      });
-
-      const text = await response.text();
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return NextResponse.json(
-          { success: false, error: "Invalid response from Google Script for packet" },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json(data);
-    }
-
     // Handle other account actions (add / update)
     const accountPayload = body.account || body;
 
-    // Sending a packet must NEVER create a new row in the sheet.
-    // Call the Apps Script via GET so doGet() runs (not doPost which writes rows).
-    if (body.action === "sendNewAccountPacket") {
-      // DATA_SOURCE_ACCOUNT_PACKET=postgres: the app sends the packet email
-      // itself, to the subcontractor, with the same details. Apps Script is
-      // not called and no row is written anywhere.
-      if (isPostgres("ACCOUNT_PACKET")) {
+    // The New Account packet: the app sends it itself (lib/email.ts), to the
+    // subcontractor. Apps Script is not called (it used to send it when
+    // DATA_SOURCE_ACCOUNT_PACKET was off) and no row is written anywhere.
+    if (action === "sendNewAccountPacket" || body.action === "sendNewAccountPacket") {
         const field = (key: string) => String(body[key] ?? "").trim();
         const to = field("subcontractorEmail") || (await packetEmailFor(field("accountId"), field("subcontractor")));
         if (!to) {
@@ -499,45 +469,6 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "The packet email could not be sent." }, { status: 500 });
         }
         return NextResponse.json({ success: true, message: "New account packet sent successfully." });
-      }
-
-      const params = new URLSearchParams({
-        action: "sendNewAccountPacket",
-        accountId:              String(body.accountId              ?? ""),
-        accountName:            String(body.accountName            ?? ""),
-        address:                String(body.address                ?? ""),
-        startDate:              String(body.startDate              ?? ""),
-        cleaningSchedule:       String(body.cleaningSchedule       ?? ""),
-        subcontractor:          String(body.subcontractor          ?? ""),
-        subcontractorEmail:     String(body.subcontractorEmail     ?? ""),
-        monthlySubcontractorPay:String(body.monthlySubcontractorPay?? ""),
-        hasKey:                 String(body.hasKey                 ?? ""),
-        alarmInfo:              String(body.alarmInfo              ?? ""),
-        scope:                  String(body.scope                  ?? ""),
-        notes:                  String(body.notes                  ?? ""),
-        manager:                String(body.manager                ?? ""),
-      });
-
-      const response = await fetchAppsScriptDirect(`${SCRIPT_URL}?${params.toString()}`, {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      const text = await response.text();
-      let data: Record<string, unknown> = { success: true };
-      try { data = JSON.parse(text); } catch { /* Apps Script may return plain text */ }
-
-      if (data.success === false) {
-        return NextResponse.json(
-          { success: false, error: String(data.error ?? "Apps Script returned failure.") },
-          { status: 500 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: String(data.message ?? "New account packet sent successfully."),
-      });
     }
 
     // All other actions (addAccount, updateAccount, etc.) go through doPost as before.
