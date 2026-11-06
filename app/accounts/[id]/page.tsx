@@ -47,6 +47,7 @@ import SubPacketSheet from "../../components/sub-packet-sheet";
 import PortalInviteSheet, { invitedLine, type PortalInviteRecord } from "./portal-invite-sheet";
 import PreviewLinks from "./preview-links";
 import TaxExemptButton from "./tax-exempt";
+import { PriceChangeButton, PriceChangeHistory } from "./price-change";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { payShare } from "@/lib/payShare";
@@ -353,6 +354,8 @@ export default function AccountDetailPage() {
   const [showMore, setShowMore] = useState(false);
   // Bumped when the schedule is changed here, so Next cleaning and the banner read it again.
   const [scheduleVersion, setScheduleVersion] = useState(0);
+  // Bumped by a saved Price & frequency change: its Change history reloads.
+  const [priceChangeVersion, setPriceChangeVersion] = useState(0);
   const [showToDo, setShowToDo] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   // Pin Board: the "Pin to board" button (only where accounts are switched on in Settings -> Pin Board).
@@ -1100,6 +1103,7 @@ export default function AccountDetailPage() {
                   <Detail label="Start Date" value={startDate} />
                   {/* The schedule in words (Sub Schedules); tap to change it. The old text fields show only when there is none. */}
                   <AccountScheduleDetail
+                    key={`schedule-${scheduleVersion}`}
                     accountId={getAccountId(account, rawAccountIdFromUrl)}
                     accountName={accountName}
                     onSaved={() => setScheduleVersion((value) => value + 1)}
@@ -1242,6 +1246,24 @@ export default function AccountDetailPage() {
                 </BigButton>
                 {/* Prices are before sales tax; ON = the customer sees the price with no tax note (migration 065). */}
                 <TaxExemptButton accountId={thisAccountId} />
+                {/* More cleanings and a new price on an existing account: schedule from a date, price, pay, estimate, record. */}
+                <PriceChangeButton
+                  accountId={thisAccountId}
+                  accountName={accountName}
+                  current={{
+                    price: monthlyRevenueNumber,
+                    subPay: subcontractorPayNumber,
+                    perCleaning: account.subPricePerCleaning ? String(moneyToNumber(account.subPricePerCleaning) || "") : "",
+                    frequency: account.frequency || "",
+                  }}
+                  onSaved={() => {
+                    setPriceChangeVersion((version) => version + 1);
+                    setScheduleVersion((version) => version + 1);
+                    // The price, pay and Frequency, and the new History line.
+                    setAccountVersion((version) => version + 1);
+                    setWelcomeVersion((version) => version + 1);
+                  }}
+                />
                 <BigButton kind="second" icon={portalInvites[0] ? "check" : undefined} onClick={() => setShowPortalInvite(true)}>
                   {portalInvites[0] ? `Invite to portal: ${invitedLine(portalInvites[0])}` : "Invite to portal"}
                 </BigButton>
@@ -1290,6 +1312,11 @@ export default function AccountDetailPage() {
                   </div>
                 </div>
               </Card>
+
+            {/* Every Price & frequency change: old → new schedule, price and pay, the estimate, who and when. */}
+            <div className="account-detail-print-hide">
+              <PriceChangeHistory accountId={thisAccountId} refreshKey={priceChangeVersion} />
+            </div>
 
             {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
             <AccountContacts accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />

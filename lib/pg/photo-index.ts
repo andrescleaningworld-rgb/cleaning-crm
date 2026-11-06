@@ -140,6 +140,16 @@ const SOURCES: { name: string; sql: string }[] = [
       ON CONFLICT (source_key) DO NOTHING`,
   },
   {
+    // The signed estimate of a Price & frequency change (migration 072): Blob, shown as "Accepted estimate".
+    name: "Price & frequency change estimates",
+    sql: `INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href, taken_by, taken_at, is_image, caption)
+      SELECT 'price-change:' || c.id, 'blob', c.estimate_url, c.account_id, c.account_name, 'Estimate', '',
+        'account', c.account_id, 'Open the account', '/accounts/' || c.account_id,
+        c.created_by, c.created_at, ${IS_IMAGE("c.estimate_url")}, 'Accepted estimate'
+      FROM account_price_changes c WHERE btrim(c.estimate_url) <> ''
+      ON CONFLICT (source_key) DO NOTHING`,
+  },
+  {
     // A photo a sub attached to a problem or an extra job from the portal home: Blob.
     name: "Photos on sub problems and extra-job requests",
     sql: `${INSERT}

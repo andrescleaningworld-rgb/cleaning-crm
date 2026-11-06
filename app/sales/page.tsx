@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { BigButton, StatusPill, type StatusKind } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
+import UpsellsCard from "./upsells";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -1170,6 +1171,9 @@ function SalesPageContent() {
                 <p className="ui-muted">{paidSales} paid</p>
               </div>
             </div>
+
+            {/* Price & frequency changes: monthly increases, apart from new accounts, extra jobs and commissions. */}
+            <UpsellsCard year={selectedYear} quarter={selectedQuarter} accountId={accountList ? accountIdFromUrl : ""} />
 
             <section className="ui-card print:shadow-none">
               <div className="mb-4">

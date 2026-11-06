@@ -52,7 +52,7 @@ export function useAccountSchedule(accountId: string) {
         if (!alive) return;
         const today = todayISO();
         const running = (data.schedules ?? []).filter((row) => isScheduleEffectivelyActive(row, today));
-        setGroups(groupScheduleRows(running));
+        setGroups(withoutReplaced(groupScheduleRows(running)));
         setAccountSub(data.accountSub ?? { email: "", name: "" });
         setState("ready");
       })
@@ -66,6 +66,21 @@ export function useAccountSchedule(accountId: string) {
 
   const reload = useCallback(() => setVersion((value) => value + 1), []);
   return { state, groups, accountSub, reload };
+}
+
+/**
+ * A schedule that ends because a newer one for the same sub takes over after
+ * it (a Price & frequency change with a later start) is still running until
+ * then, but the account shows and edits the new one.
+ */
+function withoutReplaced<Row extends GroupableRow>(groups: ScheduleGroup<Row>[]): ScheduleGroup<Row>[] {
+  const endOf = (group: ScheduleGroup<Row>) => group.rows[0]?.storedEffectiveEnd ?? group.rows[0]?.effectiveEnd ?? "";
+  const startOf = (group: ScheduleGroup<Row>) => group.rows[0]?.effectiveStart ?? "";
+  return groups.filter((group) => {
+    const end = endOf(group);
+    if (!end) return true;
+    return !groups.some((other) => other !== group && same(other.subId, group.subId) && startOf(other) > end);
+  });
 }
 
 /** The schedule a form edits: the one for this sub, else the first one running. */
@@ -83,7 +98,9 @@ export async function saveSchedule(input: {
   closeScheduleIds: string[];
   startDate?: string;
   submittedBy?: string;
-}): Promise<{ ok: true; summary: string } | { ok: false; error: string }> {
+  /** Keep the old rows running (Active) up to the day before the start, instead of marking them Superseded. */
+  keepOldUntilStart?: boolean;
+}): Promise<{ ok: true; summary: string; startDate: string } | { ok: false; error: string }> {
   try {
     const response = await fetch("/api/admin/sub-schedules", {
       method: "POST",
@@ -98,11 +115,12 @@ export async function saveSchedule(input: {
         entries: planToEntries(input.plan),
         closeScheduleIds: input.closeScheduleIds,
         startDate: input.startDate ?? "",
+        keepOldUntilStart: input.keepOldUntilStart === true,
       }),
     });
-    const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; summary?: string };
+    const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; summary?: string; startDate?: string };
     if (!response.ok || !data.success) return { ok: false, error: data.error || "The schedule was not saved." };
-    return { ok: true, summary: data.summary ?? "" };
+    return { ok: true, summary: data.summary ?? "", startDate: data.startDate ?? "" };
   } catch {
     return { ok: false, error: "No connection. The schedule was not saved." };
   }

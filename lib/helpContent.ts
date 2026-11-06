@@ -575,6 +575,20 @@ const en: StaffHelpContent = {
       ],
       tip: "In-house crews and placeholder subs: tap **Edit** on the sub and set **Exclude from sub score** to **Yes**. They show **Not scored**.",
     },
+    {
+      id: "price-change",
+      group: "daily",
+      page: "Accounts",
+      title: "Change an account's price and frequency",
+      steps: [
+        "For a customer who changes how often we clean and what they pay (e.g. 1x to 2x a week). Not a new account and not an extra job.",
+        "Open the account and tap **Price & frequency change**. The schedule, CW price and sub pay are filled in: change only what is different.",
+        "Pick the **Effective date**. The new schedule starts that day; cleanings before it stay as they were.",
+        "Type the **New CW monthly price (before tax)**, check the sub pay, add the signed estimate and a note, then tap **Save change**.",
+        "The account page lists every change under **Change history**. The estimate is in the account's Photos as **Accepted estimate**, and the Sales page counts the monthly increase under **Upsells**.",
+      ],
+      tip: "Tap **Español** at the top of the form for Spanish.",
+    },
 
     /* ---------- Work ---------- */
     {
@@ -1493,6 +1507,20 @@ const es: StaffHelpContent = {
         "Por debajo de 6, aparece un **⚠** junto a **Accounts center** en el menú lateral hasta que alguien toca **Got it**.",
       ],
       tip: "Equipos propios y subs de relleno: toca **Edit** en el sub y pon **Exclude from sub score** en **Yes**. Aparecen como **Not scored**.",
+    },
+    {
+      id: "price-change",
+      group: "daily",
+      page: "Accounts",
+      title: "Cambiar el precio y la frecuencia de una cuenta",
+      steps: [
+        "Para un cliente que cambia cada cuánto limpiamos y lo que paga (por ejemplo, de 1 a 2 veces por semana). No es una cuenta nueva ni un trabajo extra.",
+        "Abre la cuenta y toca **Price & frequency change**. El horario, el precio de CW y el pago del sub ya están llenos: cambia solo lo que es diferente.",
+        "Elige la **Fecha del cambio**. El nuevo horario empieza ese día; las limpiezas anteriores no cambian.",
+        "Escribe el **Nuevo precio mensual de CW (sin impuesto)**, revisa el pago del sub, agrega el estimado firmado y una nota, y toca **Guardar cambio**.",
+        "La cuenta muestra cada cambio en **Historial de cambios**. El estimado queda en las fotos de la cuenta como **Accepted estimate**, y la página Sales cuenta el aumento mensual en **Upsells**.",
+      ],
+      tip: "Toca **Español** arriba en el formulario para verlo en español.",
     },
 
     /* ---------- Trabajo ---------- */

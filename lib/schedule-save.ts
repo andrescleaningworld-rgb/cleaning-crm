@@ -9,7 +9,13 @@
 // failure half way leaves an extra row to tidy, never a lost schedule.
 //
 // Body: { accountId, accountName, subId (the sub's email, may be ""),
-//         submittedBy, frequency, entries, closeScheduleIds, startDate }
+//         submittedBy, frequency, entries, closeScheduleIds, startDate,
+//         keepOldUntilStart }
+//
+// keepOldUntilStart (the "Price & frequency change" form): the old rows stay
+// Active and only get the day before as their end date, so every cleaning up
+// to the change (past ones and the ones still to come before it) stays on the
+// calendar exactly as it was. Without it the old rows are marked Superseded.
 
 import { after, NextRequest, NextResponse } from "next/server";
 import { appendSubSchedule, fetchSubSchedules, updateSubSchedule } from "@/lib/data/scheduling";
@@ -58,6 +64,7 @@ export async function replaceSchedule(request: NextRequest, body: Record<string,
   const entries = (Array.isArray(body.entries) ? body.entries : []) as ScheduleEntryInput[];
   const closeIds = new Set((Array.isArray(body.closeScheduleIds) ? body.closeScheduleIds : []).map((id) => String(id).trim()).filter(Boolean));
   const asked = text(body.startDate);
+  const keepOldUntilStart = body.keepOldUntilStart === true;
 
   if (!accountId) return refuse("Which account?");
   if (asked && !ISO_DAY.test(asked)) return refuse("The start date is not a date.");
@@ -113,9 +120,12 @@ export async function replaceSchedule(request: NextRequest, body: Record<string,
 
     const dayBefore = addDays(start, -1);
     for (const row of closing) {
+      // Kept running up to the change: Active, ending the day before (never later than its own end).
+      const ownEnd = row.storedEffectiveEnd ?? row.effectiveEnd;
+      const keepRunning = keepOldUntilStart && (!row.effectiveStart || row.effectiveStart <= dayBefore);
       await updateSubSchedule(row.sheetRow, {
-        effectiveEnd: dayBefore,
-        status: "Superseded",
+        effectiveEnd: keepRunning && ownEnd && ownEnd < dayBefore ? ownEnd : dayBefore,
+        status: keepRunning ? "Active" : "Superseded",
         lastEditedBy: submittedBy,
         lastEditedDate: new Date().toISOString(),
       });
