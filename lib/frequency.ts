@@ -4,7 +4,7 @@
 //
 // Cleanings a month turn the sub's price per cleaning into the monthly
 // Subcontractor Pay and back: a week is 52 / 12 = 4.33 weeks a month, so
-// 1x per week = 4.33 cleanings and every other week = 2.17. "Other" has no
+// 1x per week = 4.33 cleanings and every 2 weeks = 2.17. "Other" has no
 // count, so its pay is entered by the month.
 
 export const WEEKS_PER_MONTH = 52 / 12;
@@ -17,17 +17,21 @@ export const FREQUENCY_OPTIONS = [
   "5x per week",
   "6x per week",
   "7x per week",
-  "Every other week",
+  "Every 2 weeks",
   "1x per month",
   "2x per month",
 ] as const;
 
 export type FrequencyOption = (typeof FREQUENCY_OPTIONS)[number];
 
+// The list said "Every other week" before Nov 2026; accounts saved then still mean "Every 2 weeks".
+const OLD_NAMES: Record<string, FrequencyOption> = { "Every other week": "Every 2 weeks" };
+
 /** The choice in the Frequency dropdown for a stored value: a list item, "Other", or "" when blank. */
 export function frequencyChoice(value: string | undefined | null): FrequencyOption | "Other" | "" {
   const text = String(value ?? "").trim();
   if (!text) return "";
+  if (OLD_NAMES[text]) return OLD_NAMES[text];
   return (FREQUENCY_OPTIONS as readonly string[]).includes(text) ? (text as FrequencyOption) : "Other";
 }
 
@@ -35,7 +39,7 @@ export function frequencyChoice(value: string | undefined | null): FrequencyOpti
 export function cleaningsPerMonth(value: string | undefined | null): number | null {
   const choice = frequencyChoice(value);
   if (choice === "" || choice === "Other") return null;
-  if (choice === "Every other week") return WEEKS_PER_MONTH / 2;
+  if (choice === "Every 2 weeks") return WEEKS_PER_MONTH / 2;
   const perMonth = /^(\d)x per month$/.exec(choice);
   if (perMonth) return Number(perMonth[1]);
   const perWeek = /^(\d)x per week$/.exec(choice);
@@ -74,7 +78,7 @@ export function matchFrequency(raw: string | undefined | null): FrequencyOption 
   if (!text) return null;
   const weekly = /^([1-7]) ?x ?(?:per |a )?(?:week|wk)\.?$/.exec(text) ?? /^([1-7]) days? per week$/.exec(text);
   if (weekly) return `${weekly[1]}x per week` as FrequencyOption;
-  if (/^(?:1x )?(?:e\/?o ?w(?:ee)?k|eow|every other week|bi-?weekly)$/.test(text)) return "Every other week";
+  if (/^(?:1x )?(?:e\/?o ?w(?:ee)?k|eow|every other week|every 2 weeks|bi-?weekly)$/.test(text)) return "Every 2 weeks";
   const monthly = /^([12]) ?x ?(?:per |a )?(?:month|mo)\.?$/.exec(text);
   if (monthly) return `${monthly[1]}x per month` as FrequencyOption;
   return null;

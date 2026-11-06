@@ -23,7 +23,10 @@ import { validateScheduleEntries, type ScheduleEntryInput } from "@/lib/schedule
 import { getAdminIdentity } from "@/lib/adminSession";
 import { sendSubcontractorNotification } from "@/lib/email";
 import { addDays, officeDay } from "@/lib/cleanings";
-import { describeRows, type ScheduleRowLike } from "@/lib/schedule-plan";
+import { describeRows, rowsToPlan, type ScheduleRowLike } from "@/lib/schedule-plan";
+import { accountFieldsFromPlan } from "@/lib/plan-account-fields";
+import { accountsOnPostgres, updateAccountFieldsDirect } from "@/lib/data/accounts";
+import { invalidateAccountLists } from "@/app/api/accounts/route";
 import { getTimeOnSite, setTimeOnSiteByOffice, timeOnSiteReady } from "@/lib/pg/time-on-site";
 
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
@@ -144,21 +147,38 @@ export async function replaceSchedule(request: NextRequest, body: Record<string,
       }
     }
 
-    const summary = describeRows(
-      rows.map(
-        (entry): ScheduleRowLike => ({
-          frequency,
-          dayOfWeek: entry.dayOfWeek ?? "",
-          monthlyOccurrence: entry.monthlyOccurrence ?? "",
-          timeWindow: entry.timeWindow ?? "",
-          scheduleType: entry.scheduleType,
-          startTime: entry.startTime,
-          windowStart: entry.windowStart,
-          windowEnd: entry.windowEnd,
-          minutesOnSite: entry.minutesOnSite ?? null,
-        })
-      )
+    const savedRows = rows.map(
+      (entry): ScheduleRowLike => ({
+        frequency,
+        dayOfWeek: entry.dayOfWeek ?? "",
+        monthlyOccurrence: entry.monthlyOccurrence ?? "",
+        timeWindow: entry.timeWindow ?? "",
+        scheduleType: entry.scheduleType,
+        startTime: entry.startTime,
+        windowStart: entry.windowStart,
+        windowEnd: entry.windowEnd,
+        minutesOnSite: entry.minutesOnSite ?? null,
+      })
     );
+    const summary = describeRows(savedRows);
+
+    // The account's old Frequency / Cleaning Days / Cleaning Time follow the
+    // schedule (lib/plan-account-fields.ts), whichever screen saved it, so the
+    // screens and reports that still read them see the same schedule.
+    const fields = accountFieldsFromPlan(rowsToPlan(savedRows));
+    if (fields && accountsOnPostgres()) {
+      try {
+        try {
+          await updateAccountFieldsDirect(accountId, { frequency: fields.frequency, cleaningDays: fields.cleaningDays, cleaningTime: fields.cleaningTime });
+        } catch {
+          // Before migration 050 the cleaning time cannot be saved: the other two still are.
+          await updateAccountFieldsDirect(accountId, { frequency: fields.frequency, cleaningDays: fields.cleaningDays });
+        }
+        await invalidateAccountLists();
+      } catch (error) {
+        console.error("[schedule-save] account schedule fields not updated:", error instanceof Error ? error.message : error);
+      }
+    }
 
     // Best effort, after the answer is sent: the sub hears about it.
     after(async () => {

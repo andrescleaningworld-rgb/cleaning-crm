@@ -990,6 +990,16 @@ export async function addAccount(payload: Record<string, unknown>): Promise<{ ac
       if ((error as { code?: string }).code !== "42703") throw error;
     }
   }
+  // The cleaning time (migration 050), from the Cleaning schedule picker.
+  const time = parseCleaningTime(String(payload.cleaningTime ?? ""));
+  if (time) {
+    try {
+      await sql`UPDATE accounts SET cleaning_time = ${cleaningTimeText(time)} WHERE id = ${accountId}`;
+    } catch (error) {
+      // 42703 = migration 050 has not run here: the time is in the schedule only.
+      if ((error as { code?: string }).code !== "42703") throw error;
+    }
+  }
   return { accountId };
 }
 

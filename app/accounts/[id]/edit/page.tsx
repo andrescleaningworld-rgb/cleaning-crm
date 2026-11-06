@@ -9,12 +9,11 @@ import GoogleAddressAutocompleteInput, {
   type PlaceAddressDetails,
 } from "@/app/components/GoogleAddressAutocompleteInput";
 import { payShare } from "@/lib/payShare";
-import FrequencyField from "@/app/components/frequency-field";
 import SubPayFields from "@/app/components/sub-pay-fields";
-import CleaningTimeField from "@/app/components/cleaning-time-field";
 import SubSuggestions from "@/app/components/sub-suggestions";
 import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
-import { cleaningStartMinutes } from "@/lib/cleaningTime";
+import { cleaningStartMinutes, describeCleaningTime } from "@/lib/cleaningTime";
+import { accountFieldsFromPlan, oldScheduleInfo } from "@/lib/plan-account-fields";
 import { DEFAULT_START_TIME } from "@/lib/schedule-time";
 import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
 import { afterFrequencyChange, perCleaningText } from "@/lib/frequency";
@@ -298,6 +297,28 @@ export default function EditAccountPage() {
     }
   );
 
+  // Frequency, Cleaning days and Cleaning time follow the picker (null while it is empty: the old values stay).
+  const planFields = useMemo(() => accountFieldsFromPlan(schedulePlan), [schedulePlan]);
+  const scheduleFrequency = planFields?.frequency ?? (formData?.frequency || "");
+  // An account with the old fields and no picker schedule: shown above the picker, never converted by itself.
+  const oldInfo = oldScheduleInfo(
+    { frequency: formData?.frequency, cleaningDays: formData?.cleaningDays, cleaningTime: formData?.cleaningTime },
+    describeCleaningTime
+  );
+  // A new frequency from the picker: the monthly pay stays and the price per cleaning is worked out again.
+  function changeSchedulePlan(next: SchedulePlan) {
+    const before = accountFieldsFromPlan(schedulePlan)?.frequency ?? (formData?.frequency || "");
+    const after = accountFieldsFromPlan(next)?.frequency ?? (formData?.frequency || "");
+    setSchedulePlan(next);
+    if (after !== before) {
+      setFormData((current) => {
+        if (!current) return current;
+        const pay = afterFrequencyChange(after, current.subcontractorPay || current.monthlySubcontractorPay || "", current.subPricePerCleaning || "");
+        return { ...current, subcontractorPay: pay.pay, monthlySubcontractorPay: pay.pay, subPricePerCleaning: pay.per };
+      });
+    }
+  }
+
   useEffect(() => {
     async function loadAccount() {
       try {
@@ -576,6 +597,15 @@ export default function EditAccountPage() {
       fields.grossMargin = String(grossMargin);
       fields.grossMarginPercent = grossMarginPercent.toFixed(1);
 
+      // Frequency, Cleaning days and Cleaning time are no longer on the form:
+      // they follow the Cleaning schedule picker (lib/plan-account-fields.ts).
+      // With the picker empty they stay as they are.
+      if (planFields) {
+        fields.frequency = planFields.frequency;
+        fields.cleaningDays = planFields.cleaningDays;
+        if (formData.cleaningTimeReady) fields.cleaningTime = planFields.cleaningTime;
+      }
+
       // Direct-Sheets write (bypasses Apps Script entirely) — see
       // updateAccountFieldsDirect's comment in lib/googleSheets.ts. The old
       // action:"updateAccountFields" path did two sequential Apps Script
@@ -826,8 +856,8 @@ export default function EditAccountPage() {
             <SubSuggestions
               lat={formData.latitude && Number.isFinite(Number(formData.latitude)) ? Number(formData.latitude) : null}
               lng={formData.longitude && Number.isFinite(Number(formData.longitude)) ? Number(formData.longitude) : null}
-              cleaningDays={formData.cleaningDays || ""}
-              start={cleaningStartMinutes(formData.cleaningTime) ?? DEFAULT_START_TIME}
+              cleaningDays={planFields?.cleaningDays ?? (formData.cleaningDays || "")}
+              start={cleaningStartMinutes(planFields?.cleaningTime ?? formData.cleaningTime) ?? DEFAULT_START_TIME}
               minutes={DEFAULT_MINUTES_ON_SITE}
               scoreBySubId={scoreBySubId}
               selectedId={selectedSubId}
@@ -866,33 +896,12 @@ export default function EditAccountPage() {
             </SelectField>
 
             <Field label="Service type" optional value={formData.serviceType || ""} onChange={(event) => updateField("serviceType", event.target.value)} />
-            <FrequencyField
-              value={formData.frequency || ""}
-              onChange={(value) => {
-                // A new Frequency: the monthly pay stays and the price per cleaning is worked out again (lib/frequency.ts).
-                setFormData((current) => {
-                  if (!current) return current;
-                  const next = afterFrequencyChange(value, current.subcontractorPay || current.monthlySubcontractorPay || "", current.subPricePerCleaning || "");
-                  return { ...current, frequency: value, subcontractorPay: next.pay, monthlySubcontractorPay: next.pay, subPricePerCleaning: next.per };
-                });
-                setSavedMessage("");
-                setSaveError("");
-              }}
-            />
-            <Field
-              label="Cleaning days"
-              optional
-              placeholder="Mon, Wed, Fri"
-              value={formData.cleaningDays || ""}
-              onChange={(event) => updateField("cleaningDays", event.target.value)}
-            />
-            {formData.cleaningTimeReady ? <CleaningTimeField value={formData.cleaningTime || ""} onChange={(value) => updateField("cleaningTime", value)} /> : null}
           </div>
         </Card>
 
         <AccountScheduleSection
           plan={schedulePlan}
-          onChange={setSchedulePlan}
+          onChange={changeSchedulePlan}
           showProblems={scheduleTried}
           disabled={saving || schedule.state !== "ready"}
           note={
@@ -900,6 +909,9 @@ export default function EditAccountPage() {
               <p className="ui-field-error">The schedule did not load. Change it on the account page.</p>
             ) : scheduleGroup && planIsEmpty(schedulePlan) ? (
               <p className="ui-hint">Left empty, the current schedule stays. To stop it, use Deactivate in Sub Center → Sub Schedules.</p>
+            ) : schedule.state === "ready" && !scheduleGroup && oldInfo ? (
+              // Old fields, no picker schedule: shown so staff can set the picker from them (never converted by itself).
+              <p className="ui-hint">{oldInfo}</p>
             ) : schedule.groups.length > 1 ? (
               <p className="ui-hint">This account has {schedule.groups.length} schedules. This is the one for {scheduleGroup?.subId || "no sub"}. Change the others on the account page.</p>
             ) : null
@@ -919,8 +931,10 @@ export default function EditAccountPage() {
             {/* The reminder, the 70% suggestion, Frequency when missing, and the two pay boxes in step. */}
             <SubPayFields
               revenue={formData.monthlyRevenue || ""}
-              frequency={formData.frequency || ""}
-              onFrequency={(frequency) => updateField("frequency", frequency)}
+              frequency={scheduleFrequency}
+              onFrequency={() => undefined}
+              frequencyAbove
+              missingFrequencyText="Set the Cleaning schedule first: the price per cleaning needs it."
               pay={formData.subcontractorPay || formData.monthlySubcontractorPay || ""}
               per={formData.subPricePerCleaning || ""}
               onPay={({ pay, per }) => {

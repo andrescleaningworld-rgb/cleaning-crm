@@ -11,7 +11,6 @@ import SubSuggestions from "@/app/components/sub-suggestions";
 import { useInsuranceMap } from "@/app/components/sub-insurance";
 import { findInsurance, niceDay } from "@/lib/subInsurance";
 import PlusMinus from "@/app/components/plus-minus";
-import FrequencyField from "@/app/components/frequency-field";
 import SubPayFields from "@/app/components/sub-pay-fields";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import { afterFrequencyChange } from "@/lib/frequency";
@@ -19,8 +18,9 @@ import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_
 import { ManagerOptions, useManagerNames } from "../../components/manager-options";
 import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 import { AccountScheduleSection, saveSchedule } from "@/app/components/account-schedule";
-import { describeDays, emptyPlan, isByWeekday, planIsEmpty, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
+import { emptyPlan, planIsEmpty, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
+import { accountFieldsFromPlan } from "@/lib/plan-account-fields";
 
 type AccountForm = {
   accountName: string;
@@ -230,6 +230,20 @@ export default function NewAccountPage() {
   const [scheduleTried, setScheduleTried] = useState(false);
   const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
   const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
+  // Frequency, Cleaning days and Cleaning time, from the picker (null while it is empty).
+  const planFields = useMemo(() => accountFieldsFromPlan(schedulePlan), [schedulePlan]);
+  // A new frequency from the picker: the monthly pay stays and the price per cleaning is worked out again.
+  function changeSchedulePlan(next: SchedulePlan) {
+    const before = accountFieldsFromPlan(schedulePlan)?.frequency ?? form.frequency;
+    const after = accountFieldsFromPlan(next)?.frequency ?? form.frequency;
+    setSchedulePlan(next);
+    if (after !== before) {
+      setForm((current) => {
+        const pay = afterFrequencyChange(after, current.monthlySubcontractorPay, current.subPricePerCleaning);
+        return { ...current, monthlySubcontractorPay: pay.pay, subPricePerCleaning: pay.per };
+      });
+    }
+  }
   // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
   const draft = useFormDraft(
     "new-account",
@@ -351,8 +365,8 @@ export default function NewAccountPage() {
 
       const accountPayload: AccountForm = {
         ...form,
-        // Cleaning days left empty: filled from the schedule ("Mon–Fri").
-        cleaningDays: form.cleaningDays.trim() || (hasSchedule && isByWeekday(schedulePlan.frequency) ? describeDays(schedulePlan.days) : form.cleaningDays),
+        // Frequency, Cleaning days and Cleaning time follow the Cleaning schedule picker (lib/plan-account-fields.ts).
+        ...(planFields ? { frequency: planFields.frequency, cleaningDays: planFields.cleaningDays, cleaningTime: planFields.cleaningTime } : {}),
         accountName: form.accountName.trim(),
         address: form.address.trim(),
         manager: form.manager.trim(),
@@ -590,7 +604,7 @@ export default function NewAccountPage() {
             <SubSuggestions
               lat={suggestionLat}
               lng={suggestionLng}
-              cleaningDays={form.cleaningDays}
+              cleaningDays={planFields?.cleaningDays ?? form.cleaningDays}
               start={suggestionStart}
               minutes={suggestionMinutes}
               scoreBySubId={scoreBySubId}
@@ -627,8 +641,10 @@ export default function NewAccountPage() {
             {/* The reminder, the 70% suggestion, Frequency when missing, and the two pay boxes in step. */}
             <SubPayFields
               revenue={form.monthlyRevenue}
-              frequency={form.frequency}
-              onFrequency={(frequency) => updateField("frequency", frequency)}
+              frequency={planFields?.frequency ?? form.frequency}
+              onFrequency={() => undefined}
+              frequencyAbove
+              missingFrequencyText="Set the Cleaning schedule first: the price per cleaning needs it."
               pay={form.monthlySubcontractorPay}
               per={form.subPricePerCleaning}
               onPay={({ pay, per }) => setForm((current) => ({ ...current, monthlySubcontractorPay: pay, subPricePerCleaning: per }))}
@@ -652,21 +668,10 @@ export default function NewAccountPage() {
         <Card title="Service Details">
           <div style={sectionStyle}>
             <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
-            <FrequencyField
-              value={form.frequency}
-              onChange={(value) =>
-                // A new Frequency: the monthly pay stays and the price per cleaning is worked out again (lib/frequency.ts).
-                setForm((current) => {
-                  const next = afterFrequencyChange(value, current.monthlySubcontractorPay, current.subPricePerCleaning);
-                  return { ...current, frequency: value, monthlySubcontractorPay: next.pay, subPricePerCleaning: next.per };
-                })
-              }
-            />
-            <Field label="Cleaning days" optional value={form.cleaningDays} onChange={(event) => updateField("cleaningDays", event.target.value)} />
           </div>
         </Card>
 
-        <AccountScheduleSection plan={schedulePlan} onChange={setSchedulePlan} showProblems={scheduleTried} disabled={saving} />
+        <AccountScheduleSection plan={schedulePlan} onChange={changeSchedulePlan} showProblems={scheduleTried} disabled={saving} />
 
         <Card title="Access, Scope & Notes">
           <div style={sectionStyle}>

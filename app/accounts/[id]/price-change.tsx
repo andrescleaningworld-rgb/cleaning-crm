@@ -26,6 +26,7 @@ import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import { pickGroup, saveSchedule, useAccountSchedule, type StoredScheduleRow } from "@/app/components/account-schedule";
 import { describePlan, describeRows, emptyPlan, planIsEmpty, planProblems, rowsToPlan, samePlan, type SchedulePlan } from "@/lib/schedule-plan";
 import { afterFrequencyChange } from "@/lib/frequency";
+import { accountFieldsFromPlan } from "@/lib/plan-account-fields";
 import { todayISO } from "@/lib/scheduleRecurrence";
 
 /* ---------- words ---------- */
@@ -167,13 +168,9 @@ const money = (value: number | null) => (value === null || Number.isNaN(value) ?
 const signed = (value: number) => `${value > 0 ? "+" : value < 0 ? "−" : ""}${money(Math.abs(value))}`;
 const plain = (value: number | null) => (value === null || value === 0 ? "" : Number.isInteger(value) ? String(value) : value.toFixed(2));
 
-/** The account Frequency a schedule means, when it is one of the list's choices. */
+/** The account Frequency a schedule means (the same rule as Add / Edit Account). */
 function frequencyOfPlan(plan: SchedulePlan): string | null {
-  if (plan.frequency === "WEEKLY" && plan.days.length >= 1 && plan.days.length <= 7) return `${plan.days.length}x per week`;
-  if (plan.frequency === "BIWEEKLY" && plan.days.length === 1) return "Every other week";
-  if (plan.frequency === "MONTHLY_1X") return "1x per month";
-  if (plan.frequency === "MONTHLY_2X") return "2x per month";
-  return null;
+  return accountFieldsFromPlan(plan)?.frequency || null;
 }
 
 function dayText(iso: string): string {

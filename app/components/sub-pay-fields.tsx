@@ -35,6 +35,7 @@ export default function SubPayFields({
   per,
   onPay,
   frequencyAbove = false,
+  missingFrequencyText = "Pick the Frequency first: the price per cleaning needs it.",
   disabled = false,
 }: {
   /** What CW gets a month, as typed. */
@@ -47,6 +48,8 @@ export default function SubPayFields({
   onPay: (next: { pay: string; per: string }) => void;
   /** The form shows Frequency right above this already: do not ask again. */
   frequencyAbove?: boolean;
+  /** Shown when there is no Frequency yet (the account forms: it comes from the Cleaning schedule). */
+  missingFrequencyText?: string;
   disabled?: boolean;
 }) {
   // A pay already on the account is the office's own number: the suggestion never replaces it.
@@ -81,7 +84,7 @@ export default function SubPayFields({
           }}
         />
       ) : null}
-      {!frequency.trim() ? <p className="ui-field-error">Pick the Frequency first: the price per cleaning needs it.</p> : null}
+      {!frequency.trim() ? <p className="ui-field-error">{missingFrequencyText}</p> : null}
       <Field
         label="Sub price per cleaning"
         optional

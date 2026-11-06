@@ -45,12 +45,11 @@ const PRESETS: { id: string; label: string; days: string[] }[] = [
   { id: "weekends", label: "Weekends", days: ["Saturday", "Sunday"] },
 ];
 
-// Times from 5:00 am to 11:45 pm in 15-minute steps; "To" may also be midnight.
-const FIRST_TIME = 5 * 60;
-const LAST_TIME = 23 * 60 + 45;
+// One list: 12:00 am to 11:30 pm in 30-minute steps; "To" may also be midnight.
+// A saved time between the steps (5:15 pm) is put in the list in its place.
+const STEP = 30;
 const MIDNIGHT = 23 * 60 + 59;
-const COMMON_TIMES = [6, 7, 8, 9, 10, 12, 13, 15, 17, 18, 19, 20, 21, 22, 23].map((hour) => hour * 60);
-const ALL_TIMES = Array.from({ length: (LAST_TIME - FIRST_TIME) / 15 + 1 }, (_, index) => FIRST_TIME + index * 15);
+const ALL_TIMES = Array.from({ length: (24 * 60) / STEP }, (_, index) => index * STEP);
 
 const sameDays = (a: string[], b: string[]) => a.length === b.length && a.every((day) => b.includes(day));
 
@@ -271,30 +270,21 @@ function TimeBlock({ title, time, onChange, showTimeOnSite }: { title: string; t
 
 function TimeSelect({ label, value, onChange, withMidnight = false }: { label: string; value: number; onChange: (minutes: number) => void; withMidnight?: boolean }) {
   const id = useId();
-  const listed = ALL_TIMES.includes(value) || (withMidnight && value === MIDNIGHT);
+  const times = ALL_TIMES.includes(value) || (withMidnight && value === MIDNIGHT) ? ALL_TIMES : [...ALL_TIMES, value].sort((a, b) => a - b);
+  // Every day always has a time (new ones start at 6:00 pm to 10:00 pm), and
+  // the list opens at the picked time, so it opens in the evening.
   return (
     <div className="ui-field">
       <label className="ui-label" htmlFor={id}>
         {label}
       </label>
       <select id={id} className="ui-input ui-sched-select" value={String(value)} onChange={(event) => onChange(Number(event.target.value))}>
-        {/* A saved time that is not on the list stays as its own choice. */}
-        {!listed ? <option value={String(value)}>{formatClock(value)}</option> : null}
-        <optgroup label="Common times">
-          {COMMON_TIMES.map((minutes) => (
-            <option key={`c${minutes}`} value={String(minutes)}>
-              {formatClock(minutes)}
-            </option>
-          ))}
-        </optgroup>
-        <optgroup label="Every 15 minutes">
-          {ALL_TIMES.filter((minutes) => !COMMON_TIMES.includes(minutes)).map((minutes) => (
-            <option key={minutes} value={String(minutes)}>
-              {formatClock(minutes)}
-            </option>
-          ))}
-          {withMidnight ? <option value={String(MIDNIGHT)}>Midnight</option> : null}
-        </optgroup>
+        {times.map((minutes) => (
+          <option key={minutes} value={String(minutes)}>
+            {formatClock(minutes)}
+          </option>
+        ))}
+        {withMidnight ? <option value={String(MIDNIGHT)}>Midnight</option> : null}
       </select>
     </div>
   );
