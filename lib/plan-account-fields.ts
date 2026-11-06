@@ -13,6 +13,8 @@
 
 import { cleaningTimeText } from "@/lib/cleaningTime";
 import { isByWeekday, isMonthly, planIsEmpty, planSlots, sortDays, timeFor, type DayTime, type SchedulePlan } from "@/lib/schedule-plan";
+import type { ScheduleFrequency } from "@/lib/scheduleRecurrence";
+import { weekdaysIn } from "@/lib/availability";
 
 const SHORT: Record<string, string> = {
   Monday: "Mon",
@@ -90,4 +92,66 @@ export function oldScheduleInfo(
     .map((part) => String(part ?? "").trim())
     .filter(Boolean);
   return parts.length > 0 ? `${label}: ${parts.join(", ")}` : "";
+}
+
+/* ---------- the account's three fields back into a plan ---------- */
+
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const POSITIONS: Record<string, string> = { "1st": "1st", first: "1st", "2nd": "2nd", second: "2nd", "3rd": "3rd", third: "3rd", "4th": "4th", fourth: "4th", last: "Last" };
+
+/** The picker's frequency a Frequency text means ("2x per month" -> MONTHLY_2X); "" when it cannot tell. */
+export function frequencyFromText(text: string): ScheduleFrequency | "" {
+  const value = text.trim().toLowerCase();
+  if (!value) return "";
+  if (/as.?needed|on.?call|on.?demand/.test(value)) return "AS_NEEDED";
+  if (/\b2\s*x\s*(per|a|\/)?\s*month|twice\s+a\s+month|2\s+times\s+a\s+month|semi.?monthly/.test(value)) return "MONTHLY_2X";
+  if (/\b1\s*x\s*(per|a|\/)?\s*month|once\s+a\s+month|^monthly$|per\s+month/.test(value)) return "MONTHLY_1X";
+  // "Every other month", "bi-monthly", "quarterly": no picker choice says that. Nothing is guessed.
+  if (/month|quarter|year/.test(value)) return "";
+  if (/bi.?week|every\s+other\s+week|every\s+(2|two)\s+weeks/.test(value)) return "BIWEEKLY";
+  if (/week|daily|\bx\b/.test(value)) return "WEEKLY";
+  return "";
+}
+
+/** "1st Monday, 3rd Thursday" -> the monthly visits, in order. */
+export function monthlyVisitsIn(text: string): { position: string; weekday: string }[] {
+  const visits: { position: string; weekday: string }[] = [];
+  const pattern = /\b(1st|2nd|3rd|4th|first|second|third|fourth|last)\s+(mon|tue|wed|thu|fri|sat|sun)[a-z]*/gi;
+  for (const match of text.matchAll(pattern)) {
+    const position = POSITIONS[match[1].toLowerCase()];
+    const weekday = WEEKDAY_NAMES.find((day) => day.toLowerCase().startsWith(match[2].toLowerCase()));
+    if (position && weekday) visits.push({ position, weekday });
+  }
+  return visits;
+}
+
+/**
+ * The plan the account's Frequency / Cleaning days say, with one time for
+ * every day (the reverse of accountFieldsFromPlan). Used when a sub says Yes
+ * to a new account, so the sub's schedule matches what was picked: weekly,
+ * every 2 weeks, 1x or 2x a month, or as needed. `weekdays` is the days to
+ * use when the account's own days are not weekdays (e.g. the offer's).
+ * Null when it cannot be built exactly (unknown frequency, a monthly visit
+ * without its week, no days): then nothing is guessed.
+ */
+export function planFromAccountFields(fields: { frequency: string; cleaningDays: string }, time: DayTime, weekdays: string[] = []): SchedulePlan | null {
+  // No Frequency at all: weekly on the days given (as before). A Frequency it cannot read: nothing is guessed.
+  const frequency = fields.frequency.trim()
+    ? frequencyFromText(fields.frequency)
+    : weekdays.length > 0 || weekdaysIn(fields.cleaningDays).length > 0
+      ? "WEEKLY"
+      : "";
+  if (!frequency) return null;
+  const base: SchedulePlan = { frequency, days: [], visits: [], sameTime: true, all: { ...time }, perDay: {} };
+  if (frequency === "AS_NEEDED") return base;
+  if (isMonthly(frequency)) {
+    const needed = frequency === "MONTHLY_2X" ? 2 : 1;
+    const visits = monthlyVisitsIn(fields.cleaningDays);
+    if (visits.length !== needed) return null;
+    return { ...base, visits };
+  }
+  const own = weekdaysIn(fields.cleaningDays);
+  const days = own.length > 0 ? own : weekdays.filter((day) => WEEKDAY_NAMES.includes(day));
+  if (days.length === 0) return null;
+  return { ...base, days: sortDays(days) };
 }

@@ -27,10 +27,15 @@ import { sameName } from "@/lib/handoffs";
 import { finishPaper, listBoardManagers, pinPaper } from "@/lib/pg/board";
 import { appendSubSchedule } from "@/lib/data/scheduling";
 import { weekdaysIn } from "@/lib/availability";
-import { parseClock, toClock, windowForStartTime } from "@/lib/schedule-time";
+import { parseClock } from "@/lib/schedule-time";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import { logEmail } from "@/lib/pg/email-log";
 import { fileAccountDocument } from "@/lib/pg/account-documents";
+import { planFromAccountFields } from "@/lib/plan-account-fields";
+import { planToEntries, type DayTime } from "@/lib/schedule-plan";
+import { parseCleaningTime } from "@/lib/cleaningTime";
+import { validateScheduleEntries } from "@/lib/scheduleRecurrence";
+import { officeDay } from "@/lib/cleanings";
 import {
   FLOW_STATUS,
   FLOW_STEPS,
@@ -743,17 +748,27 @@ async function acceptOffer(row: FlowRow, by: string, note = ""): Promise<void> {
 
 /**
  * After a Yes: the Sub Schedule, so Coverage, the sub's account list and the
- * checklists see the account. One weekly row per cleaning day (the account's
- * Cleaning Days; the days on the offer when the account has none), at the
- * offer's start time, the same shape the office's Sub Schedules page saves.
- * When there are no days, no time or no sub email, a note goes in the Office
- * box instead: "Add schedule for <account>". Never throws: the Yes is saved.
+ * checklists see the account. It matches what the Cleaning schedule picker
+ * said (the account's Frequency / Cleaning Days, lib/plan-account-fields.ts):
+ * weekly, every 2 weeks, 1x or 2x a month (e.g. 1st and 3rd Wednesday) or as
+ * needed, the same rows the shared schedule form saves. The time is the
+ * offer's start time (what the sub said Yes to), else the account's Cleaning
+ * Time. Weekly days come from the account, else from the offer. It starts
+ * today (office day), or on the account's Start Date when later.
+ * When it cannot be built exactly (no days, no time, no sub email, a monthly
+ * visit without its week), a note goes in the Office box instead: "Add
+ * schedule for <account>". Never throws: the Yes is saved.
  */
 async function scheduleForYes(row: FlowRow, by: string): Promise<void> {
   const accountName = clean(row.account_name) || "the new account";
+  const askOffice = () => pinPaper({ text: `Add schedule for ${accountName}`, accountId: row.account_id, accountName, square: "", by: "New account steps" });
   try {
     const sql = getSql();
-    const accounts = (await sql`SELECT cleaning_days, frequency FROM accounts WHERE id = ${row.account_id} LIMIT 1`) as { cleaning_days: string; frequency: string }[];
+    const accounts = (await sql`
+      SELECT cleaning_days, frequency, COALESCE(to_jsonb(accounts) ->> 'cleaning_time', '') AS cleaning_time,
+             COALESCE(to_char(start_date, 'YYYY-MM-DD'), '') AS start_date
+      FROM accounts WHERE id = ${row.account_id} LIMIT 1
+    `) as { cleaning_days: string; frequency: string; cleaning_time: string; start_date: string }[];
     const account = accounts[0];
     // Already scheduled (someone set it up by hand): nothing to add.
     const existing = (await sql`
@@ -761,37 +776,58 @@ async function scheduleForYes(row: FlowRow, by: string): Promise<void> {
     `) as unknown[];
     if (existing.length > 0) return;
 
-    const fromAccount = weekdaysIn(clean(account?.cleaning_days));
-    const days = fromAccount.length > 0 ? fromAccount : weekdaysIn(clean(row.offer_days));
-    const start = parseClock(row.offer_start);
     const subEmail = clean(row.offer_sub_email);
-    if (days.length === 0 || start === null || !subEmail) {
-      await pinPaper({ text: `Add schedule for ${accountName}`, accountId: row.account_id, accountName, square: "", by: "New account steps" });
+    const minutes = typeof row.offer_minutes === "number" && row.offer_minutes > 0 ? row.offer_minutes : null;
+    const offerStart = parseClock(row.offer_start);
+    const saved = parseCleaningTime(account?.cleaning_time);
+    const time: DayTime | null =
+      offerStart !== null
+        ? { kind: "exact", start: offerStart, end: offerStart, minutes }
+        : saved?.kind === "exact"
+          ? { kind: "exact", start: saved.at, end: saved.at, minutes }
+          : saved?.kind === "window"
+            ? { kind: "between", start: saved.from, end: saved.to, minutes }
+            : null;
+    const plan = time ? planFromAccountFields({ frequency: clean(account?.frequency), cleaningDays: clean(account?.cleaning_days) }, time, weekdaysIn(clean(row.offer_days))) : null;
+    if (!plan || !subEmail) {
+      await askOffice();
+      return;
+    }
+    const frequency = plan.frequency || "WEEKLY";
+    const entries = planToEntries(plan);
+    if (validateScheduleEntries(frequency, entries)) {
+      await askOffice();
       return;
     }
 
-    const frequency = /bi.?week|every other|every 2 weeks|every two weeks/i.test(clean(account?.frequency)) ? "BIWEEKLY" : "WEEKLY";
-    const today = new Date().toISOString().slice(0, 10);
-    for (const day of days) {
+    const today = officeDay();
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(account?.start_date ?? "") && account.start_date > today ? account.start_date : today;
+    const asNeeded = frequency === "AS_NEEDED";
+    for (const entry of asNeeded ? [{}] : entries) {
+      const e = entry as (typeof entries)[number] | Record<string, never>;
       await appendSubSchedule({
         accountId: row.account_id,
         subId: subEmail,
-        dayOfWeek: day,
-        timeWindow: windowForStartTime(start),
-        recurring: "Y",
-        effectiveStart: today,
+        dayOfWeek: "dayOfWeek" in e ? e.dayOfWeek ?? "" : "",
+        timeWindow: "timeWindow" in e ? e.timeWindow ?? "" : "",
+        recurring: asNeeded ? "N" : "Y",
+        effectiveStart: asNeeded ? "" : start,
         effectiveEnd: "",
         status: "Active",
         submittedBy: by,
         submittedVia: "Admin",
         frequency,
-        scheduleType: "appointment",
-        startTime: toClock(start),
+        monthlyOccurrence: "monthlyOccurrence" in e ? e.monthlyOccurrence ?? "" : "",
+        scheduleType: "scheduleType" in e ? e.scheduleType : undefined,
+        startTime: "startTime" in e ? e.startTime : undefined,
+        windowStart: "windowStart" in e ? e.windowStart : undefined,
+        windowEnd: "windowEnd" in e ? e.windowEnd : undefined,
+        minutesOnSite: "minutesOnSite" in e ? e.minutesOnSite ?? null : null,
       });
     }
   } catch (error) {
     console.error("[account-flow] schedule after yes failed:", error instanceof Error ? error.message : error);
-    await pinPaper({ text: `Add schedule for ${accountName}`, accountId: row.account_id, accountName, square: "", by: "New account steps" }).catch(() => undefined);
+    await askOffice().catch(() => undefined);
   }
 }
 
