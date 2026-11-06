@@ -3675,6 +3675,9 @@ export type SubcontractorPerformance = {
   accountsAssigned: number;
   /** "Exclude from sub score" is on (in-house crews, placeholder subs): shown as Not scored, never alerted. */
   excluded: boolean;
+  /** Active accounts and their total monthly sub pay (the workload the score uses; the Cleaning World Score weighs by the pay). */
+  activeAccounts: number;
+  monthlySubPay: number;
 };
 
 // ── New scoring algorithm ────────────────────────────────────────────────
@@ -3994,6 +3997,8 @@ export function buildSubcontractorPerformanceMap(
       lastReview,
       accountsAssigned: assignedAccountNames.size,
       excluded,
+      activeAccounts: activeAccountsManaged,
+      monthlySubPay,
     });
   }
 

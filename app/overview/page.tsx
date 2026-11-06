@@ -18,6 +18,7 @@ import {
   type SectionKey as OverviewSectionKey,
 } from "@/lib/overviewHealth";
 import MonthBars, { type MonthValue } from "./month-bars";
+import CwScoreCard from "./cw-score";
 import { shareOfRevenue } from "@/lib/payShare";
 import styles from "./overview.module.css";
 
@@ -969,6 +970,9 @@ export default function DashboardPage() {
             </BigButton>
           </span>
         </div>
+
+        {/* 0. The Cleaning World Score: the whole company's quality in one number (staff only, like this page). */}
+        <CwScoreCard openComplaints={value(openComplaints, "complaints")} complaintsThisMonth={value(data.complaints.filter(isThisMonth).length, "complaints")} />
 
         {/* 1. How are we doing? Plain sentences, only facts. */}
         <section className={styles.summary} data-tip="summary" aria-label="How are we doing?">

@@ -10,6 +10,7 @@ import { refreshRiskPins } from "@/lib/pg/account-risk";
 import { refreshPricePins } from "@/lib/pg/price-review";
 import { runMonthlyCheckins } from "@/lib/pg/customer-checkin";
 import { runPinStatusChecks } from "@/lib/pg/pin-status";
+import { saveCwScoreSnapshot } from "@/lib/pg/cw-score";
 
 export const maxDuration = 300;
 
@@ -23,6 +24,8 @@ const PARTS: Part[] = [
   { name: "checkin", run: runMonthlyCheckins },
   // Pin Board: "Status needed" on pins with no update for 2 business days, and the ask by text and push (weekdays only).
   { name: "pinStatus", run: (origin) => runPinStatusChecks(origin) },
+  // Overview: today's Cleaning World Score, for "since last month" (migration 073).
+  { name: "cwScore", run: () => saveCwScoreSnapshot() },
 ];
 
 export async function GET(request: NextRequest) {

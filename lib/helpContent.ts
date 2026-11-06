@@ -801,6 +801,20 @@ const en: StaffHelpContent = {
       tip: "Red numbers need someone today.",
     },
     {
+      id: "cw-score",
+      group: "office",
+      page: "Overview",
+      title: "Read the Cleaning World Score",
+      steps: [
+        "Open **Overview**. The **Cleaning World Score** is the first card.",
+        "It is one number from 0 to 10 for the quality of all our subs together: Excellent 9+, Good 8+, Needs Attention 7+, High Risk below 7.",
+        "It is the average of the sub scores, but a sub counts more the more sub pay they get each month. Bigger accounts are more of our work and more of our customers, so a problem there matters more to the company.",
+        "Subs marked **Exclude from sub score** and subs with no sub pay are not counted.",
+        "Tap the card to see the subs that pull the score down the most. Tap a name to open that sub.",
+      ],
+      tip: "The change since last month shows once the app has saved 30 days of daily scores. Only staff see this score.",
+    },
+    {
       id: "sales",
       group: "office",
       page: "Sales",
@@ -1747,6 +1761,20 @@ const es: StaffHelpContent = {
         "Toca **Print** para una copia en papel.",
       ],
       tip: "Los números rojos necesitan a alguien hoy.",
+    },
+    {
+      id: "cw-score",
+      group: "office",
+      page: "Overview",
+      title: "Leer el Cleaning World Score",
+      steps: [
+        "Abre **Overview**. El **Cleaning World Score** es la primera tarjeta.",
+        "Es un número de 0 a 10 para la calidad de todos nuestros subs juntos: Excellent 9+, Good 8+, Needs Attention 7+, High Risk menos de 7.",
+        "Es el promedio de los puntajes de los subs, pero un sub cuenta más mientras más pago de sub recibe cada mes. Las cuentas grandes son más de nuestro trabajo y más de nuestros clientes, así que un problema ahí le importa más a la compañía.",
+        "No se cuentan los subs marcados **Exclude from sub score** ni los subs sin pago de sub.",
+        "Toca la tarjeta para ver los subs que más bajan el puntaje. Toca un nombre para abrir ese sub.",
+      ],
+      tip: "El cambio desde el mes pasado aparece cuando la app tiene 30 días de puntajes guardados. Solo el personal ve este puntaje.",
     },
     {
       id: "sales",

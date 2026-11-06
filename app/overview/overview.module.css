@@ -445,3 +445,101 @@
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
+
+/* Cleaning World Score card (cw-score.tsx): first thing on the page. */
+.cwCard {
+  background: var(--ui-surface);
+  border: 2px solid var(--ui-line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.cwButton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 24px;
+  background: none;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.cwButton:disabled {
+  cursor: default;
+}
+
+.cwTitle {
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.cwScoreRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+
+.cwScore {
+  font-size: 72px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.cwBand {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.cwChange {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cwGood {
+  color: var(--ui-good);
+}
+
+.cwWarn {
+  color: var(--ui-warn);
+}
+
+.cwBad {
+  color: var(--ui-bad);
+}
+
+.cwSmall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  font-size: 18px;
+}
+
+.cwSmall strong {
+  font-size: 22px;
+}
+
+.cwList {
+  padding: 0 24px 24px;
+}
+
+.cwSubs {
+  margin: 12px 0 0;
+  padding-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 18px;
+}
+
+.cwSubFacts {
+  display: block;
+  color: var(--ui-muted, #475569);
+  font-size: 16px;
+}
