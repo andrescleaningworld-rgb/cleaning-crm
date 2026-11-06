@@ -59,7 +59,7 @@ export default function NewAccountsBoard() {
       title="New accounts"
       subtitle="Every new account, the step it is on, and who has it."
       backHref="/"
-      addAction={<AddButton href="/accounts/new-accepted">Add a new account</AddButton>}
+      addAction={<AddButton href="/accounts/new?new=1">Add account</AddButton>}
     >
       <Tips
         id="new-accounts-flow"
@@ -98,7 +98,7 @@ export default function NewAccountsBoard() {
             {shown.length === 0 ? (
               <EmptyState
                 title={quick === "late" ? "Nothing is late ✓" : quick === "mine" ? "Nothing is waiting on you ✓" : "No new accounts in progress"}
-                text={quick === "all" ? "Tap Add a new account. It shows up here on step 1." : "Tap In progress to see every new account."}
+                text={quick === "all" ? "Tap Add account. It shows up here on step 1." : "Tap In progress to see every new account."}
               />
             ) : (
               <ul className="ui-acct-list">

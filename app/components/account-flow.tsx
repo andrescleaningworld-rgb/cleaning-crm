@@ -2,7 +2,7 @@
 
 // The New Account flow on the account page, right under the blue banner: the
 // pizza tracker and ONE big green button for the step it is on now. Only an
-// account made with "New Accepted Account" has a flow; for every other
+// account made with Add account (switch on) has a flow; for every other
 // account this shows nothing. Rules: lib/accountFlow.ts. Server:
 // app/api/account-flow.
 //

@@ -2,7 +2,7 @@
 
 // Accounts Center -> New accounts -> "From Markate": accepted commercial
 // estimates with a recurring line item, waiting for the office. Start new
-// account opens New Accepted Account filled from Markate; Skip takes it off
+// account opens Add account (switch on) filled from Markate; Skip takes it off
 // the list (and off the Pin Board) for good. Shows nothing when none are
 // waiting. Server: GET/POST /api/markate (lib/pg/markate.ts).
 
@@ -95,7 +95,7 @@ export default function FromMarkate({ reloadKey }: { reloadKey: number }) {
               </span>
             ) : null}
             <span className="ui-actions-row" style={{ marginTop: 8 }}>
-              <BigButton href={`/accounts/new-accepted?markate=${encodeURIComponent(estimate.id)}`} disabled={busy !== ""}>
+              <BigButton href={`/accounts/new?markate=${encodeURIComponent(estimate.id)}`} disabled={busy !== ""}>
                 Start new account
               </BigButton>
               <BigButton kind="second" busy={busy === estimate.id} busyLabel="Skipping…" disabled={busy !== ""} onClick={() => void skip(estimate)}>

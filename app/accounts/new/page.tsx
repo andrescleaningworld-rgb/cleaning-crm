@@ -1,6 +1,26 @@
 "use client";
 
-import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, TextAreaField } from "@/app/ui";
+// "Add account": the one form for adding an account. A switch at the top:
+//
+//   New customer: accepted an estimate (ON, the default)
+//     The old "New Accepted Account" form. Status "New - setting up", the
+//     account manager is required, the estimate (a file, or the Markate
+//     estimate's link) is saved, no subcontractor (the 8 steps offer the
+//     account to a sub). Scope, key / access and the Cleaning schedule
+//     picker are optional, so the details are captured once; the picker
+//     fills the account's Frequency / days / time, and the sub's schedule is
+//     made from them when the sub says Yes. Save: POST /api/account-flow
+//     "create" (the account, its 8 steps, the pin on the Board), then the
+//     account page opens on step 1.
+//   OFF: an existing account
+//     Every field as before, the status picked by hand, no 8 steps. Save:
+//     POST /api/accounts "addAccount", then the Welcome Packet offer.
+//
+// ?markate=<id> (Accounts Center -> From Markate) fills the form from the
+// Markate estimate; ?new=1 starts with the switch on whatever a draft says;
+// ?from=board sends Back to the Board. /accounts/new-accepted redirects here.
+
+import { BigButton, Card, ErrorBox, Field, Screen, SelectField, showToast, TextAreaField, Tips } from "@/app/ui";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import WelcomePacketSheet from "@/app/components/welcome-packet-sheet";
@@ -21,6 +41,26 @@ import { AccountScheduleSection, saveSchedule } from "@/app/components/account-s
 import { emptyPlan, planIsEmpty, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import { accountFieldsFromPlan } from "@/lib/plan-account-fields";
+import { FLOW_STATUS } from "@/lib/accountFlow";
+
+/** What a Markate estimate fills in (GET /api/markate?estimate=<id>). */
+type MarkatePrefill = {
+  id: string;
+  waiting: boolean;
+  accountName: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  latitude: string;
+  longitude: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  price: string;
+  estimateUrl: string;
+  estimateName: string;
+};
 
 type AccountForm = {
   accountName: string;
@@ -195,6 +235,71 @@ function resolveSubcontractorForSubmit(
   return match ? getSubcontractorSubmitName(match) : trimmed;
 }
 
+// Drafts of the two old forms (app/components/form-draft.tsx keeps
+// { savedAt, patch } under "cw-draft:<key>") move to this form's key once:
+//   "new-account"            (Add Account)          -> the switch OFF
+//   "new-accepted:<markate>" (New Accepted Account) -> the switch ON
+// When both exist for the same key, the newer one is kept.
+const DRAFT_PREFIX = "cw-draft:";
+type StoredDraft = { savedAt: number; patch: Record<string, unknown> };
+
+function readStoredDraft(key: string): StoredDraft | null {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_PREFIX + key);
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as StoredDraft;
+    return typeof stored?.savedAt === "number" && stored.patch && typeof stored.patch === "object" ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The old New Accepted draft in this form's shape (only what was typed). */
+function fromNewAcceptedDraft(patch: Record<string, unknown>): Record<string, unknown> {
+  const form: Record<string, unknown> = {};
+  const text = (value: unknown) => (typeof value === "string" ? value : undefined);
+  const put = (key: string, value: unknown) => {
+    if (value !== undefined) form[key] = value;
+  };
+  put("accountName", text(patch.accountName));
+  const place = (patch.place ?? {}) as Record<string, unknown>;
+  for (const key of ["address", "city", "state", "zip", "latitude", "longitude"]) put(key, text(place[key]));
+  put("monthlyRevenue", text(patch.price));
+  put("contactName", text(patch.contactName));
+  put("email", text(patch.email));
+  put("phone", text(patch.phone));
+  put("manager", text(patch.manager));
+  const pay = (patch.subPay ?? {}) as Record<string, unknown>;
+  put("monthlySubcontractorPay", text(pay.pay));
+  put("subPricePerCleaning", text(pay.per));
+  // Its own Frequency is gone: the Cleaning schedule picker sets it now.
+  const out: Record<string, unknown> = { newCustomer: true, form };
+  if (Array.isArray(patch.extraContacts)) out.extraContacts = patch.extraContacts;
+  return out;
+}
+
+function carryOldDrafts(markateId: string): void {
+  try {
+    const target = `add-account:${markateId}`;
+    const candidates: StoredDraft[] = [];
+    const accepted = readStoredDraft(`new-accepted:${markateId}`);
+    if (accepted) candidates.push({ savedAt: accepted.savedAt, patch: fromNewAcceptedDraft(accepted.patch) });
+    const added = markateId ? null : readStoredDraft("new-account");
+    if (added) candidates.push({ savedAt: added.savedAt, patch: { ...added.patch, newCustomer: false } });
+    if (candidates.length === 0) return;
+    if (!readStoredDraft(target)) {
+      const newest = candidates.sort((a, b) => b.savedAt - a.savedAt)[0];
+      window.localStorage.setItem(DRAFT_PREFIX + target, JSON.stringify(newest));
+    }
+    window.localStorage.removeItem(`${DRAFT_PREFIX}new-accepted:${markateId}`);
+    if (!markateId) window.localStorage.removeItem(`${DRAFT_PREFIX}new-account`);
+  } catch {
+    // No storage here: nothing to carry.
+  }
+}
+
+const EMAIL_SHAPE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
 
@@ -211,6 +316,21 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 export default function NewAccountPage() {
   const router = useRouter();
+  // Read once from the address (see the top of this file).
+  const [query] = useState(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search));
+  const markateId = query.get("markate") ?? "";
+  const forceNew = Boolean(markateId) || query.get("new") === "1";
+  const backHref = query.get("from") === "board" ? "/board" : "/accounts";
+  // The switch: a new customer who accepted an estimate (ON) or an existing account (OFF).
+  const [newCustomer, setNewCustomer] = useState(true);
+  // Filled from a Markate estimate: its id and the estimate link saved when no file is chosen.
+  const [markate, setMarkate] = useState<MarkatePrefill | null>(null);
+  const [estimateFile, setEstimateFile] = useState<File | null>(null);
+  // The old forms' drafts move here before this form's draft is read (once).
+  useState(() => {
+    if (typeof window !== "undefined") carryOldDrafts(markateId);
+    return true;
+  });
 
   const [form, setForm] = useState<AccountForm>(emptyForm);
   const [portalAccess, setPortalAccess] = useState<"Yes" | "No">("Yes");
@@ -246,10 +366,13 @@ export default function NewAccountPage() {
   }
   // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
   const draft = useFormDraft(
-    "new-account",
-    { form, portalAccess, extraContacts, schedulePlan, suggestionStart, suggestionMinutes },
+    `add-account:${markateId}`,
+    { newCustomer, form, portalAccess, extraContacts, schedulePlan, suggestionStart, suggestionMinutes },
     {
+      // From a Markate estimate: once the estimate has filled the form in.
+      ready: !markateId || markate !== null || error !== "",
       onRestore: (kept) => {
+        setNewCustomer(forceNew ? true : kept.newCustomer !== false);
         setForm(kept.form);
         setPortalAccess(kept.portalAccess);
         setExtraContacts(kept.extraContacts);
@@ -259,6 +382,36 @@ export default function NewAccountPage() {
       },
     }
   );
+
+  useEffect(() => {
+    if (!markateId) return;
+    fetch(`/api/markate?estimate=${encodeURIComponent(markateId)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; prefill?: MarkatePrefill; error?: string }) => {
+        const filled = data.prefill;
+        if (!data.success || !filled) {
+          setError(data.error || "The Markate estimate did not load. Type the details in.");
+          return;
+        }
+        if (!filled.waiting) setError("This Markate estimate was already started or skipped. Saving makes another account.");
+        setMarkate(filled);
+        setForm((current) => ({
+          ...current,
+          accountName: filled.accountName,
+          address: filled.address,
+          city: filled.city,
+          state: filled.state,
+          zip: filled.zip,
+          latitude: filled.latitude,
+          longitude: filled.longitude,
+          monthlyRevenue: filled.price,
+          contactName: filled.contactName,
+          phone: filled.phone,
+          email: filled.email,
+        }));
+      })
+      .catch(() => setError("The Markate estimate did not load. Type the details in."));
+  }, [markateId]);
 
   useEffect(() => {
     async function loadSubcontractors() {
@@ -342,8 +495,94 @@ export default function NewAccountPage() {
     }));
   }
 
+  /** Switch ON: the account, its 8 steps and the pin on the Board (POST /api/account-flow "create"). */
+  async function saveNewCustomer() {
+    try {
+      setSaving(true);
+      setError("");
+      const name = form.accountName.trim();
+      if (!name) throw new Error("Type the customer name.");
+      if (!form.manager.trim()) throw new Error("Pick the account manager.");
+      if (form.email.trim() && !EMAIL_SHAPE.test(form.email.trim())) throw new Error("That email does not look right.");
+      const contactsError = contactsProblem(extraContacts);
+      if (contactsError) throw new Error(contactsError);
+      const scheduleProblems = planIsEmpty(schedulePlan) ? [] : planProblems(schedulePlan);
+      if (scheduleProblems.length > 0) {
+        setScheduleTried(true);
+        throw new Error(`Cleaning schedule: ${scheduleProblems[0]} Or tap Clear schedule to save without one.`);
+      }
+
+      // The estimate goes up first (same place as before).
+      let estimateUrl = "";
+      let estimateName = "";
+      if (estimateFile) {
+        const upload = new FormData();
+        upload.append("file", estimateFile);
+        const uploaded = await fetch("/api/handoffs/estimate", { method: "POST", body: upload });
+        const data = (await uploaded.json().catch(() => ({}))) as { success?: boolean; error?: string; url?: string; name?: string };
+        if (!uploaded.ok || !data.success || !data.url) throw new Error(data.error || "The estimate did not upload. Try again.");
+        estimateUrl = data.url;
+        estimateName = data.name ?? estimateFile.name;
+      } else if (markate?.estimateUrl) {
+        // No file chosen: the Markate estimate's own link is the estimate.
+        estimateUrl = markate.estimateUrl;
+        estimateName = markate.estimateName;
+      }
+
+      const response = await fetch("/api/account-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          accountName: name,
+          address: form.address.trim(),
+          city: form.city,
+          state: form.state,
+          zip: form.zip,
+          latitude: form.latitude,
+          longitude: form.longitude,
+          monthlyRevenue: form.monthlyRevenue,
+          contactName: form.contactName.trim(),
+          phone: form.phone.trim(),
+          email: form.email.trim(),
+          manager: form.manager.trim(),
+          estimateUrl,
+          estimateName,
+          // Frequency, Cleaning days and Cleaning time from the picker (the sub's schedule is made from them on Yes).
+          frequency: planFields?.frequency ?? "",
+          cleaningDays: planFields?.cleaningDays ?? "",
+          cleaningTime: planFields?.cleaningTime ?? "",
+          monthlySubcontractorPay: form.monthlySubcontractorPay,
+          subPricePerCleaning: form.subPricePerCleaning,
+          scopeOfWork: form.scopeOfWork,
+          hasKey: form.hasKey,
+          alarmCode: form.alarmCode,
+          keyAlarmAccessInfo: form.keyAlarmAccessInfo,
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; accountId?: string };
+      if (!response.ok || !data.success || !data.accountId) throw new Error(data.error || "The account was not saved. Try again.");
+      // The contacts after the main one. The account is saved either way.
+      const contactsFailed = await saveExtraContacts(data.accountId, extraContacts);
+      draft.clear();
+      // Made from a Markate estimate: it leaves the From Markate list (and the Board's New accepted square).
+      if (markate?.waiting) {
+        await fetch("/api/markate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "started", id: markate.id, accountId: data.accountId }) }).catch(() => undefined);
+      }
+      showToast(
+        contactsFailed ? `Saved and pinned. ${contactsFailed} contact${contactsFailed === 1 ? "" : "s"} did not save: add ${contactsFailed === 1 ? "it" : "them"} on Edit Account.` : "Saved and pinned ✓",
+        contactsFailed ? "bad" : "good"
+      );
+      router.push(`/accounts/${encodeURIComponent(data.accountId)}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The account was not saved. Try again.");
+      setSaving(false);
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (newCustomer) return saveNewCustomer();
 
     try {
       setSaving(true);
@@ -483,63 +722,96 @@ export default function NewAccountPage() {
 
   return (
     <Screen
-      title="Add New Account"
-      subtitle="Use the full address in one field."
-      backHref="/accounts"
+      title="Add account"
+      subtitle={newCustomer ? "A new customer who accepted an estimate." : "An account we already clean."}
+      backHref={backHref}
       action={
         <BigButton type="submit" form="new-account-form" busy={saving} busyLabel="Saving…">
           Save account
         </BigButton>
       }
       secondaryAction={
-        <BigButton kind="quiet" href="/accounts" disabled={saving}>
+        <BigButton kind="quiet" href={backHref} disabled={saving}>
           Cancel
         </BigButton>
       }
     >
+      <Tips
+        id="add-account-switch"
+        ready
+        steps={[
+          {
+            target: '[data-tip="new-customer-switch"]',
+            text: "One form for every new account. On: a new customer who accepted an estimate (the 8 new-account steps). Off: an account we already clean.",
+          },
+        ]}
+      />
       {error ? <ErrorBox title="The account was not saved." text={error} /> : null}
       <DraftNotice draft={draft} />
 
       <form id="new-account-form" onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {/* The switch: which kind of account this is. */}
+        <Card>
+          <div style={sectionStyle} data-tip="new-customer-switch">
+            <label className="ui-toggle">
+              <input type="checkbox" role="switch" checked={newCustomer} disabled={saving} onChange={(event) => setNewCustomer(event.target.checked)} />
+              <span>New customer: accepted an estimate</span>
+            </label>
+            <p className="ui-hint" style={{ margin: 0 }}>
+              {newCustomer
+                ? "On: the account starts the 8 new-account steps (welcome packet, sub, walkthrough…) and is pinned on the Board. Turn it off to add an account we already clean."
+                : "Off: an account we already clean. No new-account steps; you pick the status."}
+            </p>
+          </div>
+        </Card>
+
         <Card title="Account Information">
           <div style={sectionStyle}>
             <Field
-              label="Account name"
+              label={newCustomer ? "Customer name" : "Account name"}
               value={form.accountName}
               onChange={(event) => updateField("accountName", event.target.value)}
               required
             />
 
-            <SelectField label="Status" value={form.status} onChange={(event) => updateField("status", event.target.value)}>
-              <option>Active</option>
-              <option>Paused</option>
-              <option>Suspended</option>
-              <option>Cancelled</option>
-            </SelectField>
+            {newCustomer ? (
+              <p className="ui-card-text" style={{ margin: 0 }}>
+                <strong>Status:</strong> {FLOW_STATUS}. It becomes Active at the end of the 8 steps.
+              </p>
+            ) : (
+              <>
+                <SelectField label="Status" value={form.status} onChange={(event) => updateField("status", event.target.value)}>
+                  <option>Active</option>
+                  <option>Paused</option>
+                  <option>Suspended</option>
+                  <option>Cancelled</option>
+                </SelectField>
 
-            <Field
-              label="Account start date"
-              type="date"
-              optional
-              value={form.accountStartDate}
-              onChange={(event) => updateField("accountStartDate", event.target.value)}
-            />
+                <Field
+                  label="Account start date"
+                  type="date"
+                  optional
+                  value={form.accountStartDate}
+                  onChange={(event) => updateField("accountStartDate", event.target.value)}
+                />
 
-            <SelectField label="Account health" value={form.accountHealth} onChange={(event) => updateField("accountHealth", event.target.value)}>
-              <option>Stable</option>
-              <option>Needs Attention</option>
-              <option>High Risk</option>
-            </SelectField>
+                <SelectField label="Account health" value={form.accountHealth} onChange={(event) => updateField("accountHealth", event.target.value)}>
+                  <option>Stable</option>
+                  <option>Needs Attention</option>
+                  <option>High Risk</option>
+                </SelectField>
 
-            <SelectField
-              label="Portal access"
-              hint="Yes lets this customer use the customer portal."
-              value={portalAccess}
-              onChange={(event) => setPortalAccess(event.target.value as "Yes" | "No")}
-            >
-              <option>Yes</option>
-              <option>No</option>
-            </SelectField>
+                <SelectField
+                  label="Portal access"
+                  hint="Yes lets this customer use the customer portal."
+                  value={portalAccess}
+                  onChange={(event) => setPortalAccess(event.target.value as "Yes" | "No")}
+                >
+                  <option>Yes</option>
+                  <option>No</option>
+                </SelectField>
+              </>
+            )}
 
             <label className="ui-field">
               <span className="ui-label">
@@ -563,81 +835,82 @@ export default function NewAccountPage() {
         <Card title="Assignment & Pricing">
           <div style={sectionStyle}>
             <SelectField
-              label="Manager"
-              optional
+              label={newCustomer ? "Account manager" : "Manager"}
+              optional={!newCustomer}
+              hint={newCustomer ? "The pin goes in this manager's square on the Board." : undefined}
               value={form.manager}
               onChange={(event) => updateField("manager", event.target.value)}
               disabled={loadingManagers}
             >
-              <option value="">{loadingManagers ? "Loading managers…" : "Select manager"}</option>
+              <option value="">{loadingManagers ? "Loading managers…" : newCustomer ? "Pick the manager" : "Select manager"}</option>
               <ManagerOptions names={managerOptions} current={form.manager} />
             </SelectField>
-
-            <SelectField
-              label="Subcontractor"
-              optional
-              hint={
-                !loadingSubcontractors && subcontractorOptions.length === 0
-                  ? undefined
-                  : "Subcontractor must come from the existing subcontractor list."
-              }
-              error={
-                !loadingSubcontractors && subcontractorOptions.length === 0
-                  ? "No subcontractors were found. Add the subcontractor first from the Subcontractors page."
-                  : undefined
-              }
-              value={form.subcontractor}
-              onChange={(event) => updateField("subcontractor", event.target.value)}
-              disabled={loadingSubcontractors}
-            >
-              <option value="">{loadingSubcontractors ? "Loading subcontractors…" : "Select subcontractor"}</option>
-              {subcontractorOptions.map((subcontractor) => (
-                <option key={subcontractor.value} value={subcontractor.value}>
-                  {subcontractor.label}
-                </option>
-              ))}
-            </SelectField>
-            {pickedInsurance?.state === "expired" ? (
-              <p className="ui-field-error">⚠ This sub&apos;s insurance expired on {niceDay(pickedInsurance.expiresOn)}.</p>
-            ) : null}
-
-            <SubSuggestions
-              lat={suggestionLat}
-              lng={suggestionLng}
-              cleaningDays={planFields?.cleaningDays ?? form.cleaningDays}
-              start={suggestionStart}
-              minutes={suggestionMinutes}
-              scoreBySubId={scoreBySubId}
-              hint="Tap one to pick it."
-              selectedId={cleanText(subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor)?.subId)}
-              onSelect={(result) => {
-                const picked = subcontractors.find((subcontractor) => cleanText(subcontractor.subId) === result.subId);
-                if (picked) updateField("subcontractor", getSubcontractorDropdownValue(picked));
-              }}
-            />
-
-            {form.latitude && form.longitude ? (
-              <div className="flex flex-wrap gap-x-8 gap-y-3">
-                <div>
-                  <p className="ui-label">Time</p>
-                  <PlusMinus value={suggestionStart} onChange={setSuggestionStart} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time to check" format={formatClock} />
-                </div>
-                <div>
-                  <p className="ui-label">Length</p>
-                  <PlusMinus value={suggestionMinutes} onChange={setSuggestionMinutes} step={MINUTES_ON_SITE_STEP} min={MIN_MINUTES_ON_SITE} max={MAX_MINUTES_ON_SITE} label="Length to check" format={formatMinutes} />
-                </div>
-              </div>
-            ) : null}
-
+            {newCustomer ? null : (
+              <>
+                <SelectField
+                  label="Subcontractor"
+                  optional
+                  hint={
+                    !loadingSubcontractors && subcontractorOptions.length === 0
+                      ? undefined
+                      : "Subcontractor must come from the existing subcontractor list."
+                  }
+                  error={
+                    !loadingSubcontractors && subcontractorOptions.length === 0
+                      ? "No subcontractors were found. Add the subcontractor first from the Subcontractors page."
+                      : undefined
+                  }
+                  value={form.subcontractor}
+                  onChange={(event) => updateField("subcontractor", event.target.value)}
+                  disabled={loadingSubcontractors}
+                >
+                  <option value="">{loadingSubcontractors ? "Loading subcontractors…" : "Select subcontractor"}</option>
+                  {subcontractorOptions.map((subcontractor) => (
+                    <option key={subcontractor.value} value={subcontractor.value}>
+                      {subcontractor.label}
+                    </option>
+                  ))}
+                </SelectField>
+                {pickedInsurance?.state === "expired" ? (
+                  <p className="ui-field-error">⚠ This sub&apos;s insurance expired on {niceDay(pickedInsurance.expiresOn)}.</p>
+                ) : null}
+                <SubSuggestions
+                  lat={suggestionLat}
+                  lng={suggestionLng}
+                  cleaningDays={planFields?.cleaningDays ?? form.cleaningDays}
+                  start={suggestionStart}
+                  minutes={suggestionMinutes}
+                  scoreBySubId={scoreBySubId}
+                  hint="Tap one to pick it."
+                  selectedId={cleanText(subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor)?.subId)}
+                  onSelect={(result) => {
+                    const picked = subcontractors.find((subcontractor) => cleanText(subcontractor.subId) === result.subId);
+                    if (picked) updateField("subcontractor", getSubcontractorDropdownValue(picked));
+                  }}
+                />
+                {form.latitude && form.longitude ? (
+                  <div className="flex flex-wrap gap-x-8 gap-y-3">
+                    <div>
+                      <p className="ui-label">Time</p>
+                      <PlusMinus value={suggestionStart} onChange={setSuggestionStart} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time to check" format={formatClock} />
+                    </div>
+                    <div>
+                      <p className="ui-label">Length</p>
+                      <PlusMinus value={suggestionMinutes} onChange={setSuggestionMinutes} step={MINUTES_ON_SITE_STEP} min={MIN_MINUTES_ON_SITE} max={MAX_MINUTES_ON_SITE} label="Length to check" format={formatMinutes} />
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
+            {newCustomer ? <p className="ui-hint" style={{ margin: 0 }}>The subcontractor is picked in step 2 of the new-account steps: the account is offered to them.</p> : null}
             <Field
-              label="Monthly revenue"
+              label={newCustomer ? "Monthly price" : "Monthly revenue"}
               optional
               inputMode="decimal"
               placeholder="2500"
               value={form.monthlyRevenue}
               onChange={(event) => updateField("monthlyRevenue", event.target.value)}
             />
-
             {/* The reminder, the 70% suggestion, Frequency when missing, and the two pay boxes in step. */}
             <SubPayFields
               revenue={form.monthlyRevenue}
@@ -665,15 +938,47 @@ export default function NewAccountPage() {
           </div>
         </Card>
 
-        <Card title="Service Details">
-          <div style={sectionStyle}>
-            <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
-          </div>
-        </Card>
+        {newCustomer ? (
+          <Card title="Accepted estimate">
+            <div style={sectionStyle}>
+              <div className="ui-field">
+                <label className="ui-label" htmlFor="estimate-file">
+                  Estimate PDF <span className="ui-optional">(optional)</span>
+                </label>
+                <input id="estimate-file" type="file" accept="application/pdf,image/*" className="ui-input" disabled={saving} onChange={(event) => setEstimateFile(event.target.files?.[0] ?? null)} />
+                <p className="ui-hint">
+                  {estimateFile
+                    ? `Chosen: ${estimateFile.name}`
+                    : markate?.estimateUrl
+                      ? "The Markate estimate link is saved. Choose a file only to use it instead."
+                      : "Or a photo of it. 10MB or smaller. It is filed in the account's Documents."}
+                </p>
+              </div>
+            </div>
+          </Card>
+        ) : (
+          <Card title="Service Details">
+            <div style={sectionStyle}>
+              <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
+            </div>
+          </Card>
+        )}
 
-        <AccountScheduleSection plan={schedulePlan} onChange={changeSchedulePlan} showProblems={scheduleTried} disabled={saving} />
+        <AccountScheduleSection
+          plan={schedulePlan}
+          onChange={changeSchedulePlan}
+          showProblems={scheduleTried}
+          disabled={saving}
+          note={
+            newCustomer ? (
+              <p className="ui-hint" style={{ margin: 0 }}>
+                The days and time are kept on the account. The sub&apos;s schedule is made from them when the sub says Yes.
+              </p>
+            ) : undefined
+          }
+        />
 
-        <Card title="Access, Scope & Notes">
+        <Card title={newCustomer ? "Access & Scope (optional)" : "Access, Scope & Notes"}>
           <div style={sectionStyle}>
             <SelectField label="Has key?" optional value={form.hasKey} onChange={(event) => updateField("hasKey", event.target.value)}>
               <option value="">Select</option>
@@ -681,14 +986,13 @@ export default function NewAccountPage() {
               <option>No</option>
               <option>N/A</option>
             </SelectField>
-
-            <SelectField label="Checklist needed?" value={form.checklistNeeded} onChange={(event) => updateField("checklistNeeded", event.target.value)}>
-              <option>No</option>
-              <option>Yes</option>
-            </SelectField>
-
+            {newCustomer ? null : (
+              <SelectField label="Checklist needed?" value={form.checklistNeeded} onChange={(event) => updateField("checklistNeeded", event.target.value)}>
+                <option>No</option>
+                <option>Yes</option>
+              </SelectField>
+            )}
             <Field label="Alarm code" optional value={form.alarmCode} onChange={(event) => updateField("alarmCode", event.target.value)} />
-
             <TextAreaField
               label="Key / Alarm / Access Info"
               optional
@@ -699,7 +1003,9 @@ export default function NewAccountPage() {
 
             <TextAreaField label="Scope of work" optional rows={4} value={form.scopeOfWork} onChange={(event) => updateField("scopeOfWork", event.target.value)} />
 
-            <TextAreaField label="Notes" optional rows={4} value={form.notes} onChange={(event) => updateField("notes", event.target.value)} />
+            {newCustomer ? null : (
+              <TextAreaField label="Notes" optional rows={4} value={form.notes} onChange={(event) => updateField("notes", event.target.value)} />
+            )}
           </div>
         </Card>
       </form>

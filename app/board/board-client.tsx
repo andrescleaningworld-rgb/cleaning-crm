@@ -219,8 +219,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       // No storage: the board simply starts at the top afterwards.
     }
     if (box === "extra") return router.push("/extra-jobs/new?from=board");
-    // New accepted: the office form makes the account, starts its 8 steps and pins it.
-    if (box === "account") return router.push("/accounts/new-accepted?from=board");
+    // New accepted: Add account (switch on) makes the account, starts its 8 steps and pins it.
+    if (box === "account") return router.push("/accounts/new?new=1&from=board");
     if ((NOTE_BOXES as readonly string[]).includes(box)) setAdding({ kind: "note", box, boxName: SHARED_SQUARES.find((entry) => entry.kind === box)?.label ?? "this box" });
   };
 
@@ -237,7 +237,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
       addAction={
         state !== "loading" && state !== "off" && state !== "failed" && data ? (
           <>
-            <AddButton href="/accounts/new-accepted?from=board">New accepted account</AddButton>
+            <AddButton href="/accounts/new?new=1&from=board">Add account</AddButton>
             <AddButton onClick={() => setPinning(true)}>Pin something</AddButton>
             {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
             <AddButton href="/extra-jobs/new?from=board">Extra job</AddButton>

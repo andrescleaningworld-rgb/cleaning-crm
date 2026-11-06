@@ -1139,7 +1139,7 @@ export default function AccountDetailPage() {
               </div>
             </NextCleaning>
 
-            {/* A new account from "New Accepted Account": its 8 steps and the one green button. Nothing for other accounts. */}
+            {/* A new customer's account (Add account, switch on): its 8 steps and the one green button. Nothing for other accounts. */}
             <AccountFlowPanel
               accountId={thisAccountId}
               refreshKey={welcomeVersion + flowVersion}
@@ -1337,7 +1337,7 @@ export default function AccountDetailPage() {
             {/* setup wizard (the Onboarding Checklist). Every account has it,  */}
             {/* old ones too; the answers are this account's own fields.        */}
             {/* --------------------------------------------------------------- */}
-            {/* "Add accepted estimate" (the old 7-step board) is retired: a new account is made with New Accepted Account. */}
+            {/* "Add accepted estimate" (the old 7-step board) is retired: a new account is made with Add account (switch on). */}
 
             <section className="ui-card account-detail-print-hide">
               <OnboardingChecklist

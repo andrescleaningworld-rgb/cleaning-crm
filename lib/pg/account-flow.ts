@@ -203,6 +203,13 @@ export type NewAcceptedAccount = {
   manager: string;
   estimateUrl: string;
   estimateName: string;
+  /** Optional details from Add account (switch on): kept on the account. The picker's days and time are what the sub's schedule is made from on Yes. */
+  cleaningDays?: string;
+  cleaningTime?: string;
+  scopeOfWork?: string;
+  hasKey?: string;
+  alarmCode?: string;
+  keyAlarmAccessInfo?: string;
 };
 
 /**
@@ -226,6 +233,12 @@ export async function createAcceptedAccount(input: NewAcceptedAccount, by: strin
     frequency: input.frequency ?? "",
     monthlySubcontractorPay: input.monthlySubcontractorPay ?? "",
     subPricePerCleaning: input.subPricePerCleaning ?? "",
+    cleaningDays: input.cleaningDays ?? "",
+    cleaningTime: input.cleaningTime ?? "",
+    scopeOfWork: input.scopeOfWork ?? "",
+    hasKey: input.hasKey ?? "",
+    alarmCode: input.alarmCode ?? "",
+    keyAlarmAccessInfo: input.keyAlarmAccessInfo ?? "",
     manager: input.manager,
     status: FLOW_STATUS,
   });
@@ -757,7 +770,7 @@ async function scheduleForYes(row: FlowRow, by: string): Promise<void> {
       return;
     }
 
-    const frequency = /bi.?week|every other/i.test(clean(account?.frequency)) ? "BIWEEKLY" : "WEEKLY";
+    const frequency = /bi.?week|every other|every 2 weeks|every two weeks/i.test(clean(account?.frequency)) ? "BIWEEKLY" : "WEEKLY";
     const today = new Date().toISOString().slice(0, 10);
     for (const day of days) {
       await appendSubSchedule({

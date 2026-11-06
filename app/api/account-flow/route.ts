@@ -3,7 +3,7 @@
 //
 // GET  ?accountId=X                         the flow (null for an account that has none)
 // GET  ?list=1                              every new account still in the flow (Accounts Center)
-// POST { action: "create", ... }            the "New Accepted Account" form
+// POST { action: "create", ... }            Add account with its switch on (app/accounts/new/page.tsx)
 // POST { action: "previewOffer", accountId, subId }                  step 2: what the sub will get (nothing sent)
 // POST { action: "offer", accountId, subId, days, start, minutes }   step 2
 // POST { action: "takeBack", accountId }    step 3: pick someone else
@@ -95,6 +95,13 @@ export async function POST(request: NextRequest) {
           manager,
           estimateUrl: clean(body.estimateUrl),
           estimateName: clean(body.estimateName),
+          // Optional details from Add account (switch on), kept on the account.
+          cleaningDays: clean(body.cleaningDays),
+          cleaningTime: clean(body.cleaningTime),
+          scopeOfWork: clean(body.scopeOfWork),
+          hasKey: clean(body.hasKey),
+          alarmCode: clean(body.alarmCode),
+          keyAlarmAccessInfo: clean(body.keyAlarmAccessInfo),
         },
         by
       );

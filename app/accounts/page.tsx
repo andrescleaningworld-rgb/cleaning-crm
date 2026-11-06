@@ -2581,11 +2581,8 @@ async function handleSaveTransferProposal() {
       }
       addAction={
         inTransfersTab ? undefined : (
-          <>
-            {/* A customer who just accepted an estimate: the 8-step new-account flow. */}
-            <AddButton href="/accounts/new-accepted">New accepted account</AddButton>
-            <AddButton href="/accounts/new">Add account</AddButton>
-          </>
+          // One form: its switch says whether it is a new customer (the 8 new-account steps) or an account we already clean.
+          <AddButton href="/accounts/new">Add account</AddButton>
         )
       }
     >
