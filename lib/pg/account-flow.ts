@@ -30,6 +30,7 @@ import { weekdaysIn } from "@/lib/availability";
 import { parseClock, toClock, windowForStartTime } from "@/lib/schedule-time";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import { logEmail } from "@/lib/pg/email-log";
+import { fileAccountDocument } from "@/lib/pg/account-documents";
 import {
   FLOW_STATUS,
   FLOW_STEPS,
@@ -236,6 +237,19 @@ export async function createAcceptedAccount(input: NewAcceptedAccount, by: strin
     ON CONFLICT (account_id) DO NOTHING
   `;
   await addEvent(accountId, "packet", "start", by);
+  // The accepted estimate also goes in the account's Documents (best effort).
+  if (input.estimateUrl) {
+    await fileAccountDocument({
+      sourceKey: `flow:${accountId}`,
+      accountId,
+      accountName: input.accountName,
+      name: (input.estimateName ?? "").replace(/\.[^.]+$/, "") || "Accepted estimate",
+      docType: "Accepted estimate",
+      fileUrl: input.estimateUrl,
+      fileName: input.estimateName ?? "",
+      uploadedBy: by,
+    });
+  }
 
   // The pin: in the manager's square when they have one on the board, else the shared "New accepted" square.
   const square = (await listBoardManagers()).find((manager) => sameName(manager.name, input.manager))?.id ?? "";

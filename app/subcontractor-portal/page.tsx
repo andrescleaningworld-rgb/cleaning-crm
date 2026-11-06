@@ -8,6 +8,7 @@ import SimpleHome, { PinPad, useSubLang } from "./simple-home";
 import SubInsurance from "./insurance";
 import SubOffers from "./offers";
 import ScheduleAsk from "./schedule-ask";
+import SubDocuments from "./documents";
 import VisitCalendar from "./visit-calendar";
 import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
@@ -1400,6 +1401,8 @@ export default function SubcontractorPortalPage() {
             <SubOffers lang={lang} />
             {/* "Upload my insurance" and its banner. Nothing while it is switched off in Settings. */}
             <SubInsurance lang={lang} />
+            {/* Files the office shared for their accounts (view / download). Nothing when none is shared. */}
+            <SubDocuments lang={lang} />
             {!showMore ? (
               <SimpleHome
                 accounts={activeAccounts}

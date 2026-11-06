@@ -260,6 +260,20 @@ const en: StaffHelpContent = {
       tip: "When everything is done, the account gets a gold **Ready to start** badge everywhere in the app.",
     },
     {
+      id: "account-documents",
+      group: "daily",
+      page: "Accounts center",
+      title: "Keep an account's documents",
+      steps: [
+        "Open the account. Find **📎 Documents**.",
+        "Tap **Upload document** and pick the files: PDF, Word, Excel or pictures. You can pick several at once.",
+        "Pick the type (Scope of work, Cleaning routine, Floor plan, Contract, Accepted estimate, Welcome packet, Other) and add a note if it helps.",
+        "Turn on **Share with sub** for files the crew needs. The sub sees them in their portal and on Crew Link, to open or download.",
+        "Tap **Edit** to rename it, change the type or the note. Tap **Delete** to remove it.",
+      ],
+      tip: "Accepted estimates and each Welcome Packet sent are filed here by themselves. Customers never see documents. Accounts with documents show 📎 and how many in Accounts center.",
+    },
+    {
       id: "schedules-to-set",
       group: "daily",
       page: "Sub Center",
@@ -1221,6 +1235,20 @@ const es: StaffHelpContent = {
         "En **Cleaning schedule**, elige cada cuánto, los días y la hora, y toca **Save schedule**. Es el mismo selector que en Edit Account.",
       ],
       tip: "Cuando todo está listo, la cuenta recibe un distintivo dorado **Ready to start** en toda la app.",
+    },
+    {
+      id: "account-documents",
+      group: "daily",
+      page: "Accounts center",
+      title: "Guardar los documentos de una cuenta",
+      steps: [
+        "Abre la cuenta. Busca **📎 Documents**.",
+        "Toca **Upload document** y elige los archivos: PDF, Word, Excel o fotos. Puedes elegir varios a la vez.",
+        "Elige el tipo (alcance del trabajo, rutina de limpieza, plano, contrato, estimado aceptado, paquete de bienvenida, otro) y agrega una nota si ayuda.",
+        "Activa **Share with sub** en los archivos que el equipo necesita. El sub los ve en su portal y en Crew Link, para abrirlos o descargarlos.",
+        "Toca **Edit** para cambiar el nombre, el tipo o la nota. Toca **Delete** para quitarlo.",
+      ],
+      tip: "Los estimados aceptados y cada Welcome Packet enviado se guardan aquí solos. Los clientes nunca ven los documentos. Las cuentas con documentos muestran 📎 y cuántos en Accounts center.",
     },
     {
       id: "schedules-to-set",

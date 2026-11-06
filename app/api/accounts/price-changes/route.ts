@@ -21,6 +21,7 @@ import { describeAccountChanges } from "@/lib/accountChanges";
 import { logActivity } from "@/lib/activityLog";
 import { invalidateAccountLists } from "@/app/api/accounts/route";
 import { addPriceChange, listAccountPriceChanges, listPriceChangesBetween, priceChangesReady } from "@/lib/pg/price-changes";
+import { fileAccountDocument } from "@/lib/pg/account-documents";
 
 const noStore = { "Cache-Control": "no-store" };
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -132,6 +133,20 @@ export async function POST(request: NextRequest) {
       note: text(body.note),
       createdBy: who,
     });
+    // The signed estimate also goes in the account's Documents (best effort, never fails the save).
+    if (change && text(body.estimateUrl)) {
+      await fileAccountDocument({
+        sourceKey: `price-change:${change.id}`,
+        accountId,
+        accountName: account.account_name ?? "",
+        name: text(body.estimateName).replace(/\.[^.]+$/, "") || "Accepted estimate",
+        docType: "Accepted estimate",
+        note: `Price & frequency change, effective ${effectiveDate}`,
+        fileUrl: text(body.estimateUrl),
+        fileName: text(body.estimateName),
+        uploadedBy: who,
+      });
+    }
     return NextResponse.json({ success: true, change }, { headers: noStore });
   } catch (error) {
     console.error("[price-changes POST]", error instanceof Error ? error.message : error);

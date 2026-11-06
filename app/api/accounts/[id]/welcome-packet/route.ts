@@ -9,6 +9,9 @@
 // go to the account manager. Then it is written on the account's History and
 // ticks "Welcome packet sent to customer" on the Onboarding Checklist.
 import { NextRequest, NextResponse } from "next/server";
+import { put } from "@vercel/blob";
+import { DOC_FOLDER } from "@/lib/accountDocuments";
+import { documentsReady, fileAccountDocument } from "@/lib/pg/account-documents";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 import { accountsOnPostgres, setOnboardingChecklistItem } from "@/lib/data/accounts";
@@ -101,6 +104,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     // The email is out. What follows is bookkeeping and never turns the send into a failure.
+
+    // A copy of the PDF that was sent goes in the account's Documents.
+    if (process.env.BLOB_READ_WRITE_TOKEN && (await documentsReady())) {
+      try {
+        const fileName = welcomePdfFilename(data);
+        const blob = await put(`${DOC_FOLDER}/${info.accountId.replace(/[^\w-]+/g, "") || "account"}/${fileName}`, pdf, { access: "public", contentType: "application/pdf", addRandomSuffix: true });
+        await fileAccountDocument({
+          sourceKey: `welcome:${info.accountId}:${now.toISOString()}`,
+          accountId: info.accountId,
+          accountName: info.accountName,
+          name: fileName.replace(/\.pdf$/i, ""),
+          docType: "Welcome packet",
+          note: `Sent to ${to}`,
+          fileUrl: blob.url,
+          fileName,
+          fileSize: pdf.length,
+          contentType: "application/pdf",
+          uploadedBy: by,
+        });
+      } catch (error) {
+        console.error("[welcome-packet] copy not filed in Documents:", error instanceof Error ? error.message : error);
+      }
+    }
     await logActivity({
       actorAccountId: identity?.accountId ?? null,
       actorRole: identity?.role ?? "manager",

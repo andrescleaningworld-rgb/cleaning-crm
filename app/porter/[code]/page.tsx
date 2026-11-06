@@ -22,6 +22,7 @@ import CrewProblem from "./CrewProblem";
 import CrewArrived from "./CrewArrived";
 import CrewEmpty from "./CrewEmpty";
 import CrewPhotos from "./CrewPhotos";
+import CrewDocuments from "./CrewDocuments";
 import CrewRoute, { ROUTE_WORDS, RouteSendStatus, sentTodayOnThisPhone } from "./CrewRoute";
 import { usePhotoQueue } from "./photo-queue";
 import { loadLink } from "./link-cache";
@@ -278,6 +279,9 @@ export default function CrewLinkPage() {
             ))}
           </div>
         ) : null}
+
+        {/* Files the office shared with the sub for this building (open / download). Nothing when none. */}
+        {currentScreen === rootScreen ? <CrewDocuments code={code} lang={lang} bothLanguages={routeMode} /> : null}
 
         {currentScreen === "checklist" && routeMode && activeRouteTab ? (
           <CrewRoute

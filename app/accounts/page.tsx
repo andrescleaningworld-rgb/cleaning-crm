@@ -852,6 +852,20 @@ export default function AccountsPage() {
   }, []);
   // "Last visited": each account's last visit date by account ID (GET /api/visits?last=1). null until loaded.
   const { lastVisits, failed: lastVisitsFailed } = useLastVisits();
+  // How many documents each account has (the 📎 on its card). Best effort: no 📎 when it does not load.
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/account-documents?counts=1", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; counts?: Record<string, number> }) => {
+        if (alive && data.success) setDocCounts(data.counts ?? {});
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [lastVisitedFilter, setLastVisitedFilter] = useState<LastVisitedFilter>("any");
   const today = useMemo(() => easternTodayIso(), []);
   const [townFilter, setTownFilter] = useState("");
@@ -3323,6 +3337,7 @@ async function handleSaveTransferProposal() {
                     showMoney={showMoney}
                     risk={riskFlags[getAccountId(account)]}
                     lastVisit={lastVisits ? lastVisitText(lastVisits[getAccountId(account)], today) : ""}
+                    documents={docCounts[getAccountId(account)] ?? 0}
                     onMore={setMoreAccount}
                     onToDo={openQuickToDoModal}
                     onSeeCrewProblems={seeCrewProblems}
@@ -3602,6 +3617,7 @@ function AccountCard({
   showMoney,
   risk,
   lastVisit,
+  documents,
   onMore,
   onToDo,
   onSeeCrewProblems,
@@ -3616,6 +3632,8 @@ function AccountCard({
   risk?: RiskFlag;
   /** "Oct 3, 2026 (30 days ago)" or "Never visited"; "" while the dates load. */
   lastVisit: string;
+  /** How many documents the account has (📎 after the name when 1 or more). */
+  documents: number;
   onMore: (account: Account) => void;
   onToDo: (account: Account) => void;
   onSeeCrewProblems: () => void;
@@ -3654,6 +3672,11 @@ function AccountCard({
         ) : null}
         <h3 className="ui-acct-name">
           <AccountLink known accountId={accountId} name={name} />
+          {documents > 0 ? (
+            <span className="ui-muted" style={{ marginLeft: 8, fontSize: 16, fontWeight: 600 }} title={`${documents} document${documents === 1 ? "" : "s"}`} aria-label={`${documents} document${documents === 1 ? "" : "s"}`}>
+              📎 {documents}
+            </span>
+          ) : null}
         </h3>
         <p className="ui-acct-line">
           {mapsUrl !== "#" ? (

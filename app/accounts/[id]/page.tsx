@@ -48,6 +48,7 @@ import PortalInviteSheet, { invitedLine, type PortalInviteRecord } from "./porta
 import PreviewLinks from "./preview-links";
 import TaxExemptButton from "./tax-exempt";
 import { PriceChangeButton, PriceChangeHistory } from "./price-change";
+import AccountDocuments from "./documents";
 import AccountFlowPanel from "../../components/account-flow";
 import DeleteAccountSheet from "../../components/delete-account-sheet";
 import { payShare } from "@/lib/payShare";
@@ -1316,6 +1317,11 @@ export default function AccountDetailPage() {
             {/* Every Price & frequency change: old → new schedule, price and pay, the estimate, who and when. */}
             <div className="account-detail-print-hide">
               <PriceChangeHistory accountId={thisAccountId} refreshKey={priceChangeVersion} />
+            </div>
+
+            {/* Every file of this account: uploads, accepted estimates, sent Welcome Packets. "Share with sub" puts one in the sub portal and on Crew Link. */}
+            <div className="account-detail-print-hide">
+              <AccountDocuments accountId={thisAccountId} accountName={accountName} />
             </div>
 
             {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
