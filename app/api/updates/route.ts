@@ -99,77 +99,20 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    // DATA_SOURCE_ACCOUNT_UPDATES=postgres: saved here; Apps Script is not called.
-    if (isPostgres("ACCOUNT_UPDATES")) {
+    // Saved in Postgres only. The old Google Sheets save (Apps Script
+    // addAccountUpdate, which sent its own email) was removed on Nov 6, 2026.
+    if (!isPostgres("ACCOUNT_UPDATES")) {
+      return NextResponse.json(
+        { success: false, error: "Account updates can only be saved in the database (DATA_SOURCE_ACCOUNT_UPDATES=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
+      );
+    }
+    {
       const body = (await request.json()) as Record<string, unknown>;
       const text = (key: string) => String(body[key] ?? "").trim();
       const saved = await addAccountUpdate({ date: text("date"), accountName: text("accountName"), accountId: text("accountId"), updateType: text("updateType"), manager: text("manager"), notes: text("notes"), notifyEmail: text("notifyEmail"), title: text("title"), followUpNeeded: text("followUpNeeded"), followUpDate: text("followUpDate") });
       return NextResponse.json({ success: true, id: saved.id, message: "Account update saved successfully." });
     }
-
-    if (!SCRIPT_URL) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL in .env.local",
-        },
-        { status: 500 }
-      );
-    }
-
-    const body = await request.json();
-
-    // addAccountUpdate appends a new history row (and sends an email) — not
-    // idempotent, so a thrown error (timeout/network failure) is not
-    // retried here to avoid risking a duplicate entry/email. A 5xx means
-    // the Apps Script explicitly rejected the request (safe to retry,
-    // nothing was written).
-    const response = await fetchAppsScript(
-      SCRIPT_URL,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "addAccountUpdate",
-          ...body,
-        }),
-        cache: "no-store",
-      },
-      undefined,
-      { retryOn5xx: true, retryOnThrow: false }
-    );
-
-    const text = await response.text();
-
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Google Script did not return valid JSON while saving account update.",
-          rawResponse: text,
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!response.ok || data.success === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.error || "Google Script failed.",
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(data);
   } catch (error) {
     if (error instanceof AppsScriptFetchError) {
       return NextResponse.json(

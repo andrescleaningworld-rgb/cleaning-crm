@@ -1,6 +1,6 @@
 import { describeAccountChanges } from "@/lib/accountChanges";
 import { after, NextRequest, NextResponse } from "next/server";
-import { getOrFetch, getFreshAndCache, invalidateCached } from "@/lib/serverCache";
+import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorEmailByName, findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
 import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
@@ -196,10 +196,10 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    let action = String(body.action || "").trim();
-    // Set by the updateAccountFields path below (fresh record vs. new
-    // values) and logged with the save — see lib/accountChanges.ts.
-    let fieldChangesDetail: string | null = null;
+    const action = String(body.action || "").trim();
+    // No field-by-field detail on this full-record save (updateAccountFields
+    // logs its own above, see lib/accountChanges.ts).
+    const fieldChangesDetail: string | null = null;
 
     // The Keys tab's "Generate code": a new random code no other account
     // has, saved only on an account with no code yet (lib/pg/accounts.ts).
@@ -373,65 +373,14 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // The new-account packet email is sent by the app (lib/email.ts); only
-    // add/update on Sheets need the Apps Script URL.
-    if (!SCRIPT_URL && !accountsOnPostgres() && action !== "sendNewAccountPacket" && body.action !== "sendNewAccountPacket") {
+    // Accounts are saved in Postgres only. The old Google Sheets save (Apps
+    // Script addAccount / updateAccount, which also sent its own emails) was
+    // removed on Nov 6, 2026: with DATA_SOURCE_ACCOUNTS off, saving refuses.
+    if (!accountsOnPostgres() && action !== "sendNewAccountPacket" && body.action !== "sendNewAccountPacket") {
       return NextResponse.json(
-        { success: false, error: "Missing GOOGLE_SCRIPT_URL in .env.local" },
-        { status: 500 }
+        { success: false, error: "Accounts can only be saved in the database (DATA_SOURCE_ACCOUNTS=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
       );
-    }
-
-    // Partial field update: merge the caller's changed fields onto a fresh
-    // account record fetched right now, instead of trusting whatever full
-    // record the caller's page loaded (possibly minutes or hours ago).
-    // Without this, a stale tab submitting a full-record overwrite silently
-    // reverts any other field someone else changed more recently — the
-    // "lost update" bug where edits appear to save but don't persist.
-    if (action === "updateAccountFields") {
-      const accountId = String(body.accountId ?? "").trim();
-      const fields =
-        body.fields && typeof body.fields === "object" ? body.fields : {};
-
-      if (!accountId) {
-        return NextResponse.json(
-          { success: false, error: "accountId is required." },
-          { status: 400 }
-        );
-      }
-
-      let freshAccounts: Record<string, unknown>[];
-      try {
-        freshAccounts = (await getFreshAndCache("accounts:getAllAccounts", () =>
-          fetchAccountsForAction("getAllAccounts")
-        )) as Record<string, unknown>[];
-      } catch (err) {
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              err instanceof Error
-                ? err.message
-                : "Failed to load current account data.",
-          },
-          { status: 500 }
-        );
-      }
-
-      const freshAccount = freshAccounts.find(
-        (a) => a.id === accountId || a.accountId === accountId
-      );
-
-      if (!freshAccount) {
-        return NextResponse.json(
-          { success: false, error: "Account not found." },
-          { status: 404 }
-        );
-      }
-
-      body.account = { ...freshAccount, ...fields };
-      action = "updateAccount";
-      fieldChangesDetail = describeAccountChanges(freshAccount, fields as Record<string, unknown>) || "Saved (no field changes)";
     }
 
     // Handle other account actions (add / update)
@@ -516,71 +465,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // updateAccount overwrites the full record by accountId, so retrying after
-    // an ambiguous timeout/network failure converges to the same end state
-    // (safe). addAccount's Apps Script handler isn't in this repo, so we can't
-    // confirm it upserts by id rather than appending a row — treat a blind
-    // retry-on-timeout as a duplicate-account risk and fail fast instead. A
-    // confirmed 5xx is safe to retry either way, since the server explicitly
-    // rejected the request and nothing was written.
     let data: { success?: boolean; error?: string; message?: string; account?: unknown; accountId?: unknown; id?: unknown };
 
-    if (accountsOnPostgres()) {
-      // Saved in Postgres instead of being sent to Apps Script (see
-      // addAccount / updateAccountFromPayload in lib/pg/accounts.ts). The
-      // rest of this function (cache, Checklist Needed, the text to a newly
-      // assigned sub, the activity log) runs the same either way.
-      try {
-        const saved =
-          resolvedAction === "addAccount"
-            ? await addAccount(accountPayload as Record<string, unknown>)
-            : await updateAccountFromPayload(accountIdForSmsCheck, accountPayload as Record<string, unknown>);
-        data = { success: true, accountId: saved.accountId };
-      } catch (err) {
-        return NextResponse.json(
-          { success: false, error: err instanceof Error ? err.message : "Failed to save account." },
-          { status: 500 }
-        );
-      }
-    } else {
-      const response = await fetchAppsScript(
-        SCRIPT_URL!,
-        {
-          method: "POST",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({
-            action: resolvedAction,
-            account: accountPayload,
-          }),
-          cache: "no-store",
-        },
-        undefined,
-        { retryOn5xx: true, retryOnThrow: resolvedAction === "updateAccount" }
+    // Saved in Postgres (addAccount / updateAccountFromPayload in
+    // lib/pg/accounts.ts). The rest of this function (cache, Checklist
+    // Needed, the text to a newly assigned sub, the activity log) follows.
+    try {
+      const saved =
+        resolvedAction === "addAccount"
+          ? await addAccount(accountPayload as Record<string, unknown>)
+          : await updateAccountFromPayload(accountIdForSmsCheck, accountPayload as Record<string, unknown>);
+      data = { success: true, accountId: saved.accountId };
+    } catch (err) {
+      return NextResponse.json(
+        { success: false, error: err instanceof Error ? err.message : "Failed to save account." },
+        { status: 500 }
       );
-
-      const text = await response.text();
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Google Script did not return valid JSON while saving account.",
-            rawResponse: text,
-          },
-          { status: 500 }
-        );
-      }
-
-      if (!response.ok || data.success === false) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: data.error || data.message || "Failed to save account.",
-          },
-          { status: 500 }
-        );
-      }
     }
 
     // A successful add/update means every cached GET action key is now

@@ -212,6 +212,9 @@ async function handleOnPostgres(
   return refuse(`Unknown subcontractor portal action: ${action}`, 400);
 }
 
+/** What the portal saves: Postgres only (see POST). */
+const SAVE_ACTIONS = new Set(["submitSubPortalIssue", "submitSupplyOrder", "resolveComplaintBySubcontractor", "logSubcontractorActivity"]);
+
 export async function POST(request: NextRequest) {
   try {
     if (!SCRIPT_URL && !subPortalOnPostgres()) {
@@ -274,6 +277,18 @@ export async function POST(request: NextRequest) {
       return await handleOnPostgres(request, body, String(action ?? ""), sessionIdentity);
     }
 
+    // Saving from the sub portal is in Postgres only. The old Google Sheets
+    // saves (Apps Script submitSubPortalIssue / submitSupplyOrder /
+    // resolveComplaint / logSubcontractorActivity, some of which sent their
+    // own emails) were removed on Nov 6, 2026. With DATA_SOURCE_SUB_PORTAL
+    // off only reading (log in, the portal's data) still goes to Apps Script.
+    if (SAVE_ACTIONS.has(String(action ?? ""))) {
+      return NextResponse.json(
+        { success: false, error: "This can only be saved in the database (DATA_SOURCE_SUB_PORTAL=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
+      );
+    }
+
     if (!SCRIPT_URL) {
       throw new Error("Missing GOOGLE_SCRIPT_URL or NEXT_PUBLIC_GOOGLE_SCRIPT_URL in .env.local");
     }
@@ -283,45 +298,6 @@ export async function POST(request: NextRequest) {
         ? {
             action: "getSubcontractorPortalByEmail",
             email: sessionIdentity?.subcontractorEmail,
-          }
-        : action === "resolveComplaintBySubcontractor"
-        ? {
-            action: "resolveComplaint",
-            complaint: {
-              ...(body.complaint || {}),
-              status: "Resolved by Sub",
-              resolution:
-                body.complaint?.resolution ||
-                body.complaint?.resolutionNotes ||
-                body.complaint?.notes ||
-                "",
-              resolutionNotes:
-                body.complaint?.resolutionNotes ||
-                body.complaint?.resolution ||
-                body.complaint?.notes ||
-                "",
-              notes: body.complaint?.notes || body.complaint?.resolutionNotes || "",
-              followUpDate:
-                body.complaint?.followUpDate ||
-                new Date().toISOString().slice(0, 10),
-              closedDate: "",
-              subcontractor: sessionIdentity?.subcontractorName || "",
-            },
-          }
-        : action === "submitSubPortalIssue"
-        ? {
-            ...body,
-            issue: {
-              ...(body.issue || {}),
-              subcontractorEmail: sessionIdentity?.subcontractorEmail,
-              subcontractorName: sessionIdentity?.subcontractorName,
-            },
-          }
-        : action === "submitSupplyOrder" || action === "logSubcontractorActivity"
-        ? {
-            ...body,
-            subcontractorEmail: sessionIdentity?.subcontractorEmail,
-            subcontractorName: sessionIdentity?.subcontractorName,
           }
         : body;
 

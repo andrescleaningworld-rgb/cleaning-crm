@@ -24,9 +24,8 @@ const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 // (18s) plus its one retry plus backoff, or Vercel would kill the function
 // before our own retry/error-handling logic gets a chance to run. Matches
 // the budget used by /api/accounts and /api/subcontractor-portal for the
-// same upstream. Only the GET here and the closeComplaint/
-// resendComplaintNotification POST branches still call Apps Script — new
-// complaint creation was already migrated to direct Sheets API below.
+// same upstream. Only the GET (with DATA_SOURCE_COMPLAINTS off) still calls
+// Apps Script; every save is in Postgres.
 export const maxDuration = 45;
 
 type ScriptResponse = {
@@ -205,14 +204,13 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const onPostgres = complaintsOnPostgres();
-    if (!onPostgres && !SCRIPT_URL) {
+    // Complaints are saved in Postgres only. The old Google Sheets saves
+    // (Apps Script closeComplaint, the Sheets API append) were removed on
+    // Nov 6, 2026: with DATA_SOURCE_COMPLAINTS off, saving refuses.
+    if (!complaintsOnPostgres()) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL in .env.local",
-        },
-        { status: 500 }
+        { success: false, error: "Complaints can only be saved in the database (DATA_SOURCE_COMPLAINTS=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
       );
     }
 
@@ -261,8 +259,8 @@ export async function POST(request: NextRequest) {
         },
       };
 
-      // DATA_SOURCE_COMPLAINTS=postgres: closed directly, same answer shape.
-      if (onPostgres) {
+      // Closed in Postgres, same answer shape as before.
+      {
         let closed: { rowNumber: number; status: string };
         try {
           closed = await closeComplaint({
@@ -298,103 +296,6 @@ export async function POST(request: NextRequest) {
           scriptResponse: { success: true, rowNumber: closed.rowNumber, status: closed.status },
         });
       }
-
-      let response: Response;
-      try {
-        response = await fetchAppsScript(
-          SCRIPT_URL!,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "text/plain;charset=utf-8",
-            },
-            body: JSON.stringify(payload),
-            cache: "no-store",
-          },
-          undefined,
-          {
-            retryOn5xx: true,
-            // closeComplaint updates an existing complaint row by rowNumber/id
-            // (not an append), so a retry after an ambiguous timeout converges
-            // to the same end state — same reasoning app/api/accounts/route.ts
-            // applies to updateAccount.
-            retryOnThrow: true,
-          }
-        );
-      } catch (error) {
-        if (error instanceof AppsScriptFetchError) {
-          console.error(
-            "[complaints] Apps Script closeComplaint call failed:",
-            error.message,
-            "payload:",
-            payload
-          );
-          return NextResponse.json(
-            { success: false, error: error.message, sentPayload: payload },
-            { status: error.status }
-          );
-        }
-        throw error;
-      }
-
-      const text = await response.text();
-
-      let data: ScriptResponse;
-
-      try {
-        data = JSON.parse(text) as ScriptResponse;
-      } catch {
-        console.error(
-          `[complaints] Apps Script did not return valid JSON on close (status=${response.status}):`,
-          text.slice(0, 500)
-        );
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              "Google Script did not return valid JSON while closing complaint.",
-            sentPayload: payload,
-            rawResponse: text,
-          },
-          { status: 500 }
-        );
-      }
-
-      if (!response.ok || data.success === false) {
-        console.error(
-          `[complaints] Apps Script rejected closeComplaint (status=${response.status}):`,
-          data.error || data
-        );
-        return NextResponse.json(
-          {
-            success: false,
-            error: data.error || "Failed to close complaint in Google Script.",
-            sentPayload: payload,
-            rawResponse: data,
-          },
-          { status: 500 }
-        );
-      }
-
-      const closeActor = await getAdminIdentity(request);
-      if (closeActor?.accountId) {
-        await logActivity({
-          actorAccountId: closeActor.accountId,
-          actorRole: closeActor.role ?? "manager",
-          actorName: closeActor.name || "",
-          action: "update",
-          entityType: "complaint",
-          entityId: String(data.rowNumber || payload.complaint.rowNumber || payload.complaint.id || "") || null,
-        });
-      }
-
-      return NextResponse.json({
-        success: true,
-        rowNumber: data.rowNumber || payload.complaint.rowNumber || "",
-        status: data.status || "Closed",
-        message: data.message || "Complaint closed successfully.",
-        scriptResponse: data,
-      });
     }
 
     if (requestedAction === "resendComplaintNotification") {
@@ -440,9 +341,6 @@ export async function POST(request: NextRequest) {
     // the sub. Before, this request fell through to "create" below, so every
     // Save made a copy and sent "New complaint" emails and texts.
     if (requestedAction === "editComplaint") {
-      if (!onPostgres) {
-        return NextResponse.json({ success: false, error: "Editing a complaint works only with the complaints in the database. Nothing was saved." }, { status: 409 });
-      }
       const editActor = await getAdminIdentity(request);
       if (!editActor) return NextResponse.json({ success: false, error: "Log in first. Nothing was saved." }, { status: 401 });
       const id = clean(complaint.id || complaint.complaintId || body.id);
@@ -494,11 +392,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: `Unknown action "${requestedAction}". Nothing was saved.` }, { status: 400 });
     }
 
-    // Creation writes directly to the Complaints tab via the Sheets API
-    // (see appendComplaint in lib/googleSheets.ts) instead of forwarding to
-    // the Apps Script backend — that handler was silently dropping
-    // "Reported By" before it reached the sheet. Close/edit/resend actions
-    // above are untouched and still go through Apps Script.
+    // A new complaint is saved in Postgres (appendComplaint, lib/data/complaints.ts).
     const fields = {
       accountId: clean(
         complaint.accountId || getText(complaint, "Account ID")
@@ -548,7 +442,7 @@ export async function POST(request: NextRequest) {
           error:
             error instanceof Error
               ? error.message
-              : "Failed to save complaint to Google Sheets.",
+              : "Failed to save the complaint.",
         },
         { status: 500 }
       );

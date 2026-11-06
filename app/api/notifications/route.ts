@@ -125,13 +125,12 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!GOOGLE_SCRIPT_URL) {
+  // Saved in Postgres only. The old Google Sheets save (Apps Script
+  // updateSubPortalIssueStatus) was removed on Nov 6, 2026.
+  if (!subPortalOnPostgres()) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "GOOGLE_SCRIPT_URL is missing.",
-      },
-      { status: 500 }
+      { success: false, message: "Issues can only be saved in the database (DATA_SOURCE_SUB_PORTAL=postgres). Saving to Google Sheets was removed." },
+      { status: 503 }
     );
   }
 
@@ -151,8 +150,7 @@ export async function POST(request: NextRequest) {
 
   const action = body.action || "updateSubPortalIssueStatus";
 
-  // DATA_SOURCE_SUB_PORTAL=postgres: save here, Apps Script is not called.
-  if (subPortalOnPostgres()) {
+  {
     if (action !== "updateSubPortalIssueStatus") {
       return NextResponse.json({ success: false, message: `Unknown notifications action: ${action}` }, { status: 400 });
     }
@@ -173,82 +171,5 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-  }
-
-  let response: Response;
-  try {
-    response = await fetchAppsScript(
-      GOOGLE_SCRIPT_URL,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action,
-          issue: body.issue || body,
-        }),
-      },
-      undefined,
-      {
-        retryOn5xx: true,
-        // updateSubPortalIssueStatus is an update-by-id (status change on an
-        // existing issue) — the only action this route's own caller
-        // (app/notifications/page.tsx) ever sends, so safe to retry after a
-        // throw. Any other caller-supplied action isn't confirmed idempotent.
-        retryOnThrow: action === "updateSubPortalIssueStatus",
-      }
-    );
-  } catch (error) {
-    if (error instanceof AppsScriptFetchError) {
-      console.error("[notifications] Apps Script update call failed:", error.message);
-      return NextResponse.json(
-        { success: false, message: error.message },
-        { status: error.status }
-      );
-    }
-    console.error(
-      "[notifications] unexpected error updating notification:",
-      error instanceof Error ? error.message : error
-    );
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unknown error updating notification.",
-      },
-      { status: 500 }
-    );
-  }
-
-  const text = await response.text();
-
-  try {
-    const data = JSON.parse(text);
-
-    return NextResponse.json({
-      success: Boolean(data.success),
-      message: data.message || "",
-      issueId: data.issueId || "",
-      rowNumber: data.rowNumber || "",
-      status: data.status || "",
-      data,
-    });
-  } catch {
-    console.error(
-      `[notifications] Apps Script did not return valid JSON on update (status=${response.status}):`,
-      text.slice(0, 500)
-    );
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          "Google Script did not return valid JSON while updating notification.",
-        rawResponse: text,
-      },
-      { status: 500 }
-    );
   }
 }

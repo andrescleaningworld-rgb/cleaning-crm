@@ -239,8 +239,17 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as SupplyOrderPostBody;
 
-    // DATA_SOURCE_SUPPLIES=postgres: save here, Apps Script is not called.
-    if (suppliesOnPostgres()) {
+    // Supply orders are saved in Postgres only (the new-order email is sent
+    // from here). The old Google Sheets save (Apps Script createSupplyOrder /
+    // updateSupplyOrderStatus, which sent its own email) was removed on
+    // Nov 6, 2026: with DATA_SOURCE_SUPPLIES off, saving refuses.
+    if (!suppliesOnPostgres()) {
+      return NextResponse.json(
+        { success: false, error: "Supply orders can only be saved in the database (DATA_SOURCE_SUPPLIES=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
+      );
+    }
+    {
       const pgAction = body.action || "createSupplyOrder";
       let result: { orderId: string } & Record<string, unknown>;
       try {
@@ -278,115 +287,6 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json(result, { status: 200 });
     }
-
-    const scriptUrl = getScriptUrl();
-
-    /*
-      Important:
-      - Admin status dropdown sends action: updateSupplyOrderStatus
-      - Subcontractor new supply order should send action: createSupplyOrder
-      - If no action is passed, we assume it is a new supply order, not a status update.
-    */
-    const action = body.action || "createSupplyOrder";
-
-    let response: Response;
-    try {
-      response = await fetchAppsScript(
-        scriptUrl,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "text/plain;charset=utf-8",
-          },
-          body: JSON.stringify({
-            ...body,
-            action,
-          }),
-          cache: "no-store",
-        },
-        undefined,
-        {
-          retryOn5xx: true,
-          // updateSupplyOrderStatus is an update-by-id (status change on an
-          // existing order) — safe to retry after a throw, same reasoning
-          // app/api/accounts/route.ts applies to updateAccount. Any other
-          // action (createSupplyOrder appends a new row) isn't confirmed
-          // idempotent, so it isn't retried.
-          retryOnThrow: action === "updateSupplyOrderStatus",
-        }
-      );
-    } catch (error) {
-      if (error instanceof AppsScriptFetchError) {
-        console.error(
-          `[supply-orders] Apps Script ${action} call failed:`,
-          error.message
-        );
-        return NextResponse.json(
-          { success: false, error: error.message },
-          { status: error.status }
-        );
-      }
-      throw error;
-    }
-
-    const parsed = await readScriptJson(response);
-
-    if (!parsed.isJson) {
-      console.error(
-        `[supply-orders] Apps Script did not return valid JSON for ${action} (status=${response.status}):`,
-        parsed.rawText.slice(0, 500)
-      );
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            action === "updateSupplyOrderStatus"
-              ? "Google Script did not return valid JSON while updating supply order."
-              : "Google Script did not return valid JSON while creating supply order.",
-          rawResponse: parsed.rawText,
-        },
-        { status: 500 }
-      );
-    }
-
-    const data = parsed.data;
-
-    if (!response.ok || data.success === false) {
-      console.error(
-        `[supply-orders] Apps Script rejected ${action} (status=${response.status}):`,
-        data.error || data.message || data
-      );
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            data.error ||
-            data.message ||
-            (action === "updateSupplyOrderStatus"
-              ? "Failed to update supply order."
-              : "Failed to create supply order."),
-          rawResponse: parsed.rawText,
-        },
-        { status: 500 }
-      );
-    }
-
-    const actor = await getAdminIdentity(request);
-    if (actor?.accountId) {
-      const orderData = data as { orderId?: string; id?: string };
-      await logActivity({
-        actorAccountId: actor.accountId,
-        actorRole: actor.role ?? "manager",
-        actorName: actor.name || "",
-        action: action === "updateSupplyOrderStatus" ? "update" : "create",
-        entityType: "supply_order",
-        entityId: orderData.orderId || orderData.id || null,
-      });
-    }
-
-    return NextResponse.json(data, {
-      status: 200,
-    });
   } catch (error) {
     console.error(
       "[supply-orders] unexpected error in POST:",

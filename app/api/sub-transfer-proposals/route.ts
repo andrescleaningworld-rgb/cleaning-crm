@@ -109,14 +109,14 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const onPostgres = isPostgres("SUB_TRANSFERS");
-    if (!onPostgres && !SCRIPT_URL) {
+    // Transfer proposals are saved (and their email sent) in the app only.
+    // The old Google Sheets save (Apps Script createSubTransferProposal /
+    // sendSubTransferProposalEmail / updateSubTransferProposalStatus, which
+    // sent the email itself) was removed on Nov 6, 2026.
+    if (!isPostgres("SUB_TRANSFERS")) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL in .env.local",
-        },
-        { status: 500 }
+        { success: false, error: "Transfer proposals can only be saved in the database (DATA_SOURCE_SUB_TRANSFERS=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
       );
     }
 
@@ -125,7 +125,6 @@ export async function POST(request: NextRequest) {
     // "Preview before sending": the email exactly as the sub will get it (same
     // build as the send), with who it goes to. Nothing is sent or saved.
     if (String(body.action || "").trim() === "previewSubTransferProposalEmail") {
-      if (!onPostgres) return NextResponse.json({ success: false, error: "The preview is not available here." }, { status: 409 });
       const built = await buildSubTransferProposalEmail((body.proposal || body) as Record<string, unknown>, request.nextUrl.origin);
       if ("error" in built) return NextResponse.json({ success: false, error: built.error }, { status: 400 });
       return NextResponse.json({ success: true, preview: built });
@@ -150,10 +149,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // DATA_SOURCE_SUB_TRANSFERS=postgres: the same three actions, done here
-    // (lib/pg/sub-transfers.ts). Apps Script is not called. The Accept and
+    // The three actions, done here (lib/pg/sub-transfers.ts). The Accept and
     // Decline buttons in the email open this app.
-    if (onPostgres) {
+    {
       let result: Record<string, unknown>;
       try {
         const proposal = (body.proposal || body) as Record<string, unknown>;
@@ -187,84 +185,6 @@ export async function POST(request: NextRequest) {
       }
       return NextResponse.json({ success: true, message: result.message || "Transfer proposal request completed.", proposalId: savedId, sentTo: result.sentTo || null, data: result });
     }
-
-    const response = await fetchAppsScript(
-      SCRIPT_URL!,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: requestedAction,
-          proposal: body.proposal || body,
-        }),
-        cache: "no-store",
-      },
-      undefined,
-      // createSubTransferProposal/addSubTransferProposal append a new sheet
-      // row and sendSubTransferProposalEmail sends an email — neither is
-      // safe to retry blindly on a thrown/timeout error (risk of a
-      // duplicate proposal or a duplicate email), so only a confirmed 5xx
-      // (nothing was written) is retried here — same reasoning as
-      // addAccount's retryOnThrow in app/api/accounts/route.ts.
-      { retryOnThrow: false }
-    );
-
-    const text = await response.text();
-
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Google Script did not return valid JSON while saving transfer proposal.",
-          rawResponse: text,
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!response.ok || data.success === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            data.error ||
-            data.message ||
-            "Failed to save transfer proposal in Google Script.",
-          googleScriptResponse: data,
-          rawGoogleScriptResponse: text,
-          googleScriptStatus: response.status,
-        },
-        { status: 500 }
-      );
-    }
-
-    const proposalId = data.proposalId || data.id || null;
-    const actor = await getAdminIdentity(request);
-    if (actor?.accountId) {
-      await logActivity({
-        actorAccountId: actor.accountId,
-        actorRole: actor.role ?? "manager",
-        actorName: actor.name || "",
-        action: requestedAction === "updateSubTransferProposalStatus" ? "update" : "create",
-        entityType: "sub_transfer_proposal",
-        entityId: proposalId,
-      });
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: data.message || "Transfer proposal request completed.",
-      proposalId,
-      sentTo: data.sentTo || null,
-      data,
-    });
   } catch (error) {
     return NextResponse.json(
       {

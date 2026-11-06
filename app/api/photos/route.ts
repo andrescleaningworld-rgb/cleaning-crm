@@ -115,90 +115,23 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  // DATA_SOURCE_PHOTOS=postgres: the photo goes to Blob storage and its
-  // record to Postgres. Apps Script and Google Drive are not involved.
-  if (isPostgres("PHOTOS")) {
-    try {
-      const body = (await request.json()) as Record<string, unknown>;
-      const saved = await addPhoto(body);
-      return NextResponse.json({ success: true, message: "Photo uploaded.", photo: { success: true, photoId: saved.photoId, driveUrl: saved.url } });
-    } catch (error) {
-      const message = getErrorMessage(error);
-      console.error("[photos POST]", message);
-      return NextResponse.json({ success: false, message: message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "The photo did not upload. Try again." }, { status: 400 });
-    }
-  }
-
-  if (!GOOGLE_SCRIPT_URL) {
+  // The photo goes to Blob storage and its record to Postgres. The old
+  // upload to Google Drive (Apps Script uploadPhoto, which also sent its own
+  // email for sub portal issues) was removed on Nov 6, 2026: with
+  // DATA_SOURCE_PHOTOS off, uploading refuses.
+  if (!isPostgres("PHOTOS")) {
     return NextResponse.json(
-      {
-        success: false,
-        message: "GOOGLE_SCRIPT_URL is missing.",
-      },
-      { status: 500 }
+      { success: false, message: "Photos can only be saved in the database (DATA_SOURCE_PHOTOS=postgres). Uploading to Google Drive was removed." },
+      { status: 503 }
     );
   }
-
   try {
-    const body = await request.json();
-
-    // uploadPhoto appends a new record — not idempotent, so a thrown error
-    // (timeout/network failure) is not retried here to avoid risking a
-    // duplicate upload. A 5xx means the Apps Script explicitly rejected the
-    // request (safe to retry, nothing was written).
-    const response = await fetchAppsScript(
-      GOOGLE_SCRIPT_URL,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify({
-          action: "uploadPhoto",
-          photo: body,
-        }),
-      },
-      undefined,
-      { retryOn5xx: true, retryOnThrow: false }
-    );
-
-    const text = await response.text();
-
-    try {
-      const data = JSON.parse(text);
-
-      return NextResponse.json({
-        success: Boolean(data.success),
-        message: data.message || "",
-        photo: data,
-      });
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            "Google Script did not return valid JSON while uploading photo.",
-          rawResponse: text,
-        },
-        { status: 500 }
-      );
-    }
+    const body = (await request.json()) as Record<string, unknown>;
+    const saved = await addPhoto(body);
+    return NextResponse.json({ success: true, message: "Photo uploaded.", photo: { success: true, photoId: saved.photoId, driveUrl: saved.url } });
   } catch (error) {
-    if (error instanceof AppsScriptFetchError) {
-      return NextResponse.json(
-        { success: false, message: error.message },
-        { status: error.status }
-      );
-    }
-    return NextResponse.json(
-      {
-        success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unknown error uploading photo.",
-      },
-      { status: 500 }
-    );
+    const message = getErrorMessage(error);
+    console.error("[photos POST]", message);
+    return NextResponse.json({ success: false, message: message.length < 120 && !/sql|syntax|relation|column/i.test(message) ? message : "The photo did not upload. Try again." }, { status: 400 });
   }
 }

@@ -127,14 +127,13 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const postgres = isPostgres("ACCOUNT_UPDATES");
-    if (!postgres && !SCRIPT_URL) {
+    // Account updates are saved in Postgres only (the notice email is sent
+    // from here). The old Google Sheets save (Apps Script addAccountUpdate,
+    // which sent its own email) was removed on Nov 6, 2026.
+    if (!isPostgres("ACCOUNT_UPDATES")) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing GOOGLE_SCRIPT_URL in .env.local",
-        },
-        { status: 500 }
+        { success: false, error: "Account updates can only be saved in the database (DATA_SOURCE_ACCOUNT_UPDATES=postgres). Saving to Google Sheets was removed." },
+        { status: 503 }
       );
     }
 
@@ -151,65 +150,11 @@ export async function POST(request: Request) {
       notifyEmail: clean(body.notifyEmail),
     };
 
-
-    // addAccountUpdate appends a new history row (and sends an email) — not
-    // idempotent, so a thrown error (timeout/network failure) is not
-    // retried here to avoid risking a duplicate entry/email. A 5xx means
-    // the Apps Script explicitly rejected the request (safe to retry,
-    // nothing was written).
-    // DATA_SOURCE_ACCOUNT_UPDATES=postgres: saved here (and the notice email
-    // sent from here); Apps Script is not called.
-    let data: ScriptResponse;
-    if (postgres) {
-      if (!payload.accountName && !payload.notes) {
-        return NextResponse.json({ success: false, error: "Nothing to save: the update has no account and no notes." }, { status: 400 });
-      }
-      const saved = await addAccountUpdate(payload);
-      data = { success: true, id: saved.id, message: "Account update saved successfully." };
-    } else {
-    const response = await fetchAppsScript(
-      SCRIPT_URL!,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "text/plain;charset=utf-8",
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      },
-      undefined,
-      { retryOn5xx: true, retryOnThrow: false }
-    );
-
-    const text = await response.text();
-
-    try {
-      data = JSON.parse(text) as ScriptResponse;
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Google Script did not return valid JSON while saving account update.",
-          sentPayload: payload,
-          rawResponse: text,
-        },
-        { status: 500 }
-      );
+    if (!payload.accountName && !payload.notes) {
+      return NextResponse.json({ success: false, error: "Nothing to save: the update has no account and no notes." }, { status: 400 });
     }
-
-    if (!response.ok || data.success === false) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: data.error || "Failed to save account update.",
-          sentPayload: payload,
-          rawResponse: data,
-        },
-        { status: 500 }
-      );
-    }
-    }
+    const saved = await addAccountUpdate(payload);
+    const data: ScriptResponse = { success: true, id: saved.id, message: "Account update saved successfully." };
 
     // The office's "To process" list. Best effort: a failure here never
     // fails the update itself (it is already saved above).
