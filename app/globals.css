@@ -880,6 +880,52 @@ button.ui-card:hover {
   text-decoration: underline;
 }
 
+/* A table row that opens its record: tap anywhere on it (CardList rowHref). */
+.ui-table-rowclick {
+  cursor: pointer;
+}
+
+.ui-table-rowclick:hover td {
+  background: var(--ui-brand-soft);
+}
+
+/* A list row that is one big link (Accounts Center "Recent Complaints"). */
+.ui-card-row.ui-row-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--ui-r-control);
+}
+
+.ui-card-row.ui-row-link:hover {
+  background: var(--ui-brand-soft);
+}
+
+/* The Complaints table (app/complaints/page.tsx): Issue is the widest column,
+   every cell starts at the top of its row, and a wide table scrolls sideways
+   inside its box, never the whole page. */
+.ui-complaints-table {
+  overflow-x: auto;
+}
+
+.ui-complaints-table td {
+  vertical-align: top;
+}
+
+.ui-complaints-table .ui-col-issue {
+  min-width: 320px;
+  width: 30%;
+}
+
+.ui-complaints-table .ui-col-issue .ui-clamp {
+  max-width: none;
+}
+
+.ui-complaints-table .ui-col-notes {
+  min-width: 180px;
+  max-width: 260px;
+}
+
 /* Status = color + word + icon */
 .ui-pill {
   display: inline-flex;

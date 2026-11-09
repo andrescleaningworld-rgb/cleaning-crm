@@ -1028,6 +1028,8 @@ export default function SubcontractorDetailPage() {
                 label="Recent complaints"
                 items={relatedComplaints.slice(0, 25).map((complaint, index) => ({ complaint, index }))}
                 getKey={({ index }) => String(index)}
+                // A tap anywhere on a row opens the complaint.
+                rowHref={({ complaint }) => complaintHref(complaint)}
                 renderCard={({ complaint }) => (
                   <Card title={getComplaintAccountName(complaint) || "No account"}>
                     <p className="ui-card-text">{niceDate(getComplaintDate(complaint)) || "No date"}</p>

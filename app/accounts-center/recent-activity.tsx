@@ -139,18 +139,30 @@ function RecentList({
         <p className="ui-card-text">{emptyLabel}</p>
       ) : (
         <ul className="ui-list-plain">
-          {items.map((item, index) => (
-            <li key={`${index}-${item.name}`} className="ui-card-row">
-              {item.href || item.accountId ? (
-                <Link href={item.href || `/accounts/${encodeURIComponent(item.accountId)}`} className="ui-table-rowlink" style={{ minWidth: 0 }}>
-                  {item.name}
+          {items.map((item, index) =>
+            item.href ? (
+              // A complaint: the whole row is the link to it.
+              <li key={`${index}-${item.name}`}>
+                <Link href={item.href} className="ui-card-row ui-row-link" aria-label={`Open the complaint for ${item.name}, ${formatDate(item.date)}`}>
+                  <span className="ui-table-rowlink" style={{ minWidth: 0 }}>
+                    {item.name}
+                  </span>
+                  <span className="ui-muted ui-nowrap">{formatDate(item.date)}</span>
                 </Link>
-              ) : (
-                <span className="ui-strong">{item.name}</span>
-              )}
-              <span className="ui-muted ui-nowrap">{formatDate(item.date)}</span>
-            </li>
-          ))}
+              </li>
+            ) : (
+              <li key={`${index}-${item.name}`} className="ui-card-row">
+                {item.accountId ? (
+                  <Link href={`/accounts/${encodeURIComponent(item.accountId)}`} className="ui-table-rowlink" style={{ minWidth: 0 }}>
+                    {item.name}
+                  </Link>
+                ) : (
+                  <span className="ui-strong">{item.name}</span>
+                )}
+                <span className="ui-muted ui-nowrap">{formatDate(item.date)}</span>
+              </li>
+            )
+          )}
         </ul>
       )}
     </Card>

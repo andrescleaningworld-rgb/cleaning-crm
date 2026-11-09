@@ -5,6 +5,7 @@
 // in app/globals.css. See docs/MIGRATION_PLAN.md Part B for the rules.
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   createContext,
   useContext,
@@ -13,6 +14,7 @@ import {
   useRef,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -397,11 +399,18 @@ export function Card({
 export type CardListColumn<T> = {
   header: string;
   cell: (item: T) => ReactNode;
+  /** Extra class on this column's header and cells (e.g. a minimum width). */
+  className?: string;
 };
+
+/** A tap on a link, button or field inside a clickable row does its own thing, not "open the row". */
+const ROW_CONTROLS = "a, button, input, select, textarea, label, summary, [role='button'], dialog";
 
 /**
  * A list of things. Always cards on a phone. With `columns` it becomes a
  * table from 900px up; the first column links to the item when `href` is set.
+ * With `rowHref` a tap anywhere on a table row opens that address (pointer
+ * cursor and hover highlight: .ui-table-rowclick).
  */
 export function CardList<T>({
   items,
@@ -409,6 +418,8 @@ export function CardList<T>({
   renderCard,
   columns,
   href,
+  rowHref,
+  tableClassName,
   label,
 }: {
   items: T[];
@@ -416,9 +427,21 @@ export function CardList<T>({
   renderCard: (item: T) => ReactNode;
   columns?: CardListColumn<T>[];
   href?: (item: T) => string;
+  /** The whole table row opens this ("" = this row does not open). */
+  rowHref?: (item: T) => string;
+  /** Extra class on the table's box, for one list's own layout. */
+  tableClassName?: string;
   /** Names the list for screen readers, e.g. "Accounts". */
   label: string;
 }) {
+  const router = useRouter();
+  const openRow = (url: string, event: ReactMouseEvent<HTMLTableRowElement>) => {
+    if ((event.target as HTMLElement).closest(ROW_CONTROLS)) return;
+    // Selecting text to copy it is not a tap.
+    if (window.getSelection()?.toString()) return;
+    if (event.ctrlKey || event.metaKey) window.open(url, "_blank", "noopener");
+    else router.push(url);
+  };
   return (
     <>
       <ul className={`ui-cardlist ${columns ? "ui-cardlist-has-table" : ""}`.trim()} aria-label={label}>
@@ -427,22 +450,28 @@ export function CardList<T>({
         ))}
       </ul>
       {columns ? (
-        <div className="ui-table-wrap">
+        <div className={`ui-table-wrap ${tableClassName ?? ""}`.trim()}>
           <table className="ui-table" aria-label={label}>
             <thead>
               <tr>
                 {columns.map((column) => (
-                  <th key={column.header} scope="col">
+                  <th key={column.header} scope="col" className={column.className}>
                     {column.header}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
-                <tr key={getKey(item)}>
+              {items.map((item) => {
+                const rowUrl = rowHref ? rowHref(item) : "";
+                return (
+                <tr
+                  key={getKey(item)}
+                  className={rowUrl ? "ui-table-rowclick" : undefined}
+                  onClick={rowUrl ? (event) => openRow(rowUrl, event) : undefined}
+                >
                   {columns.map((column, index) => (
-                    <td key={column.header}>
+                    <td key={column.header} className={column.className}>
                       {index === 0 && href ? (
                         <Link href={href(item)} className="ui-table-rowlink">
                           {column.cell(item)}
@@ -453,7 +482,8 @@ export function CardList<T>({
                     </td>
                   ))}
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

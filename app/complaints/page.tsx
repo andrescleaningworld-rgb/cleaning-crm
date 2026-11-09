@@ -688,11 +688,16 @@ export default function ComplaintsPage() {
               ) : null}
             </Card>
           )}
+          // A tap anywhere on a row opens the complaint (links and buttons in it still do their own thing).
+          rowHref={({ complaint }) => complaintHref(complaint)}
+          tableClassName="ui-complaints-table"
           columns={[
             { header: "Date", cell: ({ complaint }) => <span className="ui-nowrap">{formatDate(complaint.date)}</span> },
             { header: "Account", cell: ({ complaint }) => accountLink(complaint) },
             {
               header: "Issue",
+              // The widest column; two lines at most here, the whole text on the complaint's page.
+              className: "ui-col-issue",
               cell: ({ complaint }) => (
                 <>
                   {clean(complaint.complaintType) ? <p className="ui-strong">{clean(complaint.complaintType)}</p> : null}
@@ -711,7 +716,7 @@ export default function ComplaintsPage() {
             { header: "Assigned To", cell: ({ complaint }) => clean(complaint.manager) || clean(complaint.subcontractor) || "No one" },
             { header: "Reported By", cell: ({ complaint }) => clean(complaint.reportedBy) || "Not recorded" },
             { header: "Follow-Up", cell: ({ complaint }) => (clean(complaint.followUpDate) ? formatDate(complaint.followUpDate) : "None") },
-            { header: "Notes", cell: ({ complaint }) => <span className="ui-clamp">{clean(complaint.notes) || clean(complaint.resolution) || "None"}</span> },
+            { header: "Notes", className: "ui-col-notes", cell: ({ complaint }) => <span className="ui-clamp">{clean(complaint.notes) || clean(complaint.resolution) || "None"}</span> },
             { header: "Action", cell: ({ complaint }) => rowActions(complaint) },
           ]}
         />
