@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { Counts, Tips, setShellExtra } from "@/app/ui";
+import { Counts, Sheet, Tips, setShellExtra } from "@/app/ui";
 import { SUB_WORDS } from "@/app/ui/words";
 import SimpleHome, { PinPad, useSubLang } from "./simple-home";
 import SubInsurance from "./insurance";
@@ -65,7 +65,15 @@ type Complaint = {
   followUpDate?: string;
   lastFollowUp?: string;
   notes?: string;
+  /** The complaint's pictures (lib/pg/sub-portal.ts), already signed for the sub. */
+  photos?: string[];
 };
+
+/** An old Google Drive photo link -> the picture itself; other links unchanged. */
+function pictureUrl(url: string): string {
+  const id = /\/file\/d\/([^/]+)/.exec(url)?.[1] || (url.includes("drive.google.com") ? /[?&]id=([^&]+)/.exec(url)?.[1] : "");
+  return id ? `https://drive.google.com/uc?export=view&id=${id}` : url;
+}
 
 type SupplyItem = {
   rowNumber?: number;
@@ -461,6 +469,8 @@ export default function SubcontractorPortalPage() {
     {}
   );
   const [resolvingComplaintId, setResolvingComplaintId] = useState("");
+  // "See details": one complaint, read only (what the customer reported, and the pictures).
+  const [viewComplaint, setViewComplaint] = useState<Complaint | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
@@ -1836,6 +1846,16 @@ export default function SubcontractorPortalPage() {
                           </p>
                         </div>
 
+                        <button
+                          type="button"
+                          onClick={() => setViewComplaint(complaint)}
+                          className="ui-btn ui-btn-main w-full"
+                        >
+                          {complaint.photos && complaint.photos.length > 0
+                            ? `See details and ${complaint.photos.length} photo${complaint.photos.length === 1 ? "" : "s"}`
+                            : "See details"}
+                        </button>
+
                         {getComplaintFollowUp(complaint) ? (
                           <p className="ui-muted">
                             <strong>Follow-up date:</strong>{" "}
@@ -1883,6 +1903,57 @@ export default function SubcontractorPortalPage() {
                   })}
                 </div>
               )}
+
+              {/* One complaint, read only: what was reported, when, and the pictures. No office notes or validity. */}
+              <Sheet
+                open={viewComplaint !== null}
+                title={viewComplaint ? viewComplaint.accountName || "Complaint" : "Complaint"}
+                onClose={() => setViewComplaint(null)}
+                closeLabel="Close"
+              >
+                {viewComplaint ? (
+                  <>
+                    <p className="ui-strong">
+                      {getComplaintType(viewComplaint)} • {getComplaintDate(viewComplaint)}
+                    </p>
+                    <p className="ui-muted">Status: {getComplaintStatus(viewComplaint)}</p>
+                    <div className="ui-stat">
+                      <p className="ui-muted">What was reported</p>
+                      <p className="ui-strong" style={{ whiteSpace: "pre-wrap" }}>
+                        {getComplaintDescription(viewComplaint)}
+                      </p>
+                    </div>
+                    {viewComplaint.photos && viewComplaint.photos.length > 0 ? (
+                      <div>
+                        <p className="ui-label">Photos ({viewComplaint.photos.length}). Tap one to see it full size.</p>
+                        <div className="ui-photos">
+                          {viewComplaint.photos.map((url, index) => (
+                            <a
+                              key={`${url}-${index}`}
+                              href={pictureUrl(url)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ui-photo"
+                              aria-label={`Open photo ${index + 1} full size`}
+                            >
+                              <Image
+                                src={pictureUrl(url)}
+                                alt={`Complaint photo ${index + 1}`}
+                                width={280}
+                                height={160}
+                                unoptimized
+                                style={{ width: "100%", height: 160, objectFit: "cover" }}
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="ui-muted">No photos with this complaint.</p>
+                    )}
+                  </>
+                ) : null}
+              </Sheet>
             </section>
 
             <section

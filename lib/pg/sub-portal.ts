@@ -13,6 +13,7 @@
 import { getSql } from "@/lib/db";
 import { cancelledLastDays, getAccountsAppsScriptShape } from "@/lib/pg/accounts";
 import { getComplaintsAppsScriptShape, type AppsScriptComplaint } from "@/lib/pg/complaints";
+import { complaintPhotoMap } from "@/lib/pg/complaint-detail";
 import { getSubcontractorsAppsScriptShape, type AppsScriptSubcontractor } from "@/lib/pg/subs";
 import { dateOrNull, todayISO } from "@/lib/dateUtils";
 
@@ -65,7 +66,8 @@ export type PortalSupplyItem = {
 export type SubPortalData = {
   subcontractor: AppsScriptSubcontractor;
   accounts: Record<string, string | number>[];
-  complaints: AppsScriptComplaint[];
+  /** Without the office's notes and validity (blank); with the complaint's pictures. */
+  complaints: (AppsScriptComplaint & { photos: string[] })[];
   supplyItems: PortalSupplyItem[];
 };
 
@@ -129,10 +131,25 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
 
   const accountIds = new Set(accounts.map((a) => text(a.accountId)).filter(Boolean));
   const accountNames = new Set(accounts.map((a) => lower(a.accountName)).filter(Boolean));
-  const complaints = allComplaints
-    .filter((c) => (text(c.accountId) !== "" && accountIds.has(text(c.accountId))) || (text(c.accountName) !== "" && accountNames.has(lower(c.accountName))))
+  const mineOnly = allComplaints.filter(
+    (c) => (text(c.accountId) !== "" && accountIds.has(text(c.accountId))) || (text(c.accountName) !== "" && accountNames.has(lower(c.accountName)))
+  );
+  // The pictures (uploaded ones, and the customer's from the portal), read
+  // before the notes are blanked: the portal's photo links are in the notes.
+  // A failure leaves the pictures out, never the complaints.
+  const photosById = await complaintPhotoMap(mineOnly.map((c) => ({ id: text(c.id) || String(c.rowNumber), notes: c.notes }))).catch((error) => {
+    console.error("[sub portal] complaint photos did not load:", error instanceof Error ? error.message : error);
+    return new Map<string, string[]>();
+  });
+  const complaints = mineOnly.map((c) => ({
+    ...c,
     // Which sub had the account when a complaint was filed is for the office: a sub is never shown another sub's name.
-    .map((c) => ({ ...c, subAtFiling: null }));
+    subAtFiling: null,
+    // Office only (Nov 9, 2026): the internal notes and the validity (what the score uses) never reach the sub.
+    notes: "",
+    complaintValidity: "",
+    photos: photosById.get(text(c.id) || String(c.rowNumber)) ?? [],
+  }));
 
   const inactive = new Set(["inactive", "discontinued", "no", "false", "disabled", "removed"]);
   const supplyItems = supplyRows

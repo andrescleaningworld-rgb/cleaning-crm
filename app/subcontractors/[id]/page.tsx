@@ -409,6 +409,12 @@ function getAccountNotes(account: AnyRow) {
   ]);
 }
 
+/** The Complaint Detail page (app/complaints/[id]); "" when the complaint has no ID or row number. */
+function complaintHref(complaint: AnyRow): string {
+  const key = String(complaint.id ?? "").trim() || String(complaint.rowNumber ?? "").trim();
+  return key ? `/complaints/${encodeURIComponent(key)}` : "";
+}
+
 function getComplaintAccountName(complaint: AnyRow) {
   return getAnyValue(complaint, [
     "account",
@@ -1029,12 +1035,29 @@ export default function SubcontractorDetailPage() {
                     <p className="ui-card-text">
                       Validity: {getComplaintValidity(complaint) || "Not set"} · Status: {getComplaintStatus(complaint) || "Pending"}
                     </p>
+                    {complaintHref(complaint) ? (
+                      <div style={{ marginTop: 8 }}>
+                        <BigButton kind="second" href={complaintHref(complaint)}>
+                          Open complaint
+                        </BigButton>
+                      </div>
+                    ) : null}
                   </Card>
                 )}
                 columns={[
                   { header: "Date", cell: ({ complaint }) => niceDate(getComplaintDate(complaint)) || "No date" },
                   { header: "Account", cell: ({ complaint }) => <span className="ui-strong">{getComplaintAccountName(complaint) || "No account"}</span> },
-                  { header: "Issue", cell: ({ complaint }) => getComplaintIssue(complaint) || "No details" },
+                  {
+                    header: "Issue",
+                    cell: ({ complaint }) =>
+                      complaintHref(complaint) ? (
+                        <Link href={complaintHref(complaint)} className="ui-link">
+                          {getComplaintIssue(complaint) || "No details"}
+                        </Link>
+                      ) : (
+                        getComplaintIssue(complaint) || "No details"
+                      ),
+                  },
                   { header: "Validity", cell: ({ complaint }) => getComplaintValidity(complaint) || "Not set" },
                   { header: "Status", cell: ({ complaint }) => getComplaintStatus(complaint) || "Pending" },
                 ]}

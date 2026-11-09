@@ -8,6 +8,8 @@ type RecentItem = {
   name: string;
   date: string;
   accountId: string;
+  /** Where a tap goes when it is not the account page (a complaint opens its own page). */
+  href?: string;
 };
 
 type RawAccount = {
@@ -25,6 +27,8 @@ type RawVisit = {
 };
 
 type RawComplaint = {
+  id?: string;
+  rowNumber?: string | number;
   accountId?: string;
   accountName?: string;
   date?: string;
@@ -101,11 +105,15 @@ async function fetchRecentComplaints(): Promise<RecentItem[]> {
   if (!response.ok || data.success === false) return [];
   const complaints = data.complaints ?? data.data ?? [];
   return mostRecentFive(
-    complaints.map((c) => ({
-      name: clean(c.accountName) || "Unnamed Account",
-      date: clean(c.date),
-      accountId: clean(c.accountId),
-    }))
+    complaints.map((c) => {
+      const key = clean(c.id) || clean(c.rowNumber);
+      return {
+        name: clean(c.accountName) || "Unnamed Account",
+        date: clean(c.date),
+        accountId: clean(c.accountId),
+        href: key ? `/complaints/${encodeURIComponent(key)}` : undefined,
+      };
+    })
   );
 }
 
@@ -133,8 +141,8 @@ function RecentList({
         <ul className="ui-list-plain">
           {items.map((item, index) => (
             <li key={`${index}-${item.name}`} className="ui-card-row">
-              {item.accountId ? (
-                <Link href={`/accounts/${encodeURIComponent(item.accountId)}`} className="ui-table-rowlink" style={{ minWidth: 0 }}>
+              {item.href || item.accountId ? (
+                <Link href={item.href || `/accounts/${encodeURIComponent(item.accountId)}`} className="ui-table-rowlink" style={{ minWidth: 0 }}>
                   {item.name}
                 </Link>
               ) : (

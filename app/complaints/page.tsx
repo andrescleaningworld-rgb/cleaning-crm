@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Link from "next/link";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
@@ -188,6 +188,11 @@ function priorityKind(severity: unknown): StatusKind {
   return "off";
 }
 
+/** The Complaint Detail page (app/complaints/[id]). */
+function complaintHref(complaint: Complaint): string {
+  return `/complaints/${encodeURIComponent(clean(complaint.id) || clean(complaint.rowNumber))}`;
+}
+
 function getLoadedComplaints(data: ComplaintsApiResponse | Complaint[]) {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data.complaints)) return data.complaints;
@@ -200,27 +205,6 @@ function getLoadedPhotos(data: PhotosApiResponse | ComplaintPhoto[]) {
   if (Array.isArray(data.photos)) return data.photos;
   if (Array.isArray(data.data)) return data.data;
   return [];
-}
-
-function getDriveFileId(url?: string): string {
-  const text = clean(url);
-
-  if (!text) return "";
-
-  const filePathMatch = text.match(/\/d\/([^/]+)/);
-  const idParamMatch = text.match(/[?&]id=([^&]+)/);
-
-  return clean(filePathMatch?.[1] || idParamMatch?.[1]);
-}
-
-function getDriveImageUrl(url?: string): string {
-  const fileId = getDriveFileId(url);
-
-  if (!fileId) return clean(url);
-
-  return `https://drive.google.com/uc?export=view&id=${encodeURIComponent(
-    fileId
-  )}`;
 }
 
 function getComplaintPhotos(
@@ -275,8 +259,7 @@ export default function ComplaintsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  // Modals
-  const [detailComplaint, setDetailComplaint] = useState<Complaint | null>(null);
+  // Modals (a complaint itself opens its own page, /complaints/<id>)
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [resolutionNote, setResolutionNote] = useState("");
   // Layout only: filters open in a sheet.
@@ -367,13 +350,6 @@ export default function ComplaintsPage() {
     void loadPhotos();
   }, []);
 
-  function openDetail(complaint: Complaint) {
-    setDetailComplaint(complaint);
-  }
-
-  function closeDetail() {
-    setDetailComplaint(null);
-  }
 
   function openCloseModal(complaint: Complaint) {
     setSelectedComplaint(complaint);
@@ -602,8 +578,8 @@ export default function ComplaintsPage() {
     );
   const rowActions = (c: Complaint) => (
     <div className="ui-actions-row">
-      <BigButton onClick={() => openDetail(c)} aria-label={`Open the complaint for ${clean(c.accountName) || "this account"}`} data-tip="open">
-        Open
+      <BigButton href={complaintHref(c)} aria-label={`Open the complaint for ${clean(c.accountName) || "this account"}`} data-tip="open">
+        Open complaint
       </BigButton>
       {!isClosedComplaint(c.status) ? (
         <BigButton kind="second" onClick={() => openCloseModal(c)}>
@@ -612,7 +588,6 @@ export default function ComplaintsPage() {
       ) : null}
     </div>
   );
-  const detailPhotos = detailComplaint ? getComplaintPhotos(detailComplaint, photos) : [];
 
   return (
     <Screen
@@ -689,7 +664,11 @@ export default function ComplaintsPage() {
                 {formatDate(complaint.date)}
                 {clean(complaint.complaintType) ? ` · ${clean(complaint.complaintType)}` : ""}
               </p>
-              <p className="ui-card-text ui-clamp">{clean(complaint.description) || "No description"}</p>
+              <p className="ui-card-text ui-clamp">
+                <Link href={complaintHref(complaint)} className="ui-link">
+                  {clean(complaint.description) || "No description"}
+                </Link>
+              </p>
               <div className="ui-actions-row" style={{ marginTop: 8 }}>
                 {priorityPill(complaint)}
                 <StatusPill kind="off">{clean(complaint.complaintValidity) || "Needs Review"}</StatusPill>
@@ -717,7 +696,11 @@ export default function ComplaintsPage() {
               cell: ({ complaint }) => (
                 <>
                   {clean(complaint.complaintType) ? <p className="ui-strong">{clean(complaint.complaintType)}</p> : null}
-                  <p className="ui-clamp">{clean(complaint.description) || "No description"}</p>
+                  <p className="ui-clamp">
+                    <Link href={complaintHref(complaint)} className="ui-link">
+                      {clean(complaint.description) || "No description"}
+                    </Link>
+                  </p>
                 </>
               ),
             },
@@ -764,107 +747,6 @@ export default function ComplaintsPage() {
             Clear filters
           </BigButton>
         </div>
-      </Sheet>
-
-      {/* One complaint, with its photos */}
-      <Sheet
-        open={detailComplaint !== null}
-        title={detailComplaint ? clean(detailComplaint.accountName) || "Complaint" : "Complaint"}
-        onClose={closeDetail}
-        closeLabel="Close this view"
-        actions={
-          detailComplaint && !isClosedComplaint(detailComplaint.status) ? (
-            <BigButton
-              onClick={() => {
-                const complaint = detailComplaint;
-                closeDetail();
-                openCloseModal(complaint);
-              }}
-            >
-              Close complaint
-            </BigButton>
-          ) : undefined
-        }
-      >
-        {detailComplaint ? (
-          <>
-            <div className="ui-actions-row">
-              {statusPill(detailComplaint)}
-              {priorityPill(detailComplaint)}
-            </div>
-            <dl className="ui-details">
-              <div className="ui-detail">
-                <dt>Date</dt>
-                <dd>{formatDate(detailComplaint.date)}</dd>
-              </div>
-              <div className="ui-detail">
-                <dt>Type</dt>
-                <dd>{clean(detailComplaint.complaintType) || "None"}</dd>
-              </div>
-              <div className="ui-detail">
-                <dt>Validity</dt>
-                <dd>{clean(detailComplaint.complaintValidity) || "Not set"}</dd>
-              </div>
-              <div className="ui-detail">
-                <dt>Assigned To</dt>
-                <dd>{clean(detailComplaint.manager) || clean(detailComplaint.subcontractor) || "No one"}</dd>
-              </div>
-              <div className="ui-detail">
-                <dt>Reported By</dt>
-                <dd>{clean(detailComplaint.reportedBy) || "Not recorded"}</dd>
-              </div>
-              <div className="ui-detail">
-                <dt>Follow-Up Date</dt>
-                <dd>{clean(detailComplaint.followUpDate) ? formatDate(detailComplaint.followUpDate) : "None"}</dd>
-              </div>
-              <div className="ui-detail ui-detail-full">
-                <dt>Description</dt>
-                <dd>{clean(detailComplaint.description) || "None"}</dd>
-              </div>
-              {clean(detailComplaint.resolution) ? (
-                <div className="ui-detail ui-detail-full">
-                  <dt>Resolution</dt>
-                  <dd>{clean(detailComplaint.resolution)}</dd>
-                </div>
-              ) : null}
-              {clean(detailComplaint.notes) ? (
-                <div className="ui-detail ui-detail-full">
-                  <dt>Notes</dt>
-                  <dd>{clean(detailComplaint.notes)}</dd>
-                </div>
-              ) : null}
-            </dl>
-
-            {detailPhotos.length > 0 ? (
-              <div>
-                <p className="ui-label">Photos ({detailPhotos.length})</p>
-                <div className="ui-photos">
-                  {detailPhotos.map((photo, i) => {
-                    const imageUrl = getDriveImageUrl(photo.driveUrl);
-                    return (
-                      <a
-                        key={`${photo.photoId || photo.rowNumber || photo.fileName || "photo"}-${i}`}
-                        href={imageUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ui-photo"
-                      >
-                        <Image
-                          src={imageUrl}
-                          alt={clean(photo.fileName) || `Complaint photo ${i + 1}`}
-                          width={280}
-                          height={128}
-                          unoptimized
-                          style={{ width: "100%", height: 128, objectFit: "cover" }}
-                        />
-                      </a>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : null}
       </Sheet>
 
       {/* Close a complaint */}

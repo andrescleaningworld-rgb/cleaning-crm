@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BigButton,
   Card,
@@ -63,11 +63,15 @@ type Complaint = {
   [key: string]: unknown;
 };
 
-type ComplaintsApiResponse = {
+type HistoryEntry = { who: string; when: string; what: string };
+
+// GET /api/complaints/<id> (lib/pg/complaint-detail.ts).
+type DetailResponse = {
   success?: boolean;
   error?: string;
-  complaints?: Complaint[];
-  data?: Complaint[];
+  complaint?: Complaint & { subAtFiling?: string | null };
+  photos?: string[];
+  history?: HistoryEntry[];
 };
 
 type SaveResponse = {
@@ -100,19 +104,10 @@ function formatDate(value: unknown): string {
   });
 }
 
-function getLoadedComplaints(data: ComplaintsApiResponse | Complaint[]) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.complaints)) return data.complaints;
-  if (Array.isArray(data.data)) return data.data;
-  return [];
-}
-
-function getComplaintDetailId(complaint: Complaint, index: number): string {
-  return (
-    clean(complaint.id) ||
-    clean(complaint.rowNumber) ||
-    `complaint-${index + 1}`
-  );
+function formatWhen(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function statusKind(status: unknown): StatusKind {
@@ -131,55 +126,6 @@ function priorityKind(severity: unknown): StatusKind {
   return "off";
 }
 
-function splitPhotoText(value: unknown): string[] {
-  const text = clean(value);
-
-  if (!text) return [];
-
-  return text
-    .split(/[\n,|]+/g)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function getPhotoUrls(complaint: Complaint): string[] {
-  const possiblePhotoValues = [
-    complaint.photoUrl,
-    complaint.photoUrls,
-    complaint.photos,
-    complaint.photoLinks,
-    complaint.imageUrl,
-    complaint.imageUrls,
-    complaint.attachmentUrl,
-    complaint.attachmentUrls,
-    complaint["Photo URL"],
-    complaint["Photo URLs"],
-    complaint.Photos,
-    complaint["Photo Links"],
-    complaint["Image URL"],
-    complaint["Image URLs"],
-    complaint["Attachment URL"],
-    complaint["Attachment URLs"],
-  ];
-
-  const urls = possiblePhotoValues.flatMap((value) => splitPhotoText(value));
-
-  return Array.from(new Set(urls));
-}
-
-function isImageUrl(url: string): boolean {
-  const cleanUrl = url.toLowerCase();
-
-  return (
-    cleanUrl.includes("googleusercontent.com") ||
-    cleanUrl.includes("drive.google.com") ||
-    cleanUrl.endsWith(".jpg") ||
-    cleanUrl.endsWith(".jpeg") ||
-    cleanUrl.endsWith(".png") ||
-    cleanUrl.endsWith(".webp") ||
-    cleanUrl.endsWith(".gif")
-  );
-}
 
 function getGoogleDrivePreviewUrl(url: string): string {
   const text = clean(url);
@@ -203,7 +149,10 @@ export default function ComplaintDetailPage() {
   const managerList = useManagerNames();
   const complaintId = decodeURIComponent(String(params.id || ""));
 
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [complaint, setComplaint] = useState<(Complaint & { subAtFiling?: string | null }) | undefined>(undefined);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showFullHistory, setShowFullHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -229,40 +178,29 @@ export default function ComplaintDetailPage() {
     reportedBy: "",
   });
 
+  // One complaint, its photos and its edit history (GET /api/complaints/<id>).
   async function loadComplaints() {
     try {
       setLoading(true);
       setError("");
 
-      const response = await fetch("/api/complaints", {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await fetch(`/api/complaints/${encodeURIComponent(complaintId)}`, { cache: "no-store" });
+      const data = (await response.json().catch(() => ({}))) as DetailResponse;
 
-      const text = await response.text();
-
-      let data: ComplaintsApiResponse | Complaint[];
-
-      try {
-        data = JSON.parse(text) as ComplaintsApiResponse | Complaint[];
-      } catch {
-        throw new Error("Complaints API did not return valid JSON.");
+      if (response.status === 404) {
+        setComplaint(undefined);
+        return;
+      }
+      if (!response.ok || data.success !== true || !data.complaint) {
+        throw new Error(data.error || "The complaint did not load.");
       }
 
-      if (!response.ok || (!Array.isArray(data) && data.success === false)) {
-        throw new Error(
-          !Array.isArray(data) && data.error
-            ? data.error
-            : "Failed to load complaint."
-        );
-      }
-
-      setComplaints(getLoadedComplaints(data));
+      setComplaint(data.complaint);
+      setPhotoUrls(Array.isArray(data.photos) ? data.photos : []);
+      setHistory(Array.isArray(data.history) ? data.history : []);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unknown error loading complaint."
-      );
-      setComplaints([]);
+      setError(err instanceof Error ? err.message : "Unknown error loading complaint.");
+      setComplaint(undefined);
     } finally {
       setLoading(false);
     }
@@ -270,18 +208,8 @@ export default function ComplaintDetailPage() {
 
   useEffect(() => {
     loadComplaints();
-  }, []);
-
-  const complaint = useMemo(() => {
-    return complaints.find((item, index) => {
-      return getComplaintDetailId(item, index) === complaintId;
-    });
-  }, [complaints, complaintId]);
-
-  const photoUrls = useMemo(() => {
-    if (!complaint) return [];
-    return getPhotoUrls(complaint);
-  }, [complaint]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [complaintId]);
 
   function startEditing() {
     if (!complaint) return;
@@ -514,6 +442,10 @@ export default function ComplaintDetailPage() {
                 <dd>{clean(complaint.reportedBy) || "Not recorded"}</dd>
               </div>
               <div className="ui-detail">
+                <dt>Sub at filing</dt>
+                <dd>{clean(complaint.subAtFiling) || "Not recorded"}</dd>
+              </div>
+              <div className="ui-detail">
                 <dt>Follow-Up Date</dt>
                 <dd>{clean(complaint.followUpDate) ? formatDate(complaint.followUpDate) : "None"}</dd>
               </div>
@@ -536,23 +468,60 @@ export default function ComplaintDetailPage() {
             {photoUrls.length === 0 ? (
               <p className="ui-card-text">No photos attached.</p>
             ) : (
-              <div className="ui-three" style={{ marginTop: 12 }}>
-                {photoUrls.map((url, index) => {
-                  const previewUrl = getGoogleDrivePreviewUrl(url);
-                  return (
-                    <div key={`${url}-${index}`}>
-                      {isImageUrl(url) ? (
-                        <a href={url} target="_blank" rel="noopener noreferrer" className="ui-photo" style={{ display: "block", aspectRatio: "16 / 9" }}>
-                          <Image src={previewUrl} alt={`Complaint photo ${index + 1}`} width={400} height={224} unoptimized />
-                        </a>
-                      ) : null}
-                      <a href={url} target="_blank" rel="noopener noreferrer" className="ui-btn ui-btn-quiet">
-                        Open photo {index + 1}
+              <>
+                <p className="ui-card-text">Tap a picture to open it full size.</p>
+                <div className="ui-photos" style={{ marginTop: 12 }}>
+                  {photoUrls.map((url, index) => {
+                    // Old Drive photos: the picture itself, not the Drive page.
+                    const pictureUrl = getGoogleDrivePreviewUrl(url);
+                    return (
+                      <a key={`${url}-${index}`} href={pictureUrl} target="_blank" rel="noopener noreferrer" className="ui-photo" aria-label={`Open photo ${index + 1} full size`}>
+                        <Image
+                          src={pictureUrl}
+                          alt={`Complaint photo ${index + 1}`}
+                          width={280}
+                          height={160}
+                          unoptimized
+                          style={{ width: "100%", height: 160, objectFit: "cover" }}
+                        />
                       </a>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </Card>
+
+          {/* Who changed what and when (the activity log, written on every Save). */}
+          <Card title="Edit History">
+            {history.length === 0 ? (
+              <p className="ui-card-text">No changes recorded yet.</p>
+            ) : (
+              <>
+                <ul className="ui-list-plain">
+                  {(showFullHistory ? history : history.slice(0, 3)).map((entry, index) => (
+                    <li key={`${entry.when}-${index}`} className="ui-stack" style={{ padding: "8px 0", borderBottom: "1px solid var(--ui-line, #e5e7eb)" }}>
+                      <p className="ui-strong">
+                        {entry.who} · <span className="ui-muted">{formatWhen(entry.when)}</span>
+                      </p>
+                      <ul className="ui-list-plain">
+                        {entry.what.split("; ").map((part, partIndex) => (
+                          <li key={partIndex} className="ui-card-text">
+                            {part}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+                {history.length > 3 ? (
+                  <div style={{ marginTop: 12 }}>
+                    <BigButton kind="quiet" onClick={() => setShowFullHistory((value) => !value)} aria-expanded={showFullHistory}>
+                      {showFullHistory ? "Hide full history" : `Show full history (${history.length})`}
+                    </BigButton>
+                  </div>
+                ) : null}
+              </>
             )}
           </Card>
         </div>
