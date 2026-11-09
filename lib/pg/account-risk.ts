@@ -16,6 +16,7 @@
 //                      migration 057 (account_risk_flags), else does nothing.
 
 import { getSql } from "@/lib/db";
+import { complaintValidityWeightSql } from "@/lib/complaintWeights";
 import { accountLive } from "@/lib/pg/account-live";
 import { getSubcontractorPerformanceMap } from "@/lib/data/subs";
 import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
@@ -53,9 +54,9 @@ export async function accountRiskFlags(): Promise<Map<string, AccountRisk>> {
     sql.query(
       `SELECT a.id, a.account_name, COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw) AS manager, a.start_date::text AS start_date,
               s.company_name, s.contact_name,
-              (SELECT count(*)::int FROM complaints c
-                WHERE c.account_ref = a.id AND c.complaint_date >= (now() AT TIME ZONE 'America/New_York')::date - 30
-                  AND lower(btrim(c.complaint_validity)) NOT IN ('no', 'not valid', 'invalid', 'notvalid')) AS complaints30,
+              -- Each complaint counts as its Validity weight (lib/complaintWeights.ts): Subjective = half.
+              (SELECT COALESCE(sum(${complaintValidityWeightSql("c.complaint_validity")}), 0)::float8 FROM complaints c
+                WHERE c.account_ref = a.id AND c.complaint_date >= (now() AT TIME ZONE 'America/New_York')::date - 30) AS complaints30,
               (SELECT max(v.visit_date)::text FROM visits v WHERE v.account_ref = a.id) AS last_visit
        FROM accounts a
        LEFT JOIN managers m ON m.id = a.manager_id

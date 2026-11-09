@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { toISO } from "./dateUtils";
 import { DEFAULT_TO_DO_PRIORITY, normalizeToDoPriority, type ToDoPriority } from "./toDoPriority";
+import { complaintValidityWeight } from "./complaintWeights";
 import {
   createEmptyChecklistItems,
   isChecklistComplete,
@@ -3703,9 +3704,10 @@ function getSeverityWeight(priority: unknown): number {
 // existing relatedComplaints filter and the new score computation share it
 // instead of drifting apart. "Subjective" and "Needs Review" (the other two
 // real Complaint Validity options) are NOT excluded — unchanged behavior.
+// Nov 9, 2026: now "its Validity weight is 0" (lib/complaintWeights.ts), so
+// changing a weight there changes this too. Today only Not Valid is 0.
 function isExcludedComplaintValidity(validity: unknown): boolean {
-  const clean = String(validity ?? "").toLowerCase().trim();
-  return clean === "no" || clean === "not valid" || clean === "invalid" || clean === "notvalid";
+  return complaintValidityWeight(validity) === 0;
 }
 
 // Status vocabulary is Open/Pending/Needs Attention/Closed (confirmed live
@@ -3978,7 +3980,8 @@ export function buildSubcontractorPerformanceMap(
         complaintDate: parseDateOrNull(row[COMPLAINT_COL.COMPLAINT_DATE]),
         resolutionDate: isOpenNow ? null : getComplaintResolutionDate(row),
         isOpenNow,
-        severityWeight: getSeverityWeight(row[COMPLAINT_COL.PRIORITY]),
+        // Priority points x Validity weight (lib/complaintWeights.ts).
+        severityWeight: getSeverityWeight(row[COMPLAINT_COL.PRIORITY]) * complaintValidityWeight(row[COMPLAINT_COL.COMPLAINT_VALIDITY]),
       };
     });
 

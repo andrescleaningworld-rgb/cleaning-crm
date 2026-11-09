@@ -1,6 +1,7 @@
 "use client";
 
 import { ShellTitle, Tile } from "@/app/ui";
+import { DEFAULT_FEATURE_SETTINGS, type VisitTypesSetting } from "@/lib/featureSettings";
 import TipsToggle from "./tips-toggle";
 import Link from "next/link";
 import {
@@ -47,11 +48,15 @@ function getCalendarColor(id: string) {
   return CALENDAR_COLORS.find((color) => color.id === id);
 }
 
-const startingVisitTypes: SettingItem[] = [
-  { id: "visit-routine", name: "Routine Visit", status: "Active" },
-  { id: "visit-complaint", name: "Complaint Follow-Up", status: "Active" },
-  { id: "visit-onboarding", name: "Onboarding New Account", status: "Active" },
-];
+// Visit Types are saved (feature_settings "visitTypes"); the forms read them
+// through app/components/use-visit-types.ts. Until Nov 9, 2026 this list
+// lived only in the open page and an added type was gone on refresh.
+function visitTypeItems(setting: VisitTypesSetting): SettingItem[] {
+  return [
+    ...setting.active.map((name): SettingItem => ({ id: `visit-${name}`, name, status: "Active" })),
+    ...setting.inactive.map((name): SettingItem => ({ id: `visit-${name}`, name, status: "Inactive" })),
+  ];
+}
 
 const startingAccountUpdateTypes: SettingItem[] = [
   { id: "update-general", name: "General Note", status: "Active" },
@@ -98,6 +103,7 @@ function SettingsSection({
   onAdd,
   onToggleStatus,
   placeholder,
+  message,
 }: {
   title: string;
   description: string;
@@ -107,6 +113,8 @@ function SettingsSection({
   onAdd: () => void;
   onToggleStatus: (id: string) => void;
   placeholder: string;
+  /** Shown under the list: "Saved." or what went wrong. */
+  message?: { text: string; error: boolean } | null;
 }) {
   return (
     <section className="ui-card">
@@ -178,6 +186,14 @@ function SettingsSection({
       {items.length === 0 && (
         <div className="p-6 text-center text-gray-600">No items found.</div>
       )}
+
+      {message ? (
+        message.error ? (
+          <div className="ui-errorbox mt-4" role="alert">{message.text}</div>
+        ) : (
+          <p className="ui-savestatus ui-savestatus-saved mt-4" role="status">{message.text}</p>
+        )
+      ) : null}
     </section>
   );
 }
@@ -740,8 +756,10 @@ export default function SettingsPage() {
   const [managers, setManagers] = useState<Manager[]>([]);
   const [managersLoading, setManagersLoading] = useState(true);
   const [managersError, setManagersError] = useState("");
-  const [visitTypes, setVisitTypes] =
-    useState<SettingItem[]>(startingVisitTypes);
+  const [visitTypeSetting, setVisitTypeSetting] = useState<VisitTypesSetting>(DEFAULT_FEATURE_SETTINGS.visitTypes);
+  const [visitTypesMessage, setVisitTypesMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [visitTypesSaving, setVisitTypesSaving] = useState(false);
+  const visitTypes = visitTypeItems(visitTypeSetting);
   const [accountUpdateTypes, setAccountUpdateTypes] = useState<SettingItem[]>(
     startingAccountUpdateTypes
   );
@@ -791,6 +809,87 @@ export default function SettingsPage() {
       cancelled = true;
     };
   }, []);
+
+  // The saved visit types.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/feature-settings", { cache: "no-store" })
+      .then(async (response) => {
+        const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; settings?: { visitTypes?: VisitTypesSetting } };
+        if (cancelled) return;
+        if (!response.ok || !data.settings?.visitTypes) {
+          setVisitTypesMessage({ text: `The saved visit types did not load: ${data.error || `error ${response.status}`}.`, error: true });
+          return;
+        }
+        setVisitTypeSetting(data.settings.visitTypes);
+      })
+      .catch(() => {
+        if (!cancelled) setVisitTypesMessage({ text: "The saved visit types did not load (network error).", error: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Saves the whole visit-type list. The list on screen changes only once the save worked. */
+  async function saveVisitTypes(next: VisitTypesSetting, done: string): Promise<boolean> {
+    setVisitTypesSaving(true);
+    setVisitTypesMessage(null);
+    try {
+      const response = await fetch("/api/feature-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "visitTypes", value: next }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; value?: VisitTypesSetting };
+      if (!response.ok || !data.success || !data.value) {
+        setVisitTypesMessage({ text: `Not saved: ${data.error || `error ${response.status}`}`, error: true });
+        return false;
+      }
+      setVisitTypeSetting(data.value);
+      setVisitTypesMessage({ text: done, error: false });
+      return true;
+    } catch {
+      setVisitTypesMessage({ text: "Not saved: network error. Try again.", error: true });
+      return false;
+    } finally {
+      setVisitTypesSaving(false);
+    }
+  }
+
+  async function addVisitType() {
+    const name = newVisitType.trim().slice(0, 40);
+    if (!name) {
+      setVisitTypesMessage({ text: "Type a name first.", error: true });
+      return;
+    }
+    if (visitTypes.some((item) => item.name.toLowerCase() === name.toLowerCase())) {
+      setVisitTypesMessage({ text: `"${name}" is already on the list.`, error: true });
+      return;
+    }
+    if (visitTypeSetting.active.length + visitTypeSetting.inactive.length >= 30) {
+      setVisitTypesMessage({ text: "The list is full (30). Remove one first.", error: true });
+      return;
+    }
+    if (visitTypesSaving) return;
+    const saved = await saveVisitTypes({ ...visitTypeSetting, active: [...visitTypeSetting.active, name] }, `Saved "${name}".`);
+    if (saved) setNewVisitType("");
+  }
+
+  async function toggleVisitType(id: string) {
+    const item = visitTypes.find((entry) => entry.id === id);
+    if (!item || visitTypesSaving) return;
+    const without = (list: string[]) => list.filter((name) => name !== item.name);
+    const next =
+      item.status === "Active"
+        ? { active: without(visitTypeSetting.active), inactive: [...visitTypeSetting.inactive, item.name] }
+        : { active: [...visitTypeSetting.active, item.name], inactive: without(visitTypeSetting.inactive) };
+    if (next.active.length === 0) {
+      setVisitTypesMessage({ text: "Keep at least one visit type active.", error: true });
+      return;
+    }
+    await saveVisitTypes(next, item.status === "Active" ? `"${item.name}" turned off.` : `"${item.name}" turned on.`);
+  }
 
   const [newVisitType, setNewVisitType] = useState("");
   const [newAccountUpdateType, setNewAccountUpdateType] = useState("");
@@ -924,9 +1023,10 @@ export default function SettingsPage() {
             items={visitTypes}
             inputValue={newVisitType}
             onInputChange={setNewVisitType}
-            onAdd={() => addItem(newVisitType, setNewVisitType, setVisitTypes)}
-            onToggleStatus={(id) => toggleStatus(id, setVisitTypes)}
+            onAdd={() => void addVisitType()}
+            onToggleStatus={(id) => void toggleVisitType(id)}
             placeholder="Add visit type..."
+            message={visitTypesSaving ? { text: "Saving…", error: false } : visitTypesMessage}
           />
 
           <SettingsSection

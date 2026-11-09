@@ -10,6 +10,7 @@
 
 import { getSql } from "@/lib/db";
 import { fetchAccountRows } from "@/lib/pg/accounts";
+import { forgetRiskCache } from "@/lib/pg/account-risk";
 import { normalizePhone } from "@/lib/googleSheets";
 import type { MergedPortalAccount, PortalSubmission } from "@/lib/googleSheets";
 
@@ -265,6 +266,93 @@ export async function updateSubmissionStatus(tab: PortalTab, sheetRow: number, s
     `UPDATE portal_requests SET status = $3::text, staff_notes = $4::text, updated_at = now() WHERE tab = $1::text AND sheet_row = $2::int`,
     [tab, sheetRow, status, notes]
   );
+}
+
+/** Who a complaint from the portal is "Reported By" on the staff screens. */
+export const PORTAL_COMPLAINT_REPORTED_BY = "Customer (portal)";
+
+/**
+ * Saves a "Report a problem" from /portal in ONE transaction, both or neither:
+ *   1. the request row in portal_requests (the Portal Requests inbox), and
+ *   2. a real complaint in complaints, linked to the account, so it shows on
+ *      the Complaints page, the account page and the Pin Board (syncBoard
+ *      pins every open complaint).
+ * Before Nov 9, 2026 only (1) was saved, so staff never saw these as complaints.
+ * Returns the new complaint's ID (COMP-...). Throws when nothing was saved.
+ */
+export async function savePortalComplaint(input: {
+  accountId: string;
+  accountName: string;
+  /** M/D/YYYY, the date the inbox shows. */
+  submittedDate: string;
+  /** YYYY-MM-DD, the complaint's date. */
+  complaintDate: string;
+  issueType: string;
+  description: string;
+  incidentDate: string;
+  /** Comma-separated photo links, already checked by the route. */
+  photos: string;
+}): Promise<string> {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(input.submittedDate.trim());
+  const day = m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
+  const tab: PortalTab = "portal-complaints";
+
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // Same ID format as complaints saved by staff (lib/pg/complaints.ts appendComplaint).
+  const complaintId = `COMP-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+  const notes = [
+    "Sent by the customer from the customer portal (Report a problem).",
+    input.incidentDate ? `Date of incident: ${input.incidentDate}` : "",
+    input.photos ? `Photos: ${input.photos}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  // The account: by its ID first, else by a name only one live account has.
+  const accountRef = `COALESCE(
+         (SELECT id FROM accounts WHERE btrim($2::text) <> '' AND id = btrim($2::text) LIMIT 1),
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($3::text) <> '' AND lower(btrim(account_name)) = lower(btrim($3::text)))
+       )`;
+
+  const sql = getSql();
+  const results = await sql.transaction([
+    sql.query(
+      `WITH next AS (SELECT COALESCE(MAX(sheet_row), 1) + 1 AS n FROM portal_requests WHERE tab = $1::text)
+       INSERT INTO portal_requests (legacy_key, tab, account_id_raw, account_name, account_ref, submitted_date_raw, submitted_date,
+         field_1, field_2, field_3, status, staff_notes, photos, sheet_row)
+       SELECT 'pg-' || $1::text || ':row-' || next.n::text, $1::text, $2::text, $3::text, ${accountRef},
+         $4::text, $5::date, $6::text, $7::text, $8::text, 'New', '', $9::text, next.n
+       FROM next`,
+      [tab, input.accountId, input.accountName, input.submittedDate, day, input.issueType, input.description, input.incidentDate, input.photos]
+    ),
+    sql.query(
+      `WITH next AS (SELECT COALESCE(MAX(sheet_row), 1) + 1 AS n FROM complaints),
+            acct AS (SELECT ${accountRef} AS ref)
+       INSERT INTO complaints (
+         legacy_key, complaint_id, account_id_raw, account_name, account_ref,
+         complaint_date_raw, complaint_date, issue, priority, complaint_validity, status,
+         reported_by, assigned_to, notes, sub_at_filing, sheet_row)
+       SELECT
+         CASE WHEN EXISTS (SELECT 1 FROM complaints WHERE legacy_key = $1::text) THEN $1::text || '#' || next.n::text ELSE $1::text END,
+         $1::text, $2::text, $3::text, acct.ref,
+         $4::text, $4::date, $5::text, 'Medium', 'Needs Review', 'Open',
+         $6::text,
+         COALESCE((SELECT btrim(manager_raw) FROM accounts WHERE id = acct.ref), ''),
+         $7::text,
+         COALESCE((SELECT btrim(subcontractor_raw) FROM accounts WHERE id = acct.ref), ''),
+         next.n
+       FROM next, acct
+       RETURNING complaint_id`,
+      [complaintId, input.accountId, input.accountName, input.complaintDate, `${input.issueType}: ${input.description}`, PORTAL_COMPLAINT_REPORTED_BY, notes]
+    ),
+  ]);
+
+  const saved = results[1] as unknown as { complaint_id: string }[];
+  if (!saved?.[0]) throw new Error("The complaint was not saved.");
+  forgetRiskCache();
+  return saved[0].complaint_id;
 }
 
 /**

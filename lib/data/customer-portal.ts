@@ -22,9 +22,12 @@ export const getMergedPortalAccounts: typeof sheets.getMergedPortalAccounts = ()
 export const enablePortalAccount: typeof sheets.enablePortalAccount = (...args) => source().enablePortalAccount(...args);
 export const updatePortalAccountFields: typeof sheets.updatePortalAccountFields = (...args) => source().updatePortalAccountFields(...args);
 export const listPortalAccounts: typeof sheets.listPortalAccounts = () => source().listPortalAccounts();
-export const getPortalNewCount: typeof sheets.getPortalNewCount = () => source().getPortalNewCount();
-export const listPortalSubmissions: typeof sheets.listPortalSubmissions = () => source().listPortalSubmissions();
-export const updateSubmissionStatus: typeof sheets.updateSubmissionStatus = (...args) => source().updateSubmissionStatus(...args);
+// The staff inbox reads where /portal saves (always Postgres, below). It used
+// to follow the switch, so with the switch off staff read the old sheet and
+// never saw what customers sent (Nov 9, 2026).
+export const getPortalNewCount: typeof sheets.getPortalNewCount = () => pg.getPortalNewCount();
+export const listPortalSubmissions: typeof sheets.listPortalSubmissions = () => pg.listPortalSubmissions();
+export const updateSubmissionStatus: typeof sheets.updateSubmissionStatus = (...args) => pg.updateSubmissionStatus(...args);
 
 /** Saves one request a customer sent from /portal. Always Postgres. */
 export const appendPortalRequest: typeof pg.appendPortalRequest = (tab, values) => pg.appendPortalRequest(tab, values);

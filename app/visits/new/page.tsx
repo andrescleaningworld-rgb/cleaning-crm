@@ -9,6 +9,7 @@ import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import AccountPickerField from "../../components/AccountPickerField";
 import { ManagerOptions, useManagerNames } from "../../components/manager-options";
 import { pickManager } from "@/lib/managerNames";
+import { useVisitTypes } from "@/app/components/use-visit-types";
 
 type Account = {
   id?: string;
@@ -69,6 +70,8 @@ function NewVisitPageContent() {
   const manager = managerList.names.includes(rawManager) ? rawManager : pickManager(rawManager, managerList.names) || rawManager;
   const [subcontractor, setSubcontractor] = useState("");
   const [visitType, setVisitType] = useState("Routine Visit");
+  // Settings -> Visit Types.
+  const visitTypeOptions = useVisitTypes(visitType);
   const [condition, setCondition] = useState("8");
   const [followUpNeeded, setFollowUpNeeded] = useState("No");
   const [followUpDate, setFollowUpDate] = useState("");
@@ -280,13 +283,9 @@ function NewVisitPageContent() {
         <Field label="Subcontractor" optional value={subcontractor} onChange={(event) => setSubcontractor(event.target.value)} placeholder="Subcontractor" />
 
         <SelectField label="Visit type" value={visitType} onChange={(event) => setVisitType(event.target.value)}>
-          <option>Routine Visit</option>
-          <option>Complaint Follow-Up</option>
-          <option>Quality Check</option>
-          <option>Onboarding New Account</option>
-          <option>Customer Request</option>
-          <option>Subcontractor Review</option>
-          <option>Other</option>
+          {visitTypeOptions.map((type) => (
+            <option key={type}>{type}</option>
+          ))}
         </SelectField>
 
         <SelectField label="Condition score 0-10" value={condition} onChange={(event) => setCondition(event.target.value)}>

@@ -6,19 +6,12 @@ import AccountMultiSelect, {
 } from "@/app/components/AccountMultiSelect";
 import type { ToDo } from "./page";
 import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
+import { useVisitTypes } from "@/app/components/use-visit-types";
 
-// Distinct vocabulary from ToDo's taskType — "Visit" (the to-do type that
-// triggers this modal) has no equivalent entry here, since Visits categorizes
-// by what kind of visit it was, not by the to-do that prompted it.
-const VISIT_TYPES = [
-  "Routine Visit",
-  "Complaint Follow-Up",
-  "Quality Check",
-  "Onboarding New Account",
-  "Customer Request",
-  "Subcontractor Review",
-  "Other",
-];
+// The visit types come from Settings -> Visit Types (useVisitTypes). Distinct
+// vocabulary from ToDo's taskType — "Visit" (the to-do type that triggers
+// this modal) has no equivalent entry there, since Visits categorizes by what
+// kind of visit it was, not by the to-do that prompted it.
 
 const CONDITION_SCORES = Array.from({ length: 11 }, (_, i) => String(10 - i));
 
@@ -67,6 +60,7 @@ export default function VisitCompletionModal({
   const [manager, setManager] = useState(todo.assignedTo);
   const [subcontractor, setSubcontractor] = useState("");
   const [visitType, setVisitType] = useState("Routine Visit");
+  const visitTypes = useVisitTypes(visitType);
   const [condition, setCondition] = useState("8");
   const [followUpNeeded, setFollowUpNeeded] = useState("No");
   const [followUpDate, setFollowUpDate] = useState("");
@@ -207,7 +201,7 @@ export default function VisitCompletionModal({
               onChange={(event) => setVisitType(event.target.value)}
               className="ui-input w-full"
             >
-              {VISIT_TYPES.map((type) => (
+              {visitTypes.map((type) => (
                 <option key={type} value={type}>
                   {type}
                 </option>

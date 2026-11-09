@@ -8,6 +8,7 @@ import { parseISO } from "@/lib/dateUtils";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList, TextAreaField } from "@/app/ui";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
+import { useVisitTypes } from "@/app/components/use-visit-types";
 
 type Visit = {
   id: string;
@@ -63,15 +64,6 @@ type EditForm = {
   notes: string;
 };
 
-const VISIT_TYPE_OPTIONS = [
-  "Routine Visit",
-  "Complaint Follow-Up",
-  "Quality Check",
-  "Onboarding New Account",
-  "Customer Request",
-  "Subcontractor Review",
-  "Other",
-];
 
 function clean(value: unknown): string {
   return String(value ?? "").trim();
@@ -160,6 +152,8 @@ export default function VisitDetailPage() {
 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
+  // Settings -> Visit Types (suggestions; any text can still be typed here).
+  const visitTypeOptions = useVisitTypes();
   const [editedBy, setEditedBy] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -429,7 +423,7 @@ export default function VisitDetailPage() {
             <Field label="Visit date" type="date" value={form.date} onChange={(e) => updateForm("date", e.target.value)} />
             <Field label="Visit type" list="visit-type-options" value={form.visitType} onChange={(e) => updateForm("visitType", e.target.value)} />
             <datalist id="visit-type-options">
-              {VISIT_TYPE_OPTIONS.map((option) => (
+              {visitTypeOptions.map((option) => (
                 <option key={option} value={option} />
               ))}
             </datalist>

@@ -35,12 +35,27 @@ export type BaselinesSetting = { priceReviewStartedOn: string };
 /** The setup wizard's "Take pictures" shot list, in order. "Anything else" is always added at the end. */
 export type SurveyShotsSetting = { labels: string[] };
 
+/** Settings -> Visit Types: what the visit forms offer (active), and the ones turned off (inactive). */
+export type VisitTypesSetting = { active: string[]; inactive: string[] };
+
+/** The visit types the forms offered before they could be changed in Settings (Nov 9, 2026). */
+export const DEFAULT_VISIT_TYPES = [
+  "Routine Visit",
+  "Complaint Follow-Up",
+  "Quality Check",
+  "Onboarding New Account",
+  "Customer Request",
+  "Subcontractor Review",
+  "Other",
+];
+
 export type FeatureSettings = {
   subInsurancePortal: SubInsurancePortalSetting;
   atRisk: AtRiskSetting;
   checkin: CheckinSetting;
   baselines: BaselinesSetting;
   surveyShots: SurveyShotsSetting;
+  visitTypes: VisitTypesSetting;
 };
 
 export type FeatureSettingKey = keyof FeatureSettings;
@@ -62,6 +77,7 @@ export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   checkin: { on: false },
   baselines: { priceReviewStartedOn: "" },
   surveyShots: { labels: [...DEFAULT_SURVEY_SHOTS] },
+  visitTypes: { active: [...DEFAULT_VISIT_TYPES], inactive: [] },
 };
 
 export const FEATURE_SETTING_KEYS = Object.keys(DEFAULT_FEATURE_SETTINGS) as FeatureSettingKey[];

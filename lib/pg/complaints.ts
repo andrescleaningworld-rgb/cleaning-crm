@@ -10,6 +10,7 @@
 
 import { getSql } from "@/lib/db";
 import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
+import { forgetRiskCache } from "@/lib/pg/account-risk";
 import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { ComplaintInput } from "@/lib/googleSheets";
 
@@ -173,6 +174,8 @@ export async function appendComplaint(data: ComplaintInput): Promise<string> {
       if ((error as { code?: string }).code !== "42703") console.error("[complaints] the sub was not saved on the complaint:", error instanceof Error ? error.message : error);
     }
   }
+  // The At risk flags count complaints: show the change now, not after their 5-minute cache.
+  forgetRiskCache();
   return id;
 }
 
@@ -225,6 +228,7 @@ export async function closeComplaint(input: CloseComplaintInput): Promise<{ rowN
       WHERE sheet_row = $1`,
     [row.sheet_row, status, stamp, input.resolution]
   );
+  forgetRiskCache();
   return { rowNumber: row.sheet_row, status };
 }
 
@@ -353,6 +357,8 @@ export async function editComplaint(input: EditComplaintInput): Promise<{ rowNum
       accountTouched,
     ]
   );
+  // Priority / Validity changes reach the At risk flags now (the sub score is worked out fresh on every read).
+  forgetRiskCache();
   return { rowNumber: found.sheet_row, id: found.complaint_id.trim(), changes };
 }
 

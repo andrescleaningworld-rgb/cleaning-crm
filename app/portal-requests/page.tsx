@@ -9,7 +9,10 @@ import SubmissionsView from "./submissions-view";
 export const dynamic = "force-dynamic";
 
 export default async function PortalRequestsPage() {
-  const submissions = await listPortalSubmissions().catch(() => []);
+  const submissions = await listPortalSubmissions().catch((error) => {
+    console.error("[portal-requests] the list did not load:", error instanceof Error ? error.message : error);
+    return [];
+  });
   const newCount = submissions.filter((s) => s.status === "New").length;
 
   return (
