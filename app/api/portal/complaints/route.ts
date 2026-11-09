@@ -1,9 +1,13 @@
-import { filesJson, storedFileUrl, storedPathname } from "@/lib/files";
-import { NextRequest } from "next/server";
+import { filesJson } from "@/lib/files";
+import { customerPhotoLinks, newYorkToday } from "@/lib/portalPhotos";
+import { after, NextRequest } from "next/server";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { savePortalComplaint } from "@/lib/pg/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
 import { SERVICE_EMAIL } from "@/lib/portalContacts";
+import { notifySubOfComplaint } from "@/lib/complaintSubNotice";
+import { sendCustomerReceivedEmail } from "@/lib/complaintCustomerEmail";
+import { complaintRowId } from "@/lib/pg/complaint-events";
 
 export async function POST(request: NextRequest) {
   const session = await requirePortalAccount();
@@ -26,31 +30,9 @@ export async function POST(request: NextRequest) {
   }
 
   // Today in New York (the server runs on UTC, which is already tomorrow in the evening).
-  const ny = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric" })
-      .formatToParts(new Date())
-      .map((part) => [part.type, part.value])
-  );
-  const today = `${ny.month}/${ny.day}/${ny.year}`;
-  const todayIso = `${ny.year}-${ny.month.padStart(2, "0")}-${ny.day.padStart(2, "0")}`;
-  // Only photos this customer uploaded here (/api/portal/upload puts them
-  // under portal/<this account>/), never a link typed in from somewhere else.
-  const folder = `/portal/${session.accountId.replace(/[^A-Za-z0-9_-]/g, "_")}/`;
-  const photos = (Array.isArray(body.photos) ? body.photos : [])
-    .map((url) => {
-      // A private upload comes back as its signed app address (lib/files.ts): kept without the signature.
-      const pathname = storedPathname(String(url));
-      if (pathname !== null) return pathname.startsWith(folder.slice(1)) ? storedFileUrl(pathname) : "";
-      try {
-        const parsed = new URL(String(url));
-        return parsed.protocol === "https:" && parsed.hostname.endsWith(".public.blob.vercel-storage.com") && parsed.pathname.startsWith(folder) ? String(url) : "";
-      } catch {
-        return "";
-      }
-    })
-    .filter(Boolean)
-    .slice(0, 6)
-    .join(", ");
+  const { mdy: today, iso: todayIso } = newYorkToday();
+  // Only photos this customer uploaded here (lib/portalPhotos.ts).
+  const photos = customerPhotoLinks(session.accountId, body.photos).join(", ");
 
   // 1. Save first: the inbox row AND a real complaint, together (both or
   //    neither). If this fails the customer sees an error, it is logged, and
@@ -87,6 +69,25 @@ export async function POST(request: NextRequest) {
       `Photos: ${photos || "None"}`,
       `Complaint ID: ${complaintId}`,
     ],
+  });
+
+  // 3. The account's sub: email + text, after the answer is sent. A failed
+  //    notice is written on the complaint; the complaint stays saved.
+  const origin = new URL(request.url).origin;
+  after(() =>
+    notifySubOfComplaint({ key: complaintId, origin, by: "System" }).catch((error) =>
+      console.error("[portal/complaints] sub notice:", error instanceof Error ? error.message : error)
+    )
+  );
+  // 4. The customer: "We got it, we're on it" with the complaint number
+  //    (only while Settings -> "Customer complaint updates" is on).
+  after(async () => {
+    try {
+      const rowId = await complaintRowId(complaintId);
+      if (rowId !== null) await sendCustomerReceivedEmail(rowId, origin);
+    } catch (error) {
+      console.error("[portal/complaints] customer email:", error instanceof Error ? error.message : error);
+    }
   });
 
   return filesJson({ success: true });

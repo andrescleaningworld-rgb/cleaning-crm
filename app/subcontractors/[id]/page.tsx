@@ -973,15 +973,34 @@ export default function SubcontractorDetailPage() {
               <Detail label="Accounts Assigned" value={String(currentAccounts.length)} />
               <Detail label="Last Activity" value={lastReview} />
             </dl>
-            <p className="ui-card-text">
-              Score logic: every sub starts at 10 (scores began Aug 11, 2026). Each complaint takes off Low 0.5, Medium 1,
-              High 2 or Urgent 2.5, times a size multiplier. Not Valid complaints never count, and a complaint counts for the
-              sub who had the account when it was filed. Size multiplier = 30 ÷ workload points, kept between 0.4 and 2.0,
-              where workload points = active accounts + monthly sub pay ÷ $500: a bigger sub loses less per complaint. Each
-              month with no new complaint adds 1 point back (0.5 a month after a complaint is closed), up to 10. Visit
-              condition is shown but does not change the score. Status: 9–10 Excellent, 8–8.9 Good, 7–7.9 Needs Attention,
-              below 7 High Risk. Below 6 the office gets an alert.
-            </p>
+            {/* The rules in plain words (lib/googleSheets.ts computeSubcontractorScore, lib/complaintWeights.ts). Keep in step with them. */}
+            <div className="ui-card-text ui-stack">
+              <p className="ui-strong">How the score works</p>
+              <p>Every sub starts at 10 (scores began Aug 11, 2026). A complaint counts for the sub who had the account when it was filed.</p>
+              <p>
+                <strong>Each complaint takes off:</strong> priority points × size factor × validity.
+              </p>
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                <li>Priority points: Low 0.5, Medium 1, High 2, Urgent 2.5.</li>
+                <li>
+                  Size factor: 30 ÷ workload points (active accounts + monthly sub pay ÷ $500), kept between 0.4 and 2.0. A bigger sub loses less per
+                  complaint.
+                </li>
+                <li>Validity: Valid 100%, Needs Review 100%, Subjective 50%, Not Valid 0% (does not count). Merged complaints never count.</li>
+              </ul>
+              <p>
+                <strong>Fast fix bonus:</strong> fixed with proof (an after photo, or the office's &quot;No photo needed&quot;) within 1 business day of the sub being notified, half of that complaint&apos;s points
+                come back. Within 3 business days, a quarter comes back. Business days are Monday to Friday, 8 am to 5 pm. Never notified: counted from when it
+                was filed.
+              </p>
+              <p>
+                <strong>Monthly recovery:</strong> each month with no new complaint adds 1 point back (0.5 a month after a complaint is closed), up to 10.
+              </p>
+              <p>
+                Visit condition is shown but does not change the score. Status: 9–10 Excellent, 8–8.9 Good, 7–7.9 Needs Attention, below 7 High Risk. Below 6
+                the office gets an alert.
+              </p>
+            </div>
           </Card>
         </div>
 

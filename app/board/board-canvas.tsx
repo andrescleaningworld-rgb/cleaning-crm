@@ -12,6 +12,7 @@ import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLab
 import PizzaTracker from "@/app/components/pizza-tracker";
 import ReadyBadge from "@/app/components/ready-badge";
 import AccountLink from "@/app/components/AccountLink";
+import { ResponseClock } from "@/app/components/response-clock";
 import styles from "./board.module.css";
 
 const handwriting = Caveat({ subsets: ["latin"], weight: ["700"], display: "swap" });
@@ -41,6 +42,8 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
       <span className={styles.kind}>{paperLabel(paper)}</span>
       {title ? <span className={`${styles.title} ${paper.kind === "note" && !tv ? handwriting.className : ""}`}>{title}</span> : null}
       {!tv && paper.badge ? <span className={styles.badge}>{paper.badge}</span> : null}
+      {/* A complaint still waiting for its first answer: the response clock (green / yellow / red). */}
+      {!tv && paper.clock ? <ResponseClock createdAt={paper.clock.createdAt} answeredAt={paper.clock.answeredAt} status={paper.clock.status} hideAnswered /> : null}
       {/* A sticky note linked to an account: its name opens the account (the rest of the paper still opens the paper). */}
       {!tv && paper.kind === "note" && paper.accountName && paper.accountName !== title ? (
         <span className={styles.meta}>

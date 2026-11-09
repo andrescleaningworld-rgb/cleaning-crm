@@ -56,7 +56,7 @@ export async function accountRiskFlags(): Promise<Map<string, AccountRisk>> {
               s.company_name, s.contact_name,
               -- Each complaint counts as its Validity weight (lib/complaintWeights.ts): Subjective = half.
               (SELECT COALESCE(sum(${complaintValidityWeightSql("c.complaint_validity")}), 0)::float8 FROM complaints c
-                WHERE c.account_ref = a.id AND c.complaint_date >= (now() AT TIME ZONE 'America/New_York')::date - 30) AS complaints30,
+                WHERE c.account_ref = a.id AND c.complaint_date >= (now() AT TIME ZONE 'America/New_York')::date - 30 AND lower(btrim(c.status)) NOT LIKE 'merged%') AS complaints30,
               (SELECT max(v.visit_date)::text FROM visits v WHERE v.account_ref = a.id) AS last_visit
        FROM accounts a
        LEFT JOIN managers m ON m.id = a.manager_id

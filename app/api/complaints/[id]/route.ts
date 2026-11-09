@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getComplaintDetail } from "@/lib/pg/complaint-detail";
+import { mergeTargets } from "@/lib/pg/complaint-changes";
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
 
@@ -13,9 +14,12 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   try {
     if (!(await getAdminIdentity(request))) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401, ...noStore });
     const { id } = await context.params;
-    const detail = await getComplaintDetail(decodeURIComponent(id));
+    const key = decodeURIComponent(id);
+    const detail = await getComplaintDetail(key);
     if (!detail) return NextResponse.json({ success: false, error: "Complaint not found." }, { status: 404, ...noStore });
-    return NextResponse.json({ success: true, ...detail }, noStore);
+    // "Merge into another complaint": the other complaints on the same account.
+    const mergeInto = await mergeTargets(key).catch(() => []);
+    return NextResponse.json({ success: true, ...detail, mergeTargets: mergeInto }, noStore);
   } catch (error) {
     console.error("[complaints/:id GET]", error instanceof Error ? error.message : error);
     return NextResponse.json({ success: false, error: "The complaint did not load." }, { status: 500, ...noStore });

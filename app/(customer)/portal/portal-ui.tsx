@@ -105,9 +105,29 @@ export function PortalBigTile({ href, icon, label, tip }: { href: string; icon: 
 }
 
 /** Where something the customer sent stands: Received (blue), In progress (yellow), Done (green). */
-export function PortalStatus({ state }: { state: "received" | "working" | "done" }) {
+export function PortalStatus({ state, problem = false }: { state: "received" | "working" | "done"; problem?: boolean }) {
   const words = usePortalWords();
-  return <span className={`ui-portal-status ui-portal-status-${state}`}>{words.states[state]}</span>;
+  return <span className={`ui-portal-status ui-portal-status-${state}`}>{(problem ? words.problemSteps : words.states)[state]}</span>;
+}
+
+/** A problem's three steps in one line: Received → Working on it → Fixed, the current one bold. */
+export function ProblemSteps({ state }: { state: "received" | "working" | "done" }) {
+  const words = usePortalWords();
+  const steps = ["received", "working", "done"] as const;
+  const at = steps.indexOf(state);
+  return (
+    <p className="ui-muted" aria-label={words.problemSteps[state]}>
+      {steps.map((step, index) => (
+        <span key={step}>
+          {index > 0 ? " → " : ""}
+          <span style={index === at ? { fontWeight: 800, color: "var(--ui-ink)" } : index < at ? { color: "var(--ui-good)" } : undefined}>
+            {index < at ? "✓ " : ""}
+            {words.problemSteps[step]}
+          </span>
+        </span>
+      ))}
+    </p>
+  );
 }
 
 /** A password box with a show / hide eye button. */

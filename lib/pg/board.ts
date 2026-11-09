@@ -190,7 +190,7 @@ async function runSync(): Promise<void> {
       SELECT COALESCE(NULLIF(btrim(c.complaint_id), ''), c.legacy_key) AS item_id,
              COALESCE(c.complaint_date::timestamptz, c.created_at) AS since
     ) t
-    WHERE lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%'
+    WHERE lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%' AND lower(btrim(c.status)) NOT LIKE 'merged%'
     ON CONFLICT (kind, item_id) DO NOTHING
   `;
 
@@ -257,7 +257,7 @@ async function runSync(): Promise<void> {
       AND NOT EXISTS (
         SELECT 1 FROM complaints c
         WHERE COALESCE(NULLIF(btrim(c.complaint_id), ''), c.legacy_key) = h.item_id
-          AND lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%'
+          AND lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%' AND lower(btrim(c.status)) NOT LIKE 'merged%'
       )
   `;
   await sql.query(`
@@ -544,7 +544,47 @@ export async function listPapers(doneDays = DEFAULT_BOARD_SETTINGS.doneDays): Pr
     sql.query(`${SELECT_PAPER} AND i.board_done_at IS NULL ORDER BY i.board_pinned_at ASC, i.item_id ASC`),
     sql.query(`${SELECT_PAPER} AND i.board_done_at > now() - ($1::int || ' days')::interval ORDER BY i.board_done_at DESC LIMIT 200`, [doneDays]),
   ]);
-  return { papers: await withSetup((open as PaperRow[]).map(toPaper)), done: (done as PaperRow[]).map(toPaper) };
+  return { papers: await withClock(await withSetup((open as PaperRow[]).map(toPaper))), done: (done as PaperRow[]).map(toPaper) };
+}
+
+/**
+ * Complaint papers (their own, or one pinned by hand): the response clock,
+ * from the complaint itself (migration 076). Never fails the board: without
+ * it the papers show as before.
+ */
+async function withClock(papers: Paper[]): Promise<Paper[]> {
+  const keyOf = (paper: Paper) => (paper.kind === "complaint" ? paper.itemId : /^\/complaints\/([^/?#]+)/.exec(paper.href)?.[1] ?? "");
+  const keys = [...new Set(papers.map((paper) => { try { return decodeURIComponent(keyOf(paper)); } catch { return keyOf(paper); } }).filter((key) => key && key !== "new"))];
+  if (keys.length === 0) return papers;
+  try {
+    const rows = (await getSql().query(
+      `SELECT COALESCE(NULLIF(btrim(complaint_id), ''), legacy_key) AS item_id, btrim(complaint_id) AS complaint_id, legacy_key, created_at, status,
+              to_jsonb(complaints)->>'first_response_at' AS first_response_at, to_jsonb(complaints)->>'first_response_by' AS first_response_by
+       FROM complaints WHERE btrim(complaint_id) = ANY($1::text[]) OR legacy_key = ANY($1::text[])`,
+      [keys]
+    )) as { complaint_id: string; legacy_key: string; created_at: string | Date; status: string; first_response_at: string | null; first_response_by: string | null }[];
+    const byKey = new Map<string, Paper["clock"]>();
+    for (const row of rows) {
+      // first_response_by is null only where migration 076 is not in: no clock there.
+      if (row.first_response_by === null) continue;
+      const clock = { createdAt: iso(row.created_at), answeredAt: row.first_response_at ?? "", status: row.status };
+      if (row.complaint_id && !byKey.has(row.complaint_id)) byKey.set(row.complaint_id, clock);
+      if (!byKey.has(row.legacy_key)) byKey.set(row.legacy_key, clock);
+    }
+    return papers.map((paper) => {
+      let key = keyOf(paper);
+      try {
+        key = decodeURIComponent(key);
+      } catch {
+        // keep it as it is
+      }
+      const clock = key ? byKey.get(key) : undefined;
+      return clock ? { ...paper, clock } : paper;
+    });
+  } catch (error) {
+    console.error("[board] complaint clocks:", error instanceof Error ? error.message : error);
+    return papers;
+  }
 }
 
 /**

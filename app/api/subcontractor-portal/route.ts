@@ -4,6 +4,10 @@ import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { closeComplaint } from "@/lib/data/complaints";
+import { markFirstResponse } from "@/lib/pg/complaint-response";
+import { addComplaintEvent, complaintRowId } from "@/lib/pg/complaint-events";
+import { needsFixProof, recordFix } from "@/lib/pg/complaint-fix";
+import { fixPhotoLinks } from "@/lib/complaintFixPhotos";
 import { createSupplyOrder } from "@/lib/data/supplies";
 import {
   getSubPortalByEmail,
@@ -198,23 +202,55 @@ async function handleOnPostgres(
     return filesJson(answer({ message: "Supply order submitted.", orderId: order.orderId, rowNumber: order.rowNumber, status: order.status }));
   }
 
+  // Only a complaint on one of this sub's own accounts (what their portal lists).
+  const ownComplaint = async (raw: Record<string, unknown>) => {
+    const id = String(raw.id ?? raw.complaintId ?? "").trim();
+    const row = String(raw.rowNumber ?? "").trim();
+    const portal = await getSubPortalByEmail(email);
+    return (portal?.complaints ?? []).find((c) => (id !== "" && String(c.id).trim() === id) || (id === "" && row !== "" && String(c.rowNumber) === row)) ?? null;
+  };
+
   if (action === "resolveComplaintBySubcontractor") {
     const complaint = (body.complaint as Record<string, unknown>) || {};
+    const mine = await ownComplaint(complaint);
+    if (!mine) return refuse("This complaint is not on one of your accounts.", 403);
+    // Proof of fix: at least one after photo (lib/pg/complaint-fix.ts). Subs have no "No photo needed".
+    const mineKey = String(mine.id ?? "").trim() || String(mine.rowNumber);
+    const mineRowId = await complaintRowId(mineKey);
+    const fixPhotos = fixPhotoLinks(mineKey, complaint.fixPhotos ?? body.fixPhotos);
+    if (mineRowId !== null && fixPhotos.length === 0 && (await needsFixProof(mineRowId))) {
+      return refuse("Add at least one photo of the fixed problem.", 400);
+    }
     const resolution = String(complaint.resolution || complaint.resolutionNotes || complaint.notes || "");
     const closed = await closeComplaint({
-      rowNumber: complaint.rowNumber as string | number | undefined,
-      id: String(complaint.id ?? "").trim(),
+      rowNumber: mine.rowNumber,
+      id: String(mine.id ?? "").trim(),
       status: "Resolved by Sub",
       resolution: name ? `Resolved by ${name}: ${resolution}` : resolution,
     });
+    // The sub answered it: the response clock stops (if it was still running).
+    await markFirstResponse(String(closed.rowNumber), name || email);
+    if (mineRowId !== null) await recordFix({ rowId: mineRowId, photos: fixPhotos, by: name || email });
     return filesJson(answer({ message: "Complaint resolved.", rowNumber: closed.rowNumber, status: closed.status }));
+  }
+
+  // "Got it" from the sub: they saw it and are on it. Stops the response clock.
+  if (action === "acknowledgeComplaintBySubcontractor") {
+    const mine = await ownComplaint((body.complaint as Record<string, unknown>) || {});
+    if (!mine) return refuse("This complaint is not on one of your accounts.", 403);
+    const key = String(mine.id ?? "").trim() || String(mine.rowNumber);
+    const rowId = await complaintRowId(key);
+    if (rowId === null) return refuse("Complaint not found.", 404);
+    const first = await markFirstResponse(rowId, name || email);
+    await addComplaintEvent({ complaintId: rowId, kind: "acknowledged", detail: first ? "Got it from the sub (first answer)." : "Got it from the sub.", by: name || email });
+    return filesJson(answer({ message: "Got it." }));
   }
 
   return refuse(`Unknown subcontractor portal action: ${action}`, 400);
 }
 
 /** What the portal saves: Postgres only (see POST). */
-const SAVE_ACTIONS = new Set(["submitSubPortalIssue", "submitSupplyOrder", "resolveComplaintBySubcontractor", "logSubcontractorActivity"]);
+const SAVE_ACTIONS = new Set(["submitSubPortalIssue", "submitSupplyOrder", "resolveComplaintBySubcontractor", "acknowledgeComplaintBySubcontractor", "logSubcontractorActivity"]);
 
 export async function POST(request: NextRequest) {
   try {

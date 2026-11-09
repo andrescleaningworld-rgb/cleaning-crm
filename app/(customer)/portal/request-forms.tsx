@@ -65,8 +65,25 @@ function FormScreen({
 // the customer wants) one tap to say what kind. Nothing else to fill in.
 const PROBLEM_KINDS = ["Missed Cleaning", "Quality Issue", "Damaged Property", "Other"];
 
-export function ProblemForm({ accountName }: { accountName: string }) {
+/** Their newest problem that is still open (lib/pg/complaint-changes.ts openPortalComplaint). */
+export type OpenProblem = { key: string; day: string; text: string };
+
+async function uploadPhotos(photos: File[]): Promise<string[]> {
+  const urls: string[] = [];
+  for (const file of photos) {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/portal/upload", { method: "POST", body: form });
+    const data = (await res.json().catch(() => ({}))) as { url?: string };
+    if (!res.ok || !data.url) throw new Error("upload");
+    urls.push(data.url);
+  }
+  return urls;
+}
+
+export function ProblemForm({ accountName, openProblem = null }: { accountName: string; openProblem?: OpenProblem | null }) {
   const words = usePortalWords();
+  const lang = usePortalLang();
   const router = useRouter();
   const [kind, setKind] = useState("");
   const [details, setDetails] = useState("");
@@ -74,25 +91,17 @@ export function ProblemForm({ accountName }: { accountName: string }) {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  // With an open problem: "add" = add notes / photos to it instead of sending a new one.
+  const [adding, setAdding] = useState(false);
 
   async function submit() {
     if (!details.trim()) return setError(words.needDetails);
     setBusy(true);
     setError("");
     try {
-      const urls: string[] = [];
-      if (photos.length > 0) {
-        setUploading(true);
-        for (const file of photos) {
-          const form = new FormData();
-          form.append("file", file);
-          const res = await fetch("/api/portal/upload", { method: "POST", body: form });
-          const data = (await res.json().catch(() => ({}))) as { url?: string };
-          if (!res.ok || !data.url) throw new Error("upload");
-          urls.push(data.url);
-        }
-        setUploading(false);
-      }
+      setUploading(photos.length > 0);
+      const urls = await uploadPhotos(photos);
+      setUploading(false);
       await post("/api/portal/complaints", { issueType: kind || "Other", description: details.trim(), incidentDate: "", photos: urls });
       router.push("/portal/sent?kind=problem");
     } catch {
@@ -102,8 +111,74 @@ export function ProblemForm({ accountName }: { accountName: string }) {
     }
   }
 
+  async function submitAddition() {
+    if (!openProblem) return;
+    if (!details.trim() && photos.length === 0) return setError(words.needNoteOrPhoto);
+    setBusy(true);
+    setError("");
+    try {
+      setUploading(photos.length > 0);
+      const urls = await uploadPhotos(photos);
+      setUploading(false);
+      const res = await fetch("/api/portal/complaints/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: openProblem.key, note: details.trim(), photos: urls }),
+      });
+      if (res.status === 409) throw new Error("closed");
+      if (!res.ok) throw new Error("save");
+      router.push("/portal/sent?kind=problem");
+    } catch (err) {
+      setError(err instanceof Error && err.message === "closed" ? words.problemClosed : words.somethingWrong);
+      setUploading(false);
+      setBusy(false);
+    }
+  }
+
+  // Adding to the open problem: one box, photos, Send.
+  if (openProblem && adding) {
+    return (
+      <FormScreen title={words.addToProblem} subtitle={accountName} busy={busy} busyLabel={uploading ? words.uploadingPhotos : undefined} error={error} onSubmit={submitAddition}>
+        <div className="ui-card">
+          <p className="ui-muted">{words.openProblemSent(openProblem.day ? portalDay(openProblem.day, lang) : "")}</p>
+          <p className="ui-strong" style={{ whiteSpace: "pre-wrap" }}>
+            {openProblem.text}
+          </p>
+        </div>
+        <TextAreaField label={words.addNote} optional value={details} onChange={(e) => setDetails(e.target.value)} rows={4} />
+        <PhotoPicker label={words.photos} files={photos} onChange={setPhotos} max={4} />
+        <BigButton
+          kind="quiet"
+          onClick={() => {
+            setAdding(false);
+            setError("");
+          }}
+        >
+          {words.newProblemInstead}
+        </BigButton>
+      </FormScreen>
+    );
+  }
+
   return (
     <FormScreen title={words.problemTitle} subtitle={accountName} busy={busy} busyLabel={uploading ? words.uploadingPhotos : undefined} error={error} onSubmit={submit}>
+      {/* An open problem: on top, with one big button to add to it. */}
+      {openProblem ? (
+        <div className="ui-card ui-stack">
+          <p className="ui-strong">{words.openProblemTitle}</p>
+          <p className="ui-muted">{words.openProblemSent(openProblem.day ? portalDay(openProblem.day, lang) : "")}</p>
+          <p className="ui-card-text ui-clamp">{openProblem.text}</p>
+          <BigButton
+            onClick={() => {
+              setAdding(true);
+              setError("");
+            }}
+          >
+            {words.addToProblem}
+          </BigButton>
+        </div>
+      ) : null}
+      {openProblem ? <p className="ui-section-title">{words.newProblemInstead}</p> : null}
       <TextAreaField label={words.problemDetails} value={details} onChange={(e) => setDetails(e.target.value)} rows={5} />
       <PhotoPicker label={words.photos} files={photos} onChange={setPhotos} max={4} />
       <div className="ui-field" role="group" aria-label={words.problemKind}>

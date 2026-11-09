@@ -114,6 +114,14 @@ const en = {
   photos: "Photos",
   needDetails: "Tell us what happened.",
   uploadingPhotos: "Sending photos…",
+  // "Report a problem" when one is still open: add to it instead of sending a new one.
+  openProblemTitle: "You already told us about a problem",
+  openProblemSent: (day: string) => (day ? `Sent ${day}` : ""),
+  addToProblem: "Add photos or notes to this problem",
+  addNote: "What else should we know?",
+  newProblemInstead: "Report a different problem",
+  needNoteOrPhoto: "Add a note or a photo.",
+  problemClosed: "This problem is already closed. Please send a new one.",
 
   serviceTitle: "Request extra cleaning",
   serviceText: "Tap what you want. We will send you a price.",
@@ -153,6 +161,9 @@ const en = {
   noRequests: "You have not sent anything yet.",
   kinds: { problem: "Problem", service: "Extra cleaning", date: "Date change", billing: "Billing question" } as Record<string, string>,
   states: { received: "Received", working: "In progress", done: "Done" } as Record<string, string>,
+  // A problem followed on its complaint ("Customer complaint updates" on).
+  problemSteps: { received: "Received", working: "Working on it", done: "Fixed" } as Record<string, string>,
+  complaintNumber: (n: string) => `Complaint ${n}`,
 
   // contact
   contactTitle: "Contact us",
@@ -281,6 +292,13 @@ const es: PortalWords = {
   photos: "Fotos",
   needDetails: "Cuéntenos qué pasó.",
   uploadingPhotos: "Enviando fotos…",
+  openProblemTitle: "Ya nos contó de un problema",
+  openProblemSent: (day: string) => (day ? `Enviado el ${day}` : ""),
+  addToProblem: "Agregar fotos o notas a este problema",
+  addNote: "¿Qué más debemos saber?",
+  newProblemInstead: "Reportar otro problema",
+  needNoteOrPhoto: "Agregue una nota o una foto.",
+  problemClosed: "Este problema ya está cerrado. Por favor envíe uno nuevo.",
 
   serviceTitle: "Pedir limpieza extra",
   serviceText: "Toque lo que quiere. Le enviaremos un precio.",
@@ -318,6 +336,8 @@ const es: PortalWords = {
   noRequests: "Todavía no ha enviado nada.",
   kinds: { problem: "Problema", service: "Limpieza extra", date: "Cambio de fecha", billing: "Pregunta de facturación" },
   states: { received: "Recibido", working: "En proceso", done: "Listo" },
+  problemSteps: { received: "Recibido", working: "Trabajando en ello", done: "Arreglado" },
+  complaintNumber: (n: string) => `Queja ${n}`,
 
   contactTitle: "Contáctenos",
   yourManager: "Su gerente",

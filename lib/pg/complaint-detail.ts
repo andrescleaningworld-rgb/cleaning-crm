@@ -9,6 +9,7 @@
 import { getSql } from "@/lib/db";
 import { FILES_ROUTE } from "@/lib/files";
 import { getComplaintsAppsScriptShape, type AppsScriptComplaint } from "@/lib/pg/complaints";
+import { complaintRowId, listComplaintEvents, type ComplaintEvent } from "@/lib/pg/complaint-events";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 
@@ -56,6 +57,12 @@ export type ComplaintDetail = {
   complaint: AppsScriptComplaint;
   photos: string[];
   history: ComplaintHistoryEntry[];
+  /** Each time the sub was told (email / text), newest first (complaint_events, migration 075). */
+  subNotices: ComplaintEvent[];
+  /** What the customer added, and merges into / out of it, newest first. */
+  additions: ComplaintEvent[];
+  /** Proof of fix: the 'fixed' events (after photos, or "No photo needed: why"), newest first. */
+  fixes: ComplaintEvent[];
 };
 
 /** One complaint by its Complaint ID, its internal key (Pin Board papers) or its row number. Null when there is none. */
@@ -92,5 +99,12 @@ export async function getComplaintDetail(key: string): Promise<ComplaintDetail |
     return { who: clean(row.actor_name) || "Someone", when: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at), what };
   });
 
-  return { complaint, photos: photos.get(id || String(complaint.rowNumber)) ?? [], history };
+  const rowId = await complaintRowId(wanted);
+  const events = rowId === null ? [] : await listComplaintEvents(rowId).catch(() => []);
+  const subNotices = events.filter((event) => event.kind === "sub_notified");
+  const additions = events.filter((event) => event.kind === "customer_added" || event.kind === "merged_from" || event.kind === "merged_into");
+
+  const fixes = events.filter((event) => event.kind === "fixed");
+
+  return { complaint, photos: photos.get(id || String(complaint.rowNumber)) ?? [], history, subNotices, additions, fixes };
 }

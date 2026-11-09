@@ -78,6 +78,8 @@ export type Paper = {
   status: PinStatus | null;
   /** Asked for a status and not answered yet: the "Status needed" tag. */
   statusNeeded: boolean;
+  /** A complaint paper: its response clock (lib/responseClock.ts). answeredAt "" = still waiting. Missing = no clock. */
+  clock?: { createdAt: string; answeredAt: string; status: string } | null;
 };
 
 /* ---------- the status check (migration 062, lib/pg/pin-status.ts) ---------- */

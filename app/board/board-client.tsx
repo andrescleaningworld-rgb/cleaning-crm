@@ -36,7 +36,20 @@ import ReadyBadge from "../components/ready-badge";
 import AccountPickerField, { type PickedAccount } from "../components/AccountPickerField";
 import MarkateCheckNow from "../components/MarkateCheckNow";
 import { enterFullScreen } from "./full-screen";
+import NotifySubButton from "../components/notify-sub-button";
+import { ResponseClock } from "../components/response-clock";
 import styles from "./board.module.css";
+
+/** The complaint a paper opens (its key in /complaints/<key>), or "" when it is not a complaint. */
+function complaintKeyOf(paper: Paper): string {
+  const match = /^\/complaints\/([^/?#]+)/.exec(paper.href);
+  if (!match || match[1] === "new") return "";
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
 
 export type BoardTab = "board" | "mine" | "calendar" | "tv";
 
@@ -341,6 +354,15 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 ) : null}
                 <dt>Who</dt>
                 <dd>{open.forWho || data.managers.find((manager) => manager.id === open.square)?.name || "Office"}</dd>
+                {/* A complaint: its response clock (business hours with no first answer). */}
+                {open.clock ? (
+                  <>
+                    <dt>Answer</dt>
+                    <dd>
+                      <ResponseClock createdAt={open.clock.createdAt} answeredAt={open.clock.answeredAt} status={open.clock.status} />
+                    </dd>
+                  </>
+                ) : null}
                 {open.dueDate ? (
                   <>
                     <dt>Due</dt>
@@ -418,6 +440,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
             <div className={styles.sheetButtons}>
               {open.href ? <BigButton onClick={() => openDetails(open)}>{open.href.startsWith("/supply-orders/print") ? "📄 Open order" : open.href.startsWith("/complaints/") ? "Open complaint" : "Open full details"}</BigButton> : null}
+              {/* A complaint (its own paper or one pinned by hand): tell the sub by email + text. */}
+              {complaintKeyOf(open) ? <NotifySubButton key={complaintKeyOf(open)} complaintKey={complaintKeyOf(open)} /> : null}
               {/* A pinned account: the Print PDF file, made fresh when tapped (new tab, so the board stays open). */}
               {open.pdfHref ? (
                 <a className="ui-btn ui-btn-second" href={open.pdfHref} target="_blank" rel="noopener">

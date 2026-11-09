@@ -33,8 +33,8 @@ import { buildSubcontractorPerformanceKey } from "@/lib/subAccountMatching";
 
 /** A score under this is an alert. */
 export const ALERT_BELOW = 6;
-/** The score rules in lib/googleSheets.ts. 2 = workload points (accounts + sub pay ÷ 500), 2026-11-05; 3 = priority x validity weight (lib/complaintWeights.ts), 2026-11-09. */
-const SCORE_FORMULA_VERSION = 3;
+/** The score rules in lib/googleSheets.ts. 2 = workload points (accounts + sub pay ÷ 500), 2026-11-05; 3 = priority x validity weight (lib/complaintWeights.ts), 2026-11-09; 4 = fast fix bonus and Merged never counts, 2026-11-09. */
+const SCORE_FORMULA_VERSION = 4;
 const CHECK_EVERY_MS = 10 * 60_000;
 
 export type SubScoreAlert = {
@@ -88,7 +88,7 @@ async function reasonsFor(subId: string, performance: { score: number; openCompl
     `SELECT btrim(c.account_name) AS account_name, btrim(c.priority) AS priority, c.complaint_date::text AS day, c.status
      FROM complaints c JOIN accounts a ON a.id = c.account_ref
      WHERE a.subcontractor_id = $1 AND (to_jsonb(a)->>'deleted_at') IS NULL
-       AND ${complaintValidityWeightSql("c.complaint_validity")} > 0
+       AND ${complaintValidityWeightSql("c.complaint_validity")} > 0 AND lower(btrim(c.status)) NOT LIKE 'merged%'
        AND c.complaint_date >= current_date - 90
      ORDER BY c.complaint_date DESC LIMIT 5`,
     [subId]

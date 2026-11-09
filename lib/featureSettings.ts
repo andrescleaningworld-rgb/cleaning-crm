@@ -49,6 +49,12 @@ export const DEFAULT_VISIT_TYPES = [
   "Other",
 ];
 
+/** The complaint response clock (lib/responseClock.ts): yellow, then red, after this many business hours with no answer. */
+export type ComplaintClockSetting = { yellowHours: number; redHours: number };
+
+/** Customer-facing (off until turned on): "We got it" / "It's fixed" emails and Received → Working on it → Fixed in the portal. */
+export type CustomerComplaintLoopSetting = { on: boolean };
+
 export type FeatureSettings = {
   subInsurancePortal: SubInsurancePortalSetting;
   atRisk: AtRiskSetting;
@@ -56,6 +62,8 @@ export type FeatureSettings = {
   baselines: BaselinesSetting;
   surveyShots: SurveyShotsSetting;
   visitTypes: VisitTypesSetting;
+  complaintClock: ComplaintClockSetting;
+  customerComplaintLoop: CustomerComplaintLoopSetting;
 };
 
 export type FeatureSettingKey = keyof FeatureSettings;
@@ -78,6 +86,10 @@ export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   baselines: { priceReviewStartedOn: "" },
   surveyShots: { labels: [...DEFAULT_SURVEY_SHOTS] },
   visitTypes: { active: [...DEFAULT_VISIT_TYPES], inactive: [] },
+  // Business hours (Mon–Fri 8–5 New York) with no first answer.
+  complaintClock: { yellowHours: 2, redHours: 4 },
+  // Customers see this: off until the owner turns it on in Settings.
+  customerComplaintLoop: { on: false },
 };
 
 export const FEATURE_SETTING_KEYS = Object.keys(DEFAULT_FEATURE_SETTINGS) as FeatureSettingKey[];

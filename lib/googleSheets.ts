@@ -1,7 +1,8 @@
 import { google } from "googleapis";
 import { toISO } from "./dateUtils";
 import { DEFAULT_TO_DO_PRIORITY, normalizeToDoPriority, type ToDoPriority } from "./toDoPriority";
-import { complaintValidityWeight } from "./complaintWeights";
+import { complaintValidityWeight, fastFixShare } from "./complaintWeights";
+import { businessMinutesBetween } from "./responseClock";
 import {
   createEmptyChecklistItems,
   isChecklistComplete,
@@ -3417,6 +3418,8 @@ const COMPLAINT_COL = {
   // Not sheet columns: only rows built from Postgres have them (lib/pg/performance.ts).
   SUB_RECORDED:        16, // "1" = the sub who had the account when the complaint was filed is saved
   SUB_AT_FILING:       17, // that sub, as it was written on the account
+  BONUS_START:         18, // fast fix bonus: when the sub was first told (else when it was filed), ISO
+  FIXED_AT:            19, // when it was first marked fixed with proof (complaint_events 'fixed'), ISO; "" = not
 } as const;
 
 export type ComplaintInput = {
@@ -3778,11 +3781,27 @@ function accountSizeMultiplier(activeAccountsManaged: number, monthlySubPay: num
 // that already existed at rollout.
 const SCORING_ROLLOUT_DATE = new Date("2026-08-11");
 
+/**
+ * Fast fix bonus for one complaint row: fixed with proof, still resolved
+ * today, and how fast from the sub's first notice (else from filing), in
+ * business time. Rows from Sheets have no such cells: no bonus.
+ */
+function fastFixOf(row: string[], isOpenNow: boolean): { bonusShare: number; fixedAt: Date | null } {
+  const start = parseDateOrNull(row[COMPLAINT_COL.BONUS_START]);
+  const fixedAt = parseDateOrNull(row[COMPLAINT_COL.FIXED_AT]);
+  if (isOpenNow || !start || !fixedAt || fixedAt.getTime() < start.getTime()) return { bonusShare: 0, fixedAt: null };
+  const share = fastFixShare(businessMinutesBetween(start, fixedAt));
+  return { bonusShare: share, fixedAt: share > 0 ? fixedAt : null };
+}
+
 type ScoreableComplaint = {
   complaintDate: Date | null;
   resolutionDate: Date | null; // null unless status is resolved/closed AND a date could be determined
   isOpenNow: boolean;
   severityWeight: number;
+  /** Fast fix bonus (lib/complaintWeights.ts FAST_FIX_BONUS): the share of the hit that comes back, and when. 0 / null = none. */
+  bonusShare?: number;
+  fixedAt?: Date | null;
 };
 
 // Walks a subcontractor's complaint history to the current score, entirely
@@ -3828,7 +3847,7 @@ function computeSubcontractorScore(
 ): number {
   const multiplier = accountSizeMultiplier(activeAccountsManaged, monthlySubPay);
 
-  type ScoreEvent = { monthIdx: number; kind: "deduction" | "resolution"; amount: number };
+  type ScoreEvent = { monthIdx: number; kind: "deduction" | "resolution" | "bonus"; amount: number };
   const events: ScoreEvent[] = [];
 
   const rolloutMonth = monthIndex(SCORING_ROLLOUT_DATE);
@@ -3851,12 +3870,22 @@ function computeSubcontractorScore(
       complaint.isOpenNow ||
       (complaint.resolutionDate !== null && complaint.resolutionDate.getTime() >= SCORING_ROLLOUT_DATE.getTime());
 
+    let deducted = false;
     if (predatesRollout && wasOpenAtRollout) {
       // Carry-in: open at rollout, deduction lands at rollout itself.
       events.push({ monthIdx: rolloutMonth, kind: "deduction", amount });
+      deducted = true;
     } else if (!predatesRollout && complaint.complaintDate !== null) {
       // Filed on/after rollout: deduction lands on its real date.
       events.push({ monthIdx: monthIndex(complaint.complaintDate), kind: "deduction", amount });
+      deducted = true;
+    }
+
+    // Fast fix bonus (lib/complaintWeights.ts FAST_FIX_BONUS): a share of
+    // this complaint's own hit comes back in the month it was fixed. Only a
+    // complaint that took a hit, fixed on/after rollout.
+    if (deducted && amount > 0 && (complaint.bonusShare ?? 0) > 0 && complaint.fixedAt && complaint.fixedAt.getTime() >= SCORING_ROLLOUT_DATE.getTime()) {
+      events.push({ monthIdx: Math.max(rolloutMonth, monthIndex(complaint.fixedAt)), kind: "bonus", amount: amount * (complaint.bonusShare ?? 0) });
     }
 
     if (
@@ -3883,6 +3912,12 @@ function computeSubcontractorScore(
       score = Math.max(0, Math.min(10, score - total));
     } else {
       score = Math.max(0, Math.min(10, score + (inRecoveryMode ? 0.5 : 1.0)));
+      if (score >= 10) inRecoveryMode = false;
+    }
+    // Fast fix bonuses land after the month's hits; never above 10.
+    const bonus = monthEvents.filter((e) => e.kind === "bonus").reduce((sum, e) => sum + e.amount, 0);
+    if (bonus > 0) {
+      score = Math.min(10, score + bonus);
       if (score >= 10) inRecoveryMode = false;
     }
   }
@@ -3963,6 +3998,8 @@ export function buildSubcontractorPerformanceMap(
 
     const relatedComplaints = complaintRows.filter((row) => {
       if (isExcludedComplaintValidity(row[COMPLAINT_COL.COMPLAINT_VALIDITY])) return false;
+      // Merged into another complaint (lib/pg/complaint-changes.ts): the main one counts, this one never does.
+      if (/^merged/i.test(String(row[COMPLAINT_COL.STATUS] ?? "").trim())) return false;
       // A complaint that has its sub saved belongs to the sub who had the
       // account when it was filed, whoever has the account now. (A sub that
       // no longer matches anyone: it belongs to nobody, not to the new sub.)
@@ -3982,6 +4019,7 @@ export function buildSubcontractorPerformanceMap(
         isOpenNow,
         // Priority points x Validity weight (lib/complaintWeights.ts).
         severityWeight: getSeverityWeight(row[COMPLAINT_COL.PRIORITY]) * complaintValidityWeight(row[COMPLAINT_COL.COMPLAINT_VALIDITY]),
+        ...fastFixOf(row, isOpenNow),
       };
     });
 

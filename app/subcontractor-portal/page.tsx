@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { Counts, Sheet, Tips, setShellExtra } from "@/app/ui";
+import { Counts, PhotoPicker, Sheet, Tips, setShellExtra } from "@/app/ui";
 import { SUB_WORDS } from "@/app/ui/words";
 import SimpleHome, { PinPad, useSubLang } from "./simple-home";
 import SubInsurance from "./insurance";
@@ -67,6 +67,8 @@ type Complaint = {
   notes?: string;
   /** The complaint's pictures (lib/pg/sub-portal.ts), already signed for the sub. */
   photos?: string[];
+  /** The response clock: "" = nobody has answered it yet. */
+  firstResponseAt?: string;
 };
 
 /** An old Google Drive photo link -> the picture itself; other links unchanged. */
@@ -238,7 +240,8 @@ function isOpenComplaint(complaint: Complaint) {
 
   if (!status) return true;
 
-  return !["closed", "complete", "completed"].some((closedStatus) => {
+  // "Merged": folded into another complaint, which the sub still sees.
+  return !["closed", "complete", "completed", "merged"].some((closedStatus) => {
     return status === closedStatus;
   });
 }
@@ -471,6 +474,9 @@ export default function SubcontractorPortalPage() {
   const [resolvingComplaintId, setResolvingComplaintId] = useState("");
   // "See details": one complaint, read only (what the customer reported, and the pictures).
   const [viewComplaint, setViewComplaint] = useState<Complaint | null>(null);
+  const [ackingComplaintId, setAckingComplaintId] = useState("");
+  // "Mark Resolved by Sub": the after photos picked for each complaint.
+  const [fixFiles, setFixFiles] = useState<Record<string, File[]>>({});
 
   const [loading, setLoading] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
@@ -851,6 +857,27 @@ export default function SubcontractorPortalPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The "New complaint" email's button: /subcontractor-portal?complaint=<id>.
+  // Once the sub is logged in and the complaints are here, that complaint opens.
+  const [pendingComplaint, setPendingComplaint] = useState("");
+  useEffect(() => {
+    try {
+      const key = new URLSearchParams(window.location.search).get("complaint")?.trim() ?? "";
+      if (key) setPendingComplaint(key);
+    } catch {
+      // No address to read: the portal opens as usual.
+    }
+  }, []);
+  useEffect(() => {
+    if (!pendingComplaint || complaints.length === 0) return;
+    const found = complaints.find((c) => [c.id, c.complaintId, c.rowNumber].some((value) => cleanText(value) === pendingComplaint));
+    setPendingComplaint("");
+    if (!found) return;
+    setShowMore(true);
+    setActivePortalView("complaints");
+    setViewComplaint(found);
+  }, [complaints, pendingComplaint]);
 
   function handleTabChange(view: PortalView) {
     setActivePortalView(view);
@@ -1257,6 +1284,30 @@ export default function SubcontractorPortalPage() {
     }
   }
 
+  // "Got it, I'm on it": the first answer to a complaint (stops the office's response clock).
+  async function handleAcknowledgeComplaint(complaint: Complaint) {
+    const complaintKey = getComplaintId(complaint);
+    setError("");
+    setSuccessMessage("");
+    setAckingComplaintId(complaintKey);
+    try {
+      const response = await fetch("/api/subcontractor-portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "acknowledgeComplaintBySubcontractor", complaint: { id: complaint.id || complaint.complaintId || "", rowNumber: complaint.rowNumber || "" } }),
+      });
+      const data = (await response.json().catch(() => ({}))) as PortalResponse;
+      if (!response.ok || !data.success) throw new Error(data.error || data.message || "Not saved. Try again.");
+      const now = new Date().toISOString();
+      setComplaints((current) => current.map((item) => (getComplaintId(item) === complaintKey ? { ...item, firstResponseAt: now } : item)));
+      setSuccessMessage("Thanks. The office knows you are on it.");
+    } catch (ackError) {
+      setError(ackError instanceof Error ? ackError.message : "Not saved. Try again.");
+    } finally {
+      setAckingComplaintId("");
+    }
+  }
+
   async function handleResolveComplaint(complaint: Complaint) {
     if (!subcontractor) return;
 
@@ -1267,12 +1318,30 @@ export default function SubcontractorPortalPage() {
       setError("Please enter a resolution note before marking resolved.");
       return;
     }
+    const files = fixFiles[complaintKey] ?? [];
+    if (files.length === 0) {
+      setError("Add at least one photo of the fixed problem.");
+      return;
+    }
 
     setError("");
     setSuccessMessage("");
     setResolvingComplaintId(complaintKey);
 
     try {
+      // The after photos go up first (only for this sub's own complaint).
+      const uploadKey = cleanText(complaint.id || complaint.complaintId) || cleanText(complaint.rowNumber);
+      const fixPhotos: string[] = [];
+      for (const file of files) {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("complaint", uploadKey);
+        const upload = await fetch("/api/subcontractor-portal/complaint-photo", { method: "POST", body: form });
+        const uploaded = (await upload.json().catch(() => ({}))) as { url?: string; error?: string };
+        if (!upload.ok || !uploaded.url) throw new Error(uploaded.error || "A photo did not upload. Try again.");
+        fixPhotos.push(uploaded.url);
+      }
+
       const today = new Date().toISOString().slice(0, 10);
 
       const response = await fetch("/api/subcontractor-portal", {
@@ -1301,6 +1370,7 @@ export default function SubcontractorPortalPage() {
             )}: ${resolutionNote}`,
             followUpDate: today,
             closedDate: "",
+            fixPhotos,
           },
         }),
       });
@@ -1331,6 +1401,7 @@ export default function SubcontractorPortalPage() {
         ...currentNotes,
         [complaintKey]: "",
       }));
+      setFixFiles((current) => ({ ...current, [complaintKey]: [] }));
 
       setSuccessMessage(
         "Complaint marked as Resolved by Sub. Cleaning World will review and close it."
@@ -1856,6 +1927,18 @@ export default function SubcontractorPortalPage() {
                             : "See details"}
                         </button>
 
+                        {/* Nobody has answered it yet: one tap tells the office "I saw it, I'm on it". */}
+                        {complaint.firstResponseAt === "" && !cleanLower(complaint.status).startsWith("resolved") ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleAcknowledgeComplaint(complaint)}
+                            disabled={ackingComplaintId === complaintKey}
+                            className="ui-btn ui-btn-second w-full"
+                          >
+                            {ackingComplaintId === complaintKey ? "Saving…" : "✓ Got it, I'm on it"}
+                          </button>
+                        ) : null}
+
                         {getComplaintFollowUp(complaint) ? (
                           <p className="ui-muted">
                             <strong>Follow-up date:</strong>{" "}
@@ -1884,6 +1967,14 @@ export default function SubcontractorPortalPage() {
                               rows={3}
                               placeholder="Explain what was corrected, when, and any follow-up needed."
                               className="ui-input w-full"
+                            />
+
+                            {/* Proof of fix: at least one photo of the fixed problem. */}
+                            <PhotoPicker
+                              label="Photo of the fixed problem (required)"
+                              files={fixFiles[complaintKey] ?? []}
+                              onChange={(files) => setFixFiles((current) => ({ ...current, [complaintKey]: files }))}
+                              max={6}
                             />
 
                             <button

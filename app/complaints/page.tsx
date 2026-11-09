@@ -4,6 +4,8 @@ import Link from "next/link";
 import { PinButton, usePinInfo } from "../components/pin-to-board";
 import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
+import { ResponseClock } from "../components/response-clock";
+import { EMPTY_FIX_PROOF, FixProofFields, fixProofProblem, uploadFixPhotos, type FixProof } from "../components/fix-proof";
 import { useEffect, useMemo, useState } from "react";
 import {
   AddButton,
@@ -48,6 +50,9 @@ type Complaint = {
   notes?: string;
   reportedBy?: string;
   photos?: string;
+  /** The response clock (lib/responseClock.ts): when it was made, and its first answer ("" = still waiting, "none" = no clock). */
+  createdAt?: string;
+  firstResponseAt?: string;
 };
 
 type ComplaintPhoto = {
@@ -130,7 +135,7 @@ function toIso(value: unknown): string {
 
 function isClosedComplaint(status: unknown): boolean {
   const value = normalize(status);
-  return value.includes("closed") || value.includes("resolved");
+  return value.includes("closed") || value.includes("resolved") || value.includes("merged");
 }
 
 function isOpenComplaint(status: unknown): boolean {
@@ -262,6 +267,8 @@ export default function ComplaintsPage() {
   // Modals (a complaint itself opens its own page, /complaints/<id>)
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [resolutionNote, setResolutionNote] = useState("");
+  // Proof of fix for "Close complaint": after photos, or "No photo needed" and why.
+  const [fixProof, setFixProof] = useState<FixProof>(EMPTY_FIX_PROOF);
   // Layout only: filters open in a sheet.
   const [showFilters, setShowFilters] = useState(false);
   // Redesign: the big counts are filters. "open" = not closed yet.
@@ -354,6 +361,7 @@ export default function ComplaintsPage() {
   function openCloseModal(complaint: Complaint) {
     setSelectedComplaint(complaint);
     setResolutionNote(clean(complaint.resolution));
+    setFixProof(EMPTY_FIX_PROOF);
     setError("");
     setSuccessMessage("");
   }
@@ -362,6 +370,7 @@ export default function ComplaintsPage() {
     if (savingClose) return;
     setSelectedComplaint(null);
     setResolutionNote("");
+    setFixProof(EMPTY_FIX_PROOF);
     setSavingClose(false);
   }
 
@@ -376,6 +385,10 @@ export default function ComplaintsPage() {
       setSavingClose(true);
       setError("");
       setSuccessMessage("");
+
+      // Proof of fix: the after photos go up first (or "No photo needed" and why).
+      const fixKey = clean(selectedComplaint.id) || clean(selectedComplaint.rowNumber);
+      const fixPhotos = fixProof.noPhoto ? [] : await uploadFixPhotos(fixKey, fixProof.files);
 
       const response = await fetch("/api/complaints", {
         method: "POST",
@@ -396,6 +409,8 @@ export default function ComplaintsPage() {
             closedDate: todayIsoDate(),
             notes: selectedComplaint.notes || "",
           },
+          fixPhotos,
+          noPhotoReason: fixProof.noPhoto ? fixProof.reason.trim() : "",
         }),
       });
 
@@ -431,6 +446,11 @@ export default function ComplaintsPage() {
     if (!target) return;
     if (!clean(resolutionNote)) {
       setError("Please enter a resolution note before closing the complaint.");
+      return;
+    }
+    const proofProblem = fixProofProblem(fixProof);
+    if (proofProblem) {
+      setError(proofProblem);
       return;
     }
     setError("");
@@ -670,6 +690,7 @@ export default function ComplaintsPage() {
                 </Link>
               </p>
               <div className="ui-actions-row" style={{ marginTop: 8 }}>
+                <ResponseClock createdAt={complaint.createdAt} answeredAt={complaint.firstResponseAt} status={complaint.status} hideAnswered />
                 {priorityPill(complaint)}
                 <StatusPill kind="off">{clean(complaint.complaintValidity) || "Needs Review"}</StatusPill>
               </div>
@@ -711,6 +732,11 @@ export default function ComplaintsPage() {
             },
             { header: "Priority", cell: ({ complaint }) => priorityPill(complaint) },
             { header: "Status", cell: ({ complaint }) => statusPill(complaint) },
+            // The response clock: how long it has waited for a first answer (business hours).
+            {
+              header: "Waiting",
+              cell: ({ complaint }) => <ResponseClock createdAt={complaint.createdAt} answeredAt={complaint.firstResponseAt} status={complaint.status} hideAnswered />,
+            },
             { header: "Validity", cell: ({ complaint }) => clean(complaint.complaintValidity) || "Needs Review" },
             { header: "Photos", cell: ({ complaint }) => photoText(complaint) || "None" },
             { header: "Assigned To", cell: ({ complaint }) => clean(complaint.manager) || clean(complaint.subcontractor) || "No one" },
@@ -778,6 +804,8 @@ export default function ComplaintsPage() {
           onChange={(e) => setResolutionNote(e.target.value)}
           placeholder="Example: Spoke with subcontractor, issue corrected, customer satisfied."
         />
+        {/* Proof of fix: required to close. */}
+        <FixProofFields value={fixProof} onChange={setFixProof} />
         {error ? <ErrorBox title="The complaint was not closed." text={error} /> : null}
       </Sheet>
     </Screen>

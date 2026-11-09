@@ -10,6 +10,8 @@ import { getSql } from "@/lib/db";
 import { addDays, officeDay } from "@/lib/cleanings";
 import { accountStartDays, cancelledLastDays } from "@/lib/pg/accounts";
 import { generateScheduleDates, isScheduleEffectivelyActive, toISO, todayISO } from "@/lib/scheduleRecurrence";
+import { getFeatureSetting } from "@/lib/pg/feature-settings";
+import { PORTAL_COMPLAINT_REPORTED_BY } from "@/lib/pg/customer-portal";
 
 const text = (value: unknown) => String(value ?? "").trim();
 
@@ -193,7 +195,18 @@ export type PortalMyRequest = {
   date: string;
   summary: string;
   state: PortalRequestState;
+  /** A problem followed on the complaint itself ("Customer complaint updates" on): its number, and Received → Working on it → Fixed. */
+  complaintNumber?: string;
 };
+
+/** A customer's complaint in three plain steps: nobody answered yet → received; answered or being worked → working; staff closed / resolved → done. */
+export function complaintPlainState(status: string, firstResponseAt: string | null): PortalRequestState {
+  const s = status.trim().toLowerCase();
+  // "Resolved by Sub" still waits for the office to check it.
+  if (/^(closed|resolved)/.test(s) && !s.startsWith("resolved by sub")) return "done";
+  if (firstResponseAt || (s !== "" && s !== "open" && s !== "new")) return "working";
+  return "received";
+}
 
 const KIND_OF_TAB: Record<string, PortalRequestKind> = {
   "portal-complaints": "problem",
@@ -218,8 +231,8 @@ export async function getMyRequests(accountId: string): Promise<PortalMyRequest[
      WHERE account_ref = $1::text OR btrim(account_id_raw) = $1::text
      ORDER BY created_at DESC, id DESC LIMIT 50`,
     [accountId]
-  )) as { id: number; tab: string; submitted_date_raw: string; field_1: string; field_2: string; status: string }[];
-  return rows.map((r) => ({
+  )) as { id: number; tab: string; submitted_date_raw: string; field_1: string; field_2: string; status: string; created_at?: string | Date }[];
+  const requests = rows.map((r) => ({
     key: String(r.id),
     kind: KIND_OF_TAB[r.tab] ?? "service",
     date: text(r.submitted_date_raw),
@@ -227,4 +240,44 @@ export async function getMyRequests(accountId: string): Promise<PortalMyRequest[
     summary: r.tab === "portal-date-changes" ? `${text(r.field_1)} → ${text(r.field_2)}` : text(r.field_1),
     state: plainState(r.status),
   }));
+
+  // "Customer complaint updates" on (Settings): each problem is followed on
+  // the complaint itself, so the customer sees what staff and the sub do.
+  // Off: as before. Never fails the page.
+  try {
+    if (!(await getFeatureSetting("customerComplaintLoop")).on) return requests;
+    const complaints = (await sql.query(
+      `SELECT btrim(complaint_id) AS complaint_id, sheet_row, complaint_date::text AS day, complaint_date_raw, issue, status,
+              to_jsonb(complaints)->>'first_response_at' AS first_response_at, created_at
+       FROM complaints
+       WHERE account_ref = $1::text AND reported_by = $2 AND lower(btrim(status)) NOT LIKE 'merged%'
+       ORDER BY created_at DESC LIMIT 50`,
+      [accountId, PORTAL_COMPLAINT_REPORTED_BY]
+    )) as { complaint_id: string; sheet_row: number; day: string | null; complaint_date_raw: string; issue: string; status: string; first_response_at: string | null; created_at: string | Date }[];
+    if (complaints.length === 0) return requests;
+    // A portal request row of a problem that is now a complaint (same day) shows once: as the complaint.
+    const days = new Set(complaints.map((c) => c.day ?? ""));
+    const requestDay = (mdy: string) => {
+      const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdy.trim());
+      return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : "";
+    };
+    const others = requests.filter((r) => !(r.kind === "problem" && days.has(requestDay(r.date))));
+    const problems: PortalMyRequest[] = complaints.map((c) => ({
+      key: `complaint-${c.complaint_id || c.sheet_row}`,
+      kind: "problem",
+      date: c.day ? `${Number(c.day.slice(5, 7))}/${Number(c.day.slice(8, 10))}/${c.day.slice(0, 4)}` : text(c.complaint_date_raw),
+      // What they wrote (no kind in front, no later additions, no staff text).
+      summary: c.issue.split(/\n\n(?:Added by the customer|Merged from complaint)/)[0].replace(/^(Missed Cleaning|Quality Issue|Staff Conduct|Damaged Property|Communication Issue|Other):\s*/i, "").trim().slice(0, 140),
+      state: complaintPlainState(c.status, c.first_response_at),
+      complaintNumber: c.complaint_id || String(c.sheet_row),
+    }));
+    const when = (r: PortalMyRequest) => {
+      const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(r.date);
+      return m ? Date.UTC(Number(m[3]), Number(m[1]) - 1, Number(m[2])) : 0;
+    };
+    return [...problems, ...others].sort((a, b) => when(b) - when(a));
+  } catch (error) {
+    console.error("[portal requests] complaints did not load:", error instanceof Error ? error.message : error);
+    return requests;
+  }
 }

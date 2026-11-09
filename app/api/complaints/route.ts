@@ -1,18 +1,19 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import {
-  findSubcontractorEmailByName,
-  findSubcontractorPhoneByName,
-} from "@/app/api/subcontractors/route";
-import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
-import {
   appendComplaint,
   closeComplaint,
   complaintsOnPostgres,
   editComplaint,
-  getComplaintForResend,
   getComplaintsAppsScriptShape,
 } from "@/lib/data/complaints";
-import { sendInternalNotification, sendSubcontractorNotification } from "@/lib/email";
+import { sendInternalNotification } from "@/lib/email";
+import { notifySubOfComplaint } from "@/lib/complaintSubNotice";
+import { mergeComplaints } from "@/lib/pg/complaint-changes";
+import { markFirstResponse } from "@/lib/pg/complaint-response";
+import { addComplaintEvent, complaintRowId } from "@/lib/pg/complaint-events";
+import { isResolvedStatus, needsFixProof, recordFix } from "@/lib/pg/complaint-fix";
+import { fixPhotoLinks } from "@/lib/complaintFixPhotos";
+import { sendCustomerFixedEmail } from "@/lib/complaintCustomerEmail";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
@@ -259,6 +260,16 @@ export async function POST(request: NextRequest) {
         },
       };
 
+      // Proof of fix (lib/pg/complaint-fix.ts): at least one after photo, or
+      // "No photo needed" and why. Checked before anything is saved.
+      const fixKey = clean(payload.complaint.id) || clean(payload.complaint.rowNumber);
+      const fixRowId = fixKey ? await complaintRowId(fixKey) : null;
+      const fixPhotos = fixPhotoLinks(fixKey, (body as { fixPhotos?: unknown }).fixPhotos ?? complaint.fixPhotos);
+      const noPhotoReason = clean((body as { noPhotoReason?: unknown }).noPhotoReason ?? complaint.noPhotoReason).slice(0, 300);
+      if (fixRowId !== null && isResolvedStatus(payload.complaint.status) && fixPhotos.length === 0 && !noPhotoReason && (await needsFixProof(fixRowId))) {
+        return NextResponse.json({ success: false, error: "Add an after photo, or tap “No photo needed” and say why. Nothing was saved." }, { status: 400 });
+      }
+
       // Closed in Postgres, same answer shape as before.
       {
         let closed: { rowNumber: number; status: string };
@@ -287,6 +298,15 @@ export async function POST(request: NextRequest) {
             entityId: String(closed.rowNumber),
           });
         }
+        // Closing it answers it (the response clock stops, if it was still running).
+        await markFirstResponse(String(closed.rowNumber), actor?.name || "Staff");
+        // The proof, on the complaint (before / after on its page).
+        if (fixRowId !== null) await recordFix({ rowId: fixRowId, photos: fixPhotos, noPhotoReason, by: actor?.name || "Staff" });
+        // A customer's portal complaint: "It's fixed" email (only while the switch is on; lib/complaintCustomerEmail.ts).
+        if (fixRowId !== null && isResolvedStatus(closed.status)) {
+          const origin = new URL(request.url).origin;
+          after(() => sendCustomerFixedEmail(fixRowId, origin).catch((error) => console.error("[complaints close] customer email:", error instanceof Error ? error.message : error)));
+        }
 
         return NextResponse.json({
           success: true,
@@ -298,41 +318,73 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (requestedAction === "resendComplaintNotification") {
-      const payload = {
-        action: "resendComplaintNotification",
-        complaint: {
-          rowNumber: complaint.rowNumber || body.rowNumber || "",
-          id: clean(complaint.id || complaint.complaintId || body.id),
-        },
-      };
+    // "Got it" (Complaint Detail page): a manager answers the complaint without
+    // changing anything else. Stops the response clock (lib/pg/complaint-response.ts).
+    if (requestedAction === "acknowledge") {
+      const actor = await getAdminIdentity(request);
+      if (!actor) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401 });
+      const key = clean(complaint.id || complaint.complaintId || body.id) || clean(complaint.rowNumber || body.rowNumber);
+      const rowId = key ? await complaintRowId(key) : null;
+      if (rowId === null) return NextResponse.json({ success: false, error: "Complaint not found." }, { status: 404 });
+      const first = await markFirstResponse(rowId, actor.name || "Staff");
+      await addComplaintEvent({ complaintId: rowId, kind: "acknowledged", detail: first ? "Got it (first answer)." : "Got it.", by: actor.name || "Staff" });
+      return NextResponse.json({ success: true, first, message: "Got it." });
+    }
 
-      // The app sends the email itself (lib/email.ts), whatever the
-      // complaints switch says: the same "New Complaint" email it sends when
-      // a complaint is created, to the subcontractor named on the complaint's
-      // account. (Apps Script used to send it while complaints were on Sheets.)
-      {
-        const found = await getComplaintForResend(payload.complaint.rowNumber, payload.complaint.id);
-        if (!found) {
-          return NextResponse.json({ success: false, error: "Complaint not found.", sentPayload: payload }, { status: 500 });
+    // "Notify sub" (Complaint Detail page, Pin Board popup): the same email +
+    // text a new complaint sends, by hand, any time (lib/complaintSubNotice.ts).
+    // "resendComplaintNotification" is the old name of the same button.
+    if (requestedAction === "notifySub" || requestedAction === "resendComplaintNotification") {
+      const actor = await getAdminIdentity(request);
+      if (!actor) return NextResponse.json({ success: false, error: "Log in first. Nothing was sent." }, { status: 401 });
+      const key = clean(complaint.id || complaint.complaintId || body.id) || clean(complaint.rowNumber || body.rowNumber);
+      if (!key) return NextResponse.json({ success: false, error: "Which complaint? Reload the page." }, { status: 400 });
+      try {
+        const result = await notifySubOfComplaint({ key, origin: new URL(request.url).origin, by: actor.name || "Staff" });
+        const sentSomething = result.email === "sent" || result.text === "sent";
+        return NextResponse.json({
+          success: true,
+          result,
+          notification: { sent: sentSomething, reason: sentSomething ? "" : result.reasons.join(" ") },
+          message: sentSomething ? "Sub notified." : "Not sent.",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The notice was not sent.";
+        console.error("[complaints notifySub]", message);
+        return NextResponse.json({ success: false, error: message }, { status: message === "Complaint not found." ? 404 : 500 });
+      }
+    }
+
+    // "Merge into another complaint" (Complaint Detail page): same account
+    // only. The text and photos move into the main one; this one is closed as
+    // "Merged" and never counts (lib/pg/complaint-changes.ts).
+    if (requestedAction === "mergeComplaint") {
+      const actor = await getAdminIdentity(request);
+      if (!actor) return NextResponse.json({ success: false, error: "Log in first. Nothing was merged." }, { status: 401 });
+      const fromKey = clean(body.from || complaint.id || complaint.complaintId);
+      const intoKey = clean(body.into);
+      if (!fromKey || !intoKey) return NextResponse.json({ success: false, error: "Pick the complaint to merge into." }, { status: 400 });
+      try {
+        const merged = await mergeComplaints({ fromKey, intoKey, by: actor.name || "Staff" });
+        for (const [entityId, detail] of [
+          [merged.fromId, `Complaint merged into ${merged.intoId}`],
+          [merged.intoId, `Complaint ${merged.fromId} merged into this one`],
+        ]) {
+          await logActivity({
+            actorAccountId: actor.accountId ?? null,
+            actorRole: actor.role ?? "manager",
+            actorName: actor.name || "",
+            action: "update",
+            entityType: "complaint",
+            entityId,
+            detail,
+          }).catch(() => null);
         }
-        const notSent = (reason: string) =>
-          NextResponse.json({ success: true, notification: { sent: false, reason }, message: "Resend attempted." });
-        if (!found.subcontractorName) return notSent("No subcontractor is set on this complaint's account.");
-        const email = await findSubcontractorEmailByName(found.subcontractorName);
-        if (!email) return notSent(`No email on file for subcontractor "${found.subcontractorName}".`);
-        const sent = await sendSubcontractorNotification(email, `New Complaint - ${found.accountName || "Account"}`, [
-          `Account Name: ${found.accountName || "-"}`,
-          `Complaint Date: ${found.complaintDate || "-"}`,
-          `Priority: ${found.priority || "-"}`,
-          `Validity: ${found.complaintValidity || "-"}`,
-          `Description: ${found.issue || found.accountName || "-"}`,
-          `Follow-Up Date: ${found.lastFollowUpDate || "-"}`,
-          `Cleaning World Contact: ${found.assignedTo || "Cleaning World Office"}`,
-        ]);
-        return sent
-          ? NextResponse.json({ success: true, notification: { sent: true }, message: "Resend attempted." })
-          : notSent("The email could not be sent.");
+        return NextResponse.json({ success: true, intoKey: merged.intoKey, message: "Merged." });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The complaints were not merged.";
+        console.error("[complaints mergeComplaint]", message);
+        return NextResponse.json({ success: false, error: message }, { status: 400 });
       }
     }
 
@@ -347,6 +399,16 @@ export async function POST(request: NextRequest) {
       const accountName = clean(complaint.accountName || getText(complaint, "Account Name"));
       if (!id) return NextResponse.json({ success: false, error: "Which complaint? Reload the page. Nothing was saved." }, { status: 400 });
       if (!accountName) return NextResponse.json({ success: false, error: "Pick the account. Nothing was saved." }, { status: 400 });
+      // Resolving needs proof of fix: Edit cannot set Closed / Resolved on an open complaint that has none.
+      if (isResolvedStatus(clean(complaint.status))) {
+        const editRowId = await complaintRowId(id);
+        if (editRowId !== null) {
+          const current = (await getComplaintsAppsScriptShape()).find((c) => c.id === id || String(c.rowNumber) === clean(complaint.rowNumber));
+          if (current && !isResolvedStatus(current.status) && (await needsFixProof(editRowId))) {
+            return NextResponse.json({ success: false, error: "To close it, use “Mark fixed” on the complaint page and add the after photo. Nothing was saved." }, { status: 400 });
+          }
+        }
+      }
       let edited: Awaited<ReturnType<typeof editComplaint>>;
       try {
         edited = await editComplaint({
@@ -382,6 +444,17 @@ export async function POST(request: NextRequest) {
           entityId: edited.id,
           detail: `Complaint edited: ${edited.changes.map((change) => `${change.label}: ${short(change.before)} → ${short(change.after)}`).join("; ")}`,
         }).catch((error) => console.error("[complaints editComplaint] log:", error instanceof Error ? error.message : error));
+      }
+      // A new status, note or resolution answers the complaint (the response clock stops).
+      if (edited.changes.some((change) => change.label === "Status" || change.label === "Notes" || change.label === "Resolution")) {
+        await markFirstResponse(String(edited.rowNumber), editActor.name || "Staff");
+      }
+      // Closed from Edit (it already had its proof): the customer's "It's fixed" email, like Close.
+      const statusChange = edited.changes.find((change) => change.label === "Status");
+      if (statusChange && isResolvedStatus(statusChange.after) && !isResolvedStatus(statusChange.before)) {
+        const editedRowId = await complaintRowId(String(edited.rowNumber));
+        const origin = new URL(request.url).origin;
+        if (editedRowId !== null) after(() => sendCustomerFixedEmail(editedRowId, origin).catch((error) => console.error("[complaints edit] customer email:", error instanceof Error ? error.message : error)));
       }
       return NextResponse.json({ success: true, id: edited.id, rowNumber: edited.rowNumber, changes: edited.changes, message: edited.changes.length ? "Complaint updated." : "Nothing changed." });
     }
@@ -479,79 +552,20 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Only fires on a fresh addComplaint — this route has no "reassign
-    // subcontractor on an existing complaint" action to hook. Wrapped in
-    // after() so the invocation stays alive until the lookup + send
-    // actually finish, instead of racing a fire-and-forget chain against
-    // the instance freezing post-response — see notifyManagerOfNewToDo's
-    // comment in app/api/to-do/route.ts for why that matters. Body is
-    // title / description / deep link to the complaint's detail page, sent
-    // unsanitized-for-length via sanitizeSmsText(..., Infinity).
-    if (fields.subcontractor) {
-      const subcontractorName = fields.subcontractor;
-      const summary = fields.issue || fields.accountName;
+    // The sub who has the account: email (English, Spanish, Portuguese, with a
+    // button to the complaint in the sub portal) + a short text with no link,
+    // each written on the complaint (lib/complaintSubNotice.ts). After the
+    // answer is sent; a failed notice never fails the save. Before Nov 9,
+    // 2026 this texted and emailed the sub typed on the form, with the
+    // Validity in the email, and wrote nothing down.
+    {
       const origin = new URL(request.url).origin;
-
-      after(async () => {
-        try {
-          const phone = await findSubcontractorPhoneByName(subcontractorName);
-          if (!phone) {
-            console.debug(
-              `[sms] skip complaint-assignment notify: no phone on file for subcontractor "${subcontractorName}"`
-            );
-            return;
-          }
-          const link = `${origin}/complaints/${encodeURIComponent(complaintId)}`;
-          const rawMessage = [
-            `New complaint: ${fields.accountName || "Account"}`,
-            summary,
-            smsLastLine(link, "sub"),
-          ]
-            .filter(Boolean)
-            .join("\n");
-          const message = sanitizeSmsText(rawMessage, Infinity);
-          await sendSms(phone, message, "complaints/addComplaint");
-        } catch (error) {
-          console.error(
-            "[sms] complaint-assignment notify lookup failed:",
-            error instanceof Error ? error.message : error
-          );
-        }
-      });
-
-      // Same trigger condition as the old sendComplaintNotificationToSubcontractor
-      // (accountName + subcontractor both present — accountName is required by
-      // the Add Complaint form, so this if-block is the effective gate). Skips
-      // silently, same as before, when no email is on file for the subcontractor.
-      after(async () => {
-        try {
-          const email = await findSubcontractorEmailByName(subcontractorName);
-          if (!email) {
-            console.debug(
-              `[email] skip complaint notify: no email on file for subcontractor "${subcontractorName}"`
-            );
-            return;
-          }
-          await sendSubcontractorNotification(
-            email,
-            `New Complaint - ${fields.accountName || "Account"}`,
-            [
-              `Account Name: ${fields.accountName || "-"}`,
-              `Complaint Date: ${fields.complaintDate || "-"}`,
-              `Priority: ${fields.priority || "-"}`,
-              `Validity: ${fields.complaintValidity || "-"}`,
-              `Description: ${summary || "-"}`,
-              `Follow-Up Date: ${fields.lastFollowUpDate || "-"}`,
-              `Cleaning World Contact: ${fields.assignedTo || "Cleaning World Office"}`,
-            ]
-          );
-        } catch (error) {
-          console.error(
-            "[email] complaint-assignment notify failed:",
-            error instanceof Error ? error.message : error
-          );
-        }
-      });
+      const notifier = await getAdminIdentity(request);
+      after(() =>
+        notifySubOfComplaint({ key: complaintId, origin, by: notifier?.name || "System" }).catch((error) =>
+          console.error("[complaints addComplaint] sub notice:", error instanceof Error ? error.message : error)
+        )
+      );
     }
 
     const createActor = await getAdminIdentity(request);

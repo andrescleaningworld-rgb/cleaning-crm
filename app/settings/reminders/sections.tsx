@@ -6,7 +6,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BigButton, Card, showToast } from "@/app/ui";
 import { CHECKIN_SEND_FROM_DAY, CHECKIN_TEST_EMAIL } from "@/lib/customerCheckin";
-import { DEFAULT_FEATURE_SETTINGS, type AtRiskSetting, type FeatureSettingKey, type FeatureSettings } from "@/lib/featureSettings";
+import { DEFAULT_FEATURE_SETTINGS, type AtRiskSetting, type ComplaintClockSetting, type FeatureSettingKey, type FeatureSettings } from "@/lib/featureSettings";
 
 export type SectionProps = {
   settings: FeatureSettings;
@@ -143,4 +143,55 @@ function CheckinSection({ settings, canEdit, save }: SectionProps) {
   );
 }
 
-export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection, CheckinSection];
+function ComplaintClockSection({ settings, canEdit, save }: SectionProps) {
+  const [t, setT] = useState<ComplaintClockSetting>(settings.complaintClock);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- follow the saved values once they load
+  useEffect(() => setT(settings.complaintClock), [settings.complaintClock]);
+  const set = (field: keyof ComplaintClockSetting) => (n: number) => setT((current) => ({ ...current, [field]: Number.isFinite(n) ? n : 0 }));
+  const d = DEFAULT_FEATURE_SETTINGS.complaintClock;
+  return (
+    <Card title="⏱️ Complaint response clock">
+      <div className="ui-stack">
+        <p className="ui-card-text">
+          How long an open complaint has waited for its first answer (a manager or the sub changes its status, adds a note, or taps &quot;Got it&quot;). Business hours
+          only: Monday to Friday, 8 am to 5 pm. When it turns red, the assigned manager gets one text and one push.
+        </p>
+        <ThresholdRow label="Business hours with no answer" unit="after" yellow={t.yellowHours} red={t.redHours} onYellow={set("yellowHours")} onRed={set("redHours")} disabled={!canEdit} />
+        <p className="ui-muted">
+          Start: yellow after {d.yellowHours} h, red after {d.redHours} h.
+        </p>
+        <div className="ui-actions-row">
+          <BigButton disabled={!canEdit} onClick={() => void save("complaintClock", t)}>
+            Save
+          </BigButton>
+          <BigButton kind="second" disabled={!canEdit} onClick={() => setT(d)}>
+            Back to the start numbers
+          </BigButton>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CustomerComplaintLoopSection({ settings, canEdit, save }: SectionProps) {
+  return (
+    <Card title="📣 Customer complaint updates">
+      <div className="ui-stack">
+        <p className="ui-card-text">
+          For problems a customer sends from the portal: a &quot;We got it, we&apos;re on it&quot; email with the complaint number right away, and an &quot;It&apos;s
+          fixed&quot; email (with the after photo) when the office closes it. Their portal shows Received → Working on it → Fixed. English and Spanish. Customers
+          never see validity, priority, notes, sub names or scores.
+        </p>
+        <Switch
+          label="Send complaint updates to customers"
+          text="Customers see this."
+          on={settings.customerComplaintLoop.on}
+          canEdit={canEdit}
+          onChange={(on) => void save("customerComplaintLoop", { on })}
+        />
+      </div>
+    </Card>
+  );
+}
+
+export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection, ComplaintClockSection, CustomerComplaintLoopSection, CheckinSection];

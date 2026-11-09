@@ -10,6 +10,7 @@ import type { BoardData, BoardMe } from "@/lib/board";
 import { NOTE_BOXES, STATUS_NOTE_MAX, isPinStatus } from "@/lib/board";
 import { setPaperStatus, statusHistory } from "@/lib/pg/pin-status";
 import { sendPush } from "@/lib/push";
+import { markFirstResponse } from "@/lib/pg/complaint-response";
 import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "@/lib/boardPins";
 import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
@@ -167,6 +168,8 @@ export async function POST(request: NextRequest) {
     if (action === "take") {
       if (!kind || !itemId) return refuse("kind and itemId are required.");
       if (!(await takePaper(kind, itemId, by, body.on !== false))) return refuse("That paper is not on the board any more.", 404);
+      // A manager took a complaint ("Got it", the pin turns green): that answers it (response clock).
+      if (kind === "complaint" && body.on !== false) await markFirstResponse(itemId, by);
       return NextResponse.json({ success: true });
     }
 
@@ -188,6 +191,8 @@ export async function POST(request: NextRequest) {
       if (note.length > STATUS_NOTE_MAX) return refuse(`Keep the note under ${STATUS_NOTE_MAX} letters.`);
       const result = await setPaperStatus({ kind, itemId, status, note, by });
       if (!result.ok) return refuse("That paper is not on the board any more.", 404);
+      // A status on a complaint paper answers the complaint (response clock).
+      if (kind === "complaint") await markFirstResponse(itemId, by);
       return NextResponse.json({ success: true, takenDown: result.takenDown });
     }
 

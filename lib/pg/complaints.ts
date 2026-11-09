@@ -33,12 +33,18 @@ type ComplaintRow = {
   sub_at_filing: string | null;
   /** The text typed when it was closed, or saved from the edit page (not a sheet column). */
   resolution_note: string;
+  /** When the row was made: the response clock starts here. */
+  created_at: string | Date;
+  /** The response clock (migration 076); null = still waiting, or not in yet. */
+  first_response_at: string | null;
+  first_response_by: string | null;
 };
 
 // sub_at_filing is read through to_jsonb so the list still loads in a
 // database where migration 031 has not been applied yet (it is null there).
+// The same for the response clock columns (migration 076).
 const COMPLAINT_COLUMNS =
-  "complaint_id, account_id_raw, account_name, account_ref, complaint_date_raw, issue, priority, complaint_validity, status, reported_by, assigned_to, last_follow_up_date_raw, notes, sheet_row, to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing, resolution_note";
+  "complaint_id, account_id_raw, account_name, account_ref, complaint_date_raw, issue, priority, complaint_validity, status, reported_by, assigned_to, last_follow_up_date_raw, notes, sheet_row, to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing, resolution_note, created_at, to_jsonb(complaints)->>'first_response_at' AS first_response_at, to_jsonb(complaints)->>'first_response_by' AS first_response_by";
 
 async function allComplaintRows(): Promise<ComplaintRow[]> {
   const sql = getSql();
@@ -80,6 +86,10 @@ export type AppsScriptComplaint = {
   followUpDate: string;
   notes: string;
   reportedBy: string;
+  /** The response clock (lib/responseClock.ts): when it was made, and its first answer ("" = still waiting). */
+  createdAt: string;
+  firstResponseAt: string;
+  firstResponseBy: string;
 };
 
 // The list GET /api/complaints returns: every row with data, in sheet
@@ -112,6 +122,10 @@ export async function getComplaintsAppsScriptShape(): Promise<AppsScriptComplain
     followUpDate: scriptDate(r.last_follow_up_date_raw),
     notes: scriptText(r.notes),
     reportedBy: scriptText(r.reported_by),
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at ?? ""),
+    // Before migration 076 there is no clock: every complaint counts as answered (no clock is shown).
+    firstResponseAt: r.first_response_at ?? (r.first_response_by === undefined || r.first_response_by === null ? "none" : ""),
+    firstResponseBy: r.first_response_by ?? "",
   }));
 }
 

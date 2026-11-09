@@ -6,6 +6,9 @@
 import { getSql } from "@/lib/db";
 import { accountLive, HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
 import { buildSubcontractorPerformanceMap, type SubcontractorPerformance } from "@/lib/googleSheets";
+import { complaintEventsReady } from "@/lib/pg/complaint-events";
+
+const isoOrBlank = (value: unknown) => (value instanceof Date ? value.toISOString() : value ? String(value) : "");
 
 /** A sheet-like row: the given values at their column positions, "" elsewhere. */
 function row(width: number, cells: Record<number, unknown>): string[] {
@@ -23,6 +26,7 @@ function cutTrailingBlanks(cells: unknown[]): string[] {
 
 export async function getSubcontractorPerformanceMap(): Promise<Map<string, SubcontractorPerformance>> {
   const sql = getSql();
+  const eventsReady = await complaintEventsReady().catch(() => false);
   const [accounts, visits, complaints, subs] = (await Promise.all([
     sql.query(
       `SELECT account_name, subcontractor_raw, status, COALESCE(monthly_sub_pay::text, '') AS monthly_sub_pay
@@ -33,9 +37,13 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
               follow_up_date_old_raw, notes, created_at_raw, updated_at_raw, follow_up_date_raw
        FROM visits WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`
     ),
+    // Fast fix bonus: when the sub was first told (else when it was filed), and
+    // when it was first marked fixed with proof (complaint_events, migration 075).
     sql.query(
       `SELECT account_name, complaint_date_raw, priority, complaint_validity, status, resolution_date_raw, updated_at_raw,
-              to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing
+              to_jsonb(complaints)->>'sub_at_filing' AS sub_at_filing,
+              ${eventsReady ? `COALESCE((SELECT min(e.created_at) FROM complaint_events e WHERE e.complaint_id = complaints.id AND e.kind = 'sub_notified' AND e.status = 'sent'), complaints.created_at)` : "NULL"} AS bonus_start,
+              ${eventsReady ? `(SELECT min(e.created_at) FROM complaint_events e WHERE e.complaint_id = complaints.id AND e.kind = 'fixed')` : "NULL"} AS fixed_at
        FROM complaints WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`
     ),
     // exclude_from_score: migration 071 (read this way so it works before that runs: nobody excluded).
@@ -64,10 +72,13 @@ export async function getSubcontractorPerformanceMap(): Promise<Map<string, Subc
     // sub saved (migration 031), R = that sub's name. With Q set, the
     // complaint counts for that sub and not for whoever has the account now.
     complaints.map((c) =>
-      row(18, {
+      row(20, {
         2: c.account_name, 3: c.complaint_date_raw, 5: c.priority, 6: c.complaint_validity, 7: c.status, 11: c.resolution_date_raw, 14: c.updated_at_raw,
         16: c.sub_at_filing === null || c.sub_at_filing === undefined ? "" : "1",
         17: c.sub_at_filing ?? "",
+        // Fast fix bonus (lib/complaintWeights.ts), Postgres only.
+        18: isoOrBlank(c.bonus_start),
+        19: isoOrBlank(c.fixed_at),
       })
     ),
     // Subcontractors A:Z — A id, B contact, C company, and past Z: "1" = Exclude from sub score

@@ -44,3 +44,26 @@ export function complaintValidityWeightSql(column: string): string {
     .join(" ");
   return `(CASE ${cases} ELSE 1::numeric END)`;
 }
+
+// Fast fix bonus (Nov 9, 2026): part of a complaint's hit comes back when it
+// is fixed fast, with proof (an after photo, or staff "No photo needed").
+// The clock starts when the sub was first told about it (the first email or
+// text that went out, automatic or "Notify sub"); never told = when it was
+// filed. Business days: Mon–Fri, 8 am – 5 pm New York (lib/responseClock.ts),
+// so one business day = 9 business hours. Checked in order: the first window
+// it fits gives that share back. Merged and Not Valid complaints get nothing
+// (they cost nothing). The score never goes above 10.
+export const FAST_FIX_BONUS = [
+  { withinBusinessDays: 1, giveBack: 0.5 },
+  { withinBusinessDays: 3, giveBack: 0.25 },
+] as const;
+
+export const BUSINESS_DAY_MINUTES = 9 * 60;
+
+/** The share of the hit that comes back, given the business minutes from first notice (or filing) to the fix. 0 = none. */
+export function fastFixShare(businessMinutes: number): number {
+  for (const rule of FAST_FIX_BONUS) {
+    if (businessMinutes <= rule.withinBusinessDays * BUSINESS_DAY_MINUTES) return rule.giveBack;
+  }
+  return 0;
+}

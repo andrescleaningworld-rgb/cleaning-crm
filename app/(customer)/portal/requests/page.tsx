@@ -1,12 +1,14 @@
 import { Card, EmptyState, Screen } from "@/app/ui";
 import { getMyRequests } from "@/lib/pg/portal-home";
-import { LangToggle, PortalStatus } from "../portal-ui";
+import { LangToggle, PortalStatus, ProblemSteps } from "../portal-ui";
 import { requireCustomer } from "../server";
 
 export const dynamic = "force-dynamic";
 
 // "What I sent": everything this location sent, newest first, with where it
-// stands in one colored word. Staff notes are never shown here.
+// stands in one colored word. Staff notes are never shown here. With
+// "Customer complaint updates" on (Settings), a problem shows its complaint
+// number and Received → Working on it → Fixed.
 export default async function PortalMyRequestsPage() {
   const { account, words } = await requireCustomer();
   const requests = await getMyRequests(account.accountId);
@@ -19,9 +21,13 @@ export default async function PortalMyRequestsPage() {
         <ul className="ui-cardlist" aria-label={words.requestsTitle}>
           {requests.map((r) => (
             <li key={r.key}>
-              <Card title={words.kinds[r.kind] ?? r.kind} right={<PortalStatus state={r.state} />}>
+              <Card title={words.kinds[r.kind] ?? r.kind} right={<PortalStatus state={r.state} problem={Boolean(r.complaintNumber)} />}>
                 {r.summary ? <p>{r.summary}</p> : null}
-                <p className="ui-muted">{r.date}</p>
+                {r.complaintNumber ? <ProblemSteps state={r.state} /> : null}
+                <p className="ui-muted">
+                  {r.date}
+                  {r.complaintNumber ? ` · ${words.complaintNumber(r.complaintNumber)}` : ""}
+                </p>
               </Card>
             </li>
           ))}

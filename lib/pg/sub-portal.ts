@@ -129,11 +129,35 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
     return lastDay !== "" && lastDay >= today;
   });
 
+  // Only complaints whose account is one of this sub's accounts, by the
+  // account's ID (complaints.account_ref, else the account ID typed on the
+  // complaint when it has no link). Never by a name: two accounts (or two
+  // subs) can share one. Before Nov 9, 2026 an account NAME match counted too.
+  // And only the ones filed while this sub had the account (Nov 9, 2026): a
+  // complaint saves the account's sub at filing (sub_at_filing, migration
+  // 031). It is this sub's when that is the account's sub text of today (the
+  // account has not changed subs since), or this sub's own company name.
+  // '' = the account had no sub then: not theirs. NULL = not recorded
+  // (complaints from before 031): it counts for the account's sub of today,
+  // the same rule as the score. Staff see every complaint.
   const accountIds = new Set(accounts.map((a) => text(a.accountId)).filter(Boolean));
-  const accountNames = new Set(accounts.map((a) => lower(a.accountName)).filter(Boolean));
-  const mineOnly = allComplaints.filter(
-    (c) => (text(c.accountId) !== "" && accountIds.has(text(c.accountId))) || (text(c.accountName) !== "" && accountNames.has(lower(c.accountName)))
-  );
+  const linkedRowsOfComplaints = (await sql.query(
+    `SELECT c.sheet_row
+     FROM complaints c
+     JOIN accounts a ON a.id = COALESCE(c.account_ref, NULLIF(btrim(c.account_id_raw), ''))
+     JOIN subcontractors s ON s.id = $2::text
+     WHERE a.id = ANY($1::text[])
+       AND (c.account_ref IS NOT NULL OR btrim(c.account_id_raw) = a.id)
+       AND (
+         (to_jsonb(c)->>'sub_at_filing') IS NULL
+         OR (btrim(to_jsonb(c)->>'sub_at_filing') <> ''
+             AND (lower(btrim(to_jsonb(c)->>'sub_at_filing')) = lower(btrim(a.subcontractor_raw))
+                  OR lower(btrim(to_jsonb(c)->>'sub_at_filing')) = lower(btrim(s.company_name))))
+       )`,
+    [[...accountIds], subId]
+  )) as { sheet_row: number }[];
+  const mineRows = new Set(linkedRowsOfComplaints.map((r) => Number(r.sheet_row)));
+  const mineOnly = allComplaints.filter((c) => mineRows.has(Number(c.rowNumber)));
   // The pictures (uploaded ones, and the customer's from the portal), read
   // before the notes are blanked: the portal's photo links are in the notes.
   // A failure leaves the pictures out, never the complaints.
