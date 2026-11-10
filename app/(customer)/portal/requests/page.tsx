@@ -1,6 +1,6 @@
 import { Card, EmptyState, Screen } from "@/app/ui";
 import { getMyRequests } from "@/lib/pg/portal-home";
-import { LangToggle, PortalStatus, ProblemSteps } from "../portal-ui";
+import { ComplaintTracker, LangToggle, PortalStatus } from "../portal-ui";
 import { requireCustomer } from "../server";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // "What I sent": everything this location sent, newest first, with where it
 // stands in one colored word. Staff notes are never shown here. With
 // "Customer complaint updates" on (Settings), a problem shows its complaint
-// number and Received → Working on it → Fixed.
+// number and its tracker: Received → Seen by your manager → Team on it → Fixed.
 export default async function PortalMyRequestsPage() {
   const { account, words } = await requireCustomer();
   const requests = await getMyRequests(account.accountId);
@@ -21,9 +21,9 @@ export default async function PortalMyRequestsPage() {
         <ul className="ui-cardlist" aria-label={words.requestsTitle}>
           {requests.map((r) => (
             <li key={r.key}>
-              <Card title={words.kinds[r.kind] ?? r.kind} right={<PortalStatus state={r.state} problem={Boolean(r.complaintNumber)} />}>
+              <Card title={words.kinds[r.kind] ?? r.kind} right={<PortalStatus state={r.state} problem={Boolean(r.complaintNumber)} track={r.track} />}>
                 {r.summary ? <p>{r.summary}</p> : null}
-                {r.complaintNumber ? <ProblemSteps state={r.state} /> : null}
+                {r.track ? <ComplaintTracker track={r.track} /> : null}
                 <p className="ui-muted">
                   {r.date}
                   {r.complaintNumber ? ` · ${words.complaintNumber(r.complaintNumber)}` : ""}

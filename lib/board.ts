@@ -90,7 +90,7 @@ export type PinStatusKey = "on_it" | "waiting_customer" | "waiting_sub" | "done"
 export const PIN_STATUSES: { key: PinStatusKey; label: string }[] = [
   { key: "on_it", label: "On it" },
   { key: "waiting_customer", label: "Waiting on customer" },
-  { key: "waiting_sub", label: "Waiting on sub" },
+  { key: "waiting_sub", label: "Waiting on team" },
   { key: "done", label: "Done" },
 ];
 

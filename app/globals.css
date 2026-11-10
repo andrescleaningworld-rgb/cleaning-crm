@@ -4644,6 +4644,103 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   color: var(--ui-green-ink);
 }
 
+/* A customer's problem, step by step (portal-ui.tsx ComplaintTracker): a thick
+   4-part bar, then one step per line. Green check = done, big blue dot = now,
+   gray = still to come. Big enough for a thumb and old eyes. */
+.ui-portal-track {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 12px 0 4px;
+}
+.ui-portal-track-bar {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+.ui-portal-track-seg {
+  flex: 1;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--ui-line);
+}
+.ui-portal-track-seg.is-done {
+  background: var(--ui-green);
+}
+.ui-portal-track-seg.is-now {
+  background: var(--ui-brand);
+}
+.ui-portal-track-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ui-portal-track-step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  min-height: 52px;
+  color: var(--ui-muted);
+}
+/* The line down to the next step, green once this step is done. */
+.ui-portal-track-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 34px;
+  bottom: 0;
+  width: 3px;
+  background: var(--ui-line);
+}
+.ui-portal-track-step.is-done:not(:last-child)::after {
+  background: var(--ui-green);
+}
+.ui-portal-track-mark {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--ui-line);
+  background: var(--ui-surface);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+.ui-portal-track-step.is-done .ui-portal-track-mark {
+  border-color: var(--ui-green);
+  background: var(--ui-green);
+  color: #ffffff;
+}
+.ui-portal-track-step.is-now .ui-portal-track-mark {
+  border-color: var(--ui-brand);
+  background: var(--ui-brand);
+  box-shadow: 0 0 0 5px var(--ui-brand-soft);
+}
+.ui-portal-track-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 3px 0 12px;
+}
+.ui-portal-track-name {
+  font-size: 18px;
+  line-height: 1.25;
+}
+.ui-portal-track-step.is-done .ui-portal-track-name {
+  color: var(--ui-ink);
+}
+.ui-portal-track-step.is-now .ui-portal-track-name {
+  color: var(--ui-ink);
+  font-weight: 800;
+}
+.ui-portal-track-when {
+  font-size: 15px;
+  color: var(--ui-muted);
+}
+
 /* The big check on the "Got it!" screen. */
 .ui-portal-sent-check {
   display: flex;

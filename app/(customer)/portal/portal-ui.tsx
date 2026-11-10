@@ -8,6 +8,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { UiWordsProvider } from "@/app/ui";
 import { PORTAL_LANG_COOKIE, PORTAL_WORDS, type PortalLang, type PortalWords } from "./words";
+import type { ComplaintTrack } from "@/lib/pg/portal-home";
 
 const LangContext = createContext<PortalLang>("en");
 
@@ -104,29 +105,62 @@ export function PortalBigTile({ href, icon, label, tip }: { href: string; icon: 
   );
 }
 
-/** Where something the customer sent stands: Received (blue), In progress (yellow), Done (green). */
-export function PortalStatus({ state, problem = false }: { state: "received" | "working" | "done"; problem?: boolean }) {
+/**
+ * Where something the customer sent stands: Received (blue), In progress (yellow), Done (green).
+ * A tracked problem (`track`) says its tracker step in short: Received / Seen / Team on it / Fixed.
+ */
+export function PortalStatus({ state, problem = false, track }: { state: "received" | "working" | "done"; problem?: boolean; track?: ComplaintTrack }) {
   const words = usePortalWords();
-  return <span className={`ui-portal-status ui-portal-status-${state}`}>{(problem ? words.problemSteps : words.states)[state]}</span>;
+  const label = track ? words.trackShort[track.step] : (problem ? words.problemSteps : words.states)[state];
+  return <span className={`ui-portal-status ui-portal-status-${state}`}>{label}</span>;
 }
 
-/** A problem's three steps in one line: Received → Working on it → Fixed, the current one bold. */
-export function ProblemSteps({ state }: { state: "received" | "working" | "done" }) {
+/** "Nov 10, 3:42 PM" / "10 nov, 3:42 p. m.", office time. */
+function trackTime(iso: string, lang: PortalLang): string {
+  const day = new Date(iso);
+  if (!iso || Number.isNaN(day.getTime())) return "";
+  return new Intl.DateTimeFormat(lang === "es" ? "es-US" : "en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(day);
+}
+
+/**
+ * A problem's pizza tracker: a thick 4-part bar, then the 4 steps one per
+ * line. Green check = done (with when, if known), big blue dot = now, gray =
+ * still to come. Received → Seen by your manager → Team on it → Fixed.
+ */
+export function ComplaintTracker({ track }: { track: ComplaintTrack }) {
   const words = usePortalWords();
-  const steps = ["received", "working", "done"] as const;
-  const at = steps.indexOf(state);
+  const lang = usePortalLang();
+  const fixed = track.step === 3;
+  const stateOf = (index: number) => (index < track.step || fixed ? "is-done" : index === track.step ? "is-now" : "");
   return (
-    <p className="ui-muted" aria-label={words.problemSteps[state]}>
-      {steps.map((step, index) => (
-        <span key={step}>
-          {index > 0 ? " → " : ""}
-          <span style={index === at ? { fontWeight: 800, color: "var(--ui-ink)" } : index < at ? { color: "var(--ui-good)" } : undefined}>
-            {index < at ? "✓ " : ""}
-            {words.problemSteps[step]}
-          </span>
-        </span>
-      ))}
-    </p>
+    <div className="ui-portal-track" role="group" aria-label={`${words.trackLabel}: ${words.trackSteps[track.step]}`}>
+      <span className="ui-portal-track-bar" aria-hidden="true">
+        {words.trackSteps.map((step, index) => (
+          <span key={step} className={`ui-portal-track-seg ${stateOf(index)}`} />
+        ))}
+      </span>
+      <ol className="ui-portal-track-steps">
+        {words.trackSteps.map((step, index) => {
+          const state = stateOf(index);
+          const when = state === "is-done" || state === "is-now" ? trackTime(track.at[index], lang) : "";
+          return (
+            <li key={step} className={`ui-portal-track-step ${state}`} aria-current={state === "is-now" ? "step" : undefined}>
+              <span className="ui-portal-track-mark" aria-hidden="true">
+                {state === "is-done" ? "✓" : null}
+              </span>
+              <span className="ui-portal-track-words">
+                <span className="ui-portal-track-name">{step}</span>
+                {when ? (
+                  <span className="ui-portal-track-when" suppressHydrationWarning>
+                    {when}
+                  </span>
+                ) : null}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 

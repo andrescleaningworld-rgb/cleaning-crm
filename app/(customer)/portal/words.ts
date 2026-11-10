@@ -163,6 +163,10 @@ const en = {
   states: { received: "Received", working: "In progress", done: "Done" } as Record<string, string>,
   // A problem followed on its complaint ("Customer complaint updates" on).
   problemSteps: { received: "Received", working: "Working on it", done: "Fixed" } as Record<string, string>,
+  // The 4-step complaint tracker (lib/pg/portal-home.ts complaintTrack). Never the word "sub": it is "team".
+  trackSteps: ["Received", "Seen by your manager", "Team on it", "Fixed"],
+  trackShort: ["Received", "Seen", "Team on it", "Fixed"],
+  trackLabel: "Where your problem stands",
   complaintNumber: (n: string) => `Complaint ${n}`,
 
   // contact
@@ -337,6 +341,9 @@ const es: PortalWords = {
   kinds: { problem: "Problema", service: "Limpieza extra", date: "Cambio de fecha", billing: "Pregunta de facturación" },
   states: { received: "Recibido", working: "En proceso", done: "Listo" },
   problemSteps: { received: "Recibido", working: "Trabajando en ello", done: "Arreglado" },
+  trackSteps: ["Recibido", "Visto por su gerente", "Nuestro equipo está trabajando", "Arreglado"],
+  trackShort: ["Recibido", "Visto", "Equipo trabajando", "Arreglado"],
+  trackLabel: "Cómo va su problema",
   complaintNumber: (n: string) => `Queja ${n}`,
 
   contactTitle: "Contáctenos",

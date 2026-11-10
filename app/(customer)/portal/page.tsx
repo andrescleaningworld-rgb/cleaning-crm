@@ -43,7 +43,7 @@ export default async function PortalHomePage() {
                   <span className="ui-strong">{words.kinds[r.kind] ?? r.kind}</span>
                   <span className="ui-muted">{r.date}</span>
                 </span>
-                <PortalStatus state={r.state} />
+                <PortalStatus state={r.state} track={r.track} />
               </li>
             ))}
           </ul>
