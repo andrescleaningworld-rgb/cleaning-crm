@@ -3186,6 +3186,15 @@ main.cw-page-card {
   margin-top: 6px;
 }
 
+/* What More opens: inside the banner, right under the Snapshot, above the More / Less button. */
+.ui-next-more {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--ui-navy) 25%, transparent);
+  color: var(--ui-ink);
+  min-width: 0;
+}
+
 .ui-section-title {
   margin: 8px 0 0;
   font-size: 22px;

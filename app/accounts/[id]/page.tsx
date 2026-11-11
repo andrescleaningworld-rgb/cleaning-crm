@@ -18,6 +18,7 @@ import {
   undoable,
   type StatusKind,
 } from "@/app/ui";
+import { flushSync } from "react-dom";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { getGoogleMapsUrl } from "../../lib/backend";
 import { AccountPacketPrintView } from "./account-packet-print-view";
@@ -353,6 +354,27 @@ export default function AccountDetailPage() {
   const [showFullAccountInfo, setShowFullAccountInfo] = useState(false);
   // Redesign: everything that is not one of the six tiles sits behind "More".
   const [showMore, setShowMore] = useState(false);
+  // The More content (inside the Snapshot banner) and the More / Less button under it.
+  const moreRef = useRef<HTMLDivElement>(null);
+  const moreButtonRef = useRef<HTMLDivElement>(null);
+  // More: open, then glide the new content into view only when it starts low on the screen.
+  // Less: close and keep the button where it was on the screen, so the page does not jump.
+  function toggleMore() {
+    if (!showMore) {
+      flushSync(() => setShowMore(true));
+      const top = moreRef.current?.getBoundingClientRect().top;
+      if (top !== undefined && top > window.innerHeight * 0.6) {
+        window.scrollBy({ top: top - window.innerHeight * 0.25, behavior: "smooth" });
+      }
+      return;
+    }
+    const before = moreButtonRef.current?.getBoundingClientRect().top;
+    flushSync(() => setShowMore(false));
+    const after = moreButtonRef.current?.getBoundingClientRect().top;
+    if (before !== undefined && after !== undefined && after !== before) {
+      window.scrollBy({ top: after - before, behavior: "instant" });
+    }
+  }
   // Bumped when the schedule is changed here, so Next cleaning and the banner read it again.
   const [scheduleVersion, setScheduleVersion] = useState(0);
   // Bumped by a saved Price & frequency change: its Change history reloads.
@@ -1090,7 +1112,7 @@ export default function AccountDetailPage() {
             >
               {/* Gold "Ready to start" (lib/setupWizard.ts isReadyToStart); nothing otherwise. */}
               <SetupReadyBadge accountId={thisAccountId} refreshKey={welcomeVersion + flowVersion} />
-              {/* The Snapshot and the More button live in the banner. */}
+              {/* The Snapshot, what More opens, and the More / Less button live in the banner. */}
               <div className="ui-next-snapshot" data-account-snapshot>
                 <p className="ui-next-label">Snapshot</p>
                 <dl className="ui-details">
@@ -1126,10 +1148,199 @@ export default function AccountDetailPage() {
                   <Detail label="Address" value={addressLink} full />
                 </dl>
               </div>
-              <div className="account-detail-print-hide" style={{ marginTop: 12 }}>
+              {/* Everything else lives behind More, inside this banner right under the Snapshot; the button follows it. */}
+              <div id="account-more" hidden={!showMore} ref={moreRef} className="ui-screen-body ui-next-more">
+                <h2 className="ui-section-title account-detail-print-hide">More for this account</h2>
+  
+                <div className="ui-more-actions account-detail-print-hide">
+                  <BigButton kind="second" onClick={openStatusModal}>
+                    Change status
+                  </BigButton>
+                  <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                    Add update
+                  </BigButton>
+                  <BigButton kind="second" icon="plus" href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                    Add sale
+                  </BigButton>
+                  <BigButton kind="second" onClick={() => (pinInfo ? setShowPrintChoice(true) : openPdfModal())}>
+                    Print PDF
+                  </BigButton>
+                  <BigButton kind="second" onClick={() => setShowSubPacket(true)}>
+                    Send Sub Packet
+                  </BigButton>
+                  <BigButton kind="second" icon={welcomeSentAt ? "check" : undefined} onClick={() => setShowWelcomePacket(true)}>
+                    {welcomeSentAt ? `Customer Welcome Packet: Sent ${welcomeSentLabel(welcomeSentAt)}` : "Send Customer Welcome Packet"}
+                  </BigButton>
+                  <BigButton
+                    kind="second"
+                    icon={portalAccess === "YES" ? "check" : "off"}
+                    busy={togglingPortalAccess}
+                    busyLabel="Updating portal access…"
+                    onClick={() => void handleTogglePortalAccess()}
+                  >
+                    {`Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
+                  </BigButton>
+                  {/* Prices are before sales tax; ON = the customer sees the price with no tax note (migration 065). */}
+                  <TaxExemptButton accountId={thisAccountId} />
+                  {/* More cleanings and a new price on an existing account: schedule from a date, price, pay, estimate, record. */}
+                  <PriceChangeButton
+                    accountId={thisAccountId}
+                    accountName={accountName}
+                    current={{
+                      price: monthlyRevenueNumber,
+                      subPay: subcontractorPayNumber,
+                      perCleaning: account.subPricePerCleaning ? String(moneyToNumber(account.subPricePerCleaning) || "") : "",
+                      frequency: account.frequency || "",
+                    }}
+                    onSaved={() => {
+                      setPriceChangeVersion((version) => version + 1);
+                      setScheduleVersion((version) => version + 1);
+                      // The price, pay and Frequency, and the new History line.
+                      setAccountVersion((version) => version + 1);
+                      setWelcomeVersion((version) => version + 1);
+                    }}
+                  />
+                  <BigButton kind="second" icon={portalInvites[0] ? "check" : undefined} onClick={() => setShowPortalInvite(true)}>
+                    {portalInvites[0] ? `Invite to portal: ${invitedLine(portalInvites[0])}` : "Invite to portal"}
+                  </BigButton>
+                  {/* The customer portal as this account's customer sees it, read only, in a new tab (lib/portalPreview.ts). */}
+                  <a className="ui-btn ui-btn-second" href={`/api/admin/portal-preview?accountId=${encodeURIComponent(thisAccountId)}`} target="_blank" rel="noopener">
+                    <span>👁 View as customer</span>
+                  </a>
+                  {/* Shared preview links of this account (made from the View as customer bar): active / Turn off. */}
+                  <PreviewLinks accountId={thisAccountId} />
+                  <BigButton kind="second" onClick={() => setShowOnboardingWizard(true)}>
+                    Onboarding checklist
+                  </BigButton>
+                  <BigButton kind="second" onClick={() => setShowFullAccountInfo(true)}>
+                    Full account info
+                  </BigButton>
+                  <PhotosLink accountId={thisAccountId} accountName={accountName} />
+                  <SupplyMode accountId={thisAccountId} accountName={accountName} />
+                  <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
+                </div>
+  
+                {/* Last, on its own row and normal size: red words and outline, never a big red block. */}
+                <div className="account-detail-print-hide" style={{ marginTop: 16 }}>
+                  <button type="button" className="ui-btn ui-btn-delete" onClick={() => setShowDeleteAccount(true)}>
+                    Delete account
+                  </button>
+                </div>
+  
+                {/* What is at this site, + Add delivery, a corrected count, and its history. */}
+                <SiteStock accountId={thisAccountId} accountName={accountName} />
+  
+                <Card title="Money">
+                  <div className="ui-stats">
+                    <div className="ui-stat">
+                      <p className="ui-stat-label">Monthly Revenue</p>
+                      <p className="ui-stat-value">{formatMoney(account.monthlyRevenue)}</p>
+                    </div>
+                    <div className="ui-stat">
+                      <p className="ui-stat-label">Sub Pay</p>
+                      <p className="ui-stat-value">{formatMoney(subcontractorPay)}</p>
+                      <p className="ui-muted">({share.subPercent})</p>
+                    </div>
+                    <div className="ui-stat">
+                      <p className="ui-stat-label">Est. Gross Margin</p>
+                      <p className="ui-stat-value">{grossMarginText}</p>
+                      <p className="ui-muted">({share.keepPercent})</p>
+                    </div>
+                  </div>
+                </Card>
+  
+              {/* Every Price & frequency change: old → new schedule, price and pay, the estimate, who and when. */}
+              <div className="account-detail-print-hide">
+                <PriceChangeHistory accountId={thisAccountId} refreshKey={priceChangeVersion} />
+              </div>
+  
+              {/* Every file of this account: uploads, accepted estimates, sent Welcome Packets. "Share with sub" puts one in the sub portal and on Crew Link. */}
+              <div className="account-detail-print-hide">
+                <AccountDocuments accountId={thisAccountId} accountName={accountName} />
+              </div>
+  
+              {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
+              <AccountContacts accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />
+  
+              <Card title="Notes">
+                <p className="ui-card-text">Internal account notes.</p>
+                <p style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>{account.notes || "No notes added for this account yet."}</p>
+              </Card>
+  
+              {/* --------------------------------------------------------------- */}
+              {/* Setup: "X of Y done", what is missing, and the button to the     */}
+              {/* setup wizard (the Onboarding Checklist). Every account has it,  */}
+              {/* old ones too; the answers are this account's own fields.        */}
+              {/* --------------------------------------------------------------- */}
+              {/* "Add accepted estimate" (the old 7-step board) is retired: a new account is made with Add account (switch on). */}
+  
+              <section className="ui-card account-detail-print-hide">
+                <OnboardingChecklist
+                  accountId={thisAccountId}
+                  accountName={accountName}
+                  variant="section"
+                  refreshKey={welcomeVersion + flowVersion}
+                  onOpenWizard={() => setShowOnboardingWizard(true)}
+                />
+              </section>
+  
+              {/* --------------------------------------------------------------- */}
+              {/* Porter Checklist template editor — the component itself fetches  */}
+              {/* the account's live "Checklist Needed" flag and renders nothing   */}
+              {/* when it's off, so no gating is needed here.                      */}
+              {/* --------------------------------------------------------------- */}
+              <section className="account-detail-print-hide">
+                <ChecklistTemplateEditor accountId={getAccountId(account, rawAccountIdFromUrl)} accountName={accountName} />
+              </section>
+  
+              <SitePhotos accountId={thisAccountId} accountName={accountName} />
+  
+              {/* Every save: who, when, and each field's old → new value. */}
+              <div className="account-detail-print-hide">
+                <AccountHistory key={welcomeVersion} accountId={getAccountId(account, rawAccountIdFromUrl)} />
+              </div>
+  
+              <SubPacketSheet open={showSubPacket} accountId={thisAccountId} accountName={accountName} onClose={() => setShowSubPacket(false)} />
+  
+              <PortalInviteSheet
+                open={showPortalInvite}
+                accountId={thisAccountId}
+                accountName={accountName}
+                onClose={() => setShowPortalInvite(false)}
+                onInvited={(invites) => {
+                  setPortalInvites(invites);
+                  // The invite is a new line in History.
+                  setWelcomeVersion((version) => version + 1);
+                }}
+              />
+  
+              <WelcomePacketSheet
+                open={showWelcomePacket}
+                accountId={thisAccountId}
+                accountName={accountName}
+                onClose={() => setShowWelcomePacket(false)}
+                onSent={(sentAt) => {
+                  setWelcomeSentAt(sentAt);
+                  setWelcomeVersion((version) => version + 1);
+                }}
+              />
+  
+              <DeleteAccountSheet
+                open={showDeleteAccount}
+                accountId={thisAccountId}
+                onClose={() => setShowDeleteAccount(false)}
+                onDeleted={(name) => {
+                  setShowDeleteAccount(false);
+                  showToast(`${name} deleted. Settings → Deleted accounts can restore it.`);
+                  router.push("/accounts");
+                }}
+              />
+  
+              </div>
+              <div ref={moreButtonRef} className="account-detail-print-hide" style={{ marginTop: 12 }}>
                 <BigButton
                   kind="second"
-                  onClick={() => setShowMore((value) => !value)}
+                  onClick={toggleMore}
                   aria-expanded={showMore}
                   aria-controls="account-more"
                   data-tip="more"
@@ -1212,196 +1423,6 @@ export default function AccountDetailPage() {
                 Change keys or alarm
               </BigButton>
             </Sheet>
-
-            {/* Everything else lives behind the More tile. */}
-            <div id="account-more" hidden={!showMore} className="ui-screen-body">
-              <h2 className="ui-section-title account-detail-print-hide">More for this account</h2>
-
-              <div className="ui-more-actions account-detail-print-hide">
-                <BigButton kind="second" onClick={openStatusModal}>
-                  Change status
-                </BigButton>
-                <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
-                  Add update
-                </BigButton>
-                <BigButton kind="second" icon="plus" href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
-                  Add sale
-                </BigButton>
-                <BigButton kind="second" onClick={() => (pinInfo ? setShowPrintChoice(true) : openPdfModal())}>
-                  Print PDF
-                </BigButton>
-                <BigButton kind="second" onClick={() => setShowSubPacket(true)}>
-                  Send Sub Packet
-                </BigButton>
-                <BigButton kind="second" icon={welcomeSentAt ? "check" : undefined} onClick={() => setShowWelcomePacket(true)}>
-                  {welcomeSentAt ? `Customer Welcome Packet: Sent ${welcomeSentLabel(welcomeSentAt)}` : "Send Customer Welcome Packet"}
-                </BigButton>
-                <BigButton
-                  kind="second"
-                  icon={portalAccess === "YES" ? "check" : "off"}
-                  busy={togglingPortalAccess}
-                  busyLabel="Updating portal access…"
-                  onClick={() => void handleTogglePortalAccess()}
-                >
-                  {`Portal access: ${portalAccess === "YES" ? "ON" : "OFF"}`}
-                </BigButton>
-                {/* Prices are before sales tax; ON = the customer sees the price with no tax note (migration 065). */}
-                <TaxExemptButton accountId={thisAccountId} />
-                {/* More cleanings and a new price on an existing account: schedule from a date, price, pay, estimate, record. */}
-                <PriceChangeButton
-                  accountId={thisAccountId}
-                  accountName={accountName}
-                  current={{
-                    price: monthlyRevenueNumber,
-                    subPay: subcontractorPayNumber,
-                    perCleaning: account.subPricePerCleaning ? String(moneyToNumber(account.subPricePerCleaning) || "") : "",
-                    frequency: account.frequency || "",
-                  }}
-                  onSaved={() => {
-                    setPriceChangeVersion((version) => version + 1);
-                    setScheduleVersion((version) => version + 1);
-                    // The price, pay and Frequency, and the new History line.
-                    setAccountVersion((version) => version + 1);
-                    setWelcomeVersion((version) => version + 1);
-                  }}
-                />
-                <BigButton kind="second" icon={portalInvites[0] ? "check" : undefined} onClick={() => setShowPortalInvite(true)}>
-                  {portalInvites[0] ? `Invite to portal: ${invitedLine(portalInvites[0])}` : "Invite to portal"}
-                </BigButton>
-                {/* The customer portal as this account's customer sees it, read only, in a new tab (lib/portalPreview.ts). */}
-                <a className="ui-btn ui-btn-second" href={`/api/admin/portal-preview?accountId=${encodeURIComponent(thisAccountId)}`} target="_blank" rel="noopener">
-                  <span>👁 View as customer</span>
-                </a>
-                {/* Shared preview links of this account (made from the View as customer bar): active / Turn off. */}
-                <PreviewLinks accountId={thisAccountId} />
-                <BigButton kind="second" onClick={() => setShowOnboardingWizard(true)}>
-                  Onboarding checklist
-                </BigButton>
-                <BigButton kind="second" onClick={() => setShowFullAccountInfo(true)}>
-                  Full account info
-                </BigButton>
-                <PhotosLink accountId={thisAccountId} accountName={accountName} />
-                <SupplyMode accountId={thisAccountId} accountName={accountName} />
-                <PinButton info={pinInfo} type="account" record={{ recordId: thisAccountId, title: accountName, accountId: thisAccountId, accountName, forWho: account.manager || "" }} managerName={account.manager || ""} />
-              </div>
-
-              {/* Last, on its own row and normal size: red words and outline, never a big red block. */}
-              <div className="account-detail-print-hide" style={{ marginTop: 16 }}>
-                <button type="button" className="ui-btn ui-btn-delete" onClick={() => setShowDeleteAccount(true)}>
-                  Delete account
-                </button>
-              </div>
-
-              {/* What is at this site, + Add delivery, a corrected count, and its history. */}
-              <SiteStock accountId={thisAccountId} accountName={accountName} />
-
-              <Card title="Money">
-                <div className="ui-stats">
-                  <div className="ui-stat">
-                    <p className="ui-stat-label">Monthly Revenue</p>
-                    <p className="ui-stat-value">{formatMoney(account.monthlyRevenue)}</p>
-                  </div>
-                  <div className="ui-stat">
-                    <p className="ui-stat-label">Sub Pay</p>
-                    <p className="ui-stat-value">{formatMoney(subcontractorPay)}</p>
-                    <p className="ui-muted">({share.subPercent})</p>
-                  </div>
-                  <div className="ui-stat">
-                    <p className="ui-stat-label">Est. Gross Margin</p>
-                    <p className="ui-stat-value">{grossMarginText}</p>
-                    <p className="ui-muted">({share.keepPercent})</p>
-                  </div>
-                </div>
-              </Card>
-
-            {/* Every Price & frequency change: old → new schedule, price and pay, the estimate, who and when. */}
-            <div className="account-detail-print-hide">
-              <PriceChangeHistory accountId={thisAccountId} refreshKey={priceChangeVersion} />
-            </div>
-
-            {/* Every file of this account: uploads, accepted estimates, sent Welcome Packets. "Share with sub" puts one in the sub portal and on Crew Link. */}
-            <div className="account-detail-print-hide">
-              <AccountDocuments accountId={thisAccountId} accountName={accountName} />
-            </div>
-
-            {/* Everyone on this account. One contact shows simply; two or more show as a list with roles. */}
-            <AccountContacts accountId={thisAccountId} accountName={accountName} onMain={followMainContact} onReady={contactsReady} />
-
-            <Card title="Notes">
-              <p className="ui-card-text">Internal account notes.</p>
-              <p style={{ whiteSpace: "pre-wrap", marginTop: 12 }}>{account.notes || "No notes added for this account yet."}</p>
-            </Card>
-
-            {/* --------------------------------------------------------------- */}
-            {/* Setup: "X of Y done", what is missing, and the button to the     */}
-            {/* setup wizard (the Onboarding Checklist). Every account has it,  */}
-            {/* old ones too; the answers are this account's own fields.        */}
-            {/* --------------------------------------------------------------- */}
-            {/* "Add accepted estimate" (the old 7-step board) is retired: a new account is made with Add account (switch on). */}
-
-            <section className="ui-card account-detail-print-hide">
-              <OnboardingChecklist
-                accountId={thisAccountId}
-                accountName={accountName}
-                variant="section"
-                refreshKey={welcomeVersion + flowVersion}
-                onOpenWizard={() => setShowOnboardingWizard(true)}
-              />
-            </section>
-
-            {/* --------------------------------------------------------------- */}
-            {/* Porter Checklist template editor — the component itself fetches  */}
-            {/* the account's live "Checklist Needed" flag and renders nothing   */}
-            {/* when it's off, so no gating is needed here.                      */}
-            {/* --------------------------------------------------------------- */}
-            <section className="account-detail-print-hide">
-              <ChecklistTemplateEditor accountId={getAccountId(account, rawAccountIdFromUrl)} accountName={accountName} />
-            </section>
-
-            <SitePhotos accountId={thisAccountId} accountName={accountName} />
-
-            {/* Every save: who, when, and each field's old → new value. */}
-            <div className="account-detail-print-hide">
-              <AccountHistory key={welcomeVersion} accountId={getAccountId(account, rawAccountIdFromUrl)} />
-            </div>
-
-            <SubPacketSheet open={showSubPacket} accountId={thisAccountId} accountName={accountName} onClose={() => setShowSubPacket(false)} />
-
-            <PortalInviteSheet
-              open={showPortalInvite}
-              accountId={thisAccountId}
-              accountName={accountName}
-              onClose={() => setShowPortalInvite(false)}
-              onInvited={(invites) => {
-                setPortalInvites(invites);
-                // The invite is a new line in History.
-                setWelcomeVersion((version) => version + 1);
-              }}
-            />
-
-            <WelcomePacketSheet
-              open={showWelcomePacket}
-              accountId={thisAccountId}
-              accountName={accountName}
-              onClose={() => setShowWelcomePacket(false)}
-              onSent={(sentAt) => {
-                setWelcomeSentAt(sentAt);
-                setWelcomeVersion((version) => version + 1);
-              }}
-            />
-
-            <DeleteAccountSheet
-              open={showDeleteAccount}
-              accountId={thisAccountId}
-              onClose={() => setShowDeleteAccount(false)}
-              onDeleted={(name) => {
-                setShowDeleteAccount(false);
-                showToast(`${name} deleted. Settings → Deleted accounts can restore it.`);
-                router.push("/accounts");
-              }}
-            />
-
-            </div>
 
             {showOnboardingWizard ? (
               <OnboardingWizardModal
