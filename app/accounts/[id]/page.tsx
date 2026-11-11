@@ -358,8 +358,8 @@ export default function AccountDetailPage() {
   const moreRef = useRef<HTMLDivElement>(null);
   const moreButtonRef = useRef<HTMLDivElement>(null);
   // More: open, then glide the new content into view only when it starts low on the screen.
-  // Less: close and keep the button where it was on the screen, so the page does not jump.
-  function toggleMore() {
+  // Less (top or bottom): close, and put the More button where the tapped Less was on the screen, so the page does not jump.
+  function toggleMore(event?: { currentTarget: Element }) {
     if (!showMore) {
       flushSync(() => setShowMore(true));
       const top = moreRef.current?.getBoundingClientRect().top;
@@ -368,7 +368,7 @@ export default function AccountDetailPage() {
       }
       return;
     }
-    const before = moreButtonRef.current?.getBoundingClientRect().top;
+    const before = (event?.currentTarget ?? moreButtonRef.current)?.getBoundingClientRect().top;
     flushSync(() => setShowMore(false));
     const after = moreButtonRef.current?.getBoundingClientRect().top;
     if (before !== undefined && after !== undefined && after !== before) {
@@ -1151,6 +1151,12 @@ export default function AccountDetailPage() {
               {/* Everything else lives behind More, inside this banner right under the Snapshot; the button follows it. */}
               <div id="account-more" hidden={!showMore} ref={moreRef} className="ui-screen-body ui-next-more">
                 <h2 className="ui-section-title account-detail-print-hide">More for this account</h2>
+                {/* A second Less at the top: the one at the bottom is far down once this is open. */}
+                <div className="account-detail-print-hide">
+                  <BigButton kind="second" onClick={toggleMore} aria-expanded={showMore} aria-controls="account-more">
+                    Less
+                  </BigButton>
+                </div>
   
                 <div className="ui-more-actions account-detail-print-hide">
                   <BigButton kind="second" onClick={openStatusModal}>
