@@ -10,8 +10,10 @@ import { getSql } from "@/lib/db";
 import { addDays, officeDay } from "@/lib/cleanings";
 import { accountStartDays, cancelledLastDays } from "@/lib/pg/accounts";
 import { generateScheduleDates, isScheduleEffectivelyActive, toISO, todayISO } from "@/lib/scheduleRecurrence";
-import { getFeatureSetting } from "@/lib/pg/feature-settings";
-import { PORTAL_COMPLAINT_REPORTED_BY } from "@/lib/pg/customer-portal";
+import { fixPhotoLinks } from "@/lib/complaintFixPhotos";
+import { complaintTracks, TRACK_COLUMNS, type TrackRow } from "@/lib/pg/complaint-track";
+import { customerTrackView } from "@/lib/complaintSteps";
+import type { TrackerView } from "@/app/components/pizza-tracker";
 
 const text = (value: unknown) => String(value ?? "").trim();
 
@@ -195,53 +197,16 @@ export type PortalMyRequest = {
   date: string;
   summary: string;
   state: PortalRequestState;
-  /** A problem followed on the complaint itself ("Customer complaint updates" on): its number, and Received → Working on it → Fixed. */
+  /** A problem followed on the complaint itself: its number, and where it stands. */
   complaintNumber?: string;
-  /** The same problem's 4-step tracker (complaintTrack). Only with complaintNumber. */
-  track?: ComplaintTrack;
+  /** Its tracker, the customer's 3 steps (lib/complaintSteps.ts customerTrackView): Received → Team on it → Fixed. Words are added on the page. */
+  track?: TrackerView;
+  /** How it was fixed: only once the office closed it. Never names the team. */
+  fix?: PortalComplaintFix;
 };
 
-/**
- * A portal complaint's tracker: 0 Received, 1 Seen by your manager, 2 Team on
- * it, 3 Fixed. `at` = when each step was reached (ISO), "" when we do not know.
- */
-export type ComplaintTrack = { step: 0 | 1 | 2 | 3; at: [string, string, string, string] };
-
-/** What one complaint's tracker is worked out from: the complaint row, its pin, and its history. */
-export type ComplaintTrackFacts = {
-  status: string;
-  createdAt: string;
-  firstResponseAt: string | null;
-  /** The pin's current board status (lib/board.ts), "" = no pin or none. */
-  pinStatus: string;
-  /** Earliest "Waiting on team" given on its pin (board_status_log), "". */
-  pinTeamAt: string;
-  /** From the activity log: when the status went to In Progress / Resolved by Sub (earliest), and when staff closed or resolved it (latest). */
-  teamAt: string;
-  fixedAt: string;
-};
-
-const isFixedStatus = (s: string) => /^(closed|resolved)/.test(s) && !s.startsWith("resolved by sub");
-const isTeamStatus = (s: string) => s.startsWith("in progress") || s.startsWith("resolved by sub");
-
-/**
- * Received → Seen by your manager → Team on it → Fixed. Steps only move
- * forward: a step reached once (in the history) stays reached, even when the
- * pin's status changes later. The one exception: a Fixed complaint that is
- * reopened (status no longer Closed / Resolved) drops back to Team on it.
- * Earlier steps count as done when a later one is.
- */
-export function complaintTrack(f: ComplaintTrackFacts): ComplaintTrack {
-  const s = f.status.trim().toLowerCase();
-  const seen = Boolean(f.firstResponseAt) || (s !== "" && s !== "open" && s !== "new");
-  // Fixed once and reopened (status no longer Closed / Resolved): back to "Team on it", the one step that can go back.
-  const reopened = Boolean(f.fixedAt) && !isFixedStatus(s);
-  const team = reopened || isTeamStatus(s) || f.pinStatus === "waiting_sub" || Boolean(f.pinTeamAt) || Boolean(f.teamAt);
-  const fixed = isFixedStatus(s);
-  const step = fixed ? 3 : team ? 2 : seen ? 1 : 0;
-  const earliest = (...values: string[]) => values.filter(Boolean).sort()[0] ?? "";
-  return { step, at: [f.createdAt, f.firstResponseAt ?? "", earliest(f.pinTeamAt, f.teamAt), f.fixedAt] };
-}
+/** A fixed problem, for the customer: what was done, when (ISO), and the after photos. */
+export type PortalComplaintFix = { note: string; at: string; photos: string[] };
 
 const isoOf = (value: string | Date | null | undefined) => {
   if (!value) return "";
@@ -250,83 +215,11 @@ const isoOf = (value: string | Date | null | undefined) => {
 };
 
 /**
- * The pin and history facts for these complaints, by complaints.id. Each read
- * stands alone: one that fails (a table not there yet) just gives no facts.
+ * The resolution note as the customer reads it: without the "Resolved by
+ * <team name>: " the team portal puts in front (customers never see who).
  */
-async function complaintTrackHistory(rows: { id: number; complaint_id: string; legacy_key: string; sheet_row: number }[]) {
-  const sql = getSql();
-  const keysOf = (r: (typeof rows)[number]) => [r.complaint_id, r.legacy_key, String(r.sheet_row)].filter(Boolean);
-  const allKeys = [...new Set(rows.flatMap(keysOf))];
-  const quiet = <T>(read: Promise<T>, fallback: T, what: string) =>
-    read.catch((error) => {
-      console.error(`[portal tracker] ${what} did not load:`, error instanceof Error ? error.message : error);
-      return fallback;
-    });
-
-  const [pins, pinLog, log] = await Promise.all([
-    // A complaint's own pin: kind "complaint", item_id = its COMP number (or legacy key).
-    quiet(
-      sql.query(
-        `SELECT item_id, to_jsonb(handoff_items)->>'board_status' AS board_status FROM handoff_items WHERE kind = 'complaint' AND item_id = ANY($1::text[])`,
-        [allKeys]
-      ) as unknown as Promise<{ item_id: string; board_status: string | null }[]>,
-      [],
-      "pins"
-    ),
-    quiet(
-      sql.query(
-        `SELECT item_id, min(at) AS at FROM board_status_log
-         WHERE kind = 'complaint' AND event = 'status' AND status = 'waiting_sub' AND item_id = ANY($1::text[])
-         GROUP BY item_id`,
-        [allKeys]
-      ) as unknown as Promise<{ item_id: string; at: string | Date }[]>,
-      [],
-      "pin history"
-    ),
-    // Staff edits ("Complaint edited: Status: Open → In Progress; …") and closes (no detail).
-    quiet(
-      sql.query(
-        `SELECT entity_id, action, detail, created_at FROM activity_log
-         WHERE entity_type = 'complaint' AND entity_id = ANY($1::text[]) AND action = 'update'`,
-        [allKeys]
-      ) as unknown as Promise<{ entity_id: string; action: string; detail: string | null; created_at: string | Date }[]>,
-      [],
-      "history"
-    ),
-  ]);
-
-  const facts = new Map<number, Pick<ComplaintTrackFacts, "pinStatus" | "pinTeamAt" | "teamAt" | "fixedAt">>();
-  for (const r of rows) {
-    const keys = new Set(keysOf(r));
-    const pinStatus = text(pins.find((p) => keys.has(p.item_id))?.board_status);
-    const pinTeamAt = pinLog.filter((p) => keys.has(p.item_id)).map((p) => isoOf(p.at)).filter(Boolean).sort()[0] ?? "";
-    let teamAt = "";
-    let fixedAt = "";
-    for (const entry of log.filter((e) => keys.has(e.entity_id))) {
-      const at = isoOf(entry.created_at);
-      if (!at) continue;
-      const detail = text(entry.detail);
-      if (detail === "") {
-        // "Close complaint" (staff): logged with no detail.
-        if (at > fixedAt) fixedAt = at;
-        continue;
-      }
-      const to = /\bStatus: [^;]*? → ([^;]*)/i.exec(detail)?.[1]?.trim().toLowerCase() ?? "";
-      if (isTeamStatus(to) && (!teamAt || at < teamAt)) teamAt = at;
-      if (isFixedStatus(to) && at > fixedAt) fixedAt = at;
-    }
-    facts.set(r.id, { pinStatus, pinTeamAt, teamAt, fixedAt });
-  }
-  return facts;
-}
-
-/** A customer's complaint in three plain steps: nobody answered yet → received; answered or being worked → working; staff closed / resolved → done. */
-export function complaintPlainState(status: string, firstResponseAt: string | null): PortalRequestState {
-  const s = status.trim().toLowerCase();
-  // "Resolved by Sub" still waits for the office to check it.
-  if (/^(closed|resolved)/.test(s) && !s.startsWith("resolved by sub")) return "done";
-  if (firstResponseAt || (s !== "" && s !== "open" && s !== "new")) return "working";
-  return "received";
+export function customerFixNote(note: unknown): string {
+  return text(note).replace(/^resolved by [^:\n]{1,80}:\s*/i, "").trim();
 }
 
 const KIND_OF_TAB: Record<string, PortalRequestKind> = {
@@ -362,39 +255,50 @@ export async function getMyRequests(accountId: string): Promise<PortalMyRequest[
     state: plainState(r.status),
   }));
 
-  // "Customer complaint updates" on (Settings): each problem is followed on
-  // the complaint itself, so the customer sees what staff and the sub do.
-  // Off: as before. Never fails the page.
+  // Every complaint on this account is followed here: sent from the portal,
+  // or by phone / email and typed in by staff. Not merged ones, and not one
+  // staff hid from the customer ("Hide from customer" on the complaint page).
+  // The tracker is the customer's 3 steps; once the office closed it, how it
+  // was fixed (what the office sent on "Close & send to customer"). Always
+  // on, whatever the "Customer complaint updates" switch (that is the
+  // emails). Only this account's complaints. Never fails the page.
   try {
-    if (!(await getFeatureSetting("customerComplaintLoop")).on) return requests;
     const complaints = (await sql.query(
-      `SELECT id, btrim(complaint_id) AS complaint_id, legacy_key, sheet_row, complaint_date::text AS day, complaint_date_raw, issue, status,
-              to_jsonb(complaints)->>'first_response_at' AS first_response_at, created_at
+      `SELECT ${TRACK_COLUMNS}, complaint_date::text AS day, complaint_date_raw, issue, resolution_note
        FROM complaints
-       WHERE account_ref = $1::text AND reported_by = $2 AND lower(btrim(status)) NOT LIKE 'merged%'
+       WHERE (account_ref = $1::text OR (account_ref IS NULL AND btrim(account_id_raw) = $1::text))
+         AND lower(btrim(status)) NOT LIKE 'merged%'
        ORDER BY created_at DESC LIMIT 50`,
-      [accountId, PORTAL_COMPLAINT_REPORTED_BY]
-    )) as { id: number; complaint_id: string; legacy_key: string; sheet_row: number; day: string | null; complaint_date_raw: string; issue: string; status: string; first_response_at: string | null; created_at: string | Date }[];
+      [accountId]
+    )) as (TrackRow & { day: string | null; complaint_date_raw: string; issue: string; resolution_note: string | null })[];
     if (complaints.length === 0) return requests;
-    const history = await complaintTrackHistory(complaints);
+    const tracks = await complaintTracks(complaints);
+    const shown = complaints.filter((c) => !tracks.get(Number(c.id))?.hidden && tracks.get(Number(c.id))?.view);
+    if (shown.length === 0) return requests;
     // A portal request row of a problem that is now a complaint (same day) shows once: as the complaint.
-    const days = new Set(complaints.map((c) => c.day ?? ""));
+    const days = new Set(shown.map((c) => c.day ?? ""));
     const requestDay = (mdy: string) => {
       const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdy.trim());
       return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : "";
     };
     const others = requests.filter((r) => !(r.kind === "problem" && days.has(requestDay(r.date))));
-    const problems: PortalMyRequest[] = complaints.map((c) => {
-      const track = complaintTrack({
-        status: c.status,
-        createdAt: isoOf(c.created_at),
-        firstResponseAt: isoOf(c.first_response_at) || null,
-        pinStatus: "",
-        pinTeamAt: "",
-        teamAt: "",
-        fixedAt: "",
-        ...history.get(c.id),
-      });
+    const problems: PortalMyRequest[] = shown.map((c) => {
+      const facts = tracks.get(Number(c.id))!;
+      // The customer's 3 steps: "Ready to review" still reads "Team on it". No names, no red.
+      const track = customerTrackView(facts.view!, ["", "", ""]);
+      const key = c.complaint_id || String(c.sheet_row);
+      const sent = facts.customerFix;
+      const fix: PortalComplaintFix | undefined =
+        track.index === 2
+          ? {
+              // What the office sent on "Close & send to customer"; closed another way (before Nov 12,
+              // 2026, or from Edit): the resolution note and every after photo.
+              note: sent ? sent.note : customerFixNote(c.resolution_note),
+              at: track.at?.[2] || sent?.at || isoOf(c.complaint_updated_at),
+              // Only after photos saved for THIS complaint (its own folder), never a link from elsewhere.
+              photos: fixPhotoLinks(key, sent ? sent.photos : facts.fixPhotos),
+            }
+          : undefined;
       return {
         key: `complaint-${c.complaint_id || c.sheet_row}`,
         kind: "problem",
@@ -402,9 +306,10 @@ export async function getMyRequests(accountId: string): Promise<PortalMyRequest[
         // What they wrote (no kind in front, no later additions, no staff text).
         summary: c.issue.split(/\n\n(?:Added by the customer|Merged from complaint)/)[0].replace(/^(Missed Cleaning|Quality Issue|Staff Conduct|Damaged Property|Communication Issue|Other):\s*/i, "").trim().slice(0, 140),
         // The 3-word state follows the tracker, so it never moves back either.
-        state: track.step === 3 ? "done" : track.step === 0 ? "received" : "working",
-        complaintNumber: c.complaint_id || String(c.sheet_row),
+        state: track.index === 2 ? "done" : track.index === 0 ? "received" : "working",
+        complaintNumber: key,
         track,
+        ...(fix ? { fix } : {}),
       };
     });
     const when = (r: PortalMyRequest) => {

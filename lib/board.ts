@@ -4,6 +4,7 @@
 
 import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
 import type { SetupSummary } from "@/lib/setupWizard";
+import type { ComplaintTrackView } from "@/lib/complaintSteps";
 
 export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note";
 
@@ -80,6 +81,8 @@ export type Paper = {
   statusNeeded: boolean;
   /** A complaint paper: its response clock (lib/responseClock.ts). answeredAt "" = still waiting. Missing = no clock. */
   clock?: { createdAt: string; answeredAt: string; status: string } | null;
+  /** A complaint paper: its 5-step tracker (lib/complaintSteps.ts), Received → … → Ready to review → Fixed. Missing = none. */
+  complaintTrack?: ComplaintTrackView | null;
 };
 
 /* ---------- the status check (migration 062, lib/pg/pin-status.ts) ---------- */

@@ -14,6 +14,8 @@ import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
 import ScheduleCalendarTab from "./schedule-calendar-tab";
 import CrewChecklists from "./crew-checklists";
+import PizzaTracker, { type TrackerView } from "../components/pizza-tracker";
+import { SUB_COMPLAINT_STEPS } from "@/lib/complaintSteps";
 
 type Account = {
   id?: string;
@@ -69,6 +71,8 @@ type Complaint = {
   photos?: string[];
   /** The response clock: "" = nobody has answered it yet. */
   firstResponseAt?: string;
+  /** Where it stands: Sent to team → Team on it → Ready to review → Fixed (lib/complaintSteps.ts subTrackView). */
+  track?: TrackerView | null;
 };
 
 /** An old Google Drive photo link -> the picture itself; other links unchanged. */
@@ -560,6 +564,16 @@ export default function SubcontractorPortalPage() {
 
   const openComplaints = useMemo(() => {
     return complaints.filter(isOpenComplaint);
+  }, [complaints]);
+
+  // Closed by the office in the last 14 days: the team sees its fix was reviewed and closed (tracker on Fixed).
+  const recentlyClosed = useMemo(() => {
+    const since = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    return complaints.filter((complaint) => {
+      if (isOpenComplaint(complaint) || !complaint.track || complaint.track.index < SUB_COMPLAINT_STEPS.length - 1) return false;
+      const closedAt = Date.parse(complaint.track.at?.[SUB_COMPLAINT_STEPS.length - 1] ?? "");
+      return Number.isFinite(closedAt) && closedAt >= since;
+    });
   }, [complaints]);
 
   const activeSupplyItems = useMemo(() => {
@@ -1908,6 +1922,11 @@ export default function SubcontractorPortalPage() {
                           </span>
                         </div>
 
+                        {/* Where it stands: Sent to team → Team on it → Ready to review → Fixed. */}
+                        {complaint.track ? (
+                          <PizzaTracker view={complaint.track} size="list" steps={SUB_COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" />
+                        ) : null}
+
                         <div className="ui-stat">
                           <p className="ui-muted">
                             Description
@@ -1994,6 +2013,22 @@ export default function SubcontractorPortalPage() {
                   })}
                 </div>
               )}
+
+              {/* Closed by the office in the last 14 days: the fix was reviewed and closed. */}
+              {recentlyClosed.length > 0 ? (
+                <div className="mt-6 space-y-4">
+                  <h2 className="ui-card-title">Recently closed</h2>
+                  {recentlyClosed.map((complaint) => (
+                    <div key={getComplaintId(complaint)} className="ui-stat">
+                      <h3 className="ui-card-title">{complaint.accountName || "Account"}</h3>
+                      <p className="ui-strong">
+                        {getComplaintType(complaint)} • {getComplaintDate(complaint)}
+                      </p>
+                      {complaint.track ? <PizzaTracker view={complaint.track} size="pin" steps={SUB_COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" /> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
 
               {/* One complaint, read only: what was reported, when, and the pictures. No office notes or validity. */}
               <Sheet

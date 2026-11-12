@@ -4750,6 +4750,87 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   color: var(--ui-muted);
 }
 
+/* A fixed problem: "How we fixed it", the note and the after photos (portal-ui ComplaintFix). */
+.ui-portal-fix {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 4px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 2px solid var(--ui-good);
+  background: var(--ui-good-soft);
+}
+.ui-portal-fix-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ui-good);
+}
+.ui-portal-fix-when {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ui-muted);
+}
+.ui-portal-fix-note {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--ui-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ui-portal-fix-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.ui-portal-fix-thumb {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--ui-surface);
+  cursor: zoom-in;
+  min-height: 48px;
+}
+.ui-portal-fix-thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+}
+.ui-portal-fix-thumb:focus-visible {
+  outline: 3px solid var(--ui-brand);
+  outline-offset: 2px;
+}
+/* Full-screen photo: tap outside or Close to go back. */
+.ui-portal-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.88);
+}
+.ui-portal-viewer img {
+  max-width: 100%;
+  max-height: calc(100dvh - 120px);
+  object-fit: contain;
+  border-radius: 8px;
+}
+.ui-portal-viewer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
 /* The big check on the "Got it!" screen. */
 .ui-portal-sent-check {
   display: flex;
@@ -4996,6 +5077,13 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
   font-size: 15px;
   font-weight: 700;
   color: var(--ui-brand);
+}
+/* When a step was reached (the complaint tracker). */
+.cw-pizza-when {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--ui-muted);
 }
 .cw-pizza.is-red .cw-pizza-who {
   color: var(--ui-bad);

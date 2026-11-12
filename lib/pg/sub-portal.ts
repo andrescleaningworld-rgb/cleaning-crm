@@ -13,6 +13,9 @@
 import { getSql } from "@/lib/db";
 import { cancelledLastDays, getAccountsAppsScriptShape } from "@/lib/pg/accounts";
 import { getComplaintsAppsScriptShape, type AppsScriptComplaint } from "@/lib/pg/complaints";
+import { complaintTracks, type ComplaintTrack, type TrackRow } from "@/lib/pg/complaint-track";
+import { subTrackView } from "@/lib/complaintSteps";
+import type { TrackerView } from "@/app/components/pizza-tracker";
 import { complaintPhotoMap } from "@/lib/pg/complaint-detail";
 import { getSubcontractorsAppsScriptShape, type AppsScriptSubcontractor } from "@/lib/pg/subs";
 import { dateOrNull, todayISO } from "@/lib/dateUtils";
@@ -67,7 +70,7 @@ export type SubPortalData = {
   subcontractor: AppsScriptSubcontractor;
   accounts: Record<string, string | number>[];
   /** Without the office's notes and validity (blank); with the complaint's pictures. */
-  complaints: (AppsScriptComplaint & { photos: string[] })[];
+  complaints: (AppsScriptComplaint & { photos: string[]; track: TrackerView | null })[];
   supplyItems: PortalSupplyItem[];
 };
 
@@ -142,7 +145,8 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
   // the same rule as the score. Staff see every complaint.
   const accountIds = new Set(accounts.map((a) => text(a.accountId)).filter(Boolean));
   const linkedRowsOfComplaints = (await sql.query(
-    `SELECT c.sheet_row
+    `SELECT c.sheet_row, c.id, btrim(c.complaint_id) AS complaint_id, c.legacy_key, c.status, c.created_at, c.assigned_to, c.complaint_updated_at,
+            to_jsonb(c)->>'sub_at_filing' AS sub_at_filing
      FROM complaints c
      JOIN accounts a ON a.id = COALESCE(c.account_ref, NULLIF(btrim(c.account_id_raw), ''))
      JOIN subcontractors s ON s.id = $2::text
@@ -155,8 +159,19 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
                   OR lower(btrim(to_jsonb(c)->>'sub_at_filing')) = lower(btrim(s.company_name))))
        )`,
     [[...accountIds], subId]
-  )) as { sheet_row: number }[];
+  )) as (TrackRow & { sheet_row: number })[];
   const mineRows = new Set(linkedRowsOfComplaints.map((r) => Number(r.sheet_row)));
+  // Each complaint's tracker, the team's 4 steps (Sent to team → Team on it → Ready to review → Fixed):
+  // they see it went to review, then got closed. A failure leaves the trackers out, never the complaints.
+  const tracks = await complaintTracks(linkedRowsOfComplaints).catch((error) => {
+    console.error("[sub portal] complaint trackers did not load:", error instanceof Error ? error.message : error);
+    return new Map<number, ComplaintTrack>();
+  });
+  const trackByRow = new Map<number, TrackerView>();
+  for (const row of linkedRowsOfComplaints) {
+    const view = tracks.get(Number(row.id))?.view;
+    if (view) trackByRow.set(Number(row.sheet_row), subTrackView(view));
+  }
   const mineOnly = allComplaints.filter((c) => mineRows.has(Number(c.rowNumber)));
   // The pictures (uploaded ones, and the customer's from the portal), read
   // before the notes are blanked: the portal's photo links are in the notes.
@@ -173,6 +188,7 @@ export async function getSubPortalByEmail(email: string): Promise<SubPortalData 
     notes: "",
     complaintValidity: "",
     photos: photosById.get(text(c.id) || String(c.rowNumber)) ?? [],
+    track: trackByRow.get(Number(c.rowNumber)) ?? null,
   }));
 
   const inactive = new Set(["inactive", "discontinued", "no", "false", "disabled", "removed"]);

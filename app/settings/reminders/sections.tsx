@@ -179,8 +179,10 @@ function CustomerComplaintLoopSection({ settings, canEdit, save }: SectionProps)
       <div className="ui-stack">
         <p className="ui-card-text">
           For problems a customer sends from the portal: a &quot;We got it, we&apos;re on it&quot; email with the complaint number right away, and an &quot;It&apos;s
-          fixed&quot; email (with the after photo) when the office closes it. Their portal shows Received → Working on it → Fixed. English and Spanish. Customers
-          never see validity, priority, notes, sub names or scores.
+          fixed&quot; email (with the after photo) when the office closes it some other way. English and Spanish. &quot;Close &amp; send to customer&quot; on
+          a complaint always sends its email, even with this off: that button is the approval. The portal always shows every complaint on the account,
+          sent from the portal or typed in by the office (Received → Team on it → Fixed, then how it was fixed), unless its &quot;Customer sees this&quot; switch is off. Customers never see validity, priority, staff
+          notes, sub names or scores.
         </p>
         <Switch
           label="Send complaint updates to customers"

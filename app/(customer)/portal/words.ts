@@ -163,11 +163,19 @@ const en = {
   states: { received: "Received", working: "In progress", done: "Done" } as Record<string, string>,
   // A problem followed on its complaint ("Customer complaint updates" on).
   problemSteps: { received: "Received", working: "Working on it", done: "Fixed" } as Record<string, string>,
-  // The 4-step complaint tracker (lib/pg/portal-home.ts complaintTrack). Never the word "sub": it is "team".
-  trackSteps: ["Received", "Seen by your manager", "Team on it", "Fixed"],
-  trackShort: ["Received", "Seen", "Team on it", "Fixed"],
+  // The customer's 3 complaint steps (lib/complaintSteps.ts customerTrackView). Never the word "sub": it is "team".
+  trackSteps: ["Received", "Team on it", "Fixed"] as [string, string, string],
+  trackShort: ["Received", "Team on it", "Fixed"] as [string, string, string],
   trackLabel: "Where your problem stands",
   complaintNumber: (n: string) => `Complaint ${n}`,
+  // A fixed problem: how the team fixed it. Never the word "sub".
+  fixTitle: "How we fixed it",
+  fixedOn: (when: string) => `Fixed ${when}`,
+  fixPhotos: (n: number) => (n === 1 ? "1 photo after the fix. Tap to see it bigger." : `${n} photos after the fix. Tap one to see it bigger.`),
+  fixPhotoAlt: (n: number, of: number) => `Photo ${n} of ${of} after the fix`,
+  photoClose: "Close",
+  photoPrev: "‹ Back",
+  photoNext: "Next ›",
 
   // contact
   contactTitle: "Contact us",
@@ -341,10 +349,17 @@ const es: PortalWords = {
   kinds: { problem: "Problema", service: "Limpieza extra", date: "Cambio de fecha", billing: "Pregunta de facturación" },
   states: { received: "Recibido", working: "En proceso", done: "Listo" },
   problemSteps: { received: "Recibido", working: "Trabajando en ello", done: "Arreglado" },
-  trackSteps: ["Recibido", "Visto por su gerente", "Nuestro equipo está trabajando", "Arreglado"],
-  trackShort: ["Recibido", "Visto", "Equipo trabajando", "Arreglado"],
+  trackSteps: ["Recibido", "Nuestro equipo está trabajando", "Arreglado"],
+  trackShort: ["Recibido", "Equipo trabajando", "Arreglado"],
   trackLabel: "Cómo va su problema",
   complaintNumber: (n: string) => `Queja ${n}`,
+  fixTitle: "Cómo lo arreglamos",
+  fixedOn: (when: string) => `Arreglado ${when}`,
+  fixPhotos: (n: number) => (n === 1 ? "1 foto después del arreglo. Tóquela para verla más grande." : `${n} fotos después del arreglo. Toque una para verla más grande.`),
+  fixPhotoAlt: (n: number, of: number) => `Foto ${n} de ${of} después del arreglo`,
+  photoClose: "Cerrar",
+  photoPrev: "‹ Atrás",
+  photoNext: "Siguiente ›",
 
   contactTitle: "Contáctenos",
   yourManager: "Su gerente",

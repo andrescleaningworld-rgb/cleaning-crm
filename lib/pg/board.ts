@@ -16,6 +16,8 @@
 import { createHash, randomBytes, randomInt } from "node:crypto";
 import { timestampOrNull } from "@/lib/dateUtils";
 import { getSql } from "@/lib/db";
+import { complaintTracks, TRACK_COLUMNS, type ComplaintTrack, type TrackRow } from "@/lib/pg/complaint-track";
+import type { ComplaintTrackView } from "@/lib/complaintSteps";
 import {
   DEFAULT_BOARD_SETTINGS,
   PAPER_KINDS,
@@ -180,7 +182,9 @@ async function runSync(): Promise<void> {
   //    paper for every unfinished Onboarding Checklist. New accounts now come
   //    from the 8-step flow, which pins its own paper (lib/pg/account-flow.ts).
 
-  // 3. Complaints that are still open.
+  // 3. Complaints that are still open, and those a team marked resolved
+  //    ("Resolved by Sub" = "Ready to review"): the pin stays up until the
+  //    office closes it.
   await sql`
     INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
     SELECT 'complaint', t.item_id, c.account_name, COALESCE(c.account_ref, ''), c.account_name, c.assigned_to, 'open', t.since,
@@ -190,8 +194,18 @@ async function runSync(): Promise<void> {
       SELECT COALESCE(NULLIF(btrim(c.complaint_id), ''), c.legacy_key) AS item_id,
              COALESCE(c.complaint_date::timestamptz, c.created_at) AS since
     ) t
-    WHERE lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%' AND lower(btrim(c.status)) NOT LIKE 'merged%'
+    WHERE lower(btrim(c.status)) NOT LIKE 'closed%' AND (lower(btrim(c.status)) NOT LIKE 'resolved%' OR lower(btrim(c.status)) LIKE 'resolved by sub%') AND lower(btrim(c.status)) NOT LIKE 'merged%'
     ON CONFLICT (kind, item_id) DO NOTHING
+  `;
+  //    A pin the board took down by itself (before Nov 12, 2026 "Resolved by
+  //    Sub" counted as closed) goes back up while the complaint waits for review.
+  await sql`
+    UPDATE handoff_items h SET board_done_at = NULL, board_done_by = ''
+    WHERE h.kind = 'complaint' AND h.board_done_by = 'Closed in Complaints' AND h.board_done_at IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM complaints c
+        WHERE COALESCE(NULLIF(btrim(c.complaint_id), ''), c.legacy_key) = h.item_id AND lower(btrim(c.status)) LIKE 'resolved by sub%'
+      )
   `;
 
   // 4. Supply orders a sub placed in the portal: one paper per order (the
@@ -257,7 +271,7 @@ async function runSync(): Promise<void> {
       AND NOT EXISTS (
         SELECT 1 FROM complaints c
         WHERE COALESCE(NULLIF(btrim(c.complaint_id), ''), c.legacy_key) = h.item_id
-          AND lower(btrim(c.status)) NOT LIKE 'closed%' AND lower(btrim(c.status)) NOT LIKE 'resolved%' AND lower(btrim(c.status)) NOT LIKE 'merged%'
+          AND lower(btrim(c.status)) NOT LIKE 'closed%' AND (lower(btrim(c.status)) NOT LIKE 'resolved%' OR lower(btrim(c.status)) LIKE 'resolved by sub%') AND lower(btrim(c.status)) NOT LIKE 'merged%'
       )
   `;
   await sql.query(`
@@ -549,8 +563,9 @@ export async function listPapers(doneDays = DEFAULT_BOARD_SETTINGS.doneDays): Pr
 
 /**
  * Complaint papers (their own, or one pinned by hand): the response clock,
- * from the complaint itself (migration 076). Never fails the board: without
- * it the papers show as before.
+ * from the complaint itself (migration 076), and the complaint's 5-step
+ * tracker (lib/complaintSteps.ts; red after 2 business days on one step).
+ * Never fails the board: without them the papers show as before.
  */
 async function withClock(papers: Paper[]): Promise<Paper[]> {
   const keyOf = (paper: Paper) => (paper.kind === "complaint" ? paper.itemId : /^\/complaints\/([^/?#]+)/.exec(paper.href)?.[1] ?? "");
@@ -558,11 +573,19 @@ async function withClock(papers: Paper[]): Promise<Paper[]> {
   if (keys.length === 0) return papers;
   try {
     const rows = (await getSql().query(
-      `SELECT COALESCE(NULLIF(btrim(complaint_id), ''), legacy_key) AS item_id, btrim(complaint_id) AS complaint_id, legacy_key, created_at, status,
+      `SELECT ${TRACK_COLUMNS},
               to_jsonb(complaints)->>'first_response_at' AS first_response_at, to_jsonb(complaints)->>'first_response_by' AS first_response_by
        FROM complaints WHERE btrim(complaint_id) = ANY($1::text[]) OR legacy_key = ANY($1::text[])`,
       [keys]
-    )) as { complaint_id: string; legacy_key: string; created_at: string | Date; status: string; first_response_at: string | null; first_response_by: string | null }[];
+    )) as (TrackRow & { first_response_at: string | null; first_response_by: string | null })[];
+    const tracks = await complaintTracks(rows).catch(() => new Map<number, ComplaintTrack>());
+    const trackByKey = new Map<string, ComplaintTrackView>();
+    for (const row of rows) {
+      const view = tracks.get(Number(row.id))?.view;
+      if (!view) continue;
+      if (row.complaint_id && !trackByKey.has(row.complaint_id)) trackByKey.set(row.complaint_id, view);
+      if (!trackByKey.has(row.legacy_key)) trackByKey.set(row.legacy_key, view);
+    }
     const byKey = new Map<string, Paper["clock"]>();
     for (const row of rows) {
       // first_response_by is null only where migration 076 is not in: no clock there.
@@ -579,7 +602,8 @@ async function withClock(papers: Paper[]): Promise<Paper[]> {
         // keep it as it is
       }
       const clock = key ? byKey.get(key) : undefined;
-      return clock ? { ...paper, clock } : paper;
+      const complaintTrack = key ? trackByKey.get(key) : undefined;
+      return { ...paper, ...(clock ? { clock } : {}), ...(complaintTrack ? { complaintTrack } : {}) };
     });
   } catch (error) {
     console.error("[board] complaint clocks:", error instanceof Error ? error.message : error);

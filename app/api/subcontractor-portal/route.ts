@@ -1,5 +1,6 @@
 import { filesJson } from "@/lib/files";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { notifyReadyToReview } from "@/lib/complaintReviewNotice";
 import { getIronSession } from "iron-session";
 import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
@@ -231,6 +232,11 @@ async function handleOnPostgres(
     // The sub answered it: the response clock stops (if it was still running).
     await markFirstResponse(String(closed.rowNumber), name || email);
     if (mineRowId !== null) await recordFix({ rowId: mineRowId, photos: fixPhotos, by: name || email });
+    // "Ready to review": the office is told (email + push, link to the review) right after this answer.
+    if (mineRowId !== null) {
+      const origin = new URL(request.url).origin;
+      after(() => notifyReadyToReview({ rowId: mineRowId, origin, teamName: name, note: resolution, photoCount: fixPhotos.length }));
+    }
     return filesJson(answer({ message: "Complaint resolved.", rowNumber: closed.rowNumber, status: closed.status }));
   }
 

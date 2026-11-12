@@ -29,6 +29,7 @@ import BoardCanvas from "./board-canvas";
 import PinStatusBox from "./pin-status";
 import AccountLink from "../components/AccountLink";
 import PizzaTracker from "../components/pizza-tracker";
+import { COMPLAINT_STEPS } from "@/lib/complaintSteps";
 import { StuckNote, setupStepsText } from "../components/account-flow";
 import { SetupButton } from "../components/OnboardingChecklist";
 import OnboardingWizardModal from "../components/OnboardingWizardModal";
@@ -428,6 +429,9 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 />
               </>
             ) : null}
+
+            {/* A complaint: its 5 steps, and who it waits on now. */}
+            {open.complaintTrack ? <PizzaTracker view={open.complaintTrack} size="list" steps={COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" /> : null}
 
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (

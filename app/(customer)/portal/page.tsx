@@ -47,7 +47,8 @@ export default async function PortalHomePage() {
               </li>
             ))}
           </ul>
-          {requests.length > latest.length ? (
+          {/* Also when a problem is tracked: its tracker and how it was fixed are on "What I sent". */}
+          {requests.length > latest.length || latest.some((r) => r.track) ? (
             <a href="/portal/requests" className="ui-btn ui-btn-second">
               {words.seeAll}
             </a>

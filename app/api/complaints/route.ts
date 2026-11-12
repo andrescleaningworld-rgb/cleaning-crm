@@ -11,7 +11,8 @@ import { notifySubOfComplaint } from "@/lib/complaintSubNotice";
 import { mergeComplaints } from "@/lib/pg/complaint-changes";
 import { markFirstResponse } from "@/lib/pg/complaint-response";
 import { addComplaintEvent, complaintRowId } from "@/lib/pg/complaint-events";
-import { isResolvedStatus, needsFixProof, recordFix } from "@/lib/pg/complaint-fix";
+import { afterPhotos, isResolvedStatus, needsFixProof, recordFix } from "@/lib/pg/complaint-fix";
+import { complaintTrackById } from "@/lib/pg/complaint-track";
 import { fixPhotoLinks } from "@/lib/complaintFixPhotos";
 import { sendCustomerFixedEmail } from "@/lib/complaintCustomerEmail";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
@@ -302,6 +303,34 @@ export async function POST(request: NextRequest) {
         await markFirstResponse(String(closed.rowNumber), actor?.name || "Staff");
         // The proof, on the complaint (before / after on its page).
         if (fixRowId !== null) await recordFix({ rowId: fixRowId, photos: fixPhotos, noPhotoReason, by: actor?.name || "Staff" });
+        // "Close & send to customer" (the review on the Complaint page): what the
+        // customer sees (the edited note, the photos not hidden) is kept on the
+        // complaint, and the "It's fixed" email goes now, whatever the Settings
+        // switch: the button is the approval. Not for a complaint hidden from the customer.
+        if (fixRowId !== null && isResolvedStatus(closed.status) && (body as { sendToCustomer?: unknown }).sendToCustomer === true) {
+          const extra = body as { customerNote?: unknown; hidePhotos?: unknown };
+          const bare = (url: unknown) => clean(url).split("?")[0];
+          const hide = new Set((Array.isArray(extra.hidePhotos) ? extra.hidePhotos : []).map(bare));
+          const visible = fixPhotoLinks(fixKey, (await afterPhotos(fixRowId)).filter((url) => !hide.has(bare(url))));
+          const note = clean(extra.customerNote).slice(0, 2000);
+          const track = await complaintTrackById(fixRowId).catch(() => null);
+          let customerEmail: "sent" | "failed" | "skipped" = "skipped";
+          if (!track?.hidden) {
+            await addComplaintEvent({ complaintId: fixRowId, kind: "customer_fix", detail: note, photos: visible, by: actor?.name || "Staff" });
+            customerEmail = await sendCustomerFixedEmail(fixRowId, new URL(request.url).origin, { force: true, note, photos: visible }).catch((error) => {
+              console.error("[complaints close] customer email:", error instanceof Error ? error.message : error);
+              return "failed" as const;
+            });
+          }
+          return NextResponse.json({
+            success: true,
+            rowNumber: closed.rowNumber,
+            status: closed.status,
+            customerEmail,
+            hidden: Boolean(track?.hidden),
+            message: "Complaint closed successfully.",
+          });
+        }
         // A customer's portal complaint: "It's fixed" email (only while the switch is on; lib/complaintCustomerEmail.ts).
         if (fixRowId !== null && isResolvedStatus(closed.status)) {
           const origin = new URL(request.url).origin;
@@ -316,6 +345,42 @@ export async function POST(request: NextRequest) {
           scriptResponse: { success: true, rowNumber: closed.rowNumber, status: closed.status },
         });
       }
+    }
+
+    // "Edit what the customer sees" (Complaint Detail page, a closed complaint):
+    // new wording for the "How we fixed it" note (the team's words, or a
+    // mistake) and which after photos show. Kept as a new 'customer_fix'
+    // event (the latest one counts, channel "edit" so the Fixed date stays).
+    // No email goes to the customer.
+    if (requestedAction === "editCustomerFix") {
+      const actor = await getAdminIdentity(request);
+      if (!actor) return NextResponse.json({ success: false, error: "Log in first. Nothing was saved." }, { status: 401 });
+      const key = clean(complaint.id || complaint.complaintId || body.id) || clean(complaint.rowNumber || body.rowNumber);
+      const rowId = key ? await complaintRowId(key) : null;
+      if (rowId === null) return NextResponse.json({ success: false, error: "Complaint not found." }, { status: 404 });
+      const track = await complaintTrackById(rowId).catch(() => null);
+      if (track?.view?.step !== "fixed") return NextResponse.json({ success: false, error: "Only a closed complaint has this. Close it first." }, { status: 400 });
+      const extra = body as { customerNote?: unknown; hidePhotos?: unknown };
+      const bare = (url: unknown) => clean(url).split("?")[0];
+      const hide = new Set((Array.isArray(extra.hidePhotos) ? extra.hidePhotos : []).map(bare));
+      const visible = fixPhotoLinks(key, track.fixPhotos.filter((url) => !hide.has(bare(url))));
+      const note = clean(extra.customerNote).slice(0, 2000);
+      await addComplaintEvent({ complaintId: rowId, kind: "customer_fix", channel: "edit", detail: note, photos: visible, by: actor.name || "Staff" });
+      return NextResponse.json({ success: true, message: "Saved. The customer sees the new wording. No email was sent." });
+    }
+
+    // "Hide from customer" / "Show to customer" (Complaint Detail page): whether
+    // this complaint and its progress show on the customer's portal. Kept as a
+    // complaint event (the latest one counts); nothing else changes.
+    if (requestedAction === "customerVisibility") {
+      const actor = await getAdminIdentity(request);
+      if (!actor) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401 });
+      const key = clean(complaint.id || complaint.complaintId || body.id) || clean(complaint.rowNumber || body.rowNumber);
+      const rowId = key ? await complaintRowId(key) : null;
+      if (rowId === null) return NextResponse.json({ success: false, error: "Complaint not found." }, { status: 404 });
+      const hidden = (body as { hidden?: unknown }).hidden === true;
+      await addComplaintEvent({ complaintId: rowId, kind: "customer_visibility", channel: hidden ? "hidden" : "shown", detail: hidden ? "Hidden from the customer." : "Shown to the customer.", by: actor.name || "Staff" });
+      return NextResponse.json({ success: true, hidden, message: hidden ? "Hidden from the customer." : "The customer sees it." });
     }
 
     // "Got it" (Complaint Detail page): a manager answers the complaint without
@@ -508,6 +573,14 @@ export async function POST(request: NextRequest) {
 
     try {
       complaintId = await appendComplaint(fields);
+      // "Customer sees this" switched off on the form: kept on the complaint (on is the default, nothing stored).
+      if ((body as { customerSees?: unknown }).customerSees === false) {
+        const newRowId = await complaintRowId(complaintId).catch(() => null);
+        const actor = await getAdminIdentity(request).catch(() => null);
+        if (newRowId !== null) {
+          await addComplaintEvent({ complaintId: newRowId, kind: "customer_visibility", channel: "hidden", detail: "Hidden from the customer (when it was added).", by: actor?.name || "Staff" });
+        }
+      }
     } catch (error) {
       return NextResponse.json(
         {

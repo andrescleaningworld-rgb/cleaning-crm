@@ -10,6 +10,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactM
 import { Sheet } from "@/app/ui";
 import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, pinStatusLabel, statusLine, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import PizzaTracker from "@/app/components/pizza-tracker";
+import { COMPLAINT_STEPS } from "@/lib/complaintSteps";
 import ReadyBadge from "@/app/components/ready-badge";
 import AccountLink from "@/app/components/AccountLink";
 import { ResponseClock } from "@/app/components/response-clock";
@@ -61,6 +62,8 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
       {paper.setup?.ready ? <ReadyBadge size={tv ? "tv" : "pin"} /> : null}
       {/* A new account in the 8-step flow: its pizza tracker, on the board and on the TV. */}
       {paper.flow ? <PizzaTracker view={paper.flow} size="pin" /> : null}
+      {/* A complaint: its 5-step tracker (Received → Sent to team → Team on it → Ready to review → Fixed), with who it waits on. */}
+      {paper.complaintTrack ? <PizzaTracker view={paper.complaintTrack} size="pin" steps={COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" /> : null}
       {!tv && paper.flow?.stuckNote ? <span className={styles.meta}>Stuck: {paper.flow.stuckNote}</span> : null}
       {!tv && paper.progress ? (
         <>
@@ -97,7 +100,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
 
 export function paperClass(paper: Paper, settings: BoardSettings, now: Date): string {
   // An account update is a green note; every other note is yellow.
-  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red || paper.alert ? styles.flowRed : ""}`;
+  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red || paper.complaintTrack?.red || paper.alert ? styles.flowRed : ""}`;
 }
 
 /* ---------- a full square: the papers that fit, then a pile ---------- */

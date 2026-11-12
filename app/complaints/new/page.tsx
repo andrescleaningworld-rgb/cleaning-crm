@@ -7,6 +7,7 @@ import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from
 import { loadManagerNames } from "../../components/manager-options";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
+import { Switch } from "@/app/settings/reminders/sections";
 
 type AnyRow = Record<string, unknown>;
 
@@ -254,6 +255,8 @@ function NewComplaintPageContent() {
   const [managers, setManagers] = useState<string[]>([]);
   const [loadingManagers, setLoadingManagers] = useState(true);
   const [form, setForm] = useState<ComplaintForm>(emptyForm);
+  // "Customer sees this": on = the complaint and its progress show on the customer's portal. Off for internal ones (an inspection).
+  const [customerSees, setCustomerSees] = useState(true);
   const [accountSearch, setAccountSearch] = useState("");
   const [showAccountResults, setShowAccountResults] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -559,6 +562,7 @@ function NewComplaintPageContent() {
         },
         body: JSON.stringify({
           action: "addComplaint",
+          customerSees,
           complaint: {
             accountId: form.accountId,
             accountName: form.accountName,
@@ -929,6 +933,20 @@ function NewComplaintPageContent() {
               ))}
             </div>
           )}
+        </Card>
+
+        <Card>
+          <Switch
+            label="Customer sees this"
+            text={
+              customerSees
+                ? "On: the customer sees this complaint in their portal (Received → Team on it → Fixed), so they know we are taking care of it. They never see notes, validity, the team's name or the score."
+                : "Off: the customer does not see it, and closing it sends them nothing. For internal ones, like an inspection finding."
+            }
+            on={customerSees}
+            canEdit={!saving}
+            onChange={setCustomerSees}
+          />
         </Card>
 
         <PinSwitch info={pinInfo} type="complaint" value={pinChoice} onChange={setPinPicked} disabled={saving} />

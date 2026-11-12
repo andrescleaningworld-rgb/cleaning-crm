@@ -4,11 +4,13 @@
 // in the chosen language, the language button, log out, and the big tiles.
 
 import Link from "next/link";
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { UiWordsProvider } from "@/app/ui";
 import { PORTAL_LANG_COOKIE, PORTAL_WORDS, type PortalLang, type PortalWords } from "./words";
-import type { ComplaintTrack } from "@/lib/pg/portal-home";
+import type { PortalComplaintFix } from "@/lib/pg/portal-home";
+import PizzaTracker, { type TrackerView } from "@/app/components/pizza-tracker";
+import { customerSteps } from "@/lib/complaintSteps";
 
 const LangContext = createContext<PortalLang>("en");
 
@@ -107,11 +109,11 @@ export function PortalBigTile({ href, icon, label, tip }: { href: string; icon: 
 
 /**
  * Where something the customer sent stands: Received (blue), In progress (yellow), Done (green).
- * A tracked problem (`track`) says its tracker step in short: Received / Seen / Team on it / Fixed.
+ * A tracked problem (`track`) says its tracker step in short: Received / Team on it / Fixed.
  */
-export function PortalStatus({ state, problem = false, track }: { state: "received" | "working" | "done"; problem?: boolean; track?: ComplaintTrack }) {
+export function PortalStatus({ state, problem = false, track }: { state: "received" | "working" | "done"; problem?: boolean; track?: TrackerView }) {
   const words = usePortalWords();
-  const label = track ? words.trackShort[track.step] : (problem ? words.problemSteps : words.states)[state];
+  const label = track ? words.trackShort[track.index] : (problem ? words.problemSteps : words.states)[state];
   return <span className={`ui-portal-status ui-portal-status-${state}`}>{label}</span>;
 }
 
@@ -123,43 +125,88 @@ function trackTime(iso: string, lang: PortalLang): string {
 }
 
 /**
- * A problem's pizza tracker: a thick 4-part bar, then the 4 steps one per
- * line. Green check = done (with when, if known), big blue dot = now, gray =
- * still to come. Received → Seen by your manager → Team on it → Fixed.
+ * A fixed problem: "How we fixed it", when, what was done, and the after
+ * photos. A tap on a photo opens it full screen (Back / Next / Close).
  */
-export function ComplaintTracker({ track }: { track: ComplaintTrack }) {
+export function ComplaintFix({ fix }: { fix: PortalComplaintFix }) {
   const words = usePortalWords();
   const lang = usePortalLang();
-  const fixed = track.step === 3;
-  const stateOf = (index: number) => (index < track.step || fixed ? "is-done" : index === track.step ? "is-now" : "");
+  const [open, setOpen] = useState<number | null>(null);
+  const when = trackTime(fix.at, lang);
+  const count = fix.photos.length;
+  const show = (index: number) => setOpen(((index % count) + count) % count);
+
+  useEffect(() => {
+    if (open === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(null);
+      else if (event.key === "ArrowRight") setOpen((i) => (i === null ? i : (i + 1) % count));
+      else if (event.key === "ArrowLeft") setOpen((i) => (i === null ? i : (i - 1 + count) % count));
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, count]);
+
   return (
-    <div className="ui-portal-track" role="group" aria-label={`${words.trackLabel}: ${words.trackSteps[track.step]}`}>
-      <span className="ui-portal-track-bar" aria-hidden="true">
-        {words.trackSteps.map((step, index) => (
-          <span key={step} className={`ui-portal-track-seg ${stateOf(index)}`} />
-        ))}
-      </span>
-      <ol className="ui-portal-track-steps">
-        {words.trackSteps.map((step, index) => {
-          const state = stateOf(index);
-          const when = state === "is-done" || state === "is-now" ? trackTime(track.at[index], lang) : "";
-          return (
-            <li key={step} className={`ui-portal-track-step ${state}`} aria-current={state === "is-now" ? "step" : undefined}>
-              <span className="ui-portal-track-mark" aria-hidden="true">
-                {state === "is-done" ? "✓" : null}
-              </span>
-              <span className="ui-portal-track-words">
-                <span className="ui-portal-track-name">{step}</span>
-                {when ? (
-                  <span className="ui-portal-track-when" suppressHydrationWarning>
-                    {when}
-                  </span>
-                ) : null}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+    <section className="ui-portal-fix" aria-label={words.fixTitle}>
+      <h3 className="ui-portal-fix-title">✅ {words.fixTitle}</h3>
+      {when ? (
+        <p className="ui-portal-fix-when" suppressHydrationWarning>
+          {words.fixedOn(when)}
+        </p>
+      ) : null}
+      {fix.note ? <p className="ui-portal-fix-note">{fix.note}</p> : null}
+      {count > 0 ? (
+        <>
+          <p className="ui-muted">{words.fixPhotos(count)}</p>
+          <div className="ui-portal-fix-photos">
+            {fix.photos.map((url, index) => (
+              <button key={url} type="button" className="ui-portal-fix-thumb" onClick={() => show(index)} aria-label={words.fixPhotoAlt(index + 1, count)}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="" loading="lazy" decoding="async" />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+      {open !== null ? (
+        <div className="ui-portal-viewer" role="dialog" aria-modal="true" aria-label={words.fixPhotoAlt(open + 1, count)} onClick={() => setOpen(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={fix.photos[open]} alt={words.fixPhotoAlt(open + 1, count)} onClick={(event) => event.stopPropagation()} />
+          <div className="ui-portal-viewer-bar" onClick={(event) => event.stopPropagation()}>
+            {count > 1 ? (
+              <button type="button" className="ui-btn ui-btn-second" onClick={() => show(open - 1)}>
+                {words.photoPrev}
+              </button>
+            ) : null}
+            <button type="button" className="ui-btn ui-btn-main" onClick={() => setOpen(null)} autoFocus>
+              {words.photoClose}
+            </button>
+            {count > 1 ? (
+              <button type="button" className="ui-btn ui-btn-second" onClick={() => show(open + 1)}>
+                {words.photoNext}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * A problem's pizza tracker (the shared one, app/components/pizza-tracker.tsx):
+ * a thick bar, then the 3 steps one per line, with when each was reached.
+ * Received → Team on it → Fixed. Never a name, never red.
+ */
+export function ComplaintTracker({ track }: { track: TrackerView }) {
+  const words = usePortalWords();
+  const lang = usePortalLang();
+  const view = { ...track, now: words.trackSteps[track.index] ?? "" };
+  return (
+    <div className="ui-portal-track" role="group" aria-label={`${words.trackLabel}: ${view.now}`}>
+      <PizzaTracker view={view} size="pin" steps={customerSteps(words.trackSteps)} label={words.trackLabel} finish={words.trackSteps[2]} />
+      <PizzaTracker view={view} size="list" steps={customerSteps(words.trackSteps)} label={words.trackLabel} finish={words.trackSteps[2]} formatWhen={(iso) => trackTime(iso, lang)} />
     </div>
   );
 }

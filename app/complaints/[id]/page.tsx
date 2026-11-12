@@ -25,6 +25,9 @@ import { ManagerOptions, useManagerNames } from "../../components/manager-option
 import { ResponseClock } from "../../components/response-clock";
 import { complaintIsOpen } from "@/lib/responseClock";
 import { EMPTY_FIX_PROOF, FixProofFields, fixProofProblem, uploadFixPhotos, type FixProof } from "../../components/fix-proof";
+import PizzaTracker from "../../components/pizza-tracker";
+import { Switch } from "@/app/settings/reminders/sections";
+import { COMPLAINT_STEPS, isReviewStatus, type ComplaintTrackView } from "@/lib/complaintSteps";
 
 type Complaint = {
   rowNumber?: number | string;
@@ -88,7 +91,58 @@ type DetailResponse = {
   additions?: Addition[];
   mergeTargets?: MergeTarget[];
   fixes?: Addition[];
+  /** The 5-step tracker (lib/complaintSteps.ts); null for a merged complaint. */
+  track?: ComplaintTrackView | null;
+  /** "Customer sees this" is off: not on the customer's portal, no customer email on close. */
+  hiddenFromCustomer?: boolean;
+  /** What the customer was sent on "Close & send to customer" (latest). */
+  customerFix?: { note: string; photos: string[]; at: string; editedAt: string } | null;
 };
+
+/** The after photos, each with "Customer sees it" / "Hidden" (the review, and "Edit what the customer sees"). */
+function PhotoToggles({ urls, hidden, onChange, canToggle }: { urls: string[]; hidden: Set<string>; onChange: (next: Set<string>) => void; canToggle: boolean }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+      {urls.map((url, index) => {
+        const off = hidden.has(barePhoto(url));
+        return (
+          <div key={url} className="ui-stack" style={{ gap: 6 }}>
+            <a href={url} target="_blank" rel="noopener noreferrer" className="ui-photo" aria-label={`Open after photo ${index + 1} full size`} style={{ opacity: off ? 0.4 : 1 }}>
+              <Image src={url} alt={`After photo ${index + 1}`} width={200} height={140} unoptimized style={{ width: "100%", height: 140, objectFit: "cover" }} />
+            </a>
+            {canToggle ? (
+              <button
+                type="button"
+                aria-pressed={!off}
+                className={`ui-pick ${off ? "" : "ui-pick-on"}`.trim()}
+                onClick={() => {
+                  const next = new Set(hidden);
+                  if (next.has(barePhoto(url))) next.delete(barePhoto(url));
+                  else next.add(barePhoto(url));
+                  onChange(next);
+                }}
+              >
+                <span className="min-w-0 flex-1 ui-strong">{off ? "Hidden" : "Customer sees it"}</span>
+                <span className="ui-pick-mark" aria-hidden="true">
+                  ✓
+                </span>
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The team's note as the customer reads it: without "Resolved by <team name>: " in front. */
+const customerNoteOf = (resolution: unknown) =>
+  String(resolution ?? "")
+    .trim()
+    .replace(/^resolved by [^:\n]{1,80}:\s*/i, "")
+    .trim();
+/** A photo link without its signature (?e=…&s=…), to compare two links to the same file. */
+const barePhoto = (url: string) => url.split("?")[0];
 
 const NOTICE_WORD: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Not sent" };
 
@@ -192,6 +246,18 @@ export default function ComplaintDetailPage() {
   const [fixBusy, setFixBusy] = useState(false);
   const [fixError, setFixError] = useState("");
   const [fixes, setFixes] = useState<Addition[]>([]);
+  // The tracker, "Hide from customer", and the photos the office hides on "Close & send to customer".
+  const [track, setTrack] = useState<ComplaintTrackView | null>(null);
+  const [hiddenFromCustomer, setHiddenFromCustomer] = useState(false);
+  const [customerFix, setCustomerFix] = useState<DetailResponse["customerFix"]>(null);
+  const [hiddenPhotos, setHiddenPhotos] = useState<Set<string>>(new Set());
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
+  // "Edit what the customer sees" on a closed complaint.
+  const [editingCustomer, setEditingCustomer] = useState(false);
+  const [customerDraft, setCustomerDraft] = useState("");
+  const [customerDraftHidden, setCustomerDraftHidden] = useState<Set<string>>(new Set());
+  const [customerBusy, setCustomerBusy] = useState(false);
+  const [customerError, setCustomerError] = useState("");
   const afterUrls = [...new Set(fixes.flatMap((fix) => fix.photos))];
   const noPhotoReasons = fixes.filter((fix) => fix.photos.length === 0 && fix.detail).map((fix) => fix.detail);
   const router = useRouter();
@@ -240,6 +306,11 @@ export default function ComplaintDetailPage() {
       setAdditions(Array.isArray(data.additions) ? data.additions : []);
       setMergeTargets(Array.isArray(data.mergeTargets) ? data.mergeTargets : []);
       setFixes(Array.isArray(data.fixes) ? data.fixes : []);
+      setTrack(data.track ?? null);
+      setHiddenFromCustomer(data.hiddenFromCustomer === true);
+      setCustomerFix(data.customerFix ?? null);
+      // Ready to review: the team's note, prefilled for the customer (no team name).
+      if (isReviewStatus(data.complaint.status)) setFixNote((current) => current || customerNoteOf(data.complaint?.resolution));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error loading complaint.");
       setComplaint(undefined);
@@ -252,6 +323,12 @@ export default function ComplaintDetailPage() {
     loadComplaints();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [complaintId]);
+
+  // The "Ready to review" email and push open /complaints/<id>#review: go straight to the review.
+  useEffect(() => {
+    if (loading || !complaint || window.location.hash !== "#review") return;
+    document.getElementById("review")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loading, complaint]);
 
   function startEditing() {
     if (!complaint) return;
@@ -355,10 +432,13 @@ export default function ComplaintDetailPage() {
     }
   }
 
-  // "Mark fixed": closes it with proof of fix (the server checks the proof too).
+  // "Close & send to customer" (or "Mark fixed" when hidden from the customer):
+  // closes it with proof of fix (the server checks the proof too), and sends
+  // the customer the note and the photos not hidden. The button is the approval.
   async function markFixed() {
     if (!complaint) return;
-    if (!fixNote.trim()) return setFixError("Say what was done.");
+    if (!fixNote.trim()) return setFixError(hiddenFromCustomer ? "Say what was done." : "Write what was done, for the customer.");
+    const review = isReviewStatus(complaint.status);
     // Already has proof (the sub's after photo): no new photo needed.
     const problem = fixes.length > 0 ? "" : fixProofProblem(fixProof);
     if (problem) return setFixError(problem);
@@ -372,21 +452,96 @@ export default function ComplaintDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "closeComplaint",
-          complaint: { rowNumber: complaint.rowNumber || "", id: complaint.id || "", status: "Closed", resolution: fixNote.trim() },
+          // Ready to review: the team's own resolution text stays (empty keeps it); the edited note goes to the customer.
+          complaint: { rowNumber: complaint.rowNumber || "", id: complaint.id || "", status: "Closed", resolution: review ? "" : fixNote.trim() },
           fixPhotos,
           noPhotoReason: fixProof.noPhoto ? fixProof.reason.trim() : "",
+          sendToCustomer: true,
+          customerNote: fixNote.trim(),
+          hidePhotos: [...hiddenPhotos],
         }),
       });
-      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; customerEmail?: string; hidden?: boolean };
       if (!response.ok || data.success !== true) throw new Error(data.error || "Not closed. Try again.");
       setFixProof(EMPTY_FIX_PROOF);
       setFixNote("");
-      setSuccessMessage("Fixed and closed.");
+      setHiddenPhotos(new Set());
+      setSuccessMessage(
+        data.hidden
+          ? "Fixed and closed. Hidden from the customer: nothing was sent."
+          : data.customerEmail === "sent"
+            ? "Closed. The customer sees it as Fixed and got the email."
+            : "Closed. The customer sees it as Fixed in the portal. The email was not sent (no email on the account, or sending failed)."
+      );
       await loadComplaints();
     } catch (err) {
       setFixError(err instanceof Error ? err.message : "Not closed. Try again.");
     } finally {
       setFixBusy(false);
+    }
+  }
+
+  // What the customer reads now under "How we fixed it": what the office sent / last changed,
+  // else (closed before Nov 12, 2026, or from Edit) the resolution note and every after photo.
+  const customerNoteNow = customerFix ? customerFix.note : customerNoteOf(complaint?.resolution);
+  const customerPhotosNow = customerFix ? customerFix.photos : afterUrls;
+
+  function startCustomerEdit() {
+    const shown = new Set(customerPhotosNow.map(barePhoto));
+    setCustomerDraft(customerNoteNow);
+    setCustomerDraftHidden(new Set(afterUrls.map(barePhoto).filter((url) => !shown.has(url))));
+    setCustomerError("");
+    setEditingCustomer(true);
+  }
+
+  // "Edit what the customer sees" → Save: new wording / photos on the portal. No email.
+  async function saveCustomerFix() {
+    if (!complaint) return;
+    if (!customerDraft.trim()) return setCustomerError("Write what was done, for the customer.");
+    setCustomerBusy(true);
+    setCustomerError("");
+    try {
+      const response = await fetch("/api/complaints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "editCustomerFix",
+          complaint: { id: complaint.id || "", rowNumber: complaint.rowNumber || "" },
+          customerNote: customerDraft.trim(),
+          hidePhotos: [...customerDraftHidden],
+        }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; message?: string };
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Not saved. Try again.");
+      setEditingCustomer(false);
+      setSuccessMessage(data.message || "Saved.");
+      await loadComplaints();
+    } catch (err) {
+      setCustomerError(err instanceof Error ? err.message : "Not saved. Try again.");
+    } finally {
+      setCustomerBusy(false);
+    }
+  }
+
+  // "Hide from customer" / "Show to customer": whether this complaint shows on the customer's portal.
+  async function setCustomerVisibility(hidden: boolean) {
+    if (!complaint) return;
+    setVisibilityBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/complaints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "customerVisibility", hidden, complaint: { id: complaint.id || "", rowNumber: complaint.rowNumber || "" } }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; message?: string };
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Not saved. Try again.");
+      setHiddenFromCustomer(hidden);
+      setSuccessMessage(data.message || "Saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Not saved. Try again.");
+    } finally {
+      setVisibilityBusy(false);
     }
   }
 
@@ -529,6 +684,12 @@ export default function ComplaintDetailPage() {
               <StatusPill kind="off">{clean(complaint.complaintValidity) || "Needs Review"}</StatusPill>
               <ResponseClock createdAt={clean(complaint.createdAt)} answeredAt={complaint.firstResponseAt === undefined ? undefined : String(complaint.firstResponseAt)} status={clean(complaint.status)} />
             </div>
+            {/* Where it stands: Received → Sent to team → Team on it → Ready to review → Fixed, and who it waits on. */}
+            {track ? (
+              <div style={{ marginTop: 12 }}>
+                <PizzaTracker view={track} size="list" steps={COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" formatWhen={formatWhen} />
+              </div>
+            ) : null}
             {/* Still waiting for a first answer: one tap says "we are on it" (stops the clock). */}
             {complaint.firstResponseAt === "" && complaintIsOpen(complaint.status) ? (
               <div style={{ marginTop: 12 }}>
@@ -657,18 +818,90 @@ export default function ComplaintDetailPage() {
             ) : null}
           </Card>
 
-          {/* Still open: close it with proof of fix (after photo, or "No photo needed" and why). */}
-          {complaintIsOpen(complaint.status) || /^resolved by sub/i.test(clean(complaint.status)) ? (
-            <Card title="Mark fixed">
-              <div className="ui-stack">
-                {/^resolved by sub/i.test(clean(complaint.status)) ? <p className="ui-card-text">The sub says it is fixed. Check the after photo, then close it.</p> : null}
-                <TextAreaField label="What was done?" rows={3} value={fixNote} onChange={(event) => setFixNote(event.target.value)} />
-                <FixProofFields value={fixProof} onChange={setFixProof} />
-                {fixError ? <ErrorBox title="Not closed." text={fixError} /> : null}
-                <BigButton busy={fixBusy} busyLabel="Closing…" onClick={() => void markFixed()}>
-                  ✓ Mark fixed
-                </BigButton>
-              </div>
+          {/* Still open, or Ready to review (the team marked it resolved): the review, then close it.
+              The note and the photos left on are what the customer sees and gets by email. */}
+          {complaintIsOpen(complaint.status) || isReviewStatus(complaint.status) ? (
+            <div id="review" style={{ scrollMarginTop: 16 }}>
+              <Card title={isReviewStatus(complaint.status) ? "Ready to review" : "Mark fixed"}>
+                <div className="ui-stack">
+                  {isReviewStatus(complaint.status) ? (
+                    <p className="ui-card-text">The team says it is fixed. Check the note and the photos. The customer sees &quot;Team on it&quot; until you close it.</p>
+                  ) : null}
+                  <TextAreaField
+                    label={hiddenFromCustomer ? "What was done?" : "What was done? (the customer sees this)"}
+                    rows={4}
+                    value={fixNote}
+                    onChange={(event) => setFixNote(event.target.value)}
+                  />
+                  {afterUrls.length > 0 ? (
+                    <div className="ui-stack">
+                      <p className="ui-strong">{hiddenFromCustomer ? "After photos" : "After photos: tap one off if the customer should not see it"}</p>
+                      <PhotoToggles urls={afterUrls} hidden={hiddenPhotos} onChange={setHiddenPhotos} canToggle={!hiddenFromCustomer} />
+                      <p className="ui-muted">More photos (optional):</p>
+                    </div>
+                  ) : null}
+                  <FixProofFields value={fixProof} onChange={setFixProof} />
+                  {fixError ? <ErrorBox title="Not closed." text={fixError} /> : null}
+                  <BigButton busy={fixBusy} busyLabel="Closing…" onClick={() => void markFixed()}>
+                    {hiddenFromCustomer ? "✓ Mark fixed" : "✓ Close & send to customer"}
+                  </BigButton>
+                </div>
+              </Card>
+            </div>
+          ) : null}
+
+          {/* The customer's portal: every complaint on the account shows there (Received → Team on it → Fixed), unless hidden here. */}
+          {!/^merged/i.test(clean(complaint.status)) ? (
+            <Card title="Customer portal">
+              <Switch
+                label="Customer sees this"
+                text={
+                  hiddenFromCustomer
+                    ? "Off: the customer does not see this complaint, and closing it sends them nothing."
+                    : "On: the customer sees this complaint and where it stands (Received → Team on it → Fixed). Never Ready to review, notes, the team's name or the score."
+                }
+                on={!hiddenFromCustomer}
+                canEdit={!visibilityBusy}
+                onChange={(on) => void setCustomerVisibility(!on)}
+              />
+              {/* Closed: what the customer reads under "How we fixed it", and a way to change it (no email). */}
+              {track?.step === "fixed" && !hiddenFromCustomer ? (
+                <div className="ui-stack" style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--ui-line-soft)" }}>
+                  <p className="ui-strong">What the customer sees under &quot;How we fixed it&quot;</p>
+                  {editingCustomer ? (
+                    <>
+                      <TextAreaField label="Wording for the customer" rows={4} value={customerDraft} onChange={(event) => setCustomerDraft(event.target.value)} />
+                      {afterUrls.length > 0 ? (
+                        <>
+                          <p className="ui-strong">Photos: tap one off if the customer should not see it</p>
+                          <PhotoToggles urls={afterUrls} hidden={customerDraftHidden} onChange={setCustomerDraftHidden} canToggle />
+                        </>
+                      ) : null}
+                      {customerError ? <ErrorBox title="Not saved." text={customerError} /> : null}
+                      <BigButton busy={customerBusy} busyLabel="Saving…" onClick={() => void saveCustomerFix()}>
+                        Save (no email is sent)
+                      </BigButton>
+                      <BigButton kind="quiet" disabled={customerBusy} onClick={() => setEditingCustomer(false)}>
+                        Cancel
+                      </BigButton>
+                    </>
+                  ) : (
+                    <>
+                      <p className="ui-card-text" style={{ whiteSpace: "pre-wrap" }}>
+                        {customerNoteNow || "(no note)"}
+                      </p>
+                      <p className="ui-muted">
+                        {customerPhotosNow.length} photo{customerPhotosNow.length === 1 ? "" : "s"}
+                        {customerFix ? ` · sent ${formatWhen(customerFix.at)}` : ""}
+                        {customerFix?.editedAt ? ` · changed ${formatWhen(customerFix.editedAt)}` : ""}
+                      </p>
+                      <BigButton kind="second" onClick={startCustomerEdit}>
+                        Edit what the customer sees
+                      </BigButton>
+                    </>
+                  )}
+                </div>
+              ) : null}
             </Card>
           ) : null}
 
