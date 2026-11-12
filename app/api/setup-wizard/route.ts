@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { invalidateAccountLists } from "@/app/api/accounts/route";
 import { FlowError, flowsReady, setTapStep, startDateSaved } from "@/lib/pg/account-flow";
+import { syncFlowToDos } from "@/lib/pg/flow-todos";
 import { setAccountSupplyMode, supplyControlReady } from "@/lib/pg/supply-control";
 import { addSurveyPhoto, deleteSurveyPhoto, getSetupWizard, readyToStartAccountIds, setBillingContact, setSpecialEquipment, setTick } from "@/lib/pg/setup-wizard";
 import { TAP_STEPS, type SupplyMode, type TapStep } from "@/lib/setupWizard";
@@ -82,7 +83,11 @@ export async function POST(request: NextRequest) {
       // An account in the new-account steps: the pin's own mark. Any other: a tick in its checklist.
       const wizard = await getSetupWizard(accountId);
       if (!wizard) return refuse("That account was not found.", 404);
-      if (wizard.facts.flow && (await flowsReady())) await setTapStep(accountId, step, done, by);
+      if (wizard.facts.flow && (await flowsReady())) {
+        await setTapStep(accountId, step, done, by);
+        // The step's to-do follows (Done, or back to Open on "Not yet"): lib/pg/flow-todos.ts.
+        await syncFlowToDos(accountId, { origin: new URL(request.url).origin, reopen: !done });
+      }
       else await setTick(accountId, accountName || wizard.accountName, step, done);
       return NextResponse.json({ success: true }, noStore);
     }
@@ -90,7 +95,11 @@ export async function POST(request: NextRequest) {
     if (action === "startDate") {
       const startDate = clean(body.startDate);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return refuse("Pick the start date.");
-      if (await flowsReady()) await startDateSaved(accountId, startDate, by);
+      if (await flowsReady()) {
+        await startDateSaved(accountId, startDate, by);
+        // First cleaning on the start date, the follow-up the day after.
+        await syncFlowToDos(accountId, { origin: new URL(request.url).origin });
+      }
       await invalidateAccountLists();
       return NextResponse.json({ success: true }, noStore);
     }

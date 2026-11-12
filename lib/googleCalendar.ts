@@ -47,6 +47,46 @@ const DEFAULT_EVENT_REMINDERS = {
   ],
 };
 
+// A to-do with a time (migration 077, e.g. a site survey at 10:30) is a
+// timed event instead: the popups go 1 hour and 1 day before it starts.
+const TIMED_EVENT_REMINDERS = {
+  useDefault: false,
+  overrides: [
+    { method: "popup", minutes: 60 },
+    { method: "popup", minutes: 1440 },
+  ],
+};
+
+const NO_REMINDERS = { useDefault: false, overrides: [] };
+
+const OFFICE_TIME_ZONE = "America/New_York";
+/** How long a timed to-do's event lasts on the calendar. */
+const TIMED_EVENT_MINUTES = 60;
+
+/** "HH:MM" (24 hours) or "" — the same rule as lib/pg/todo-extras.ts. */
+function cleanTime(value: string | undefined): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value ?? "").trim());
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) return "";
+  return `${match[1].padStart(2, "0")}:${match[2]}`;
+}
+
+/** Start and end: all-day on the due date, or from the time for an hour (office time). */
+function eventTiming(dueDate: string, dueTime?: string) {
+  const time = cleanTime(dueTime);
+  if (!time) return { start: { date: dueDate, dateTime: null, timeZone: null }, end: { date: nextDay(dueDate), dateTime: null, timeZone: null } };
+  const [h, m] = time.split(":").map(Number);
+  const endMinutes = h * 60 + m + TIMED_EVENT_MINUTES;
+  // An event that would run past midnight just ends at 23:59.
+  const end = endMinutes >= 24 * 60 ? "23:59" : `${String(Math.floor(endMinutes / 60)).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+  return {
+    start: { date: null, dateTime: `${dueDate}T${time}:00`, timeZone: OFFICE_TIME_ZONE },
+    end: { date: null, dateTime: `${dueDate}T${end}:00`, timeZone: OFFICE_TIME_ZONE },
+  };
+}
+
+/** Done and Cancelled to-dos: no reminders left to fire. */
+const isFinished = (status: string) => ["done", "cancelled", "canceled"].includes(status.trim().toLowerCase());
+
 // Deterministically recomputed from the to-do's own fields every time
 // (create AND update) rather than read back from Calendar and patched
 // incrementally — keeps this genuinely one-way and means un-completing a
@@ -69,6 +109,10 @@ export type ToDoCalendarInput = {
   // eligibility set. Every task type is calendar-eligible now; this is the
   // only gate.
   syncToCalendar: boolean;
+  /** "HH:MM" (migration 077): a timed event instead of all-day. Missing / "" = all day. */
+  dueTime?: string;
+  /** The account's address (lib/pg/todo-extras.ts todoLocation). Missing / "" = no location. */
+  location?: string;
 };
 
 // `failed` distinguishes an actual Calendar failure (misconfigured env var,
@@ -111,10 +155,10 @@ export async function createCalendarEventForToDo(input: ToDoCalendarInput): Prom
       requestBody: {
         summary: buildEventTitle(input.accountName, input.why, input.status),
         description: input.notes || input.why || undefined,
-        start: { date: input.dueDate },
-        end: { date: nextDay(input.dueDate) },
+        location: input.location || undefined,
+        ...eventTiming(input.dueDate, input.dueTime),
         colorId: colorId || undefined,
-        reminders: DEFAULT_EVENT_REMINDERS,
+        reminders: isFinished(input.status) ? NO_REMINDERS : cleanTime(input.dueTime) ? TIMED_EVENT_REMINDERS : DEFAULT_EVENT_REMINDERS,
       },
     });
 
@@ -137,16 +181,22 @@ export type ToDoCalendarUpdateInput = {
   // action) passes both so a changed due date or reassignment is reflected.
   dueDate?: string;
   assignedTo?: string;
+  /** With dueDate: "HH:MM" makes it a timed event, "" all-day (migration 077). */
+  dueTime?: string;
+  /** The account's address; "" clears it. Missing = left as it is. */
+  location?: string;
+  /** Back to open (a new-account step's Undo): the reminders come back. */
+  restoreReminders?: boolean;
 };
 
 // Recomputes and pushes the event's title (and, when provided, date/color)
 // from the to-do's current fields (see buildEventTitle) — never fetches the
-// event first. Clears reminders when marking Done so a stale notification
-// doesn't fire for an already-finished task.
+// event first. Clears reminders when marking Done or Cancelled so a stale
+// notification doesn't fire for an already-finished task.
 export async function updateCalendarEventForToDo(
   input: ToDoCalendarUpdateInput
 ): Promise<{ failed: boolean }> {
-  const { eventId, accountName, why, status, dueDate, assignedTo } = input;
+  const { eventId, accountName, why, status, dueDate, assignedTo, dueTime, location, restoreReminders } = input;
 
   // No stored event id means there was never a synced event to update (e.g.
   // the original create wasn't calendar-eligible) — nothing to report as
@@ -172,9 +222,16 @@ export async function updateCalendarEventForToDo(
       eventId,
       requestBody: {
         summary: buildEventTitle(accountName, why, status),
-        ...(dueDate ? { start: { date: dueDate }, end: { date: nextDay(dueDate) } } : {}),
+        // Without a time this is the same all-day start / end as before (the date-time parts cleared).
+        ...(dueDate ? eventTiming(dueDate, dueTime) : {}),
+        ...(location !== undefined ? { location } : {}),
         ...(colorId ? { colorId } : {}),
-        ...(status === "Done" ? { reminders: { useDefault: false, overrides: [] } } : {}),
+        // Done or Cancelled: no reminders. Reopened by a new-account step's Undo: they come back.
+        ...(isFinished(status)
+          ? { reminders: NO_REMINDERS }
+          : restoreReminders
+            ? { reminders: cleanTime(dueTime) ? TIMED_EVENT_REMINDERS : DEFAULT_EVENT_REMINDERS }
+            : {}),
       },
     });
     return { failed: false };

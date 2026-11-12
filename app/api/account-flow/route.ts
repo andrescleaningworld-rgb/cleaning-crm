@@ -14,6 +14,12 @@
 // POST { action: "startDate", accountId, startDate }                 step 7
 // POST { action: "followUp", accountId, note }                       step 8
 // POST { action: "note", accountId, note }  why the current step is stuck
+// POST { action: "schedule", accountId, step: "survey" | "walkthrough", date, time }
+//      the day and time of the site survey / walkthrough: its to-do, on the calendar (lib/pg/flow-todos.ts)
+//
+// After every change, the account's step to-dos follow (First cleaning, the
+// follow-up, Done / Undo), and the GET brings them in line too (a start date
+// changed on the account page).
 
 import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
@@ -38,6 +44,7 @@ import {
   undoStep,
 } from "@/lib/pg/account-flow";
 import { isFlowStep } from "@/lib/accountFlow";
+import { FlowScheduleError, flowSchedule, scheduleFlowStep, syncFlowToDos } from "@/lib/pg/flow-todos";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const refuse = (error: string, status = 400) => NextResponse.json({ success: false, error }, { status });
@@ -54,7 +61,9 @@ export async function GET(request: NextRequest) {
     }
     const accountId = clean(request.nextUrl.searchParams.get("accountId"));
     if (!accountId) return refuse("accountId is required.");
-    return NextResponse.json({ success: true, ready: true, flow: await getFlowDetail(accountId) }, noStore);
+    const flow = await getFlowDetail(accountId);
+    if (flow) await syncFlowToDos(accountId, { origin: new URL(request.url).origin });
+    return NextResponse.json({ success: true, ready: true, flow: flow ? { ...flow, schedule: await flowSchedule(accountId) } : null }, noStore);
   } catch (error) {
     console.error("[account-flow GET]", error instanceof Error ? error.message : error);
     return refuse("The new-account steps did not load.", 500);
@@ -70,6 +79,16 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const action = clean(body.action);
     const accountId = clean(body.accountId);
+    const origin = new URL(request.url).origin;
+    // The step to-dos follow each change (never fails the step; see lib/pg/flow-todos.ts).
+    const followToDos = (reopen = false) => syncFlowToDos(accountId, { origin, reopen });
+
+    if (action === "schedule") {
+      const step = clean(body.step);
+      if (step !== "survey" && step !== "walkthrough") return refuse("Only the site survey and the walkthrough get a day and time.");
+      await scheduleFlowStep(accountId, step, clean(body.date), clean(body.time), origin);
+      return NextResponse.json({ success: true });
+    }
 
     if (action === "create") {
       const accountName = clean(body.accountName);
@@ -141,6 +160,7 @@ export async function POST(request: NextRequest) {
       const step = clean(body.step);
       if (step !== "call" && step !== "walkthrough") return refuse("That step is not finished with a Done button.");
       await tapDone(accountId, step, by);
+      await followToDos();
       return NextResponse.json({ success: true });
     }
 
@@ -149,6 +169,7 @@ export async function POST(request: NextRequest) {
       if (!isFlowStep(step)) return refuse("Unknown step.");
       if (action === "markDone") await markStepDone(accountId, step, by);
       else await undoStep(accountId, step, by);
+      await followToDos(action === "undo");
       // Step 3's Yes sets the account's Subcontractor; the last step makes it Active.
       await invalidateAccountLists();
       return NextResponse.json({ success: true });
@@ -156,17 +177,20 @@ export async function POST(request: NextRequest) {
 
     if (action === "subNo") {
       await markSubSaidNo(accountId, by);
+      await followToDos(true);
       return NextResponse.json({ success: true });
     }
 
     if (action === "startDate") {
       await confirmStartDate(accountId, clean(body.startDate), by);
+      await followToDos();
       await invalidateAccountLists();
       return NextResponse.json({ success: true });
     }
 
     if (action === "followUp") {
       await followUpDone(accountId, clean(body.note), by);
+      await followToDos();
       await invalidateAccountLists();
       return NextResponse.json({ success: true });
     }
@@ -178,7 +202,7 @@ export async function POST(request: NextRequest) {
 
     return refuse("Unknown action.");
   } catch (error) {
-    if (error instanceof FlowError) return refuse(error.message, 409);
+    if (error instanceof FlowError || error instanceof FlowScheduleError) return refuse(error.message, 409);
     console.error("[account-flow POST]", error instanceof Error ? error.message : error);
     return refuse(error instanceof Error && error.message.startsWith("The start date") ? error.message : "That did not save. Try again.", 500);
   }

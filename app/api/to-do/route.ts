@@ -27,6 +27,7 @@ import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
 import { sendPush } from "@/lib/push";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
+import { todoEventExtras, todoLocation } from "@/lib/pg/todo-extras";
 
 // Best-effort SmsLog write — never lets a Sheets error mask the send
 // outcome that already happened (and was already logged via console by
@@ -175,6 +176,35 @@ export async function notifyManagerOfNewToDo(id: string, input: ToDoCalendarInpu
   return sendToDoNotification(id, input, origin, "New to-do", "to-do/addToDo");
 }
 
+// The CRM's due-day reminders (app/api/cron/todo-reminders): the same manager
+// lookup, text (with its SmsLog row) and push as a new to-do, with the
+// reminder's own words. The text never has a link; the push opens the to-do.
+export async function remindManagerOfToDo(
+  id: string,
+  assignedTo: string,
+  message: { title: string; smsBody: string; pushBody: string },
+  origin: string
+): Promise<boolean> {
+  const target = assignedTo.trim().toLowerCase();
+  if (!target) return false;
+  let manager: Awaited<ReturnType<typeof fetchManagers>>[number] | undefined;
+  try {
+    manager = (await fetchManagers()).find((m) => m.name.trim().toLowerCase() === target);
+  } catch (error) {
+    console.error("[notify] to-do/reminder lookup failed:", error instanceof Error ? error.message : error);
+    return false;
+  }
+  if (!manager) {
+    console.debug(`[notify] skip to-do/reminder: no manager matching "${assignedTo}"`);
+    return false;
+  }
+  await Promise.all([
+    sendToDoSms(id, manager, message.smsBody, "to-do/reminder"),
+    sendToDoPush(manager, message.title, message.pushBody, `${origin}/to-do?id=${encodeURIComponent(id)}`, "to-do/reminder"),
+  ]);
+  return true;
+}
+
 // Fires only when Assigned To actually changed (see the addToDo POST
 // handler's previousAssignedTo comparison) — an edit that touches other
 // fields but leaves the assignee alone must not re-notify.
@@ -245,11 +275,15 @@ async function notifyManagerOfToDoBatch(
 // nothing (was never eligible and still isn't). Returns the calendarEventId
 // to persist (unchanged, cleared, or newly created) and whether the
 // Calendar call itself failed.
+// `toDoId` reads the to-do's time (migration 077) and its account's address
+// for the event (lib/pg/todo-extras.ts).
 async function syncCalendarAfterEdit(
   previousCalendarEventId: string,
-  resolved: { taskType: string; dueDate: string; accountName: string; why: string; notes: string; assignedTo: string; status: string; syncToCalendar: boolean }
+  resolved: { taskType: string; dueDate: string; accountName: string; why: string; notes: string; assignedTo: string; status: string; syncToCalendar: boolean },
+  toDoId: string
 ): Promise<{ calendarEventId: string; calendarSyncFailed: boolean }> {
   const nowEligible = resolved.syncToCalendar && Boolean(resolved.dueDate);
+  const extras = nowEligible ? await todoEventExtras(toDoId) : { dueTime: "", location: "" };
 
   if (previousCalendarEventId && nowEligible) {
     const result = await updateCalendarEventForToDo({
@@ -259,6 +293,8 @@ async function syncCalendarAfterEdit(
       status: resolved.status,
       dueDate: resolved.dueDate,
       assignedTo: resolved.assignedTo,
+      dueTime: extras.dueTime,
+      location: extras.location,
     });
     return { calendarEventId: previousCalendarEventId, calendarSyncFailed: result.failed };
   }
@@ -269,7 +305,7 @@ async function syncCalendarAfterEdit(
   }
 
   if (!previousCalendarEventId && nowEligible) {
-    const result = await createCalendarEventForToDo(resolved);
+    const result = await createCalendarEventForToDo({ ...resolved, ...extras });
     return { calendarEventId: result.eventId ?? "", calendarSyncFailed: result.failed };
   }
 
@@ -337,13 +373,15 @@ export async function POST(request: NextRequest) {
         syncToCalendar: typeof body.syncToCalendar === "boolean" ? body.syncToCalendar : true,
       };
       const priority = normalizeToDoPriority(body.priority);
+      // The account's address is the event's location (none for a plain reminder).
+      const location = await todoLocation(body.accountId, input.accountName);
 
       // Calendar event is created BEFORE the Sheets row so its id (and
       // whether the sync failed) can be written in the same append — see
       // appendToDo's calendarEventId comment for why this avoids a second
       // write-back step. Best-effort: createCalendarEventForToDo never
       // throws, so a Calendar failure still lets the to-do itself save.
-      const { eventId: calendarEventId, failed: calendarSyncFailed } = await createCalendarEventForToDo(input);
+      const { eventId: calendarEventId, failed: calendarSyncFailed } = await createCalendarEventForToDo({ ...input, location });
 
       const id = await appendToDo({
         ...input,
@@ -410,7 +448,9 @@ export async function POST(request: NextRequest) {
       // run in parallel rather than needing the single-request batching
       // appendToDos itself requires.
       const calendarResults = await Promise.all(
-        entries.map((entry: ToDoCalendarInput) => createCalendarEventForToDo(entry))
+        entries.map(async (entry: ToDoCalendarInput & { accountId: string }) =>
+          createCalendarEventForToDo({ ...entry, location: await todoLocation(entry.accountId, entry.accountName) })
+        )
       );
 
       const ids = await appendToDos(
@@ -503,7 +543,8 @@ export async function POST(request: NextRequest) {
 
       const { calendarEventId, calendarSyncFailed } = await syncCalendarAfterEdit(
         resolved.previousCalendarEventId,
-        resolved
+        resolved,
+        toDoId
       );
 
       // Always persisted (not just on change) — a retried sync can succeed
@@ -588,7 +629,8 @@ export async function POST(request: NextRequest) {
         found.map(async (result) => {
           const { calendarEventId, calendarSyncFailed } = await syncCalendarAfterEdit(
             result.previousCalendarEventId,
-            result
+            result,
+            result.toDoId
           );
           return { sheetRow: result.sheetRow, calendarEventId, calendarSyncFailed };
         })

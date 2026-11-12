@@ -14,6 +14,9 @@
 //   6 Crew walkthrough           Mark done
 //   7 Confirm start date         saves the account's Start Date
 //   8 Follow up                  a note, then Done: the account is live
+// Site survey and walkthrough also get a day + time ("Schedule"): that makes
+// the step's to-do, on the operations calendar with reminders. The start date
+// makes "First cleaning" and the follow-up the day after (lib/pg/flow-todos.ts).
 // In the step list, every step still to do has a small "Mark done" (a later
 // step is done ahead and skipped when the flow gets there), and every done
 // step a small "Undo", until the account is live.
@@ -24,7 +27,7 @@ import PizzaTracker, { type TrackerActions } from "./pizza-tracker";
 import { SetupButton } from "./OnboardingChecklist";
 import PlusMinus from "./plus-minus";
 import SubSuggestions, { suggestionDays } from "./sub-suggestions";
-import { FLOW_SETUP_STEPS, FLOW_STEPS, type FlowDetail, type FlowEvent, type FlowStep } from "@/lib/accountFlow";
+import { FLOW_SETUP_STEPS, FLOW_STEPS, flowIndex, type FlowDetail, type FlowEvent, type FlowSlot, type FlowStep } from "@/lib/accountFlow";
 
 /** The current step's own big button already marks it done, so its line has no small "Mark done". */
 const BIG_BUTTON_MARKS: FlowStep[] = ["subOk", "call", "survey", "walkthrough", "startDate", "followUp"];
@@ -132,6 +135,22 @@ export default function AccountFlowPanel({
           {view.red ? <p className="ui-field-error">No progress for 2 work days. Add a note below if it is stuck.</p> : null}
           {error ? <ErrorBox title="Not saved" text={error} /> : null}
 
+          {/* From "Contact customer" on: the day and time of the site survey and the walkthrough (until each is done). */}
+          {flow.schedule && view.step !== "live" && flowIndex(view.step) >= flowIndex("call")
+            ? (["survey", "walkthrough"] as const)
+                .filter((step) => !(view.done ?? []).includes(step) && flowIndex(view.step) <= flowIndex(step))
+                .map((step) => (
+                  <ScheduleStep
+                    // A new saved day / time starts the picker over (closed, showing it).
+                    key={`${step}-${flow.schedule?.[step]?.date ?? ""}-${flow.schedule?.[step]?.time ?? ""}`}
+                    step={step}
+                    slot={flow.schedule?.[step] ?? null}
+                    busy={busy}
+                    onSave={(date, time) => void act({ action: "schedule", step, date, time }, `${trackerWord(step)}: on the calendar ✓`)}
+                  />
+                ))
+            : null}
+
           {view.step === "packet" ? (
             <BigButton disabled={busy} onClick={onSendPacket}>
               Send welcome packet
@@ -232,6 +251,54 @@ export default function AccountFlowPanel({
       </Card>
 
       <PickSubSheet open={picking} flow={flow} onClose={() => setPicking(false)} onSent={() => void load()} />
+    </div>
+  );
+}
+
+/** "10:30" -> "10:30 AM". */
+function clockText(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return time;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * The site survey's or the walkthrough's day and time. Saving makes its to-do
+ * (assigned to the manager, on the operations calendar with reminders, and
+ * a text + push on the day); saving again moves it.
+ */
+function ScheduleStep({ step, slot, busy, onSave }: { step: "survey" | "walkthrough"; slot: FlowSlot | null; busy: boolean; onSave: (date: string, time: string) => void }) {
+  const [editing, setEditing] = useState(!slot);
+  const [date, setDate] = useState(slot?.date ?? "");
+  const [time, setTime] = useState(slot?.time ?? "");
+  const name = step === "survey" ? "Site survey" : "Walkthrough";
+  if (slot && !editing) {
+    return (
+      <div className="ui-stack" style={{ gap: 6 }}>
+        <p className="ui-card-text">
+          📅 <strong>{name}:</strong> {friendlyDate(slot.date)} at {clockText(slot.time)}. It is on the calendar and in To-Do.
+        </p>
+        <BigButton kind="quiet" disabled={busy} onClick={() => setEditing(true)}>
+          Change the {name.toLowerCase()} day or time
+        </BigButton>
+      </div>
+    );
+  }
+  return (
+    <div className="ui-stack" style={{ gap: 6 }}>
+      <p className="ui-strong">📅 {name}: when?</p>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 8 }}>
+        <Field label="Day" type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={busy} />
+        <Field label="Time" type="time" step={900} value={time} onChange={(event) => setTime(event.target.value)} disabled={busy} />
+      </div>
+      <BigButton kind="second" busy={busy} busyLabel="Saving…" disabled={!date || !time} onClick={() => onSave(date, time)}>
+        Put the {name.toLowerCase()} on the calendar
+      </BigButton>
+      {slot ? (
+        <BigButton kind="quiet" disabled={busy} onClick={() => setEditing(false)}>
+          Cancel
+        </BigButton>
+      ) : null}
     </div>
   );
 }

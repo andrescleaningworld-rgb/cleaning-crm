@@ -189,7 +189,12 @@ export type FlowDetail = {
   /** The account's Subcontractor field: who step 3 is about when no offer went out from here. */
   accountSub: string;
   events: FlowEvent[];
+  /** The day and time picked for the site survey and the walkthrough (their to-dos, migration 077). null before 077. */
+  schedule?: { survey: FlowSlot | null; walkthrough: FlowSlot | null } | null;
 };
+
+/** A step's picked day (YYYY-MM-DD), time ("HH:MM", 24 hours) and its to-do's status. */
+export type FlowSlot = { date: string; time: string; status: string };
 
 /** The sub's view of an offer in their portal. No money and no customer contact. */
 export type SubOffer = { accountId: string; accountName: string; address: string; days: string; start: string; minutes: number | null; sentAt: string };

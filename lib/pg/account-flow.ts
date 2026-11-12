@@ -499,7 +499,7 @@ export async function setTapStep(accountId: string, step: "call" | "survey" | "w
  */
 export async function startDateSaved(accountId: string, startDate: string, by: string): Promise<void> {
   const row = await flowRow(accountId);
-  if (!row || row.step === "live" || !/^d{4}-d{2}-d{2}$/.test(startDate)) return;
+  if (!row || row.step === "live" || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return;
   await getSql()`UPDATE account_flows SET follow_up_due = ${dayAfter(startDate)}::date WHERE account_id = ${accountId}`;
   const pointer = isFlowStep(row.step) ? row.step : "packet";
   if (!isDoneOn(pointer, await doneStepsFor(accountId), "startDate")) await markStepDone(accountId, "startDate", by);

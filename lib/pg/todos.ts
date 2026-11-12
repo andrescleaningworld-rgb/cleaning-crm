@@ -23,6 +23,7 @@ import type {
   ToDoStatusUpdateResult,
 } from "@/lib/googleSheets";
 import { dateOrNull } from "@/lib/dateUtils";
+import { resetTodoReminders } from "@/lib/pg/todo-extras";
 
 type ToDoInput = Parameters<typeof sheets.appendToDo>[0];
 
@@ -138,6 +139,14 @@ export async function appendToDo(data: ToDoInput): Promise<string> {
   return id;
 }
 
+// A new account's step to-do (lib/pg/flow-todos.ts): its own id, so two made
+// in the same second (First cleaning and its follow-up) never share one.
+export async function appendToDoWithId(id: string, data: ToDoInput): Promise<string> {
+  const createdDate = new Date().toISOString().slice(0, 10);
+  await getSql().query(INSERT_TODO, [...insertValues(id, createdDate, data), 0]);
+  return id;
+}
+
 // One request for the whole batch, same as the Sheets version: ids get the
 // row's index as a suffix, and the rows land together, in order.
 export async function appendToDos(entries: ToDoInput[]): Promise<string[]> {
@@ -247,6 +256,8 @@ export async function updateToDo(toDoId: string, updates: ToDoEditInput): Promis
 
   const row = await findToDoRow(targetId);
   await writeEdit(row.sheet_row, updates);
+  // A new due day: the CRM's due-day reminders (migration 077) go again.
+  if (updates.dueDate !== undefined && updates.dueDate !== row.due_date_raw) await resetTodoReminders(row.sheet_row);
   return editResult(row, updates);
 }
 
@@ -287,6 +298,7 @@ export async function updateToDosBatch(entries: ToDoBulkEditEntry[]): Promise<To
       continue;
     }
     await writeEdit(row.sheet_row, entry.updates);
+    if (entry.updates.dueDate !== undefined && entry.updates.dueDate !== row.due_date_raw) await resetTodoReminders(row.sheet_row);
     results.push({ toDoId: targetId, sheetRow: row.sheet_row, ...editResult(row, entry.updates) });
   }
   return results;
