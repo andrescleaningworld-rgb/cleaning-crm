@@ -13,8 +13,9 @@
 
 import { getSql } from "@/lib/db";
 import {
-  EXTRA_JOB_COMMISSION_PERCENT,
+  commissionPercentOf,
   type ExtraJob,
+  type ExtraJobCommission,
   type ExtraJobEstimate,
   type ExtraJobAccount,
   type ExtraJobPhoto,
@@ -73,6 +74,33 @@ export async function inHouseReady(): Promise<boolean> {
   return inHouseOn;
 }
 
+let commissionOn = false;
+
+/** True once migration 078 is in: a job can be One-time or Recurring. Until then the choice is hidden and every job is One-time. */
+export async function commissionTypeReady(): Promise<boolean> {
+  if (commissionOn) return true;
+  try {
+    const rows = (await getSql()`
+      SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'extra_jobs' AND column_name = 'commission_type') AS ok
+    `) as { ok: boolean }[];
+    commissionOn = rows[0]?.ok === true;
+  } catch {
+    commissionOn = false;
+  }
+  return commissionOn;
+}
+
+/** The commission as saved: Recurring keeps its two dates, One-time has none. */
+function commissionOf(input: { commissionType?: ExtraJobCommission; recurringStartDate?: string; recurringEndDate?: string }) {
+  const type: ExtraJobCommission = input.commissionType === "recurring" ? "recurring" : "one_time";
+  return {
+    type,
+    percent: commissionPercentOf(type),
+    start: type === "recurring" ? (input.recurringStartDate ?? "") : "",
+    end: type === "recurring" ? (input.recurringEndDate ?? "") : "",
+  };
+}
+
 /** "Who did it" on an in-house job, as typed. */
 const crewNamesOf = (input: { crewNames?: string }) => (input.crewNames ?? "").trim().slice(0, 200);
 
@@ -98,6 +126,9 @@ type JobRow = {
   sub_pay: string;
   performed_by: string;
   crew_names: string;
+  commission_type: string;
+  recurring_start: string | null;
+  recurring_end: string | null;
   sold_by: string;
   manager: string;
   status: ExtraJobStatus;
@@ -154,6 +185,9 @@ function toJob(row: JobRow): ExtraJob {
     inHouse: row.performed_by === "in_house",
     crewNames: row.crew_names ?? "",
     soldBy: row.sold_by,
+    commissionType: row.commission_type === "recurring" ? "recurring" : "one_time",
+    recurringStartDate: row.recurring_start ?? "",
+    recurringEndDate: row.recurring_end ?? "",
     manager: row.manager,
     status: row.status,
     saleId: row.sale_id,
@@ -187,9 +221,13 @@ async function selectJob(): Promise<string> {
     : `'' AS estimate_number, false AS estimates_on, '[]'::jsonb AS estimates`;
   // In-house (migration 067). Before it, every job is a sub job.
   const inHouse = (await inHouseReady()) ? `j.performed_by, j.crew_names` : `'sub' AS performed_by, '' AS crew_names`;
+  // One-time / Recurring (migration 078). Before it, every job is One-time.
+  const commission = (await commissionTypeReady())
+    ? `j.commission_type, j.recurring_start_date::text AS recurring_start, j.recurring_end_date::text AS recurring_end`
+    : `'one_time' AS commission_type, NULL AS recurring_start, NULL AS recurring_end`;
   return `
   SELECT j.id::text, j.job_number, j.wo_number, j.account_id, j.account_name, j.source, j.description, j.job_date::text AS job_day,
-         j.customer_price::text, j.sub_id, j.sub_name, j.sub_pay::text, ${inHouse}, j.sold_by, j.manager, j.status, j.sale_id,
+         j.customer_price::text, j.sub_id, j.sub_name, j.sub_pay::text, ${inHouse}, ${commission}, j.sold_by, j.manager, j.status, j.sale_id,
          j.created_by, j.created_at, j.setup_emailed_at, j.done_by, j.done_at, j.done_note, j.done_emailed_at,
          j.cancelled_by, j.cancelled_at, j.cancel_reason, j.cancel_emailed_at, j.edited_by, j.edited_at,
          COALESCE((
@@ -264,11 +302,13 @@ export async function getFormChoices(me: string): Promise<FormChoices> {
     sellers: sellers.map((row) => row.name),
     me,
     inHouseOn: await inHouseReady(),
+    commissionOn: await commissionTypeReady(),
   };
 }
 
 /**
- * Sets an extra job up and creates its one-time Sale (10% commission).
+ * Sets an extra job up and creates its Sale: One-time 10%, or Recurring 4%
+ * with its start and end dates (migration 078).
  * If the Sale cannot be saved, the job is not kept either: a job with no
  * Sale would be an extra job nobody gets commission for.
  */
@@ -291,6 +331,14 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
   if (input.inHouse && (await inHouseReady())) {
     await sql`UPDATE extra_jobs SET performed_by = 'in_house', crew_names = ${crewNamesOf(input)} WHERE id = ${id}::bigint`;
   }
+  // One-time / Recurring (migration 078). Before 078 the API refuses Recurring, so this is always One-time then.
+  const commission = commissionOf(input);
+  if (commission.type === "recurring" && (await commissionTypeReady())) {
+    await sql`
+      UPDATE extra_jobs SET commission_type = 'recurring', recurring_start_date = ${commission.start}::date, recurring_end_date = ${commission.end}::date
+      WHERE id = ${id}::bigint
+    `;
+  }
 
   try {
     const managers = (await sql`
@@ -307,13 +355,13 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
       workOrderEstimateNumber: woNumberOf(input) || jobNumber,
       soldBy: input.soldBy.trim(),
       amountSold: input.customerPrice,
-      commissionPercent: EXTRA_JOB_COMMISSION_PERCENT,
+      commissionPercent: commission.percent,
       status: "Pending",
       notes: `Extra job ${jobNumber}, for ${input.jobDate}. Created by the Extra Jobs page.`,
       serviceType: "Extra Service",
       manager: managers[0]?.manager ?? "",
-      recurringStartDate: "",
-      recurringEndDate: "",
+      recurringStartDate: commission.start,
+      recurringEndDate: commission.end,
     });
     await sql`UPDATE extra_jobs SET sale_id = ${saleId} WHERE id = ${id}::bigint`;
   } catch (error) {
@@ -366,8 +414,8 @@ export async function stampEmailed(id: string, which: "setup" | "done" | "cancel
 
 /**
  * Changes a job that is still on "Set up": any field of the quick form. Its
- * Sale is changed to match (account, what was sold, who sold it, the amount
- * and so the 10% commission). Returns "not-found", "locked" (the job is
+ * Sale is changed to match (account, what was sold, who sold it, the amount,
+ * One-time 10% or Recurring 4% and its dates). Returns "not-found", "locked" (the job is
  * already done or cancelled) or the job.
  */
 export async function updateExtraJob(id: string, input: NewExtraJob, by: string): Promise<ExtraJob | "not-found" | "locked"> {
@@ -395,8 +443,18 @@ export async function updateExtraJob(id: string, input: NewExtraJob, by: string)
     `;
   }
 
+  // One-time / Recurring (migration 078). Before 078 the job stays One-time, as it was.
+  const kind = (await commissionTypeReady()) ? commissionOf(input) : commissionOf({ commissionType: "one_time" });
+  if (await commissionTypeReady()) {
+    await sql`
+      UPDATE extra_jobs SET commission_type = ${kind.type},
+        recurring_start_date = ${kind.start || null}::date, recurring_end_date = ${kind.end || null}::date
+      WHERE id = ${id}::bigint
+    `;
+  }
+
   if (job.saleId) {
-    const commission = Math.round(input.customerPrice * EXTRA_JOB_COMMISSION_PERCENT) / 100;
+    const commission = Math.round(input.customerPrice * kind.percent) / 100;
     const now = new Date().toISOString();
     // Only the Sale this job created (its note starts with the job number).
     await sql`
@@ -406,8 +464,10 @@ export async function updateExtraJob(id: string, input: NewExtraJob, by: string)
         service_sold = ${input.description.trim().slice(0, 300)}, sold_by = ${input.soldBy.trim()},
         work_order_estimate_number = ${woNumberOf(input) || job.jobNumber},
         amount_sold_raw = ${String(input.customerPrice)}, amount_sold = ${input.customerPrice}, amount_raw = ${String(input.customerPrice)},
-        commission_percent_raw = ${String(EXTRA_JOB_COMMISSION_PERCENT)}, commission_percent = ${EXTRA_JOB_COMMISSION_PERCENT},
+        commission_percent_raw = ${String(kind.percent)}, commission_percent = ${kind.percent},
         commission_amount_raw = ${String(commission)}, commission_amount = ${commission},
+        recurring_start_date_raw = ${kind.start}, recurring_start_date = ${kind.start || null}::date,
+        recurring_end_date_raw = ${kind.end}, recurring_end_date = ${kind.end || null}::date,
         notes = ${`Extra job ${job.jobNumber}, for ${input.jobDate}. Created by the Extra Jobs page.`},
         manager = COALESCE((
           SELECT COALESCE(NULLIF(btrim(m.name), ''), btrim(a.manager_raw), '') FROM accounts a LEFT JOIN managers m ON m.id = a.manager_id WHERE a.id = ${input.accountId} LIMIT 1

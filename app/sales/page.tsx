@@ -8,11 +8,16 @@ import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  COMMISSION_CHOICES,
   computePayPeriodTotals,
   getCommissionType,
   getCurrentPayPeriod,
   MONTH_NAMES,
+  ONE_TIME_PERCENT,
+  RECURRING_PERCENT,
+  splitCommission,
   validateRecurringDates,
+  YEAR_TO_DATE,
   type CommissionType,
 } from "@/lib/salesCommission";
 
@@ -155,6 +160,21 @@ function getYearFromDate(value: string) {
   return String(date.getFullYear());
 }
 
+/** True when a sale's date is between Jan 1 and today's month and day (in its own year: the Year dropdown picks which). */
+function isYearToDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  const month = date.getMonth();
+  return month < today.getMonth() || (month === today.getMonth() && date.getDate() <= today.getDate());
+}
+
+/** "Q4 2026", "Year to date 2026", "2026", or "All dates". */
+function periodLabel(year: string, quarter: string) {
+  if (quarter === YEAR_TO_DATE) return `Year to date${year ? ` ${year}` : ""}`;
+  return `${quarter} ${year}`.trim() || "All dates";
+}
+
 function mapRawAccount(raw: RawAccount): Account {
   const name = cleanText(
     raw["Account Name"] ||
@@ -253,7 +273,7 @@ function SalesPageContent() {
   const [serviceType, setServiceType] = useState("Extra Service");
   const [soldBy, setSoldBy] = useState("");
   const [amount, setAmount] = useState("");
-  const [commissionPercent, setCommissionPercent] = useState("5");
+  const [commissionType, setCommissionType] = useState<"OneTime" | "Recurring">("OneTime");
   const [status, setStatus] = useState("Pending");
   const [workOrderEstimateNumber, setWorkOrderEstimateNumber] = useState("");
   const [notes, setNotes] = useState("");
@@ -421,9 +441,11 @@ function SalesPageContent() {
         const saleQuarter = getQuarterFromDate(sale.saleDateRaw);
 
         const matchesYear = selectedYear ? saleYear === selectedYear : true;
-        const matchesQuarter = selectedQuarter
-          ? saleQuarter === selectedQuarter
-          : true;
+        const matchesQuarter = !selectedQuarter
+          ? true
+          : selectedQuarter === YEAR_TO_DATE
+            ? isYearToDate(sale.saleDateRaw)
+            : saleQuarter === selectedQuarter;
 
         const matchesSalesperson =
           selectedSalesperson === "All" ? true : sale.soldBy === selectedSalesperson;
@@ -474,7 +496,7 @@ function SalesPageContent() {
         soldBy: string;
         salesCount: number;
         totalSales: number;
-        totalCommission: number;
+        sales: Sale[];
       }
     >();
 
@@ -484,19 +506,20 @@ function SalesPageContent() {
         soldBy: key,
         salesCount: 0,
         totalSales: 0,
-        totalCommission: 0,
+        sales: [],
       };
 
       current.salesCount += 1;
       current.totalSales += sale.amount;
-      current.totalCommission += sale.commissionAmount;
+      current.sales.push(sale);
 
       grouped.set(key, current);
     });
 
-    return Array.from(grouped.values()).sort(
-      (a, b) => b.totalCommission - a.totalCommission
-    );
+    // Each person's commission, split One-time / Recurring (same math as before: each sale's own amount).
+    return Array.from(grouped.values())
+      .map(({ sales: personSales, ...person }) => ({ ...person, commission: splitCommission(personSales) }))
+      .sort((a, b) => b.commission.total - a.commission.total);
   }, [filteredSales]);
 
   const totalSalesAmount = filteredSales.reduce(
@@ -504,10 +527,9 @@ function SalesPageContent() {
     0
   );
 
-  const totalCommissionAmount = filteredSales.reduce(
-    (total, sale) => total + sale.commissionAmount,
-    0
-  );
+  // Commission Due: One-time and Recurring apart, and the total.
+  const commissionDue = useMemo(() => splitCommission(filteredSales), [filteredSales]);
+  const rangeLabel = periodLabel(selectedYear, selectedQuarter);
 
   const pendingSales = filteredSales.filter((sale) =>
     sale.status.toLowerCase().includes("pending")
@@ -517,10 +539,13 @@ function SalesPageContent() {
     sale.status.toLowerCase().includes("paid")
   ).length;
 
-  const calculatedCommissionAmount =
-    toNumber(amount) * (toNumber(commissionPercent) / 100);
+  // The form's choice: One-time 10% or Recurring 4% (no other %).
+  const commissionPercent = commissionType === "Recurring" ? RECURRING_PERCENT : ONE_TIME_PERCENT;
 
-  const isRecurringCommission = toNumber(commissionPercent) === 4;
+  const calculatedCommissionAmount =
+    toNumber(amount) * (commissionPercent / 100);
+
+  const isRecurringCommission = commissionType === "Recurring";
 
   // Pay Period Total: per Sold-By person, one-time commissions landing in
   // the selected month plus recurring commissions whose date range covers
@@ -570,7 +595,7 @@ function SalesPageContent() {
       return;
     }
 
-    const finalCommissionPercent = toNumber(commissionPercent);
+    const finalCommissionPercent = commissionPercent;
     const recurringValidationError = validateRecurringDates(
       finalCommissionPercent,
       recurringStartDate,
@@ -590,10 +615,8 @@ function SalesPageContent() {
     const finalAmount = toNumber(amount);
     const finalCommissionAmount =
       finalAmount * (finalCommissionPercent / 100);
-    const finalRecurringStartDate =
-      finalCommissionPercent === 4 ? recurringStartDate : "";
-    const finalRecurringEndDate =
-      finalCommissionPercent === 4 ? recurringEndDate : "";
+    const finalRecurringStartDate = isRecurringCommission ? recurringStartDate : "";
+    const finalRecurringEndDate = isRecurringCommission ? recurringEndDate : "";
 
     try {
       const response = await fetch("/api/sales", {
@@ -663,7 +686,7 @@ function SalesPageContent() {
       setServiceType("Extra Service");
       setSoldBy("");
       setAmount("");
-      setCommissionPercent("5");
+      setCommissionType("OneTime");
       setStatus("Pending");
       setWorkOrderEstimateNumber("");
       setNotes("");
@@ -707,12 +730,12 @@ function SalesPageContent() {
             <p className="ui-muted">
               {openedFromAccountDetail
                 ? "Add a sale for the selected account."
-                : "Quarterly commission sheet for extra services, work orders, estimates, and sales status."}
+                : "Commission sheet for extra services, work orders, estimates, and sales status, by quarter or year to date."}
             </p>
 
             {!openedFromAccountDetail && (
               <p className="ui-strong">
-                Showing {selectedQuarter || selectedYear ? `${selectedQuarter} ${selectedYear}`.trim() : "all dates"}
+                Showing {rangeLabel === "All dates" ? "all dates" : rangeLabel}
                 {selectedSalesperson !== "All"
                   ? ` for ${selectedSalesperson}`
                   : " for all salespeople"}
@@ -732,7 +755,8 @@ function SalesPageContent() {
                 onClick={handlePrint}
                 className="ui-btn ui-btn-second"
               >
-                Print Quarterly Report
+                {/* Says what will print: "Print Q4 2026 Report", "Print Year to date 2026 Report". */}
+                Print {rangeLabel} Report
               </button>
             )}
 
@@ -927,23 +951,29 @@ function SalesPageContent() {
                 />
               </div>
 
-              <div>
-                <label className="ui-label">
-                  Commission %
-                </label>
+              {/* One-time 10% or Recurring 4%: the only two commissions. Recurring asks for its start and end dates below. */}
+              <div role="radiogroup" aria-label="Commission">
+                <span className="ui-label">
+                  Commission
+                </span>
 
-                <input
-                  type="number"
-                  value={commissionPercent}
-                  onChange={(event) =>
-                    setCommissionPercent(event.target.value)
-                  }
-                  placeholder="5"
-                  className="ui-input w-full"
-                />
+                <div className="flex flex-wrap gap-2">
+                  {COMMISSION_CHOICES.map((choice) => (
+                    <button
+                      key={choice.type}
+                      type="button"
+                      role="radio"
+                      aria-checked={commissionType === choice.type}
+                      onClick={() => setCommissionType(choice.type)}
+                      className={`ui-btn ${commissionType === choice.type ? "ui-btn-main" : "ui-btn-second"}`}
+                    >
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
 
                 <p className="ui-muted">
-                  4% = Recurring &middot; 10% = One-Time
+                  One-time: paid once &middot; Recurring: paid every month from the start date to the end date
                 </p>
               </div>
 
@@ -1003,8 +1033,8 @@ function SalesPageContent() {
                 </div>
 
                 <p className="ui-strong md:col-span-2">
-                  Required for a 4% (Recurring) commission — the commission applies to every pay
-                  period within this range, prorated for partial first/last months.
+                  Needed for Recurring (4%): the commission is paid every month in this range,
+                  prorated for a partial first or last month.
                 </p>
               </div>
             )}
@@ -1057,7 +1087,7 @@ function SalesPageContent() {
           <>
             <section className="ui-card print:hidden">
               <h2 className="ui-card-title">
-                Quarterly Commission Filter
+                Commission Filter
               </h2>
 
               <div className="mt-4 grid gap-4 md:grid-cols-4">
@@ -1091,6 +1121,7 @@ function SalesPageContent() {
                     className="ui-input w-full"
                   >
                     {accountList ? <option value="">All quarters</option> : null}
+                    <option value={YEAR_TO_DATE}>Year to date (Jan 1 to today)</option>
                     <option value="Q1">Q1 - Jan to Mar</option>
                     <option value="Q2">Q2 - Apr to Jun</option>
                     <option value="Q3">Q3 - Jul to Sep</option>
@@ -1144,9 +1175,7 @@ function SalesPageContent() {
                 <p className="ui-stat-value">
                   {filteredSales.length}
                 </p>
-                <p className="ui-muted">
-                  {selectedQuarter || selectedYear ? `${selectedQuarter} ${selectedYear}`.trim() : "All dates"}
-                </p>
+                <p className="ui-muted">{rangeLabel}</p>
               </div>
 
               <div className="ui-card print:p-3 print:shadow-none">
@@ -1159,8 +1188,13 @@ function SalesPageContent() {
               <div className="ui-card print:p-3 print:shadow-none">
                 <p className="ui-muted">Commission Due</p>
                 <p className="ui-stat-value">
-                  {formatMoney(totalCommissionAmount)}
+                  {formatMoney(commissionDue.total)}
                 </p>
+                <p className="ui-muted">
+                  One-time {formatMoney(commissionDue.oneTime)} &middot; Recurring {formatMoney(commissionDue.recurring)}
+                </p>
+                {/* Old sales saved at some other %: counted in the total, shown so the two lines add up. */}
+                {commissionDue.other !== 0 ? <p className="ui-muted">Other {formatMoney(commissionDue.other)}</p> : null}
               </div>
 
               <div className="ui-card print:p-3 print:shadow-none">
@@ -1181,8 +1215,8 @@ function SalesPageContent() {
                   Commission Summary by Salesperson
                 </h2>
                 <p className="ui-muted print:hidden">
-                  This section updates based on the selected year, quarter, and
-                  salesperson filter.
+                  This section updates based on the selected year, quarter (or year
+                  to date), and salesperson filter.
                 </p>
               </div>
 
@@ -1198,6 +1232,8 @@ function SalesPageContent() {
                         <th className="px-4 py-3 font-semibold">Salesperson</th>
                         <th className="px-4 py-3 font-semibold">Sales Count</th>
                         <th className="px-4 py-3 font-semibold">Sales Total</th>
+                        <th className="px-4 py-3 font-semibold">One-Time</th>
+                        <th className="px-4 py-3 font-semibold">Recurring</th>
                         <th className="px-4 py-3 font-semibold">
                           Commission Due
                         </th>
@@ -1216,8 +1252,14 @@ function SalesPageContent() {
                           <td className="px-4 py-3 font-medium text-gray-900">
                             {formatMoney(person.totalSales)}
                           </td>
+                          <td className="px-4 py-3 text-gray-700">
+                            {formatMoney(person.commission.oneTime)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700">
+                            {formatMoney(person.commission.recurring)}
+                          </td>
                           <td className="px-4 py-3 font-bold text-gray-900">
-                            {formatMoney(person.totalCommission)}
+                            {formatMoney(person.commission.total)}
                           </td>
                         </tr>
                       ))}

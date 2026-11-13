@@ -6,6 +6,7 @@ import AccountLink from "../components/AccountLink";
 import { shareOfRevenue } from "@/lib/payShare";
 import { managerMatches } from "@/lib/managerNames";
 import { useManagerNames } from "../components/manager-options";
+import { getCommissionType, splitCommission, type CommissionSplit } from "@/lib/salesCommission";
 
 type AnyRow = Record<string, unknown>;
 
@@ -362,6 +363,22 @@ function getCommissionAmount(row: AnyRow) {
       "Commission Due",
     ])
   );
+}
+
+function getCommissionPercent(row: AnyRow) {
+  return numberValue(
+    getValue(row, ["commissionPercent", "Commission Percent", "commission%", "Commission %", "commissionRate", "Commission Rate"])
+  );
+}
+
+/** One sale's commission for the One-time / Recurring split (lib/salesCommission.ts splitCommission). */
+function commissionParts(row: AnyRow) {
+  return { commissionPercent: getCommissionPercent(row), commissionAmount: getCommissionAmount(row) };
+}
+
+/** "One-time $X · Recurring $Y" (and "Other $Z" for old sales at another %). */
+function splitText(split: CommissionSplit) {
+  return `One-time ${money(split.oneTime)} · Recurring ${money(split.recurring)}${split.other !== 0 ? ` · Other ${money(split.other)}` : ""}`;
 }
 
 function rowMatchesSearch(row: AnyRow, search: string) {
@@ -785,9 +802,9 @@ export default function ReportsPage() {
       return sum + getSaleAmount(sale);
     }, 0);
 
-    const commissionTotal = filteredSales.reduce((sum, sale) => {
-      return sum + getCommissionAmount(sale);
-    }, 0);
+    // Same math as before (each sale's own commission), split One-time / Recurring.
+    const commission = splitCommission(filteredSales.map(commissionParts));
+    const commissionTotal = commission.total;
 
     const openComplaints = filteredComplaints.filter((complaint) => {
       const status = getValue(complaint, [
@@ -822,6 +839,7 @@ export default function ReportsPage() {
       salesCount: filteredSales.length,
       salesTotal,
       commissionTotal,
+      commission,
     };
   }, [
     filteredAccounts,
@@ -842,6 +860,7 @@ export default function ReportsPage() {
         salesCount: number;
         salesTotal: number;
         commissionTotal: number;
+        commissionSales: { commissionPercent: number; commissionAmount: number }[];
         accountsStarted: number;
         accountsCancelled: number;
         revenueAdded: number;
@@ -857,6 +876,7 @@ export default function ReportsPage() {
           salesCount: 0,
           salesTotal: 0,
           commissionTotal: 0,
+          commissionSales: [],
           accountsStarted: 0,
           accountsCancelled: 0,
           revenueAdded: 0,
@@ -893,6 +913,7 @@ export default function ReportsPage() {
       summary[manager].salesCount += 1;
       summary[manager].salesTotal += getSaleAmount(sale);
       summary[manager].commissionTotal += getCommissionAmount(sale);
+      summary[manager].commissionSales.push(commissionParts(sale));
     });
 
     startedAccounts.forEach((account) => {
@@ -1482,7 +1503,7 @@ export default function ReportsPage() {
                   <SummaryCard
                     label="Sales"
                     value={money(totals.salesTotal)}
-                    note={`Commission: ${money(totals.commissionTotal)}`}
+                    note={`Commission: ${money(totals.commissionTotal)} (${splitText(totals.commission)})`}
                   />
                 </div>
               </section>
@@ -1550,6 +1571,7 @@ export default function ReportsPage() {
                           </td>
                           <td className="px-4 py-3">
                             {money(data.commissionTotal)}
+                            {data.commissionSales.length > 0 ? <span className="ui-muted block">{splitText(splitCommission(data.commissionSales))}</span> : null}
                           </td>
                         </tr>
                       ))
@@ -1845,8 +1867,11 @@ export default function ReportsPage() {
 
                   <div className="font-semibold text-gray-700">
                     Count: {salesList.length} | Sales:{" "}
-                    {money(totals.salesTotal)} | Commission:{" "}
-                    {money(totals.commissionTotal)}
+                    {money(totals.salesTotal)} | One-time:{" "}
+                    {money(totals.commission.oneTime)} | Recurring:{" "}
+                    {money(totals.commission.recurring)}
+                    {totals.commission.other !== 0 ? ` | Other: ${money(totals.commission.other)}` : ""} | Commission
+                    total: {money(totals.commissionTotal)}
                   </div>
                 </div>
 
@@ -1929,14 +1954,13 @@ export default function ReportsPage() {
                               {money(getSaleAmount(sale))}
                             </td>
                             <td className="px-4 py-3">
-                              {getValue(sale, [
-                                "commissionPercent",
-                                "Commission Percent",
-                                "commission%",
-                                "Commission %",
-                                "commissionRate",
-                                "Commission Rate",
-                              ]) || "-"}
+                              {(() => {
+                                // "10% · One-time", "4% · Recurring", or the % alone for an old sale at another %.
+                                const percent = getCommissionPercent(sale);
+                                if (!percent) return "-";
+                                const type = getCommissionType(percent);
+                                return `${percent}%${type === "OneTime" ? " · One-time" : type === "Recurring" ? " · Recurring" : ""}`;
+                              })()}
                             </td>
                             <td className="px-4 py-3">
                               {money(getCommissionAmount(sale))}

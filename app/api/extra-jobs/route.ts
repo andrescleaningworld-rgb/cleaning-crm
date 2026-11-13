@@ -17,6 +17,7 @@ import {
   getJobAccount,
   getPayReport,
   inHouseReady,
+  commissionTypeReady,
   listExtraJobs,
   stampEmailed,
   updateExtraJob,
@@ -89,6 +90,9 @@ export async function POST(request: NextRequest) {
       // In-house: our own crew did it. No sub, no sub pay (migration 067).
       const inHouse = body.inHouse === true;
       if (inHouse && !(await inHouseReady())) return refuse("In-house is not set up in this database yet. Pick the sub.", 409);
+      // One-time 10% / Recurring 4% (migration 078). Left out = One-time.
+      const commissionType = clean(body.commissionType) === "recurring" ? "recurring" : "one_time";
+      if (commissionType === "recurring" && !(await commissionTypeReady())) return refuse("Recurring is not set up in this database yet. Pick One-time.", 409);
       const input: NewExtraJob = {
         accountId: clean(body.accountId),
         accountName: clean(body.accountName),
@@ -105,6 +109,9 @@ export async function POST(request: NextRequest) {
         woNumber: clean(body.woNumber),
         // Optional (migration 061). Left out = left as it is.
         estimateNumber: body.estimateNumber === undefined ? undefined : clean(body.estimateNumber),
+        commissionType,
+        recurringStartDate: commissionType === "recurring" ? clean(body.recurringStartDate) : "",
+        recurringEndDate: commissionType === "recurring" ? clean(body.recurringEndDate) : "",
       };
       const problem = checkNewExtraJob(input);
       if (problem) return refuse(problem);

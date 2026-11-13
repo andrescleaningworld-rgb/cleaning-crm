@@ -2,10 +2,30 @@
 // server imports, so client components can use it directly. The database
 // side is lib/pg/extra-jobs.ts.
 
+import { ONE_TIME_PERCENT, RECURRING_PERCENT, validateRecurringDates } from "./salesCommission";
+
 export const EXTRA_JOBS_RULE = "Extra jobs not in the app don't get paid.";
 
-/** The commission on an extra job: a one-time sale, 10% (lib/salesCommission.ts calls this "OneTime"). */
-export const EXTRA_JOB_COMMISSION_PERCENT = 10;
+/**
+ * An extra job's commission (migration 078): One-time 10% (every job before
+ * 078) or Recurring 4%, paid every month from its start to its end date. Its
+ * Sale gets the same % and dates (lib/salesCommission.ts).
+ */
+export type ExtraJobCommission = "one_time" | "recurring";
+
+export const EXTRA_JOB_COMMISSIONS: { value: ExtraJobCommission; label: string }[] = [
+  { value: "one_time", label: "One-time 10%" },
+  { value: "recurring", label: "Recurring 4%" },
+];
+
+export const commissionPercentOf = (type: ExtraJobCommission) => (type === "recurring" ? RECURRING_PERCENT : ONE_TIME_PERCENT);
+
+/** "One-time 10%", or "Recurring 4%, Jan 1, 2027 – Dec 31, 2027". */
+export function commissionLabel(job: { commissionType: ExtraJobCommission; recurringStartDate: string; recurringEndDate: string }): string {
+  if (job.commissionType !== "recurring") return "One-time 10%";
+  const range = job.recurringStartDate && job.recurringEndDate ? `, ${dayLabel(job.recurringStartDate, false)} – ${dayLabel(job.recurringEndDate, false)}` : "";
+  return `Recurring 4%${range}`;
+}
 
 export type ExtraJobSource = "call" | "text" | "email" | "portal";
 
@@ -65,6 +85,11 @@ export type ExtraJob = {
   /** In-house only, optional: who on the crew did it. */
   crewNames: string;
   soldBy: string;
+  /** One-time 10% or Recurring 4% (migration 078; before it, every job is One-time). */
+  commissionType: ExtraJobCommission;
+  /** Recurring only, YYYY-MM-DD; "" for a one-time job. */
+  recurringStartDate: string;
+  recurringEndDate: string;
   manager: string;
   status: ExtraJobStatus;
   saleId: string;
@@ -110,6 +135,10 @@ export type NewExtraJob = {
   woNumber: string;
   /** Optional; saved only once migration 061 has run. */
   estimateNumber?: string;
+  /** Left out = One-time. Recurring needs both dates (migration 078). */
+  commissionType?: ExtraJobCommission;
+  recurringStartDate?: string;
+  recurringEndDate?: string;
 };
 
 export type AccountChoice = { id: string; name: string; subId: string; manager: string; address: string; active: boolean };
@@ -121,6 +150,8 @@ export type FormChoices = {
   me: string;
   /** False until migration 067 runs here: no In-house choice on the form. */
   inHouseOn?: boolean;
+  /** False until migration 078 runs here: no One-time / Recurring choice (every job is One-time). */
+  commissionOn?: boolean;
 };
 
 export type PayRow = { subId: string; subName: string; jobs: ExtraJob[]; total: number };
@@ -193,5 +224,10 @@ export function checkNewExtraJob(job: NewExtraJob): string {
   if (!job.inHouse && !job.subName.trim()) return "Pick the sub.";
   if (!job.inHouse && (!Number.isFinite(job.subPay) || job.subPay < 0)) return "Enter the sub pay.";
   if (!job.soldBy.trim()) return "Pick who sold it.";
+  if (job.commissionType === "recurring") {
+    if (!isDay(job.recurringStartDate ?? "") || !isDay(job.recurringEndDate ?? "")) return "Recurring (4%) needs a start date and an end date.";
+    const problem = validateRecurringDates(RECURRING_PERCENT, job.recurringStartDate ?? "", job.recurringEndDate ?? "");
+    if (problem) return problem;
+  }
   return "";
 }

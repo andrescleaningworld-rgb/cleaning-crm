@@ -17,10 +17,37 @@ import { parseISO } from "./dateUtils";
 
 export type CommissionType = "Recurring" | "OneTime" | "Other";
 
+/** The two commission rates: one-time sales and extra jobs 10%, recurring 4%. */
+export const ONE_TIME_PERCENT = 10;
+export const RECURRING_PERCENT = 4;
+
+/** The choice on the Sales form and the Extra Jobs form ("Other" is no longer offered; old sales may still have it). */
+export const COMMISSION_CHOICES: { type: Exclude<CommissionType, "Other">; percent: number; label: string }[] = [
+  { type: "OneTime", percent: ONE_TIME_PERCENT, label: "One-time 10%" },
+  { type: "Recurring", percent: RECURRING_PERCENT, label: "Recurring 4%" },
+];
+
 export function getCommissionType(commissionPercent: number): CommissionType {
-  if (commissionPercent === 4) return "Recurring";
-  if (commissionPercent === 10) return "OneTime";
+  if (commissionPercent === RECURRING_PERCENT) return "Recurring";
+  if (commissionPercent === ONE_TIME_PERCENT) return "OneTime";
   return "Other";
+}
+
+/** Commission totals split by type (the Sales page's Commission Due and per-salesperson table, /reports). */
+export type CommissionSplit = { oneTime: number; recurring: number; other: number; total: number };
+
+/** Adds up each sale's own commission amount by its type. Same math as before, only split. */
+export function splitCommission(sales: { commissionPercent: number; commissionAmount: number }[]): CommissionSplit {
+  const split: CommissionSplit = { oneTime: 0, recurring: 0, other: 0, total: 0 };
+  for (const sale of sales) {
+    const amount = Number.isFinite(sale.commissionAmount) ? sale.commissionAmount : 0;
+    const type = getCommissionType(sale.commissionPercent);
+    if (type === "OneTime") split.oneTime += amount;
+    else if (type === "Recurring") split.recurring += amount;
+    else split.other += amount;
+    split.total += amount;
+  }
+  return split;
 }
 
 export function daysInMonth(year: number, month: number): number {
@@ -40,7 +67,7 @@ export function validateRecurringDates(
   if (getCommissionType(commissionPercent) !== "Recurring") return null;
 
   if (!recurringStartDate.trim() || !recurringEndDate.trim()) {
-    return "Recurring commissions (4%) require both a start and end date.";
+    return "Recurring (4%) needs a start date and an end date.";
   }
 
   const start = parseISO(recurringStartDate);
@@ -148,6 +175,15 @@ export function computePayPeriodTotals(
   }
 
   return Array.from(totals.values()).sort((a, b) => b.total - a.total);
+}
+
+/** The Sales page's Quarter dropdown value for "Year to date" (Jan 1 to today's date). The Upsells card follows it too. */
+export const YEAR_TO_DATE = "YTD";
+
+/** "MM-DD" of today: where "Year to date" ends in any year. */
+export function todayMonthDay(): string {
+  const now = new Date();
+  return `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 export const MONTH_NAMES = [

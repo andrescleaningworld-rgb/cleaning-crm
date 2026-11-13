@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendSale, fetchSales } from "@/lib/data/sales";
-import { validateRecurringDates } from "@/lib/salesCommission";
+import { RECURRING_PERCENT, getCommissionType, validateRecurringDates } from "@/lib/salesCommission";
 
 // Migrated off the Apps Script backend (see lib/googleSheets.ts's Sales &
 // Commissions section) — direct Sheets API only, so the new
@@ -55,8 +55,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (!Number.isFinite(commissionPercent)) {
-      return NextResponse.json({ success: false, error: "Commission % must be a number." }, { status: 400 });
+    // Only the two commissions: One-time 10% or Recurring 4% (old sales at another % are left as they are).
+    if (getCommissionType(commissionPercent) === "Other") {
+      return NextResponse.json({ success: false, error: "Pick One-time (10%) or Recurring (4%)." }, { status: 400 });
     }
 
     const recurringStartDate = body.recurringStartDate?.trim() ?? "";
@@ -83,8 +84,8 @@ export async function POST(request: NextRequest) {
       // Blank for non-Recurring sales even if the client sent something —
       // validateRecurringDates already confirmed these are only meaningful
       // (and only required) when commissionPercent === 4.
-      recurringStartDate: commissionPercent === 4 ? recurringStartDate : "",
-      recurringEndDate: commissionPercent === 4 ? recurringEndDate : "",
+      recurringStartDate: commissionPercent === RECURRING_PERCENT ? recurringStartDate : "",
+      recurringEndDate: commissionPercent === RECURRING_PERCENT ? recurringEndDate : "",
     });
 
     return NextResponse.json({ success: true, id });

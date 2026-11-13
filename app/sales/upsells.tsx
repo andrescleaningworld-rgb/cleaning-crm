@@ -4,10 +4,11 @@
 // frequency changes (account page; migration 072), before tax. Counted on
 // their own: not new accounts, not extra jobs, and not commission sales
 // (a commission is still added as a sale, e.g. "Recurring Increase").
-// Follows the page's year / quarter by effective date.
+// Follows the page's year / quarter (or year to date) by effective date.
 
 import { useEffect, useMemo, useState } from "react";
 import AccountLink from "../components/AccountLink";
+import { YEAR_TO_DATE, todayMonthDay } from "@/lib/salesCommission";
 
 type Change = {
   id: number;
@@ -31,6 +32,13 @@ const QUARTER_MONTHS: Record<string, [string, string]> = {
 
 function range(year: string, quarter: string): [string, string] {
   if (!/^\d{4}$/.test(year)) return ["2000-01-01", "2099-12-31"];
+  // "Year to date": Jan 1 to today's date, in the picked year.
+  if (quarter === YEAR_TO_DATE) {
+    const end = todayMonthDay();
+    // Feb 29 in a year that has none: Feb 28.
+    const leap = new Date(Number(year), 1, 29).getMonth() === 1;
+    return [`${year}-01-01`, `${year}-${end === "02-29" && !leap ? "02-28" : end}`];
+  }
   const [from, to] = QUARTER_MONTHS[quarter] ?? ["01-01", "12-31"];
   return [`${year}-${from}`, `${year}-${to}`];
 }

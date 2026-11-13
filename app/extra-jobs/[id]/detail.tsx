@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, Sheet, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
-import { ESTIMATE_BADGE, EXTRA_JOB_COMMISSION_PERCENT, IN_HOUSE_LONG, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
+import { ESTIMATE_BADGE, IN_HOUSE_LONG, commissionLabel, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../../components/AccountLink";
 import { ESTIMATE_ACCEPT, EstimateList, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
@@ -233,7 +233,7 @@ export default function ExtraJobDetail({ id }: { id: string }) {
               <div>
                 <dt>Sold by</dt>
                 <dd>
-                  {job.soldBy} ({EXTRA_JOB_COMMISSION_PERCENT}% one-time)
+                  {job.soldBy} ({commissionLabel(job)})
                 </dd>
               </div>
               {done ? (

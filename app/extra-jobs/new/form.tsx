@@ -1,9 +1,10 @@
 "use client";
 
 // One quick form, under a minute: account, how it came in, what the job is,
-// date, customer price, sub, sub pay, who sold it, an optional Customer WO #,
-// and (migration 061) an optional Estimate # and approved estimate file(s).
-// Saving it also creates a one-time Sale (10% commission) and tells the
+// date, customer price, sub, sub pay, who sold it, the commission (One-time
+// 10% or Recurring 4% with its start and end dates, migration 078), an
+// optional Customer WO #, and (migration 061) an optional Estimate # and
+// approved estimate file(s). Saving it also creates its Sale at that % and tells the
 // office by email. The estimate files upload after the job is saved; one
 // that does not upload never undoes the save.
 //
@@ -14,7 +15,20 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { BigButton, CHEER, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField, showToast } from "@/app/ui";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
-import { EXTRA_JOBS_RULE, IN_HOUSE_LONG, SOURCES, checkNewExtraJob, searchAccounts, todayDay, type AccountChoice, type ExtraJob, type ExtraJobSource, type FormChoices } from "@/lib/extraJobs";
+import {
+  EXTRA_JOBS_RULE,
+  EXTRA_JOB_COMMISSIONS,
+  IN_HOUSE_LONG,
+  SOURCES,
+  checkNewExtraJob,
+  searchAccounts,
+  todayDay,
+  type AccountChoice,
+  type ExtraJob,
+  type ExtraJobCommission,
+  type ExtraJobSource,
+  type FormChoices,
+} from "@/lib/extraJobs";
 import { ESTIMATE_ACCEPT, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
 
@@ -86,6 +100,9 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   const [subPay, setSubPay] = useState("");
   const [crewNames, setCrewNames] = useState("");
   const [soldBy, setSoldBy] = useState("");
+  const [commissionType, setCommissionType] = useState<ExtraJobCommission>("one_time");
+  const [recurringStartDate, setRecurringStartDate] = useState("");
+  const [recurringEndDate, setRecurringEndDate] = useState("");
   const [woNumber, setWoNumber] = useState("");
   const [estimateNumber, setEstimateNumber] = useState("");
   const [estimatesOn, setEstimatesOn] = useState(false);
@@ -98,7 +115,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx). Estimate files are not kept.
   const draft = useFormDraft(
     editId ? `edit-extra-job:${editId}` : `new-extra-job:${startAccountId}`,
-    { accountId, source, description, jobDate, price, subId, subPay, crewNames, soldBy, woNumber, estimateNumber },
+    { accountId, source, description, jobDate, price, subId, subPay, crewNames, soldBy, commissionType, recurringStartDate, recurringEndDate, woNumber, estimateNumber },
     {
       ready: state === "ready",
       onRestore: (kept) => {
@@ -111,6 +128,10 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         setSubPay(kept.subPay);
         setCrewNames(kept.crewNames);
         setSoldBy(kept.soldBy);
+        // A draft from before this choice existed has none: One-time.
+        setCommissionType(kept.commissionType === "recurring" ? "recurring" : "one_time");
+        setRecurringStartDate(kept.recurringStartDate ?? "");
+        setRecurringEndDate(kept.recurringEndDate ?? "");
         setWoNumber(kept.woNumber);
         setEstimateNumber(kept.estimateNumber);
       },
@@ -124,7 +145,14 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       if (body.success !== true) throw new Error("failed");
       if (body.ready !== true) return setState("off");
       setEstimatesOn(body.estimatesOn === true);
-      const loaded: FormChoices = { accounts: body.accounts ?? [], subs: body.subs ?? [], sellers: body.sellers ?? [], me: body.me ?? "", inHouseOn: body.inHouseOn === true };
+      const loaded: FormChoices = {
+        accounts: body.accounts ?? [],
+        subs: body.subs ?? [],
+        sellers: body.sellers ?? [],
+        me: body.me ?? "",
+        inHouseOn: body.inHouseOn === true,
+        commissionOn: body.commissionOn === true,
+      };
 
       if (editId) {
         const jobResponse = await fetch(`/api/extra-jobs?id=${encodeURIComponent(editId)}`, { cache: "no-store" });
@@ -149,6 +177,9 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         setSubPay(job.inHouse ? "" : String(job.subPay));
         setCrewNames(job.crewNames);
         setSoldBy(job.soldBy);
+        setCommissionType(job.commissionType);
+        setRecurringStartDate(job.recurringStartDate);
+        setRecurringEndDate(job.recurringEndDate);
         setWoNumber(job.woNumber);
         setEstimateNumber(job.estimateNumber);
         setEstimateCount(job.estimates.length);
@@ -168,6 +199,8 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   const account = choices?.accounts.find((option) => option.id === accountId) ?? null;
   const inHouse = subId === IN_HOUSE_CHOICE;
   const sub = choices?.subs.find((option) => option.id === subId) ?? null;
+  // Before migration 078 there is no choice: every job is One-time.
+  const recurring = choices?.commissionOn === true && commissionType === "recurring";
   const backHref = editId ? `/extra-jobs/${encodeURIComponent(editId)}` : from === "board" ? "/board" : startAccountId ? `/accounts/${encodeURIComponent(startAccountId)}` : "/extra-jobs";
 
   function pickAccount(picked: AccountChoice) {
@@ -194,6 +227,9 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       soldBy,
       woNumber: woNumber.trim(),
       ...(estimatesOn ? { estimateNumber: estimateNumber.trim() } : {}),
+      commissionType: recurring ? ("recurring" as const) : ("one_time" as const),
+      recurringStartDate: recurring ? recurringStartDate : "",
+      recurringEndDate: recurring ? recurringEndDate : "",
     };
     const problem = checkNewExtraJob(input);
     if (problem) return setError(problem);
@@ -321,7 +357,13 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
           </div>
 
           <div className={styles.two}>
-            <SelectField label="Who sold it" hint="They get the 10% one-time commission. A Sale is created for it." value={soldBy} disabled={saving} onChange={(event) => setSoldBy(event.target.value)}>
+            <SelectField
+              label="Who sold it"
+              hint={`They get the ${recurring ? "4% recurring" : "10% one-time"} commission. A Sale is created for it.`}
+              value={soldBy}
+              disabled={saving}
+              onChange={(event) => setSoldBy(event.target.value)}
+            >
               <option value="">Pick a person</option>
               {choices.sellers.map((name) => (
                 <option key={name} value={name}>
@@ -331,6 +373,27 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
             </SelectField>
             <Field label="Customer WO #" hint="If the customer has one. It prints on both work order copies." optional maxLength={60} autoComplete="off" value={woNumber} disabled={saving} onChange={(event) => setWoNumber(event.target.value)} />
           </div>
+
+          {/* One-time 10% or Recurring 4% (migration 078). Recurring is paid every month from its start to its end date. */}
+          {choices.commissionOn ? (
+            <div className="ui-field" role="group" aria-label="Commission">
+              <span className="ui-label">Commission</span>
+              <span className="ui-hint">One-time: paid once, 10%. Recurring: paid every month from the start date to the end date, 4%.</span>
+              <div className={styles.choices}>
+                {EXTRA_JOB_COMMISSIONS.map((option) => (
+                  <button key={option.value} type="button" className={styles.choice} aria-pressed={commissionType === option.value} disabled={saving} onClick={() => setCommissionType(option.value)}>
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {recurring ? (
+            <div className={styles.two}>
+              <Field label="Recurring start date" type="date" value={recurringStartDate} disabled={saving} onChange={(event) => setRecurringStartDate(event.target.value)} />
+              <Field label="Recurring end date" type="date" value={recurringEndDate} disabled={saving} onChange={(event) => setRecurringEndDate(event.target.value)} />
+            </div>
+          ) : null}
 
           {estimatesOn ? (
             <div className={styles.two}>
