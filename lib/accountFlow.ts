@@ -82,7 +82,7 @@ export type FlowView = {
   done: FlowStep[];
 };
 
-/** The 8 setup steps (everything but "live"): "Setup: 3 of 8 done". */
+/** The 8 setup steps (everything but "live"): "Steps · 3 of 8". */
 export const FLOW_SETUP_STEPS = FLOW_STEPS.length - 1;
 
 /**

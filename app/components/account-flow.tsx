@@ -34,20 +34,9 @@ const BIG_BUTTON_MARKS: FlowStep[] = ["subOk", "call", "survey", "walkthrough", 
 
 const trackerWord = (step: FlowStep) => FLOW_STEPS.find((def) => def.key === step)?.tracker ?? step;
 
-/** How many of the 8 tracker steps are done (the same count on the account page and the board popup). */
-function flowStepsDone(view: FlowDetail["view"]): number {
-  return view.step === "live" ? FLOW_SETUP_STEPS : (view.done ?? []).length;
-}
-
-/** "Setup: 3 of 8 done": the tracker's steps only (account page). */
-export function setupStepsText(view: FlowDetail["view"]): string {
-  const done = flowStepsDone(view);
-  return `Setup: ${done} of ${FLOW_SETUP_STEPS} done${done === FLOW_SETUP_STEPS ? " ✓" : ""}`;
-}
-
-/** "Steps · 3 of 8": the same count, as the board popup labels it (next to "Setup wizard · X of 10"). */
+/** "Steps · 3 of 8": the tracker's 8 steps, on the account page and the board popup (next to "Setup wizard · X of 10"). */
 export function flowStepsText(view: FlowDetail["view"]): string {
-  const done = flowStepsDone(view);
+  const done = view.step === "live" ? FLOW_SETUP_STEPS : (view.done ?? []).length;
   return `Steps · ${done} of ${FLOW_SETUP_STEPS}${done === FLOW_SETUP_STEPS ? " ✓" : ""}`;
 }
 import { DEFAULT_START_TIME, formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
@@ -150,10 +139,10 @@ export default function AccountFlowPanel({
     <div className="account-detail-print-hide" style={{ marginTop: 16 }}>
       <Card title="New account setup">
         <div className="ui-stack">
-          <p className="ui-strong">{setupStepsText(view)}</p>
+          <p className="ui-strong">{flowStepsText(view)}</p>
           {/* The same vertical list as the pin popup on the board: green check, big blue dot "with <name>", gray. */}
           <PizzaTracker view={view} size="list" actions={trackerActions} />
-          {/* The setup wizard (the Onboarding Checklist): "Setup · X of Y done" and the gold badge. */}
+          {/* The setup wizard (the Onboarding Checklist): "Setup wizard · X of Y" and the gold badge. */}
           <SetupButton accountId={accountId} onOpen={onOpenChecklist} refreshKey={refreshKey} />
           {view.red ? <p className="ui-field-error">No progress for 2 work days. Add a note below if it is stuck.</p> : null}
           {error ? <ErrorBox title="Not saved" text={error} /> : null}

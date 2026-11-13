@@ -176,9 +176,7 @@ function SetupCard({ accountId, onOpenWizard, refreshKey = 0 }: { accountId: str
         <h2 className="text-xl font-black text-slate-950">Setup</h2>
         {isReadyToStart(wizard.facts) ? <ReadyBadge size="panel" /> : null}
       </div>
-      <p className="text-lg font-bold text-slate-800">
-        {progress.done} of {progress.total} done{progress.done === progress.total ? " ✓" : ""}
-      </p>
+      <p className="text-lg font-bold text-slate-800">{setupWizardText(progress)}</p>
       {missing.length > 0 ? <p className="ui-muted">Still missing: {missing.join(", ")}</p> : null}
       {onOpenWizard ? (
         <button type="button" className={BIG_GREEN} onClick={onOpenWizard}>
@@ -189,26 +187,17 @@ function SetupCard({ accountId, onOpenWizard, refreshKey = 0 }: { accountId: str
   );
 }
 
+/** "Setup wizard · 7 of 10": the wizard's screens done, on the board popup and the account page. */
+export function setupWizardText(progress: { done: number; total: number }): string {
+  return `Setup wizard · ${progress.done} of ${progress.total}${progress.done === progress.total ? " ✓" : ""}`;
+}
+
 /**
  * The one button that opens the wizard, on the pin's open panel and the
- * account's New account setup card: "Setup · 7 of 12 done", with the gold
+ * account's New account setup card: "Setup wizard · 7 of 10", with the gold
  * badge above it when the account is ready to start.
  */
-export function SetupButton({
-  accountId,
-  onOpen,
-  refreshKey = 0,
-  label = "Setup",
-  doneWord = true,
-}: {
-  accountId: string;
-  onOpen: () => void;
-  refreshKey?: number;
-  /** The button's first word(s): "Setup" (account page), "Setup wizard" (board popup). */
-  label?: string;
-  /** "… of 10 done" (account page) or just "… of 10" (board popup). */
-  doneWord?: boolean;
-}) {
+export function SetupButton({ accountId, onOpen, refreshKey = 0 }: { accountId: string; onOpen: () => void; refreshKey?: number }) {
   const [wizard, setWizard] = useState<SetupWizardData | null>(null);
   useEffect(() => {
     let alive = true;
@@ -228,7 +217,7 @@ export function SetupButton({
     <div className="ui-stack">
       {wizard && isReadyToStart(wizard.facts) ? <ReadyBadge size="panel" /> : null}
       <button type="button" className={BIG_GREEN} onClick={onOpen}>
-        {progress ? `${label} · ${progress.done} of ${progress.total}${doneWord ? " done" : ""}${progress.done === progress.total ? " ✓" : ""}` : label}
+        {progress ? setupWizardText(progress) : "Setup wizard"}
       </button>
     </div>
   );

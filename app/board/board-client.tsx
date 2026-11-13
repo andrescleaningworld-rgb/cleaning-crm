@@ -193,7 +193,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
   // A new-account step tapped in the popup: how its tracker looks until the save and the fresh board are back.
   const [flowPreview, setFlowPreview] = useState<{ key: string; view: FlowView } | null>(null);
-  // Goes up after a step changed, so the popup's "Setup · X of Y done" reads again.
+  // Goes up after a step changed, so the popup's "Setup wizard · X of Y" reads again.
   const [setupRefresh, setSetupRefresh] = useState(0);
 
   // A paper whose manager is no longer on the board goes back to its shared square.
@@ -476,7 +476,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               />
             ) : null}
 
-            {/* A new account: the gold "Ready to start", and the button to its setup wizard ("Setup · X of Y done"). */}
+            {/* A new account: the gold "Ready to start", and the button to its setup wizard ("Setup wizard · X of Y"). */}
             {open.kind === "account" ? (
               <>
                 {open.setup?.ready ? <ReadyBadge size="panel" /> : null}
@@ -484,8 +484,6 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                   key={open.accountId || open.itemId}
                   accountId={open.accountId || open.itemId}
                   refreshKey={setupRefresh}
-                  label="Setup wizard"
-                  doneWord={false}
                   onOpen={() => {
                     setSetupFor({ accountId: open.accountId || open.itemId, accountName: open.accountName || open.title, paperKey: `${open.kind}:${open.itemId}` });
                     setOpenKey("");
