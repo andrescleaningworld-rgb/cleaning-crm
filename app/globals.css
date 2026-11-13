@@ -5088,6 +5088,34 @@ html[data-tv-mode] body > div:not(.cw-app-shell) {
 .cw-pizza.is-red .cw-pizza-who {
   color: var(--ui-bad);
 }
+/* Board popup: the whole step line is a checkbox (tap = done, tap again = undo). */
+.cw-pizza-tap {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cw-pizza-tap:hover:not(:disabled) {
+  background: var(--ui-surface-2);
+}
+.cw-pizza-tap:focus-visible {
+  outline: 3px solid var(--ui-brand);
+  outline-offset: 1px;
+}
+.cw-pizza-tap:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
 /* Account page: the small "Mark done" / "Undo" at the end of a step's line. */
 .cw-pizza-act {
   margin-left: auto;

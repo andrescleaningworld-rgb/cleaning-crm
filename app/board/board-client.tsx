@@ -28,9 +28,10 @@ import AddToBoxSheet, { type AddTarget } from "./board-add";
 import BoardCanvas from "./board-canvas";
 import PinStatusBox from "./pin-status";
 import AccountLink from "../components/AccountLink";
-import PizzaTracker from "../components/pizza-tracker";
+import PizzaTracker, { type TrackerActions } from "../components/pizza-tracker";
 import { COMPLAINT_STEPS } from "@/lib/complaintSteps";
-import { StuckNote, setupStepsText } from "../components/account-flow";
+import { FLOW_NEEDS_INPUT, StuckNote, saveFlowStep, setupStepsText } from "../components/account-flow";
+import { FLOW_STEPS, previewStepChange, type FlowStep, type FlowView } from "@/lib/accountFlow";
 import { SetupButton } from "../components/OnboardingChecklist";
 import OnboardingWizardModal from "../components/OnboardingWizardModal";
 import ReadyBadge from "../components/ready-badge";
@@ -40,6 +41,40 @@ import { enterFullScreen } from "./full-screen";
 import NotifySubButton from "../components/notify-sub-button";
 import { ResponseClock } from "../components/response-clock";
 import styles from "./board.module.css";
+
+/**
+ * A new account's steps in its popup, each line a checkbox: tap = done, tap
+ * again = undo (the account page's own save). A step that needs a date or a
+ * note when it is the current one says so instead. On a failure the check goes
+ * back and a short error shows.
+ */
+function FlowSteps({ paper, onToggle }: { paper: Paper; onToggle: (paper: Paper, step: FlowStep, done: boolean) => Promise<string> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!paper.flow) return null;
+  const view = paper.flow;
+  const run = async (step: FlowStep, done: boolean) => {
+    setBusy(true);
+    setError("");
+    const problem = await onToggle(paper, step, done);
+    setError(problem);
+    setBusy(false);
+  };
+  const actions: TrackerActions = {
+    busy,
+    tapRows: true,
+    canMark: (step) => !(step === view.step && FLOW_NEEDS_INPUT[step]),
+    cantTapText: (step) => (step === view.step ? FLOW_NEEDS_INPUT[step] ?? "" : ""),
+    onMarkDone: (step) => void run(step, true),
+    onUndo: (step) => void run(step, false),
+  };
+  return (
+    <>
+      <PizzaTracker view={view} size="list" actions={actions} />
+      {error ? <p className="ui-field-error" role="alert">Not saved: {error}</p> : null}
+    </>
+  );
+}
 
 /** The complaint a paper opens (its key in /complaints/<key>), or "" when it is not a complaint. */
 function complaintKeyOf(paper: Paper): string {
@@ -156,12 +191,38 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
     return () => window.clearInterval(timer);
   }, [load]);
 
+  // A new-account step tapped in the popup: how its tracker looks until the save and the fresh board are back.
+  const [flowPreview, setFlowPreview] = useState<{ key: string; view: FlowView } | null>(null);
+  // Goes up after a step changed, so the popup's "Setup · X of Y done" reads again.
+  const [setupRefresh, setSetupRefresh] = useState(0);
+
   // A paper whose manager is no longer on the board goes back to its shared square.
   const papers = useMemo(() => {
     if (!data) return [];
     const squares = new Set(data.managers.map((manager) => manager.id));
-    return data.papers.map((paper) => (paper.square && !squares.has(paper.square) ? { ...paper, square: "" } : paper));
-  }, [data]);
+    return data.papers.map((paper) => {
+      const moved = paper.square && !squares.has(paper.square) ? { ...paper, square: "" } : paper;
+      return flowPreview && flowPreview.key === `${paper.kind}:${paper.itemId}` ? { ...moved, flow: flowPreview.view } : moved;
+    });
+  }, [data, flowPreview]);
+
+  /** A step tapped in the popup: shown at once, saved with the account page's save, then the board reads again. On a failure the check goes back. */
+  async function toggleFlowStep(paper: Paper, step: FlowStep, done: boolean): Promise<string> {
+    if (!paper.flow) return "";
+    const word = FLOW_STEPS.find((def) => def.key === step)?.tracker ?? step;
+    setFlowPreview({ key: `${paper.kind}:${paper.itemId}`, view: previewStepChange(paper.flow, step, done) });
+    try {
+      await saveFlowStep(paper.accountId || paper.itemId, step, done);
+      await load(true);
+      setSetupRefresh((n) => n + 1);
+      showToast(done ? `${word}: done ✓` : `${word}: undone`);
+      return "";
+    } catch (error) {
+      return error instanceof Error && error.message ? error.message : "That did not save. Try again.";
+    } finally {
+      setFlowPreview(null);
+    }
+  }
 
   const open = papers.find((paper) => `${paper.kind}:${paper.itemId}` === openKey) ?? null;
   const mySquare = data?.me.squareId || whose;
@@ -422,6 +483,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 <SetupButton
                   key={open.accountId || open.itemId}
                   accountId={open.accountId || open.itemId}
+                  refreshKey={setupRefresh}
                   onOpen={() => {
                     setSetupFor({ accountId: open.accountId || open.itemId, accountName: open.accountName || open.title, paperKey: `${open.kind}:${open.itemId}` });
                     setOpenKey("");
@@ -437,7 +499,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             {open.flow ? (
               <>
                 <p className="ui-strong">{setupStepsText(open.flow)}</p>
-                <PizzaTracker view={open.flow} size="list" />
+                <FlowSteps key={`${open.kind}:${open.itemId}`} paper={open} onToggle={toggleFlowStep} />
                 {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}
               </>
             ) : null}

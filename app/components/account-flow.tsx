@@ -56,6 +56,18 @@ async function postFlow(body: Record<string, unknown>): Promise<{ success?: bool
   return data;
 }
 
+/**
+ * Mark one step done, or undo it: THE save for a step's check, used by the
+ * account page's step list and the board popup, so both stay the same. The
+ * server writes it to Step history with who did it (lib/pg/account-flow.ts).
+ */
+export async function saveFlowStep(accountId: string, step: FlowStep, done: boolean): Promise<void> {
+  await postFlow({ accountId, action: done ? "markDone" : "undo", step });
+}
+
+/** When it is the current step, these need more than a tap: a start date (step 7) or a note (step 8, which makes the account live). */
+export const FLOW_NEEDS_INPUT: Partial<Record<FlowStep, string>> = { startDate: "needs a date: Open full details", followUp: "needs a note: Open full details" };
+
 export default function AccountFlowPanel({
   accountId,
   refreshKey = 0,
@@ -94,11 +106,11 @@ export default function AccountFlowPanel({
     void load();
   }, [load, refreshKey]);
 
-  async function act(body: Record<string, unknown>, done: string) {
+  async function act(body: Record<string, unknown>, done: string, save?: () => Promise<unknown>) {
     setBusy(true);
     setError("");
     try {
-      await postFlow({ accountId, ...body });
+      await (save ? save() : postFlow({ accountId, ...body }));
       showToast(done);
       await load();
       return true;
@@ -119,8 +131,8 @@ export default function AccountFlowPanel({
   const trackerActions: TrackerActions = {
     busy,
     canMark: (step) => step !== view.step || !BIG_BUTTON_MARKS.includes(step),
-    onMarkDone: (step) => void act({ action: "markDone", step }, `${trackerWord(step)}: done ✓`),
-    onUndo: (step) => void act({ action: "undo", step }, `${trackerWord(step)}: undone`),
+    onMarkDone: (step) => void act({}, `${trackerWord(step)}: done ✓`, () => saveFlowStep(accountId, step, true)),
+    onUndo: (step) => void act({}, `${trackerWord(step)}: undone`, () => saveFlowStep(accountId, step, false)),
   };
 
   return (

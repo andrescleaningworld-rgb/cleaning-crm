@@ -22,6 +22,13 @@ export type TrackerActions = {
   canMark: (step: FlowStep) => boolean;
   onMarkDone: (step: FlowStep) => void;
   onUndo: (step: FlowStep) => void;
+  /**
+   * The board popup: the whole line is the button (tap = done, tap again = undo)
+   * instead of the small "Mark done" / "Undo". A step that can't be tapped shows
+   * this instead (e.g. "needs a date: Open full details").
+   */
+  tapRows?: boolean;
+  cantTapText?: (step: FlowStep) => string;
 };
 
 /** What the tracker draws: the New Account FlowView fits it, and so does a complaint's. */
@@ -89,6 +96,43 @@ export default function PizzaTracker({
           {steps.map((step, index) => {
             const state = stateOf(index);
             const when = formatWhen && state && view.at?.[index] ? formatWhen(view.at[index]) : "";
+            // The board popup: the line itself is a checkbox.
+            if (actions?.tapRows && !finished && index !== last) {
+              const key = step.key as FlowStep;
+              const isDone = state === "is-done";
+              const canTap = isDone || actions.canMark(key);
+              const marks = (
+                <>
+                  <span className="cw-pizza-mark" aria-hidden="true">
+                    {isDone ? "✓" : null}
+                  </span>
+                  <span className="cw-pizza-name">{step.tracker}</span>
+                  {state === "is-now" && view.withWho ? <span className="cw-pizza-who">{view.withWho}</span> : null}
+                </>
+              );
+              return (
+                <li key={step.key} className={`cw-pizza-row ${state}`} aria-current={state === "is-now" ? "step" : undefined}>
+                  {canTap ? (
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={isDone}
+                      className="cw-pizza-tap"
+                      disabled={actions.busy}
+                      onClick={() => (isDone ? actions.onUndo(key) : actions.onMarkDone(key))}
+                      data-flow-step={step.key}
+                    >
+                      {marks}
+                    </button>
+                  ) : (
+                    <>
+                      {marks}
+                      {actions.cantTapText?.(key) ? <span className="cw-pizza-when">{actions.cantTapText(key)}</span> : null}
+                    </>
+                  )}
+                </li>
+              );
+            }
             return (
               <li key={step.key} className={`cw-pizza-row ${state}`} aria-current={state === "is-now" ? "step" : undefined}>
                 <span className="cw-pizza-mark" aria-hidden="true">

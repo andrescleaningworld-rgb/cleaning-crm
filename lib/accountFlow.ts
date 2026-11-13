@@ -166,6 +166,49 @@ export function flowView(facts: FlowFacts, now = new Date()): FlowView {
   };
 }
 
+/**
+ * What the tracker looks like right after a step is tapped done / undone, before
+ * the server answers (the board popup shows it at once, then the real one replaces it).
+ * The same moves as markStepDone / undoStep in lib/pg/account-flow.ts: marking the
+ * current step moves on to the next step not done yet; undoing an earlier step
+ * moves back to it; anything else only changes its check.
+ */
+export function previewStepChange(view: FlowView, step: FlowStep, done: boolean): FlowView {
+  if (view.step === "live" || step === "live") return view;
+  const doneSet = new Set(view.done);
+  // Undoing Sub picked takes Sub OK back with it.
+  if (done) doneSet.add(step);
+  else {
+    doneSet.delete(step);
+    if (step === "sub") doneSet.delete("subOk");
+  }
+  let pointer: FlowStep = view.step;
+  if (done && step === view.step) {
+    let index = flowIndex(step) + 1;
+    while (index < FLOW_STEPS.length - 1 && doneSet.has(FLOW_STEPS[index].key)) index++;
+    pointer = FLOW_STEPS[index].key;
+  } else if (!done && flowIndex(step) < flowIndex(view.step)) {
+    pointer = step;
+  }
+  if (pointer === view.step) return { ...view, done: FLOW_STEPS.filter((def) => doneSet.has(def.key)).map((def) => def.key) };
+  const def = FLOW_STEPS[flowIndex(pointer)];
+  // Who has it: the sub for "Sub OK", else the manager already named on the pin.
+  const manager = view.withWho && FLOW_STEPS[view.index]?.owner === "manager" ? view.withWho : "with the office";
+  const withWho = def.owner === "sub" ? "with the sub" : def.owner === "manager" ? manager : "";
+  return {
+    ...view,
+    step: pointer,
+    index: flowIndex(pointer),
+    now: pointer === "live" ? "Live" : `${def.action} - ${withWho}`,
+    withWho,
+    red: false,
+    stuckNote: "",
+    stuckNoteBy: "",
+    stuckNoteAt: "",
+    done: FLOW_STEPS.filter((each, i) => each.key !== "live" && (pointer === "live" || i < flowIndex(pointer) || doneSet.has(each.key))).map((each) => each.key),
+  };
+}
+
 /** One step's line in the "who did what" list. */
 export type FlowEvent = { step: FlowStep; action: "start" | "done" | "undo" | "offer" | "yes" | "no" | "back" | "note"; by: string; note: string; at: string };
 
