@@ -170,7 +170,13 @@ function EditSaleForm({ sale, onClose, onSaved }: { sale: EditableSale; onClose:
       {commissionType === "Recurring" ? (
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Recurring start date" type="date" value={recurringStartDate} disabled={saving} onChange={(event) => setRecurringStartDate(event.target.value)} />
-          <Field label="Recurring end date" type="date" value={recurringEndDate} disabled={saving} onChange={(event) => setRecurringEndDate(event.target.value)} />
+          <Field
+            label="Recurring end date (optional – leave blank if ongoing)"
+            type="date"
+            value={recurringEndDate}
+            disabled={saving}
+            onChange={(event) => setRecurringEndDate(event.target.value)}
+          />
         </div>
       ) : null}
 

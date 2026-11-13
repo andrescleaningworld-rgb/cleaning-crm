@@ -22,6 +22,7 @@ import {
   groupBySeller,
   isCancelledSale,
   periodRange,
+  recurringRangeText,
   validateRecurringDates,
   YEAR_TO_DATE,
   type CommissionSaleLike,
@@ -1060,7 +1061,7 @@ function SalesPageContent() {
 
                 <div>
                   <label className="ui-label">
-                    Recurring End Date
+                    Recurring end date (optional – leave blank if ongoing)
                   </label>
 
                   <input
@@ -1072,8 +1073,8 @@ function SalesPageContent() {
                 </div>
 
                 <p className="ui-strong md:col-span-2">
-                  Needed for Recurring (4%): the commission is paid every month in this range,
-                  prorated for a partial first or last month.
+                  Recurring (4%) needs a start date. The commission is paid every month from the start
+                  date (to the end date, if there is one), prorated for a partial first or last month.
                 </p>
               </div>
             )}
@@ -1451,9 +1452,10 @@ function SalesPageContent() {
                           {sale.commissionPercent}%
                           {sale.commissionType !== "Other" ? ` · ${sale.commissionType === "Recurring" ? "Recurring" : "One-Time"}` : ""}
                         </span>
-                        {sale.commissionType === "Recurring" && sale.recurringStartDate && sale.recurringEndDate ? (
+                        {/* "10/01/2026 – 08/31/2027", or "10/01/2026 – ongoing" with no end date. */}
+                        {sale.commissionType === "Recurring" && sale.recurringStartDate ? (
                           <span className="ui-muted block">
-                            {sale.recurringStartDate} – {sale.recurringEndDate}
+                            {recurringRangeText(sale.recurringStartDate, sale.recurringEndDate)}
                           </span>
                         ) : null}
                         {/* Cancelled: $0 in every commission total (lib/salesCommission.ts). */}

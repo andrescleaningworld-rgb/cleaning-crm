@@ -54,6 +54,12 @@ function toDay(value: string | undefined): Date | null {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+/** Where an ongoing recurring sale (no end date) stops counting: the last day of the current month. */
+function lastDayOfThisMonth(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 0);
+}
+
 /** Whole days from a to b, both counted (DST-safe). */
 const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / 86_400_000) + 1;
 
@@ -64,8 +70,9 @@ const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime())
  *   - Recurring (4%): 4% of the monthly amount for every month from its start
  *     date to its end date that falls in the range, prorated by the days of
  *     each month covered (a partial first / last month, or a range that ends
- *     mid-month such as Year to date).
- *   - Any other % (old sales), a recurring sale without both dates, and a
+ *     mid-month such as Year to date). No end date = ongoing: every month from
+ *     the start date through the current month (never a month still to come).
+ *   - Any other % (old sales), a recurring sale without a start date, and a
  *     sale whose Status is Cancelled: nothing.
  * Over one whole month this is exactly computePayPeriodTotals.
  */
@@ -84,8 +91,9 @@ export function commissionForRange(sales: CommissionSaleLike[], from: string, to
       split.oneTime += commission;
     } else if (type === "Recurring") {
       const start = toDay(sale.recurringStartDate);
-      const end = toDay(sale.recurringEndDate);
-      if (!start || !end) continue;
+      if (!start) continue;
+      // No end date: ongoing, through the last day of this month.
+      const end = toDay(sale.recurringEndDate) ?? lastDayOfThisMonth();
       const lo = rangeFrom && rangeFrom > start ? rangeFrom : start;
       const hi = rangeTo && rangeTo < end ? rangeTo : end;
       // Month by month: the days of that month inside both the sale's range and the picked range.
@@ -133,10 +141,10 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
 }
 
-// Shared validation for the "block save if % = 4 and either date is blank,
-// or RecurringEndDate < RecurringStartDate" rule. Returns an error message,
-// or null if valid. Only enforced for Recurring (% = 4) — OneTime and Other
-// sales ignore the range fields entirely.
+// Shared validation (Add sale, Edit sale, POST/PATCH /api/sales): a Recurring
+// (% = 4) sale needs a start date; the end date is optional (blank = ongoing),
+// but when it is there it must be on or after the start date. Returns an
+// error message, or null if valid. OneTime and Other sales ignore the dates.
 export function validateRecurringDates(
   commissionPercent: number,
   recurringStartDate: string,
@@ -144,20 +152,33 @@ export function validateRecurringDates(
 ): string | null {
   if (getCommissionType(commissionPercent) !== "Recurring") return null;
 
-  if (!recurringStartDate.trim() || !recurringEndDate.trim()) {
-    return "Recurring (4%) needs a start date and an end date.";
+  if (!recurringStartDate.trim()) {
+    return "Recurring (4%) needs a start date.";
   }
 
-  const start = parseISO(recurringStartDate);
-  const end = parseISO(recurringEndDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return "Invalid recurring date range.";
-  }
+  const start = parseISO(recurringStartDate.trim());
+  if (Number.isNaN(start.getTime())) return "Invalid recurring start date.";
+  if (!recurringEndDate.trim()) return null; // ongoing
+
+  const end = parseISO(recurringEndDate.trim());
+  if (Number.isNaN(end.getTime())) return "Invalid recurring end date.";
   if (end < start) {
     return "Recurring end date must be on or after the start date.";
   }
 
   return null;
+}
+
+/** "10/01/2026" from "2026-10-01" (as typed for a date that is not "YYYY-MM-DD"). */
+function slashDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  return match ? `${match[2]}/${match[3]}/${match[1]}` : value.trim();
+}
+
+/** A recurring sale's range for the tables: "10/01/2026 – 08/31/2027", or "10/01/2026 – ongoing" with no end date. "" with no start. */
+export function recurringRangeText(recurringStartDate: string, recurringEndDate: string): string {
+  if (!recurringStartDate.trim()) return "";
+  return `${slashDate(recurringStartDate)} – ${recurringEndDate.trim() ? slashDate(recurringEndDate) : "ongoing"}`;
 }
 
 export type CommissionSaleLike = {

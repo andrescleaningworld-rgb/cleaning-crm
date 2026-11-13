@@ -839,7 +839,7 @@ const en: StaffHelpContent = {
       steps: [
         "Open the account and tap **Add sale**.",
         "Fill what was sold and the price.",
-        "Under **Commission**, pick **One-time 10%** (paid once) or **Recurring 4%** (paid every month). Recurring asks for a start date and an end date.",
+        "Under **Commission**, pick **One-time 10%** (paid once) or **Recurring 4%** (paid every month). Recurring asks for a start date; the end date is optional (leave it blank if it is ongoing).",
         "Save it.",
         "The report: open **Sales**, pick a quarter or **Year to date** (Jan 1 to today), and tap **Print**. The button says what it prints, like **Print Q4 2026 Report**.",
         "**Commission Due** and the table by salesperson show One-time and Recurring apart, and the total.",
@@ -1823,7 +1823,7 @@ const es: StaffHelpContent = {
       steps: [
         "Abre la cuenta y toca **Add sale**.",
         "Llena qué se vendió y el precio.",
-        "En **Commission**, elige **One-time 10%** (se paga una vez) o **Recurring 4%** (se paga cada mes). Recurring pide una fecha de inicio y una fecha de fin.",
+        "En **Commission**, elige **One-time 10%** (se paga una vez) o **Recurring 4%** (se paga cada mes). Recurring pide una fecha de inicio; la fecha de fin es opcional (déjala en blanco si sigue).",
         "Guárdala.",
         "El reporte: abre **Sales**, elige un trimestre o **Year to date** (del 1 de enero a hoy), y toca **Print**. El botón dice qué imprime, como **Print Q4 2026 Report**.",
         "**Commission Due** y la tabla por vendedor muestran One-time y Recurring por separado, y el total.",
