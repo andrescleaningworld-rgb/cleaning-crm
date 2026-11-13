@@ -5421,6 +5421,8 @@ export type Sale = {
   recurringEndDate: string;
   /** When the service is done (an extra job's job date; Postgres only). "" or left out = the sale date. */
   serviceDate?: string;
+  /** The extra job that made this sale (Postgres only): it is changed from the job, not from the Sales page. */
+  extraJobId?: string;
 };
 
 async function fetchSalesRows(): Promise<string[][]> {

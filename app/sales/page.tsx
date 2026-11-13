@@ -4,8 +4,10 @@ import Link from "next/link";
 import { BigButton, StatusPill, type StatusKind } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
 import UpsellsCard from "./upsells";
+import EditSaleSheet, { type EditableSale } from "./edit-sale";
+import { SALE_STATUSES, SELLERS, SERVICE_TYPES } from "./sale-options";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   COMMISSION_CHOICES,
@@ -63,6 +65,10 @@ type RawSale = {
   recurringEndDate?: string;
   /** An extra job's job date: when the service is done. "" = the sale date. */
   serviceDate?: string;
+  /** The row: with the id, which sale Edit changes. */
+  sheetRow?: number;
+  /** The extra job that made this sale: it is changed on the job. */
+  extraJobId?: string;
 };
 
 type Account = {
@@ -91,6 +97,9 @@ type Sale = {
   recurringStartDate: string;
   recurringEndDate: string;
   serviceDate: string;
+  /** -1 until the list is read again (a sale just added here): Edit waits for it. */
+  sheetRow: number;
+  extraJobId: string;
   commissionType: CommissionType;
 };
 
@@ -247,6 +256,8 @@ function mapRawSale(raw: RawSale): Sale {
     recurringStartDate: cleanText(raw.recurringStartDate),
     recurringEndDate: cleanText(raw.recurringEndDate),
     serviceDate: cleanText(raw.serviceDate),
+    sheetRow: Number.isInteger(raw.sheetRow) ? Number(raw.sheetRow) : -1,
+    extraJobId: cleanText(raw.extraJobId),
     commissionType: getCommissionType(commissionPercent),
   };
 }
@@ -370,11 +381,12 @@ function SalesPageContent() {
     loadAccounts();
   }, [accountIdFromUrl, accountNameFromUrl]);
 
-  useEffect(() => {
-    async function loadSales() {
+  // fresh: skip the browser's 60-second copy (after an Add or an Edit, so the change shows).
+  const loadSales = useCallback(async (fresh = false) => {
       try {
         const response = await fetch("/api/sales", {
           method: "GET",
+          ...(fresh ? { cache: "no-store" as const } : {}),
         });
 
         const result = await response.json();
@@ -398,10 +410,14 @@ function SalesPageContent() {
       } finally {
         setIsLoadingSales(false);
       }
-    }
-
-    loadSales();
   }, []);
+
+  useEffect(() => {
+    void loadSales();
+  }, [loadSales]);
+
+  // The sale open in the Edit sheet, or null.
+  const [editingSale, setEditingSale] = useState<EditableSale | null>(null);
 
   const availableYears = useMemo(() => {
     const yearsFromSales = sales
@@ -672,10 +688,15 @@ function SalesPageContent() {
         recurringEndDate: finalRecurringEndDate,
         // A sale added here is not an extra job: its service date is its sale date.
         serviceDate: "",
+        // Known once the list is read again (just below).
+        sheetRow: -1,
+        extraJobId: "",
         commissionType: getCommissionType(finalCommissionPercent),
       };
 
       setSales((currentSales) => [newSale, ...currentSales]);
+      // Read the list again so the new sale can be edited right away (it needs its row).
+      void loadSales(true);
 
       const newSaleYear = getYearFromDate(saleDate);
       const newSaleQuarter = getQuarterFromDate(saleDate);
@@ -881,14 +902,11 @@ function SalesPageContent() {
                   onChange={(event) => setServiceType(event.target.value)}
                   className="ui-input w-full"
                 >
-                  <option value="Extra Service">Extra Service</option>
-                  <option value="Floor Work">Floor Work</option>
-                  <option value="Carpet Cleaning">Carpet Cleaning</option>
-                  <option value="Window Cleaning">Window Cleaning</option>
-                  <option value="Power Washing">Power Washing</option>
-                  <option value="High Dusting">High Dusting</option>
-                  <option value="Recurring Increase">Recurring Increase</option>
-                  <option value="Other">Other</option>
+                  {SERVICE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -903,9 +921,11 @@ function SalesPageContent() {
                   className="ui-input w-full"
                 >
                   <option value="">Select person</option>
-                  <option value="Andrés">Andrés</option>
-                  <option value="Greg">Greg</option>
-                  <option value="Drew">Drew</option>
+                  {SELLERS.map((person) => (
+                    <option key={person} value={person}>
+                      {person}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -919,10 +939,11 @@ function SalesPageContent() {
                   onChange={(event) => setStatus(event.target.value)}
                   className="ui-input w-full"
                 >
-                  <option value="Pending">Pending</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Paid">Paid</option>
-                  <option value="Cancelled">Cancelled</option>
+                  {SALE_STATUSES.map((choice) => (
+                    <option key={choice} value={choice}>
+                      {choice}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -1376,6 +1397,9 @@ function SalesPageContent() {
                       Work Order / Estimate #
                     </th>
                     <th className="px-4 py-3 font-semibold">Notes</th>
+                    <th className="px-4 py-3 font-semibold print:hidden">
+                      <span className="ui-visually-hidden">Edit</span>
+                    </th>
                   </tr>
                 </thead>
 
@@ -1434,6 +1458,19 @@ function SalesPageContent() {
                           {sale.notes}
                         </span>
                       </td>
+
+                      {/* Edit. A sale made by an extra job is changed on the job (its change form rewrites the sale). */}
+                      <td className="px-4 py-3 print:hidden">
+                        {sale.extraJobId ? (
+                          <Link href={`/extra-jobs/${encodeURIComponent(sale.extraJobId)}`} className="ui-link whitespace-nowrap">
+                            On the extra job
+                          </Link>
+                        ) : sale.sheetRow < 0 ? null : (
+                          <button type="button" className="ui-btn ui-btn-second" aria-label={`Edit sale: ${sale.accountName}, ${sale.serviceSold}`} onClick={() => setEditingSale(sale)}>
+                            Edit
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1447,6 +1484,8 @@ function SalesPageContent() {
             )}
           </section>
         )}
+
+        <EditSaleSheet sale={editingSale} onClose={() => setEditingSale(null)} onSaved={() => void loadSales(true)} />
       </div>
     </main>
   );

@@ -39,10 +39,14 @@ export async function fetchSales(): Promise<Sale[]> {
   // A database without the Extra Jobs tables (migration 021) has no such sales.
   const rows = (await sql
     .query(
-      `SELECT s.*, (SELECT j.job_date::text FROM extra_jobs j WHERE j.sale_id <> '' AND j.sale_id = s.sale_id LIMIT 1) AS service_day
-       FROM sales s ORDER BY s.sheet_row`
+      `SELECT s.*, j.job_day AS service_day, j.job_id
+       FROM sales s
+       LEFT JOIN LATERAL (
+         SELECT x.job_date::text AS job_day, x.id::text AS job_id FROM extra_jobs x WHERE x.sale_id <> '' AND x.sale_id = s.sale_id LIMIT 1
+       ) j ON true
+       ORDER BY s.sheet_row`
     )
-    .catch(() => sql.query(`SELECT * FROM sales ORDER BY sheet_row`))) as (SaleRow & { service_day?: string | null })[];
+    .catch(() => sql.query(`SELECT * FROM sales ORDER BY sheet_row`))) as (SaleRow & { service_day?: string | null; job_id?: string | null })[];
   return rows
     .map((r) => ({
       sheetRow: r.sheet_row,
@@ -66,8 +70,69 @@ export async function fetchSales(): Promise<Sale[]> {
       recurringStartDate: r.recurring_start_date_raw,
       recurringEndDate: r.recurring_end_date_raw,
       serviceDate: r.service_day ?? "",
+      extraJobId: r.job_id ?? "",
     }))
     .filter((s) => s.id);
+}
+
+/** What the Sales page's Edit changes. The account (and its manager) stay as they are. */
+export type SaleEdit = Omit<SaleInput, "accountId" | "accountName" | "manager">;
+
+/**
+ * Changes one sale (Sales page → Edit). `sheetRow` pins the exact row, since
+ * two old sales can share an ID. A sale made by an extra job is changed from
+ * the job (its change form rewrites the sale), so it is refused here.
+ * The commission amount is worked out again from the amount and the %.
+ */
+export async function updateSale(id: string, sheetRow: number, data: SaleEdit): Promise<"ok" | "not-found" | "extra-job"> {
+  const sql = getSql();
+  const found = (await sql.query(
+    `SELECT EXISTS (SELECT 1 FROM sales WHERE sale_id = $1 AND sheet_row = $2) AS found,
+            (to_regclass('public.extra_jobs') IS NOT NULL) AS has_jobs`,
+    [id, sheetRow]
+  )) as { found: boolean; has_jobs: boolean }[];
+  if (!found[0]?.found) return "not-found";
+  if (found[0].has_jobs) {
+    const jobs = (await sql.query(`SELECT 1 FROM extra_jobs WHERE sale_id <> '' AND sale_id = $1 LIMIT 1`, [id])) as unknown[];
+    if (jobs.length > 0) return "extra-job";
+  }
+
+  const commissionAmount = data.amountSold * (data.commissionPercent / 100);
+  const now = new Date().toISOString();
+  await sql.query(
+    `UPDATE sales SET
+       sale_date_raw = $3, sale_date = $4::date, service_sold = $5, work_order_estimate_number = $6, sold_by = $7,
+       amount_sold_raw = $8, amount_sold = $9::numeric, amount_raw = $8,
+       commission_percent_raw = $10, commission_percent = $11::numeric, commission_amount_raw = $12, commission_amount = $13::numeric,
+       status = $14, notes = $15, service_type = $16,
+       recurring_start_date_raw = $17, recurring_start_date = $18::date, recurring_end_date_raw = $19, recurring_end_date = $20::date,
+       updated_at_raw = $21::text, sale_updated_at = $21::timestamptz, updated_at = now()
+     WHERE sale_id = $1 AND sheet_row = $2`,
+    [
+      id,
+      sheetRow,
+      data.saleDate,
+      dateOrNull(data.saleDate),
+      data.serviceSold,
+      data.workOrderEstimateNumber,
+      data.soldBy,
+      String(data.amountSold),
+      Number.isFinite(data.amountSold) ? data.amountSold : null,
+      String(data.commissionPercent),
+      data.commissionPercent,
+      String(commissionAmount),
+      Number.isFinite(commissionAmount) ? commissionAmount : null,
+      data.status,
+      data.notes,
+      data.serviceType,
+      data.recurringStartDate,
+      dateOrNull(data.recurringStartDate),
+      data.recurringEndDate,
+      dateOrNull(data.recurringEndDate),
+      now,
+    ]
+  );
+  return "ok";
 }
 
 export async function appendSale(data: SaleInput): Promise<string> {

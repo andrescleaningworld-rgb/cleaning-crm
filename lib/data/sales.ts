@@ -13,3 +13,9 @@ const source = () => (isPostgres("SALES") ? pg : sheets);
 
 export const fetchSales: typeof sheets.fetchSales = () => source().fetchSales();
 export const appendSale: typeof sheets.appendSale = (...args) => source().appendSale(...args);
+
+/** Sales page → Edit. Postgres only: the old Google Sheet has no edit. */
+export const updateSale: typeof pg.updateSale = async (...args) => {
+  if (!isPostgres("SALES")) throw new Error("Sales can be changed only once sales are in the database.");
+  return pg.updateSale(...args);
+};
