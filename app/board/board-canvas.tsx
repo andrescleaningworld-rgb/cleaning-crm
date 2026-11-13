@@ -8,7 +8,7 @@
 import { Caveat } from "next/font/google";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Sheet } from "@/app/ui";
-import { SHARED_SQUARES, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, pinStatusLabel, statusLine, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, countedPapers, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, pinStatusLabel, statusLine, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import PizzaTracker from "@/app/components/pizza-tracker";
 import { COMPLAINT_STEPS } from "@/lib/complaintSteps";
 import ReadyBadge from "@/app/components/ready-badge";
@@ -136,7 +136,7 @@ function SquarePapers({
   settings: BoardSettings;
   now: Date;
   renderPaper: (paper: Paper) => ReactNode;
-  renderPile: (hidden: number) => ReactNode;
+  renderPile: (hidden: Paper[]) => ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -169,7 +169,7 @@ function SquarePapers({
   return (
     <div ref={box} className={styles.papers}>
       {shown.map(renderPaper)}
-      {renderPile(list.length - shown.length)}
+      {renderPile(list.filter((paper) => !shown.includes(paper)))}
     </div>
   );
 }
@@ -346,15 +346,17 @@ export default function BoardCanvas({
   const papersOf = (key: string) => (key.startsWith("mgr:") ? papersIn(papers, { manager: key.slice(4) }) : papersIn(papers, { shared: key.slice(7) as Paper["kind"] }));
 
   // The pile at the bottom of a full square: paper edges peeking out, one pin, and how many are in it.
-  function renderPile(key: string, name: string, hidden: number, total: number) {
+  // "+N more" counts only the square's own hidden papers (countedPapers). When only handed-off copies are hidden, it says "See all".
+  function renderPile(key: string, name: string, hiddenPapers: Paper[], total: number) {
+    const hidden = countedPapers(hiddenPapers);
     const face = (
       <>
         <span className={styles.pileSheet} aria-hidden="true" />
         <span className={styles.pileSheet} aria-hidden="true" />
         <span className={styles.pileSheet} aria-hidden="true" />
         <span className={`${styles.pin} ${styles.pinRed}`} aria-hidden="true" />
-        <span className={styles.pileCount}>+{hidden}</span>
-        <span className={styles.pileWord}>more</span>
+        {hidden > 0 ? <span className={styles.pileCount}>+{hidden}</span> : null}
+        <span className={styles.pileWord}>{hidden > 0 ? "more" : "See all"}</span>
       </>
     );
     if (tv || !onOpen) {
@@ -371,7 +373,7 @@ export default function BoardCanvas({
         className={styles.pile}
         data-paper
         data-pile
-        aria-label={`${hidden} more in ${name}. Show all ${total} papers.`}
+        aria-label={`${hidden > 0 ? `${hidden} more` : "Handed-off copies"} in ${name}. Show all ${total} papers.`}
         onClick={() => {
           if (Date.now() < skipClickUntil.current) return;
           setPile({ key, name });
@@ -400,7 +402,7 @@ export default function BoardCanvas({
       >
         <div className={styles.squareHead}>
           <h2 className={styles.squareName}>{name}</h2>
-          <span className={styles.squareCount}>{list.length}</span>
+          <span className={styles.squareCount}>{countedPapers(list)}</span>
         </div>
         {!tv && squareExtra?.[key] ? squareExtra[key] : null}
         {list.length === 0 ? <p className={styles.emptySquare}>{canAdd ? "Tap to add" : "Nothing pinned"}</p> : <SquarePapers list={list} settings={settings} now={now} renderPaper={renderPaper} renderPile={(hidden) => renderPile(key, name, hidden, list.length)} />}

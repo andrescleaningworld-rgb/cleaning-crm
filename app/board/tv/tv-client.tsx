@@ -44,7 +44,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { SHARED_SQUARES, flowStepLine, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, pinStatusLabel, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
+import { SHARED_SQUARES, countedPapers, flowStepLine, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, papersIn, pinStatusLabel, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import { STATUS_LABEL, type CleaningStatus } from "@/lib/cleanings";
 import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
@@ -166,7 +166,7 @@ function squareRows(count: number, width: number, height: number): number[] {
 }
 
 /** The notes of one square: the first three, as tall as the square allows, then the rest as a pile ("+N more"). */
-function SquareNotes<T>({ items, unit, keyOf, render }: { items: T[]; unit: number; keyOf: (item: T) => string; render: (item: T) => ReactNode }) {
+function SquareNotes<T>({ items, unit, keyOf, render, counted = () => true }: { items: T[]; unit: number; keyOf: (item: T) => string; render: (item: T) => ReactNode; counted?: (item: T) => boolean }) {
   const { box, height } = useBoxSize(unit);
   const gap = ROW_GAP * unit;
   const rowFor = (shown: number) => {
@@ -176,21 +176,23 @@ function SquareNotes<T>({ items, unit, keyOf, render }: { items: T[]; unit: numb
   let shown = Math.min(SQUARE_NOTES, items.length);
   while (shown > 1 && rowFor(shown) < NOTE_ROW_MIN * unit) shown--;
   const row = Math.max(0, Math.min(NOTE_ROW_MAX * unit, rowFor(shown)));
-  const more = items.length - shown;
+  const hidden = items.length - shown;
+  // "+N more" counts only the hidden notes that count (not New accepted's handed-off copies).
+  const more = items.slice(shown).filter(counted).length;
   const ready = height > 0 && unit > 0;
 
   return (
     <div ref={box} className={styles.fitting} style={{ ["--row" as string]: `${row}px` }}>
       {ready ? items.slice(0, shown).map((item) => <div key={keyOf(item)}>{render(item)}</div>) : null}
-      {ready && more > 0 ? (
+      {ready && hidden > 0 ? (
         // The rest of the square's notes, as one pile. Only to look at: a click on the square opens them all.
         <div className={styles.squarePile} data-pile>
           <span className={styles.pileSheet} aria-hidden="true" />
           <span className={styles.pileSheet} aria-hidden="true" />
           <span className={styles.pileSheet} aria-hidden="true" />
           <span className={styles.pilePin} aria-hidden="true" />
-          <span className={styles.pileCount}>+{more}</span>
-          <span className={styles.pileWord}>more</span>
+          {more > 0 ? <span className={styles.pileCount}>+{more}</span> : null}
+          <span className={styles.pileWord}>{more > 0 ? "more" : "See all"}</span>
         </div>
       ) : null}
     </div>
@@ -968,7 +970,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
                       tabIndex={0}
                       className={styles.square}
                       data-square={item.key}
-                      aria-label={`${item.name}: ${item.papers.length} pinned. Open the full list.`}
+                      aria-label={`${item.name}: ${countedPapers(item.papers)} pinned. Open the full list.`}
                       onClick={() => setView(item.key)}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
@@ -978,9 +980,9 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
                     >
                       <div className={styles.squareHead}>
                         <h2 className={styles.squareName}>{item.name}</h2>
-                        <span className={styles.squareCount}>{item.papers.length}</span>
+                        <span className={styles.squareCount}>{countedPapers(item.papers)}</span>
                       </div>
-                      <SquareNotes items={item.papers} unit={unit} keyOf={(paper) => `${paper.kind}:${paper.itemId}`} render={renderNote} />
+                      <SquareNotes items={item.papers} unit={unit} keyOf={(paper) => `${paper.kind}:${paper.itemId}`} render={renderNote} counted={(paper) => !paper.mirror} />
                     </div>
                   ))}
                 </div>

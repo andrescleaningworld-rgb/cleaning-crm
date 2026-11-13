@@ -217,6 +217,14 @@ export function papersIn(papers: Paper[], square: { shared: PaperKind } | { mana
   return papers.filter((paper) => paper.square === square.manager);
 }
 
+/**
+ * How many papers a square counts (its badge and "+N more"): its own papers only.
+ * The copies in "New accepted" of accounts already handed to a manager still hang there, but are not counted.
+ */
+export function countedPapers(list: Paper[]): number {
+  return list.filter((paper) => !paper.mirror).length;
+}
+
 /** "Step 3 of 8 · Confirm availability": where a new account is, for its copy in "New accepted". */
 export function flowStepLine(paper: Paper): string {
   if (!paper.flow) return "";
