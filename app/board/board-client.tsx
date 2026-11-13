@@ -30,7 +30,7 @@ import PinStatusBox from "./pin-status";
 import AccountLink from "../components/AccountLink";
 import PizzaTracker, { type TrackerActions } from "../components/pizza-tracker";
 import { COMPLAINT_STEPS } from "@/lib/complaintSteps";
-import { FLOW_NEEDS_INPUT, StuckNote, saveFlowStep, setupStepsText } from "../components/account-flow";
+import { FLOW_NEEDS_INPUT, StuckNote, flowStepsText, saveFlowStep } from "../components/account-flow";
 import { FLOW_STEPS, previewStepChange, type FlowStep, type FlowView } from "@/lib/accountFlow";
 import { SetupButton } from "../components/OnboardingChecklist";
 import OnboardingWizardModal from "../components/OnboardingWizardModal";
@@ -484,6 +484,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                   key={open.accountId || open.itemId}
                   accountId={open.accountId || open.itemId}
                   refreshKey={setupRefresh}
+                  label="Setup wizard"
+                  doneWord={false}
                   onOpen={() => {
                     setSetupFor({ accountId: open.accountId || open.itemId, accountName: open.accountName || open.title, paperKey: `${open.kind}:${open.itemId}` });
                     setOpenKey("");
@@ -498,7 +500,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (
               <>
-                <p className="ui-strong">{setupStepsText(open.flow)}</p>
+                <p className="ui-strong">{flowStepsText(open.flow)}</p>
                 <FlowSteps key={`${open.kind}:${open.itemId}`} paper={open} onToggle={toggleFlowStep} />
                 {open.flow.step !== "live" ? <StuckNote accountId={open.accountId || open.itemId} view={open.flow} onSaved={() => void load()} /> : null}
               </>

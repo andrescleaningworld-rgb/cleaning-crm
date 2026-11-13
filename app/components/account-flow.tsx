@@ -34,10 +34,21 @@ const BIG_BUTTON_MARKS: FlowStep[] = ["subOk", "call", "survey", "walkthrough", 
 
 const trackerWord = (step: FlowStep) => FLOW_STEPS.find((def) => def.key === step)?.tracker ?? step;
 
-/** "Setup: 3 of 8 done": the tracker's steps only. */
+/** How many of the 8 tracker steps are done (the same count on the account page and the board popup). */
+function flowStepsDone(view: FlowDetail["view"]): number {
+  return view.step === "live" ? FLOW_SETUP_STEPS : (view.done ?? []).length;
+}
+
+/** "Setup: 3 of 8 done": the tracker's steps only (account page). */
 export function setupStepsText(view: FlowDetail["view"]): string {
-  const done = view.step === "live" ? FLOW_SETUP_STEPS : (view.done ?? []).length;
+  const done = flowStepsDone(view);
   return `Setup: ${done} of ${FLOW_SETUP_STEPS} done${done === FLOW_SETUP_STEPS ? " ✓" : ""}`;
+}
+
+/** "Steps · 3 of 8": the same count, as the board popup labels it (next to "Setup wizard · X of 10"). */
+export function flowStepsText(view: FlowDetail["view"]): string {
+  const done = flowStepsDone(view);
+  return `Steps · ${done} of ${FLOW_SETUP_STEPS}${done === FLOW_SETUP_STEPS ? " ✓" : ""}`;
 }
 import { DEFAULT_START_TIME, formatClock, parseClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP, toClock } from "@/lib/schedule-time";
 import { cleaningStartMinutes, describeCleaningTime } from "@/lib/cleaningTime";

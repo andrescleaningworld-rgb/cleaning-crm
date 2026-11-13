@@ -194,7 +194,21 @@ function SetupCard({ accountId, onOpenWizard, refreshKey = 0 }: { accountId: str
  * account's New account setup card: "Setup · 7 of 12 done", with the gold
  * badge above it when the account is ready to start.
  */
-export function SetupButton({ accountId, onOpen, refreshKey = 0 }: { accountId: string; onOpen: () => void; refreshKey?: number }) {
+export function SetupButton({
+  accountId,
+  onOpen,
+  refreshKey = 0,
+  label = "Setup",
+  doneWord = true,
+}: {
+  accountId: string;
+  onOpen: () => void;
+  refreshKey?: number;
+  /** The button's first word(s): "Setup" (account page), "Setup wizard" (board popup). */
+  label?: string;
+  /** "… of 10 done" (account page) or just "… of 10" (board popup). */
+  doneWord?: boolean;
+}) {
   const [wizard, setWizard] = useState<SetupWizardData | null>(null);
   useEffect(() => {
     let alive = true;
@@ -214,7 +228,7 @@ export function SetupButton({ accountId, onOpen, refreshKey = 0 }: { accountId: 
     <div className="ui-stack">
       {wizard && isReadyToStart(wizard.facts) ? <ReadyBadge size="panel" /> : null}
       <button type="button" className={BIG_GREEN} onClick={onOpen}>
-        {progress ? `Setup · ${progress.done} of ${progress.total} done${progress.done === progress.total ? " ✓" : ""}` : "Setup"}
+        {progress ? `${label} · ${progress.done} of ${progress.total}${doneWord ? " done" : ""}${progress.done === progress.total ? " ✓" : ""}` : label}
       </button>
     </div>
   );
