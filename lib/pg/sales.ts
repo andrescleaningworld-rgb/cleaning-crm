@@ -35,7 +35,14 @@ type SaleRow = {
 
 export async function fetchSales(): Promise<Sale[]> {
   const sql = getSql();
-  const rows = (await sql.query(`SELECT * FROM sales ORDER BY sheet_row`)) as SaleRow[];
+  // An extra job's Sale also carries the job's date: its one-time commission counts in the month the service is done.
+  // A database without the Extra Jobs tables (migration 021) has no such sales.
+  const rows = (await sql
+    .query(
+      `SELECT s.*, (SELECT j.job_date::text FROM extra_jobs j WHERE j.sale_id <> '' AND j.sale_id = s.sale_id LIMIT 1) AS service_day
+       FROM sales s ORDER BY s.sheet_row`
+    )
+    .catch(() => sql.query(`SELECT * FROM sales ORDER BY sheet_row`))) as (SaleRow & { service_day?: string | null })[];
   return rows
     .map((r) => ({
       sheetRow: r.sheet_row,
@@ -58,6 +65,7 @@ export async function fetchSales(): Promise<Sale[]> {
       amount: Number(r.amount_raw) || 0,
       recurringStartDate: r.recurring_start_date_raw,
       recurringEndDate: r.recurring_end_date_raw,
+      serviceDate: r.service_day ?? "",
     }))
     .filter((s) => s.id);
 }

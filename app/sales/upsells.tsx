@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import AccountLink from "../components/AccountLink";
-import { YEAR_TO_DATE, todayMonthDay } from "@/lib/salesCommission";
+import { periodRange } from "@/lib/salesCommission";
 
 type Change = {
   id: number;
@@ -23,24 +23,10 @@ type Change = {
   createdBy: string;
 };
 
-const QUARTER_MONTHS: Record<string, [string, string]> = {
-  Q1: ["01-01", "03-31"],
-  Q2: ["04-01", "06-30"],
-  Q3: ["07-01", "09-30"],
-  Q4: ["10-01", "12-31"],
-};
-
+/** The page's year / quarter (or year to date) as days, the same range the commission totals use. No year = every date. */
 function range(year: string, quarter: string): [string, string] {
-  if (!/^\d{4}$/.test(year)) return ["2000-01-01", "2099-12-31"];
-  // "Year to date": Jan 1 to today's date, in the picked year.
-  if (quarter === YEAR_TO_DATE) {
-    const end = todayMonthDay();
-    // Feb 29 in a year that has none: Feb 28.
-    const leap = new Date(Number(year), 1, 29).getMonth() === 1;
-    return [`${year}-01-01`, `${year}-${end === "02-29" && !leap ? "02-28" : end}`];
-  }
-  const [from, to] = QUARTER_MONTHS[quarter] ?? ["01-01", "12-31"];
-  return [`${year}-${from}`, `${year}-${to}`];
+  const [from, to] = periodRange(year, quarter);
+  return [from || "2000-01-01", to || "2099-12-31"];
 }
 
 const money = (value: number | null) => (value === null ? "—" : value.toLocaleString("en-US", { style: "currency", currency: "USD" }));

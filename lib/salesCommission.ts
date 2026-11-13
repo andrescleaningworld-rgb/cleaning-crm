@@ -5,13 +5,17 @@
 //
 // Convention (confirmed with Andres): Commission % = 4 means Recurring,
 // Commission % = 10 means OneTime. Any other % is tracked but excluded from
-// the Pay Period Total rollup, since the spec only defines pay-period
-// behavior for those two types.
+// the commission totals, since the spec only defines pay-period behavior for
+// those two types.
 //
 // A "pay period" here is a calendar month — the spec's "prorated for partial
 // first/last months" only makes sense under a monthly period, so recurring
 // commissions are prorated by the fraction of each calendar month covered by
-// RecurringStartDate..RecurringEndDate (inclusive).
+// RecurringStartDate..RecurringEndDate (inclusive). One-time commission
+// counts in the month the service is done (an extra job's job date).
+// commissionForRange is the one place this is worked out: Pay Period Total
+// (one month), Commission Due and the by-salesperson table (the picked
+// quarter / year to date), and /reports (its date range).
 
 import { parseISO } from "./dateUtils";
 
@@ -33,21 +37,88 @@ export function getCommissionType(commissionPercent: number): CommissionType {
   return "Other";
 }
 
-/** Commission totals split by type (the Sales page's Commission Due and per-salesperson table, /reports). */
-export type CommissionSplit = { oneTime: number; recurring: number; other: number; total: number };
+/** Commission earned in a date range, split by type (the Sales page's Commission Due and per-salesperson table, /reports). */
+export type CommissionSplit = { oneTime: number; recurring: number; total: number };
 
-/** Adds up each sale's own commission amount by its type. Same math as before, only split. */
-export function splitCommission(sales: { commissionPercent: number; commissionAmount: number }[]): CommissionSplit {
-  const split: CommissionSplit = { oneTime: 0, recurring: 0, other: 0, total: 0 };
+/** A day from "YYYY-MM-DD" (or any date text), at local midnight; null when it is not a date. */
+function toDay(value: string | undefined): Date | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const date = /^\d{4}-\d{2}-\d{2}/.test(text) ? parseISO(text.slice(0, 10)) : new Date(text);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+/** Whole days from a to b, both counted (DST-safe). */
+const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / 86_400_000) + 1;
+
+/**
+ * The Pay Period math over any range (YYYY-MM-DD, "" = open on that side):
+ *   - One-time (10%): the whole commission, when the service date (an extra
+ *     job's job date; else the sale date) is in the range.
+ *   - Recurring (4%): 4% of the monthly amount for every month from its start
+ *     date to its end date that falls in the range, prorated by the days of
+ *     each month covered (a partial first / last month, or a range that ends
+ *     mid-month such as Year to date).
+ *   - Any other % (old sales) and a recurring sale without both dates: nothing,
+ *     as in Pay Period Total.
+ * Over one whole month this is exactly computePayPeriodTotals.
+ */
+export function commissionForRange(sales: CommissionSaleLike[], from: string, to: string): CommissionSplit {
+  const rangeFrom = toDay(from);
+  const rangeTo = toDay(to);
+  const split: CommissionSplit = { oneTime: 0, recurring: 0, total: 0 };
   for (const sale of sales) {
-    const amount = Number.isFinite(sale.commissionAmount) ? sale.commissionAmount : 0;
     const type = getCommissionType(sale.commissionPercent);
-    if (type === "OneTime") split.oneTime += amount;
-    else if (type === "Recurring") split.recurring += amount;
-    else split.other += amount;
-    split.total += amount;
+    const commission = (Number.isFinite(sale.amountSold) ? sale.amountSold : 0) * (sale.commissionPercent / 100);
+    if (type === "OneTime") {
+      const day = toDay(sale.serviceDate || sale.saleDate);
+      if (!day || (rangeFrom && day < rangeFrom) || (rangeTo && day > rangeTo)) continue;
+      split.oneTime += commission;
+    } else if (type === "Recurring") {
+      const start = toDay(sale.recurringStartDate);
+      const end = toDay(sale.recurringEndDate);
+      if (!start || !end) continue;
+      const lo = rangeFrom && rangeFrom > start ? rangeFrom : start;
+      const hi = rangeTo && rangeTo < end ? rangeTo : end;
+      // Month by month: the days of that month inside both the sale's range and the picked range.
+      for (let month = new Date(lo.getFullYear(), lo.getMonth(), 1); month <= hi; month = new Date(month.getFullYear(), month.getMonth() + 1, 1)) {
+        const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+        const overlapStart = lo > month ? lo : month;
+        const overlapEnd = hi < monthEnd ? hi : monthEnd;
+        if (overlapEnd < overlapStart) continue;
+        split.recurring += commission * (daysBetween(overlapStart, overlapEnd) / daysInMonth(month.getFullYear(), month.getMonth() + 1));
+      }
+    }
   }
+  split.oneTime = Math.round(split.oneTime * 100) / 100;
+  split.recurring = Math.round(split.recurring * 100) / 100;
+  split.total = Math.round((split.oneTime + split.recurring) * 100) / 100;
   return split;
+}
+
+const QUARTER_DAYS: Record<string, [string, string]> = {
+  Q1: ["01-01", "03-31"],
+  Q2: ["04-01", "06-30"],
+  Q3: ["07-01", "09-30"],
+  Q4: ["10-01", "12-31"],
+};
+
+/**
+ * The Sales page's Year + Quarter as a range of days (YYYY-MM-DD; "" = open):
+ * a quarter, Year to date (Jan 1 to today's date), the whole year, or every
+ * date when no year is picked.
+ */
+export function periodRange(year: string, quarter: string): [string, string] {
+  if (!/^\d{4}$/.test(year)) return ["", ""];
+  if (quarter === YEAR_TO_DATE) {
+    const end = todayMonthDay();
+    // Feb 29 in a year that has none: Feb 28.
+    const leap = new Date(Number(year), 1, 29).getMonth() === 1;
+    return [`${year}-01-01`, `${year}-${end === "02-29" && !leap ? "02-28" : end}`];
+  }
+  const [from, to] = QUARTER_DAYS[quarter] ?? ["01-01", "12-31"];
+  return [`${year}-${from}`, `${year}-${to}`];
 }
 
 export function daysInMonth(year: number, month: number): number {
@@ -87,57 +158,20 @@ export type CommissionSaleLike = {
   amountSold: number;
   commissionPercent: number;
   saleDate: string;
+  /** When the service is done: an extra job's job date. Left out or "" = the sale date. One-time commission counts in this month. */
+  serviceDate?: string;
   recurringStartDate: string;
   recurringEndDate: string;
 };
 
-// Prorated recurring commission for one sale landing in the given pay-period
-// month. Returns 0 if the sale isn't Recurring, has no valid range, or the
-// range doesn't overlap that month at all.
-export function recurringCommissionForMonth(
-  sale: Pick<CommissionSaleLike, "amountSold" | "commissionPercent" | "recurringStartDate" | "recurringEndDate">,
-  year: number,
-  month: number // 1-12
-): number {
-  if (getCommissionType(sale.commissionPercent) !== "Recurring") return 0;
-  if (!sale.recurringStartDate || !sale.recurringEndDate) return 0;
-
-  const rangeStart = parseISO(sale.recurringStartDate);
-  const rangeEnd = parseISO(sale.recurringEndDate);
-  if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) return 0;
-
-  const periodStart = new Date(year, month - 1, 1);
-  const periodEnd = new Date(year, month, 0); // last day of the period month
-
-  if (rangeEnd < periodStart || rangeStart > periodEnd) return 0;
-
-  const overlapStart = rangeStart > periodStart ? rangeStart : periodStart;
-  const overlapEnd = rangeEnd < periodEnd ? rangeEnd : periodEnd;
-  // Math.round guards against DST transitions shifting the raw ms diff by
-  // an hour, which would otherwise throw off the day count by a fraction.
-  const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / 86_400_000) + 1;
-  const totalDaysInMonth = daysInMonth(year, month);
-
-  const fullMonthlyCommission = sale.amountSold * (sale.commissionPercent / 100);
-  return fullMonthlyCommission * (overlapDays / totalDaysInMonth);
-}
-
-// Full (non-prorated) commission for a OneTime sale, counted entirely in the
-// pay period containing its Sale Date. Returns 0 for any other commission
-// type or a sale date outside the given month.
-export function oneTimeCommissionForMonth(
-  sale: Pick<CommissionSaleLike, "amountSold" | "commissionPercent" | "saleDate">,
-  year: number,
-  month: number
-): number {
-  if (getCommissionType(sale.commissionPercent) !== "OneTime") return 0;
-  if (!sale.saleDate) return 0;
-
-  const date = parseISO(sale.saleDate);
-  if (Number.isNaN(date.getTime())) return 0;
-  if (date.getFullYear() !== year || date.getMonth() + 1 !== month) return 0;
-
-  return sale.amountSold * (sale.commissionPercent / 100);
+/** Each Sold-By person's sales, in first-seen order ("N/A" when blank). */
+export function groupBySeller<T extends { soldBy: string }>(sales: T[]): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const sale of sales) {
+    const key = sale.soldBy || "N/A";
+    groups.set(key, [...(groups.get(key) ?? []), sale]);
+  }
+  return groups;
 }
 
 export type PayPeriodTotal = {
@@ -147,34 +181,23 @@ export type PayPeriodTotal = {
   total: number;
 };
 
-// Per Sold-By person: one-time commissions landing in this pay period, plus
-// recurring commissions whose range covers this pay period (prorated).
+// Per Sold-By person, one calendar month: commissionForRange over that month
+// (one-time in the month the service is done, recurring prorated).
 export function computePayPeriodTotals(
   sales: CommissionSaleLike[],
   year: number,
   month: number
 ): PayPeriodTotal[] {
-  const totals = new Map<string, PayPeriodTotal>();
-
-  function add(soldBy: string, oneTime: number, recurring: number) {
-    if (oneTime === 0 && recurring === 0) return;
-    const key = soldBy || "N/A";
-    const current = totals.get(key) ?? { soldBy: key, oneTimeTotal: 0, recurringTotal: 0, total: 0 };
-    current.oneTimeTotal += oneTime;
-    current.recurringTotal += recurring;
-    current.total += oneTime + recurring;
-    totals.set(key, current);
-  }
-
-  for (const sale of sales) {
-    add(
-      sale.soldBy,
-      oneTimeCommissionForMonth(sale, year, month),
-      recurringCommissionForMonth(sale, year, month)
-    );
-  }
-
-  return Array.from(totals.values()).sort((a, b) => b.total - a.total);
+  const mm = String(month).padStart(2, "0");
+  const from = `${year}-${mm}-01`;
+  const to = `${year}-${mm}-${String(daysInMonth(year, month)).padStart(2, "0")}`;
+  return Array.from(groupBySeller(sales))
+    .map(([soldBy, personSales]) => {
+      const split = commissionForRange(personSales, from, to);
+      return { soldBy, oneTimeTotal: split.oneTime, recurringTotal: split.recurring, total: split.total };
+    })
+    .filter((row) => row.total !== 0)
+    .sort((a, b) => b.total - a.total);
 }
 
 /** The Sales page's Quarter dropdown value for "Year to date" (Jan 1 to today's date). The Upsells card follows it too. */

@@ -5419,6 +5419,8 @@ export type Sale = {
   amount: number;
   recurringStartDate: string;
   recurringEndDate: string;
+  /** When the service is done (an extra job's job date; Postgres only). "" or left out = the sale date. */
+  serviceDate?: string;
 };
 
 async function fetchSalesRows(): Promise<string[][]> {

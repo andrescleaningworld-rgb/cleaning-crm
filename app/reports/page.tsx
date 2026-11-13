@@ -6,7 +6,7 @@ import AccountLink from "../components/AccountLink";
 import { shareOfRevenue } from "@/lib/payShare";
 import { managerMatches } from "@/lib/managerNames";
 import { useManagerNames } from "../components/manager-options";
-import { getCommissionType, splitCommission, type CommissionSplit } from "@/lib/salesCommission";
+import { commissionForRange, getCommissionType, type CommissionSaleLike, type CommissionSplit } from "@/lib/salesCommission";
 
 type AnyRow = Record<string, unknown>;
 
@@ -371,14 +371,27 @@ function getCommissionPercent(row: AnyRow) {
   );
 }
 
-/** One sale's commission for the One-time / Recurring split (lib/salesCommission.ts splitCommission). */
-function commissionParts(row: AnyRow) {
-  return { commissionPercent: getCommissionPercent(row), commissionAmount: getCommissionAmount(row) };
+/** A sale as the commission math reads it (lib/salesCommission.ts commissionForRange). */
+function toCommissionSale(row: AnyRow): CommissionSaleLike {
+  return {
+    soldBy: getValue(row, ["soldBy", "Sold By"]),
+    amountSold: numberValue(getValue(row, ["amountSold", "Amount Sold", "amount", "Amount"])),
+    commissionPercent: getCommissionPercent(row),
+    saleDate: getSaleDate(row),
+    serviceDate: getValue(row, ["serviceDate"]),
+    recurringStartDate: getValue(row, ["recurringStartDate", "Recurring Start Date"]),
+    recurringEndDate: getValue(row, ["recurringEndDate", "Recurring End Date"]),
+  };
 }
 
-/** "One-time $X · Recurring $Y" (and "Other $Z" for old sales at another %). */
+/** A report date as YYYY-MM-DD, in local time (the range ends on that day). */
+function dayText(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** "One-time $X · Recurring $Y". */
 function splitText(split: CommissionSplit) {
-  return `One-time ${money(split.oneTime)} · Recurring ${money(split.recurring)}${split.other !== 0 ? ` · Other ${money(split.other)}` : ""}`;
+  return `One-time ${money(split.oneTime)} · Recurring ${money(split.recurring)}`;
 }
 
 function rowMatchesSearch(row: AnyRow, search: string) {
@@ -640,6 +653,23 @@ export default function ReportsPage() {
     });
   }, [sales, dateRange, managerFilter, salespersonFilter, search]);
 
+  // Commission over the date range (Pay Period math): every sale that passes
+  // the other filters, whatever its sale date. A recurring sale from before
+  // the range, or an extra job sold earlier and done in the range, still pays in it.
+  const commissionSales = useMemo(() => {
+    return sales.filter((sale) => {
+      const manager = getValue(sale, ["manager", "Manager", "accountManager"]);
+      const soldBy = getValue(sale, ["soldBy", "Sold By", "salesPerson", "Sales Person", "salesperson", "Salesperson"]);
+      return (
+        (managerFilter === "All" || managerMatches(manager, managerFilter)) &&
+        (salespersonFilter === "All" || soldBy === salespersonFilter) &&
+        rowMatchesSearch(sale, search)
+      );
+    });
+  }, [sales, managerFilter, salespersonFilter, search]);
+  const rangeFrom = dayText(dateRange.start);
+  const rangeTo = dayText(dateRange.end);
+
   const filteredVisits = useMemo(() => {
     return visits.filter((visit) => {
       const manager = getValue(visit, [
@@ -802,8 +832,8 @@ export default function ReportsPage() {
       return sum + getSaleAmount(sale);
     }, 0);
 
-    // Same math as before (each sale's own commission), split One-time / Recurring.
-    const commission = splitCommission(filteredSales.map(commissionParts));
+    // Earned in the range: one-time in the month the service is done, recurring each month (prorated).
+    const commission = commissionForRange(commissionSales.map(toCommissionSale), rangeFrom, rangeTo);
     const commissionTotal = commission.total;
 
     const openComplaints = filteredComplaints.filter((complaint) => {
@@ -849,6 +879,9 @@ export default function ReportsPage() {
     filteredVisits,
     filteredComplaints,
     filteredSales,
+    commissionSales,
+    rangeFrom,
+    rangeTo,
   ]);
 
   const managerSummary = useMemo(() => {
@@ -859,8 +892,7 @@ export default function ReportsPage() {
         complaints: number;
         salesCount: number;
         salesTotal: number;
-        commissionTotal: number;
-        commissionSales: { commissionPercent: number; commissionAmount: number }[];
+        commission: CommissionSplit;
         accountsStarted: number;
         accountsCancelled: number;
         revenueAdded: number;
@@ -875,8 +907,7 @@ export default function ReportsPage() {
           complaints: 0,
           salesCount: 0,
           salesTotal: 0,
-          commissionTotal: 0,
-          commissionSales: [],
+          commission: { oneTime: 0, recurring: 0, total: 0 },
           accountsStarted: 0,
           accountsCancelled: 0,
           revenueAdded: 0,
@@ -912,8 +943,19 @@ export default function ReportsPage() {
       ensure(manager);
       summary[manager].salesCount += 1;
       summary[manager].salesTotal += getSaleAmount(sale);
-      summary[manager].commissionTotal += getCommissionAmount(sale);
-      summary[manager].commissionSales.push(commissionParts(sale));
+    });
+
+    // Each manager's commission earned in the range (Pay Period math), from every sale of theirs.
+    const byManager = new Map<string, CommissionSaleLike[]>();
+    commissionSales.forEach((sale) => {
+      const manager = getValue(sale, ["manager", "Manager", "accountManager"]) || "Unassigned";
+      byManager.set(manager, [...(byManager.get(manager) ?? []), toCommissionSale(sale)]);
+    });
+    byManager.forEach((managerSales, manager) => {
+      const commission = commissionForRange(managerSales, rangeFrom, rangeTo);
+      if (commission.total === 0 && !summary[manager]) return;
+      ensure(manager);
+      summary[manager].commission = commission;
     });
 
     startedAccounts.forEach((account) => {
@@ -935,6 +977,9 @@ export default function ReportsPage() {
     filteredVisits,
     filteredComplaints,
     filteredSales,
+    commissionSales,
+    rangeFrom,
+    rangeTo,
     startedAccounts,
     cancelledAccounts,
   ]);
@@ -1570,8 +1615,8 @@ export default function ReportsPage() {
                             {money(data.salesTotal)}
                           </td>
                           <td className="px-4 py-3">
-                            {money(data.commissionTotal)}
-                            {data.commissionSales.length > 0 ? <span className="ui-muted block">{splitText(splitCommission(data.commissionSales))}</span> : null}
+                            {money(data.commission.total)}
+                            {data.commission.total !== 0 ? <span className="ui-muted block">{splitText(data.commission)}</span> : null}
                           </td>
                         </tr>
                       ))
@@ -1869,8 +1914,7 @@ export default function ReportsPage() {
                     Count: {salesList.length} | Sales:{" "}
                     {money(totals.salesTotal)} | One-time:{" "}
                     {money(totals.commission.oneTime)} | Recurring:{" "}
-                    {money(totals.commission.recurring)}
-                    {totals.commission.other !== 0 ? ` | Other: ${money(totals.commission.other)}` : ""} | Commission
+                    {money(totals.commission.recurring)} | Commission
                     total: {money(totals.commissionTotal)}
                   </div>
                 </div>

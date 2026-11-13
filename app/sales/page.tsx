@@ -15,9 +15,13 @@ import {
   MONTH_NAMES,
   ONE_TIME_PERCENT,
   RECURRING_PERCENT,
-  splitCommission,
+  commissionForRange,
+  groupBySeller,
+  periodRange,
   validateRecurringDates,
   YEAR_TO_DATE,
+  type CommissionSaleLike,
+  type CommissionSplit,
   type CommissionType,
 } from "@/lib/salesCommission";
 
@@ -57,6 +61,8 @@ type RawSale = {
   notes?: string;
   recurringStartDate?: string;
   recurringEndDate?: string;
+  /** An extra job's job date: when the service is done. "" = the sale date. */
+  serviceDate?: string;
 };
 
 type Account = {
@@ -84,8 +90,22 @@ type Sale = {
   notes: string;
   recurringStartDate: string;
   recurringEndDate: string;
+  serviceDate: string;
   commissionType: CommissionType;
 };
+
+/** A sale as the commission math reads it (lib/salesCommission.ts). */
+function toCommissionSale(sale: Sale): CommissionSaleLike {
+  return {
+    soldBy: sale.soldBy,
+    amountSold: sale.amount,
+    commissionPercent: sale.commissionPercent,
+    saleDate: sale.saleDateRaw,
+    serviceDate: sale.serviceDate,
+    recurringStartDate: sale.recurringStartDate,
+    recurringEndDate: sale.recurringEndDate,
+  };
+}
 
 function cleanText(value: unknown, fallback = "") {
   if (value === null || value === undefined) return fallback;
@@ -226,6 +246,7 @@ function mapRawSale(raw: RawSale): Sale {
     notes: cleanText(raw.notes, "N/A"),
     recurringStartDate: cleanText(raw.recurringStartDate),
     recurringEndDate: cleanText(raw.recurringEndDate),
+    serviceDate: cleanText(raw.serviceDate),
     commissionType: getCommissionType(commissionPercent),
   };
 }
@@ -426,17 +447,41 @@ function SalesPageContent() {
       .slice(0, 20);
   }, [accounts, accountSearchText]);
 
-  const filteredSales = useMemo(() => {
+  // Every filter but the dates (account, salesperson, search). Commission is
+  // worked out from these over the picked range: a recurring sale made last
+  // year, or an extra job sold in October and done in November, still pays
+  // in this range.
+  const baseSales = useMemo(() => {
     const search = searchText.toLowerCase().trim();
 
-    return sales
-      .filter((sale) => {
-        const matchesAccountFromUrl = accountList
-          ? scope.matches(sale.accountId, sale.accountName)
-          : accountIdFromUrl
-            ? sale.accountId === accountIdFromUrl
-            : true;
+    return sales.filter((sale) => {
+      const matchesAccountFromUrl = accountList
+        ? scope.matches(sale.accountId, sale.accountName)
+        : accountIdFromUrl
+          ? sale.accountId === accountIdFromUrl
+          : true;
 
+      const matchesSalesperson =
+        selectedSalesperson === "All" ? true : sale.soldBy === selectedSalesperson;
+
+      const matchesSearch = search
+        ? sale.accountName.toLowerCase().includes(search) ||
+          sale.serviceSold.toLowerCase().includes(search) ||
+          sale.serviceType.toLowerCase().includes(search) ||
+          sale.soldBy.toLowerCase().includes(search) ||
+          sale.manager.toLowerCase().includes(search) ||
+          sale.status.toLowerCase().includes(search) ||
+          sale.workOrderEstimateNumber.toLowerCase().includes(search)
+        : true;
+
+      return matchesAccountFromUrl && matchesSalesperson && matchesSearch;
+    });
+  }, [sales, searchText, accountIdFromUrl, accountList, scope, selectedSalesperson]);
+
+  // The sales list, count and Sales Total: the sales made in the picked range (by sale date).
+  const filteredSales = useMemo(() => {
+    return baseSales
+      .filter((sale) => {
         const saleYear = getYearFromDate(sale.saleDateRaw);
         const saleQuarter = getQuarterFromDate(sale.saleDateRaw);
 
@@ -447,26 +492,7 @@ function SalesPageContent() {
             ? isYearToDate(sale.saleDateRaw)
             : saleQuarter === selectedQuarter;
 
-        const matchesSalesperson =
-          selectedSalesperson === "All" ? true : sale.soldBy === selectedSalesperson;
-
-        const matchesSearch = search
-          ? sale.accountName.toLowerCase().includes(search) ||
-            sale.serviceSold.toLowerCase().includes(search) ||
-            sale.serviceType.toLowerCase().includes(search) ||
-            sale.soldBy.toLowerCase().includes(search) ||
-            sale.manager.toLowerCase().includes(search) ||
-            sale.status.toLowerCase().includes(search) ||
-            sale.workOrderEstimateNumber.toLowerCase().includes(search)
-          : true;
-
-        return (
-          matchesAccountFromUrl &&
-          matchesYear &&
-          matchesQuarter &&
-          matchesSalesperson &&
-          matchesSearch
-        );
+        return matchesYear && matchesQuarter;
       })
       .sort((a, b) => {
         const dateA = new Date(a.saleDateRaw).getTime();
@@ -478,57 +504,41 @@ function SalesPageContent() {
 
         return dateB - dateA;
       });
-  }, [
-    sales,
-    searchText,
-    accountIdFromUrl,
-    accountList,
-    scope,
-    selectedYear,
-    selectedQuarter,
-    selectedSalesperson,
-  ]);
+  }, [baseSales, selectedYear, selectedQuarter]);
 
+  // The picked Year + Quarter (or Year to date) as days: the range commission is worked out over.
+  const [rangeFrom, rangeTo] = periodRange(selectedYear, selectedQuarter);
+
+  // Commission per person over the range (Pay Period math), next to their sales count and total in the range.
   const salesByPerson = useMemo(() => {
-    const grouped = new Map<
-      string,
-      {
-        soldBy: string;
-        salesCount: number;
-        totalSales: number;
-        sales: Sale[];
-      }
-    >();
+    const rows = new Map<string, { soldBy: string; salesCount: number; totalSales: number; commission: CommissionSplit }>();
+    const none: CommissionSplit = { oneTime: 0, recurring: 0, total: 0 };
 
     filteredSales.forEach((sale) => {
       const key = sale.soldBy || "N/A";
-      const current = grouped.get(key) || {
-        soldBy: key,
-        salesCount: 0,
-        totalSales: 0,
-        sales: [],
-      };
-
+      const current = rows.get(key) || { soldBy: key, salesCount: 0, totalSales: 0, commission: none };
       current.salesCount += 1;
       current.totalSales += sale.amount;
-      current.sales.push(sale);
-
-      grouped.set(key, current);
+      rows.set(key, current);
     });
 
-    // Each person's commission, split One-time / Recurring (same math as before: each sale's own amount).
-    return Array.from(grouped.values())
-      .map(({ sales: personSales, ...person }) => ({ ...person, commission: splitCommission(personSales) }))
-      .sort((a, b) => b.commission.total - a.commission.total);
-  }, [filteredSales]);
+    groupBySeller(baseSales.map(toCommissionSale)).forEach((personSales, key) => {
+      const commission = commissionForRange(personSales, rangeFrom, rangeTo);
+      // Someone with no sale and no commission in the range is left out.
+      if (commission.total === 0 && !rows.has(key)) return;
+      rows.set(key, { ...(rows.get(key) || { soldBy: key, salesCount: 0, totalSales: 0 }), commission });
+    });
+
+    return Array.from(rows.values()).sort((a, b) => b.commission.total - a.commission.total || b.totalSales - a.totalSales);
+  }, [filteredSales, baseSales, rangeFrom, rangeTo]);
 
   const totalSalesAmount = filteredSales.reduce(
     (total, sale) => total + sale.amount,
     0
   );
 
-  // Commission Due: One-time and Recurring apart, and the total.
-  const commissionDue = useMemo(() => splitCommission(filteredSales), [filteredSales]);
+  // Commission Due over the range: One-time (service done in it) and Recurring (its months in it, prorated), and the total.
+  const commissionDue = useMemo(() => commissionForRange(baseSales.map(toCommissionSale), rangeFrom, rangeTo), [baseSales, rangeFrom, rangeTo]);
   const rangeLabel = periodLabel(selectedYear, selectedQuarter);
 
   const pendingSales = filteredSales.filter((sale) =>
@@ -547,22 +557,15 @@ function SalesPageContent() {
 
   const isRecurringCommission = commissionType === "Recurring";
 
-  // Pay Period Total: per Sold-By person, one-time commissions landing in
-  // the selected month plus recurring commissions whose date range covers
-  // it (prorated) — uses the FULL sales list, not filteredSales, since the
-  // pay period picker is its own independent filter (year/quarter above
+  // Pay Period Total: per Sold-By person, one-time commissions for services
+  // done in the selected month plus recurring commissions whose date range
+  // covers it (prorated) — uses the FULL sales list, not filteredSales, since
+  // the pay period picker is its own independent filter (year/quarter above
   // don't constrain it).
   const payPeriodTotals = useMemo(
     () =>
       computePayPeriodTotals(
-        sales.map((sale) => ({
-          soldBy: sale.soldBy,
-          amountSold: sale.amount,
-          commissionPercent: sale.commissionPercent,
-          saleDate: sale.saleDateRaw,
-          recurringStartDate: sale.recurringStartDate,
-          recurringEndDate: sale.recurringEndDate,
-        })),
+        sales.map(toCommissionSale),
         payPeriodYear,
         payPeriodMonth
       ),
@@ -667,6 +670,8 @@ function SalesPageContent() {
         notes: notes || "N/A",
         recurringStartDate: finalRecurringStartDate,
         recurringEndDate: finalRecurringEndDate,
+        // A sale added here is not an extra job: its service date is its sale date.
+        serviceDate: "",
         commissionType: getCommissionType(finalCommissionPercent),
       };
 
@@ -1193,8 +1198,7 @@ function SalesPageContent() {
                 <p className="ui-muted">
                   One-time {formatMoney(commissionDue.oneTime)} &middot; Recurring {formatMoney(commissionDue.recurring)}
                 </p>
-                {/* Old sales saved at some other %: counted in the total, shown so the two lines add up. */}
-                {commissionDue.other !== 0 ? <p className="ui-muted">Other {formatMoney(commissionDue.other)}</p> : null}
+                <p className="ui-muted print:hidden">Earned in {rangeLabel === "All dates" ? "all dates" : rangeLabel}: one-time in the month the service is done, recurring each month (prorated).</p>
               </div>
 
               <div className="ui-card print:p-3 print:shadow-none">
@@ -1215,8 +1219,9 @@ function SalesPageContent() {
                   Commission Summary by Salesperson
                 </h2>
                 <p className="ui-muted print:hidden">
-                  This section updates based on the selected year, quarter (or year
-                  to date), and salesperson filter.
+                  Sales count and total: sales made in the selected range. Commission:
+                  earned in the range (one-time in the month the service is done,
+                  recurring each month, prorated).
                 </p>
               </div>
 
