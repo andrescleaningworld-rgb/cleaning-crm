@@ -37,6 +37,11 @@ export function getCommissionType(commissionPercent: number): CommissionType {
   return "Other";
 }
 
+/** True for a sale whose Status is Cancelled (also spelled "Canceled"): it counts $0 in every commission total. */
+export function isCancelledSale(status: string | undefined): boolean {
+  return /^cancell?ed$/i.test(String(status ?? "").trim());
+}
+
 /** Commission earned in a date range, split by type (the Sales page's Commission Due and per-salesperson table, /reports). */
 export type CommissionSplit = { oneTime: number; recurring: number; total: number };
 
@@ -60,8 +65,8 @@ const daysBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime())
  *     date to its end date that falls in the range, prorated by the days of
  *     each month covered (a partial first / last month, or a range that ends
  *     mid-month such as Year to date).
- *   - Any other % (old sales) and a recurring sale without both dates: nothing,
- *     as in Pay Period Total.
+ *   - Any other % (old sales), a recurring sale without both dates, and a
+ *     sale whose Status is Cancelled: nothing.
  * Over one whole month this is exactly computePayPeriodTotals.
  */
 export function commissionForRange(sales: CommissionSaleLike[], from: string, to: string): CommissionSplit {
@@ -69,6 +74,8 @@ export function commissionForRange(sales: CommissionSaleLike[], from: string, to
   const rangeTo = toDay(to);
   const split: CommissionSplit = { oneTime: 0, recurring: 0, total: 0 };
   for (const sale of sales) {
+    // A Cancelled sale pays nothing (an extra job's cancel also sets its sale to 0%).
+    if (isCancelledSale(sale.status)) continue;
     const type = getCommissionType(sale.commissionPercent);
     const commission = (Number.isFinite(sale.amountSold) ? sale.amountSold : 0) * (sale.commissionPercent / 100);
     if (type === "OneTime") {
@@ -160,6 +167,8 @@ export type CommissionSaleLike = {
   saleDate: string;
   /** When the service is done: an extra job's job date. Left out or "" = the sale date. One-time commission counts in this month. */
   serviceDate?: string;
+  /** The sale's Status: "Cancelled" counts $0 commission. */
+  status?: string;
   recurringStartDate: string;
   recurringEndDate: string;
 };

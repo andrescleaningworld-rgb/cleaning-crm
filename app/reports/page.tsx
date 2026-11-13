@@ -379,6 +379,7 @@ function toCommissionSale(row: AnyRow): CommissionSaleLike {
     commissionPercent: getCommissionPercent(row),
     saleDate: getSaleDate(row),
     serviceDate: getValue(row, ["serviceDate"]),
+    status: getValue(row, ["status", "Status"]),
     recurringStartDate: getValue(row, ["recurringStartDate", "Recurring Start Date"]),
     recurringEndDate: getValue(row, ["recurringEndDate", "Recurring End Date"]),
   };

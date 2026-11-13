@@ -19,6 +19,7 @@ import {
   RECURRING_PERCENT,
   commissionForRange,
   groupBySeller,
+  isCancelledSale,
   periodRange,
   validateRecurringDates,
   YEAR_TO_DATE,
@@ -111,6 +112,7 @@ function toCommissionSale(sale: Sale): CommissionSaleLike {
     commissionPercent: sale.commissionPercent,
     saleDate: sale.saleDateRaw,
     serviceDate: sale.serviceDate,
+    status: sale.status,
     recurringStartDate: sale.recurringStartDate,
     recurringEndDate: sale.recurringEndDate,
   };
@@ -1443,6 +1445,8 @@ function SalesPageContent() {
                             {sale.recurringStartDate} – {sale.recurringEndDate}
                           </span>
                         ) : null}
+                        {/* Cancelled: $0 in every commission total (lib/salesCommission.ts). */}
+                        {isCancelledSale(sale.status) ? <span className="ui-muted block">Cancelled: counts $0</span> : null}
                       </td>
 
                       <td className="px-4 py-3">
