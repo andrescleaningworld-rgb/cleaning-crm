@@ -9,6 +9,7 @@ import { SALE_STATUSES, SELLERS, SERVICE_TYPES } from "./sale-options";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { parseISO } from "@/lib/dateUtils";
 import {
   COMMISSION_CHOICES,
   computePayPeriodTotals,
@@ -141,10 +142,21 @@ function createIdFromName(name: string) {
     .replace(/\s+/g, "-");
 }
 
+/**
+ * A sale date as a Date. "YYYY-MM-DD" is read as that day in local time:
+ * new Date("2026-10-31") would be midnight UTC, the evening before in New
+ * York, so the sale would show (and filter) one day early. Anything else
+ * (an old "8/19/2026" or a full timestamp) is read as before.
+ */
+function parseSaleDate(value: string): Date {
+  const text = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? parseISO(text) : new Date(text);
+}
+
 function formatDate(value: string) {
   if (!value) return "N/A";
 
-  const date = new Date(value);
+  const date = parseSaleDate(value);
 
   if (Number.isNaN(date.getTime())) return value;
 
@@ -170,7 +182,7 @@ function getCurrentQuarter() {
 }
 
 function getQuarterFromDate(value: string) {
-  const date = new Date(value);
+  const date = parseSaleDate(value);
 
   if (Number.isNaN(date.getTime())) return "";
 
@@ -184,7 +196,7 @@ function getQuarterFromDate(value: string) {
 }
 
 function getYearFromDate(value: string) {
-  const date = new Date(value);
+  const date = parseSaleDate(value);
 
   if (Number.isNaN(date.getTime())) return "";
 
@@ -193,7 +205,7 @@ function getYearFromDate(value: string) {
 
 /** True when a sale's date is between Jan 1 and today's month and day (in its own year: the Year dropdown picks which). */
 function isYearToDate(value: string) {
-  const date = new Date(value);
+  const date = parseSaleDate(value);
   if (Number.isNaN(date.getTime())) return false;
   const today = new Date();
   const month = date.getMonth();
@@ -235,9 +247,8 @@ function mapRawAccount(raw: RawAccount): Account {
 function mapRawSale(raw: RawSale): Sale {
   const amount = toNumber(raw.amountSold);
   const commissionPercent = toNumber(raw.commissionPercent);
-  const commissionAmountFromSheet = toNumber(raw.commissionAmount);
-  const commissionAmount =
-    commissionAmountFromSheet || amount * (commissionPercent / 100);
+  // Always the row's own Amount Sold × %, never a stored figure (an old row can hold one from another column).
+  const commissionAmount = Math.round(amount * commissionPercent) / 100;
 
   return {
     id: cleanText(raw.id, `sale-${Math.random().toString(36).slice(2)}`),

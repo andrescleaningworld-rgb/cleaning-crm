@@ -347,8 +347,9 @@ function getSaleDate(row: AnyRow) {
 }
 
 function getSaleAmount(row: AnyRow) {
+  // Amount Sold first (what the Sales page shows and commission is worked out from); the old "Amount" column only when there is none.
   return numberValue(
-    getValue(row, ["amount", "Amount", "saleAmount", "Sale Amount"])
+    getValue(row, ["amountSold", "Amount Sold", "amount", "Amount", "saleAmount", "Sale Amount"])
   );
 }
 

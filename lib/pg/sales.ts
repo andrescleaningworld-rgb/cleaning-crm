@@ -59,7 +59,9 @@ export async function fetchSales(): Promise<Sale[]> {
       soldBy: r.sold_by,
       amountSold: Number(r.amount_sold_raw) || 0,
       commissionPercent: Number(r.commission_percent_raw) || 0,
-      commissionAmount: Number(r.commission_amount_raw) || 0,
+      // Always this row's own Amount Sold × % ÷ 100, rounded to cents, never the stored Commission $:
+      // an old imported row can hold one worked out from the old Amount column (migration_issues #118).
+      commissionAmount: Math.round((Number(r.amount_sold_raw) || 0) * (Number(r.commission_percent_raw) || 0)) / 100,
       status: r.status,
       notes: r.notes,
       createdAt: r.created_at_raw,
