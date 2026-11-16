@@ -19,6 +19,7 @@ import { dayText, isClosedStatus, localIso, parseDay, problemAreas, rangeText, r
 
 type Facts = { createdAt: string; address: string; photos: string[]; resolvedAt: string };
 
+const LOGO = "/logo-CW-single.png";
 const MAX_PHOTOS = 3;
 const PHOTO_WAIT_MS = 8000;
 
@@ -118,7 +119,7 @@ export default function ComplaintReviewPrint({
       }
       if (!alive) return;
       setFacts(loaded);
-      await preload(sorted.flatMap((c) => (loaded[c.key]?.photos ?? []).slice(0, MAX_PHOTOS).map(pictureUrl)));
+      await preload([LOGO, ...sorted.flatMap((c) => (loaded[c.key]?.photos ?? []).slice(0, MAX_PHOTOS).map(pictureUrl))]);
       if (alive) setReady(true);
     })();
     return () => {
@@ -155,7 +156,8 @@ export default function ComplaintReviewPrint({
     <PrintSheet active={active && ready} onDone={done}>
       <div className="cw-review">
         <header className="cw-review-head">
-          <Image src="/logo-CW-single.png" alt="" width={56} height={56} unoptimized className="cw-review-logo" />
+          {/* eager: the sheet is hidden on screen, and a lazy picture there is never fetched before the print window opens. */}
+          <Image src={LOGO} alt="" width={56} height={56} unoptimized loading="eager" className="cw-review-logo" />
           <div>
             <p className="cw-review-company">Cleaning World</p>
             <h1>Complaint Review — {subName}</h1>
@@ -242,7 +244,7 @@ export default function ComplaintReviewPrint({
               {photos.length > 0 ? (
                 <div className="cw-review-photos">
                   {photos.slice(0, MAX_PHOTOS).map((url, photoIndex) => (
-                    <Image key={`${url}-${photoIndex}`} src={pictureUrl(url)} alt={`Photo ${photoIndex + 1}`} width={130} height={96} unoptimized />
+                    <Image key={`${url}-${photoIndex}`} src={pictureUrl(url)} alt={`Photo ${photoIndex + 1}`} width={130} height={96} unoptimized loading="eager" />
                   ))}
                   {photos.length > MAX_PHOTOS ? <span>+{photos.length - MAX_PHOTOS} more</span> : null}
                 </div>
