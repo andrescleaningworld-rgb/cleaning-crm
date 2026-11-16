@@ -1,4 +1,4 @@
-// GET /api/admin/account-emails/markate: "Find emails in Markate" on
+// GET /api/admin/account-emails/markate[?start=N]: "Find emails in Markate" on
 // Accounts Center → Missing emails (lib/pg/markate-emails.ts). Read only:
 // it returns the matches; saving is the usual POST /api/admin/account-emails,
 // one account at a time, for the ones staff tick. Staff only (proxy.ts, and
@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
   try {
     if (!(await getAdminIdentity(request))) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401, ...noStore });
     if (!isPostgres("ACCOUNTS")) return NextResponse.json({ success: false, error: "This works once accounts are on the new database." }, { status: 409, ...noStore });
-    const result = await findMarkateEmails();
+    // ?start=N: the next round of the account-by-account search (lib/pg/markate-emails.ts).
+    const start = Math.max(0, Math.floor(Number(request.nextUrl.searchParams.get("start")) || 0));
+    const result = await findMarkateEmails(start);
     if ("error" in result) return NextResponse.json({ success: false, error: result.error }, { status: 409, ...noStore });
     return NextResponse.json({ success: true, ...result }, noStore);
   } catch (error) {

@@ -23,7 +23,16 @@ type Match = {
   note: string;
 };
 
-type Lookup = { markateCustomers: number; missingAccounts: number; matches: Match[]; notFound: number };
+type Lookup = {
+  mode: "list" | "search";
+  markateCustomers: number;
+  missingAccounts: number;
+  checked: number;
+  matches: Match[];
+  notFound: number;
+  next: number | null;
+  listAnswer: string;
+};
 
 export default function MarkateEmails({ onSaved }: { onSaved: (accountId: string) => void }) {
   const [lookup, setLookup] = useState<Lookup | null>(null);
@@ -32,21 +41,35 @@ export default function MarkateEmails({ onSaved }: { onSaved: (accountId: string
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState<Record<string, string>>({});
+  // While the account-by-account search runs: how far it got.
+  const [progress, setProgress] = useState("");
 
   async function find() {
     setBusy(true);
     setError("");
     setLookup(null);
+    setFailed({});
+    setProgress("");
+    let total: Lookup | null = null;
     try {
-      const response = await fetch("/api/admin/account-emails/markate", { cache: "no-store" });
-      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string } & Lookup;
-      if (!response.ok || !data.success) throw new Error(data.error || "Markate did not answer.");
-      setLookup(data);
-      setTicked(new Set(data.matches.filter((m) => m.sure).map((m) => m.accountId)));
-      setFailed({});
+      // Round after round until every account was looked at (one round when Markate gives the whole list).
+      for (let start = 0, rounds = 0; rounds < 20; rounds += 1) {
+        const response = await fetch(`/api/admin/account-emails/markate?start=${start}`, { cache: "no-store" });
+        const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string } & Lookup;
+        if (!response.ok || !data.success) throw new Error(data.error || "Markate did not answer.");
+        total = total
+          ? { ...data, checked: total.checked + data.checked, matches: [...total.matches, ...data.matches], notFound: total.notFound + data.notFound, listAnswer: total.listAnswer }
+          : data;
+        setLookup(total);
+        setTicked(new Set(total.matches.filter((m) => m.sure).map((m) => m.accountId)));
+        if (data.next === null) break;
+        start = data.next;
+        setProgress(`Looked at ${total.checked} of ${total.missingAccounts} accounts. Going on…`);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Markate did not answer.");
+      setError(`${err instanceof Error ? err.message : "Markate did not answer."}${total ? " What was found so far is below." : ""}`);
     } finally {
+      setProgress("");
       setBusy(false);
     }
   }
@@ -107,22 +130,33 @@ export default function MarkateEmails({ onSaved }: { onSaved: (accountId: string
         ) : null}
         {error ? <ErrorBox title="Markate lookup did not work" text={error} /> : null}
 
+        {progress ? (
+          <p className="ui-strong" role="status">
+            {progress}
+          </p>
+        ) : null}
         {lookup ? (
           <>
             <p className="ui-strong" role="status">
               Found {matches.length} of {lookup.missingAccounts} · {sureCount} sure · {lookup.notFound} not in Markate (type those by hand below)
+              {busy ? " · still looking…" : ""}
             </p>
-            <p className="ui-muted">Read {lookup.markateCustomers} Markate customers.</p>
+            <p className="ui-muted">
+              {lookup.mode === "list"
+                ? `Read ${lookup.markateCustomers} Markate customers.`
+                : `Looked up ${lookup.checked} of ${lookup.missingAccounts} accounts in Markate one by one, by name and address.`}
+            </p>
+            {matches.length === 0 && lookup.listAnswer && !busy ? <p className="ui-muted">Markate&apos;s customer list answered: {lookup.listAnswer}</p> : null}
             {matches.length > 0 ? (
               <>
                 <div className="ui-actions-row">
-                  <BigButton busy={saving} busyLabel="Saving…" disabled={ticked.size === 0} onClick={() => void saveTicked()}>
+                  <BigButton busy={saving} busyLabel="Saving…" disabled={busy || ticked.size === 0} onClick={() => void saveTicked()}>
                     {`Save ${ticked.size} email${ticked.size === 1 ? "" : "s"}`}
                   </BigButton>
-                  <BigButton kind="quiet" disabled={saving} onClick={() => setTicked(new Set(matches.map((m) => m.accountId)))}>
+                  <BigButton kind="quiet" disabled={saving || busy} onClick={() => setTicked(new Set(matches.map((m) => m.accountId)))}>
                     Tick all
                   </BigButton>
-                  <BigButton kind="quiet" disabled={saving} onClick={() => setTicked(new Set())}>
+                  <BigButton kind="quiet" disabled={saving || busy} onClick={() => setTicked(new Set())}>
                     Untick all
                   </BigButton>
                 </div>
@@ -130,7 +164,7 @@ export default function MarkateEmails({ onSaved }: { onSaved: (accountId: string
                   {matches.map((m) => (
                     <li key={m.accountId} style={{ borderTop: "1px solid #dbeafe", paddingTop: 10 }}>
                       <label style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }}>
-                        <input type="checkbox" className="h-7 w-7 shrink-0" checked={ticked.has(m.accountId)} disabled={saving} onChange={() => toggle(m.accountId)} />
+                        <input type="checkbox" className="h-7 w-7 shrink-0" checked={ticked.has(m.accountId)} disabled={saving || busy} onChange={() => toggle(m.accountId)} />
                         <span className="ui-stack" style={{ gap: 2 }}>
                           <span>
                             <AccountLink known accountId={m.accountId} name={m.accountName} />{" "}

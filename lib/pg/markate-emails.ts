@@ -1,14 +1,22 @@
 // "Find emails in Markate" (Accounts Center → Missing emails). Read only:
 // nothing is saved here and nothing changes in Markate. Server only.
 //
-// Reads every Markate customer (the customers list, page by page, under the
-// call limit: lib/pg/markate.ts markateReader), then for each account with no
-// customer email looks for the Markate customer that is the same place:
-//   - same name (company / display name vs the account name), and/or
-//   - same street address (house number + street) and zip.
+// For each account with no customer email, look for the Markate customer that
+// is the same place: same name (company / display name vs the account name)
+// and/or same street address (house number + street) and zip.
+//
+// Two ways to read Markate (lib/pg/markate.ts markateReader keeps under the
+// call limit):
+//   list    every customer, page by page (GET customers): one pass. Used
+//           when the list answers with customers.
+//   search  when the list comes back empty (it did on Nov 16 with 100 a
+//           page): each account is looked up by name (display_name, fuzzy),
+//           then by address. That takes about one call per account, so it
+//           runs in rounds: each call does what fits in the time and says
+//           where to go on from (`next`); the screen calls again until done.
 // Each match comes back with why it matched; staff tick the right ones and
-// save them with the usual Missing emails save (one account at a time).
-// "sure" = the name matches and only one email was found: pre-ticked on screen.
+// save them with the usual Missing emails save. "sure" = the name matches and
+// there is one email: ticked to start with.
 
 import { getSql } from "@/lib/db";
 import { markateReader } from "@/lib/pg/markate";
@@ -29,15 +37,24 @@ export type MarkateEmailMatch = {
 };
 
 export type MarkateEmailLookup = {
+  mode: "list" | "search";
+  /** Customers read from the list (list mode). */
   markateCustomers: number;
   missingAccounts: number;
+  /** Accounts looked at in this round. */
+  checked: number;
   matches: MarkateEmailMatch[];
   notFound: number;
+  /** Where the next round starts (search mode); null when every account was looked at. */
+  next: number | null;
+  /** What Markate answered to the list, when it had no customers (to find out why). */
+  listAnswer: string;
 };
 
-const PAGE_SIZE = "100";
-const MAX_PAGES = 200;
-const BUDGET_MS = 240_000;
+const LIST_PAGE_SIZE = "50";
+const MAX_PAGES = 400;
+/** One round stops starting new lookups after this long (the route allows 300 s). */
+const ROUND_MS = 200_000;
 const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
 
 /** "Acme Cleaning, LLC" → "acme cleaning" (case, punctuation, LLC / Inc / Corp / The, & = and). */
@@ -100,7 +117,7 @@ const zipOf = (...values: string[]) => {
 function emailsOf(customer: MarkateCustomer): string[] {
   const found: string[] = [];
   for (const [key, value] of Object.entries(customer)) {
-    if (!/email/i.test(key)) continue;
+    if (!/email/i.test(key) || /notify/i.test(key)) continue;
     for (const part of text(value).split(/[,;\s]+/)) {
       const email = part.trim().toLowerCase();
       if (EMAIL_RE.test(email) && !found.includes(email)) found.push(email);
@@ -111,6 +128,9 @@ function emailsOf(customer: MarkateCustomer): string[] {
 
 const customerName = (c: MarkateCustomer) => text(c.company) || text(c.display_name) || [text(c.first_name), text(c.last_name)].filter(Boolean).join(" ");
 const customerAddress = (c: MarkateCustomer) => [text(c.address), text(c.address_secondary), text(c.city), text(c.state), text(c.zip)].filter(Boolean).join(", ");
+/** Every name a customer goes by (company, display name, person), as keys. */
+const nameKeysOf = (c: MarkateCustomer) =>
+  [text(c.company), text(c.display_name), [text(c.first_name), text(c.last_name)].filter(Boolean).join(" ")].map(nameKey).filter(Boolean);
 
 type MissingRow = { id: string; account_name: string; address: string; city: string; zip: string };
 
@@ -120,39 +140,42 @@ async function missingAccounts(): Promise<MissingRow[]> {
     `SELECT a.id, a.account_name, a.address, a.city, a.zip
      FROM accounts a
      WHERE NOT a.is_test AND a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND btrim(a.email) = '' AND a.status_key NOT IN ('cancelled', 'canceled')
-     ORDER BY lower(a.account_name)`
+     ORDER BY lower(a.account_name), a.id`
   )) as MissingRow[];
 }
 
-export async function findMarkateEmails(): Promise<MarkateEmailLookup | { error: string }> {
-  const call = await markateReader(BUDGET_MS);
-  if (!call) return { error: "Markate is not connected. Connect it in Settings → Markate." };
+type Call = <T>(path: string, query?: Record<string, string>) => Promise<T>;
 
-  // Every Markate customer.
-  const customers: MarkateCustomer[] = [];
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
-    const reply = await call<Record<string, unknown>>("customers", { page: String(page), rows_per_page: PAGE_SIZE });
-    const list = (Array.isArray(reply.customers) ? reply.customers : Array.isArray(reply.data) ? reply.data : []) as MarkateCustomer[];
-    customers.push(...list);
-    const totalPages = Number((reply.pagination as { total_pages?: unknown } | undefined)?.total_pages) || 0;
-    if (list.length === 0 || (totalPages > 0 && page >= totalPages)) break;
-  }
+const listOf = (reply: Record<string, unknown>) => (Array.isArray(reply.customers) ? reply.customers : Array.isArray(reply.data) ? reply.data : []) as MarkateCustomer[];
 
-  const byName = new Map<string, MarkateCustomer[]>();
-  const byStreet = new Map<string, MarkateCustomer[]>();
-  for (const c of customers) {
-    const name = nameKey(customerName(c));
-    if (name) byName.set(name, [...(byName.get(name) ?? []), c]);
-    const street = streetKey(text(c.address));
-    if (street) byStreet.set(street, [...(byStreet.get(street) ?? []), c]);
-  }
+/** A short note of what Markate answered (keys and counts, never customer data). */
+function answerNote(reply: Record<string, unknown>): string {
+  const pagination = reply.pagination as Record<string, unknown> | undefined;
+  return `keys: ${Object.keys(reply).join(", ") || "none"}${pagination ? `; total_rows ${text(pagination.total_rows)}, total_pages ${text(pagination.total_pages)}` : ""}`;
+}
 
-  // The list may leave the email out: then each matched customer is read once.
-  const details = new Map<string, MarkateCustomer>();
+/** The match for one account among these customers, or null. Reads a customer's details when its email is not in what we have. */
+async function matchAccount(account: MissingRow, candidates: MarkateCustomer[], call: Call, details: Map<string, MarkateCustomer>): Promise<MarkateEmailMatch | null> {
+  const name = nameKey(account.account_name);
+  const street = streetKey(account.address);
+  const zip = zipOf(account.zip, account.address);
+  const sameName = name ? candidates.filter((c) => nameKeysOf(c).includes(name)) : [];
+  const sameStreet = street
+    ? candidates.filter((c) => {
+        if (streetKey(text(c.address)) !== street) return false;
+        const theirZip = zipOf(text(c.zip), text(c.address));
+        return !zip || !theirZip || theirZip === zip;
+      })
+    : [];
+  const both = sameName.filter((c) => sameStreet.includes(c));
+  const pool = both.length ? both : sameName.length ? sameName : sameStreet;
+  if (pool.length === 0) return null;
+  const why: MarkateEmailMatch["why"] = both.length ? "name and address" : sameName.length ? "name" : "address";
+
   const withEmails = async (c: MarkateCustomer): Promise<string[]> => {
     const listed = emailsOf(c);
-    if (listed.length || !text(c.id)) return listed;
     const id = text(c.id);
+    if (listed.length || !id) return listed;
     if (!details.has(id)) {
       const got = await call<{ customer?: MarkateCustomer }>(`customers/${encodeURIComponent(id)}`).catch(() => ({ customer: undefined }));
       details.set(id, got.customer ?? c);
@@ -160,52 +183,90 @@ export async function findMarkateEmails(): Promise<MarkateEmailLookup | { error:
     return emailsOf(details.get(id)!);
   };
 
+  const found: { email: string; c: MarkateCustomer }[] = [];
+  for (const c of pool) for (const email of await withEmails(c)) if (!found.some((f) => f.email === email)) found.push({ email, c });
+  if (found.length === 0) return null;
+
+  const first = found[0];
+  const notes: string[] = [];
+  if (why === "address") notes.push("Same address, different name: check it is the same customer");
+  if (found.length > 1) notes.push(`Markate has ${found.length} emails here: ${found.map((f) => f.email).join(", ")}`);
+  if (why === "name" && sameName.length > 1) notes.push(`${sameName.length} Markate customers have this name`);
+  return {
+    accountId: account.id,
+    accountName: account.account_name.trim(),
+    accountAddress: [account.address, account.city].map((part) => part.trim()).filter(Boolean).join(", "),
+    email: first.email,
+    markateName: customerName(first.c),
+    markateAddress: customerAddress(first.c),
+    why,
+    sure: found.length === 1 && (why === "name and address" || (why === "name" && sameName.length === 1)),
+    note: notes.join(". "),
+  };
+}
+
+/** `start`: the first account of this round (search mode); 0 starts over and tries the list first. */
+export async function findMarkateEmails(start = 0): Promise<MarkateEmailLookup | { error: string }> {
+  const call = await markateReader(ROUND_MS + 60_000);
+  if (!call) return { error: "Markate is not connected. Connect it in Settings → Markate." };
   const accounts = await missingAccounts();
-  const matches: MarkateEmailMatch[] = [];
-  let notFound = 0;
+  const details = new Map<string, MarkateCustomer>();
+  const startedAt = Date.now();
+  let listAnswer = "";
 
-  for (const account of accounts) {
-    const name = nameKey(account.account_name);
-    const street = streetKey(account.address);
-    const zip = zipOf(account.zip, account.address);
-    const sameStreet = (street ? (byStreet.get(street) ?? []) : []).filter((c) => {
-      const theirZip = zipOf(text(c.zip), text(c.address));
-      return !zip || !theirZip || theirZip === zip;
-    });
-    const sameName = name ? (byName.get(name) ?? []) : [];
-    const both = sameName.filter((c) => sameStreet.includes(c));
-    const pool = both.length ? both : sameName.length ? sameName : sameStreet;
-    const why: MarkateEmailMatch["why"] = both.length ? "name and address" : sameName.length ? "name" : "address";
-    if (pool.length === 0) {
-      notFound += 1;
-      continue;
+  // First round: the whole list, if Markate gives it.
+  if (start === 0) {
+    const first = await call<Record<string, unknown>>("customers", { page: "1", rows_per_page: LIST_PAGE_SIZE });
+    const customers = listOf(first);
+    if (customers.length > 0) {
+      const totalPages = Number((first.pagination as { total_pages?: unknown } | undefined)?.total_pages) || 0;
+      for (let page = 2; page <= MAX_PAGES && (totalPages === 0 || page <= totalPages); page += 1) {
+        const list = listOf(await call<Record<string, unknown>>("customers", { page: String(page), rows_per_page: LIST_PAGE_SIZE }));
+        if (list.length === 0) break;
+        customers.push(...list);
+      }
+      const matches: MarkateEmailMatch[] = [];
+      let notFound = 0;
+      for (const account of accounts) {
+        const match = await matchAccount(account, customers, call, details);
+        if (match) matches.push(match);
+        else notFound += 1;
+      }
+      return { mode: "list", markateCustomers: customers.length, missingAccounts: accounts.length, checked: accounts.length, matches, notFound, next: null, listAnswer: "" };
     }
-
-    // Every email those customers have, first customer first.
-    const found: { email: string; c: MarkateCustomer }[] = [];
-    for (const c of pool) for (const email of await withEmails(c)) if (!found.some((f) => f.email === email)) found.push({ email, c });
-    if (found.length === 0) {
-      notFound += 1;
-      continue;
-    }
-
-    const first = found[0];
-    const notes: string[] = [];
-    if (why === "address") notes.push("Same address, different name: check it is the same customer");
-    if (found.length > 1) notes.push(`Markate has ${found.length} emails here: ${found.map((f) => f.email).join(", ")}`);
-    if (why === "name" && sameName.length > 1) notes.push(`${sameName.length} Markate customers have this name`);
-    matches.push({
-      accountId: account.id,
-      accountName: account.account_name.trim(),
-      accountAddress: [account.address, account.city].map((part) => part.trim()).filter(Boolean).join(", "),
-      email: first.email,
-      markateName: customerName(first.c),
-      markateAddress: customerAddress(first.c),
-      why,
-      sure: found.length === 1 && (why === "name and address" || (why === "name" && sameName.length === 1)),
-      note: notes.join(". "),
-    });
+    listAnswer = answerNote(first);
   }
 
-  return { markateCustomers: customers.length, missingAccounts: accounts.length, matches, notFound };
+  // Search: each account by its name, then by its street address.
+  const matches: MarkateEmailMatch[] = [];
+  let notFound = 0;
+  let index = Math.max(0, start);
+  for (; index < accounts.length; index += 1) {
+    if (Date.now() - startedAt > ROUND_MS) break;
+    const account = accounts[index];
+    const candidates: MarkateCustomer[] = [];
+    const add = (list: MarkateCustomer[]) => {
+      for (const c of list) if (!candidates.some((have) => text(have.id) && text(have.id) === text(c.id))) candidates.push(c);
+    };
+    const name = account.account_name.trim();
+    if (name) add(listOf(await call<Record<string, unknown>>("customers", { display_name: name, search_type: "fuzzy", rows_per_page: "20", page: "1" })));
+    let match = await matchAccount(account, candidates, call, details);
+    const street = account.address.split(",")[0]?.trim() ?? "";
+    if (!match && streetKey(street)) {
+      add(listOf(await call<Record<string, unknown>>("customers", { address: street, search_type: "fuzzy", rows_per_page: "20", page: "1" })));
+      match = await matchAccount(account, candidates, call, details);
+    }
+    if (match) matches.push(match);
+    else notFound += 1;
+  }
+  return {
+    mode: "search",
+    markateCustomers: 0,
+    missingAccounts: accounts.length,
+    checked: index - Math.max(0, start),
+    matches,
+    notFound,
+    next: index < accounts.length ? index : null,
+    listAnswer,
+  };
 }
