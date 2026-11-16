@@ -165,6 +165,33 @@ async function accessToken(): Promise<string | null> {
   return tokens.accessToken;
 }
 
+/**
+ * Read-only Markate calls for other features (the customer emails lookup,
+ * lib/pg/markate-emails.ts): the same call limit and "Too many requests"
+ * waits as the estimate check, and it stops after `budgetMs`. null when
+ * Markate is not connected.
+ */
+export async function markateReader(budgetMs: number): Promise<(<T>(path: string, query?: Record<string, string>) => Promise<T>) | null> {
+  const token = await accessToken();
+  if (!token) return null;
+  const startedAt = Date.now();
+  const callTimes: number[] = [];
+  return async <T,>(path: string, query?: Record<string, string>): Promise<T> => {
+    for (let attempt = 0; ; attempt += 1) {
+      while (callTimes.length > 0 && Date.now() - callTimes[0] >= 60_000) callTimes.shift();
+      if (callTimes.length >= CALLS_PER_MINUTE) await sleep(60_000 - (Date.now() - callTimes[0]) + 250);
+      if (Date.now() - startedAt > budgetMs) throw new Error("Markate took too long. Try again: what was read so far was not saved.");
+      callTimes.push(Date.now());
+      try {
+        return await markateGet<T>(token, path, query);
+      } catch (error) {
+        if (!(error instanceof MarkateApiError) || error.status !== 429 || attempt >= RATE_LIMIT_RETRIES) throw error;
+        await sleep((error.retryAfterSeconds || 60) * 1000);
+      }
+    }
+  };
+}
+
 /* ---------- the recurring items list ---------- */
 
 export type RecurringItem = { id: string; name: string; addedBy: string; addedAt: string };

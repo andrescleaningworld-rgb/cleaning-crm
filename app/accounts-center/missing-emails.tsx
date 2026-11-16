@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Card, EmptyState, ErrorBox, Field, Screen, SearchBar, SkeletonList, StatusPill, showToast } from "@/app/ui";
 import AccountLink from "../components/AccountLink";
+import MarkateEmails from "./markate-emails";
 
 type MissingAccount = {
   accountId: string;
@@ -97,6 +98,20 @@ export default function MissingEmails() {
       {answer?.available ? (
         <>
           <SearchBar value={search} onChange={setSearch} label="Search accounts without an email" placeholder="Search by account, contact or manager" />
+
+          {answer.counts.missing > 0 ? (
+            <MarkateEmails
+              onSaved={(accountId) => {
+                // Saved from Markate: it leaves this list too.
+                setAnswer((current) =>
+                  current
+                    ? { ...current, missing: current.missing.filter((m) => m.accountId !== accountId), counts: { ...current.counts, missing: current.counts.missing - 1 } }
+                    : current
+                );
+                setSavedCount((n) => n + 1);
+              }}
+            />
+          ) : null}
 
           <div className="ui-stats">
             <div className="ui-stat">
