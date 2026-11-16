@@ -20,11 +20,11 @@ export const EXTRA_JOB_COMMISSIONS: { value: ExtraJobCommission; label: string }
 
 export const commissionPercentOf = (type: ExtraJobCommission) => (type === "recurring" ? RECURRING_PERCENT : ONE_TIME_PERCENT);
 
-/** "One-time 10%", or "Recurring 4%, Jan 1, 2027 – Dec 31, 2027". */
+/** "One-time 10%", "Recurring 4%, Jan 1, 2027 – Dec 31, 2027", or "Recurring 4%, Jan 1, 2027 – ongoing" with no end date. */
 export function commissionLabel(job: { commissionType: ExtraJobCommission; recurringStartDate: string; recurringEndDate: string }): string {
   if (job.commissionType !== "recurring") return "One-time 10%";
-  const range = job.recurringStartDate && job.recurringEndDate ? `, ${dayLabel(job.recurringStartDate, false)} – ${dayLabel(job.recurringEndDate, false)}` : "";
-  return `Recurring 4%${range}`;
+  if (!job.recurringStartDate) return "Recurring 4%";
+  return `Recurring 4%, ${dayLabel(job.recurringStartDate, false)} – ${job.recurringEndDate ? dayLabel(job.recurringEndDate, false) : "ongoing"}`;
 }
 
 export type ExtraJobSource = "call" | "text" | "email" | "portal";
@@ -225,7 +225,9 @@ export function checkNewExtraJob(job: NewExtraJob): string {
   if (!job.inHouse && (!Number.isFinite(job.subPay) || job.subPay < 0)) return "Enter the sub pay.";
   if (!job.soldBy.trim()) return "Pick who sold it.";
   if (job.commissionType === "recurring") {
-    if (!isDay(job.recurringStartDate ?? "") || !isDay(job.recurringEndDate ?? "")) return "Recurring (4%) needs a start date and an end date.";
+    // The start date is needed; the end date is optional (blank = ongoing), but must be a real day when it is there.
+    if (!isDay(job.recurringStartDate ?? "")) return "Recurring (4%) needs a start date.";
+    if (job.recurringEndDate && !isDay(job.recurringEndDate)) return "Invalid recurring end date.";
     const problem = validateRecurringDates(RECURRING_PERCENT, job.recurringStartDate ?? "", job.recurringEndDate ?? "");
     if (problem) return problem;
   }

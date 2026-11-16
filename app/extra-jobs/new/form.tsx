@@ -378,7 +378,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
           {choices.commissionOn ? (
             <div className="ui-field" role="group" aria-label="Commission">
               <span className="ui-label">Commission</span>
-              <span className="ui-hint">One-time: paid once, 10%. Recurring: paid every month from the start date to the end date, 4%.</span>
+              <span className="ui-hint">One-time: paid once, 10%. Recurring: paid every month from the start date (to the end date, if there is one), 4%.</span>
               <div className={styles.choices}>
                 {EXTRA_JOB_COMMISSIONS.map((option) => (
                   <button key={option.value} type="button" className={styles.choice} aria-pressed={commissionType === option.value} disabled={saving} onClick={() => setCommissionType(option.value)}>
@@ -391,7 +391,13 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
           {recurring ? (
             <div className={styles.two}>
               <Field label="Recurring start date" type="date" value={recurringStartDate} disabled={saving} onChange={(event) => setRecurringStartDate(event.target.value)} />
-              <Field label="Recurring end date" type="date" value={recurringEndDate} disabled={saving} onChange={(event) => setRecurringEndDate(event.target.value)} />
+              <Field
+                label="Recurring end date (optional – leave blank if ongoing)"
+                type="date"
+                value={recurringEndDate}
+                disabled={saving}
+                onChange={(event) => setRecurringEndDate(event.target.value)}
+              />
             </div>
           ) : null}
 

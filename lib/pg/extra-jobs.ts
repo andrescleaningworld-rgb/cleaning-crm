@@ -335,7 +335,7 @@ export async function createExtraJob(input: NewExtraJob & { portalRequestId?: st
   const commission = commissionOf(input);
   if (commission.type === "recurring" && (await commissionTypeReady())) {
     await sql`
-      UPDATE extra_jobs SET commission_type = 'recurring', recurring_start_date = ${commission.start}::date, recurring_end_date = ${commission.end}::date
+      UPDATE extra_jobs SET commission_type = 'recurring', recurring_start_date = ${commission.start}::date, recurring_end_date = ${commission.end || null}::date
       WHERE id = ${id}::bigint
     `;
   }
