@@ -53,7 +53,8 @@ export async function POST(request: NextRequest) {
   if (!isPostgres("ACCOUNTS")) {
     return NextResponse.json({ error: "Accounts are still in Google Sheets here. Type the email on the account's Edit page." }, { status: 409 });
   }
-  let body: { accountId?: unknown; email?: unknown };
+  // onlyActive: the "Find emails in Markate" save fills Active accounts only (it is refused for any other status).
+  let body: { accountId?: unknown; email?: unknown; onlyActive?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -65,6 +66,10 @@ export async function POST(request: NextRequest) {
   if (email !== "" && !looksLikeEmail(email)) return NextResponse.json({ error: "That does not look like an email. Check for a missing @ or a space." }, { status: 400 });
 
   try {
+    if (body.onlyActive === true) {
+      const rows = (await getSql()`SELECT status_key FROM accounts WHERE id = ${accountId} LIMIT 1`) as { status_key: string }[];
+      if (rows[0]?.status_key !== "active") return NextResponse.json({ error: "This account is not Active, so its email was not filled from Markate." }, { status: 409 });
+    }
     // The same save the account's Edit page uses for this field.
     await updateAccountFieldsDirect(accountId, { email });
     return NextResponse.json({ success: true, email });
