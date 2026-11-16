@@ -13,11 +13,12 @@ import TimeOnSiteFill from "./time-on-site-fill";
 import NewAccountsBoard from "./new-accounts";
 import { MARKATE_CHANGED } from "./from-markate";
 import TeamHubStaffQueue from "./team-hub-queue";
+import CheckinsPage from "../check-ins/page";
 import { Tabs } from "@/app/ui";
 import { SubScoreAlertsCard } from "../components/sub-score-alerts";
 import { NoScheduleTile } from "../components/no-schedule";
 
-type CenterTab = "all" | "transfers" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails" | "time";
+type CenterTab = "all" | "transfers" | "new" | "visits" | "complaints" | "updates" | "keys" | "team-hub" | "emails" | "time" | "checkins";
 
 const TAB_STORAGE_KEY = "cwAccountsCenterTab";
 
@@ -30,6 +31,7 @@ const TABS: { value: CenterTab; label: string }[] = [
   { value: "updates", label: "Updates" },
   { value: "keys", label: "Keys" },
   { value: "emails", label: "Missing emails" },
+  { value: "checkins", label: "Check-ins" },
   { value: "time", label: "Time on site" },
   { value: "team-hub", label: "Crew Link" },
 ];
@@ -45,6 +47,7 @@ function getStoredTab(): CenterTab {
     stored === "updates" ||
     stored === "keys" ||
     stored === "time" ||
+    stored === "checkins" ||
     stored === "team-hub"
     ? stored
     : "all";
@@ -67,7 +70,7 @@ export default function AccountsCenterPage() {
     // "See problem" on an account card opens the Crew Link tab: by link
     // (?tab=team-hub) from elsewhere, or by this event when already here.
     const wanted = new URLSearchParams(window.location.search).get("tab");
-    if (wanted === "team-hub" || wanted === "new" || wanted === "updates" || wanted === "time") setActiveTab(wanted);
+    if (wanted === "team-hub" || wanted === "new" || wanted === "updates" || wanted === "time" || wanted === "checkins") setActiveTab(wanted);
     const onTab = (event: Event) => {
       if ((event as CustomEvent<string>).detail === "team-hub") setActiveTab("team-hub");
     };
@@ -147,6 +150,8 @@ export default function AccountsCenterPage() {
       {activeTab === "emails" && <MissingEmails />}
       {activeTab === "time" && <TimeOnSiteFill />}
       {activeTab === "team-hub" && <TeamHubStaffQueue />}
+      {/* Customer check-ins: pick accounts (or a saved list), send, and the History of every send. */}
+      {activeTab === "checkins" && <CheckinsPage />}
     </div>
   );
 }

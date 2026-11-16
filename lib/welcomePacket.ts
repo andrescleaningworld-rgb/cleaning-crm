@@ -227,13 +227,7 @@ export function welcomePacketHtml(data: WelcomePacketData): string {
     `<p style="margin:0 16px 4px;font-size:12px;color:${C.muted};word-break:break-all;">${link(data.portalUrl, data.portalUrl)}</p>`;
 
   const body =
-    `<div style="background:#ffffff;padding:18px 0;text-align:center;">` +
-    `<img src="${WELCOME_LOGO_URL}" alt="Cleaning World Inc." width="260" style="width:260px;max-width:80%;height:auto;" />` +
-    `</div>` +
-    `<div style="background:${C.header};border-bottom:4px solid ${C.accent};padding:16px;">` +
-    `<div style="font-size:22px;font-weight:700;color:#ffffff;">${esc(WELCOME_TITLE)}</div>` +
-    `<div style="font-size:13px;color:${C.tagline};margin-top:4px;">${esc(WELCOME_TAGLINE)}</div>` +
-    `</div>` +
+    welcomeTopHtml(WELCOME_TITLE) +
     preparedHtml +
     `<div style="background:#ffffff;padding:0 0 16px;">` +
     bar("Your Cleaning World Team") +
@@ -259,11 +253,42 @@ export function welcomePacketHtml(data: WelcomePacketData): string {
     `<div style="border-top:1px solid ${C.line};padding-top:6px;font-size:12px;color:${C.muted};">Date</div></td>` +
     `</tr></table>` +
     `</div>` +
-    `<div style="background:#ffffff;border-top:2px solid ${C.accent};color:${C.muted};padding:14px 16px;text-align:center;font-size:12px;line-height:1.7;">` +
-    WELCOME_FOOTER.map(esc).join("<br>") +
-    `</div>` +
+    welcomeFooterHtml() +
     `<p style="margin:12px 0 0;font-size:12px;color:${C.muted};text-align:center;">The same packet is attached as a PDF.</p>`;
 
+  return welcomeDocumentHtml(welcomeSubject(data), body);
+}
+
+/*
+ * The template's frame, shared with the customer check-in email
+ * (lib/customerCheckin.ts): the logo, the blue title bar, the footer, and the
+ * page that stays light in dark mode.
+ */
+
+/** The logo and the blue title bar (with the tagline under the title). */
+export function welcomeTopHtml(title: string): string {
+  return (
+    `<div style="background:#ffffff;padding:18px 0;text-align:center;">` +
+    `<img src="${WELCOME_LOGO_URL}" alt="Cleaning World Inc." width="260" style="width:260px;max-width:80%;height:auto;" />` +
+    `</div>` +
+    `<div style="background:${C.header};border-bottom:4px solid ${C.accent};padding:16px;">` +
+    `<div style="font-size:22px;font-weight:700;color:#ffffff;">${esc(title)}</div>` +
+    `<div style="font-size:13px;color:${C.tagline};margin-top:4px;">${esc(WELCOME_TAGLINE)}</div>` +
+    `</div>`
+  );
+}
+
+/** The office's address and phone lines at the bottom. */
+export function welcomeFooterHtml(): string {
+  return (
+    `<div style="background:#ffffff;border-top:2px solid ${C.accent};color:${C.muted};padding:14px 16px;text-align:center;font-size:12px;line-height:1.7;">` +
+    WELCOME_FOOTER.map(esc).join("<br>") +
+    `</div>`
+  );
+}
+
+/** A whole email page around `body`. */
+export function welcomeDocumentHtml(docTitle: string, body: string): string {
   // "light only" + a white background on every layer: Apple Mail and Outlook
   // keep it light in dark mode, and Gmail has no dark section to flip.
   return (
@@ -272,7 +297,7 @@ export function welcomePacketHtml(data: WelcomePacketData): string {
     `<meta name="viewport" content="width=device-width, initial-scale=1" />` +
     `<meta name="color-scheme" content="light only" />` +
     `<meta name="supported-color-schemes" content="light only" />` +
-    `<title>${esc(welcomeSubject(data))}</title>` +
+    `<title>${esc(docTitle)}</title>` +
     `<style>:root{color-scheme:light only;supported-color-schemes:light only;}</style>` +
     `</head>` +
     `<body bgcolor="#ffffff" style="margin:0;padding:0;background:#ffffff;${FONT}color:${C.text};">` +
@@ -284,6 +309,8 @@ export function welcomePacketHtml(data: WelcomePacketData): string {
     `</body></html>`
   );
 }
+
+export const welcomeEsc = esc;
 
 /** The plain-text twin of the email, for mail apps that do not show HTML. */
 export function welcomePacketText(data: WelcomePacketData): string {

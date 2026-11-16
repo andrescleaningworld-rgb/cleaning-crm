@@ -1,6 +1,7 @@
 // The daily reminders (vercel.json, every morning): sub insurance, "At
-// risk" papers, price reviews, the customer monthly check-in (sent from
-// the 25th, only while it is switched on) and the Pin Board status check. Each
+// risk" papers, price reviews, the Pin Board status check, and the customer
+// check-ins still queued from a send (someone pressed Send; more than 90 go
+// over several days: nothing is ever sent here that nobody asked for). Each
 // part runs on its own: one failing never stops the others. Vercel Cron calls it with CRON_SECRET (the
 // same self-check as the other crons; /api/cron is public in proxy.ts).
 
@@ -8,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runInsuranceChecks, runSubInsuranceReminders } from "@/lib/pg/sub-insurance";
 import { refreshRiskPins } from "@/lib/pg/account-risk";
 import { refreshPricePins } from "@/lib/pg/price-review";
-import { runMonthlyCheckins } from "@/lib/pg/customer-checkin";
+import { sendQueuedCheckins } from "@/lib/pg/customer-checkin";
 import { runPinStatusChecks } from "@/lib/pg/pin-status";
 import { saveCwScoreSnapshot } from "@/lib/pg/cw-score";
 
@@ -21,11 +22,12 @@ const PARTS: Part[] = [
   { name: "subInsuranceReminders", run: runSubInsuranceReminders },
   { name: "atRisk", run: () => refreshRiskPins() },
   { name: "priceReview", run: () => refreshPricePins() },
-  { name: "checkin", run: runMonthlyCheckins },
   // Pin Board: "Status needed" on pins with no update for 2 business days, and the ask by text and push (weekdays only).
   { name: "pinStatus", run: (origin) => runPinStatusChecks(origin) },
   // Overview: today's Cleaning World Score, for "since last month" (migration 073).
   { name: "cwScore", run: () => saveCwScoreSnapshot() },
+  // Last: it can take a couple of minutes (90 emails half a second apart), and stops in time; what is left stays queued.
+  { name: "checkinQueue", run: (origin) => sendQueuedCheckins(origin, 150_000) },
 ];
 
 export async function GET(request: NextRequest) {

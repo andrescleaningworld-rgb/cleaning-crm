@@ -38,6 +38,7 @@ import SitePhotos from "./site-photos";
 import PhotosLink from "./photos-link";
 import AccountEverything from "./account-everything";
 import AccountSignals from "./account-signals";
+import AccountCheckins from "./checkins";
 import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
 import SiteStock from "./site-stock";
@@ -1373,6 +1374,10 @@ export default function AccountDetailPage() {
             {/* "At risk" and the other reminders for this account. Active accounts only, staff only. */}
             <div className="account-detail-print-hide">
               <AccountSignals accountId={thisAccountId} active={String(account.status ?? "").trim().toLowerCase() === "active"} />
+            </div>
+            {/* Customer check-ins: Send check-in, the last answer, and every one sent (with View email). */}
+            <div className="account-detail-print-hide">
+              <AccountCheckins accountId={thisAccountId} cancelled={/^cancel/i.test(String(account.status ?? "").trim())} />
             </div>
             {/* The full name: the bar at the top shortens long ones. */}
             <div>

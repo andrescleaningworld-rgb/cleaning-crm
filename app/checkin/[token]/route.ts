@@ -1,27 +1,32 @@
-// The customer check-in answer page: /checkin/<token>?a=up|down|stop, from
-// the monthly email. No login: the signed link is the key
-// (lib/checkinLink.ts; public in proxy.ts). Plain HTML, huge buttons.
+// The customer check-in answer page: /checkin/<token>?a=great|ok|attention|stop,
+// from the check-in email. No login: the signed link is the key (30 days,
+// lib/checkinLink.ts; public in proxy.ts). Plain HTML, huge buttons.
 //
 // Opening the link only shows the page; the answer is sent from it (by
 // itself, or with the button), so a mail program that "opens" links to scan
 // them does not answer for the customer.
-//   up      → "Thank you! 👍"
-//   down    → "We are sorry 👎" + "What went wrong?" (can be skipped); a
-//             paper goes to the account manager's square at once
-//   stop    → "Stop these emails?" → Yes
-// The test link (id 0, "Send me a test" in Settings) shows the same pages
-// and saves nothing.
+//   great      → "Thank you! 😀" (just logged)
+//   ok         → "What can we do better?" + photos (optional)
+//   attention  → the same; a paper goes to the account manager's square at once
+//   stop       → "Stop these emails?" → Yes
+// The old monthly links (?a=up / down) still work as Great / Needs attention.
+// The test link (id 0, "Send me a test") shows the same pages and saves nothing.
+// Customer-facing: never "sub", always "your cleaning team".
 
 import { NextRequest } from "next/server";
+import { put } from "@/lib/files";
 import { readCheckinToken } from "@/lib/checkinLink";
-import { CHECKIN_PAGE as W } from "@/lib/customerCheckin";
-import { BRAND_GREEN, escHtml } from "@/lib/simpleEmail";
+import { CHECKIN_PAGE as W, CHECKIN_RATINGS, type CheckinRating } from "@/lib/customerCheckin";
+import { escHtml } from "@/lib/simpleEmail";
 import { WELCOME_COLORS as C, WELCOME_LOGO_URL } from "@/lib/welcomePacket";
-import { answerCheckin, commentCheckin, optOutCheckin } from "@/lib/pg/customer-checkin";
+import { answerCheckin, checkinAccountId, commentCheckin, optOutCheckin } from "@/lib/pg/customer-checkin";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
 const HEADERS = { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow", "Referrer-Policy": "no-referrer" };
+const MAX_PHOTOS = 3;
+const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
+const PHOTO_TYPES = /^image\/(jpeg|png|webp|heic|heif)$/i;
 
 function page(inner: string, status = 200): Response {
   const html =
@@ -29,45 +34,96 @@ function page(inner: string, status = 200): Response {
     `<meta name="color-scheme" content="light only" /><title>Cleaning World</title><style>` +
     `body{margin:0;background:#fff;color:${C.text};font:18px/1.5 Arial,Helvetica,sans-serif}` +
     `main{max-width:520px;margin:0 auto;padding:20px 16px;text-align:center}` +
-    `img{width:200px;max-width:70%;height:auto}h1{font-size:28px;margin:18px 0 8px;color:${C.header}}` +
-    `.btn{display:block;width:100%;box-sizing:border-box;border:0;border-radius:16px;padding:20px;font-size:24px;font-weight:700;color:#fff;background:${BRAND_GREEN};cursor:pointer;margin-top:14px}` +
-    `.btn.red{background:#b91c1c}textarea{width:100%;box-sizing:border-box;min-height:120px;font:18px Arial,Helvetica,sans-serif;padding:12px;border:2px solid ${C.border};border-radius:12px}` +
+    `img.logo{width:200px;max-width:70%;height:auto}h1{font-size:28px;margin:18px 0 8px;color:${C.header}}` +
+    `.btn{display:block;width:100%;box-sizing:border-box;border:0;border-radius:16px;padding:20px;font-size:24px;font-weight:700;color:#fff;background:${C.bar};cursor:pointer;margin-top:14px}` +
+    `.btn.quiet{background:#fff;color:${C.header};border:2px solid ${C.border}}.btn[disabled]{opacity:.6}` +
+    `textarea{width:100%;box-sizing:border-box;min-height:140px;font:18px Arial,Helvetica,sans-serif;padding:12px;border:2px solid ${C.border};border-radius:12px}` +
+    `input[type=file]{width:100%;font-size:16px;padding:10px 0}` +
     `label{display:block;text-align:left;font-weight:700;margin:18px 0 6px}.note{color:${C.muted};font-size:15px}` +
-    `</style></head><body><main><img src="${WELCOME_LOGO_URL}" alt="Cleaning World Inc." />${inner}` +
+    `</style></head><body><main><img class="logo" src="${WELCOME_LOGO_URL}" alt="Cleaning World Inc." />${inner}` +
     `<p class="note" style="margin-top:28px">Cleaning World Inc. · 201-487-1313</p></main></body></html>`;
   return new Response(html, { status, headers: HEADERS });
 }
 
 const testNote = (test: boolean) => (test ? `<p class="note">${escHtml(W.test)}</p>` : "");
-const gone = () => page(`<h1>${escHtml(W.gone)}</h1>`, 404);
+const gone = () => page(`<h1>${escHtml(W.gone)}</h1><p>${escHtml(W.goneText)}</p>`, 404);
+
+function ratingFrom(value: string | null): CheckinRating | null {
+  if (value === "great" || value === "up") return "great";
+  if (value === "ok") return "ok";
+  if (value === "attention" || value === "down") return "attention";
+  return null;
+}
 
 /** A form that sends itself (the button is there too, in case it does not). */
-function sendNow(answer: "up" | "down"): string {
+function sendNow(rating: CheckinRating): string {
+  const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
   return (
-    `<form id="send" method="post"><input type="hidden" name="a" value="${answer}" />` +
-    `<button class="btn${answer === "down" ? " red" : ""}" type="submit">${answer === "up" ? "👍 Send" : "👎 Send"}</button></form>` +
+    `<form id="send" method="post"><input type="hidden" name="a" value="${rating}" />` +
+    `<button class="btn" style="background:${r.color}" type="submit">${escHtml(`${r.emoji} ${r.label}`)}</button></form>` +
     `<script>document.getElementById("send").submit()</script>`
   );
 }
 
-function sorryPage(test: boolean): Response {
+// Photos are made smaller on the phone before they are sent (big phone photos
+// would not fit in one upload), then the page the server answers replaces this one.
+const SHRINK_SCRIPT = `<script>
+(function(){var f=document.getElementById("better");if(!f||!window.FormData||!window.fetch)return;
+function shrink(file){return new Promise(function(done){if(!/^image\\//.test(file.type)){done(file);return;}
+var img=new Image(),url=URL.createObjectURL(file);img.onload=function(){var s=Math.min(1,1600/Math.max(img.width,img.height));
+var c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
+c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);c.toBlob(function(b){done(b?new File([b],"photo.jpg",{type:"image/jpeg"}):file);},"image/jpeg",0.82);};
+img.onerror=function(){URL.revokeObjectURL(url);done(file);};img.src=url;});}
+f.addEventListener("submit",function(e){e.preventDefault();var b=f.querySelector("button[type=submit]");b.disabled=true;b.textContent="Sending…";
+var d=new FormData(f),files=[].slice.call(f.querySelector("input[type=file]").files||[],0,${MAX_PHOTOS});d.delete("photos");
+Promise.all(files.map(shrink)).then(function(list){list.forEach(function(x){d.append("photos",x);});
+return fetch(location.href,{method:"POST",body:d});}).then(function(r){return r.text();}).then(function(t){document.open();document.write(t);document.close();})
+.catch(function(){b.disabled=false;b.textContent="${escHtml(W.send)}";alert("It did not send. Please try again.");});});})();
+</script>`;
+
+function betterPage(rating: CheckinRating, test: boolean): Response {
+  const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
   return page(
-    `<h1>${escHtml(W.sorry)}</h1>${testNote(test)}` +
-      `<form method="post"><input type="hidden" name="a" value="comment" />` +
-      `<label for="c">${escHtml(W.whatWrong)}</label><textarea id="c" name="comment" maxlength="1000"></textarea>` +
-      `<button class="btn" type="submit">${escHtml(W.send)}</button></form>`
+    `<h1>${escHtml(`${r.emoji} ${W.better}`)}</h1><p>${escHtml(W.betterHint)}</p>${testNote(test)}` +
+      `<form id="better" method="post" enctype="multipart/form-data"><input type="hidden" name="a" value="comment" />` +
+      `<label for="c">${escHtml(W.better)}</label><textarea id="c" name="comment" maxlength="2000"></textarea>` +
+      `<label for="p">${escHtml(W.photos)}</label><input id="p" type="file" name="photos" accept="image/*" multiple />` +
+      `<button class="btn" type="submit">${escHtml(W.send)}</button></form>` +
+      `<form method="post"><input type="hidden" name="a" value="skip" /><button class="btn quiet" type="submit">${escHtml(W.skip)}</button></form>` +
+      SHRINK_SCRIPT
   );
+}
+
+/** The customer's photos, stored like portal photos (Blob, under checkin/<account>/). */
+async function savePhotos(form: FormData, accountId: string): Promise<string[]> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return [];
+  const files = form.getAll("photos").filter((entry): entry is File => entry instanceof File && entry.size > 0).slice(0, MAX_PHOTOS);
+  const folder = accountId.replace(/[^A-Za-z0-9_-]/g, "_") || "account";
+  const urls: string[] = [];
+  for (const file of files) {
+    const byName = /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+    if (file.size > MAX_PHOTO_BYTES || (!PHOTO_TYPES.test(file.type) && !byName)) continue;
+    try {
+      const extension = byName ? file.name.slice(file.name.lastIndexOf(".")).toLowerCase() : ".jpg";
+      const blob = await put(`checkin/${folder}/${crypto.randomUUID()}${extension}`, file, { access: "public", contentType: file.type || "image/jpeg", addRandomSuffix: false });
+      urls.push(blob.url);
+    } catch (error) {
+      console.error("[checkin] photo:", error instanceof Error ? error.message : error);
+    }
+  }
+  return urls;
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
   const id = readCheckinToken((await context.params).token);
   if (id === null) return gone();
   const action = request.nextUrl.searchParams.get("a");
-  if (action === "up" || action === "down") return page(`<h1>${action === "up" ? "👍" : "👎"}</h1>${sendNow(action)}`);
+  const rating = ratingFrom(action);
+  if (rating) return page(`<h1>${escHtml(CHECKIN_RATINGS.find((r) => r.value === rating)!.emoji)}</h1>${sendNow(rating)}`);
   if (action === "stop") {
     return page(
       `<h1>${escHtml(W.stopTitle)}</h1>${testNote(id === 0)}<form method="post"><input type="hidden" name="a" value="stop" />` +
-        `<button class="btn red" type="submit">${escHtml(W.stopButton)}</button></form>`
+        `<button class="btn" type="submit">${escHtml(W.stopButton)}</button></form>`
     );
   }
   return gone();
@@ -80,19 +136,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const form = await request.formData().catch(() => null);
     const action = String(form?.get("a") ?? "");
     const test = id === 0;
+    const origin = request.nextUrl.origin;
 
-    if (action === "up") {
-      if (!test && !(await answerCheckin(id, "up"))) return gone();
-      return page(`<h1>${escHtml(W.thanksUp)}</h1><p>${escHtml(W.thanksUpText)}</p>${testNote(test)}`);
-    }
-    if (action === "down") {
-      if (!test && !(await answerCheckin(id, "down"))) return gone();
-      return sorryPage(test);
+    const rating = ratingFrom(action);
+    if (rating) {
+      if (!test && !(await answerCheckin(id, rating, origin))) return gone();
+      if (rating === "great") return page(`<h1>${escHtml(W.thanksGreat)}</h1><p>${escHtml(W.thanksGreatText)}</p>${testNote(test)}`);
+      return betterPage(rating, test);
     }
     if (action === "comment") {
-      if (!test) await commentCheckin(id, String(form?.get("comment") ?? ""));
-      return page(`<h1>${escHtml(W.thanksDown)}</h1>${testNote(test)}`);
+      if (!test && form) {
+        const accountId = await checkinAccountId(id);
+        if (!accountId) return gone();
+        const photos = await savePhotos(form, accountId);
+        await commentCheckin(id, String(form.get("comment") ?? ""), photos, origin);
+      }
+      return page(`<h1>${escHtml(W.thanksSent)}</h1>${testNote(test)}`);
     }
+    if (action === "skip") return page(`<h1>${escHtml(W.thanksNoted)}</h1>${testNote(test)}`);
     if (action === "stop") {
       if (!test && !(await optOutCheckin(id))) return gone();
       return page(`<h1>${escHtml(W.stopped)}</h1>${testNote(test)}`);

@@ -3,9 +3,10 @@
 // The sections of Settings -> Reminders & check-ins (./page.tsx), top to
 // bottom. Each reminder feature adds its own section to SECTIONS.
 
+import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { BigButton, Card, showToast } from "@/app/ui";
-import { CHECKIN_SEND_FROM_DAY, CHECKIN_TEST_EMAIL } from "@/lib/customerCheckin";
+import { CHECKIN_TEST_EMAIL } from "@/lib/customerCheckin";
 import { DEFAULT_FEATURE_SETTINGS, type AtRiskSetting, type ComplaintClockSetting, type FeatureSettingKey, type FeatureSettings } from "@/lib/featureSettings";
 
 export type SectionProps = {
@@ -109,7 +110,9 @@ function AtRiskSection({ settings, canEdit, save }: SectionProps) {
   );
 }
 
-function CheckinSection({ settings, canEdit, save }: SectionProps) {
+// No switch any more: check-ins go out only when someone presses Send
+// (account page, or the Check-ins page). Only the test is here.
+function CheckinSection() {
   const [busy, setBusy] = useState(false);
   async function test() {
     setBusy(true);
@@ -122,19 +125,15 @@ function CheckinSection({ settings, canEdit, save }: SectionProps) {
     }
   }
   return (
-    <Card title="👍 Customer monthly check-in">
+    <Card title="😀 Customer check-in">
       <div className="ui-stack">
         <p className="ui-card-text">
-          From the {CHECKIN_SEND_FROM_DAY}th of each month, each active customer gets one email: &quot;How was your cleaning this month?&quot; with 👍 and 👎. No login.
-          👎 asks &quot;What went wrong?&quot; and puts a paper in the manager&apos;s square. Customers can stop the emails with one tap. Email only for now.
+          Check-ins are never sent by themselves. Send one from an account&apos;s page, or many from the{" "}
+          <Link className="ui-link" href="/check-ins">
+            Check-ins
+          </Link>{" "}
+          page. The customer taps 😀 Great, 😐 OK or 😟 Needs attention, with no login. Needs attention (and OK with a comment) puts a paper in the manager&apos;s square.
         </p>
-        <Switch
-          label="Send the monthly check-in to customers"
-          text="Customers see this. Send yourself a test first."
-          on={settings.checkin.on}
-          canEdit={canEdit}
-          onChange={(on) => void save("checkin", { on })}
-        />
         <BigButton kind="second" busy={busy} busyLabel="Sending…" onClick={() => void test()}>
           Send me a test ({CHECKIN_TEST_EMAIL})
         </BigButton>

@@ -1,33 +1,77 @@
-// The customer monthly check-in: the database side (migration 059). Server
-// only. Words and the email: lib/customerCheckin.ts. Link: lib/checkinLink.ts.
+// Customer check-ins: the database side (migrations 059 + 079). Server only.
+// Words and the email: lib/customerCheckin.ts. Link: lib/checkinLink.ts.
 //
-// runMonthlyCheckins()  the daily job (app/api/cron/daily-reminders). With
-//                       Settings -> Reminders & check-ins -> check-in ON, from
-//                       the 25th of the month: each active account with an
-//                       email (its own, else its main contact's), not opted
-//                       out, gets one email that month. A row is saved before
-//                       the send and removed if the send fails, so it goes
-//                       again the next day. Up to CHECKIN_DAILY_LIMIT a day.
-// answerCheckin()       👍 / 👎 from the link. 👎 puts a paper in the
-//                       account manager's square ("checkin:<id>"); changing
-//                       to 👍 takes it down. Written to the account's History.
-// thumbsDownByAccount() 👎 per account in the last 60 days, for "At risk".
+// Nothing is sent by itself. A check-in goes out only when someone presses
+// Send: one account (account page), picked accounts, or a saved list
+// (Check-ins page). Each press is a batch:
+//   previewCheckins()     who will get it and who is skipped, and why
+//   sendCheckins()        writes one 'queued' row per account, then sends
+//                         them, at most CHECKIN_DAILY_LIMIT a day
+//   sendQueuedCheckins()  sends what is still queued (the daily job, and the
+//                         end of each send): the rest of a big send goes over
+//                         the next days by itself
+// A row is claimed (queued → sent) before its email goes, so two runs never
+// send the same one; a failed send is marked 'failed'.
+//
+// Skipped: cancelled accounts, no valid email, an open complaint, a check-in
+// in the last CHECKIN_REPEAT_DAYS days (sent or queued), and "Stop these
+// emails". The email and its subject are saved on the row: the copy behind
+// "View email".
+//
+// Answers (app/checkin): 😀 Great is just logged. 😟 Needs attention puts a
+// paper in the account manager's square right away, with a text and a push;
+// 😐 OK does the same once the customer writes what to do better.
 
 import { getSql } from "@/lib/db";
 import { logActivity } from "@/lib/activityLog";
 import { sendHtmlEmail } from "@/lib/email";
+import { sendPush } from "@/lib/push";
 import { accountLive } from "@/lib/pg/account-live";
-import { getFeatureSetting } from "@/lib/pg/feature-settings";
 import { managerSquareFinder, pinOnce, takeDownPapers, updatePaperNotes } from "@/lib/pg/auto-pins";
+import { notifyBoardSquare } from "@/lib/pg/board-sms";
+import { complaintOpenSql } from "@/lib/pg/complaint-changes";
 import { checkinToken, checkinUrl } from "@/lib/checkinLink";
-import { CHECKIN_DAILY_LIMIT, CHECKIN_SEND_FROM_DAY, CHECKIN_TEST_EMAIL, checkinEmail, type CheckinAnswer, type CheckinResult } from "@/lib/customerCheckin";
+import {
+  CHECKIN_DAILY_LIMIT,
+  CHECKIN_REPEAT_DAYS,
+  CHECKIN_TEST_EMAIL,
+  checkinEmail,
+  ratingOf,
+  ratingText,
+  type CheckinAnswerValue,
+  type CheckinBatch,
+  type CheckinBatchKind,
+  type CheckinLast,
+  type CheckinList,
+  type CheckinRating,
+  type CheckinRow,
+  type CheckinSkip,
+  type CheckinStatus,
+} from "@/lib/customerCheckin";
+
+const clean = (value: unknown) => String(value ?? "").trim();
+const iso = (value: unknown) => {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+};
+const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
+/** Resend allows 2 emails a second: a little more than half a second between sends. */
+const SEND_GAP_MS = 600;
+/** One run stops starting new sends after this long (the route allows 300 s); the rest stay queued. */
+const RUN_BUDGET_MS = 240_000;
 
 let readyCache = false;
 
+/** Migration 079 is in (the batches table and the new columns). */
 export async function checkinReady(): Promise<boolean> {
   if (readyCache) return true;
   try {
-    const rows = (await getSql()`SELECT to_regclass('public.customer_checkins') IS NOT NULL AND to_regclass('public.customer_checkin_optouts') IS NOT NULL AS ok`) as { ok: boolean }[];
+    const rows = (await getSql()`
+      SELECT to_regclass('public.checkin_batches') IS NOT NULL
+         AND to_regclass('public.checkin_lists') IS NOT NULL
+         AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'customer_checkins' AND column_name = 'email_html') AS ok
+    `) as { ok: boolean }[];
     readyCache = rows[0]?.ok === true;
   } catch {
     readyCache = false;
@@ -35,15 +79,19 @@ export async function checkinReady(): Promise<boolean> {
   return readyCache;
 }
 
-const EMAIL_RE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
-const easternParts = () => {
-  const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  return { month: day.slice(0, 7), dayOfMonth: Number(day.slice(8, 10)) };
-};
+export const NOT_READY = "Check-ins need migration 079 first.";
+
+/** "2026-11" in New York (the old month column still needs a value). */
+const easternMonth = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7);
 
 function links(origin: string, id: number) {
   const token = checkinToken(id);
-  return { upUrl: checkinUrl(origin, token, "up"), downUrl: checkinUrl(origin, token, "down"), stopUrl: checkinUrl(origin, token, "stop") };
+  return {
+    great: checkinUrl(origin, token, "great"),
+    ok: checkinUrl(origin, token, "ok"),
+    attention: checkinUrl(origin, token, "attention"),
+    stop: checkinUrl(origin, token, "stop"),
+  };
 }
 
 async function contactsTableReady(): Promise<boolean> {
@@ -51,158 +99,541 @@ async function contactsTableReady(): Promise<boolean> {
   return rows[0]?.ok === true;
 }
 
-/** Who gets this month's check-in: active, with an email, not opted out, not sent yet this month. */
-async function recipients(month: string, limit: number): Promise<{ id: string; account_name: string; email: string }[]> {
+/** Several addresses typed in one field: the first good one. */
+const firstEmail = (value: string) => value.split(/[,;\s]+/).find((part) => EMAIL_RE.test(part)) ?? "";
+
+type Candidate = {
+  id: string;
+  account_name: string;
+  status_key: string;
+  is_test: boolean;
+  email: string;
+  manager_name: string;
+  manager_phone: string;
+  manager_email: string;
+  open_complaint: boolean;
+  opted_out: boolean;
+  recent_at: string | Date | null;
+};
+
+/** Each account with what decides whether it gets a check-in (the manager signs it: the Managers list, like the Welcome Packet). */
+async function candidates(accountIds: string[]): Promise<Candidate[]> {
+  const ids = [...new Set(accountIds.map(clean).filter(Boolean))];
+  if (ids.length === 0) return [];
   const contacts = await contactsTableReady();
-  const rows = (await getSql().query(
-    `SELECT a.id, a.account_name,
-            COALESCE(NULLIF(btrim(a.email), ''), ${contacts ? `(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.is_main AND btrim(c.email) <> '' LIMIT 1)` : "NULL"}, '') AS email
+  return (await getSql().query(
+    `SELECT a.id, a.account_name, a.status_key, a.is_test,
+            COALESCE(NULLIF(btrim(a.email), ''), ${contacts ? `(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.is_main AND btrim(c.email) <> '' LIMIT 1)` : "NULL"}, '') AS email,
+            COALESCE(NULLIF(btrim(m.name), ''), btrim(a.manager_raw), '') AS manager_name,
+            COALESCE(btrim(m.phone), '') AS manager_phone,
+            COALESCE(btrim(m.email), '') AS manager_email,
+            EXISTS (SELECT 1 FROM complaints k WHERE k.account_ref = a.id AND ${complaintOpenSql("k.status")}) AS open_complaint,
+            EXISTS (SELECT 1 FROM customer_checkin_optouts o WHERE o.account_id = a.id) AS opted_out,
+            (SELECT max(COALESCE(r.sent_at, r.created_at)) FROM customer_checkins r
+              WHERE r.account_id = a.id AND r.status IN ('sent', 'queued')
+                AND COALESCE(r.sent_at, r.created_at) > now() - make_interval(days => $2::int)) AS recent_at
      FROM accounts a
-     WHERE a.id IS NOT NULL AND a.status_key = 'active' AND NOT a.is_test AND ${accountLive("a")}
-       AND NOT EXISTS (SELECT 1 FROM customer_checkin_optouts o WHERE o.account_id = a.id)
-       AND NOT EXISTS (SELECT 1 FROM customer_checkins k WHERE k.account_id = a.id AND k.month = $1)
+     LEFT JOIN LATERAL (
+       SELECT name, phone, email FROM managers
+       WHERE id = a.manager_id
+          OR (a.manager_id IS NULL AND a.manager_raw <> '' AND lower(btrim(name)) = lower(btrim(a.manager_raw)))
+       ORDER BY (id = a.manager_id) DESC NULLS LAST, row_no
+       LIMIT 1
+     ) m ON true
+     WHERE a.id = ANY($1::text[]) AND ${accountLive("a")}
      ORDER BY a.account_name`,
-    [month]
-  )) as { id: string; account_name: string; email: string }[];
-  // Several addresses typed in one field: the first one.
-  return rows
-    .map((row) => ({ ...row, email: row.email.split(/[,;\s]+/).find((part) => EMAIL_RE.test(part)) ?? "" }))
-    .filter((row) => row.email)
-    .slice(0, limit);
+    [ids, CHECKIN_REPEAT_DAYS]
+  )) as Candidate[];
 }
 
-export async function runMonthlyCheckins(origin: string): Promise<{ sent: number; failed: number; skipped: string }> {
-  if (!(await checkinReady())) return { sent: 0, failed: 0, skipped: "migration 059 not applied" };
-  if (!(await getFeatureSetting("checkin")).on) return { sent: 0, failed: 0, skipped: "switched off" };
-  const { month, dayOfMonth } = easternParts();
-  if (dayOfMonth < CHECKIN_SEND_FROM_DAY) return { sent: 0, failed: 0, skipped: `sends from the ${CHECKIN_SEND_FROM_DAY}th` };
+const dayText = (value: string | Date | null) =>
+  value ? new Date(value).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" }) : "";
+
+/** Why this account is left out ("" = it gets one). */
+function skipReason(c: Candidate): string {
+  if (c.is_test) return "Test account";
+  if (["cancelled", "canceled"].includes(clean(c.status_key).toLowerCase())) return "Cancelled";
+  if (c.opted_out) return "Stopped these emails";
+  if (!firstEmail(c.email)) return "No valid email";
+  if (c.open_complaint) return "Open complaint";
+  if (c.recent_at) return `Check-in in the last ${CHECKIN_REPEAT_DAYS} days (${dayText(c.recent_at)})`;
+  return "";
+}
+
+/** How many check-in emails went today (New York day): sent and failed both used the provider. */
+async function sentToday(): Promise<number> {
+  const rows = (await getSql()`
+    SELECT count(*)::int AS n FROM customer_checkins
+    WHERE status IN ('sent', 'failed') AND sent_at IS NOT NULL
+      AND (sent_at AT TIME ZONE 'America/New_York')::date = (now() AT TIME ZONE 'America/New_York')::date
+  `) as { n: number }[];
+  return rows[0]?.n ?? 0;
+}
+
+async function queuedCount(): Promise<number> {
+  const rows = (await getSql()`SELECT count(*)::int AS n FROM customer_checkins WHERE status = 'queued'`) as { n: number }[];
+  return rows[0]?.n ?? 0;
+}
+
+export type CheckinPreview = {
+  willSend: { accountId: string; accountName: string; email: string }[];
+  skipped: CheckinSkip[];
+  /** How many can still go today; the rest are queued for the next days. */
+  todayLeft: number;
+  /** Already waiting from earlier sends (they go first). */
+  alreadyQueued: number;
+  /** The email the first account would get (its links answer nothing). */
+  sample: { accountName: string; to: string; subject: string; html: string } | null;
+};
+
+export async function previewCheckins(accountIds: string[], origin: string): Promise<CheckinPreview> {
+  const list = await candidates(accountIds);
+  const found = new Set(list.map((c) => c.id));
+  const skipped: CheckinSkip[] = accountIds
+    .map(clean)
+    .filter((id) => id && !found.has(id))
+    .map((id) => ({ accountId: id, accountName: id, reason: "Account not found" }));
+  const willSend: CheckinPreview["willSend"] = [];
+  for (const c of list) {
+    const reason = skipReason(c);
+    if (reason) skipped.push({ accountId: c.id, accountName: c.account_name, reason });
+    else willSend.push({ accountId: c.id, accountName: c.account_name, email: firstEmail(c.email) });
+  }
+  const first = list.find((c) => !skipReason(c));
+  const [today, alreadyQueued] = await Promise.all([sentToday(), queuedCount()]);
+  const sample = first
+    ? {
+        accountName: first.account_name,
+        to: firstEmail(first.email),
+        ...checkinEmail({
+          customerName: first.account_name,
+          managerName: first.manager_name,
+          managerPhone: first.manager_phone,
+          managerEmail: first.manager_email,
+          links: links(origin, 0),
+        }),
+      }
+    : null;
+  return { willSend, skipped, todayLeft: Math.max(0, CHECKIN_DAILY_LIMIT - today), alreadyQueued, sample: sample ? { accountName: sample.accountName, to: sample.to, subject: sample.subject, html: sample.html } : null };
+}
+
+export type CheckinSendResult = { batchId: number; queued: number; sent: number; failed: number; skipped: number; stillQueued: number };
+
+/** Press of Send: a batch, one queued row per account that can get one, then as many sent as today allows. */
+export async function sendCheckins(input: {
+  accountIds: string[];
+  kind: CheckinBatchKind;
+  listId?: number | null;
+  listName?: string;
+  by: string;
+  origin: string;
+}): Promise<CheckinSendResult> {
   const sql = getSql();
+  const list = await candidates(input.accountIds);
+  const found = new Set(list.map((c) => c.id));
+  const skipped: CheckinSkip[] = input.accountIds
+    .map(clean)
+    .filter((id) => id && !found.has(id))
+    .map((id) => ({ accountId: id, accountName: id, reason: "Account not found" }));
+  const going: Candidate[] = [];
+  for (const c of list) {
+    const reason = skipReason(c);
+    if (reason) skipped.push({ accountId: c.id, accountName: c.account_name, reason });
+    else going.push(c);
+  }
+
+  const batch = (await sql`
+    INSERT INTO checkin_batches (created_by, kind, list_id, list_name, skipped)
+    VALUES (${input.by}, ${input.kind}, ${input.listId ?? null}, ${input.listName ?? ""}, ${JSON.stringify(skipped)}::jsonb)
+    RETURNING id
+  `) as { id: string }[];
+  const batchId = Number(batch[0].id);
+
+  const month = easternMonth();
+  let queued = 0;
+  for (const c of going) {
+    await sql`
+      INSERT INTO customer_checkins (account_id, month, channel, sent_to, sent_at, status, batch_id, sent_by, manager_name)
+      VALUES (${c.id}, ${month}, 'email', ${firstEmail(c.email)}, NULL, 'queued', ${batchId}, ${input.by}, ${c.manager_name})
+    `;
+    queued += 1;
+  }
+
+  const run = queued > 0 ? await sendQueuedCheckins(input.origin) : { sent: 0, failed: 0, skipped: 0, stillQueued: await queuedCount() };
+  return { batchId, queued, sent: run.sent, failed: run.failed, skipped: skipped.length, stillQueued: run.stillQueued };
+}
+
+type QueuedRow = { id: string; account_id: string; sent_to: string; sent_by: string };
+
+/**
+ * Sends the queued check-ins, oldest first, up to what is left of today's
+ * limit. Each one is checked again first (cancelled, stopped the emails, no
+ * email): those are 'skipped'. The daily job and every Send call this.
+ */
+export async function sendQueuedCheckins(origin: string, budgetMs = RUN_BUDGET_MS): Promise<{ sent: number; failed: number; skipped: number; stillQueued: number }> {
+  if (!(await checkinReady())) return { sent: 0, failed: 0, skipped: 0, stillQueued: 0 };
+  const sql = getSql();
+  const started = Date.now();
+  let left = Math.max(0, CHECKIN_DAILY_LIMIT - (await sentToday()));
   let sent = 0;
   let failed = 0;
-  for (const account of await recipients(month, CHECKIN_DAILY_LIMIT)) {
-    const rows = (await sql`
-      INSERT INTO customer_checkins (account_id, month, channel, sent_to) VALUES (${account.id}, ${month}, 'email', ${account.email})
-      ON CONFLICT (account_id, month) DO NOTHING RETURNING id
-    `) as { id: string }[];
-    const id = Number(rows[0]?.id);
-    if (!id) continue;
+  let skipped = 0;
+
+  const rows = left > 0 ? ((await sql`SELECT id::text, account_id, sent_to, sent_by FROM customer_checkins WHERE status = 'queued' ORDER BY created_at, id LIMIT ${left}`) as QueuedRow[]) : [];
+  const info = new Map((await candidates(rows.map((r) => r.account_id))).map((c) => [c.id, c]));
+
+  for (const row of rows) {
+    if (left <= 0 || Date.now() - started > budgetMs) break;
+    const id = Number(row.id);
+    const c = info.get(row.account_id);
+    const reason = !c
+      ? "Account not found"
+      : c.opted_out
+        ? "Stopped these emails"
+        : ["cancelled", "canceled"].includes(clean(c.status_key).toLowerCase())
+          ? "Cancelled"
+          : !firstEmail(c.email)
+            ? "No valid email"
+            : "";
+    if (reason || !c) {
+      await sql`UPDATE customer_checkins SET status = 'skipped', error = ${reason} WHERE id = ${id} AND status = 'queued'`;
+      skipped += 1;
+      continue;
+    }
+    const to = firstEmail(c.email);
+    const email = checkinEmail({ customerName: c.account_name, managerName: c.manager_name, managerPhone: c.manager_phone, managerEmail: c.manager_email, links: links(origin, id) });
+    // Claim it first: a second run at the same time skips it.
+    const claimed = (await sql`
+      UPDATE customer_checkins SET status = 'sent', sent_at = now(), sent_to = ${to}, subject = ${email.subject}, email_html = ${email.html}, manager_name = ${c.manager_name}
+      WHERE id = ${id} AND status = 'queued' RETURNING id
+    `) as unknown[];
+    if (claimed.length === 0) continue;
+    left -= 1;
     let ok = false;
+    let error = "";
     try {
       ok = await sendHtmlEmail({
-        to: [account.email],
-        fromName: "Cleaning World",
-        ...checkinEmail({ accountName: account.account_name, ...links(origin, id) }),
-        log: { type: "Customer check-in", accountId: account.id, accountName: account.account_name, sentBy: "System" },
+        to: [to],
+        replyTo: c.manager_email || undefined,
+        ...email,
+        log: { type: "Customer check-in", accountId: c.id, accountName: c.account_name, sentBy: row.sent_by || "Office" },
       });
-    } catch (error) {
-      console.error("[checkin] send:", error instanceof Error ? error.message : error);
+      if (!ok) error = "Email is not set up on this server.";
+    } catch (sendError) {
+      error = sendError instanceof Error ? sendError.message : "The email did not go.";
+      console.error("[checkin] send:", error);
     }
-    if (ok) sent += 1;
-    else {
+    if (ok) {
+      sent += 1;
+      await logActivity({
+        actorAccountId: null,
+        actorRole: "manager",
+        actorName: row.sent_by || "Office",
+        action: "update",
+        entityType: "account",
+        entityId: c.id,
+        detail: `Check-in email sent to: ${to}`,
+      }).catch(() => undefined);
+    } else {
       failed += 1;
-      await sql`DELETE FROM customer_checkins WHERE id = ${id}`;
+      await sql`UPDATE customer_checkins SET status = 'failed', error = ${error.slice(0, 500)} WHERE id = ${id}`;
     }
+    await new Promise((resolve) => setTimeout(resolve, SEND_GAP_MS));
   }
-  return { sent, failed, skipped: "" };
+  return { sent, failed, skipped, stillQueued: await queuedCount() };
 }
 
 /** "Send me a test": the real email, to crm@, with links that save nothing. */
 export async function sendTestCheckin(origin: string, by: string): Promise<boolean> {
   return sendHtmlEmail({
     to: [CHECKIN_TEST_EMAIL],
-    fromName: "Cleaning World",
-    ...checkinEmail({ accountName: "Test Account", test: true, ...links(origin, 0) }),
+    ...checkinEmail({ customerName: "Test Account", managerName: by, managerPhone: "201-487-1313", managerEmail: CHECKIN_TEST_EMAIL, links: links(origin, 0), test: true }),
     log: { type: "Customer check-in (test)", sentBy: by },
   });
 }
 
-type CheckinRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; month: string };
+/* ---------- answers (app/checkin) ---------- */
 
-async function checkinRow(id: number): Promise<CheckinRow | null> {
+type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string };
+
+async function answerRow(id: number): Promise<AnswerRow | null> {
   const rows = (await getSql()`
-    SELECT k.id::text, k.account_id, k.answer, k.comment, k.month, COALESCE(a.account_name, '') AS account_name,
+    SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, COALESCE(a.account_name, '') AS account_name,
            COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw, '') AS manager
     FROM customer_checkins k
     LEFT JOIN accounts a ON a.id = k.account_id
     LEFT JOIN managers m ON m.id = a.manager_id
-    WHERE k.id = ${id}
-  `) as CheckinRow[];
+    WHERE k.id = ${id} AND k.status = 'sent'
+  `) as AnswerRow[];
   return rows[0] ?? null;
 }
 
 async function history(accountId: string, detail: string): Promise<void> {
-  await logActivity({ actorAccountId: null, actorRole: "manager", actorName: "Customer", action: "update", entityType: "account", entityId: accountId, detail });
+  await logActivity({ actorAccountId: null, actorRole: "manager", actorName: "Customer", action: "update", entityType: "account", entityId: accountId, detail }).catch(() => undefined);
 }
 
-/** 👍 / 👎 from the link. false when the check-in is not found. */
-export async function answerCheckin(id: number, answer: CheckinAnswer): Promise<boolean> {
-  if (!(await checkinReady())) return false;
-  const row = await checkinRow(id);
-  if (!row) return false;
-  if (row.answer === answer) return true;
-  await getSql()`UPDATE customer_checkins SET answer = ${answer}, answered_at = now() WHERE id = ${id}`;
-  const paperId = `checkin:${id}`;
-  if (answer === "down") {
-    const squareOf = await managerSquareFinder();
-    await pinOnce({
-      itemId: paperId,
-      title: row.account_name || "Customer check-in",
-      label: "Customer 👎",
-      notes: row.comment ? `"${row.comment}"` : "The customer was not happy this month.",
-      href: `/accounts/${encodeURIComponent(row.account_id)}`,
-      square: squareOf(row.manager),
-      accountId: row.account_id,
-      accountName: row.account_name,
-    });
-  } else {
-    await takeDownPapers(paperId, "Customer changed it to 👍");
+const paperId = (id: number, rating: "attention" | "ok") => `checkin:${id}:${rating}`;
+
+/** A paper in the account manager's square, with a text and a push when it goes up now. */
+async function pinForManager(row: AnswerRow, id: number, rating: "attention" | "ok", comment: string, origin: string): Promise<void> {
+  const squareOf = await managerSquareFinder();
+  const square = squareOf(row.manager);
+  const label = rating === "attention" ? "Check-in 😟 Needs attention" : "Check-in 😐 OK";
+  const notes = comment ? `"${comment}"` : rating === "attention" ? "The customer says the cleaning needs attention." : "The customer said OK.";
+  const itemId = paperId(id, rating);
+  const href = `/accounts/${encodeURIComponent(row.account_id)}`;
+  const up = await pinOnce({ itemId, title: row.account_name || "Customer check-in", label, notes, href, square, accountId: row.account_id, accountName: row.account_name });
+  if (!up || !square) return;
+  try {
+    await notifyBoardSquare({ square, byStaffId: "", paperId: itemId, title: label, accountName: row.account_name, notes, origin, routeContext: "checkin/answer" });
+    await sendPush(square, label, `${row.account_name}: ${notes}`.slice(0, 180), `${origin}${href}`, "checkin/answer");
+  } catch (error) {
+    console.error("[checkin] notify:", error instanceof Error ? error.message : error);
   }
-  await history(row.account_id, `Monthly check-in (${row.month}): the customer answered ${answer === "up" ? "👍 Good" : "👎 Not good"}.`);
-  return true;
 }
 
-/** The optional "What went wrong?" after a 👎. */
-export async function commentCheckin(id: number, comment: string): Promise<boolean> {
+/** One tap in the email. false when the check-in is not found. */
+export async function answerCheckin(id: number, rating: CheckinRating, origin: string): Promise<boolean> {
   if (!(await checkinReady())) return false;
-  const text = comment.trim().slice(0, 1000);
-  const row = await checkinRow(id);
-  if (!row || !text) return Boolean(row);
-  await getSql()`UPDATE customer_checkins SET comment = ${text} WHERE id = ${id}`;
-  await updatePaperNotes(`checkin:${id}`, `"${text}"`);
-  await history(row.account_id, `Monthly check-in (${row.month}): "What went wrong?" ${text}`);
+  const row = await answerRow(id);
+  if (!row) return false;
+  if (ratingOf(row.answer) === rating) return true;
+  await getSql()`UPDATE customer_checkins SET answer = ${rating}, answered_at = now() WHERE id = ${id}`;
+  // A changed answer takes the paper of the old one down.
+  if (rating !== "attention") await takeDownPapers(paperId(id, "attention"), `Customer changed it to ${ratingText(rating)}`);
+  if (rating !== "ok") await takeDownPapers(paperId(id, "ok"), `Customer changed it to ${ratingText(rating)}`);
+  if (rating === "attention") await pinForManager(row, id, "attention", clean(row.comment), origin);
+  if (rating === "ok" && clean(row.comment)) await pinForManager(row, id, "ok", clean(row.comment), origin);
+  await history(row.account_id, `Check-in: the customer answered ${ratingText(rating)}.`);
   return true;
 }
 
-/** "Stop these emails": this account never gets one again. */
+/** "What can we do better?" with photos, after OK or Needs attention. */
+export async function commentCheckin(id: number, comment: string, photos: string[], origin: string): Promise<boolean> {
+  if (!(await checkinReady())) return false;
+  const row = await answerRow(id);
+  if (!row) return false;
+  const text = comment.trim().slice(0, 2000);
+  const allPhotos = [...row.photos.split(",").map(clean).filter(Boolean), ...photos].slice(0, 6);
+  if (!text && photos.length === 0) return true;
+  await getSql()`UPDATE customer_checkins SET comment = ${text || row.comment}, photos = ${allPhotos.join(",")} WHERE id = ${id}`;
+  const rating = ratingOf(row.answer);
+  const note = text || clean(row.comment);
+  const notes = `${note ? `"${note}"` : ""}${photos.length ? `${note ? " · " : ""}${allPhotos.length} photo${allPhotos.length === 1 ? "" : "s"}` : ""}`;
+  if (rating === "attention") await updatePaperNotes(paperId(id, "attention"), notes);
+  if (rating === "ok") await pinForManager(row, id, "ok", note, origin).then(() => updatePaperNotes(paperId(id, "ok"), notes));
+  await history(row.account_id, `Check-in: "What can we do better?" ${text}${photos.length ? ` (${photos.length} photo${photos.length === 1 ? "" : "s"})` : ""}`);
+  return true;
+}
+
+/** "Stop these emails": this account is skipped from now on. */
 export async function optOutCheckin(id: number): Promise<boolean> {
   if (!(await checkinReady())) return false;
-  const row = await checkinRow(id);
+  const rows = (await getSql()`SELECT account_id, sent_to FROM customer_checkins WHERE id = ${id}`) as { account_id: string; sent_to: string }[];
+  const row = rows[0];
   if (!row) return false;
-  const sentTo = ((await getSql()`SELECT sent_to FROM customer_checkins WHERE id = ${id}`) as { sent_to: string }[])[0]?.sent_to ?? "";
-  await getSql()`INSERT INTO customer_checkin_optouts (account_id, email) VALUES (${row.account_id}, ${sentTo}) ON CONFLICT DO NOTHING`;
-  await history(row.account_id, "The customer stopped the monthly check-in emails.");
+  await getSql()`INSERT INTO customer_checkin_optouts (account_id, email) VALUES (${row.account_id}, ${row.sent_to}) ON CONFLICT DO NOTHING`;
+  await history(row.account_id, "The customer stopped the check-in emails.");
   return true;
 }
 
-/** 👎 per account in the last 60 days ("At risk"). Empty before migration 059. */
-export async function thumbsDownByAccount(): Promise<Map<string, number>> {
-  if (!(await checkinReady())) return new Map();
-  const rows = (await getSql()`
-    SELECT account_id, count(*)::int AS n FROM customer_checkins
-    WHERE answer = 'down' AND answered_at >= now() - interval '60 days' GROUP BY account_id
-  `) as { account_id: string; n: number }[];
-  return new Map(rows.map((row) => [row.account_id, row.n]));
+/** The account the check-in belongs to (where its photos are stored). */
+export async function checkinAccountId(id: number): Promise<string> {
+  const rows = (await getSql()`SELECT account_id FROM customer_checkins WHERE id = ${id} AND status = 'sent'`) as { account_id: string }[];
+  return rows[0]?.account_id ?? "";
 }
 
-/** The account page: the last 6 check-ins, and whether the customer stopped them. */
-export async function accountCheckins(accountId: string): Promise<{ ready: boolean; on: boolean; optedOut: boolean; results: CheckinResult[] }> {
-  const on = (await getFeatureSetting("checkin")).on;
-  if (!(await checkinReady())) return { ready: false, on, optedOut: false, results: [] };
+/** Needs attention (and the old 👎) per account in the last 60 days ("At risk"). Empty before migration 059. */
+export async function thumbsDownByAccount(): Promise<Map<string, number>> {
+  try {
+    const rows = (await getSql()`
+      SELECT account_id, count(*)::int AS n FROM customer_checkins
+      WHERE answer IN ('down', 'attention') AND answered_at >= now() - interval '60 days' GROUP BY account_id
+    `) as { account_id: string; n: number }[];
+    return new Map(rows.map((row) => [row.account_id, row.n]));
+  } catch {
+    return new Map();
+  }
+}
+
+/* ---------- what the staff pages read ---------- */
+
+type DbRow = {
+  id: string;
+  account_id: string;
+  account_name: string | null;
+  created_at: string | Date;
+  sent_at: string | Date | null;
+  status: CheckinStatus;
+  sent_by: string;
+  sent_to: string;
+  batch_id: string | null;
+  kind: string | null;
+  list_name: string | null;
+  answer: CheckinAnswerValue;
+  answered_at: string | Date | null;
+  comment: string;
+  photos: string;
+  error: string;
+  has_copy: boolean;
+};
+
+const ROW_SELECT = `k.id::text, k.account_id, a.account_name, k.created_at, k.sent_at, k.status, k.sent_by, k.sent_to, k.batch_id::text,
+  b.kind, b.list_name, k.answer, k.answered_at, k.comment, k.photos, k.error, (k.email_html <> '') AS has_copy`;
+const ROW_FROM = `FROM customer_checkins k LEFT JOIN accounts a ON a.id = k.account_id LEFT JOIN checkin_batches b ON b.id = k.batch_id`;
+
+function toRow(r: DbRow): CheckinRow {
+  return {
+    id: Number(r.id),
+    accountId: r.account_id,
+    accountName: clean(r.account_name),
+    createdAt: iso(r.created_at),
+    sentAt: iso(r.sent_at),
+    status: r.status,
+    sentBy: clean(r.sent_by),
+    sentTo: clean(r.sent_to),
+    batchId: r.batch_id ? Number(r.batch_id) : null,
+    batchKind: (r.kind as CheckinRow["batchKind"]) ?? "",
+    listName: clean(r.list_name),
+    answer: r.answer,
+    answeredAt: iso(r.answered_at),
+    comment: clean(r.comment),
+    photos: clean(r.photos).split(",").map(clean).filter(Boolean),
+    error: clean(r.error),
+    hasCopy: r.has_copy === true,
+  };
+}
+
+/** The account page: every check-in, newest first, and whether the customer stopped them. */
+export async function accountCheckins(accountId: string): Promise<{ ready: boolean; optedOut: boolean; rows: CheckinRow[] }> {
+  if (!(await checkinReady())) return { ready: false, optedOut: false, rows: [] };
   const [rows, out] = await Promise.all([
-    getSql()`SELECT month, sent_at, answer, comment FROM customer_checkins WHERE account_id = ${accountId} ORDER BY month DESC LIMIT 6` as unknown as Promise<
-      { month: string; sent_at: string | Date; answer: "" | CheckinAnswer; comment: string }[]
-    >,
+    getSql().query(`SELECT ${ROW_SELECT} ${ROW_FROM} WHERE k.account_id = $1 ORDER BY k.created_at DESC, k.id DESC LIMIT 100`, [accountId]) as unknown as Promise<DbRow[]>,
     getSql()`SELECT 1 FROM customer_checkin_optouts WHERE account_id = ${accountId}` as unknown as Promise<unknown[]>,
   ]);
-  return { ready: true, on, optedOut: out.length > 0, results: rows.map((row) => ({ month: row.month, sentAt: new Date(row.sent_at).toISOString(), answer: row.answer, comment: row.comment })) };
+  return { ready: true, optedOut: out.length > 0, rows: rows.map(toRow) };
+}
+
+/** The saved copy of one check-in email ("View email"). */
+export async function checkinCopy(id: number): Promise<{ subject: string; html: string; sentTo: string; sentAt: string } | null> {
+  if (!(await checkinReady())) return null;
+  const rows = (await getSql()`SELECT subject, email_html, sent_to, sent_at FROM customer_checkins WHERE id = ${id}`) as { subject: string; email_html: string; sent_to: string; sent_at: string | Date | null }[];
+  const row = rows[0];
+  return row && row.email_html ? { subject: row.subject, html: row.email_html, sentTo: row.sent_to, sentAt: iso(row.sent_at) } : null;
+}
+
+/** Each account's last check-in (sent or queued), for the Check-ins page's filters; and who stopped them. */
+export async function lastCheckins(): Promise<{ last: Record<string, CheckinLast>; optedOut: string[] }> {
+  if (!(await checkinReady())) return { last: {}, optedOut: [] };
+  const [rows, outs] = await Promise.all([
+    getSql()`
+      SELECT DISTINCT ON (account_id) account_id, COALESCE(sent_at, created_at) AS at, answer, status, comment
+      FROM customer_checkins WHERE status IN ('sent', 'queued')
+      ORDER BY account_id, COALESCE(sent_at, created_at) DESC, id DESC
+    ` as unknown as Promise<{ account_id: string; at: string | Date; answer: CheckinAnswerValue; status: CheckinStatus; comment: string }[]>,
+    getSql()`SELECT account_id FROM customer_checkin_optouts` as unknown as Promise<{ account_id: string }[]>,
+  ]);
+  const last: Record<string, CheckinLast> = {};
+  for (const row of rows) last[row.account_id] = { lastSentAt: iso(row.at), lastAnswer: row.answer, lastStatus: row.status, lastComment: clean(row.comment) };
+  return { last, optedOut: outs.map((o) => o.account_id) };
+}
+
+type BatchDb = {
+  id: string;
+  created_at: string | Date;
+  created_by: string;
+  kind: CheckinBatchKind;
+  list_name: string;
+  skipped_n: number;
+  total: number;
+  sent: number;
+  queued: number;
+  failed: number;
+  skipped_rows: number;
+  answered: number;
+  attention: number;
+};
+
+const BATCH_SELECT = `SELECT b.id::text, b.created_at, b.created_by, b.kind, b.list_name, jsonb_array_length(b.skipped)::int AS skipped_n,
+    count(k.id)::int AS total,
+    count(k.id) FILTER (WHERE k.status = 'sent')::int AS sent,
+    count(k.id) FILTER (WHERE k.status = 'queued')::int AS queued,
+    count(k.id) FILTER (WHERE k.status = 'failed')::int AS failed,
+    count(k.id) FILTER (WHERE k.status = 'skipped')::int AS skipped_rows,
+    count(k.id) FILTER (WHERE k.answer <> '')::int AS answered,
+    count(k.id) FILTER (WHERE k.answer IN ('attention', 'down'))::int AS attention
+  FROM checkin_batches b LEFT JOIN customer_checkins k ON k.batch_id = b.id`;
+
+function toBatch(b: BatchDb): CheckinBatch {
+  return {
+    id: Number(b.id),
+    createdAt: iso(b.created_at),
+    createdBy: clean(b.created_by),
+    kind: b.kind,
+    listName: clean(b.list_name),
+    total: b.total,
+    sent: b.sent,
+    queued: b.queued,
+    failed: b.failed,
+    skipped: b.skipped_n + b.skipped_rows,
+    answered: b.answered,
+    attention: b.attention,
+  };
+}
+
+/** History: one line per press of Send, newest first. */
+export async function listBatches(limit = 200): Promise<CheckinBatch[]> {
+  if (!(await checkinReady())) return [];
+  const rows = (await getSql().query(`${BATCH_SELECT} GROUP BY b.id ORDER BY b.created_at DESC LIMIT $1`, [limit])) as BatchDb[];
+  return rows.map(toBatch);
+}
+
+/** One send: every account in it, and the ones it skipped (and why). */
+export async function batchDetail(id: number): Promise<{ batch: CheckinBatch; rows: CheckinRow[]; skipped: CheckinSkip[] } | null> {
+  if (!(await checkinReady())) return null;
+  const sql = getSql();
+  const batches = (await sql.query(`${BATCH_SELECT} WHERE b.id = $1 GROUP BY b.id`, [id])) as BatchDb[];
+  if (!batches[0]) return null;
+  const [rows, skippedRows] = await Promise.all([
+    sql.query(`SELECT ${ROW_SELECT} ${ROW_FROM} WHERE k.batch_id = $1 ORDER BY a.account_name, k.id`, [id]) as unknown as Promise<DbRow[]>,
+    sql`SELECT skipped FROM checkin_batches WHERE id = ${id}` as unknown as Promise<{ skipped: CheckinSkip[] }[]>,
+  ]);
+  return { batch: toBatch(batches[0]), rows: rows.map(toRow), skipped: skippedRows[0]?.skipped ?? [] };
+}
+
+/* ---------- saved lists ---------- */
+
+export async function listCheckinLists(): Promise<CheckinList[]> {
+  if (!(await checkinReady())) return [];
+  const rows = (await getSql()`
+    SELECT l.id::text, l.name, l.created_by, l.updated_at, COALESCE(array_agg(la.account_id ORDER BY la.account_id) FILTER (WHERE la.account_id IS NOT NULL), '{}') AS account_ids
+    FROM checkin_lists l LEFT JOIN checkin_list_accounts la ON la.list_id = l.id
+    GROUP BY l.id ORDER BY lower(l.name)
+  `) as { id: string; name: string; created_by: string; updated_at: string | Date; account_ids: string[] }[];
+  return rows.map((r) => ({ id: Number(r.id), name: r.name, accountIds: r.account_ids, createdBy: clean(r.created_by), updatedAt: iso(r.updated_at) }));
+}
+
+/** New list (no id) or a list's new name and accounts (id). Throws a plain-words error when the name is taken or empty. */
+export async function saveCheckinList(input: { id?: number | null; name: string; accountIds: string[]; by: string }): Promise<number> {
+  const name = input.name.trim().slice(0, 80);
+  if (!name) throw new Error("Give the list a name.");
+  const ids = [...new Set(input.accountIds.map(clean).filter(Boolean))];
+  const sql = getSql();
+  const taken = (await sql`SELECT id::text FROM checkin_lists WHERE lower(btrim(name)) = lower(${name}) AND id <> ${input.id ?? 0}`) as unknown[];
+  if (taken.length) throw new Error(`There is already a list called "${name}".`);
+  let id = input.id ?? null;
+  if (id) {
+    const updated = (await sql`UPDATE checkin_lists SET name = ${name}, updated_at = now() WHERE id = ${id} RETURNING id`) as unknown[];
+    if (!updated.length) throw new Error("That list is gone.");
+    await sql`DELETE FROM checkin_list_accounts WHERE list_id = ${id}`;
+  } else {
+    const created = (await sql`INSERT INTO checkin_lists (name, created_by) VALUES (${name}, ${input.by}) RETURNING id`) as { id: string }[];
+    id = Number(created[0].id);
+  }
+  if (ids.length) await sql.query(`INSERT INTO checkin_list_accounts (list_id, account_id) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`, [id, ids]);
+  return id;
+}
+
+export async function deleteCheckinList(id: number): Promise<void> {
+  await getSql()`DELETE FROM checkin_lists WHERE id = ${id}`;
 }

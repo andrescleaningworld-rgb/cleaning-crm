@@ -9,7 +9,7 @@
 
 import { createHmac, hkdfSync, timingSafeEqual } from "node:crypto";
 
-export const CHECKIN_LINK_DAYS = 60;
+export const CHECKIN_LINK_DAYS = 30;
 export const CHECKIN_PATH = "/checkin";
 
 function key(): Buffer {
@@ -41,4 +41,6 @@ export function readCheckinToken(token: string, now = Date.now()): number | null
   }
 }
 
-export const checkinUrl = (origin: string, token: string, action: "up" | "down" | "stop") => `${origin.replace(/\/$/, "")}${CHECKIN_PATH}/${token}?a=${action}`;
+export type CheckinLinkAction = "great" | "ok" | "attention" | "stop";
+
+export const checkinUrl = (origin: string, token: string, action: CheckinLinkAction) => `${origin.replace(/\/$/, "")}${CHECKIN_PATH}/${token}?a=${action}`;
