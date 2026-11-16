@@ -1729,6 +1729,168 @@ button.ui-card:hover {
   }
 }
 
+/* The printed Complaint Review (app/components/complaint-review-print.tsx):
+   Letter, portrait, "Cleaning World Inc. — Page X of Y" at the foot of each
+   page, and no complaint split across two pages. A named page, so no other
+   printout changes. */
+@page complaint-review {
+  size: letter portrait;
+  margin: 0.5in 0.5in 0.6in;
+
+  @bottom-center {
+    content: "Cleaning World Inc. — Page " counter(page) " of " counter(pages);
+    font-family: Arial, sans-serif;
+    font-size: 9pt;
+    color: #444;
+  }
+}
+
+@media print {
+  .cw-review {
+    page: complaint-review;
+    color: #000;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.35;
+  }
+
+  .cw-review p {
+    margin: 0 0 4px;
+  }
+
+  .cw-review-head {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    border-bottom: 2px solid #000;
+    padding-bottom: 8px;
+    margin-bottom: 12px;
+  }
+
+  .cw-review-logo {
+    width: 56px;
+    height: 56px;
+    object-fit: contain;
+  }
+
+  .cw-review-company {
+    font-weight: 800;
+    font-size: 12pt;
+  }
+
+  .cw-review-head h1 {
+    font-size: 17pt;
+    font-weight: 800;
+    margin: 2px 0 4px;
+  }
+
+  .cw-review-summary {
+    border: 1.5px solid #000;
+    padding: 8px 10px;
+    margin-bottom: 14px;
+    break-inside: avoid;
+  }
+
+  .cw-review-summary h2 {
+    font-size: 13pt;
+    font-weight: 800;
+    margin: 0 0 4px;
+  }
+
+  .cw-review-total {
+    font-weight: 700;
+  }
+
+  .cw-review-summary table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+    margin-top: 6px;
+  }
+
+  .cw-review-summary th,
+  .cw-review-summary td {
+    text-align: left;
+    vertical-align: top;
+    padding: 3px 6px;
+    border-bottom: 1px solid #bbb;
+  }
+
+  .cw-review-summary th {
+    border-bottom: 1.5px solid #000;
+  }
+
+  .cw-review-summary tr {
+    break-inside: avoid;
+  }
+
+  .cw-review-block {
+    border: 1px solid #999;
+    border-radius: 4px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .cw-review-block-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: baseline;
+  }
+
+  .cw-review-block-head h3 {
+    font-size: 12pt;
+    font-weight: 800;
+    margin: 0 0 2px;
+  }
+
+  .cw-review-block-head span {
+    font-size: 10pt;
+    white-space: nowrap;
+  }
+
+  .cw-review-muted {
+    color: #333;
+    font-size: 10pt;
+  }
+
+  .cw-review-issue {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border-left: 3px solid #000;
+    padding-left: 8px;
+    margin: 6px 0 !important;
+  }
+
+  .cw-review-photos {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 6px;
+  }
+
+  .cw-review-photos img {
+    width: 1.3in;
+    height: 0.95in;
+    object-fit: cover;
+    border: 1px solid #999;
+  }
+
+  .cw-review-photos span {
+    font-size: 10pt;
+    font-weight: 700;
+  }
+
+  .cw-review-end {
+    font-weight: 700;
+    border-top: 2px solid #000;
+    padding-top: 6px;
+    margin-top: 8px;
+  }
+}
+
 /* Calendar pieces (Sub Schedules → Full Calendar). */
 .ui-wide-only {
   display: none;

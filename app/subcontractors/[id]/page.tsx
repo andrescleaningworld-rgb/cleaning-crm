@@ -23,11 +23,9 @@ import {
   useSaveAction,
   type StatusKind,
 } from "@/app/ui";
-import {
-  normalizeSubName,
-  resolveAssignedSubKey,
-  buildSubcontractorPerformanceKey,
-} from "@/lib/subAccountMatching";
+import { accountsOfSub, complaintsOfSub } from "@/lib/complaintsBySub";
+import { DATE_PRESETS, inRange, presetRange, reviewComplaintOf, validityCounts, type DatePreset } from "@/lib/complaintReview";
+import ComplaintReviewPrint from "@/app/components/complaint-review-print";
 import InviteToPortal from "./invite-to-portal";
 import CrewsDetail from "./crews";
 import { shareOfRevenue } from "@/lib/payShare";
@@ -200,7 +198,7 @@ function niceDate(value: unknown) {
 
   // A bare YYYY-MM-DD is a calendar day: build it in local time so it never
   // shows as the day before.
-  const dayOnly = /^(d{4})-(d{2})-(d{2})$/.exec(text);
+  const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
   const date = dayOnly ? new Date(Number(dayOnly[1]), Number(dayOnly[2]) - 1, Number(dayOnly[3])) : new Date(text);
   if (Number.isNaN(date.getTime())) return text;
 
@@ -294,18 +292,6 @@ function getAccountManager(account: AnyRow) {
   ]);
 }
 
-function getAccountSubcontractor(account: AnyRow) {
-  return getAnyValue(account, [
-    "subcontractor",
-    "Subcontractor",
-    "subContractor",
-    "Sub Contractor",
-    "cleaner",
-    "Cleaner",
-    "assignedSubcontractor",
-    "Assigned Subcontractor",
-  ]);
-}
 
 function getAccountStatus(account: AnyRow) {
   return getAnyValue(account, [
@@ -750,49 +736,13 @@ export default function SubcontractorDetailPage() {
   const scoreStatus = getScoreStatus(score, scoreStatusValue);
   const insuranceStatus = getInsuranceStatus(form.insuranceExpiration);
 
-  const subcontractorAccounts = useMemo(() => {
-    if (!subcontractor) return [];
-
-    // Ambiguity-safe resolution (see lib/subAccountMatching.ts): each
-    // account's raw Subcontractor string resolves to at most one sub —
-    // exact company/contact match wins outright, a substring match only
-    // counts if it's unambiguous, and anything still ambiguous resolves to
-    // no one rather than being guessed onto every fuzzy-matching sub. Built
-    // from ALL loaded subs (not just this page's), since ambiguity can only
-    // be detected against the full roster — the previous per-account
-    // substring check tested this one sub in isolation and had no way to
-    // know another sub's name also matched.
-    const subEntries = subcontractors.map((sub) => ({
-      key: buildSubcontractorPerformanceKey(
-        getCompanyName(sub),
-        getValue(sub, "contactName", "ContactName", "Contact Name")
-      ),
-      company: normalizeSubName(getCompanyName(sub)),
-      contact: normalizeSubName(
-        getValue(sub, "contactName", "ContactName", "Contact Name")
-      ),
-    }));
-
-    const currentSubKey = buildSubcontractorPerformanceKey(
-      getCompanyName(subcontractor),
-      getValue(subcontractor, "contactName", "ContactName", "Contact Name")
-    );
-
-    const resolveCache = new Map<string, string>();
-
-    return accounts.filter((account) => {
-      const raw = getAccountSubcontractor(account);
-      if (!raw) return false;
-
-      let resolvedKey = resolveCache.get(raw);
-      if (resolvedKey === undefined) {
-        resolvedKey = resolveAssignedSubKey(raw, subEntries);
-        resolveCache.set(raw, resolvedKey);
-      }
-
-      return resolvedKey === currentSubKey;
-    });
-  }, [accounts, subcontractors, subcontractor]);
+  // Ambiguity-safe: each account's Subcontractor resolves to at most one sub,
+  // checked against ALL loaded subs (lib/complaintsBySub.ts, shared with the
+  // Complaints page's Sub filter).
+  const subcontractorAccounts = useMemo(
+    () => accountsOfSub(accounts, subcontractors as AnyRow[], subcontractor as AnyRow | undefined),
+    [accounts, subcontractors, subcontractor]
+  );
 
   const currentAccounts = useMemo(() => {
     return subcontractorAccounts.filter((account) => {
@@ -816,29 +766,33 @@ export default function SubcontractorDetailPage() {
     });
   }, [subcontractorAccounts]);
 
-  const relatedComplaints = useMemo(() => {
-    const accountNames = new Set(
-      subcontractorAccounts.map((account) => normalize(getAccountName(account)))
-    );
-    // The same rule as the score: a complaint that has its sub saved belongs
-    // to the sub who had the account when it was filed, not to whoever has
-    // the account now. One without it counts for the account's sub of today.
-    const subEntries = subcontractors.map((sub) => ({
-      key: buildSubcontractorPerformanceKey(getCompanyName(sub), getValue(sub, "contactName", "ContactName", "Contact Name")),
-      company: normalizeSubName(getCompanyName(sub)),
-      contact: normalizeSubName(getValue(sub, "contactName", "ContactName", "Contact Name")),
-    }));
-    const thisSubKey = subcontractor
-      ? buildSubcontractorPerformanceKey(getCompanyName(subcontractor), getValue(subcontractor, "contactName", "ContactName", "Contact Name"))
-      : "";
+  // The same rule as the score: a complaint that has its sub saved belongs
+  // to the sub who had the account when it was filed, not to whoever has
+  // the account now. One without it counts for the account's sub of today.
+  // Shared with the Complaints page's Sub filter (lib/complaintsBySub.ts).
+  const relatedComplaints = useMemo(
+    () => complaintsOfSub(complaintsData, subcontractorAccounts, subcontractors as AnyRow[], subcontractor as AnyRow | undefined),
+    [complaintsData, subcontractorAccounts, subcontractors, subcontractor]
+  );
 
-    return complaintsData.filter((complaint) => {
-      const saved = (complaint as { subAtFiling?: string | null }).subAtFiling;
-      if (typeof saved === "string") return saved.trim() !== "" && resolveAssignedSubKey(saved, subEntries) === thisSubKey;
-      const complaintAccount = normalize(getComplaintAccountName(complaint));
-      return accountNames.has(complaintAccount);
-    });
-  }, [complaintsData, subcontractorAccounts, subcontractors, subcontractor]);
+  // "Print for review": ALL of this sub's complaints (not only the 25 on the
+  // card) in the picked days, Valid only unless Needs Review / Subjective are
+  // asked for. Merged ones never count, so they are left out.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewPreset, setReviewPreset] = useState<DatePreset>("90");
+  const [reviewFrom, setReviewFrom] = useState("");
+  const [reviewTo, setReviewTo] = useState("");
+  const [reviewUnsure, setReviewUnsure] = useState(false);
+  const [reviewPrinting, setReviewPrinting] = useState(false);
+  const doneReviewPrinting = useCallback(() => setReviewPrinting(false), []);
+  const reviewRange = presetRange(reviewPreset, reviewFrom, reviewTo);
+  const reviewRows = useMemo(
+    () =>
+      relatedComplaints
+        .map((complaint) => reviewComplaintOf(complaint))
+        .filter((c) => !c.status.toLowerCase().startsWith("merged") && validityCounts(c.validity, reviewUnsure) && inRange(c.date, reviewRange.from, reviewRange.to)),
+    [relatedComplaints, reviewUnsure, reviewRange.from, reviewRange.to]
+  );
 
   const openComplaints = relatedComplaints.filter((complaint) => {
     const status = normalize(getComplaintStatus(complaint));
@@ -989,7 +943,7 @@ export default function SubcontractorDetailPage() {
                 <li>Validity: Valid 100%, Needs Review 100%, Subjective 50%, Not Valid 0% (does not count). Merged complaints never count.</li>
               </ul>
               <p>
-                <strong>Fast fix bonus:</strong> fixed with proof (an after photo, or the office's &quot;No photo needed&quot;) within 1 business day of the sub being notified, half of that complaint&apos;s points
+                <strong>Fast fix bonus:</strong> fixed with proof (an after photo, or the office&apos;s &quot;No photo needed&quot;) within 1 business day of the sub being notified, half of that complaint&apos;s points
                 come back. Within 3 business days, a quarter comes back. Business days are Monday to Friday, 8 am to 5 pm. Never notified: counted from when it
                 was filed.
               </p>
@@ -1037,7 +991,16 @@ export default function SubcontractorDetailPage() {
           showCancelledDate
         />
 
-        <Card title="Recent Complaints">
+        <Card
+          title="Recent Complaints"
+          right={
+            <span className="sub-detail-print-hide">
+              <BigButton kind="second" disabled={reviewPrinting} onClick={() => setReviewOpen(true)}>
+                🖨 Print for review
+              </BigButton>
+            </span>
+          }
+        >
           <p className="ui-card-text">Complaints filed while this subcontractor had the account.</p>
           <div style={{ marginTop: 12 }}>
             {relatedComplaints.length === 0 ? (
@@ -1093,6 +1056,55 @@ export default function SubcontractorDetailPage() {
             <EmailLogList subId={clean(String((subcontractor as unknown as Record<string, unknown>).subId ?? ""))} subEmail={form.email} showSubFilter={false} />
           </Card>
         </div>
+
+        <Sheet
+          open={reviewOpen}
+          title="🖨 Print for review"
+          text="A Complaint Review to hand to this sub: no notes, money or score on it."
+          onClose={() => setReviewOpen(false)}
+          actions={
+            <BigButton
+              disabled={reviewRows.length === 0}
+              onClick={() => {
+                setReviewOpen(false);
+                setReviewPrinting(true);
+              }}
+            >
+              🖨 Print
+            </BigButton>
+          }
+        >
+          <SelectField label="Date range" value={reviewPreset} onChange={(e) => setReviewPreset(e.target.value as DatePreset)}>
+            {DATE_PRESETS.map((preset) => (
+              <option key={preset.value} value={preset.value}>
+                {preset.label}
+              </option>
+            ))}
+          </SelectField>
+          {reviewPreset === "custom" ? (
+            <>
+              <Field label="From date" optional type="date" value={reviewFrom} onChange={(e) => setReviewFrom(e.target.value)} />
+              <Field label="To date" optional type="date" value={reviewTo} onChange={(e) => setReviewTo(e.target.value)} />
+            </>
+          ) : null}
+          <label className={`flex min-h-[56px] cursor-pointer items-center gap-3 rounded-2xl px-4 text-lg font-bold ${reviewUnsure ? "bg-blue-50 ring-2 ring-blue-600" : "bg-white ring-1 ring-slate-300"}`}>
+            <input type="checkbox" className="h-7 w-7 shrink-0" checked={reviewUnsure} onChange={(e) => setReviewUnsure(e.target.checked)} />
+            <span>Include Needs Review / Subjective</span>
+          </label>
+          <p className="ui-muted" role="status">
+            {reviewRows.length} complaint{reviewRows.length === 1 ? "" : "s"} will print{reviewUnsure ? "" : " (Valid only)"}.
+          </p>
+        </Sheet>
+
+        <ComplaintReviewPrint
+          active={reviewPrinting}
+          onDone={doneReviewPrinting}
+          subName={getCompanyName(subcontractor)}
+          from={reviewRange.from}
+          to={reviewRange.to}
+          complaints={reviewRows}
+          note={reviewUnsure ? "Valid, Needs Review and Subjective complaints" : "Valid complaints only"}
+        />
 
         {editing ? (
           <EditSubcontractorSheet pageId={pageId} initial={form} onClose={() => setEditing(false)} onSaved={loadData} />

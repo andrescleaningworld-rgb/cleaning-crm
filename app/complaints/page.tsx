@@ -6,7 +6,10 @@ import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { ResponseClock } from "../components/response-clock";
 import { EMPTY_FIX_PROOF, FixProofFields, fixProofProblem, uploadFixPhotos, type FixProof } from "../components/fix-proof";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { accountsOfSub, complaintsOfSub, subCompanyName, subIdOf } from "@/lib/complaintsBySub";
+import { DATE_PRESETS, presetRange, reviewComplaintOf, type DatePreset } from "@/lib/complaintReview";
+import ComplaintReviewPrint from "../components/complaint-review-print";
 import {
   AddButton,
   BigButton,
@@ -53,7 +56,20 @@ type Complaint = {
   /** The response clock (lib/responseClock.ts): when it was made, and its first answer ("" = still waiting, "none" = no clock). */
   createdAt?: string;
   firstResponseAt?: string;
+  /** The sub who had the account when it was filed (null = not recorded). */
+  subAtFiling?: string | null;
 };
+
+type AnyRow = Record<string, unknown>;
+
+/** A list from an API answer: the array itself, or its `key` / data array. */
+function listFrom(data: unknown, key: string): AnyRow[] {
+  if (Array.isArray(data)) return data as AnyRow[];
+  const record = (data ?? {}) as Record<string, unknown>;
+  if (Array.isArray(record[key])) return record[key] as AnyRow[];
+  if (Array.isArray(record.data)) return record.data as AnyRow[];
+  return [];
+}
 
 type ComplaintPhoto = {
   rowNumber?: number | string;
@@ -263,6 +279,12 @@ export default function ComplaintsPage() {
   const [sortOrder, setSortOrder] = useState<SortOption>("Newest");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  // Sub filter: the sub who had the account when the complaint was filed
+  // (lib/complaintsBySub.ts, the same rule as the sub page's Recent Complaints).
+  const [subFilter, setSubFilter] = useState("All");
+  const [subs, setSubs] = useState<AnyRow[]>([]);
+  const [accountRows, setAccountRows] = useState<AnyRow[]>([]);
 
   // Modals (a complaint itself opens its own page, /complaints/<id>)
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
@@ -352,9 +374,20 @@ export default function ComplaintsPage() {
     }
   }
 
+  // Subs and accounts, for the Sub filter only (the page works without them).
+  async function loadSubsAndAccounts() {
+    const [subsRes, accountsRes] = await Promise.allSettled([
+      fetch("/api/subcontractors", { cache: "no-store" }).then((r) => r.json()),
+      fetch("/api/accounts", { cache: "no-store" }).then((r) => r.json()),
+    ]);
+    setSubs(subsRes.status === "fulfilled" ? listFrom(subsRes.value, "subcontractors") : []);
+    setAccountRows(accountsRes.status === "fulfilled" ? listFrom(accountsRes.value, "accounts") : []);
+  }
+
   useEffect(() => {
     void loadComplaints();
     void loadPhotos();
+    void loadSubsAndAccounts();
   }, []);
 
 
@@ -471,6 +504,24 @@ export default function ComplaintsPage() {
     return ["All", ...names];
   }, [complaints]);
 
+  // Every sub, A–Z, for the Sub filter (value = its ID).
+  const subOptions = useMemo(
+    () =>
+      subs
+        .map((sub) => ({ id: subIdOf(sub), name: subCompanyName(sub), sub }))
+        .filter((option) => option.id)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [subs]
+  );
+  const pickedSub = useMemo(() => (subFilter === "All" ? undefined : subOptions.find((option) => option.id === subFilter)), [subFilter, subOptions]);
+  // The complaints that belong to the picked sub (null = no sub picked).
+  const subComplaints = useMemo(() => {
+    if (!pickedSub) return null;
+    const rows = complaints as AnyRow[];
+    return new Set(complaintsOfSub(rows, accountsOfSub(accountRows, subs, pickedSub.sub), subs, pickedSub.sub));
+  }, [complaints, accountRows, subs, pickedSub]);
+  const range = presetRange(datePreset, dateFrom, dateTo);
+
   // Unique statuses for filter dropdown
   const statusOptions = useMemo(() => {
     const statuses = Array.from(
@@ -504,11 +555,14 @@ export default function ComplaintsPage() {
       // Account filter
       if (accountFilter !== "All" && clean(c.accountName) !== accountFilter) return false;
 
+      // Sub filter
+      if (subComplaints && !subComplaints.has(c as AnyRow)) return false;
+
       // Date range
-      if (dateFrom || dateTo) {
+      if (range.from || range.to) {
         const iso = toIso(c.date);
-        if (dateFrom && iso && iso < dateFrom) return false;
-        if (dateTo && iso && iso > dateTo) return false;
+        if (range.from && iso && iso < range.from) return false;
+        if (range.to && iso && iso > range.to) return false;
       }
 
       return true;
@@ -529,7 +583,7 @@ export default function ComplaintsPage() {
     }
 
     return result;
-  }, [complaints, search, statusFilter, accountFilter, sortOrder, dateFrom, dateTo, quick]);
+  }, [complaints, search, statusFilter, accountFilter, sortOrder, range.from, range.to, quick, subComplaints]);
 
   const openComplaints = useMemo(
     () =>
@@ -579,10 +633,26 @@ export default function ComplaintsPage() {
     setSortOrder("Newest");
     setDateFrom("");
     setDateTo("");
+    setDatePreset("all");
+    setSubFilter("All");
   }
 
+  // Print: exactly the complaints the filters show now.
+  const [printing, setPrinting] = useState(false);
+  const donePrinting = useCallback(() => setPrinting(false), []);
+  const printRows = useMemo(() => filteredComplaints.map((c) => reviewComplaintOf(c as AnyRow)), [filteredComplaints]);
+  const printNote = [
+    scope.active ? `Account: ${scope.accountName}` : "",
+    quick === "open" ? "Open only" : quick === "closed" ? "Closed only" : quick === "review" ? "To review only" : "",
+    statusFilter !== "All" ? `Status: ${statusFilter}` : "",
+    accountFilter !== "All" ? `Account: ${accountFilter}` : "",
+    search.trim() ? `Search: "${search.trim()}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const filtersOn =
-    (statusFilter !== "All" ? 1 : 0) + (accountFilter !== "All" ? 1 : 0) + (sortOrder !== "Newest" ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
+    (statusFilter !== "All" ? 1 : 0) + (accountFilter !== "All" ? 1 : 0) + (sortOrder !== "Newest" ? 1 : 0) + (subFilter !== "All" ? 1 : 0) + (datePreset !== "all" ? 1 : 0);
   const priorityOf = (c: Complaint) => clean(c.severity || c.priority);
   const statusPill = (c: Complaint) => <StatusPill kind={statusKind(c.status)}>{clean(c.status) || "Open"}</StatusPill>;
   const priorityPill = (c: Complaint) => <StatusPill kind={priorityKind(priorityOf(c))}>{priorityOf(c) ? `${priorityOf(c)} priority` : "No priority"}</StatusPill>;
@@ -614,6 +684,11 @@ export default function ComplaintsPage() {
       title="Complaints"
       backHref="/"
       addAction={<AddButton href="/complaints/new">Add complaint</AddButton>}
+      headerRight={
+        <BigButton kind="second" disabled={loading || filteredComplaints.length === 0 || printing} onClick={() => setPrinting(true)}>
+          🖨 Print
+        </BigButton>
+      }
     >
       <AccountScopeBar scope={scope} what="complaints" />
       {error && !selectedComplaint ? <ErrorBox title="That did not work." text={error} /> : null}
@@ -763,13 +838,32 @@ export default function ComplaintsPage() {
             </option>
           ))}
         </SelectField>
+        <SelectField label="Sub" value={subFilter} onChange={(e) => setSubFilter(e.target.value)}>
+          <option value="All">All subs</option>
+          {subOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.name}
+            </option>
+          ))}
+        </SelectField>
         <SelectField label="Sort" value={sortOrder} onChange={(e) => setSortOrder(e.target.value as SortOption)}>
           <option value="Newest">Newest First</option>
           <option value="Oldest">Oldest First</option>
           <option value="Status">By Status</option>
         </SelectField>
-        <Field label="From date" optional type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-        <Field label="To date" optional type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <SelectField label="Date range" value={datePreset} onChange={(e) => setDatePreset(e.target.value as DatePreset)}>
+          {DATE_PRESETS.map((preset) => (
+            <option key={preset.value} value={preset.value}>
+              {preset.label}
+            </option>
+          ))}
+        </SelectField>
+        {datePreset === "custom" ? (
+          <>
+            <Field label="From date" optional type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <Field label="To date" optional type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          </>
+        ) : null}
         <p className="ui-muted" role="status">
           {filteredComplaints.length} of {complaints.length}
         </p>
@@ -779,6 +873,16 @@ export default function ComplaintsPage() {
           </BigButton>
         </div>
       </Sheet>
+
+      <ComplaintReviewPrint
+        active={printing}
+        onDone={donePrinting}
+        subName={pickedSub?.name ?? "All subs"}
+        from={range.from}
+        to={range.to}
+        complaints={printRows}
+        note={printNote}
+      />
 
       {/* Close a complaint */}
       <Sheet
