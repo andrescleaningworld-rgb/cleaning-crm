@@ -522,20 +522,31 @@ export async function checkinCopy(id: number): Promise<{ subject: string; html: 
   return row && row.email_html ? { subject: row.subject, html: row.email_html, sentTo: row.sent_to, sentAt: iso(row.sent_at) } : null;
 }
 
-/** Each account's last check-in (sent or queued), for the Check-ins page's filters; and who stopped them. */
-export async function lastCheckins(): Promise<{ last: Record<string, CheckinLast>; optedOut: string[] }> {
-  if (!(await checkinReady())) return { last: {}, optedOut: [] };
-  const [rows, outs] = await Promise.all([
+/** The ids of the accounts a check-in can reach: a good email on the account, or else on its main contact (the same rule as sending). */
+async function reachableAccounts(): Promise<string[]> {
+  const contacts = await contactsTableReady();
+  const rows = (await getSql().query(
+    `SELECT a.id, COALESCE(NULLIF(btrim(a.email), ''), ${contacts ? `(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.is_main AND btrim(c.email) <> '' LIMIT 1)` : "NULL"}, '') AS email
+     FROM accounts a WHERE a.id IS NOT NULL AND ${accountLive("a")}`
+  )) as { id: string; email: string }[];
+  return rows.filter((row) => firstEmail(row.email)).map((row) => row.id);
+}
+
+/** Each account's last check-in (sent or queued), for the Check-ins page's filters; who stopped them; and who has an email to send to. */
+export async function lastCheckins(): Promise<{ last: Record<string, CheckinLast>; optedOut: string[]; withEmail: string[] }> {
+  if (!(await checkinReady())) return { last: {}, optedOut: [], withEmail: [] };
+  const [rows, outs, withEmail] = await Promise.all([
     getSql()`
       SELECT DISTINCT ON (account_id) account_id, COALESCE(sent_at, created_at) AS at, answer, status, comment
       FROM customer_checkins WHERE status IN ('sent', 'queued')
       ORDER BY account_id, COALESCE(sent_at, created_at) DESC, id DESC
     ` as unknown as Promise<{ account_id: string; at: string | Date; answer: CheckinAnswerValue; status: CheckinStatus; comment: string }[]>,
     getSql()`SELECT account_id FROM customer_checkin_optouts` as unknown as Promise<{ account_id: string }[]>,
+    reachableAccounts(),
   ]);
   const last: Record<string, CheckinLast> = {};
   for (const row of rows) last[row.account_id] = { lastSentAt: iso(row.at), lastAnswer: row.answer, lastStatus: row.status, lastComment: clean(row.comment) };
-  return { last, optedOut: outs.map((o) => o.account_id) };
+  return { last, optedOut: outs.map((o) => o.account_id), withEmail };
 }
 
 type BatchDb = {

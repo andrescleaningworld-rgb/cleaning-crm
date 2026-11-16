@@ -141,6 +141,9 @@ export default function CheckinsPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [last, setLast] = useState<Record<string, CheckinLast>>({});
   const [optedOut, setOptedOut] = useState<Set<string>>(new Set());
+  // Who has an email a check-in can go to: the account's own, or its main contact's (from the server, the same rule as sending).
+  const [withEmail, setWithEmail] = useState<Set<string> | null>(null);
+  const hasEmail = useCallback((r: Row) => (withEmail ? withEmail.has(r.id) : Boolean(r.email)), [withEmail]);
   const [lists, setLists] = useState<CheckinList[]>([]);
   const [ready, setReady] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -182,10 +185,11 @@ export default function CheckinsPage() {
       fetch("/api/customer-checkin?view=last", { cache: "no-store" }).then((r) => r.json()),
       fetch("/api/customer-checkin?view=lists", { cache: "no-store" }).then((r) => r.json()),
     ]);
-    const lastData = lastRes as { success?: boolean; ready?: boolean; last?: Record<string, CheckinLast>; optedOut?: string[] };
+    const lastData = lastRes as { success?: boolean; ready?: boolean; last?: Record<string, CheckinLast>; optedOut?: string[]; withEmail?: string[] };
     setReady(lastData.ready !== false);
     setLast(lastData.last ?? {});
     setOptedOut(new Set(lastData.optedOut ?? []));
+    setWithEmail(lastData.withEmail ? new Set(lastData.withEmail) : null);
     setLists((listRes as { lists?: CheckinList[] }).lists ?? []);
   }, []);
 
@@ -224,7 +228,7 @@ export default function CheckinsPage() {
       if (managerFilter !== "All" && !managerMatches(r.manager, managerFilter)) return false;
       if (subFilter !== "All" && r.sub !== subFilter) return false;
       if (townFilter && r.town !== townFilter) return false;
-      if (emailOnly && !r.email) return false;
+      if (emailOnly && !hasEmail(r)) return false;
       if (!matchesLastVisited(lastVisitedFilter, lastVisits, r.id, today)) return false;
       if (!matchesCheckin(checkinFilter, last[r.id])) return false;
       if (nearRow) {
@@ -234,7 +238,7 @@ export default function CheckinsPage() {
       }
       return true;
     });
-  }, [rows, search, statusFilter, managerFilter, subFilter, townFilter, emailOnly, lastVisitedFilter, lastVisits, today, checkinFilter, last, nearRow, radius, listOnly, currentList]);
+  }, [rows, search, statusFilter, managerFilter, subFilter, townFilter, emailOnly, hasEmail, lastVisitedFilter, lastVisits, today, checkinFilter, last, nearRow, radius, listOnly, currentList]);
 
   const filtersOn =
     (statusFilter !== "active" ? 1 : 0) +
@@ -452,7 +456,7 @@ export default function CheckinsPage() {
                   }
                 >
                   <p className="ui-card-text">
-                    {[r.manager || "No manager", r.town, r.email ? "" : "No email", optedOut.has(r.id) ? "Stopped emails" : ""].filter(Boolean).join(" · ")}
+                    {[r.manager || "No manager", r.town, hasEmail(r) ? "" : "No email", optedOut.has(r.id) ? "Stopped emails" : ""].filter(Boolean).join(" · ")}
                   </p>
                   <p className="ui-card-text">Last visited: {lastVisitText(lastVisits?.[r.id], today)}</p>
                   <p className="ui-card-text">Last check-in: {lastCheckinText(last[r.id])}</p>
@@ -473,7 +477,7 @@ export default function CheckinsPage() {
                 },
                 { header: "Manager", cell: (r) => r.manager || "None" },
                 { header: "Town", cell: (r) => r.town || "-" },
-                { header: "Email", cell: (r) => (optedOut.has(r.id) ? "Stopped emails" : r.email ? "Yes" : "No email") },
+                { header: "Email", cell: (r) => (optedOut.has(r.id) ? "Stopped emails" : hasEmail(r) ? "Yes" : "No email") },
                 { header: "Last visited", cell: (r) => lastVisitText(lastVisits?.[r.id], today) },
                 { header: "Last check-in", cell: (r) => lastCheckinText(last[r.id]) },
               ]}
