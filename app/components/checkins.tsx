@@ -7,14 +7,16 @@
 //   CheckinEmailSheet  "View email": the saved copy of what was sent. Shown
 //                      in a sandboxed frame: its buttons do nothing here, so
 //                      nobody answers for the customer by mistake.
-//   CheckinAnswer      😀 Great / 😐 OK / 😟 Needs attention, the comment and photos.
+//   CheckinAnswer      😀 Great / 😐 OK / 😟 Needs attention, the comment, the
+//                      best way to reach them, and photos.
+//   CheckinProgress    Sent → 👁 Viewed → ✅ / ⚠️ Responded, the time on hover.
 // Used by the account page (app/accounts/[id]/checkins.tsx) and the
 // Check-ins page (app/check-ins).
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { BigButton, ErrorBox, Sheet, StatusPill, showToast, type StatusKind } from "@/app/ui";
-import { CHECKIN_DAILY_LIMIT, CHECKIN_STATUS_TEXT, ratingOf, ratingText, type CheckinBatchKind, type CheckinRow, type CheckinSkip, type CheckinStatus } from "@/lib/customerCheckin";
+import { CHECKIN_DAILY_LIMIT, CHECKIN_STATUS_TEXT, CHECKIN_VIEWED_NOTE, ratingOf, ratingText, type CheckinBatchKind, type CheckinRow, type CheckinSkip, type CheckinStatus } from "@/lib/customerCheckin";
 
 type Preview = {
   willSend: { accountId: string; accountName: string; email: string }[];
@@ -253,7 +255,7 @@ export function CheckinEmailSheet({ checkinId, onClose }: { checkinId: number | 
 const RATING_KIND: Record<string, StatusKind> = { great: "done", ok: "waiting", attention: "needs-you" };
 
 /** The answer as a pill, then the comment and the photos. */
-export function CheckinAnswer({ row, compact = false }: { row: Pick<CheckinRow, "answer" | "answeredAt" | "comment" | "photos">; compact?: boolean }) {
+export function CheckinAnswer({ row, compact = false }: { row: Pick<CheckinRow, "answer" | "answeredAt" | "comment" | "photos"> & { reach?: string }; compact?: boolean }) {
   const rating = ratingOf(row.answer);
   if (!rating) return <span className="ui-muted">No answer yet</span>;
   return (
@@ -263,6 +265,7 @@ export function CheckinAnswer({ row, compact = false }: { row: Pick<CheckinRow, 
         {!compact && row.answeredAt ? <span className="ui-muted"> {whenText(row.answeredAt)}</span> : null}
       </div>
       {row.comment ? <p className="ui-card-text">&quot;{row.comment}&quot;</p> : null}
+      {row.reach ? <p className="ui-card-text">Best way to reach them: {row.reach}</p> : null}
       {row.photos.length ? (
         <div className="ui-actions-row">
           {row.photos.map((url, index) => (
@@ -278,4 +281,50 @@ export function CheckinAnswer({ row, compact = false }: { row: Pick<CheckinRow, 
 
 export function CheckinStatusPill({ status }: { status: CheckinStatus }) {
   return <StatusPill kind={checkinStatusKind(status)}>{CHECKIN_STATUS_TEXT[status]}</StatusPill>;
+}
+
+/**
+ * Where a sent check-in is: Sent → 👁 Viewed → ✅ Responded (⚠️ when the
+ * answer is Needs attention). Each step shows its time on hover. Viewed is
+ * approximate (CHECKIN_VIEWED_NOTE).
+ */
+export function CheckinProgress({ row }: { row: Pick<CheckinRow, "status" | "sentAt" | "openedAt" | "openCount" | "answer" | "answeredAt"> }) {
+  if (row.status !== "sent") return <CheckinStatusPill status={row.status} />;
+  const rating = ratingOf(row.answer);
+  const viewed = Boolean(row.openedAt) || Boolean(rating);
+  const steps: { key: string; text: string; title: string; on: boolean }[] = [
+    { key: "sent", text: "Sent", title: `Sent ${whenText(row.sentAt)}`, on: true },
+    {
+      key: "viewed",
+      text: "👁 Viewed",
+      title: row.openedAt
+        ? `First opened ${whenText(row.openedAt)}${row.openCount > 1 ? ` · opened ${row.openCount} times` : ""}. ${CHECKIN_VIEWED_NOTE}`
+        : viewed
+          ? `Opened (answered ${whenText(row.answeredAt)}). ${CHECKIN_VIEWED_NOTE}`
+          : `Not opened yet. ${CHECKIN_VIEWED_NOTE}`,
+      on: viewed,
+    },
+    {
+      key: "responded",
+      text: rating === "attention" ? "⚠️ Responded" : "✅ Responded",
+      title: rating ? `${ratingText(row.answer)} · ${whenText(row.answeredAt)}` : "No answer yet",
+      on: Boolean(rating),
+    },
+  ];
+  return (
+    <span className="ui-actions-row" style={{ gap: 4, alignItems: "center" }} aria-label={steps.filter((s) => s.on).map((s) => s.title).join(". ")}>
+      {steps.map((step, index) => (
+        <span key={step.key} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {index > 0 ? <span className="ui-muted" aria-hidden="true">→</span> : null}
+          <span
+            title={step.title}
+            className={step.on ? "ui-strong" : "ui-muted"}
+            style={{ opacity: step.on ? 1 : 0.45, whiteSpace: "nowrap", cursor: "help" }}
+          >
+            {step.text}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
 }

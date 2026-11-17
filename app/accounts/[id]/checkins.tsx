@@ -2,13 +2,14 @@
 
 // The account page's "Customer check-ins" card: "Send check-in" (a preview
 // first, then Send), the last answer, and every check-in sent to this
-// account: when, by whom, its status, the answer with the comment and photos,
-// and "View email" (the saved copy). Staff only (the account page is).
+// account: when, by whom, Sent → 👁 Viewed → ✅ / ⚠️ Responded, the answer
+// with the comment, best way to reach them and photos, and "View email"
+// (the saved copy). Staff only (the account page is).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BigButton, Card } from "@/app/ui";
-import { CheckinAnswer, CheckinEmailSheet, CheckinSendSheet, CheckinStatusPill, whenText } from "@/app/components/checkins";
-import { BATCH_KIND_TEXT, type CheckinRow } from "@/lib/customerCheckin";
+import { CheckinAnswer, CheckinEmailSheet, CheckinProgress, CheckinSendSheet, whenText } from "@/app/components/checkins";
+import { BATCH_KIND_TEXT, CHECKIN_VIEWED_NOTE, type CheckinRow } from "@/lib/customerCheckin";
 
 type Data = { ready: boolean; optedOut: boolean; rows: CheckinRow[] };
 
@@ -76,7 +77,7 @@ export default function AccountCheckins({ accountId, cancelled }: { accountId: s
                       {row.sentTo ? ` · to ${row.sentTo}` : ""}
                     </span>
                   </span>
-                  <CheckinStatusPill status={row.status} />
+                  <CheckinProgress row={row} />
                 </div>
                 {row.error ? <p className="ui-muted">{row.error}</p> : null}
                 {row.status === "sent" ? (
@@ -95,6 +96,7 @@ export default function AccountCheckins({ accountId, cancelled }: { accountId: s
             ))}
           </ul>
         ) : null}
+        {data.rows.some((row) => row.status === "sent") ? <p className="ui-muted">{CHECKIN_VIEWED_NOTE}</p> : null}
         {data.rows.length > 5 ? (
           <div>
             <BigButton kind="quiet" onClick={() => setShowAll((v) => !v)}>

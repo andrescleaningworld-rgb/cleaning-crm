@@ -59,6 +59,8 @@ export type CheckinEmailInput = {
   managerEmail: string;
   /** One link per answer, and "Stop these emails". */
   links: Record<CheckinRating, string> & { stop: string };
+  /** The 1x1 picture that marks the email "Viewed" (/checkin/<token>/open). Left out of the saved copy and the previews, so staff opening them never counts. */
+  openPixelUrl?: string;
   test?: boolean;
 };
 
@@ -93,7 +95,8 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
     signature.map((line, index) => (index === 0 ? `<strong style="color:${C.label};">${esc(line)}</strong>` : esc(line))).join("<br>") +
     `</div></div>` +
     welcomeFooterHtml() +
-    `<p style="margin:12px 0 0;font-size:12px;color:${C.muted};text-align:center;">Don't want these emails? <a href="${esc(input.links.stop)}" style="color:${C.muted};">Stop them</a>.</p>`;
+    `<p style="margin:12px 0 0;font-size:12px;color:${C.muted};text-align:center;">Don't want these emails? <a href="${esc(input.links.stop)}" style="color:${C.muted};">Stop them</a>.</p>` +
+    (input.openPixelUrl ? `<img src="${esc(input.openPixelUrl)}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;" />` : "");
 
   const text = [
     checkinSubject(input.customerName),
@@ -115,11 +118,25 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
 export const CHECKIN_PAGE = {
   thanksGreat: "Thank you! 😀",
   thanksGreatText: "We are glad your cleaning team is doing a great job.",
+  /** The feedback box, by answer (the answer is already saved when it shows). */
+  got: "Got it. Thank you!",
+  prompt: {
+    great: "Anything we can do even better?",
+    ok: "What can we do better?",
+    attention: "We're sorry — tell us what went wrong so we can fix it.",
+  } as Record<CheckinRating, string>,
+  hint: {
+    great: "Optional.",
+    ok: "Tell us what to fix. You can add photos too.",
+    attention: "Your account manager will see this right away. You can add photos too.",
+  } as Record<CheckinRating, string>,
+  change: "Change your answer",
+  reach: "Best way to reach you (optional)",
+  reachHint: "Phone or email",
   better: "What can we do better?",
-  betterHint: "Tell us what to fix. You can add photos too.",
   photos: "Photos (optional, up to 3)",
-  send: "Send",
-  skip: "Skip",
+  send: "Submit",
+  skip: "No thanks",
   thanksSent: "Thank you. Your account manager will look at it.",
   thanksNoted: "Thank you. We got your answer.",
   stopTitle: "Stop these emails?",
@@ -149,6 +166,11 @@ export type CheckinRow = {
   answeredAt: string;
   comment: string;
   photos: string[];
+  /** "Best way to reach you" from the feedback box (migration 080). */
+  reach: string;
+  /** First time the email was opened ("Viewed", approximate; migration 080). */
+  openedAt: string;
+  openCount: number;
   error: string;
   hasCopy: boolean;
 };
@@ -167,6 +189,8 @@ export type CheckinBatch = {
   skipped: number;
   answered: number;
   attention: number;
+  /** Opened ("Viewed", approximate). */
+  viewed: number;
 };
 
 /** An account the send leaves out, and why. */
@@ -176,5 +200,7 @@ export type CheckinSkip = { accountId: string; accountName: string; reason: stri
 export type CheckinLast = { lastSentAt: string; lastAnswer: CheckinAnswerValue; lastStatus: CheckinStatus | ""; lastComment: string };
 
 export type CheckinList = { id: number; name: string; accountIds: string[]; createdBy: string; updatedAt: string };
+
+export const CHECKIN_VIEWED_NOTE = "Viewed is approximate — some email apps block or auto-load images.";
 
 export const BATCH_KIND_TEXT: Record<CheckinBatchKind, string> = { single: "Single", picked: "Picked", list: "List" };

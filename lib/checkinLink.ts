@@ -44,3 +44,6 @@ export function readCheckinToken(token: string, now = Date.now()): number | null
 export type CheckinLinkAction = "great" | "ok" | "attention" | "stop";
 
 export const checkinUrl = (origin: string, token: string, action: CheckinLinkAction) => `${origin.replace(/\/$/, "")}${CHECKIN_PATH}/${token}?a=${action}`;
+
+/** The 1x1 "Viewed" picture in the email (app/checkin/[token]/open). */
+export const checkinOpenUrl = (origin: string, token: string) => `${origin.replace(/\/$/, "")}${CHECKIN_PATH}/${token}/open`;

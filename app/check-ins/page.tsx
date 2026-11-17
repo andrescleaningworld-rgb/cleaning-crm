@@ -12,8 +12,9 @@
 //            shows the email and who is skipped (and why) first
 //            (CheckinSendSheet).
 //   History  one line per send: when, who, which list, how many sent /
-//            skipped / answered. Tap one: every account in it, its status,
-//            the answer, comment and photos, and the email that was sent.
+//            skipped / viewed / answered. Tap one: every account in it,
+//            Sent → 👁 Viewed → ✅ / ⚠️ Responded, the answer, comment, best
+//            way to reach them and photos, and the email that was sent.
 //
 // Nothing is sent by itself: only Send sends. More than 90 in a day wait in
 // the queue and go over the next days.
@@ -35,13 +36,13 @@ import {
   Tabs,
   showToast,
 } from "@/app/ui";
-import { CheckinAnswer, CheckinEmailSheet, CheckinSendSheet, CheckinStatusPill, whenText } from "@/app/components/checkins";
+import { CheckinAnswer, CheckinEmailSheet, CheckinProgress, CheckinSendSheet, whenText } from "@/app/components/checkins";
 import { LastVisitedField, easternTodayIso, lastVisitText, matchesLastVisited, useLastVisits, type LastVisitedFilter } from "@/app/components/last-visited";
 import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
 import { AutocompleteField, useCustomerSearch } from "@/app/sub-schedules/autocomplete";
 import { distanceInMiles } from "@/app/lib/distance";
 import { managerMatches } from "@/lib/managerNames";
-import { BATCH_KIND_TEXT, ratingOf, ratingText, type CheckinBatch, type CheckinLast, type CheckinList, type CheckinRow, type CheckinSkip } from "@/lib/customerCheckin";
+import { BATCH_KIND_TEXT, CHECKIN_VIEWED_NOTE, ratingOf, ratingText, type CheckinBatch, type CheckinLast, type CheckinList, type CheckinRow, type CheckinSkip } from "@/lib/customerCheckin";
 
 type RawAccount = Record<string, unknown>;
 
@@ -644,6 +645,7 @@ function HistoryTab() {
 
   return (
     <>
+      <p className="ui-muted">{CHECKIN_VIEWED_NOTE}</p>
       <CardList
         label="Check-in sends"
         items={batches}
@@ -656,7 +658,7 @@ function HistoryTab() {
             <p className="ui-card-text">
               Sent {b.sent}
               {b.queued ? ` · Queued ${b.queued}` : ""}
-              {b.failed ? ` · Failed ${b.failed}` : ""} · Skipped {b.skipped} · Answered {b.answered}
+              {b.failed ? ` · Failed ${b.failed}` : ""} · Skipped {b.skipped} · 👁 Viewed {b.viewed} · Answered {b.answered}
               {b.attention ? ` · 😟 ${b.attention}` : ""}
             </p>
           </Card>
@@ -676,6 +678,7 @@ function HistoryTab() {
           { header: "Queued", cell: (b) => String(b.queued) },
           { header: "Failed", cell: (b) => String(b.failed) },
           { header: "Skipped", cell: (b) => String(b.skipped) },
+          { header: "👁 Viewed", cell: (b) => String(b.viewed) },
           { header: "Answered", cell: (b) => `${b.answered}${b.attention ? ` (😟 ${b.attention})` : ""}` },
         ]}
       />
@@ -693,13 +696,14 @@ function HistoryTab() {
           <p className="ui-muted">Loading…</p>
         ) : (
           <div className="ui-stack">
+            <p className="ui-muted">{CHECKIN_VIEWED_NOTE} Hover a step for its date and time.</p>
             {detail.rows.map((row) => (
               <div key={row.id} style={{ borderTop: "1px solid #dbeafe", paddingTop: 10 }}>
                 <div className="ui-actions-row" style={{ justifyContent: "space-between" }}>
                   <Link className="ui-link ui-strong" href={`/accounts/${encodeURIComponent(row.accountId)}`}>
                     {row.accountName || row.accountId}
                   </Link>
-                  {ratingOf(row.answer) ? <span className="ui-strong">Answered</span> : <CheckinStatusPill status={row.status} />}
+                  <CheckinProgress row={row} />
                 </div>
                 <p className="ui-muted">
                   {row.sentAt ? `Sent ${whenText(row.sentAt)}` : `Queued ${whenText(row.createdAt)}`}

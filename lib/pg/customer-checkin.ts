@@ -1,4 +1,4 @@
-// Customer check-ins: the database side (migrations 059 + 079). Server only.
+// Customer check-ins: the database side (migrations 059 + 079 + 080). Server only.
 // Words and the email: lib/customerCheckin.ts. Link: lib/checkinLink.ts.
 //
 // Nothing is sent by itself. A check-in goes out only when someone presses
@@ -18,19 +18,25 @@
 // emails". The email and its subject are saved on the row: the copy behind
 // "View email".
 //
-// Answers (app/checkin): 😀 Great is just logged. 😟 Needs attention puts a
+// "Viewed": the sent email carries a 1x1 picture (app/checkin/[token]/open,
+// migration 080) that records the first open and how many. Approximate.
+//
+// Answers (app/checkin): every answer, and every feedback box sent after it,
+// emails the office (crm@; "⚠️ Needs attention" starts the subject for
+// those). The answer can be changed on the page before Submit.
+// 😀 Great is just logged. 😟 Needs attention puts a
 // paper in the account manager's square right away, with a text and a push;
 // 😐 OK does the same once the customer writes what to do better.
 
 import { getSql } from "@/lib/db";
 import { logActivity } from "@/lib/activityLog";
-import { sendHtmlEmail } from "@/lib/email";
+import { linesToHtml, sendHtmlEmail } from "@/lib/email";
 import { sendPush } from "@/lib/push";
 import { accountLive } from "@/lib/pg/account-live";
 import { managerSquareFinder, pinOnce, takeDownPapers, updatePaperNotes } from "@/lib/pg/auto-pins";
 import { notifyBoardSquare } from "@/lib/pg/board-sms";
 import { complaintOpenSql } from "@/lib/pg/complaint-changes";
-import { checkinToken, checkinUrl } from "@/lib/checkinLink";
+import { checkinOpenUrl, checkinToken, checkinUrl } from "@/lib/checkinLink";
 import {
   CHECKIN_DAILY_LIMIT,
   CHECKIN_REPEAT_DAYS,
@@ -80,6 +86,23 @@ export async function checkinReady(): Promise<boolean> {
 }
 
 export const NOT_READY = "Check-ins need migration 079 first.";
+
+let viewCache = false;
+
+/** Migration 080 is in ("Viewed" and "Best way to reach you"). Before it, check-ins work without those. */
+async function viewReady(): Promise<boolean> {
+  if (viewCache) return true;
+  try {
+    const rows = (await getSql()`
+      SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'customer_checkins' AND column_name = 'opened_at')
+         AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'customer_checkins' AND column_name = 'reach') AS ok
+    `) as { ok: boolean }[];
+    viewCache = rows[0]?.ok === true;
+  } catch {
+    viewCache = false;
+  }
+  return viewCache;
+}
 
 /** "2026-11" in New York (the old month column still needs a value). */
 const easternMonth = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }).slice(0, 7);
@@ -301,10 +324,13 @@ export async function sendQueuedCheckins(origin: string, budgetMs = RUN_BUDGET_M
       continue;
     }
     const to = firstEmail(c.email);
-    const email = checkinEmail({ customerName: c.account_name, managerName: c.manager_name, managerPhone: c.manager_phone, managerEmail: c.manager_email, links: links(origin, id) });
+    const emailInput = { customerName: c.account_name, managerName: c.manager_name, managerPhone: c.manager_phone, managerEmail: c.manager_email, links: links(origin, id) };
+    // The saved copy ("View email") has no "Viewed" picture: staff opening it never counts as the customer.
+    const copy = checkinEmail(emailInput);
+    const email = (await viewReady()) ? checkinEmail({ ...emailInput, openPixelUrl: checkinOpenUrl(origin, checkinToken(id)) }) : copy;
     // Claim it first: a second run at the same time skips it.
     const claimed = (await sql`
-      UPDATE customer_checkins SET status = 'sent', sent_at = now(), sent_to = ${to}, subject = ${email.subject}, email_html = ${email.html}, manager_name = ${c.manager_name}
+      UPDATE customer_checkins SET status = 'sent', sent_at = now(), sent_to = ${to}, subject = ${email.subject}, email_html = ${copy.html}, manager_name = ${c.manager_name}
       WHERE id = ${id} AND status = 'queued' RETURNING id
     `) as unknown[];
     if (claimed.length === 0) continue;
@@ -354,17 +380,19 @@ export async function sendTestCheckin(origin: string, by: string): Promise<boole
 
 /* ---------- answers (app/checkin) ---------- */
 
-type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string };
+type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string; reach: string };
 
 async function answerRow(id: number): Promise<AnswerRow | null> {
-  const rows = (await getSql()`
-    SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, COALESCE(a.account_name, '') AS account_name,
-           COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw, '') AS manager
-    FROM customer_checkins k
-    LEFT JOIN accounts a ON a.id = k.account_id
-    LEFT JOIN managers m ON m.id = a.manager_id
-    WHERE k.id = ${id} AND k.status = 'sent'
-  `) as AnswerRow[];
+  const reach = (await viewReady()) ? "k.reach" : "''";
+  const rows = (await getSql().query(
+    `SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, ${reach} AS reach, COALESCE(a.account_name, '') AS account_name,
+            COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw, '') AS manager
+     FROM customer_checkins k
+     LEFT JOIN accounts a ON a.id = k.account_id
+     LEFT JOIN managers m ON m.id = a.manager_id
+     WHERE k.id = $1 AND k.status = 'sent'`,
+    [id]
+  )) as AnswerRow[];
   return rows[0] ?? null;
 }
 
@@ -392,38 +420,145 @@ async function pinForManager(row: AnswerRow, id: number, rating: "attention" | "
   }
 }
 
-/** One tap in the email. false when the check-in is not found. */
-export async function answerCheckin(id: number, rating: CheckinRating, origin: string): Promise<boolean> {
-  if (!(await checkinReady())) return false;
-  const row = await answerRow(id);
-  if (!row) return false;
-  if (ratingOf(row.answer) === rating) return true;
-  await getSql()`UPDATE customer_checkins SET answer = ${rating}, answered_at = now() WHERE id = ${id}`;
+/**
+ * The email to the office (crm@): one when the customer taps an answer or
+ * changes it, a short one when they send the feedback box afterwards. A
+ * Needs attention one starts with "⚠️ Needs attention". Never twice for the
+ * same tap: only a change that was really saved sends one.
+ */
+async function notifyOffice(
+  row: AnswerRow,
+  rating: CheckinRating | "",
+  kind: "answer" | "changed" | "comment",
+  fields: { comment: string; reach: string; photos: number },
+  origin: string
+): Promise<void> {
+  const name = row.account_name || row.account_id;
+  const answer = ratingText(rating);
+  const bad = rating === "attention";
+  const what = kind === "comment" ? "Check-in comment" : "Check-in answer";
+  const subject = bad ? `⚠️ Needs attention — ${what}: ${name}` : `${what}: ${name} (${answer})`;
+  const first =
+    kind === "answer"
+      ? `${name} answered the check-in: ${answer}.`
+      : kind === "changed"
+        ? `${name} changed their check-in answer to ${answer}.`
+        : `${name} added to their check-in answer (${answer}).`;
+  const lines = [
+    first,
+    "",
+    `Account: ${name}`,
+    `Answer: ${answer}`,
+    `Manager: ${row.manager.trim() || "No manager"}`,
+    ...(fields.comment ? [`Comment: "${fields.comment}"`] : []),
+    ...(fields.reach ? [`Best way to reach them: ${fields.reach}`] : []),
+    ...(fields.photos ? [`Photos: ${fields.photos} (on the account page)`] : []),
+    "",
+    `Open the account: ${origin.replace(/\/$/, "")}/accounts/${encodeURIComponent(row.account_id)}`,
+  ];
+  try {
+    await sendHtmlEmail({
+      to: [CHECKIN_TEST_EMAIL],
+      subject,
+      text: lines.join("\n"),
+      html: linesToHtml(lines),
+      log: { type: "Check-in answer", accountId: row.account_id, accountName: row.account_name, sentBy: "System" },
+    });
+  } catch (error) {
+    console.error("[checkin] office email:", error instanceof Error ? error.message : error);
+  }
+}
+
+const photoList = (value: string) => value.split(",").map(clean).filter(Boolean);
+
+/**
+ * Saves a new answer, only when it really changes: the old answer must still
+ * be there, so two taps at once save (and email) it once. Moves the manager's
+ * paper. true = it changed.
+ */
+async function setRating(row: AnswerRow, id: number, rating: CheckinRating, origin: string): Promise<boolean> {
+  if (ratingOf(row.answer) === rating) return false;
+  const opened = (await viewReady()) ? ", opened_at = COALESCE(opened_at, now())" : "";
+  const changed = (await getSql().query(`UPDATE customer_checkins SET answer = $2, answered_at = now()${opened} WHERE id = $1 AND answer = $3 RETURNING id`, [id, rating, row.answer])) as unknown[];
+  if (changed.length === 0) return false;
   // A changed answer takes the paper of the old one down.
   if (rating !== "attention") await takeDownPapers(paperId(id, "attention"), `Customer changed it to ${ratingText(rating)}`);
   if (rating !== "ok") await takeDownPapers(paperId(id, "ok"), `Customer changed it to ${ratingText(rating)}`);
   if (rating === "attention") await pinForManager(row, id, "attention", clean(row.comment), origin);
   if (rating === "ok" && clean(row.comment)) await pinForManager(row, id, "ok", clean(row.comment), origin);
-  await history(row.account_id, `Check-in: the customer answered ${ratingText(rating)}.`);
+  await history(row.account_id, `Check-in: the customer ${row.answer ? "changed the answer to" : "answered"} ${ratingText(rating)}.`);
   return true;
 }
 
-/** "What can we do better?" with photos, after OK or Needs attention. */
-export async function commentCheckin(id: number, comment: string, photos: string[], origin: string): Promise<boolean> {
+/** One tap in the email. false when the check-in is not found. */
+export async function answerCheckin(id: number, rating: CheckinRating, origin: string): Promise<boolean> {
   if (!(await checkinReady())) return false;
   const row = await answerRow(id);
   if (!row) return false;
-  const text = comment.trim().slice(0, 2000);
-  const allPhotos = [...row.photos.split(",").map(clean).filter(Boolean), ...photos].slice(0, 6);
-  if (!text && photos.length === 0) return true;
-  await getSql()`UPDATE customer_checkins SET comment = ${text || row.comment}, photos = ${allPhotos.join(",")} WHERE id = ${id}`;
-  const rating = ratingOf(row.answer);
-  const note = text || clean(row.comment);
-  const notes = `${note ? `"${note}"` : ""}${photos.length ? `${note ? " · " : ""}${allPhotos.length} photo${allPhotos.length === 1 ? "" : "s"}` : ""}`;
-  if (rating === "attention") await updatePaperNotes(paperId(id, "attention"), notes);
-  if (rating === "ok") await pinForManager(row, id, "ok", note, origin).then(() => updatePaperNotes(paperId(id, "ok"), notes));
-  await history(row.account_id, `Check-in: "What can we do better?" ${text}${photos.length ? ` (${photos.length} photo${photos.length === 1 ? "" : "s"})` : ""}`);
+  if (await setRating(row, id, rating, origin)) {
+    await notifyOffice(row, rating, row.answer ? "changed" : "answer", { comment: clean(row.comment), reach: clean(row.reach), photos: photoList(row.photos).length }, origin);
+  }
   return true;
+}
+
+/**
+ * The feedback box under the answer: maybe a changed answer, the comment,
+ * "Best way to reach you" and photos. One email to the office: the answer
+ * one when the answer changed, else the short comment one (none when nothing
+ * new was sent).
+ */
+export async function submitFeedback(
+  id: number,
+  input: { rating: CheckinRating | null; comment: string; reach: string; photos: string[] },
+  origin: string
+): Promise<boolean> {
+  if (!(await checkinReady())) return false;
+  const row = await answerRow(id);
+  if (!row) return false;
+  const changed = input.rating ? await setRating(row, id, input.rating, origin) : false;
+  const rating = changed && input.rating ? input.rating : ratingOf(row.answer);
+  const text = input.comment.trim().slice(0, 2000);
+  const viewed = await viewReady();
+  const reach = viewed ? input.reach.trim().slice(0, 200) : "";
+  const allPhotos = [...photoList(row.photos), ...input.photos].slice(0, 6);
+  const added = (text !== "" && text !== clean(row.comment)) || (reach !== "" && reach !== clean(row.reach)) || input.photos.length > 0;
+  const note = text || clean(row.comment);
+  const reachNow = reach || clean(row.reach);
+
+  if (added) {
+    const sql = getSql();
+    if (viewed) {
+      await sql`UPDATE customer_checkins SET comment = ${note}, photos = ${allPhotos.join(",")}, reach = ${reachNow}, commented_at = now() WHERE id = ${id}`;
+    } else {
+      await sql`UPDATE customer_checkins SET comment = ${note}, photos = ${allPhotos.join(",")} WHERE id = ${id}`;
+    }
+    const notes = [note ? `"${note}"` : "", allPhotos.length ? `${allPhotos.length} photo${allPhotos.length === 1 ? "" : "s"}` : "", reachNow ? `Reach: ${reachNow}` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    if (rating === "attention") await updatePaperNotes(paperId(id, "attention"), notes);
+    if (rating === "ok") await pinForManager(row, id, "ok", note, origin).then(() => updatePaperNotes(paperId(id, "ok"), notes));
+    await history(
+      row.account_id,
+      `Check-in feedback: ${text}${input.photos.length ? ` (${input.photos.length} photo${input.photos.length === 1 ? "" : "s"})` : ""}${reach ? ` · Best way to reach: ${reach}` : ""}`
+    );
+  }
+
+  const fields = { comment: note, reach: reachNow, photos: allPhotos.length };
+  if (changed) await notifyOffice(row, rating, row.answer ? "changed" : "answer", fields, origin);
+  else if (added) await notifyOffice(row, rating, "comment", fields, origin);
+  return true;
+}
+
+/** The "Viewed" picture was loaded: the first time, and how many times. Nothing before migration 080, nothing for the test (id 0). */
+export async function recordCheckinOpen(id: number): Promise<void> {
+  if (id <= 0 || !(await viewReady())) return;
+  await getSql()`UPDATE customer_checkins SET opened_at = COALESCE(opened_at, now()), open_count = open_count + 1 WHERE id = ${id} AND status = 'sent'`;
+}
+
+/** The answer saved now (the feedback page shows it). "" when none, or the check-in is not found. */
+export async function currentRating(id: number): Promise<CheckinRating | ""> {
+  const rows = (await getSql()`SELECT answer FROM customer_checkins WHERE id = ${id} AND status = 'sent'`) as { answer: string }[];
+  return rows[0] ? ratingOf(rows[0].answer) : "";
 }
 
 /** "Stop these emails": this account is skipped from now on. */
@@ -474,12 +609,20 @@ type DbRow = {
   answered_at: string | Date | null;
   comment: string;
   photos: string;
+  reach: string;
+  opened_at: string | Date | null;
+  open_count: number;
   error: string;
   has_copy: boolean;
 };
 
-const ROW_SELECT = `k.id::text, k.account_id, a.account_name, k.created_at, k.sent_at, k.status, k.sent_by, k.sent_to, k.batch_id::text,
-  b.kind, b.list_name, k.answer, k.answered_at, k.comment, k.photos, k.error, (k.email_html <> '') AS has_copy`;
+/** The columns of one check-in row; "Viewed" and "Best way to reach you" only once migration 080 is in. */
+async function rowSelect(): Promise<string> {
+  const v = await viewReady();
+  return `k.id::text, k.account_id, a.account_name, k.created_at, k.sent_at, k.status, k.sent_by, k.sent_to, k.batch_id::text,
+  b.kind, b.list_name, k.answer, k.answered_at, k.comment, k.photos, k.error, (k.email_html <> '') AS has_copy,
+  ${v ? "k.reach, k.opened_at, k.open_count" : "'' AS reach, NULL::timestamptz AS opened_at, 0 AS open_count"}`;
+}
 const ROW_FROM = `FROM customer_checkins k LEFT JOIN accounts a ON a.id = k.account_id LEFT JOIN checkin_batches b ON b.id = k.batch_id`;
 
 function toRow(r: DbRow): CheckinRow {
@@ -499,6 +642,9 @@ function toRow(r: DbRow): CheckinRow {
     answeredAt: iso(r.answered_at),
     comment: clean(r.comment),
     photos: clean(r.photos).split(",").map(clean).filter(Boolean),
+    reach: clean(r.reach),
+    openedAt: iso(r.opened_at),
+    openCount: Number(r.open_count) || 0,
     error: clean(r.error),
     hasCopy: r.has_copy === true,
   };
@@ -508,7 +654,7 @@ function toRow(r: DbRow): CheckinRow {
 export async function accountCheckins(accountId: string): Promise<{ ready: boolean; optedOut: boolean; rows: CheckinRow[] }> {
   if (!(await checkinReady())) return { ready: false, optedOut: false, rows: [] };
   const [rows, out] = await Promise.all([
-    getSql().query(`SELECT ${ROW_SELECT} ${ROW_FROM} WHERE k.account_id = $1 ORDER BY k.created_at DESC, k.id DESC LIMIT 100`, [accountId]) as unknown as Promise<DbRow[]>,
+    getSql().query(`SELECT ${await rowSelect()} ${ROW_FROM} WHERE k.account_id = $1 ORDER BY k.created_at DESC, k.id DESC LIMIT 100`, [accountId]) as unknown as Promise<DbRow[]>,
     getSql()`SELECT 1 FROM customer_checkin_optouts WHERE account_id = ${accountId}` as unknown as Promise<unknown[]>,
   ]);
   return { ready: true, optedOut: out.length > 0, rows: rows.map(toRow) };
@@ -563,16 +709,19 @@ type BatchDb = {
   skipped_rows: number;
   answered: number;
   attention: number;
+  viewed: number;
 };
 
-const BATCH_SELECT = `SELECT b.id::text, b.created_at, b.created_by, b.kind, b.list_name, jsonb_array_length(b.skipped)::int AS skipped_n,
+/** One line per send, with its counts ("Viewed" only once migration 080 is in). */
+const batchSelect = async () => `SELECT b.id::text, b.created_at, b.created_by, b.kind, b.list_name, jsonb_array_length(b.skipped)::int AS skipped_n,
     count(k.id)::int AS total,
     count(k.id) FILTER (WHERE k.status = 'sent')::int AS sent,
     count(k.id) FILTER (WHERE k.status = 'queued')::int AS queued,
     count(k.id) FILTER (WHERE k.status = 'failed')::int AS failed,
     count(k.id) FILTER (WHERE k.status = 'skipped')::int AS skipped_rows,
     count(k.id) FILTER (WHERE k.answer <> '')::int AS answered,
-    count(k.id) FILTER (WHERE k.answer IN ('attention', 'down'))::int AS attention
+    count(k.id) FILTER (WHERE k.answer IN ('attention', 'down'))::int AS attention,
+    ${(await viewReady()) ? "count(k.id) FILTER (WHERE k.opened_at IS NOT NULL OR k.answer <> '')::int" : "count(k.id) FILTER (WHERE k.answer <> '')::int"} AS viewed
   FROM checkin_batches b LEFT JOIN customer_checkins k ON k.batch_id = b.id`;
 
 function toBatch(b: BatchDb): CheckinBatch {
@@ -589,13 +738,14 @@ function toBatch(b: BatchDb): CheckinBatch {
     skipped: b.skipped_n + b.skipped_rows,
     answered: b.answered,
     attention: b.attention,
+    viewed: b.viewed,
   };
 }
 
 /** History: one line per press of Send, newest first. */
 export async function listBatches(limit = 200): Promise<CheckinBatch[]> {
   if (!(await checkinReady())) return [];
-  const rows = (await getSql().query(`${BATCH_SELECT} GROUP BY b.id ORDER BY b.created_at DESC LIMIT $1`, [limit])) as BatchDb[];
+  const rows = (await getSql().query(`${await batchSelect()} GROUP BY b.id ORDER BY b.created_at DESC LIMIT $1`, [limit])) as BatchDb[];
   return rows.map(toBatch);
 }
 
@@ -603,10 +753,10 @@ export async function listBatches(limit = 200): Promise<CheckinBatch[]> {
 export async function batchDetail(id: number): Promise<{ batch: CheckinBatch; rows: CheckinRow[]; skipped: CheckinSkip[] } | null> {
   if (!(await checkinReady())) return null;
   const sql = getSql();
-  const batches = (await sql.query(`${BATCH_SELECT} WHERE b.id = $1 GROUP BY b.id`, [id])) as BatchDb[];
+  const batches = (await sql.query(`${await batchSelect()} WHERE b.id = $1 GROUP BY b.id`, [id])) as BatchDb[];
   if (!batches[0]) return null;
   const [rows, skippedRows] = await Promise.all([
-    sql.query(`SELECT ${ROW_SELECT} ${ROW_FROM} WHERE k.batch_id = $1 ORDER BY a.account_name, k.id`, [id]) as unknown as Promise<DbRow[]>,
+    sql.query(`SELECT ${await rowSelect()} ${ROW_FROM} WHERE k.batch_id = $1 ORDER BY a.account_name, k.id`, [id]) as unknown as Promise<DbRow[]>,
     sql`SELECT skipped FROM checkin_batches WHERE id = ${id}` as unknown as Promise<{ skipped: CheckinSkip[] }[]>,
   ]);
   return { batch: toBatch(batches[0]), rows: rows.map(toRow), skipped: skippedRows[0]?.skipped ?? [] };
