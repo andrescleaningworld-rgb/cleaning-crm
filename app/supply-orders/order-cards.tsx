@@ -127,7 +127,7 @@ const STEP_INDEX = new Map(ORDER_STEPS.map((step, index) => [step.key, index]));
 const PAGE_SIZE = 30;
 const NO_SHELVES: Waiting[] = [];
 const NO_DIFFERENT: Different[] = [];
-const CREW_FAILED = "The Crew Link orders did not load.";
+const CREW_FAILED = "The CW Now orders did not load.";
 const sameSummary = (a: OrderSummary | null, b: OrderSummary) =>
   a !== null && a.total === b.total && a.newOrReview === b.newOrReview && a.approved === b.approved && a.pending === b.pending && a.completed === b.completed;
 
@@ -661,7 +661,7 @@ export default function OrderCards({
         />
       ) : null}
 
-      {crewError ? <ErrorBox title={crewError} text="Crew Link orders may be missing below." onRetry={() => void loadCrewOrders()} /> : null}
+      {crewError ? <ErrorBox title={crewError} text="CW Now orders may be missing below." onRetry={() => void loadCrewOrders()} /> : null}
 
       <div data-tip="order-list" className="ui-stack">
         {loading ? <p className="ui-muted">Loading supply orders…</p> : null}
@@ -700,7 +700,7 @@ export default function OrderCards({
                 </span>
               </div>
               <p className="ui-muted" style={{ margin: "2px 0 8px" }}>
-                {card.source === "crew" ? "Crew Link" : "Sub portal"} · {card.orderedBy || "Unknown"} · {card.atText || "No date"}
+                {card.source === "crew" ? "CW Now" : "Sub portal"} · {card.orderedBy || "Unknown"} · {card.atText || "No date"}
               </p>
               <ul className="ui-list-plain">
                 {card.items.map((item, index) => (

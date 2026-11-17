@@ -1073,7 +1073,7 @@ export function OrdersAndProblems({
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
   const query = site ? `siteId=${site.id}` : `crewLinkAccountId=${encodeURIComponent(crewLinkAccountId ?? "")}`;
-  const sourceLabel = site ? "Team Hub" : "Crew Link";
+  const sourceLabel = site ? "Team Hub" : "CW Now";
 
   const load = useCallback(async () => {
     const issuesRes = await fetch(`/api/admin/team-hub/issues?${query}`, { cache: "no-store" });

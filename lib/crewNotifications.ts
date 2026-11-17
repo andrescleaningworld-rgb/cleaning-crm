@@ -38,13 +38,13 @@ function sourceLines(source: CrewNotificationSource, createdAt: string): string[
   const who =
     source.kind === "team-hub"
       ? [`Crew: ${source.crewName}`, `Reported by: ${source.workerName}`]
-      : ["From: Crew Link", `Reported by: ${source.reporterName}`];
+      : ["From: CW Now", `Reported by: ${source.reporterName}`];
   return [...who, `When: ${formatCrewDateTime(createdAt)} (Eastern)`];
 }
 
 function adminLink(origin: string, accountId: string, source: CrewNotificationSource): string {
   const url = `${origin}/accounts/${encodeURIComponent(accountId)}`;
-  return source.kind === "team-hub" ? `Team Hub tab: ${url}?tab=team-hub` : `Account page (Crew Link): ${url}`;
+  return source.kind === "team-hub" ? `Team Hub tab: ${url}?tab=team-hub` : `Account page (CW Now): ${url}`;
 }
 
 export async function notifyNewSupplyOrder(input: {
@@ -67,7 +67,7 @@ export async function notifyNewSupplyOrder(input: {
   const subject =
     input.source.kind === "team-hub"
       ? `Team Hub: new supply order — ${input.source.siteLabel}`
-      : `Crew Link: new supply order — ${accountName}`;
+      : `CW Now: new supply order — ${accountName}`;
 
   await sendInternalNotification(subject, [
     `Account: ${accountName}`,
@@ -97,7 +97,7 @@ export async function notifyNewProblem(input: {
   const subject =
     input.source.kind === "team-hub"
       ? `Team Hub: new problem reported — ${input.source.siteLabel}`
-      : `Crew Link: new problem reported — ${accountName}`;
+      : `CW Now: new problem reported — ${accountName}`;
 
   await sendInternalNotification(subject, [
     `Account: ${accountName}`,

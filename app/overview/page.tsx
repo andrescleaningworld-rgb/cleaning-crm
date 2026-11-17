@@ -1361,7 +1361,7 @@ export default function DashboardPage() {
           <Tile icon="visit" label="Visits" href="/visits" />
           <Tile icon="note" label="Supply Orders" detail={newOrders > 0 ? `${newOrders} new` : undefined} href="/supply-orders" />
           <Tile icon="key" label="Supplies" href="/supplies" />
-          <Tile icon="call" label="Crew Link" href="/crew-link" />
+          <Tile icon="call" label="CW Now" href="/crew-link" />
           <Tile icon="money" label="Sales" href="/sales" />
           <Tile icon="status" label="Subcontractors" href="/subcontractors" />
           <Tile icon="print" label="Reports" href="/reports" />

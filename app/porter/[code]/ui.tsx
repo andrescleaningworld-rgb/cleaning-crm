@@ -162,6 +162,43 @@ export function SendBar({
   );
 }
 
+/**
+ * The "Rules" notice (isNoticeSection): a box at the top of the checklist to
+ * read. Nothing in it is checked, skipped or sent. `line` gives each text in
+ * the crew's language, with an optional second language under it (the route
+ * screen shows English and Spanish together).
+ */
+export function NoticeBox({ sections, line }: { sections: { key: string; title: string; items: { key: string; label: string }[] }[]; line: (text: string) => { text: string; second?: string } }) {
+  const shown = sections.filter((section) => section.items.length > 0);
+  if (shown.length === 0) return null;
+  return (
+    <div className="space-y-3 rounded-2xl border-4 border-blue-300 bg-blue-50 p-4">
+      {shown.map((section) => {
+        const title = line(section.title);
+        return (
+          <div key={section.key}>
+            <p className="text-xl font-black text-blue-900">
+              📌 {title.text}
+              {title.second ? ` / ${title.second}` : ""}
+            </p>
+            <ul className="mt-2 space-y-2">
+              {section.items.map((item) => {
+                const text = line(item.label);
+                return (
+                  <li key={item.key} className="text-xl font-bold leading-snug text-slate-900">
+                    • {text.text}
+                    {text.second ? <span className="block pl-4 text-base font-semibold italic text-slate-600">{text.second}</span> : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ErrorBox({ message }: { message: string }) {
   if (!message) return null;
   return <p className="rounded-2xl bg-amber-100 px-4 py-3 text-lg font-semibold text-amber-900">{message}</p>;

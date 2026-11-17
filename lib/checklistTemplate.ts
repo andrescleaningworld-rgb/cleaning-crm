@@ -58,6 +58,22 @@ export type ChecklistTabDef = {
   sections: ChecklistSectionDef[];
 };
 
+/**
+ * A "Rules" section (the simple upload's "instructions", or one typed with
+ * that name) is a notice, not tasks: the crew screens show it as a box at
+ * the top to read, with nothing to check, skip or send, and it is not in
+ * "X of Y done".
+ */
+export function isNoticeSection(section: { title: string }): boolean {
+  return section.title.trim().toLowerCase() === "rules";
+}
+
+/** The sections the crew checks off (every section but the notices). */
+export const taskSections = <T extends { title: string }>(sections: T[]): T[] => sections.filter((section) => !isNoticeSection(section));
+
+/** The notice sections (to show on top, to read). */
+export const noticeSections = <T extends { title: string }>(sections: T[]): T[] => sections.filter(isNoticeSection);
+
 // Counts active tabs only — soft-deleted tabs don't count.
 export const MAX_TABS = 10;
 export const MAX_TAB_NAME_LENGTH = 40;

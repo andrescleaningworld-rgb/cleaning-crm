@@ -103,7 +103,7 @@ export async function photosShownToCustomer(accountId: string): Promise<boolean>
 
 export async function setPhotosShownToCustomer(accountId: string, on: boolean): Promise<void> {
   const rows = await typed<unknown[]>(getSql()`UPDATE checklist_templates SET show_photos_to_customer = ${on}, updated_at = now() WHERE account_id = ${accountId} RETURNING account_id`);
-  if (rows.length === 0) throw new Error("This account has no Crew Link yet.");
+  if (rows.length === 0) throw new Error("This account has no CW Now link yet.");
 }
 
 /**

@@ -32,8 +32,8 @@ export default function CrewLinkPrintSignPage() {
       try {
         const res = await fetch(`/api/checklist-templates?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" });
         const data = (await res.json()) as TemplateResponse;
-        if (!res.ok || data.success === false) throw new Error(data.error || "Could not load this Crew Link.");
-        if (!data.template?.porterCode) throw new Error("This account doesn't have a Crew Link yet.");
+        if (!res.ok || data.success === false) throw new Error(data.error || "Could not load this CW Now link.");
+        if (!data.template?.porterCode) throw new Error("This account doesn't have a CW Now link yet.");
         const link = `${window.location.origin}/porter/${data.template.porterCode}`;
         const qr = await QRCode.toDataURL(link, { width: 1000, margin: 1, errorCorrectionLevel: "M" });
         if (cancelled) return;
@@ -41,7 +41,7 @@ export default function CrewLinkPrintSignPage() {
         setUrl(link);
         setQrDataUrl(qr);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load this Crew Link.");
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load this CW Now link.");
       }
     })();
     return () => {

@@ -188,7 +188,7 @@ function CardTop({ card }: { card: Card }) {
       <p className={styles.place}>{placeOf(card)}</p>
       <p className={styles.who}>
         {card.late ? <span className={styles.late}>Late</span> : null}
-        {card.source === "crew" ? "Crew Link" : "Sub"} · {card.orderedBy || "Unknown"} · {card.atText || "No date"}
+        {card.source === "crew" ? "CW Now" : "Sub"} · {card.orderedBy || "Unknown"} · {card.atText || "No date"}
       </p>
       <ul className={styles.items}>
         {card.items.map((item, index) => (

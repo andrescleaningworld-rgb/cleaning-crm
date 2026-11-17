@@ -46,7 +46,7 @@ const ADMIN_GROUPS: NavGroup[] = [
       { href: "/extra-jobs", label: "Extra Jobs", icon: "extra" },
       { href: "/supplies", label: "Supplies", icon: "supplies" },
       { href: "/supply-orders", label: "Supply Orders", icon: "orders" },
-      { href: "/crew-link", label: "Crew Link", icon: "crew" },
+      { href: "/crew-link", label: "CW Now", icon: "crew" },
     ],
   },
   {
@@ -557,8 +557,8 @@ const PAGE_NAMES: Record<string, string> = {
   "to-do": "To-Do",
   "sub-schedules": "Sub Schedules",
   "supply-orders": "Supply Orders",
-  "team-hub": "Crew Link",
-  "crew-link": "Crew Link",
+  "team-hub": "CW Now",
+  "crew-link": "CW Now",
 };
 
 function fallbackPageName(pathname: string): string {

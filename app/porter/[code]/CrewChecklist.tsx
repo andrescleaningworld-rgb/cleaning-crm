@@ -10,13 +10,13 @@
 // own; "Everything done" is only the tab on screen. The skips go to the office
 // right away (the Pin Board paper "Couldn't do", lib/pg/crew-skips.ts).
 import type { ChecklistItemDef, ChecklistSubmissionSection, ChecklistTabDef, SkipReason } from "@/lib/checklistTemplate";
-import { SKIP_REASONS, isRouteTab } from "@/lib/checklistTemplate";
+import { SKIP_REASONS, isRouteTab, noticeSections, taskSections } from "@/lib/checklistTemplate";
 import type { NightNote } from "@/lib/checklistDb";
 import type { PhotoQueue } from "./photo-queue";
 import CrewRoute from "./CrewRoute";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import type { CrewLinkStrings } from "./strings";
-import { ErrorBox, SendBar, WhoAndWhen } from "./ui";
+import { ErrorBox, NoticeBox, SendBar, WhoAndWhen } from "./ui";
 import { useState } from "react";
 import { translated, type ContentTranslations } from "@/lib/translationKey";
 import { useCrewLinkPreview } from "./preview";
@@ -69,7 +69,11 @@ export default function CrewChecklist({
 
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
   const progress = (tab && progressByTab[tab.id]) || EMPTY_TAB_PROGRESS;
-  const allItems = tab ? tab.sections.flatMap((section) => section.items) : [];
+  // "Rules" is a notice to read on top (NoticeBox), not tasks: not checked,
+  // skipped, counted or sent.
+  const sections = tab ? taskSections(tab.sections) : [];
+  const notices = tab ? noticeSections(tab.sections) : [];
+  const allItems = sections.flatMap((section) => section.items);
   const mustDo = allItems.filter((item) => item.mustDo);
   const skippedCount = Object.keys(progress.skipped).length;
   const nameMissing = !name.trim();
@@ -102,7 +106,7 @@ export default function CrewChecklist({
     setSending(true);
     setError("");
     try {
-      const sections: ChecklistSubmissionSection[] = tab.sections.map((section) => ({
+      const sent: ChecklistSubmissionSection[] = sections.map((section) => ({
         key: section.key,
         title: section.title,
         items: section.items.map((item) => ({
@@ -125,7 +129,7 @@ export default function CrewChecklist({
           porterName: name.trim(),
           startedAt: progress.startedAt,
           generalNotes: progress.note.trim(),
-          sections,
+          sections: sent,
         }),
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
@@ -220,9 +224,13 @@ export default function CrewChecklist({
           onSent={onSent}
         />
       ) : allItems.length === 0 ? (
-        <p className="rounded-2xl bg-white p-6 text-center text-xl text-slate-600 shadow-sm">{s.nothingHere}</p>
+        <>
+          <NoticeBox sections={notices} line={(text) => ({ text: tr(text) })} />
+          <p className="rounded-2xl bg-white p-6 text-center text-xl text-slate-600 shadow-sm">{s.nothingHere}</p>
+        </>
       ) : !progress.picking ? (
         <>
+          <NoticeBox sections={notices} line={(text) => ({ text: tr(text) })} />
           <ErrorBox message={error} />
           {nameMissing ? <p className="text-center text-lg font-semibold text-amber-700">{s.writeYourName}</p> : null}
           <button
@@ -255,7 +263,7 @@ export default function CrewChecklist({
                 ))}
               </ul>
             ) : null}
-            {tab!.sections.map((section) => {
+            {sections.map((section) => {
               const rest = section.items.filter((item) => !item.mustDo);
               if (!rest.length) return null;
               return (
@@ -280,7 +288,7 @@ export default function CrewChecklist({
             <span className="mt-1 block text-lg font-semibold">{s.tapToUndo}</span>
           </p>
           {mustDo.length ? <section className="space-y-3">{mustDo.map(tile)}</section> : null}
-          {tab!.sections.map((section) => {
+          {sections.map((section) => {
             const rest = section.items.filter((item) => !item.mustDo);
             if (!rest.length) return null;
             return (

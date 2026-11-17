@@ -62,7 +62,7 @@ export function useSupplyCards(): SupplyCards {
     if (subs.status === "fulfilled") setOrders(subs.value);
     else problems.push(subs.reason instanceof Error ? subs.reason.message : ORDERS_FAILED);
     if (crew.status === "fulfilled") setCrewOrders(crew.value);
-    else problems.push(crew.reason instanceof Error ? crew.reason.message : "The Crew Link orders did not load.");
+    else problems.push(crew.reason instanceof Error ? crew.reason.message : "The CW Now orders did not load.");
     setError(problems.join(" "));
     setLoading(false);
   }, []);

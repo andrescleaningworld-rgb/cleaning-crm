@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 // itself as a full-screen layer over the office header, so the admin sees
 // only what a crew sees.
 export const metadata: Metadata = {
-  title: "Crew Link preview",
+  title: "CW Now preview",
   robots: { index: false, follow: false, nocache: true },
 };
 

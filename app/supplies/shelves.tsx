@@ -93,7 +93,7 @@ const MOVE_WORD: Record<string, string> = {
   "site-add": "Added at site",
   "site-set": "Site count changed",
 };
-const SOURCE_WORD: Record<string, string> = { office: "Office", tablet: "Tablet", "crew-link": "Crew Link", "sub-portal": "Sub portal" };
+const SOURCE_WORD: Record<string, string> = { office: "Office", tablet: "Tablet", "crew-link": "CW Now", "sub-portal": "Sub portal" };
 
 /** Who, what, when, where it went and where it was done. Used here and on an account's Site stock. */
 export function HistoryList({ moves, showAccount = true, empty = "Nothing yet." }: { moves: Move[]; showAccount?: boolean; empty?: string }) {

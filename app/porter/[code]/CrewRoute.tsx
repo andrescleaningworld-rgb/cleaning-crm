@@ -27,7 +27,9 @@ import {
   ROUTE_SKIP_REASONS,
   routeNightOf,
   routeSpecialRow,
+  noticeSections,
   rowsForNight,
+  taskSections,
   type ChecklistItemDef,
   type ChecklistSubmissionSection,
   type ChecklistTabDef,
@@ -37,6 +39,7 @@ import { translated, type ContentTranslations } from "@/lib/translationKey";
 import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
 import type { NightNote } from "@/lib/checklistDb";
 import type { PhotoQueue } from "./photo-queue";
+import { NoticeBox } from "./ui";
 
 /** The fixed words, always both languages (no language switch on route screens). */
 export const ROUTE_WORDS = {
@@ -166,14 +169,13 @@ function dropOldProgress(code: string, dateKey: string) {
 
 /**
  * A row name for a phone: "Warehouse office: trash, desks, floor" →
- * ["Warehouse office", "trash, desks, floor"]; a long name with no colon is
- * split at its first comma. The office still gets the whole name.
+ * ["Warehouse office", "trash, desks, floor"]. Only a colon splits it: a
+ * comma is part of the task ("Never move, read or throw away papers") and
+ * the text stays whole. The office still gets the whole name.
  */
 export function splitName(text: string): [string, string] {
   const colon = text.indexOf(": ");
   if (colon > 0) return [text.slice(0, colon), text.slice(colon + 2)];
-  const comma = text.indexOf(", ");
-  if (text.length > 28 && comma > 0) return [text.slice(0, comma), text.slice(comma + 2)];
   return [text, ""];
 }
 
@@ -227,7 +229,10 @@ export default function CrewRoute({
     if (!preview) dropOldProgress(code, night.dateKey);
   }, [code, night.dateKey, preview]);
 
-  const rows = useMemo(() => rowsForNight(tab.sections, night), [tab.sections, night]);
+  // "Rules" is a notice on top (NoticeBox), not rows: not checked, skipped, counted or sent.
+  const tasks = useMemo(() => taskSections(tab.sections), [tab.sections]);
+  const notices = noticeSections(tab.sections);
+  const rows = useMemo(() => rowsForNight(tasks, night), [tasks, night]);
   const urgentRow = routeSpecialRow(tab.sections, "urgent");
   const noteRow = routeSpecialRow(tab.sections, "night_note");
 
@@ -335,7 +340,7 @@ export default function CrewRoute({
     setError("");
     try {
       const tonight = new Set(rows.map((item) => item.key));
-      const sections: ChecklistSubmissionSection[] = tab.sections
+      const sections: ChecklistSubmissionSection[] = tasks
         .map((section) => ({
           key: section.key,
           title: section.title,
@@ -635,6 +640,14 @@ export default function CrewRoute({
       </div>
 
       {nameBox}
+
+      <NoticeBox
+        sections={notices}
+        line={(text) => {
+          const es = spanish(text);
+          return es ? { text, second: es } : { text };
+        }}
+      />
 
       {nightNote && !noteRow ? (
         <div className="rounded-2xl border-4 border-yellow-400 bg-yellow-50 p-4">

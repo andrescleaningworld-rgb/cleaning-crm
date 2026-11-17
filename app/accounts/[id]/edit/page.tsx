@@ -655,7 +655,7 @@ export default function EditAccountPage() {
           if (!modulesResponse.ok || !modulesData.success) throw new Error(modulesData.error || "failed");
           originalCrewLinkModulesRef.current = { ...crewLinkModules };
         } catch {
-          crewLinkWarning = " Crew Link supply orders / problem reports could not be saved — try again.";
+          crewLinkWarning = " CW Now supply orders / problem reports could not be saved — try again.";
         }
       }
 
@@ -974,7 +974,7 @@ export default function EditAccountPage() {
             </SelectField>
 
             <fieldset className="ui-checks">
-              <legend className="ui-label">Crew Link</legend>
+              <legend className="ui-label">CW Now (Crew Link)</legend>
               <label className="ui-check">
                 <input
                   type="checkbox"

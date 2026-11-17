@@ -39,7 +39,7 @@ export default function CrewLinkFields({ rowNumber }: { rowNumber: number }) {
       const response = await fetch("/api/admin/supply-list", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "saveCrew", rowNumber, ...crew }) });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!response.ok || body.success !== true) throw new Error(body.error ?? "That did not save. Try again.");
-      showToast("Crew Link saved ✓");
+      showToast("CW Now saved ✓");
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
     } finally {
@@ -50,7 +50,7 @@ export default function CrewLinkFields({ rowNumber }: { rowNumber: number }) {
   return (
     <div className="ui-card" data-crew-link-fields>
       <p className="ui-card-title" style={{ margin: 0 }}>
-        Crew Link
+        CW Now
       </p>
       <p className="ui-card-text">What crews see when they order this.</p>
       <div className="ui-stack">
@@ -63,7 +63,7 @@ export default function CrewLinkFields({ rowNumber }: { rowNumber: number }) {
         {error ? <p className="ui-field-error">{error}</p> : null}
         <div>
           <BigButton kind="second" busy={busy} busyLabel="Saving…" onClick={() => void save()}>
-            Save Crew Link
+            Save CW Now
           </BigButton>
         </div>
       </div>

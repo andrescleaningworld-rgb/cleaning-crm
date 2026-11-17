@@ -21,7 +21,7 @@ function accountHref(accountId: string, source: QueueSource): string {
 }
 
 function sourceLine(row: { source: QueueSource; siteLabel: string; crewName: string }): string {
-  return row.source === "crew-link" ? "Crew Link" : `${row.siteLabel} · ${row.crewName}`;
+  return row.source === "crew-link" ? "CW Now" : `${row.siteLabel} · ${row.crewName}`;
 }
 
 type QueueIssue = {
@@ -84,7 +84,7 @@ export default function TeamHubStaffQueue() {
   }
 
   return (
-    <Screen title="Crew Link" subtitle="What the crews could not do, and open problems they sent. Their supply orders are in Supply Orders.">
+    <Screen title="CW Now" subtitle="What the crews could not do, and open problems they sent. Their supply orders are in Supply Orders.">
       <CrewSkips />
       {error ? <ErrorBox title="That did not work." text={error} onRetry={() => void load()} /> : null}
 

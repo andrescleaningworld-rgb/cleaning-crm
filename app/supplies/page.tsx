@@ -31,7 +31,7 @@ const MORE: { href: string; icon: string; label: string; detail: string }[] = [
   { href: "/supply-orders", icon: "⚠️", label: "Wrong amounts and still coming", detail: "At the top of All orders" },
   { href: "/supplies/stock?tab=products", icon: "🏷", label: "Products", detail: "Add or change a product" },
   { href: "/supplies/stock", icon: "📥", label: "Stock came in, reorder, history", detail: "Also kept for customers and this month" },
-  { href: "/porter-checklist/submissions", icon: "💬", label: "Crew requests", detail: "Everything crews sent on Crew Link" },
+  { href: "/porter-checklist/submissions", icon: "💬", label: "Crew requests", detail: "Everything crews sent on CW Now" },
 ];
 
 /** How many warehouse items are at or below their minimum. null = not known. */
@@ -99,7 +99,7 @@ export default function SuppliesHome() {
         <Tile icon="📥" label="New orders" detail={loading ? "…" : newOrders.length === 0 ? "None ✓" : "OK or No"} count={counted(newOrders.length)} href="/supplies/new" />
         <Tile icon="🚚" label="On the way" detail={loading ? "…" : onTheWay.length === 0 ? "None" : "Tap when it came"} count={counted(onTheWay.length)} calm href="/supplies/on-the-way" />
         <Tile icon="📦" label="Stock" detail={reorder ? `${reorder} to reorder` : "Warehouse and sites"} href="/supplies/stock" />
-        <Tile icon="✅" label="What a site can order" detail="Pick the site on Crew Link" href="/crew-link" />
+        <Tile icon="✅" label="What a site can order" detail="Pick the site on CW Now" href="/crew-link" />
         <Tile icon="📞" label="Order for a site" detail="From a call or text" onClick={() => setOrdering(true)} />
         <Tile icon="⋯" label="More" detail="Everything else" onClick={() => setMoreOpen(true)} more />
       </div>

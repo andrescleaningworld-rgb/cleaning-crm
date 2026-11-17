@@ -114,6 +114,25 @@ export default function CrewLinkPage() {
     setName(readStoredName());
   }, []);
 
+  // A person's own link from the office (CW Now crew list, lib/crewLinkPeople.ts)
+  // can say their language (?lang=es) and their tab (?tab=12). Both are only
+  // where the page starts: the crew can still switch.
+  const [linkTabId, setLinkTabId] = useState<number | null>(null);
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const linkLang = params.get("lang");
+      if (linkLang === "en" || linkLang === "es" || linkLang === "pt") setLang(linkLang);
+      const tab = Number(params.get("tab"));
+      if (Number.isInteger(tab) && tab > 0) setLinkTabId(tab);
+    } catch {
+      // a link without them opens as usual
+    }
+  }, [setLang]);
+  useEffect(() => {
+    if (linkTabId && tabs.some((t) => t.id === linkTabId)) setActiveTabId(linkTabId);
+  }, [linkTabId, tabs]);
+
   useEffect(() => {
     let cancelled = false;
 

@@ -48,6 +48,10 @@ type ShareOptions = {
   onQr?: () => void;
   /** Told when a button is used (to record it). */
   onShare?: (method: ShareMethod) => void;
+  /** The first button's label. Default: "Text the link" (CW Now's crew list: "Send from my phone"). */
+  textLabel?: string;
+  /** Smaller buttons (CW Now's crew list, where they are the extra ways to send). */
+  small?: boolean;
   /** More buttons in the same row (e.g. Email). */
   children?: ReactNode;
 };
@@ -65,6 +69,8 @@ export default function CrewLinkShare({
   qrButtonLabel,
   onQr,
   onShare,
+  textLabel = "Text the link",
+  small = false,
   children,
 }: { accountId?: string; placeName: string; url: string } & ShareOptions) {
   const [isPhone, setIsPhone] = useState(false);
@@ -107,8 +113,9 @@ export default function CrewLinkShare({
   // "sms:?&body=" opens the Messages app with the text filled in on both
   // iPhone and Android, with no phone number (the user picks the contact).
   const smsHref = `sms:?&body=${encodeURIComponent(message ?? crewLinkTextMessage(placeName, url))}`;
-  const buttonClass =
-    "flex min-h-[64px] w-full items-center justify-center gap-3 rounded-2xl px-4 text-lg font-bold shadow-sm disabled:opacity-50";
+  const buttonClass = small
+    ? "flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl px-3 text-base font-bold shadow-sm disabled:opacity-50"
+    : "flex min-h-[64px] w-full items-center justify-center gap-3 rounded-2xl px-4 text-lg font-bold shadow-sm disabled:opacity-50";
 
   if (!url) return null;
 
@@ -117,7 +124,7 @@ export default function CrewLinkShare({
       <div className={`grid gap-3 ${children ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
         {isPhone ? (
           <a href={smsHref} onClick={() => onShare?.("text")} className={`${buttonClass} bg-green-600 text-white hover:bg-green-500`}>
-            <span className="text-2xl" aria-hidden="true">💬</span> Text the link
+            <span className="text-2xl" aria-hidden="true">💬</span> {textLabel}
           </a>
         ) : (
           <button
@@ -129,7 +136,7 @@ export default function CrewLinkShare({
             aria-expanded={showQr}
             className={`${buttonClass} bg-green-600 text-white hover:bg-green-500`}
           >
-            <span className="text-2xl" aria-hidden="true">💬</span> Text the link
+            <span className="text-2xl" aria-hidden="true">💬</span> {textLabel}
           </button>
         )}
         <button type="button" onClick={copyLink} className={`${buttonClass} bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-50`}>

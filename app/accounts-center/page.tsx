@@ -33,7 +33,7 @@ const TABS: { value: CenterTab; label: string }[] = [
   { value: "emails", label: "Missing emails" },
   { value: "checkins", label: "Check-ins" },
   { value: "time", label: "Time on site" },
-  { value: "team-hub", label: "Crew Link" },
+  { value: "team-hub", label: "CW Now" },
 ];
 
 function getStoredTab(): CenterTab {

@@ -1292,9 +1292,9 @@ export default function AccountDetailPage() {
               </section>
   
               {/* --------------------------------------------------------------- */}
-              {/* Porter Checklist template editor — the component itself fetches  */}
-              {/* the account's live "Checklist Needed" flag and renders nothing   */}
-              {/* when it's off, so no gating is needed here.                      */}
+              {/* The CW Now card (ChecklistTemplateEditor): "Set up CW Now" when the  */}
+              {/* account is not set up, else Send / Crew list / Edit checklist.     */}
+              {/* No gating needed here.                                              */}
               {/* --------------------------------------------------------------- */}
               <section className="account-detail-print-hide">
                 <ChecklistTemplateEditor accountId={getAccountId(account, rawAccountIdFromUrl)} accountName={accountName} />

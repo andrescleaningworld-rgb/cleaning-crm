@@ -132,7 +132,7 @@ export const GLOSSARY: { word: string; means: string }[] = [
   { word: "Schedule", means: "The days a sub cleans an account." },
   { word: "Supply order", means: "A list of supplies a site asked for." },
   { word: "Checklist", means: "The list of cleaning tasks for an account." },
-  { word: "Crew Link", means: "The page a cleaning crew opens for an account." },
+  { word: "CW Now", means: "The page a cleaning crew opens for an account (also called Crew Link)." },
   { word: "Portal", means: "The page a customer or a sub logs in to." },
 ];
 

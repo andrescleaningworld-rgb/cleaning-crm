@@ -525,3 +525,55 @@ export async function attachPhotoUrls(sections: ChecklistSubmissionSection[]): P
     }),
   }));
 }
+
+/**
+ * Saves whole tabs by name ("Build from estimate", "Copy from another
+ * account"): a name the account does not have adds a tab; a name it has
+ * replaces that tab's checklist, but only with `replace` (else "conflicts"
+ * lists those names, so the screen can ask "Replace it?"). A same-name tab
+ * with no items is replaced without asking. Other tabs are not touched.
+ */
+export type SaveTabsByNameResult =
+  | { ok: true; template: ChecklistTemplateRow | null; tabs: ChecklistTabDef[]; firstTabId: number | null }
+  | { ok: false; error: string; conflicts?: string[] };
+
+export async function saveTabsByName(input: {
+  accountId: string;
+  accountName: string;
+  locationName?: string;
+  tabs: { name: string; sections: ChecklistSectionDef[] }[];
+  replace: boolean;
+}): Promise<SaveTabsByNameResult> {
+  const { accountId, accountName } = input;
+  const lower = (name: string) => name.trim().toLowerCase();
+  await ensureTemplate(accountId, accountName);
+  let tabs = await ensureFirstTab(accountId);
+  const byName = new Map(tabs.map((tab) => [lower(tab.name), tab]));
+  const conflicts = input.tabs.filter((tab) => (byName.get(lower(tab.name))?.sections ?? []).some((section) => section.items.length > 0)).map((tab) => tab.name);
+  if (conflicts.length && !input.replace) {
+    return { ok: false, conflicts, error: `This account already has ${conflicts.map((name) => `"${name}"`).join(", ")}.` };
+  }
+  const adding = input.tabs.filter((tab) => !byName.has(lower(tab.name))).length;
+  if (tabs.length + adding > MAX_TABS) {
+    return { ok: false, error: `An account can have at most ${MAX_TABS} tabs. It has ${tabs.length}; this adds ${adding}.` };
+  }
+
+  const existing = await getTemplateByAccountId(accountId);
+  const locationName = input.locationName ?? existing?.locationName ?? accountName;
+  let template = existing;
+  let firstTabId: number | null = null;
+  for (const tab of input.tabs) {
+    let tabId = byName.get(lower(tab.name))?.id ?? null;
+    if (!tabId) {
+      const before = new Set(tabs.map((t) => t.id));
+      tabs = await addTab(accountId, tab.name);
+      tabId = tabs.find((t) => !before.has(t.id))?.id ?? null;
+      if (!tabId) throw new Error(`Could not add the tab "${tab.name}".`);
+    }
+    const saved = await saveTabSections(accountId, tabId, locationName, tab.sections);
+    template = saved.template;
+    tabs = saved.tabs;
+    firstTabId ??= tabId;
+  }
+  return { ok: true, template, tabs, firstTabId };
+}

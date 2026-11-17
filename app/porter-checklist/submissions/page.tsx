@@ -283,8 +283,8 @@ export default function PorterChecklistSubmissionsPage() {
       const accountName = flaggedAccounts.find((a) => a.accountId === accountFilter)?.accountName || "account";
       await navigator.share({
         files: [file],
-        title: `Crew Link Report — ${accountName}`,
-        text: `Crew Link report for ${accountName}`,
+        title: `CW Now Report — ${accountName}`,
+        text: `CW Now report for ${accountName}`,
       });
     } catch (err) {
       // AbortError means the user closed the native share sheet without
@@ -335,8 +335,8 @@ export default function PorterChecklistSubmissionsPage() {
         const suppliesOnly = ids("c:").length === 0;
         await navigator.share({
           files: [file],
-          title: suppliesOnly ? "Supply Order" : "Crew Link Report",
-          text: suppliesOnly ? `Supply order${keys.length === 1 ? "" : "s"} from Cleaning World Inc.` : `Crew Link report (${keys.length} submission${keys.length === 1 ? "" : "s"})`,
+          title: suppliesOnly ? "Supply Order" : "CW Now Report",
+          text: suppliesOnly ? `Supply order${keys.length === 1 ? "" : "s"} from Cleaning World Inc.` : `CW Now report (${keys.length} submission${keys.length === 1 ? "" : "s"})`,
         });
       } else {
         downloadBlob(blob, filename);
@@ -361,7 +361,7 @@ export default function PorterChecklistSubmissionsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={36} height={36} className="h-9 w-9 object-contain" />
-          <h1 className="ui-screen-title">Crew Link — Submitted{accountName ? ` · ${accountName}` : ""}</h1>
+          <h1 className="ui-screen-title">CW Now — Submitted{accountName ? ` · ${accountName}` : ""}</h1>
         </div>
         <select
           value={accountFilter ?? ""}
@@ -381,7 +381,7 @@ export default function PorterChecklistSubmissionsPage() {
         </select>
       </div>
       <Link href="/crew-link" className="ui-link">
-        ← Crew Link
+        ← CW Now
       </Link>
 
       <div className="ui-card">

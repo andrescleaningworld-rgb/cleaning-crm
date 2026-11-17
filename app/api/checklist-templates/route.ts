@@ -4,7 +4,7 @@
 // public and can't reach any of these actions.
 import { scheduleCrewTranslations } from "@/lib/crewTranslations";
 import { NextRequest, NextResponse } from "next/server";
-import { getMainAccountById } from "@/lib/data/accounts";
+import { getMainAccountById, setAccountChecklistNeeded } from "@/lib/data/accounts";
 import {
   addTab,
   deleteTab,
@@ -13,10 +13,12 @@ import {
   getTemplateByAccountId,
   renameTab,
   reorderTabs,
+  listActiveTabs,
   saveTabSections,
+  saveTabsByName,
   setCrewLinkModules,
 } from "@/lib/checklistDb";
-import { MAX_TABS, cleanTabName, parseUploadedChecklistFile, validateSections, type ChecklistSectionDef } from "@/lib/checklistTemplate";
+import { cleanTabName, parseUploadedChecklistFile, validateSections, type ChecklistSectionDef } from "@/lib/checklistTemplate";
 import { buildChecklistFromEstimate } from "@/lib/checklistEstimateBuild";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
@@ -195,42 +197,44 @@ async function handlePost(request: NextRequest) {
         if (!valid.ok) return NextResponse.json({ success: false, error: `${name}: ${valid.error}` }, { status: 400 });
         built.push({ name, sections: valid.sections });
       }
-      const lower = (name: string) => name.trim().toLowerCase();
-      if (new Set(built.map((tab) => lower(tab.name))).size !== built.length) {
+      if (new Set(built.map((tab) => tab.name.trim().toLowerCase())).size !== built.length) {
         return NextResponse.json({ success: false, error: "Two tabs have the same name. Give each tab its own name." }, { status: 400 });
       }
 
-      const accountName = String(body.accountName ?? accountId);
-      await ensureTemplate(accountId, accountName);
-      let tabs = await ensureFirstTab(accountId);
-      const byName = new Map(tabs.map((tab) => [lower(tab.name), tab]));
-      const conflicts = built.filter((tab) => (byName.get(lower(tab.name))?.sections ?? []).some((section) => section.items.length > 0)).map((tab) => tab.name);
-      if (conflicts.length && body.replace !== true) {
-        return NextResponse.json({ success: false, conflicts, error: `This account already has ${conflicts.map((n) => `"${n}"`).join(", ")}.` }, { status: 409 });
-      }
-      const adding = built.filter((tab) => !byName.has(lower(tab.name))).length;
-      if (tabs.length + adding > MAX_TABS) {
-        return NextResponse.json({ success: false, error: `An account can have at most ${MAX_TABS} tabs. It has ${tabs.length}; this adds ${adding}.` }, { status: 400 });
-      }
+      const result = await saveTabsByName({
+        accountId,
+        accountName: String(body.accountName ?? accountId),
+        locationName: body.locationName === undefined ? undefined : String(body.locationName),
+        tabs: built,
+        replace: body.replace === true,
+      });
+      if (!result.ok) return NextResponse.json({ success: false, error: result.error, conflicts: result.conflicts }, { status: result.conflicts ? 409 : 400 });
+      return NextResponse.json({ success: true, template: result.template, tabs: result.tabs, firstTabId: result.firstTabId });
+    }
 
-      const existing = await getTemplateByAccountId(accountId);
-      const locationName = String(body.locationName ?? existing?.locationName ?? accountName);
-      let template = existing;
-      let firstTabId: number | null = null;
-      for (const tab of built) {
-        let tabId = byName.get(lower(tab.name))?.id ?? null;
-        if (!tabId) {
-          const before = new Set(tabs.map((t) => t.id));
-          tabs = await addTab(accountId, tab.name);
-          tabId = tabs.find((t) => !before.has(t.id))?.id ?? null;
-          if (!tabId) throw new Error(`Could not add the tab "${tab.name}".`);
-        }
-        const saved = await saveTabSections(accountId, tabId, locationName, tab.sections);
-        template = saved.template;
-        tabs = saved.tabs;
-        firstTabId ??= tabId;
-      }
-      return NextResponse.json({ success: true, template, tabs, firstTabId });
+    // CW Now "Copy from another account": every tab with items on the other
+    // account, by name, the same way as Build from estimate's Save
+    // ("Replace it?" for names this account already has, with items).
+    if (action === "copyTabsFrom") {
+      const fromAccountId = String(body.fromAccountId ?? "").trim();
+      if (!fromAccountId || fromAccountId === accountId) return NextResponse.json({ success: false, error: "Pick another account to copy from." }, { status: 400 });
+      const source = (await listActiveTabs(fromAccountId)).filter((tab) => tab.sections.some((section) => section.items.length > 0));
+      if (source.length === 0) return NextResponse.json({ success: false, error: "That account has no checklist to copy." }, { status: 400 });
+      const result = await saveTabsByName({
+        accountId,
+        accountName: String(body.accountName ?? accountId),
+        tabs: source.map((tab) => ({ name: tab.name, sections: tab.sections })),
+        replace: body.replace === true,
+      });
+      if (!result.ok) return NextResponse.json({ success: false, error: result.error, conflicts: result.conflicts }, { status: result.conflicts ? 409 : 400 });
+      return NextResponse.json({ success: true, template: result.template, tabs: result.tabs, firstTabId: result.firstTabId, copied: source.length });
+    }
+
+    // CW Now setup: the checklist is in, so the account's "Checklist Needed"
+    // goes on (the same flag as the Edit page's Crew Link box).
+    if (action === "turnOnChecklist") {
+      await setAccountChecklistNeeded(accountId, true);
+      return NextResponse.json({ success: true });
     }
 
     if (action === "extractTemplateFromDocument") {

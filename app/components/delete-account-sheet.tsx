@@ -107,7 +107,7 @@ export default function DeleteAccountSheet({
             <li>{counted(impact.checklistItems, "checklist item", "checklist items")}</li>
           </ul>
           <p className="ui-muted">
-            It disappears everywhere: Accounts Center, Pin Board, Coverage, sub suggestions, the customer portal, the sub portal, and its Crew Link and Team
+            It disappears everywhere: Accounts Center, Pin Board, Coverage, sub suggestions, the customer portal, the sub portal, and its CW Now and Team
             Hub links stop working. Its visits, complaints, to-dos and orders are hidden with it. Nothing is erased: Settings → Deleted accounts can restore it.
           </p>
           <TextAreaField
