@@ -11,7 +11,8 @@
 //            in one tap; lists can be saved, changed and deleted. Every send
 //            shows the email and who is skipped (and why) first
 //            (CheckinSendSheet).
-//   History  one line per send: when, who, which list, how many sent /
+//   History  one line per send: when, the account (or the first one and
+//            "+N more", tap for the list), who, which list, how many sent /
 //            skipped / viewed / answered. Tap one: every account in it,
 //            Sent → 👁 Viewed → ✅ / ⚠️ Responded, the answer, comment, best
 //            way to reach them and photos, and the email that was sent.
@@ -607,6 +608,36 @@ export default function CheckinsPage() {
 
 /* ---------- History ---------- */
 
+const accountHref = (id: string) => `/accounts/${encodeURIComponent(id)}`;
+
+/** The send's account(s): one is a link; more is the first + "+N more" (hover for the names, tap for the list of links). */
+function SendAccounts({ accounts }: { accounts: CheckinBatch["accounts"] }) {
+  const [open, setOpen] = useState(false);
+  if (accounts.length === 0) return <span className="ui-muted">—</span>;
+  const link = (a: CheckinBatch["accounts"][number]) => (
+    <Link className="ui-link" href={accountHref(a.id)}>
+      {a.name}
+    </Link>
+  );
+  if (accounts.length === 1) return link(accounts[0]);
+  const rest = accounts.slice(1);
+  return (
+    <span>
+      {link(accounts[0])}{" "}
+      <button type="button" className="ui-link" title={rest.map((a) => a.name).join(", ")} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        +{rest.length} more
+      </button>
+      {open ? (
+        <ul className="ui-card-text" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+          {rest.map((a) => (
+            <li key={a.id}>{link(a)}</li>
+          ))}
+        </ul>
+      ) : null}
+    </span>
+  );
+}
+
 type BatchDetail = { batch: CheckinBatch; rows: CheckinRow[]; skipped: CheckinSkip[] };
 
 function HistoryTab() {
@@ -614,6 +645,7 @@ function HistoryTab() {
   const [openId, setOpenId] = useState<number | null>(null);
   const [detail, setDetail] = useState<BatchDetail | null>(null);
   const [viewId, setViewId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -643,15 +675,30 @@ function HistoryTab() {
   if (!batches) return <SkeletonList rows={3} />;
   if (batches.length === 0) return <EmptyState title="Nothing sent yet" text="Check-ins you send show here." />;
 
+  // Search by account name: a send matches when any of its accounts does.
+  const query = search.trim().toLowerCase();
+  const shown = query ? batches.filter((b) => b.accounts.some((a) => a.name.toLowerCase().includes(query))) : batches;
+  const openButton = (b: CheckinBatch) => (
+    <button type="button" className="ui-link" onClick={() => setOpenId(b.id)}>
+      {whenText(b.createdAt)}
+    </button>
+  );
+
   return (
     <>
+      <SearchBar value={search} onChange={setSearch} label="Search by account" placeholder="Search by account" />
       <p className="ui-muted">{CHECKIN_VIEWED_NOTE}</p>
+      {shown.length === 0 ? <EmptyState title="No sends for that account" text="Check the spelling, or clear the search." /> : null}
       <CardList
         label="Check-in sends"
-        items={batches}
+        items={shown}
         getKey={(b) => String(b.id)}
         renderCard={(b) => (
-          <Card title={whenText(b.createdAt)} onClick={() => setOpenId(b.id)}>
+          // Not a whole-card button: the account names inside are links. The date opens the send.
+          <Card title={openButton(b)}>
+            <p className="ui-card-text">
+              <SendAccounts accounts={b.accounts} />
+            </p>
             <p className="ui-card-text">
               {how(b)} · by {b.createdBy || "Office"}
             </p>
@@ -664,14 +711,8 @@ function HistoryTab() {
           </Card>
         )}
         columns={[
-          {
-            header: "When",
-            cell: (b) => (
-              <button type="button" className="ui-link" onClick={() => setOpenId(b.id)}>
-                {whenText(b.createdAt)}
-              </button>
-            ),
-          },
+          { header: "When", cell: (b) => openButton(b) },
+          { header: "Account", cell: (b) => <SendAccounts accounts={b.accounts} /> },
           { header: "Who", cell: (b) => b.createdBy || "Office" },
           { header: "List", cell: (b) => how(b) },
           { header: "Sent", cell: (b) => String(b.sent) },

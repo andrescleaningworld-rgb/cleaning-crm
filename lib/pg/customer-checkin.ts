@@ -710,6 +710,8 @@ type BatchDb = {
   answered: number;
   attention: number;
   viewed: number;
+  accounts: { id: string; name: string }[] | null;
+  skipped: CheckinSkip[] | null;
 };
 
 /** One line per send, with its counts ("Viewed" only once migration 080 is in). */
@@ -721,7 +723,13 @@ const batchSelect = async () => `SELECT b.id::text, b.created_at, b.created_by, 
     count(k.id) FILTER (WHERE k.status = 'skipped')::int AS skipped_rows,
     count(k.id) FILTER (WHERE k.answer <> '')::int AS answered,
     count(k.id) FILTER (WHERE k.answer IN ('attention', 'down'))::int AS attention,
-    ${(await viewReady()) ? "count(k.id) FILTER (WHERE k.opened_at IS NOT NULL OR k.answer <> '')::int" : "count(k.id) FILTER (WHERE k.answer <> '')::int"} AS viewed
+    ${(await viewReady()) ? "count(k.id) FILTER (WHERE k.opened_at IS NOT NULL OR k.answer <> '')::int" : "count(k.id) FILTER (WHERE k.answer <> '')::int"} AS viewed,
+    -- The accounts the send went to (History's Account column), A to Z, by their name now.
+    (SELECT COALESCE(json_agg(json_build_object('id', x.account_id, 'name', x.name) ORDER BY lower(x.name)), '[]'::json)
+       FROM (SELECT DISTINCT r.account_id,
+                    COALESCE(NULLIF(btrim((SELECT a.account_name FROM accounts a WHERE a.id = r.account_id LIMIT 1)), ''), r.account_id) AS name
+             FROM customer_checkins r WHERE r.batch_id = b.id) x) AS accounts,
+    b.skipped
   FROM checkin_batches b LEFT JOIN customer_checkins k ON k.batch_id = b.id`;
 
 function toBatch(b: BatchDb): CheckinBatch {
@@ -739,7 +747,21 @@ function toBatch(b: BatchDb): CheckinBatch {
     answered: b.answered,
     attention: b.attention,
     viewed: b.viewed,
+    accounts: batchAccounts(b),
   };
+}
+
+/** The send's accounts: the ones it went to (A to Z), then the ones it skipped. */
+function batchAccounts(b: BatchDb): { id: string; name: string }[] {
+  const list = (b.accounts ?? []).map((a) => ({ id: clean(a.id), name: clean(a.name) || clean(a.id) }));
+  const seen = new Set(list.map((a) => a.id));
+  for (const skip of b.skipped ?? []) {
+    const id = clean(skip.accountId);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    list.push({ id, name: clean(skip.accountName) || id });
+  }
+  return list;
 }
 
 /** History: one line per press of Send, newest first. */

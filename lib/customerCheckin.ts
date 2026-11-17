@@ -191,6 +191,8 @@ export type CheckinBatch = {
   attention: number;
   /** Opened ("Viewed", approximate). */
   viewed: number;
+  /** The accounts in the send: the ones it went to (A to Z), then the ones it skipped. */
+  accounts: { id: string; name: string }[];
 };
 
 /** An account the send leaves out, and why. */
