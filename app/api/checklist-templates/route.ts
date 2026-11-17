@@ -16,15 +16,19 @@ import {
   saveTabSections,
   setCrewLinkModules,
 } from "@/lib/checklistDb";
-import { cleanTabName, parseUploadedChecklistFile, validateSections } from "@/lib/checklistTemplate";
+import { MAX_TABS, cleanTabName, parseUploadedChecklistFile, validateSections, type ChecklistSectionDef } from "@/lib/checklistTemplate";
+import { buildChecklistFromEstimate } from "@/lib/checklistEstimateBuild";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { extractChecklistFromDocx, extractChecklistFromPdf, MAX_UPLOAD_BYTES } from "@/lib/checklistDocumentExtract";
 import { setPhotosShownToCustomer } from "@/lib/pg/crew-photos";
 
-// The extractTemplateFromDocument action calls the Claude API, which can
-// comfortably exceed the default serverless timeout on a large/slow
-// document — matches the budget used elsewhere in this app for slow
-// upstream calls.
-export const maxDuration = 45;
+// The extractTemplateFromDocument and buildFromEstimate actions call the
+// Claude API, which can take a minute or more on a long document or scope.
+export const maxDuration = 120;
+
+/** "Build from estimate": at most this many AI runs per staff member per minute. */
+const ESTIMATE_BUILDS_PER_MINUTE = 5;
 
 function parseTabId(value: unknown): number | null {
   const id = Number(value);
@@ -159,6 +163,74 @@ async function handlePost(request: NextRequest) {
       const locationName = String(body.locationName ?? existing?.locationName ?? accountName);
       const { template, tabs } = await saveTabSections(accountId, tabId, locationName, parsed.sections);
       return NextResponse.json({ success: true, template, tabs });
+    }
+
+    // "Build from estimate" (lib/checklistEstimateBuild.ts): the pasted
+    // scope + crew size → one tab per person, as a preview. Never saves.
+    if (action === "buildFromEstimate") {
+      const who = await getAdminIdentity(request);
+      if (!who) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401 });
+      if (!(await checkRateLimit(`checklist-estimate:${who.accountId}`, ESTIMATE_BUILDS_PER_MINUTE))) {
+        return NextResponse.json({ success: false, error: "That is a lot of checklists in one minute. Wait a minute, then try again." }, { status: 429 });
+      }
+      const result = await buildChecklistFromEstimate(String(body.scope ?? ""), Number(body.crewSize));
+      if (!result.ok) return NextResponse.json({ success: false, error: result.error }, { status: 422 });
+      return NextResponse.json({ success: true, preview: { tabs: result.tabs } });
+    }
+
+    // "Build from estimate" → Save: each tab is saved by name. A new name
+    // adds a tab; a name the account already has replaces that tab's
+    // checklist, but only with replace: true (else 409 with the names, so the
+    // screen can ask "Replace it?"). An existing tab with no items is
+    // replaced without asking. Same checks as the editor's Save.
+    if (action === "saveBuiltTabs") {
+      const input: unknown[] = Array.isArray(body.tabs) ? body.tabs : [];
+      if (input.length === 0) return NextResponse.json({ success: false, error: "There is nothing to save." }, { status: 400 });
+      const built: { name: string; sections: ChecklistSectionDef[] }[] = [];
+      for (const entry of input) {
+        const tab = (entry && typeof entry === "object" ? entry : {}) as { name?: unknown; sections?: unknown };
+        const name = cleanTabName(tab.name);
+        if (!name) return NextResponse.json({ success: false, error: "Every tab needs a name." }, { status: 400 });
+        const valid = validateSections(tab.sections);
+        if (!valid.ok) return NextResponse.json({ success: false, error: `${name}: ${valid.error}` }, { status: 400 });
+        built.push({ name, sections: valid.sections });
+      }
+      const lower = (name: string) => name.trim().toLowerCase();
+      if (new Set(built.map((tab) => lower(tab.name))).size !== built.length) {
+        return NextResponse.json({ success: false, error: "Two tabs have the same name. Give each tab its own name." }, { status: 400 });
+      }
+
+      const accountName = String(body.accountName ?? accountId);
+      await ensureTemplate(accountId, accountName);
+      let tabs = await ensureFirstTab(accountId);
+      const byName = new Map(tabs.map((tab) => [lower(tab.name), tab]));
+      const conflicts = built.filter((tab) => (byName.get(lower(tab.name))?.sections ?? []).some((section) => section.items.length > 0)).map((tab) => tab.name);
+      if (conflicts.length && body.replace !== true) {
+        return NextResponse.json({ success: false, conflicts, error: `This account already has ${conflicts.map((n) => `"${n}"`).join(", ")}.` }, { status: 409 });
+      }
+      const adding = built.filter((tab) => !byName.has(lower(tab.name))).length;
+      if (tabs.length + adding > MAX_TABS) {
+        return NextResponse.json({ success: false, error: `An account can have at most ${MAX_TABS} tabs. It has ${tabs.length}; this adds ${adding}.` }, { status: 400 });
+      }
+
+      const existing = await getTemplateByAccountId(accountId);
+      const locationName = String(body.locationName ?? existing?.locationName ?? accountName);
+      let template = existing;
+      let firstTabId: number | null = null;
+      for (const tab of built) {
+        let tabId = byName.get(lower(tab.name))?.id ?? null;
+        if (!tabId) {
+          const before = new Set(tabs.map((t) => t.id));
+          tabs = await addTab(accountId, tab.name);
+          tabId = tabs.find((t) => !before.has(t.id))?.id ?? null;
+          if (!tabId) throw new Error(`Could not add the tab "${tab.name}".`);
+        }
+        const saved = await saveTabSections(accountId, tabId, locationName, tab.sections);
+        template = saved.template;
+        tabs = saved.tabs;
+        firstTabId ??= tabId;
+      }
+      return NextResponse.json({ success: true, template, tabs, firstTabId });
     }
 
     if (action === "extractTemplateFromDocument") {

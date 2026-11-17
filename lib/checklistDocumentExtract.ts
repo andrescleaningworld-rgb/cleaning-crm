@@ -33,6 +33,21 @@ import {
 // base64-inflated (~4MB) plus JSON envelope overhead.
 export const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
+/**
+ * The words for a failed Claude call, shared by both AI checklist paths
+ * (this file, and "Build from estimate" in lib/checklistEstimateBuild.ts).
+ * `what` names the feature ("Checklist extraction").
+ */
+export function checklistAiError(err: unknown, what: string): string {
+  if (err instanceof AuthenticationError || (err instanceof Error && /credential|api.?key/i.test(err.message))) {
+    return `${what} is not configured correctly (missing or invalid Anthropic API key).`;
+  }
+  if (err instanceof RateLimitError) return `${what} is temporarily rate-limited — try again in a minute.`;
+  if (err instanceof APIConnectionError) return "Could not reach the AI service — check your connection and try again.";
+  if (err instanceof APIError) return `${what} failed: ${err.message}`;
+  return err instanceof Error ? err.message : `Unknown error in ${what.toLowerCase()}.`;
+}
+
 export type DocumentExtractResult =
   | { ok: true; locationName: string; sections: ChecklistSectionDef[] }
   | { ok: false; error: string };
@@ -88,19 +103,7 @@ async function runExtraction(
     });
   } catch (err) {
     console.error(`[checklist-extract] Claude API call failed for "${sourceLabel}":`, err);
-    if (err instanceof AuthenticationError || (err instanceof Error && /credential|api.?key/i.test(err.message))) {
-      return { ok: false, error: "Checklist extraction is not configured correctly (missing or invalid Anthropic API key)." };
-    }
-    if (err instanceof RateLimitError) {
-      return { ok: false, error: "Checklist extraction is temporarily rate-limited — try again in a minute." };
-    }
-    if (err instanceof APIConnectionError) {
-      return { ok: false, error: "Could not reach the extraction service — check your connection and try again." };
-    }
-    if (err instanceof APIError) {
-      return { ok: false, error: `Checklist extraction failed: ${err.message}` };
-    }
-    return { ok: false, error: err instanceof Error ? err.message : "Unknown error extracting checklist." };
+    return { ok: false, error: checklistAiError(err, "Checklist extraction") };
   }
 
   if (message.stop_reason === "refusal") {

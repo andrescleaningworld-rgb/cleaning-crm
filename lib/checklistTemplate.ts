@@ -423,9 +423,44 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((cell) => cell.trim().length > 0));
 }
 
-// Accepts either a CSV (with a "section,item,sub_note" header row) or a JSON
-// array of {section, item, sub_note} objects — both described as the
-// expected upload formats to staff. Returns a clear, specific error instead
+// The simple hand-made JSON format:
+//   { "title": "...", "instructions": "...", "sections": [{ "name": "...", "items": ["...", ...] }] }
+// "instructions" (text, or a list) becomes a first section "Rules", one item
+// per sentence (or per list entry). "title" is not stored: the tab keeps its
+// own name. An item may also be { "item" | "label" | "text", "sub_note" }, and
+// a section's "title" works like "name".
+type SimpleChecklist = { title?: unknown; instructions?: unknown; sections: unknown[] };
+
+function isSimpleChecklist(value: unknown): value is SimpleChecklist {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { sections?: unknown }).sections);
+}
+
+const SIMPLE_RULES_SECTION = "Rules";
+
+function simpleChecklistRows(checklist: SimpleChecklist): UploadedChecklistRow[] {
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  const rules = Array.isArray(checklist.instructions)
+    ? checklist.instructions.map(text).filter(Boolean)
+    : (text(checklist.instructions).match(/[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g) ?? []).map((rule) => rule.trim()).filter(Boolean);
+  const rows: UploadedChecklistRow[] = rules.map((rule) => ({ section: SIMPLE_RULES_SECTION, item: rule }));
+  for (const entry of checklist.sections) {
+    const section = entry && typeof entry === "object" ? (entry as { name?: unknown; title?: unknown; items?: unknown }) : {};
+    const name = text(section.name) || text(section.title);
+    for (const item of Array.isArray(section.items) ? section.items : []) {
+      if (typeof item === "string") {
+        rows.push({ section: name, item: item.trim() });
+      } else if (item && typeof item === "object") {
+        const fields = item as { item?: unknown; label?: unknown; text?: unknown; sub_note?: unknown };
+        rows.push({ section: name, item: text(fields.item) || text(fields.label) || text(fields.text), sub_note: text(fields.sub_note) });
+      }
+    }
+  }
+  return rows;
+}
+
+// Accepts a CSV (with a "section,item,sub_note" header row), a JSON array
+// of {section, item, sub_note} objects, or the simple format above — all
+// described as the expected upload formats to staff. Returns a clear, specific error instead
 // of throwing, so the caller can surface it without corrupting the existing
 // template.
 export function parseUploadedChecklistFile(text: string, filename: string): ChecklistUploadResult {
@@ -434,7 +469,7 @@ export function parseUploadedChecklistFile(text: string, filename: string): Chec
     return { ok: false, error: "The uploaded file is empty." };
   }
 
-  const looksLikeJson = filename.toLowerCase().endsWith(".json") || trimmed.startsWith("[");
+  const looksLikeJson = filename.toLowerCase().endsWith(".json") || trimmed.startsWith("[") || trimmed.startsWith("{");
   if (looksLikeJson) {
     let parsed: unknown;
     try {
@@ -442,8 +477,14 @@ export function parseUploadedChecklistFile(text: string, filename: string): Chec
     } catch {
       return { ok: false, error: "The uploaded file is not valid JSON." };
     }
+    if (isSimpleChecklist(parsed)) {
+      return buildSectionsFromRows(simpleChecklistRows(parsed));
+    }
     if (!Array.isArray(parsed)) {
-      return { ok: false, error: "Expected a JSON array of {section, item, sub_note} objects." };
+      return {
+        ok: false,
+        error: 'Expected a JSON array of {section, item, sub_note} objects, or { "title", "instructions", "sections": [{ "name", "items": [...] }] }.',
+      };
     }
     const rows: UploadedChecklistRow[] = parsed.map((entry) => ({
       ...(entry && typeof entry === "object" ? entry : {}),
