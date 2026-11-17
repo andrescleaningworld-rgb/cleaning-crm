@@ -3,8 +3,10 @@ import { getOrFetch } from "@/lib/serverCache";
 import { fetchAppsScript } from "@/lib/appsScriptFetch";
 import { getSubcontractorsAppsScriptShape, subsOnPostgres } from "@/lib/data/subs";
 import { fetchAccountsForAction, AccountsFetchError } from "@/app/api/accounts/route";
-import { renderAccountPacketAdminPdf } from "@/lib/pdf/account-packet-admin";
+import { renderAccountPacketAdminPdf, type PacketContact } from "@/lib/pdf/account-packet-admin";
 import { payShare } from "@/lib/payShare";
+import { getSql } from "@/lib/db";
+import { listContacts } from "@/lib/pg/account-contacts";
 
 // Admin-only, same reasoning as app/api/accounts/[id]/pdf/route.ts (the
 // Team Leader variant): this path isn't in proxy.ts's PUBLIC_PATHS,
@@ -130,17 +132,12 @@ async function fetchRawSubcontractors(): Promise<Record<string, unknown>[]> {
   return (data.subcontractors ?? data.data ?? []) as Record<string, unknown>[];
 }
 
-// Mirrors app/accounts/[id]/page.tsx's matchedSubcontractor +
-// subcontractorCompanyDisplay derivation — same candidate fields, same
-// "only show company if it differs from the contact display name" rule.
-function findSubcontractorCompany(
-  accountSubcontractorRaw: string,
-  subs: Record<string, unknown>[]
-): string {
+// Mirrors app/accounts/[id]/page.tsx's matchedSubcontractor — same
+// candidate fields. The account's sub record (company, contact, phone, email).
+function findSubcontractor(accountSubcontractorRaw: string, subs: Record<string, unknown>[]): Record<string, unknown> | undefined {
   const target = normalizeSubcontractorMatch(accountSubcontractorRaw);
-  if (!target) return "";
-
-  const match = subs.find((sub) => {
+  if (!target) return undefined;
+  return subs.find((sub) => {
     const candidates = [
       sub.companyName,
       sub.subcontractor,
@@ -151,6 +148,15 @@ function findSubcontractorCompany(
     ];
     return candidates.some((candidate) => normalizeSubcontractorMatch(candidate) === target);
   });
+}
+
+// Mirrors app/accounts/[id]/page.tsx's subcontractorCompanyDisplay — "only
+// show company if it differs from the contact display name".
+function findSubcontractorCompany(
+  accountSubcontractorRaw: string,
+  subs: Record<string, unknown>[]
+): string {
+  const match = findSubcontractor(accountSubcontractorRaw, subs);
   if (!match) return "";
 
   const companyName = cleanText(match.companyName);
@@ -158,6 +164,35 @@ function findSubcontractorCompany(
     cleanText(match.contactName) || cleanText(match.name) || accountSubcontractorRaw;
 
   return companyName && companyName !== contactDisplay ? companyName : "";
+}
+
+/** The account's Billing contact (account_contacts, role "Billing"), or null. Postgres only; any failure just leaves it out. */
+async function billingContact(accountId: string): Promise<PacketContact | null> {
+  if (!accountId) return null;
+  try {
+    const billing = (await listContacts(accountId))?.find((contact) => contact.role.trim().toLowerCase() === "billing");
+    return billing && (billing.name || billing.phone || billing.email) ? { name: billing.name, phone: billing.phone, email: billing.email } : null;
+  } catch (err) {
+    console.warn("[accounts/[id]/pdf/admin GET] billing contact lookup failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/** The account manager from the Managers list (name, phone, email). The account's manager name alone when not found. */
+async function managerContact(name: string): Promise<PacketContact> {
+  const fallback = { name, phone: "", email: "" };
+  if (!name) return fallback;
+  try {
+    const rows = (await getSql()`
+      SELECT btrim(name) AS name, btrim(phone) AS phone, btrim(email) AS email FROM managers
+      WHERE lower(regexp_replace(btrim(name), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(${name}), '\\s+', ' ', 'g'))
+      ORDER BY row_no LIMIT 1
+    `) as { name: string; phone: string; email: string }[];
+    return rows[0] ? { name: rows[0].name || name, phone: rows[0].phone, email: rows[0].email } : fallback;
+  } catch (err) {
+    console.warn("[accounts/[id]/pdf/admin GET] manager lookup failed:", err instanceof Error ? err.message : err);
+    return fallback;
+  }
 }
 
 export async function GET(_request: NextRequest, { params }: RouteContext) {
@@ -251,6 +286,24 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
     const subcontractorCompany = findSubcontractorCompany(cleanText(account.subcontractor), subs);
     const notes = cleanText(account.notes);
 
+    // CONTACTS (admin copy only): never passed to the Team Leader PDF.
+    const sub = findSubcontractor(cleanText(account.subcontractor), subs);
+    const subPhone = cleanText(sub?.phone);
+    const [billing, managerPerson] = await Promise.all([billingContact(cleanText(account.accountId ?? account.id)), managerContact(manager)]);
+    const contacts = {
+      customer: { name: cleanText(account.contactName), phone: cleanText(account.phone), email: cleanText(account.email) },
+      billing,
+      sub: {
+        company: cleanText(sub?.companyName),
+        name: cleanText(sub?.contactName) || cleanText(sub?.name),
+        phone: subPhone,
+        email: cleanText(sub?.email),
+      },
+      // The account names its team leader (the Subcontractor field); the phone is the sub record's.
+      teamLeader: { name: cleanText(account.subcontractor), phone: subPhone, email: "" },
+      manager: managerPerson,
+    };
+
     const generatedDate = new Date().toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
@@ -279,6 +332,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       keepShare: share.keepPercent,
       subcontractorCompany,
       notes,
+      contacts,
     });
 
     const filenameDate = new Date().toISOString().slice(0, 10);

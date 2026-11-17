@@ -6,6 +6,7 @@ import {
   View,
   Text,
   Image,
+  Link,
   StyleSheet,
 } from "@react-pdf/renderer";
 import { renderScopeFitted } from "@/lib/pdf/fit";
@@ -23,7 +24,13 @@ import { renderScopeFitted } from "@/lib/pdf/fit";
 // is shared: it only decides one page or two, and carries no account data.)
 //
 // ONE letter page. Only a scope of work too long for page 1 goes on page 2,
-// alone. Nothing smaller than 9 pt.
+// alone. Nothing smaller than 9 pt. An empty notes box is one short "None"
+// line, not a box, to leave room for CONTACTS.
+//
+// CONTACTS (this admin copy only, never the Team Leader PDF): customer,
+// billing (when the account has one), the sub company, the team leader and
+// the account manager. Phones and emails are tappable (tel: / mailto:); an
+// empty one shows "—" so missing info stands out.
 
 const COLORS = {
   blueDark: "#003b7a",
@@ -120,6 +127,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   text: { fontSize: 9.5, lineHeight: 1.4, color: COLORS.value },
+  emptyLine: { fontSize: 9.5, color: COLORS.label },
+  contactLine: { fontSize: 9.5, lineHeight: 1.35, color: COLORS.value },
+  contactLink: { fontSize: 9.5, lineHeight: 1.35, color: COLORS.blueDark, textDecoration: "none" },
+  missing: { fontSize: 9.5, lineHeight: 1.35, color: COLORS.label },
   seePage2: { fontSize: 10.5, fontFamily: "Helvetica-Bold", color: COLORS.blueDark, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 5 },
   page2Title: { fontFamily: "Helvetica-Bold", fontSize: 14, color: COLORS.blueDark },
   page2Account: { fontSize: 10, color: COLORS.label, marginTop: 2, marginBottom: 8 },
@@ -161,10 +172,48 @@ function Section({ title, breakable = false, children }: { title: string; breaka
   );
 }
 
-function TextBox({ text, empty = "None" }: { text: string; empty?: string }) {
+function TextBox({ text, empty = "None", shrinkWhenEmpty = false }: { text: string; empty?: string; shrinkWhenEmpty?: boolean }) {
+  // Empty notes: one line, no box (keeps the packet on one page).
+  if (!text && shrinkWhenEmpty) return <Text style={styles.emptyLine}>{empty}</Text>;
   return (
     <View style={styles.textBox}>
       <Text style={styles.text}>{text || empty}</Text>
+    </View>
+  );
+}
+
+const DASH = "—";
+
+/** "tel:+12015550123" (a 10-digit number is US); "" when there are no digits. */
+function telHref(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return "";
+  return `tel:+${digits.length === 10 ? `1${digits}` : digits}`;
+}
+
+const mailHref = (email: string) => (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) ? `mailto:${email.trim()}` : "");
+
+/** One line of a contact: plain text, a link, or "—" when empty. */
+function ContactLine({ text, href }: { text: string; href?: string }) {
+  if (!text) return <Text style={styles.missing}>{DASH}</Text>;
+  if (href) {
+    return (
+      <Link src={href} style={styles.contactLink}>
+        {text}
+      </Link>
+    );
+  }
+  return <Text style={styles.contactLine}>{text}</Text>;
+}
+
+/** One contact column, in the same 4-column grid as the other sections. */
+function ContactCell({ label, lines }: { label: string; lines: { text: string; kind?: "phone" | "email" }[] }) {
+  return (
+    <View style={styles.cell}>
+      <Text style={styles.label}>{label}</Text>
+      {lines.map((line, index) => (
+        <ContactLine key={index} text={line.text} href={line.kind === "phone" ? telHref(line.text) : line.kind === "email" ? mailHref(line.text) : undefined} />
+      ))}
     </View>
   );
 }
@@ -202,7 +251,19 @@ export type AccountPacketAdminData = {
   keepShare: string;
   subcontractorCompany: string;
   notes: string;
+  /** CONTACTS: admin copy only. */
+  contacts: {
+    customer: PacketContact;
+    /** null = the account has no Billing contact (the column is left out). */
+    billing: PacketContact | null;
+    sub: PacketContact & { company: string };
+    teamLeader: PacketContact;
+    manager: PacketContact;
+  };
 };
+
+/** A person on the packet's CONTACTS: any part may be "" (shown as "—"). */
+export type PacketContact = { name: string; phone: string; email: string };
 
 let cachedLogo: Buffer | null = null;
 function getLogoBuffer(): Buffer {
@@ -248,6 +309,35 @@ export function AccountPacketAdminDocument({ scopeOnPage2 = false, ...data }: Ac
             </View>
           </Section>
 
+          <Section title="Contacts">
+            <View style={styles.grid}>
+              <ContactCell
+                label="Customer Contact"
+                lines={[{ text: data.contacts.customer.name }, { text: data.contacts.customer.phone, kind: "phone" }, { text: data.contacts.customer.email, kind: "email" }]}
+              />
+              {data.contacts.billing ? (
+                <ContactCell
+                  label="Billing Contact"
+                  lines={[{ text: data.contacts.billing.name }, { text: data.contacts.billing.email, kind: "email" }, { text: data.contacts.billing.phone, kind: "phone" }]}
+                />
+              ) : null}
+              <ContactCell
+                label="Sub Company"
+                lines={[
+                  { text: data.contacts.sub.company },
+                  { text: data.contacts.sub.name },
+                  { text: data.contacts.sub.phone, kind: "phone" },
+                  { text: data.contacts.sub.email, kind: "email" },
+                ]}
+              />
+              <ContactCell label="Team Leader" lines={[{ text: data.contacts.teamLeader.name }, { text: data.contacts.teamLeader.phone, kind: "phone" }]} />
+              <ContactCell
+                label="Account Manager"
+                lines={[{ text: data.contacts.manager.name }, { text: data.contacts.manager.phone, kind: "phone" }, { text: data.contacts.manager.email, kind: "email" }]}
+              />
+            </View>
+          </Section>
+
           <Section title="Account Snapshot">
             <View style={styles.grid}>
               <Field wide label="Address" value={data.address} />
@@ -268,18 +358,18 @@ export function AccountPacketAdminDocument({ scopeOnPage2 = false, ...data }: Ac
           <View style={styles.columns} wrap={false}>
             <View style={styles.column}>
               <Section title="Key / Alarm / Access Info">
-                <TextBox text={data.accessInfo} />
+                <TextBox text={data.accessInfo} shrinkWhenEmpty />
               </Section>
             </View>
             <View style={styles.column}>
               <Section title="Notes for Sub">
-                <TextBox text={data.notesForSub} />
+                <TextBox text={data.notesForSub} shrinkWhenEmpty />
               </Section>
             </View>
           </View>
 
           <Section title="Internal Notes">
-            <TextBox text={data.notes} />
+            <TextBox text={data.notes} shrinkWhenEmpty />
           </Section>
 
           {scopeOnPage2 ? (
