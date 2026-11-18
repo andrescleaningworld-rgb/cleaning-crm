@@ -3,7 +3,11 @@
 // Check-ins (Accounts center → Check-ins): send the customer check-in to
 // many accounts, and see everything sent.
 //
-//   Send     every account, with the usual filters (Manager, Sub, Town, Last
+//   Send     "Not visited" tiles on top (30+ / 60+ / 90+ days, Never visited:
+//            the same last-visit dates as Accounts -> Last visited and Reports;
+//            tap one to show those accounts, 30+ to start). Active accounts
+//            only, sorted by Revenue (or days since visit, name, manager).
+//            Then the usual filters (Manager, Sub, Town, Last
 //            visited, Near account) and the check-in ones (Not answered,
 //            Needs attention, Never checked in, Last check-in more than
 //            30 / 60 / 90 days ago). Tick accounts, or "Select all filtered",
@@ -38,7 +42,7 @@ import {
   showToast,
 } from "@/app/ui";
 import { CheckinAnswer, CheckinEmailSheet, CheckinProgress, CheckinSendSheet, whenText } from "@/app/components/checkins";
-import { LastVisitedField, easternTodayIso, lastVisitText, matchesLastVisited, useLastVisits, type LastVisitedFilter } from "@/app/components/last-visited";
+import { LastVisitedField, daysSince, easternTodayIso, matchesLastVisited, useLastVisits, type LastVisitedFilter } from "@/app/components/last-visited";
 import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
 import { AutocompleteField, useCustomerSearch } from "@/app/sub-schedules/autocomplete";
 import { distanceInMiles } from "@/app/lib/distance";
@@ -57,8 +61,28 @@ type Row = {
   email: string;
   lat: number | null;
   lng: number | null;
+  /** Monthly revenue (the account's Monthly Revenue, as on the Accounts money boxes). */
+  revenue: number;
   search: string;
 };
+
+type SortOption = "revenue_desc" | "revenue_asc" | "days" | "name" | "manager";
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "revenue_desc", label: "Revenue (high → low)" },
+  { value: "revenue_asc", label: "Revenue (low → high)" },
+  { value: "days", label: "Days since visit (longest first)" },
+  { value: "name", label: "Account name A–Z" },
+  { value: "manager", label: "Manager" },
+];
+
+/** The "Not visited" tiles: each one is a Last visited filter. */
+const NOT_VISITED_TILES: { value: LastVisitedFilter; label: string }[] = [
+  { value: "30", label: "Not visited in 30+ days" },
+  { value: "60", label: "60+ days" },
+  { value: "90", label: "90+ days" },
+  { value: "never", label: "Never visited" },
+];
 
 type CheckinFilter = "any" | "not_answered" | "attention" | "never" | "30" | "60" | "90";
 
@@ -79,6 +103,21 @@ const coordinate = (value: unknown) => {
   const n = Number(value);
   return text(value) !== "" && Number.isFinite(n) ? n : null;
 };
+
+/** 1250 from "$1,250.00" / 1250 (the same reading as the Accounts money boxes). */
+function moneyToNumber(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Number(text(value).replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+const moneyText = (value: number) => (value ? value.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "—");
+
+/** "Oct 3, 2026" from a YYYY-MM-DD visit date, or "Never". */
+function visitDateText(isoDate: string | undefined): string {
+  if (!isoDate) return "Never";
+  const [year, month, day] = isoDate.slice(0, 10).split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
 
 function townOf(account: RawAccount): string {
   const city = text(account.city);
@@ -106,6 +145,7 @@ function toRow(account: RawAccount): Row | null {
     email: text(account.email),
     lat: coordinate(account.latitude),
     lng: coordinate(account.longitude),
+    revenue: moneyToNumber(account.monthlyRevenue),
     search: "",
   };
   row.search = [row.name, row.manager, row.sub, row.town, text(account.address), row.email].join(" ").toLowerCase();
@@ -113,7 +153,6 @@ function toRow(account: RawAccount): Row | null {
 }
 
 const isActive = (status: string) => ["active", "active account", "current"].includes(status.toLowerCase());
-const isCancelled = (status: string) => /^cancel/i.test(status);
 
 function daysAgo(isoValue: string): number | null {
   if (!isoValue) return null;
@@ -138,6 +177,13 @@ function lastCheckinText(last: CheckinLast | undefined): string {
   return `${when} · ${ratingOf(last.lastAnswer) ? ratingText(last.lastAnswer) : "No answer"}`;
 }
 
+/** The last check-in's date, or "—". */
+function lastSentText(last: CheckinLast | undefined): string {
+  if (!last?.lastSentAt) return "—";
+  const when = new Date(last.lastSentAt).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" });
+  return last.lastStatus === "queued" ? `Queued ${when}` : when;
+}
+
 export default function CheckinsPage() {
   const [tab, setTab] = useState<"send" | "history">("send");
   const [rows, setRows] = useState<Row[]>([]);
@@ -153,12 +199,14 @@ export default function CheckinsPage() {
 
   // Filters
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
   const [managerFilter, setManagerFilter] = useState("All");
   const [subFilter, setSubFilter] = useState("All");
   const [townFilter, setTownFilter] = useState("");
-  const [emailOnly, setEmailOnly] = useState(true);
-  const [lastVisitedFilter, setLastVisitedFilter] = useState<LastVisitedFilter>("any");
+  // Accounts with no email show (marked Missing); Send skips them and says so.
+  const [emailOnly, setEmailOnly] = useState(false);
+  // The "Not visited" tiles set this; 30+ to start.
+  const [lastVisitedFilter, setLastVisitedFilter] = useState<LastVisitedFilter>("30");
+  const [sort, setSort] = useState<SortOption>("revenue_desc");
   const [checkinFilter, setCheckinFilter] = useState<CheckinFilter>("any");
   const near = useCustomerSearch();
   const [radius, setRadius] = useState(10);
@@ -220,13 +268,21 @@ export default function CheckinsPage() {
   const towns = useMemo(() => [...new Set(rows.map((r) => r.town).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [rows]);
   const nearRow = near.selected ? rows.find((r) => r.id === near.selected!.id) ?? null : null;
 
+  // Only active accounts, in the tiles and the list.
+  const activeRows = useMemo(() => rows.filter((r) => isActive(r.status)), [rows]);
+  const daysOf = useCallback((id: string) => daysSince(lastVisits?.[id], today), [lastVisits, today]);
+  const tileCounts = useMemo(() => {
+    const counts: Partial<Record<LastVisitedFilter, number>> = {};
+    for (const tile of NOT_VISITED_TILES) counts[tile.value] = activeRows.filter((r) => matchesLastVisited(tile.value, lastVisits, r.id, today)).length;
+    return counts;
+  }, [activeRows, lastVisits, today]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     const listIds = listOnly && currentList ? new Set(currentList.accountIds) : null;
-    return rows.filter((r) => {
+    const shown = activeRows.filter((r) => {
       if (listIds && !listIds.has(r.id)) return false;
       if (term && !r.search.includes(term)) return false;
-      if (statusFilter === "active" ? !isActive(r.status) : isCancelled(r.status)) return false;
       if (managerFilter !== "All" && !managerMatches(r.manager, managerFilter)) return false;
       if (subFilter !== "All" && r.sub !== subFilter) return false;
       if (townFilter && r.town !== townFilter) return false;
@@ -240,25 +296,31 @@ export default function CheckinsPage() {
       }
       return true;
     });
-  }, [rows, search, statusFilter, managerFilter, subFilter, townFilter, emailOnly, hasEmail, lastVisitedFilter, lastVisits, today, checkinFilter, last, nearRow, radius, listOnly, currentList]);
+    // Never visited counts as the longest.
+    const days = (r: Row) => daysOf(r.id) ?? Number.MAX_SAFE_INTEGER;
+    const byRevenue = (a: Row, b: Row) => b.revenue - a.revenue || a.name.localeCompare(b.name);
+    return shown.sort((a, b) => {
+      if (sort === "revenue_asc") return a.revenue - b.revenue || a.name.localeCompare(b.name);
+      if (sort === "days") return days(b) - days(a) || byRevenue(a, b);
+      if (sort === "name") return a.name.localeCompare(b.name);
+      if (sort === "manager") return (a.manager || "~").localeCompare(b.manager || "~") || byRevenue(a, b);
+      return byRevenue(a, b);
+    });
+  }, [activeRows, daysOf, sort, search, managerFilter, subFilter, townFilter, emailOnly, hasEmail, lastVisitedFilter, lastVisits, today, checkinFilter, last, nearRow, radius, listOnly, currentList]);
 
   const filtersOn =
-    (statusFilter !== "active" ? 1 : 0) +
-    (managerFilter !== "All" ? 1 : 0) +
     (subFilter !== "All" ? 1 : 0) +
     (townFilter ? 1 : 0) +
-    (!emailOnly ? 1 : 0) +
-    (lastVisitedFilter !== "any" ? 1 : 0) +
+    (emailOnly ? 1 : 0) +
     (checkinFilter !== "any" ? 1 : 0) +
     (nearRow ? 1 : 0);
 
   function clearFilters() {
     setSearch("");
-    setStatusFilter("active");
     setManagerFilter("All");
     setSubFilter("All");
     setTownFilter("");
-    setEmailOnly(true);
+    setEmailOnly(false);
     setLastVisitedFilter("any");
     setCheckinFilter("any");
     near.clear();
@@ -338,6 +400,12 @@ export default function CheckinsPage() {
   }
 
   const selectedCount = selected.size;
+  /** "Oct 3, 2026 · 46 days", or "Never". */
+  const visitText = (id: string) => {
+    if (!lastVisits) return "…";
+    const days = daysOf(id);
+    return days === null ? "Never" : `${visitDateText(lastVisits[id])} · ${days} day${days === 1 ? "" : "s"}`;
+  };
   const listChanged = currentList ? currentList.accountIds.length !== selected.size || currentList.accountIds.some((id) => !selected.has(id)) : false;
 
   return (
@@ -359,6 +427,34 @@ export default function CheckinsPage() {
         <HistoryTab />
       ) : (
         <>
+          {/* Not visited: tap a tile to show those accounts (tap it again to show all). */}
+          <section aria-label="Not visited">
+            <h2 className="ui-strong" style={{ fontSize: 20, margin: "4px 0 8px" }}>
+              Not visited
+            </h2>
+            <div className="ui-counts" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+              {NOT_VISITED_TILES.map((tile) => (
+                <button
+                  key={tile.value}
+                  type="button"
+                  className={`ui-count ${tile.value === "never" ? "ui-count-bad" : "ui-count-info"}`}
+                  aria-pressed={lastVisitedFilter === tile.value}
+                  onClick={() => setLastVisitedFilter((current) => (current === tile.value ? "any" : tile.value))}
+                >
+                  <span className="ui-count-number">{lastVisits ? (tileCounts[tile.value] ?? 0) : "…"}</span>
+                  <span className="ui-count-label">{tile.label}</span>
+                </button>
+              ))}
+            </div>
+            <p className="ui-muted">
+              {lastVisitsFailed
+                ? "Couldn't load the visit dates. Refresh the page to try again."
+                : lastVisitedFilter === "any"
+                  ? "Showing all active accounts. Tap a tile to see who needs a visit."
+                  : "Active accounts only. Tap the tile again to see all."}
+            </p>
+          </section>
+
           <SearchBar value={search} onChange={setSearch} label="Find an account" placeholder="Find an account" />
 
           <Card title="Saved lists">
@@ -401,17 +497,33 @@ export default function CheckinsPage() {
             </div>
           </Card>
 
+          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            <SelectField label="Sort" value={sort} onChange={(e) => setSort(e.target.value as SortOption)}>
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </SelectField>
+            <SelectField label="Manager" value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
+              <option value="All">All</option>
+              <ManagerOptions names={managerNames} />
+            </SelectField>
+          </div>
+
           <div className="ui-actions-row">
             <BigButton kind="second" onClick={() => setShowFilters(true)}>
-              {filtersOn ? `Filters (${filtersOn} on)` : "Filters"}
+              {filtersOn ? `More filters (${filtersOn} on)` : "More filters"}
             </BigButton>
             <BigButton kind="quiet" onClick={clearFilters}>
               Clear filters
             </BigButton>
-            <BigButton kind="second" disabled={filtered.length === 0} onClick={selectAllFiltered}>
-              {allFilteredSelected ? "Unselect all filtered" : `Select all filtered (${filtered.length})`}
-            </BigButton>
           </div>
+
+          <label className="ui-actions-row" style={{ alignItems: "center", gap: 10 }}>
+            <input type="checkbox" className="h-7 w-7" checked={allFilteredSelected} disabled={filtered.length === 0} onChange={selectAllFiltered} />
+            <span className="ui-strong">Select all shown ({filtered.length})</span>
+          </label>
 
           <p className="ui-muted" role="status">
             {loading ? "Loading accounts…" : `Showing ${filtered.length} of ${rows.length} · ${selectedCount} selected`}
@@ -419,7 +531,7 @@ export default function CheckinsPage() {
 
           <div className="ui-actions-row">
             <BigButton disabled={!ready || selectedCount === 0} onClick={() => openSend([...selected])}>
-              {selectedCount === 1 ? "Send check-in to 1 account" : `Send check-in to ${selectedCount} accounts`}
+              Send check-in to selected ({selectedCount})
             </BigButton>
             <BigButton
               kind="second"
@@ -458,9 +570,9 @@ export default function CheckinsPage() {
                   }
                 >
                   <p className="ui-card-text">
-                    {[r.manager || "No manager", r.town, hasEmail(r) ? "" : "No email", optedOut.has(r.id) ? "Stopped emails" : ""].filter(Boolean).join(" · ")}
+                    {[r.manager || "No manager", `${moneyText(r.revenue)} / month`, optedOut.has(r.id) ? "Stopped emails" : hasEmail(r) ? "" : "⚠️ Email missing"].filter(Boolean).join(" · ")}
                   </p>
-                  <p className="ui-card-text">Last visited: {lastVisitText(lastVisits?.[r.id], today)}</p>
+                  <p className="ui-card-text">Last visit: {visitText(r.id)}</p>
                   <p className="ui-card-text">Last check-in: {lastCheckinText(last[r.id])}</p>
                 </Card>
               )}
@@ -478,10 +590,11 @@ export default function CheckinsPage() {
                   ),
                 },
                 { header: "Manager", cell: (r) => r.manager || "None" },
-                { header: "Town", cell: (r) => r.town || "-" },
-                { header: "Email", cell: (r) => (optedOut.has(r.id) ? "Stopped emails" : hasEmail(r) ? "Yes" : "No email") },
-                { header: "Last visited", cell: (r) => lastVisitText(lastVisits?.[r.id], today) },
-                { header: "Last check-in", cell: (r) => lastCheckinText(last[r.id]) },
+                { header: "Last visit", cell: (r) => (lastVisits ? visitDateText(lastVisits[r.id]) : "…") },
+                { header: "Days since visit", cell: (r) => (lastVisits ? (daysOf(r.id) ?? "Never") : "…") },
+                { header: "Monthly revenue", cell: (r) => moneyText(r.revenue) },
+                { header: "Has email", cell: (r) => (optedOut.has(r.id) ? "Stopped emails" : hasEmail(r) ? "Yes" : <span className="ui-strong">Missing</span>) },
+                { header: "Last check-in sent", cell: (r) => lastSentText(last[r.id]) },
               ]}
             />
           )}
@@ -489,14 +602,6 @@ export default function CheckinsPage() {
       )}
 
       <Sheet open={showFilters} title="Filters" onClose={() => setShowFilters(false)} closeLabel="Done">
-        <SelectField label="Status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "active" | "all")}>
-          <option value="active">Active</option>
-          <option value="all">All but cancelled</option>
-        </SelectField>
-        <SelectField label="Manager" value={managerFilter} onChange={(e) => setManagerFilter(e.target.value)}>
-          <option value="All">All</option>
-          <ManagerOptions names={managerNames} current={managerFilter === "All" ? "" : managerFilter} />
-        </SelectField>
         <SelectField label="Sub" value={subFilter} onChange={(e) => setSubFilter(e.target.value)}>
           <option value="All">All</option>
           {subs.map((sub) => (
