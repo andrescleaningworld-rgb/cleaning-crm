@@ -17,6 +17,7 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 import { getSql } from "@/lib/db";
 import { sendSubcontractorNotification } from "@/lib/email";
+import { accountEmailProblem } from "@/lib/emailAddress";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -258,6 +259,11 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // The account's email, when this changes it: one plain address.
+      const fieldEmail = (fields as Record<string, unknown>).email ?? (fields as Record<string, unknown>).Email;
+      const fieldEmailProblem = fieldEmail === undefined ? "" : accountEmailProblem(fieldEmail);
+      if (fieldEmailProblem) return NextResponse.json({ success: false, error: fieldEmailProblem }, { status: 400 });
+
       let result: Awaited<ReturnType<typeof updateAccountFieldsDirect>>;
       try {
         result = await updateAccountFieldsDirect(accountId, fields);
@@ -423,6 +429,10 @@ export async function POST(request: NextRequest) {
     // All other actions (addAccount, updateAccount, etc.) go through doPost as before.
     const resolvedAction =
       action === "updateAccount" || action === "editAccount" ? "updateAccount" : "addAccount";
+
+    // The account's email must be one plain address: customer emails and the portal login go to exactly it.
+    const emailProblem = accountEmailProblem((accountPayload as Record<string, unknown>).email ?? (accountPayload as Record<string, unknown>).Email);
+    if (emailProblem) return NextResponse.json({ success: false, error: emailProblem }, { status: 400 });
 
     // Captured before the write below so the SMS step (after a successful
     // save, near the bottom of this function) can tell "sub freshly

@@ -43,6 +43,8 @@ const en = {
   sending: "Sending…",
   linkSentTitle: "Check your email",
   linkSentText: "If that email is on a Cleaning World account, a link is on its way. It works for 24 hours.",
+  noEmailHelp: (phone: string) =>
+    phone ? `Nothing in a few minutes? Check your spam folder, or call us at ${phone}: we may have another email on file.` : "Nothing in a few minutes? Check your spam folder, or call the office: we may have another email on file.",
   testLinkTitle: "Test account",
   testLinkText: "Emails are not sent here. This is the link the email would carry:",
   openLink: "Open the link",
@@ -114,6 +116,7 @@ const en = {
   photos: "Photos",
   needDetails: "Tell us what happened.",
   uploadingPhotos: "Sending photos…",
+  photoNotSent: "One of the photos could not be sent. Take it out (tap the ✕) and send again.",
   // "Report a problem" when one is still open: add to it instead of sending a new one.
   openProblemTitle: "You already told us about a problem",
   openProblemSent: (day: string) => (day ? `Sent ${day}` : ""),
@@ -136,6 +139,7 @@ const en = {
   dateNew: "The new day",
   dateReason: "Why? (helps us plan)",
   needDates: "Pick the day to change and the new day.",
+  dateInPast: "The new day must be today or later.",
 
   billingTitle: "Billing question",
   billingKind: "What is it about?",
@@ -239,6 +243,10 @@ const es: PortalWords = {
   sending: "Enviando…",
   linkSentTitle: "Revise su correo",
   linkSentText: "Si ese correo está en una cuenta de Cleaning World, el enlace va en camino. Funciona por 24 horas.",
+  noEmailHelp: (phone: string) =>
+    phone
+      ? `¿No llegó nada en unos minutos? Revise su correo no deseado, o llámenos al ${phone}: puede que tengamos otro correo suyo.`
+      : "¿No llegó nada en unos minutos? Revise su correo no deseado, o llame a la oficina: puede que tengamos otro correo suyo.",
   testLinkTitle: "Cuenta de prueba",
   testLinkText: "Aquí no se envían correos. Este es el enlace que llevaría el correo:",
   openLink: "Abrir el enlace",
@@ -304,6 +312,7 @@ const es: PortalWords = {
   photos: "Fotos",
   needDetails: "Cuéntenos qué pasó.",
   uploadingPhotos: "Enviando fotos…",
+  photoNotSent: "Una de las fotos no se pudo enviar. Quítela (toque la ✕) y envíe otra vez.",
   openProblemTitle: "Ya nos contó de un problema",
   openProblemSent: (day: string) => (day ? `Enviado el ${day}` : ""),
   addToProblem: "Agregar fotos o notas a este problema",
@@ -325,6 +334,7 @@ const es: PortalWords = {
   dateNew: "El día nuevo",
   dateReason: "¿Por qué? (nos ayuda a planear)",
   needDates: "Elija el día que quiere cambiar y el día nuevo.",
+  dateInPast: "El día nuevo debe ser hoy o después.",
 
   billingTitle: "Pregunta de facturación",
   billingKind: "¿De qué se trata?",

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { BigButton, Card, ErrorBox, Field, Screen } from "@/app/ui";
 import { LangToggle, PREVIEW_ONLY, usePortalPreview, usePortalWords } from "../portal-ui";
 
-export default function LinkRequestForm({ first }: { first: boolean }) {
+export default function LinkRequestForm({ first, officePhone = "" }: { first: boolean; officePhone?: string }) {
   const words = usePortalWords();
   const preview = usePortalPreview();
   const [email, setEmail] = useState("");
@@ -49,6 +49,13 @@ export default function LinkRequestForm({ first }: { first: boolean }) {
               {words.openLink}
             </a>
           </Card>
+        ) : null}
+        {/* A link only goes to the email on the account: when nothing comes, the office can tell them which one it is. */}
+        <p className="ui-hint">{words.noEmailHelp(officePhone)}</p>
+        {officePhone.replace(/\D/g, "").length >= 10 ? (
+          <a href={`tel:${officePhone.replace(/[^\d+]/g, "")}`} className="ui-btn ui-btn-second">
+            📞 {officePhone}
+          </a>
         ) : null}
         <a href="/portal/login" className="ui-btn ui-btn-second">
           {words.backToLogin}

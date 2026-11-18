@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
+import { newYorkToday } from "@/lib/portalPhotos";
 import { SERVICE_EMAIL } from "@/lib/portalContacts";
 
 export async function POST(request: NextRequest) {
@@ -25,7 +26,8 @@ export async function POST(request: NextRequest) {
     return filesJson({ error: "Service type is required." }, { status: 400 });
   }
 
-  const today = new Date().toLocaleDateString("en-US");
+  // Today in New York (the server runs on UTC, which is already tomorrow in the evening).
+  const today = newYorkToday().mdy;
 
   try {
     await appendPortalRequest("portal-service-requests", [

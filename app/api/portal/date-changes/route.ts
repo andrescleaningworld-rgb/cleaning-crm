@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
+import { newYorkToday } from "@/lib/portalPhotos";
 
 export async function POST(request: NextRequest) {
   const session = await requirePortalAccount();
@@ -24,7 +25,12 @@ export async function POST(request: NextRequest) {
     return filesJson({ error: "Current and requested dates are required." }, { status: 400 });
   }
 
-  const today = new Date().toLocaleDateString("en-US");
+  // Today in New York (the server runs on UTC, which is already tomorrow in the evening).
+  const { mdy: today, iso: todayIso } = newYorkToday();
+  // The new day cannot be in the past (YYYY-MM-DD from the date box compares as text).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && requestedDate < todayIso) {
+    return filesJson({ error: "The new day must be today or later." }, { status: 400 });
+  }
 
   try {
     await appendPortalRequest("portal-date-changes", [

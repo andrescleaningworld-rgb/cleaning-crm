@@ -23,6 +23,7 @@
 
 import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
+import { accountEmailProblem } from "@/lib/emailAddress";
 import { invalidateAccountLists } from "@/app/api/accounts/route";
 import { notifyBoardSquare } from "@/lib/pg/board-sms";
 import {
@@ -95,6 +96,9 @@ export async function POST(request: NextRequest) {
       const manager = clean(body.manager);
       if (!accountName) return refuse("Type the customer name.");
       if (!manager) return refuse("Pick the account manager.");
+      // One plain address: the welcome packet, check-ins and the portal login go to exactly it.
+      const emailProblem = accountEmailProblem(body.email);
+      if (emailProblem) return refuse(emailProblem);
       const saved = await createAcceptedAccount(
         {
           accountName,

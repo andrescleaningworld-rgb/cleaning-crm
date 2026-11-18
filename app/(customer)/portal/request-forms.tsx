@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { BigButton, ErrorBox, Field, PhotoPicker, Screen, SelectField, TextAreaField } from "@/app/ui";
 import { LangToggle, PREVIEW_ONLY, usePortalLang, usePortalPreview, usePortalWords } from "./portal-ui";
 import { portalDay } from "./words";
+import { MAX_SEND_BYTES, preparePhoto } from "@/lib/imageResize";
 
 async function post(url: string, body: unknown): Promise<void> {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -68,13 +69,26 @@ const PROBLEM_KINDS = ["Missed Cleaning", "Quality Issue", "Damaged Property", "
 /** Their newest problem that is still open (lib/pg/complaint-changes.ts openPortalComplaint). */
 export type OpenProblem = { key: string; day: string; text: string };
 
+/**
+ * The photos, each made small on the phone first (1600 px JPEG, the same as
+ * the crew's photos): a full-size phone photo is often over the 4.5 MB an
+ * upload may be. A photo this phone cannot make small (an iPhone HEIC photo
+ * on Android) goes as it is when it fits. "photo" = one cannot be sent.
+ */
 async function uploadPhotos(photos: File[]): Promise<string[]> {
   const urls: string[] = [];
   for (const file of photos) {
+    const prepared = await preparePhoto(file, file.name, { fullSide: 1600, quality: 0.8 });
+    let send: File;
+    if (prepared.ok) send = new File([prepared.full], `${file.name.replace(/\.[^.]*$/, "") || "photo"}.jpg`, { type: "image/jpeg" });
+    else if (file.size <= MAX_SEND_BYTES) send = file;
+    else throw new Error("photo");
     const form = new FormData();
-    form.append("file", file);
+    form.append("file", send);
     const res = await fetch("/api/portal/upload", { method: "POST", body: form });
     const data = (await res.json().catch(() => ({}))) as { url?: string };
+    // Refused (too big, not a photo): sending it again will not help. Anything else: no signal / a hiccup.
+    if (res.status === 400 || res.status === 413) throw new Error("photo");
     if (!res.ok || !data.url) throw new Error("upload");
     urls.push(data.url);
   }
@@ -104,8 +118,8 @@ export function ProblemForm({ accountName, openProblem = null }: { accountName: 
       setUploading(false);
       await post("/api/portal/complaints", { issueType: kind || "Other", description: details.trim(), incidentDate: "", photos: urls });
       router.push("/portal/sent?kind=problem");
-    } catch {
-      setError(words.somethingWrong);
+    } catch (err) {
+      setError(err instanceof Error && err.message === "photo" ? words.photoNotSent : words.somethingWrong);
       setUploading(false);
       setBusy(false);
     }
@@ -129,7 +143,7 @@ export function ProblemForm({ accountName, openProblem = null }: { accountName: 
       if (!res.ok) throw new Error("save");
       router.push("/portal/sent?kind=problem");
     } catch (err) {
-      setError(err instanceof Error && err.message === "closed" ? words.problemClosed : words.somethingWrong);
+      setError(err instanceof Error && err.message === "closed" ? words.problemClosed : err instanceof Error && err.message === "photo" ? words.photoNotSent : words.somethingWrong);
       setUploading(false);
       setBusy(false);
     }
@@ -279,6 +293,8 @@ export function DateForm({ accountName, upcoming }: { accountName: string; upcom
   const lang = usePortalLang();
   const router = useRouter();
   const [which, setWhich] = useState(upcoming[0]?.date ?? "other");
+  // Today in New York (YYYY-MM-DD): the new day cannot be before it.
+  const [todayIso] = useState(() => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()));
   const [otherDay, setOtherDay] = useState("");
   const [newDay, setNewDay] = useState("");
   const [reason, setReason] = useState("");
@@ -288,6 +304,7 @@ export function DateForm({ accountName, upcoming }: { accountName: string; upcom
   async function submit() {
     const currentDate = which === "other" ? otherDay : which;
     if (!currentDate || !newDay) return setError(words.needDates);
+    if (newDay < todayIso) return setError(words.dateInPast);
     setBusy(true);
     setError("");
     try {
@@ -314,7 +331,7 @@ export function DateForm({ accountName, upcoming }: { accountName: string; upcom
       {which === "other" || upcoming.length === 0 ? (
         <Field label={words.dateCurrent} type="date" value={otherDay} onChange={(e) => setOtherDay(e.target.value)} />
       ) : null}
-      <Field label={words.dateNew} type="date" value={newDay} onChange={(e) => setNewDay(e.target.value)} />
+      <Field label={words.dateNew} type="date" min={todayIso} value={newDay} onChange={(e) => setNewDay(e.target.value)} />
       <TextAreaField label={words.dateReason} optional value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
     </FormScreen>
   );
