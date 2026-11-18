@@ -30,13 +30,10 @@ import GoogleAddressAutocompleteInput, {
 import SubSuggestions from "@/app/components/sub-suggestions";
 import { useInsuranceMap } from "@/app/components/sub-insurance";
 import { findInsurance, niceDay } from "@/lib/subInsurance";
-import PlusMinus from "@/app/components/plus-minus";
 import SubPayFields from "@/app/components/sub-pay-fields";
 import NewAccountContacts, { contactsProblem, saveExtraContacts, type NewContact } from "@/app/components/new-account-contacts";
 import { afterFrequencyChange } from "@/lib/frequency";
-import { DEFAULT_START_TIME, formatClock, START_TIME_MAX, START_TIME_MIN, START_TIME_STEP } from "@/lib/schedule-time";
 import { ManagerOptions, useManagerNames } from "../../components/manager-options";
-import { DEFAULT_MINUTES_ON_SITE, formatMinutes, MAX_MINUTES_ON_SITE, MIN_MINUTES_ON_SITE, MINUTES_ON_SITE_STEP } from "@/lib/time-on-site";
 import { AccountScheduleSection, saveSchedule } from "@/app/components/account-schedule";
 import { emptyPlan, planIsEmpty, planProblems, type SchedulePlan } from "@/lib/schedule-plan";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
@@ -348,8 +345,6 @@ export default function NewAccountPage() {
   // The optional schedule (Sub Schedules). Empty = the account saves without one.
   const [schedulePlan, setSchedulePlan] = useState<SchedulePlan>(emptyPlan);
   const [scheduleTried, setScheduleTried] = useState(false);
-  const [suggestionStart, setSuggestionStart] = useState(DEFAULT_START_TIME);
-  const [suggestionMinutes, setSuggestionMinutes] = useState(DEFAULT_MINUTES_ON_SITE);
   // Frequency, Cleaning days and Cleaning time, from the picker (null while it is empty).
   const planFields = useMemo(() => accountFieldsFromPlan(schedulePlan), [schedulePlan]);
   // A new frequency from the picker: the monthly pay stays and the price per cleaning is worked out again.
@@ -367,7 +362,7 @@ export default function NewAccountPage() {
   // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx).
   const draft = useFormDraft(
     `add-account:${markateId}`,
-    { newCustomer, form, portalAccess, extraContacts, schedulePlan, suggestionStart, suggestionMinutes },
+    { newCustomer, form, portalAccess, extraContacts, schedulePlan },
     {
       // From a Markate estimate: once the estimate has filled the form in.
       ready: !markateId || markate !== null || error !== "",
@@ -377,8 +372,6 @@ export default function NewAccountPage() {
         setPortalAccess(kept.portalAccess);
         setExtraContacts(kept.extraContacts);
         setSchedulePlan(kept.schedulePlan);
-        setSuggestionStart(kept.suggestionStart);
-        setSuggestionMinutes(kept.suggestionMinutes);
       },
     }
   );
@@ -832,7 +825,22 @@ export default function NewAccountPage() {
           </div>
         </Card>
 
-        <Card title="Assignment & Pricing">
+        {/* Address, then schedule, then sub: the suggested subs below are checked against this schedule. */}
+        <AccountScheduleSection
+          plan={schedulePlan}
+          onChange={changeSchedulePlan}
+          showProblems={scheduleTried}
+          disabled={saving}
+          note={
+            newCustomer ? (
+              <p className="ui-hint" style={{ margin: 0 }}>
+                The days and time are kept on the account. The sub&apos;s schedule is made from them when the sub says Yes.
+              </p>
+            ) : undefined
+          }
+        />
+
+        <Card title="Service & Assignment">
           <div style={sectionStyle}>
             <SelectField
               label={newCustomer ? "Account manager" : "Manager"}
@@ -847,8 +855,21 @@ export default function NewAccountPage() {
             </SelectField>
             {newCustomer ? null : (
               <>
+                <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
+                {/* Live: asks again whenever the address or the schedule above changes. Tap one to fill the dropdown below. */}
+                <SubSuggestions
+                  lat={suggestionLat}
+                  lng={suggestionLng}
+                  plan={schedulePlan}
+                  scoreBySubId={scoreBySubId}
+                  selectedId={cleanText(subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor)?.subId)}
+                  onSelect={(result) => {
+                    const picked = subcontractors.find((subcontractor) => cleanText(subcontractor.subId) === result.subId);
+                    if (picked) updateField("subcontractor", getSubcontractorDropdownValue(picked));
+                  }}
+                />
                 <SelectField
-                  label="Subcontractor"
+                  label="Assigned subcontractor"
                   optional
                   hint={
                     !loadingSubcontractors && subcontractorOptions.length === 0
@@ -874,35 +895,14 @@ export default function NewAccountPage() {
                 {pickedInsurance?.state === "expired" ? (
                   <p className="ui-field-error">⚠ This sub&apos;s insurance expired on {niceDay(pickedInsurance.expiresOn)}.</p>
                 ) : null}
-                <SubSuggestions
-                  lat={suggestionLat}
-                  lng={suggestionLng}
-                  cleaningDays={planFields?.cleaningDays ?? form.cleaningDays}
-                  start={suggestionStart}
-                  minutes={suggestionMinutes}
-                  scoreBySubId={scoreBySubId}
-                  hint="Tap one to pick it."
-                  selectedId={cleanText(subcontractors.find((subcontractor) => getSubcontractorDropdownValue(subcontractor) === form.subcontractor)?.subId)}
-                  onSelect={(result) => {
-                    const picked = subcontractors.find((subcontractor) => cleanText(subcontractor.subId) === result.subId);
-                    if (picked) updateField("subcontractor", getSubcontractorDropdownValue(picked));
-                  }}
-                />
-                {form.latitude && form.longitude ? (
-                  <div className="flex flex-wrap gap-x-8 gap-y-3">
-                    <div>
-                      <p className="ui-label">Time</p>
-                      <PlusMinus value={suggestionStart} onChange={setSuggestionStart} step={START_TIME_STEP} min={START_TIME_MIN} max={START_TIME_MAX} label="Start time to check" format={formatClock} />
-                    </div>
-                    <div>
-                      <p className="ui-label">Length</p>
-                      <PlusMinus value={suggestionMinutes} onChange={setSuggestionMinutes} step={MINUTES_ON_SITE_STEP} min={MIN_MINUTES_ON_SITE} max={MAX_MINUTES_ON_SITE} label="Length to check" format={formatMinutes} />
-                    </div>
-                  </div>
-                ) : null}
               </>
             )}
             {newCustomer ? <p className="ui-hint" style={{ margin: 0 }}>The subcontractor is picked in step 2 of the new-account steps: the account is offered to them.</p> : null}
+          </div>
+        </Card>
+
+        <Card title="Pricing">
+          <div style={sectionStyle}>
             <Field
               label={newCustomer ? "Monthly price" : "Monthly revenue"}
               optional
@@ -956,27 +956,7 @@ export default function NewAccountPage() {
               </div>
             </div>
           </Card>
-        ) : (
-          <Card title="Service Details">
-            <div style={sectionStyle}>
-              <Field label="Service type" optional value={form.serviceType} onChange={(event) => updateField("serviceType", event.target.value)} />
-            </div>
-          </Card>
-        )}
-
-        <AccountScheduleSection
-          plan={schedulePlan}
-          onChange={changeSchedulePlan}
-          showProblems={scheduleTried}
-          disabled={saving}
-          note={
-            newCustomer ? (
-              <p className="ui-hint" style={{ margin: 0 }}>
-                The days and time are kept on the account. The sub&apos;s schedule is made from them when the sub says Yes.
-              </p>
-            ) : undefined
-          }
-        />
+        ) : null}
 
         <Card title={newCustomer ? "Access & Scope (optional)" : "Access, Scope & Notes"}>
           <div style={sectionStyle}>

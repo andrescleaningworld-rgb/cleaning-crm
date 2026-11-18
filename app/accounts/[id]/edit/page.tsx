@@ -12,10 +12,8 @@ import { payShare } from "@/lib/payShare";
 import SubPayFields from "@/app/components/sub-pay-fields";
 import SubSuggestions from "@/app/components/sub-suggestions";
 import { ManagerOptions, useManagerNames } from "@/app/components/manager-options";
-import { cleaningStartMinutes, describeCleaningTime } from "@/lib/cleaningTime";
+import { describeCleaningTime } from "@/lib/cleaningTime";
 import { accountFieldsFromPlan, oldScheduleInfo } from "@/lib/plan-account-fields";
-import { DEFAULT_START_TIME } from "@/lib/schedule-time";
-import { DEFAULT_MINUTES_ON_SITE } from "@/lib/time-on-site";
 import { afterFrequencyChange, perCleaningText } from "@/lib/frequency";
 import { AccountScheduleSection, pickGroup, saveSchedule, useAccountSchedule, type StoredScheduleRow } from "@/app/components/account-schedule";
 import { emptyPlan, planIsEmpty, planProblems, rowsToPlan, samePlan, type ScheduleGroup, type SchedulePlan } from "@/lib/schedule-plan";
@@ -845,6 +843,26 @@ export default function EditAccountPage() {
           </div>
         </Card>
 
+        {/* Address, then schedule, then sub: the suggested subs below are checked against this schedule. */}
+        <AccountScheduleSection
+          plan={schedulePlan}
+          onChange={changeSchedulePlan}
+          showProblems={scheduleTried}
+          disabled={saving || schedule.state !== "ready"}
+          note={
+            schedule.state === "failed" ? (
+              <p className="ui-field-error">The schedule did not load. Change it on the account page.</p>
+            ) : scheduleGroup && planIsEmpty(schedulePlan) ? (
+              <p className="ui-hint">Left empty, the current schedule stays. To stop it, use Deactivate in Sub Center → Sub Schedules.</p>
+            ) : schedule.state === "ready" && !scheduleGroup && oldInfo ? (
+              // Old fields, no picker schedule: shown so staff can set the picker from them (never converted by itself).
+              <p className="ui-hint">{oldInfo}</p>
+            ) : schedule.groups.length > 1 ? (
+              <p className="ui-hint">This account has {schedule.groups.length} schedules. This is the one for {scheduleGroup?.subId || "no sub"}. Change the others on the account page.</p>
+            ) : null
+          }
+        />
+
         <Card title="Service & Assignment">
           <div style={sectionStyle}>
             {/* A saved value that is not one active manager ("Greg , Andres") stays as its own choice, so saving never wipes it. */}
@@ -853,15 +871,15 @@ export default function EditAccountPage() {
               <ManagerOptions names={managerList.names} current={formData.manager || ""} />
             </SelectField>
 
+            <Field label="Service type" optional value={formData.serviceType || ""} onChange={(event) => updateField("serviceType", event.target.value)} />
+
+            {/* Live: asks again whenever the address or the schedule above changes. Tap one to fill the dropdown below. */}
             <SubSuggestions
               lat={formData.latitude && Number.isFinite(Number(formData.latitude)) ? Number(formData.latitude) : null}
               lng={formData.longitude && Number.isFinite(Number(formData.longitude)) ? Number(formData.longitude) : null}
-              cleaningDays={planFields?.cleaningDays ?? (formData.cleaningDays || "")}
-              start={cleaningStartMinutes(planFields?.cleaningTime ?? formData.cleaningTime) ?? DEFAULT_START_TIME}
-              minutes={DEFAULT_MINUTES_ON_SITE}
+              plan={schedulePlan}
               scoreBySubId={scoreBySubId}
               selectedId={selectedSubId}
-              hint="Tap one to pick it, or choose from the list below."
               excludeAccountId={cleanText(formData.accountId || formData.id)}
               onSelect={(result) => {
                 const picked = subById(result.subId);
@@ -894,29 +912,8 @@ export default function EditAccountPage() {
                 </option>
               ))}
             </SelectField>
-
-            <Field label="Service type" optional value={formData.serviceType || ""} onChange={(event) => updateField("serviceType", event.target.value)} />
           </div>
         </Card>
-
-        <AccountScheduleSection
-          plan={schedulePlan}
-          onChange={changeSchedulePlan}
-          showProblems={scheduleTried}
-          disabled={saving || schedule.state !== "ready"}
-          note={
-            schedule.state === "failed" ? (
-              <p className="ui-field-error">The schedule did not load. Change it on the account page.</p>
-            ) : scheduleGroup && planIsEmpty(schedulePlan) ? (
-              <p className="ui-hint">Left empty, the current schedule stays. To stop it, use Deactivate in Sub Center → Sub Schedules.</p>
-            ) : schedule.state === "ready" && !scheduleGroup && oldInfo ? (
-              // Old fields, no picker schedule: shown so staff can set the picker from them (never converted by itself).
-              <p className="ui-hint">{oldInfo}</p>
-            ) : schedule.groups.length > 1 ? (
-              <p className="ui-hint">This account has {schedule.groups.length} schedules. This is the one for {scheduleGroup?.subId || "no sub"}. Change the others on the account page.</p>
-            ) : null
-          }
-        />
 
         <Card title="Billing & Pay">
           <div style={sectionStyle}>
