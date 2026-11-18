@@ -186,6 +186,9 @@ export async function POST(request: NextRequest) {
         entityType: SCHEDULE_SET_BY_SUB,
         entityId: accountId,
         detail: `${accountName || accountId}: ${summary}`,
+        source: "sub",
+        subId: owned.subRecordId,
+        accountId,
       });
     }
 

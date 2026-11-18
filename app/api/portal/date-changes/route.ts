@@ -1,5 +1,6 @@
 import { filesJson } from "@/lib/files";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
+import { logCustomerActivity } from "@/lib/activityLog";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { appendPortalRequest } from "@/lib/data/customer-portal";
 import { sendPortalNotification } from "@/lib/email";
@@ -55,6 +56,8 @@ export async function POST(request: NextRequest) {
       ],
     });
 
+    // Activity Log -> Customers.
+    after(() => logCustomerActivity({ accountId: session.accountId, accountName: session.accountName ?? "", action: "create", detail: `Asked to move a cleaning from ${currentDate} to ${requestedDate}` }));
     return filesJson({ success: true });
   } catch (err) {
     console.error("[portal/date-changes]", err);

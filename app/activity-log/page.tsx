@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 
-// Activity Log moved into Sub Center as a tab (it's subcontractor-specific
-// data, not top-level) — this route stays only so any existing bookmark or
-// hardcoded link keeps working instead of 404ing. The actual UI/logic now
-// lives in app/sub-center/activity-log.tsx.
+// The sub portal's activity (logins, pages viewed, issues reported) lives in
+// Settings -> Activity Log -> Subs now (owner only), next to everything else
+// subs did. This old address stays so a bookmark or old link still lands
+// there instead of a 404.
 export default function ActivityLogRedirect() {
-  redirect("/sub-center?tab=activity");
+  redirect("/settings/activity-log?tab=subs");
 }

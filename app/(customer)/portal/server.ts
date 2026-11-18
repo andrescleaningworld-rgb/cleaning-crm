@@ -28,9 +28,9 @@ export async function requireCustomer(): Promise<{ login: PortalLogin; account: 
   if (!login.current) redirect("/portal/locations");
   // "Last seen" for staff (Settings -> Customer Portal Access), after the page is sent. Never for a staff preview.
   if (!login.preview) {
-    const { accountId } = login.current;
+    const { accountId, accountName } = login.current;
     const email = login.email;
-    after(() => markPortalSeen(accountId, email));
+    after(() => markPortalSeen(accountId, email, accountName));
   }
   return { login, account: login.current, ...(await portalWords()) };
 }

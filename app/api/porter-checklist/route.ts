@@ -224,6 +224,8 @@ export async function POST(request: NextRequest) {
       entityType: "checklist_submission",
       entityId: String(id),
       detail: template.accountName,
+      source: "sub",
+      accountId: template.accountId,
     });
 
     return filesJson({ success: true, id, completedCount: done, totalCount: total });

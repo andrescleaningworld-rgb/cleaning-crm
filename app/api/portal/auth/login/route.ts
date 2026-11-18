@@ -1,5 +1,6 @@
 import { filesJson } from "@/lib/files";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
+import { logCustomerActivity } from "@/lib/activityLog";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { verifyLogin } from "@/lib/pg/portal-auth";
@@ -31,6 +32,8 @@ export async function POST(request: NextRequest) {
     session.accountName = one?.accountName;
     session.portalCode = undefined;
     await session.save();
+    // Activity Log -> Customers: one line per location this login opens.
+    after(() => Promise.all(result.accounts.map((a) => logCustomerActivity({ accountId: a.accountId, accountName: a.accountName, action: "login", detail: "Logged in to the customer portal", email: result.email }))));
     return response;
   } catch (err) {
     console.error("[portal/auth/login]", err instanceof Error ? err.message : err);

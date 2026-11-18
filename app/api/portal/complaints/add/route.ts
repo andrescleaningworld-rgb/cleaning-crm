@@ -4,7 +4,8 @@
 // and no new sub notice; the office gets a short "Complaint update" email.
 
 import { filesJson } from "@/lib/files";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
+import { logCustomerActivity } from "@/lib/activityLog";
 import { requirePortalAccount } from "@/lib/portalAuth";
 import { addToPortalComplaint } from "@/lib/pg/complaint-changes";
 import { customerPhotoLinks } from "@/lib/portalPhotos";
@@ -38,6 +39,15 @@ export async function POST(request: NextRequest) {
     return filesJson({ error: mine ? "This problem is already closed. Please send a new one." : "Failed to submit. Please try again." }, { status: mine ? 409 : 500 });
   }
 
+  // Activity Log -> Customers.
+  after(() =>
+    logCustomerActivity({
+      accountId: session.accountId,
+      accountName: session.accountName ?? saved.accountName,
+      action: "update",
+      detail: `Added to complaint ${saved.complaintId} (${[note ? "a note" : "", photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ")}).`,
+    })
+  );
   // Only after the save. Never throws.
   await sendPortalNotification({
     to: [SERVICE_EMAIL],

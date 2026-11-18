@@ -212,8 +212,19 @@ async function setSubExpiration(subId: string, day: string, fileName: string): P
   `;
 }
 
-async function history(subId: string, by: string, detail: string, actorAccountId: string | null = null): Promise<void> {
-  await logActivity({ actorAccountId, actorRole: "manager", actorName: by || "System", action: "update", entityType: "subcontractor", entityId: subId, detail });
+/** fromSub: the sub did it in their portal (Activity Log -> Subs, with a SUB badge); else the office or the system. */
+async function history(subId: string, by: string, detail: string, actorAccountId: string | null = null, fromSub = false): Promise<void> {
+  await logActivity({
+    actorAccountId,
+    actorRole: fromSub ? "sub" : "manager",
+    actorName: by || "System",
+    action: "update",
+    entityType: "subcontractor",
+    entityId: subId,
+    subId,
+    detail,
+    source: fromSub ? "sub" : "admin",
+  });
 }
 
 type NewCoi = { subId: string; fileUrl: string; fileName: string; contentType: string; expiresOn: string; by: string; actorAccountId?: string | null };
@@ -252,7 +263,7 @@ export async function addSubCoi(input: NewCoi & { subName: string }): Promise<vo
     href: "/sub-center?tab=insurance",
     square: "",
   });
-  await history(input.subId, input.subName || input.by, `Insurance sent from the sub portal, waiting for approval. Expires ${input.expiresOn}.`);
+  await history(input.subId, input.subName || input.by, `Insurance sent from the sub portal, waiting for approval. Expires ${input.expiresOn}.`, null, true);
 }
 
 /** Approve a COI the sub sent (with the date the office checked). false when it was not waiting. */

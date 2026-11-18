@@ -1,22 +1,50 @@
 // Owner-only Activity Log listing (gated by proxy.ts's OWNER_ONLY_PATHS).
-// Not to be confused with app/api/activity-log/route.ts, an unrelated
-// subcontractor-facing Sheets-backed feed used by app/sub-center.
+// Three tabs: admin | sub | customer (lib/activityLog.ts listActivityFeed).
+//
+// GET ?tab=admin|sub|customer [&managerAccountId=] [&sub=] [&account=] [&start=] [&end=] [&offset=]
+//       -> { success, entries, hasMore }       50 at a time, newest first
+// GET ?counts=1&admin=<iso>&sub=<iso>&customer=<iso>
+//       -> { success, counts }                 entries after each moment (the "new" badges)
+// GET ?options=subs
+//       -> { success, subs: [{ id, name }] }   the Subs tab's dropdown
 import { NextRequest, NextResponse } from "next/server";
-import { listActivityLog } from "@/lib/activityLog";
+import { ACTIVITY_SOURCES, countActivitySince, listActivityFeed, listSubsForFilter, type ActivitySource } from "@/lib/activityLog";
+
+const PAGE = 50;
 
 export async function GET(request: NextRequest) {
   try {
-    const url = new URL(request.url);
-    const actorAccountId = url.searchParams.get("managerAccountId")?.trim() || undefined;
-    const start = url.searchParams.get("start")?.trim() || undefined;
-    const end = url.searchParams.get("end")?.trim() || undefined;
+    const params = new URL(request.url).searchParams;
+    const get = (name: string) => params.get(name)?.trim() || undefined;
 
-    const entries = await listActivityLog({ actorAccountId, start, end });
-    return NextResponse.json({ success: true, entries });
+    if (params.get("options") === "subs") {
+      return NextResponse.json({ success: true, subs: await listSubsForFilter() }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    if (params.get("counts") === "1") {
+      const since: Partial<Record<ActivitySource, string>> = {};
+      for (const tab of ACTIVITY_SOURCES) {
+        const at = get(tab);
+        if (at) since[tab] = at;
+      }
+      return NextResponse.json({ success: true, counts: await countActivitySince(since) }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const tabParam = get("tab");
+    const tab: ActivitySource = tabParam === "sub" || tabParam === "customer" ? tabParam : "admin";
+    const { entries, hasMore } = await listActivityFeed({
+      tab,
+      actorAccountId: get("managerAccountId"),
+      subId: get("sub"),
+      accountId: get("account"),
+      start: get("start"),
+      end: get("end"),
+      offset: Number(get("offset") ?? 0) || 0,
+      limit: PAGE,
+    });
+    return NextResponse.json({ success: true, entries, hasMore }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Failed to load activity log." },
-      { status: 500 }
-    );
+    console.error("[admin/audit-log]", error instanceof Error ? error.message : error);
+    return NextResponse.json({ success: false, error: "Could not load the activity log." }, { status: 500 });
   }
 }

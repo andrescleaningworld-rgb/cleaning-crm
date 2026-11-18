@@ -8,6 +8,7 @@ import { SERVICE_EMAIL } from "@/lib/portalContacts";
 import { notifySubOfComplaint } from "@/lib/complaintSubNotice";
 import { sendCustomerReceivedEmail } from "@/lib/complaintCustomerEmail";
 import { complaintRowId } from "@/lib/pg/complaint-events";
+import { logCustomerActivity } from "@/lib/activityLog";
 
 export async function POST(request: NextRequest) {
   const session = await requirePortalAccount();
@@ -54,6 +55,15 @@ export async function POST(request: NextRequest) {
     return filesJson({ error: "Failed to submit. Please try again." }, { status: 500 });
   }
 
+  // Activity Log -> Customers.
+  after(() =>
+    logCustomerActivity({
+      accountId: session.accountId,
+      accountName: session.accountName ?? "",
+      action: "create",
+      detail: `Reported a problem (${issueType}${photos ? ", with photos" : ""}). Complaint ${complaintId}.`,
+    })
+  );
   // 2. Only now the email. sendPortalNotification never throws: a notice that
   //    does not go out is logged, and the complaint is already saved.
   await sendPortalNotification({

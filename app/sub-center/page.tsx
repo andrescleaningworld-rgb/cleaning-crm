@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import SubcontractorsPage from "../subcontractors/page";
 import SubSchedulesPage from "../sub-schedules/page";
 import SubCenterCoverage from "./coverage";
-import SubCenterActivityLog from "./activity-log";
 import SubCenterRanking from "./ranking";
 import SubCenterScheduleAsk from "./schedule-ask";
 import ScorePull from "./score-pull";
@@ -13,7 +12,8 @@ import { Screen, Tabs } from "@/app/ui";
 import { InsuranceCenter } from "@/app/components/sub-insurance";
 // Team Hub tab hidden 2026-09-24 (Crew Link replaces it); ./team-hub.tsx kept.
 
-type CenterTab = "subs" | "ranking" | "schedules" | "toSet" | "coverage" | "insurance" | "activity";
+// The Activity Log tab moved to Settings -> Activity Log -> Subs (owner only); an old "activity" tab falls back to Subs.
+type CenterTab = "subs" | "ranking" | "schedules" | "toSet" | "coverage" | "insurance";
 
 const TAB_STORAGE_KEY = "cwSubCenterTab";
 
@@ -24,11 +24,10 @@ const TABS: { value: CenterTab; label: string }[] = [
   { value: "toSet", label: "Schedules to set" },
   { value: "coverage", label: "Coverage" },
   { value: "insurance", label: "Insurance" },
-  { value: "activity", label: "Activity Log" },
 ];
 
 function isCenterTab(value: string | null): value is CenterTab {
-  return value === "subs" || value === "ranking" || value === "schedules" || value === "toSet" || value === "coverage" || value === "insurance" || value === "activity";
+  return value === "subs" || value === "ranking" || value === "schedules" || value === "toSet" || value === "coverage" || value === "insurance";
 }
 
 function getStoredTab(): CenterTab {
@@ -42,9 +41,8 @@ function SubCenterPageContent() {
   const [activeTab, setActiveTab] = useState<CenterTab>("subs");
 
   useEffect(() => {
-    // ?tab= wins on first load (e.g. the old /activity-log route now
-    // redirects to /sub-center?tab=activity) — falls back to whatever was
-    // last stored otherwise. Deferred read: localStorage isn't available
+    // ?tab= wins on first load — falls back to whatever was last stored
+    // otherwise. Deferred read: localStorage isn't available
     // during SSR, so reading it eagerly (lazy initializer) would mismatch
     // the server-rendered tab.
     const fromQuery = searchParams.get("tab");
@@ -77,7 +75,6 @@ function SubCenterPageContent() {
           <InsuranceCenter />
         </Screen>
       )}
-      {activeTab === "activity" && <SubCenterActivityLog />}
     </div>
   );
 }

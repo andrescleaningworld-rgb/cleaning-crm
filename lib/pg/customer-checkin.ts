@@ -29,7 +29,7 @@
 // 😐 OK does the same once the customer writes what to do better.
 
 import { getSql } from "@/lib/db";
-import { logActivity } from "@/lib/activityLog";
+import { logActivity, logCustomerActivity } from "@/lib/activityLog";
 import { linesToHtml, sendHtmlEmail } from "@/lib/email";
 import { sendPush } from "@/lib/push";
 import { accountLive } from "@/lib/pg/account-live";
@@ -396,8 +396,10 @@ async function answerRow(id: number): Promise<AnswerRow | null> {
   return rows[0] ?? null;
 }
 
+/** The customer's own answer: Activity Log -> Customers, under the account's name with a CUSTOMER badge. */
 async function history(accountId: string, detail: string): Promise<void> {
-  await logActivity({ actorAccountId: null, actorRole: "manager", actorName: "Customer", action: "update", entityType: "account", entityId: accountId, detail }).catch(() => undefined);
+  const rows = (await getSql()`SELECT btrim(account_name) AS name FROM accounts WHERE id = ${accountId} LIMIT 1`.catch(() => [])) as { name: string }[];
+  await logCustomerActivity({ accountId, accountName: rows[0]?.name || "Customer", action: "update", detail }).catch(() => undefined);
 }
 
 const paperId = (id: number, rating: "attention" | "ok") => `checkin:${id}:${rating}`;

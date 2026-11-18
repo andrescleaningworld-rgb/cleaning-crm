@@ -15,6 +15,7 @@
 // written, and the column says "Set up" (with the last typed-in login, if any).
 
 import { getSql } from "@/lib/db";
+import { logCustomerActivity } from "@/lib/activityLog";
 
 export type PortalUseState = "no_email" | "not_invited" | "invited" | "set_up" | "seen";
 export type PortalUse = { state: PortalUseState; at: string | null; visits: number };
@@ -33,15 +34,21 @@ async function seenReady(): Promise<boolean> {
   return seenTable;
 }
 
-/** A logged-in customer opened a portal page for this account. At most one write an hour; never fails the page. */
-export async function markPortalSeen(accountId: string, email: string): Promise<void> {
+/**
+ * A logged-in customer opened a portal page for this account. At most one
+ * write an hour; never fails the page. Each write is also one "Opened the
+ * customer portal" line in Activity Log -> Customers.
+ */
+export async function markPortalSeen(accountId: string, email: string, accountName = ""): Promise<void> {
   if (!accountId || !(await seenReady())) return;
   try {
-    await getSql()`
+    const written = (await getSql()`
       INSERT INTO portal_seen (account_id, email) VALUES (${accountId}, ${email})
       ON CONFLICT (account_id) DO UPDATE SET last_seen_at = now(), email = EXCLUDED.email, visits = portal_seen.visits + 1
       WHERE portal_seen.last_seen_at < now() - interval '1 hour'
-    `;
+      RETURNING visits
+    `) as { visits: number }[];
+    if (written.length > 0) await logCustomerActivity({ accountId, accountName, action: "view", detail: "Opened the customer portal", email });
   } catch (error) {
     console.error("[portal-use] last seen not saved:", error instanceof Error ? error.message : error);
   }

@@ -1,5 +1,6 @@
 import { filesJson } from "@/lib/files";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
+import { logCustomerActivity } from "@/lib/activityLog";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type PortalSessionData } from "@/lib/portalSession";
 import { accountsForEmail, setPasswordWithToken } from "@/lib/pg/portal-auth";
@@ -26,6 +27,10 @@ export async function POST(request: NextRequest) {
     session.accountName = accounts.length === 1 ? accounts[0].accountName : undefined;
     session.portalCode = undefined;
     await session.save();
+    // Activity Log -> Customers. A first password is the sign-up; a later one is a reset.
+    after(() =>
+      Promise.all(accounts.map((a) => logCustomerActivity({ accountId: a.accountId, accountName: a.accountName, action: "login", detail: "Set a portal password and logged in", email: result.email })))
+    );
     return response;
   } catch (err) {
     console.error("[portal/auth/set-password]", err instanceof Error ? err.message : err);
