@@ -167,8 +167,9 @@ export async function setPasswordWithToken(token: string, password: string): Pro
   )) as unknown[];
   if (claimed.length === 0) return { ok: false, reason: "link" };
   await sql.query(
-    `INSERT INTO portal_users (email, password_hash) VALUES ($1::text, $2::text)
-     ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, failed_attempts = 0, locked_until = NULL, updated_at = now()`,
+    // Setting the password logs them in (app/api/portal/auth/set-password): that counts as a login.
+    `INSERT INTO portal_users (email, password_hash, last_login_at) VALUES ($1::text, $2::text, now())
+     ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, failed_attempts = 0, locked_until = NULL, last_login_at = now(), updated_at = now()`,
     [email, hash]
   );
   await sql.query(`UPDATE portal_tokens SET used_at = now() WHERE email = $1::text AND used_at IS NULL`, [email]);

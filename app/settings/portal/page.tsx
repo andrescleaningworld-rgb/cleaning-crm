@@ -16,7 +16,7 @@ export default async function PortalAccessPage() {
   return (
     <Screen
       title="Customer Portal Access"
-      subtitle="Every account is listed. Enable adds an account to the customer portal. Edit changes its phone number, next service, estimated billing and portal code."
+      subtitle="Every account is listed, with its Portal use: who was invited, who set a password, and when each customer last opened the portal. Enable adds an account to the customer portal. Edit changes its phone number, next service, estimated billing and portal code."
       backHref="/settings"
     >
       <PortalOpenSetting />

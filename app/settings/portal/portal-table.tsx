@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import type { MergedPortalAccount } from "@/lib/data/customer-portal";
 import {
   BigButton,
@@ -44,6 +44,53 @@ function AccessBadge({ account }: { account: MergedPortalAccount }) {
   return account.portalAccess === "YES" ? <StatusPill kind="done">Enabled</StatusPill> : <StatusPill kind="off">Disabled</StatusPill>;
 }
 
+/* ---------- Portal use (lib/pg/portal-use.ts, /api/admin/portal-use) ---------- */
+
+type PortalUseState = "no_email" | "not_invited" | "invited" | "set_up" | "seen";
+type PortalUse = { state: PortalUseState; at: string | null; visits: number };
+type UseFilter = "all" | "seen" | "seen30" | "set_up" | "invited" | "not_invited" | "no_email";
+
+const USE_FILTERS: { value: UseFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "seen", label: "Used the portal" },
+  { value: "seen30", label: "Used it in the last 30 days" },
+  { value: "set_up", label: "Set up, not back since" },
+  { value: "invited", label: "Invited, password not set" },
+  { value: "not_invited", label: "Not invited yet" },
+  { value: "no_email", label: "No email on the account" },
+];
+
+const shortDay = (iso: string) => new Date(iso).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", year: "numeric" });
+const within30 = (iso: string | null) => Boolean(iso) && Date.now() - new Date(iso as string).getTime() <= 30 * 86_400_000;
+
+function UseBadge({ use }: { use: PortalUse | undefined }) {
+  if (!use) return <span className="ui-muted">…</span>;
+  switch (use.state) {
+    case "seen":
+      return (
+        <StatusPill kind="done">
+          Last seen {use.at ? shortDay(use.at) : ""}
+          {use.visits > 1 ? ` · ${use.visits} visits` : ""}
+        </StatusPill>
+      );
+    case "set_up":
+      return <StatusPill kind="waiting">Set up {use.at ? shortDay(use.at) : ""}</StatusPill>;
+    case "invited":
+      return <StatusPill kind="waiting">Invited {use.at ? shortDay(use.at) : ""}, not set up</StatusPill>;
+    case "not_invited":
+      return <StatusPill kind="off">Not invited</StatusPill>;
+    default:
+      return <StatusPill kind="off">No email</StatusPill>;
+  }
+}
+
+function matchesUse(filter: UseFilter, use: PortalUse | undefined): boolean {
+  if (filter === "all") return true;
+  if (!use) return false;
+  if (filter === "seen30") return use.state === "seen" && within30(use.at);
+  return use.state === filter;
+}
+
 type EditState = {
   phone: string;
   nextScheduledService: string;
@@ -59,6 +106,28 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
   const [editState, setEditState] = useState<EditState>({ phone: "", nextScheduledService: "", estimatedMonthlyTotal: "" });
   const [loadingRow, setLoadingRow] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Portal use, by account ID (null until loaded); lastSeenOn: migration 083 is in.
+  const [use, setUse] = useState<Record<string, PortalUse> | null>(null);
+  const [lastSeenOn, setLastSeenOn] = useState(true);
+  const [useFailed, setUseFailed] = useState(false);
+  const [useFilter, setUseFilter] = useState<UseFilter>("all");
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/portal-use", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { success?: boolean; use?: Record<string, PortalUse>; lastSeenOn?: boolean }) => {
+        if (!alive) return;
+        if (!data.success || !data.use) throw new Error("not loaded");
+        setUse(data.use);
+        setLastSeenOn(data.lastSeenOn !== false);
+      })
+      .catch(() => alive && setUseFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const portalUseOf = (account: MergedPortalAccount) => (use && account.mainAccountId ? use[account.mainAccountId] : undefined);
 
   const refetch = useCallback(async () => {
     const res = await fetch("/api/admin/portal-accounts");
@@ -74,10 +143,22 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
     if (accessFilter === "disabled" && (a.portalAccess !== "NO" || a.portalSheetRow === null)) return false;
     if (statusFilter === "active" && a.accountStatus.toLowerCase() !== "active") return false;
     if (statusFilter === "inactive" && a.accountStatus.toLowerCase() === "active") return false;
+    if (!matchesUse(useFilter, portalUseOf(a))) return false;
     return true;
   });
 
   const enabledCount = accounts.filter((a) => a.portalAccess === "YES").length;
+  // The counts on top: logins set up, and who came in lately.
+  const useCounts = use
+    ? {
+        setUp: accounts.filter((a) => ["seen", "set_up"].includes(portalUseOf(a)?.state ?? "")).length,
+        seen30: accounts.filter((a) => {
+          const u = portalUseOf(a);
+          return u?.state === "seen" && within30(u.at);
+        }).length,
+        invited: accounts.filter((a) => portalUseOf(a)?.state === "invited").length,
+      }
+    : null;
 
   function openEdit(a: MergedPortalAccount) {
     setExpandedRow(a.accountName);
@@ -243,7 +324,25 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
           <p className="ui-stat-label">Not Enabled</p>
           <p className="ui-stat-value">{accounts.length - enabledCount}</p>
         </div>
+        {useCounts ? (
+          <>
+            <div className="ui-stat">
+              <p className="ui-stat-label">Logins set up</p>
+              <p className="ui-stat-value">{useCounts.setUp}</p>
+            </div>
+            <div className="ui-stat">
+              <p className="ui-stat-label">Used it, last 30 days</p>
+              <p className="ui-stat-value">{lastSeenOn ? useCounts.seen30 : "—"}</p>
+            </div>
+            <div className="ui-stat">
+              <p className="ui-stat-label">Invited, not set up</p>
+              <p className="ui-stat-value">{useCounts.invited}</p>
+            </div>
+          </>
+        ) : null}
       </div>
+      {useFailed ? <p className="ui-muted">Portal use did not load. Refresh the page to try again.</p> : null}
+      {use && !lastSeenOn ? <p className="ui-muted">&quot;Last seen&quot; starts once migration 083 is in. Until then Portal use shows invites and sign-ups only.</p> : null}
 
       {error && !editing ? <ErrorBox title={error} /> : null}
 
@@ -258,6 +357,13 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
           <option value="all">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
+        </SelectField>
+        <SelectField label="Portal use" value={useFilter} onChange={(e) => setUseFilter(e.target.value as UseFilter)} required={false} disabled={!use}>
+          {USE_FILTERS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </SelectField>
       </div>
       <p className="ui-muted">{filtered.length} of {accounts.length}</p>
@@ -274,6 +380,9 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
             <Card title={<AccountLink accountId={account.mainAccountId} name={account.accountName} />} right={<AccessBadge account={account} />}>
               <p>{account.serviceType || "No service type"}</p>
               <p><StatusBadge status={account.accountStatus} /></p>
+              <p>
+                Portal use: <UseBadge use={portalUseOf(account)} />
+              </p>
               <p>{code(account)}</p>
               <div className="ui-actions-row">{actions(account)}</div>
             </Card>
@@ -289,6 +398,7 @@ export default function PortalTable({ initial }: { initial: MergedPortalAccount[
             { header: "Status", cell: ({ account }) => <StatusBadge status={account.accountStatus} /> },
             { header: "Portal Code", cell: ({ account }) => code(account) },
             { header: "Access", cell: ({ account }) => <AccessBadge account={account} /> },
+            { header: "Portal use", cell: ({ account }) => <UseBadge use={portalUseOf(account)} /> },
             { header: "Actions", cell: ({ account }) => <div className="ui-actions-row">{actions(account)}</div> },
           ]}
         />

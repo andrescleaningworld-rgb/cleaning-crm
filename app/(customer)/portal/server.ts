@@ -2,6 +2,8 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
+import { markPortalSeen } from "@/lib/pg/portal-use";
 import { getPortalLogin, type PortalLogin } from "@/lib/portalAuth";
 import type { PortalAccount } from "@/lib/pg/portal-auth";
 import { asPortalLang, PORTAL_LANG_COOKIE, PORTAL_WORDS, type PortalLang, type PortalWords } from "./words";
@@ -24,5 +26,11 @@ export async function requireCustomer(): Promise<{ login: PortalLogin; account: 
   const login = await getPortalLogin();
   if (!login) redirect("/portal/login");
   if (!login.current) redirect("/portal/locations");
+  // "Last seen" for staff (Settings -> Customer Portal Access), after the page is sent. Never for a staff preview.
+  if (!login.preview) {
+    const { accountId } = login.current;
+    const email = login.email;
+    after(() => markPortalSeen(accountId, email));
+  }
   return { login, account: login.current, ...(await portalWords()) };
 }
