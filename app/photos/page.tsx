@@ -13,6 +13,7 @@
 // belongs to. Small thumbnails; more load as you scroll.
 
 import { LOCATION_FILTER, siteBadge } from "@/lib/photoLocation";
+import { isVideoUrl } from "@/lib/crewPhotos";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -127,10 +128,50 @@ function dateRange(choice: DateChoice, from: string, to: string): { from: string
   return { from: "", to: "" };
 }
 
+/** A short video from the crew (CW Now Send photos): saved with is_image false and a video address. */
+const isVideo = (photo: Pick<Photo, "isImage" | "url">) => !photo.isImage && isVideoUrl(photo.url);
+
+/** The ▶ over a video's tile. */
+function PlayMark() {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: 52,
+        height: 52,
+        borderRadius: 999,
+        background: "rgba(0,0,0,0.6)",
+        color: "#fff",
+        fontSize: 24,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingLeft: 4,
+      }}
+    >
+      ▶
+    </span>
+  );
+}
+
 function Thumb({ photo, onOpen }: { photo: Photo; onOpen: () => void }) {
   return (
-    <button type="button" className="ph-thumb" onClick={onOpen} aria-label={`${label(photo)}${photo.accountName ? `, ${photo.accountName}` : ""}. Open full screen.`}>
-      {photo.isImage ? (
+    <button type="button" className="ph-thumb" onClick={onOpen} aria-label={`${isVideo(photo) ? "Video. " : ""}${label(photo)}${photo.accountName ? `, ${photo.accountName}` : ""}. Open full screen.`}>
+      {isVideo(photo) ? (
+        <>
+          {photo.thumbUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo.thumbUrl} alt="" loading="lazy" decoding="async" />
+          ) : (
+            <span className="ph-file" style={{ background: "#1e293b" }} />
+          )}
+          <PlayMark />
+        </>
+      ) : photo.isImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={thumbUrl(photo)} alt="" loading="lazy" decoding="async" />
       ) : (
@@ -260,7 +301,9 @@ function Viewer({
             ‹
           </button>
         ) : null}
-        {photo.isImage ? (
+        {isVideo(photo) ? (
+          <video key={photo.id} src={photo.url} poster={photo.thumbUrl || undefined} controls playsInline preload="metadata" style={{ maxWidth: "100%", maxHeight: "100%" }} />
+        ) : photo.isImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img key={photo.id} src={fullUrl(photo)} alt={`${label(photo)}${photo.accountName ? `, ${photo.accountName}` : ""}`} />
         ) : (
@@ -326,7 +369,7 @@ function Viewer({
             </button>
           ) : null}
           <a className="ui-btn ui-btn-second ph-viewer-original" href={photo.url} target="_blank" rel="noopener noreferrer">
-            {photo.originalUrl ? "Stamped photo" : "Original file"}
+            {photo.originalUrl ? "Stamped photo" : isVideo(photo) ? "Open the video" : "Original file"}
           </a>
           {/* CW Now photos keep the phone's file too, before the time stamp. */}
           {photo.originalUrl ? (

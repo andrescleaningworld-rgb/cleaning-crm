@@ -14,9 +14,20 @@
 // off_site photo starts hidden from the customer until the office shows it.
 // The customer portal only ever gets the stamped photo, never the check.
 
-import { put } from "@/lib/files";
+import sharp from "sharp";
+import heicConvert from "heic-convert";
+import { del, FILES_ROUTE, openStoredFile, put, storedPathname, toStoredUrl } from "@/lib/files";
 import { getSql } from "@/lib/db";
-import { hiddenAtFirst, CREW_THUMB_SIZE, type CrewPhotoTag, type PortalPhoto } from "@/lib/crewPhotos";
+import {
+  hiddenAtFirst,
+  isVideoExt,
+  parseCrewUploadPath,
+  CREW_PHOTO_QUALITY,
+  CREW_PHOTO_SIZE,
+  CREW_THUMB_SIZE,
+  type CrewPhotoTag,
+  type PortalPhoto,
+} from "@/lib/crewPhotos";
 import { siteCheckOf, type PhoneLocation } from "@/lib/photoLocation";
 import { stampPhoto } from "@/lib/photoStamp";
 import { accountPlace } from "@/lib/pg/nearby-accounts";
@@ -164,6 +175,138 @@ async function addStampedCrewPhoto(input: Parameters<typeof addCrewPhoto>[0], so
 /** A problem with the photo itself: sending it again will not help. */
 export class CrewPhotoError extends Error {}
 
+/* ---------- files the phone uploaded as they are (videos, HEIC photos) ---------- */
+
+/**
+ * The address the phone got back from its upload, checked: it must be this
+ * photo's own crew-uploads/<clientId>.<ext> in our storage. Returns the
+ * address to save, and the extension.
+ */
+export function checkedUpload(url: string, clientId: string): { url: string; ext: string } | null {
+  const stored = toStoredUrl(url);
+  let pathname: string | null = null;
+  if (stored.startsWith(FILES_ROUTE)) pathname = storedPathname(stored);
+  else {
+    try {
+      const parsed = new URL(stored);
+      if (parsed.protocol === "https:" && parsed.hostname.endsWith(".public.blob.vercel-storage.com")) pathname = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+    } catch {
+      pathname = null;
+    }
+  }
+  const path = pathname ? parseCrewUploadPath(pathname) : null;
+  if (!path || path.clientId !== clientId) return null;
+  return { url: stored.split("?")[0], ext: path.ext };
+}
+
+/**
+ * Any photo a phone gives (HEIC / HEIF, JPEG, PNG, WebP…) as a JPEG the size
+ * of a crew photo, turned the right way up, and its small copy. sharp first;
+ * an iPhone HEIC photo (which sharp cannot open here) through heic-convert.
+ * null = not a photo at all.
+ */
+async function photoAsJpeg(input: Buffer): Promise<{ full: Buffer; thumb: Buffer } | null> {
+  const make = async (source: Buffer) => {
+    const full = await sharp(source, { failOn: "none" })
+      .rotate()
+      .resize({ width: CREW_PHOTO_SIZE, height: CREW_PHOTO_SIZE, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: Math.round(CREW_PHOTO_QUALITY * 100), mozjpeg: true })
+      .toBuffer();
+    const thumb = await sharp(full).resize({ width: CREW_THUMB_SIZE, height: CREW_THUMB_SIZE, fit: "inside" }).jpeg({ quality: 75 }).toBuffer();
+    return { full, thumb };
+  };
+  try {
+    return await make(input);
+  } catch {
+    // Most likely an iPhone HEIC photo.
+  }
+  try {
+    const jpeg = Buffer.from(await heicConvert({ buffer: new Uint8Array(input), format: "JPEG", quality: 0.92 }));
+    return await make(jpeg);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A photo or video the phone uploaded as it is (app/api/porter-checklist/
+ * [code]/photos/upload). A photo is turned into a JPEG here and then saved
+ * exactly like a photo made small on the phone (addCrewPhoto: the stamp, the
+ * on-site check); the file as it came is then removed. A video is saved as it
+ * is (is_image false), with the still the phone made of it when it could.
+ * Sent twice (bad signal): saved once.
+ */
+export async function addCrewUpload(
+  input: Omit<Parameters<typeof addCrewPhoto>[0], "full" | "thumb"> & { uploadedUrl: string; thumb: File | null }
+): Promise<{ id: number; already: boolean }> {
+  const sourceKey = `crew:${input.clientId}`;
+  const sql = getSql();
+  const existing = await typed<{ id: number | string }[]>(sql`SELECT id FROM photo_index WHERE source_key = ${sourceKey} LIMIT 1`);
+  if (existing[0]) return { id: Number(existing[0].id), already: true };
+  const upload = checkedUpload(input.uploadedUrl, input.clientId);
+  if (!upload) throw new CrewPhotoError("That file is not one of ours.");
+
+  if (isVideoExt(upload.ext)) return addCrewVideo({ ...input, url: upload.url }, sourceKey);
+
+  const opened = await openStoredFile(upload.url);
+  // Not there (yet): the phone tries again.
+  if (!opened) throw new Error("The uploaded photo could not be read.");
+  const jpeg = await photoAsJpeg(Buffer.from(opened.data));
+  if (!jpeg) throw new CrewPhotoError("That is not a photo.");
+  const saved = await addCrewPhoto({
+    ...input,
+    full: new File([new Uint8Array(jpeg.full)], "photo.jpg", { type: "image/jpeg" }),
+    thumb: new File([new Uint8Array(jpeg.thumb)], "thumb.jpg", { type: "image/jpeg" }),
+  });
+  // The JPEG is kept; the phone's file is not needed any more.
+  await del(upload.url).catch(() => undefined);
+  return saved;
+}
+
+async function addCrewVideo(input: Omit<Parameters<typeof addCrewUpload>[0], "uploadedUrl"> & { url: string }, sourceKey: string): Promise<{ id: number; already: boolean }> {
+  const sql = getSql();
+  if (input.thumb && (!/^image\//i.test(input.thumb.type) || input.thumb.size > MAX_BYTES)) input = { ...input, thumb: null };
+  const folder = `crew-photos/${encodeURIComponent(input.accountId)}`;
+  const thumb = input.thumb ? await put(`${folder}/${input.clientId}-thumb.jpg`, input.thumb, { access: "public", contentType: "image/jpeg", addRandomSuffix: false, allowOverwrite: true }) : null;
+  const moment = input.tag === "before" || input.tag === "after" ? input.tag : "";
+  const caption = clean(input.caption).slice(0, 200);
+  const takenAt = photoMoment(input.takenAt);
+
+  let rows: { id: number | string }[];
+  if (await stampReady()) {
+    // The same on-site check as a photo (no stamp on a video).
+    const place = await accountPlace(input.accountId).catch(() => null);
+    const location = input.location ?? null;
+    const { check, distanceFt } = siteCheckOf(location, place?.point ?? null);
+    const hidden = hiddenAtFirst(input.tag) || check === "off_site";
+    const distanceM = distanceFt == null ? null : distanceFt / 3.28084;
+    rows = await typed<{ id: number | string }[]>(sql`
+      INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href,
+                               taken_by, taken_at, is_image, caption, thumb_url, tag, hidden_from_customer,
+                               original_url, uploaded_at, geo_lat, geo_lng, geo_accuracy_m, site_distance_m, site_check)
+      VALUES (${sourceKey}, 'blob', ${input.url}, ${input.accountId}, ${input.accountName}, 'Crew', ${moment}, 'account', ${input.accountId}, 'Open the account',
+              ${`/accounts/${input.accountId}`}, ${input.name}, ${takenAt}, false, ${caption}, ${thumb?.url ?? ""}, ${input.tag}, ${hidden},
+              '', ${new Date().toISOString()}, ${location?.lat ?? null}, ${location?.lng ?? null}, ${location ? Math.round(location.accuracyM) : null}, ${distanceM}, ${check})
+      ON CONFLICT (source_key) DO NOTHING
+      RETURNING id
+    `);
+  } else {
+    rows = await typed<{ id: number | string }[]>(sql`
+      INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href,
+                               taken_by, taken_at, is_image, caption, thumb_url, tag, hidden_from_customer)
+      VALUES (${sourceKey}, 'blob', ${input.url}, ${input.accountId}, ${input.accountName}, 'Crew', ${moment}, 'account', ${input.accountId}, 'Open the account',
+              ${`/accounts/${input.accountId}`}, ${input.name}, ${takenAt}, false, ${caption}, ${thumb?.url ?? ""}, ${input.tag}, ${hiddenAtFirst(input.tag)})
+      ON CONFLICT (source_key) DO NOTHING
+      RETURNING id
+    `);
+  }
+  if (!rows[0]) {
+    const again = await typed<{ id: number | string }[]>(sql`SELECT id FROM photo_index WHERE source_key = ${sourceKey} LIMIT 1`);
+    return { id: Number(again[0]?.id ?? 0), already: true };
+  }
+  return { id: Number(rows[0].id), already: false };
+}
+
 /* ---------- the customer portal ---------- */
 
 /** "Show crew photos to customer" for this account (on unless turned off; on before migration 064). */
@@ -190,19 +333,24 @@ export async function setPhotosShownToCustomer(accountId: string, on: boolean): 
 export async function listPortalPhotos(accountId: string, limit = 240): Promise<PortalPhoto[]> {
   const id = clean(accountId);
   if (!id || !(await crewPhotosReady()) || !(await photosShownToCustomer(id))) return [];
-  const rows = await typed<{ id: number | string; url: string; thumb_url: string; taken_at: string | Date; tag: string }[]>(getSql()`
-    SELECT id, url, thumb_url, taken_at, tag FROM photo_index
+  const rows = await typed<{ id: number | string; url: string; thumb_url: string; taken_at: string | Date; tag: string; is_image: boolean }[]>(getSql()`
+    SELECT id, url, thumb_url, taken_at, tag, is_image FROM photo_index
     WHERE kind = 'Crew' AND account_id = ${id} AND NOT hidden_from_customer AND store = 'blob'
     ORDER BY taken_at DESC, id DESC
     LIMIT ${Math.min(500, Math.max(1, limit))}
   `);
-  return rows.map((row) => ({
-    id: Number(row.id),
-    url: row.url,
-    thumbUrl: clean(row.thumb_url) || row.url,
-    takenAt: new Date(row.taken_at).toISOString(),
-    tag: row.tag === "before" || row.tag === "after" || row.tag === "problem" ? row.tag : "",
-  }));
+  return rows.map((row) => {
+    // A short video from the crew: its still when the phone made one, else none ("" = a plain ▶ tile).
+    const video = row.is_image === false;
+    return {
+      id: Number(row.id),
+      url: row.url,
+      thumbUrl: clean(row.thumb_url) || (video ? "" : row.url),
+      takenAt: new Date(row.taken_at).toISOString(),
+      tag: row.tag === "before" || row.tag === "after" || row.tag === "problem" ? row.tag : "",
+      video,
+    };
+  });
 }
 
 /** Staff: hide one crew photo from the customer, or show it again. */

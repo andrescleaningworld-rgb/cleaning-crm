@@ -73,6 +73,7 @@ export const ROUTE_WORDS = {
     return `(${en} / ${es})`;
   },
   couldNotSend: (n: number) => `${n} could not be sent. Tell the office. / ${n} no se pudo enviar. Avisa a la oficina.`,
+  tryAgain: "Try again / Intentar de nuevo / Tentar novamente",
   savedBadge: "⏳ Saved / Guardado",
   what: "What? / ¿Qué?",
   who: "Who asked? / ¿Quién pidió?",
@@ -823,7 +824,7 @@ function UrgentBox({
  */
 export function RouteSendStatus({ queue }: { queue: PhotoQueue }) {
   const { state } = queue;
-  const photos = state.waiting + state.preparing;
+  const photos = state.waiting + state.preparing + state.stuck;
   const waiting = state.checklists + photos;
   const failed = state.checklistsFailed + state.failed.length;
   const anySent = state.checklistsSent + state.sent > 0;
@@ -840,6 +841,12 @@ export function RouteSendStatus({ queue }: { queue: PhotoQueue }) {
         <div className="rounded-2xl bg-green-600 p-3 text-center text-2xl font-black text-white">{ROUTE_WORDS.allSent}</div>
       ) : null}
       {failed > 0 ? <p className="rounded-2xl border-4 border-red-600 bg-red-50 p-3 text-center text-lg font-black text-red-800">{ROUTE_WORDS.couldNotSend(failed)}</p> : null}
+      {/* Photos tried 3 times with no signal: still on the phone; this sends only those again. */}
+      {state.stuck > 0 ? (
+        <button type="button" onClick={queue.retry} className="min-h-[72px] w-full rounded-2xl bg-green-600 text-2xl font-black text-white shadow active:bg-green-700">
+          ↻ {ROUTE_WORDS.tryAgain}
+        </button>
+      ) : null}
     </div>
   );
 }

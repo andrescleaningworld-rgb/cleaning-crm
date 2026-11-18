@@ -43,8 +43,36 @@ export default async function PortalPhotosPage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
                 {group.photos.map((photo) => (
                   <a key={photo.id} href={photo.url} target="_blank" rel="noopener noreferrer" style={{ position: "relative", display: "block" }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo.thumbUrl} alt={words.photos} loading="lazy" decoding="async" style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", borderRadius: 12, display: "block" }} />
+                    {photo.thumbUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photo.thumbUrl} alt={words.photos} loading="lazy" decoding="async" style={{ width: "100%", aspectRatio: "1 / 1", objectFit: "cover", borderRadius: 12, display: "block" }} />
+                    ) : (
+                      <span role="img" aria-label="▶" style={{ display: "block", width: "100%", aspectRatio: "1 / 1", borderRadius: 12, background: "#1e293b" }} />
+                    )}
+                    {/* A short video from the team: a play mark over it (it opens in the phone's player). */}
+                    {photo.video ? (
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          position: "absolute",
+                          top: "50%",
+                          left: "50%",
+                          transform: "translate(-50%, -50%)",
+                          width: 44,
+                          height: 44,
+                          borderRadius: 999,
+                          background: "rgba(0,0,0,0.6)",
+                          color: "#fff",
+                          fontSize: 20,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          paddingLeft: 3,
+                        }}
+                      >
+                        ▶
+                      </span>
+                    ) : null}
                     {photo.tag && words.photoTags[photo.tag] ? (
                       <span style={{ position: "absolute", left: 6, bottom: 6, background: "rgba(0,0,0,0.65)", color: "#fff", fontSize: 13, fontWeight: 800, borderRadius: 8, padding: "2px 8px" }}>
                         {words.photoTags[photo.tag]}

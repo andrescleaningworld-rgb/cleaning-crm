@@ -8,10 +8,51 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
-import { CREW_PHOTO_MAX_BATCH, CREW_PHOTO_TAGS, type CrewPhotoTag } from "@/lib/crewPhotos";
+import { CREW_PHOTO_MAX_BATCH, CREW_PHOTO_TAGS, crewUploadExt, isVideoFile, type CrewPhotoTag } from "@/lib/crewPhotos";
 import type { CrewLinkStrings } from "./strings";
-import type { CrewPhotoFail, PhotoQueue } from "./photo-queue";
+import type { CrewPhotoFail, PhotoQueue, SendItem } from "./photo-queue";
 import { WhoAndWhen, PhotoPlaceNotes } from "./ui";
+
+/** One file's tile: its picture (or 📷 / 🎬), and over it a spinner, ✓ or !. */
+function ItemTile({ item }: { item: SendItem }) {
+  return (
+    <div className="relative aspect-square w-full overflow-hidden rounded-xl bg-slate-800">
+      {item.preview ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={item.preview} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center text-4xl" aria-hidden="true">
+          {item.video ? "🎬" : "📷"}
+        </span>
+      )}
+      {item.video && item.preview ? (
+        <span className="absolute left-1 top-1 rounded-full bg-black/60 px-2 text-lg text-white" aria-hidden="true">
+          ▶
+        </span>
+      ) : null}
+      <span
+        className={`absolute inset-0 flex items-center justify-center ${item.status === "sent" ? "bg-green-700/40" : item.status === "stuck" || item.status === "failed" ? "bg-red-700/50" : "bg-black/35"}`}
+        aria-hidden="true"
+      >
+        {item.status === "sent" ? (
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-green-600 text-3xl font-black text-white">✓</span>
+        ) : item.status === "stuck" || item.status === "failed" ? (
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-3xl font-black text-white">!</span>
+        ) : item.status === "sending" ? (
+          <span className="flex flex-col items-center">
+            <span className="h-10 w-10 animate-spin rounded-full border-4 border-white border-t-transparent" />
+            {item.percent !== null ? <span className="mt-1 text-lg font-black text-white">{item.percent}%</span> : null}
+          </span>
+        ) : (
+          <span className="h-10 w-10 rounded-full border-4 border-white/60" />
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** A picked file the crew may send: any photo or video the phone gives. */
+const sendable = (file: File) => file.type.startsWith("image/") || isVideoFile(file) || crewUploadExt(file) !== "";
 
 /** Each reason once, with how many photos it was. */
 function reasons(failed: CrewPhotoFail[]): [CrewPhotoFail, number][] {
@@ -43,14 +84,14 @@ export default function CrewPhotos({
   /** Admin preview: nothing is sent (shows "Preview only"). */
   preview?: () => void;
 }) {
-  const { state, add } = queue;
+  const { state, add, retry } = queue;
   const [picked, setPicked] = useState<File[]>([]);
   const [tag, setTag] = useState<CrewPhotoTag>("");
   const input = useRef<HTMLInputElement>(null);
 
   // Small previews of what was picked (the first few), freed when done.
-  const previews = useMemo(() => picked.slice(0, 8).map((file) => URL.createObjectURL(file)), [picked]);
-  useEffect(() => () => previews.forEach((url) => URL.revokeObjectURL(url)), [previews]);
+  const previews = useMemo(() => picked.slice(0, 8).map((file) => ({ url: URL.createObjectURL(file), video: isVideoFile(file) })), [picked]);
+  useEffect(() => () => previews.forEach((each) => URL.revokeObjectURL(each.url)), [previews]);
 
   const send = () => {
     if (!name.trim() || picked.length === 0) return;
@@ -75,11 +116,11 @@ export default function CrewPhotos({
       <input
         ref={input}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         multiple
         className="hidden"
         onChange={(event) => {
-          const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith("image/") || /\.(heic|heif|jpe?g|png)$/i.test(file.name));
+          const files = Array.from(event.target.files ?? []).filter(sendable);
           event.target.value = "";
           if (files.length) setPicked(files.slice(0, CREW_PHOTO_MAX_BATCH));
         }}
@@ -100,10 +141,16 @@ export default function CrewPhotos({
         <div className="space-y-4 rounded-3xl bg-white p-4 shadow-sm">
           <p className="text-3xl font-black text-slate-900">{s.photosPicked(picked.length)}</p>
           <div className="grid grid-cols-4 gap-2">
-            {previews.map((url) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img key={url} src={url} alt="" className="aspect-square w-full rounded-xl object-cover" />
-            ))}
+            {previews.map((each) =>
+              each.video ? (
+                <span key={each.url} className="flex aspect-square w-full items-center justify-center rounded-xl bg-slate-800 text-4xl text-white" aria-hidden="true">
+                  🎬
+                </span>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={each.url} src={each.url} alt="" className="aspect-square w-full rounded-xl object-cover" />
+              )
+            )}
           </div>
           {!name.trim() ? <WhoAndWhen s={s} lang={lang} name={name} onNameChange={onNameChange} /> : null}
           <div>
@@ -150,9 +197,36 @@ export default function CrewPhotos({
           <p className="mt-3 text-xl font-bold text-blue-900">⚠️ {s.keepOpen}</p>
           {state.offline ? <p className="mt-2 text-lg font-semibold text-amber-800">{s.waitingForSignal}</p> : null}
         </div>
-      ) : state.sent > 0 && state.failed.length === 0 ? (
+      ) : state.sent > 0 && state.failed.length === 0 && state.stuck === 0 ? (
         <div className="rounded-3xl bg-green-600 p-4 text-center text-3xl font-black text-white" role="status">
           {s.allSent}
+        </div>
+      ) : null}
+
+      {/* Each file: a spinner, then ✓ (or ! while it waits for Try again). */}
+      {state.items.length > 0 ? (
+        <div className="grid grid-cols-4 gap-2" aria-hidden="true">
+          {state.items.map((item) => (
+            <ItemTile key={item.id} item={item} />
+          ))}
+        </div>
+      ) : null}
+
+      {/* Tried 3 times with no signal: they are still on the phone. One big button sends only those again. */}
+      {state.stuck > 0 ? (
+        <div className="space-y-3 rounded-3xl border-4 border-amber-500 bg-amber-50 p-4 text-center" role="alert">
+          {state.sent > 0 ? <p className="text-2xl font-black text-green-800">{`✓ ${state.sent}`}</p> : null}
+          <p className="text-xl font-bold text-amber-900">{s.stuckNote(state.stuck)}</p>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.vibrate?.(15);
+              retry();
+            }}
+            className="min-h-[88px] w-full rounded-3xl bg-green-600 text-3xl font-black text-white shadow-lg active:bg-green-700"
+          >
+            ↻ {s.tryAgain}
+          </button>
         </div>
       ) : null}
 

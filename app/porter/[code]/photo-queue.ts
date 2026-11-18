@@ -13,9 +13,24 @@
 // Without IndexedDB (some private windows) the list lives only while the
 // page is open.
 //
-// The full-size original is never sent (Vercel refuses uploads over 4.5 MB).
-// A photo that cannot be made small, or that the server refuses, is not
-// sent, and the screen says why (state.failed, words in strings.ts photoWhy).
+// Every photo and short video the phone gives goes:
+//   photo   made small here (a JPEG under 4 MB) and sent to the photos route.
+//   raw     a photo this phone cannot make small (an iPhone HEIC photo on an
+//           Android phone, a photo too big for the phone's memory): sent as it
+//           is, straight to file storage (@vercel/blob/client upload, the
+//           permission from ./photos/upload), then the photos route is told
+//           (uploadedUrl) and turns it into a JPEG.
+//   video   up to ~1 minute / 100 MB, straight to file storage the same way,
+//           with a still made here when the phone can.
+// Once a big file is in storage the phone forgets it (uploadedUrl): a retry
+// only tells the server again.
+//
+// No signal: each one is tried 3 times by itself (2 s, then 4 s). After that
+// it waits for "Try again" (retry(), state.stuck) or for the signal to come
+// back. Nothing already sent is sent again; the stuck ones stay on the phone.
+// state.items: each file of this round with its status (spinner, ✓, !).
+// Only a file that can never go (not a photo or video, a video too long) is
+// dropped, with why in plain words (state.failed, strings.ts photoWhy).
 //
 // Route screen Finish (no signal inside the building is normal): the whole
 // checklist is put in the same waiting list first (the phone's localStorage,
@@ -32,9 +47,25 @@
 // ("You seem to be at…"), state.otherAccount says which; the photos still go.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import { preparePhoto, type PhotoProblem } from "@/lib/imageResize";
-import { CREW_PHOTO_QUALITY, CREW_PHOTO_SIZE, CREW_THUMB_SIZE, type CrewPhotoTag } from "@/lib/crewPhotos";
+import {
+  CREW_PHOTO_QUALITY,
+  CREW_PHOTO_SIZE,
+  CREW_RAW_PHOTO_MAX_BYTES,
+  CREW_THUMB_SIZE,
+  CREW_VIDEO_MAX_BYTES,
+  CREW_VIDEO_MAX_SECONDS,
+  crewUploadExt,
+  crewUploadPath,
+  isVideoFile,
+  uploadContentType,
+  type CrewPhotoTag,
+} from "@/lib/crewPhotos";
 import { phoneLocation, type PhoneLocation } from "@/lib/photoLocation";
+
+/** Tries by itself before "Try again" shows. */
+const AUTO_TRIES = 3;
 
 /** Set once the phone was asked for its location (the bilingual note shows only before that). */
 export const LOCATION_ASKED_KEY = "crew-link-location-asked";
@@ -45,8 +76,14 @@ type Waiting = {
   name: string;
   tag: CrewPhotoTag;
   takenAt: string;
+  /** "photo" (made small here; also every photo saved before videos came), "raw" (a photo sent as it is) or "video". */
+  kind?: "photo" | "raw" | "video";
+  /** photo: the small JPEG. raw / video: the file as picked (emptied once it is in storage). */
   full: Blob;
   thumb: Blob | null;
+  /** raw / video: the file's extension ("heic", "mp4"…) and, once uploaded, its address in storage. */
+  ext?: string;
+  uploadedUrl?: string;
   addedAt: number;
   /** Route rows: the row it was taken on. */
   caption?: string;
@@ -54,8 +91,19 @@ type Waiting = {
   location?: PhoneLocation | null;
 };
 
-/** Why a photo was not sent: it could not be made small, the server refused it, or the link is off. */
-export type CrewPhotoFail = PhotoProblem | "refused" | "linkOff";
+/** Why a file can never be sent: not a photo, too big, a video too long, the server refused it, or the link is off. */
+export type CrewPhotoFail = PhotoProblem | "videoTooLong" | "refused" | "linkOff";
+
+/** One file of this round, for the screen: a spinner, then ✓ (or ! when it waits for Try again). */
+export type SendItem = {
+  id: string;
+  video: boolean;
+  /** A small picture of it ("" = none: a plain 📷 / 🎬 tile). */
+  preview: string;
+  status: "waiting" | "sending" | "sent" | "stuck" | "failed";
+  /** Big files only: how much is up (0-100). */
+  percent: number | null;
+};
 
 /* ---------- the phone's storage ---------- */
 
@@ -188,16 +236,57 @@ async function checkOtherAccount(code: string, at: PhoneLocation): Promise<strin
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** "sent": done. "drop": this photo can never go (and why). "later": no signal or a server hiccup. */
-async function sendOne(item: Waiting): Promise<{ result: "sent" | "later" } | { result: "drop"; why: CrewPhotoFail }> {
+/** Which file store the phone uploads big files to (asked once). */
+let storeAccess: Promise<"public" | "private"> | null = null;
+function uploadAccess(code: string): Promise<"public" | "private"> {
+  storeAccess ??= fetch(`/api/porter-checklist/${encodeURIComponent(code)}/photos/upload`, { cache: "no-store" })
+    .then((response) => response.json())
+    .then((data: { success?: boolean; private?: boolean }) => {
+      if (!data.success) throw new Error("no answer");
+      return data.private ? ("private" as const) : ("public" as const);
+    })
+    .catch((error: unknown) => {
+      storeAccess = null;
+      throw error;
+    });
+  return storeAccess;
+}
+
+/**
+ * "sent": done. "drop": this file can never go (and why). "later": no signal
+ * or a server hiccup. A raw photo or a video first goes straight to file
+ * storage (once: the address is kept on the phone), then the server is told.
+ */
+async function sendOne(item: Waiting, onPercent: (percent: number) => void): Promise<{ result: "sent" | "later" } | { result: "drop"; why: CrewPhotoFail }> {
   try {
+    const direct = item.kind === "raw" || item.kind === "video";
+    if (direct && !item.uploadedUrl) {
+      const ext = item.ext || (item.kind === "video" ? "mp4" : "jpg");
+      try {
+        const blob = await upload(crewUploadPath(item.id, ext), item.full, {
+          access: await uploadAccess(item.code),
+          handleUploadUrl: `/api/porter-checklist/${encodeURIComponent(item.code)}/photos/upload`,
+          contentType: uploadContentType(ext),
+          multipart: item.full.size > 8 * 1024 * 1024,
+          onUploadProgress: (progress) => onPercent(Math.round(progress.percentage)),
+        });
+        item.uploadedUrl = blob.url;
+      } catch (error) {
+        // The link was turned off: trying again will not help. Anything else: no signal.
+        if (error instanceof Error && /not active/i.test(error.message)) return { result: "drop", why: "linkOff" };
+        return { result: "later" };
+      }
+      // In storage: the phone keeps only its address (a retry does not upload it again).
+      await saveWaiting({ ...item, full: new Blob([]) });
+    }
     const form = new FormData();
     form.append("clientId", item.id);
     form.append("name", item.name);
     form.append("tag", item.tag);
     form.append("takenAt", item.takenAt);
     if (item.caption) form.append("caption", item.caption);
-    form.append("full", new File([item.full], "photo.jpg", { type: item.full.type || "image/jpeg" }));
+    if (direct) form.append("uploadedUrl", item.uploadedUrl ?? "");
+    else form.append("full", new File([item.full], "photo.jpg", { type: item.full.type || "image/jpeg" }));
     if (item.thumb) form.append("thumb", new File([item.thumb], "thumb.jpg", { type: "image/jpeg" }));
     if (item.location) {
       form.append("lat", String(item.location.lat));
@@ -213,6 +302,49 @@ async function sendOne(item: Waiting): Promise<{ result: "sent" | "later" } | { 
     return { result: "later" };
   } catch {
     return { result: "later" };
+  }
+}
+
+const withTimeout = <T,>(work: Promise<T>, ms: number) => Promise.race([work, sleep(ms).then(() => Promise.reject(new Error("timeout")))]);
+
+/** A video's length in seconds (null = the phone cannot tell) and a small still of it (null = could not make one). */
+async function videoInfo(file: Blob): Promise<{ seconds: number | null; still: Blob | null }> {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.preload = "auto";
+  video.muted = true;
+  video.playsInline = true;
+  try {
+    const loaded = new Promise<void>((resolve, reject) => {
+      video.onloadedmetadata = () => resolve();
+      video.onerror = () => reject(new Error("unreadable"));
+    });
+    video.src = url;
+    await withTimeout(loaded, 8000);
+    const seconds = Number.isFinite(video.duration) ? video.duration : null;
+    let still: Blob | null = null;
+    try {
+      const seeked = new Promise<void>((resolve) => (video.onseeked = () => resolve()));
+      video.currentTime = Math.min(0.5, (seconds ?? 1) / 2);
+      await withTimeout(seeked, 5000);
+      const scale = Math.min(1, CREW_THUMB_SIZE / Math.max(video.videoWidth || 1, video.videoHeight || 1));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round((video.videoWidth || CREW_THUMB_SIZE) * scale));
+      canvas.height = Math.max(1, Math.round((video.videoHeight || CREW_THUMB_SIZE) * scale));
+      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      still = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.75));
+      canvas.width = 0;
+      canvas.height = 0;
+    } catch {
+      still = null;
+    }
+    return { seconds, still };
+  } catch {
+    return { seconds: null, still: null };
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -238,6 +370,10 @@ export type PhotoQueueState = {
   checklistsFailed: number;
   /** "You seem to be at <this account>": the phone is near another account and far from this link's. */
   otherAccount: string | null;
+  /** Files tried 3 times with no luck: still on the phone, waiting for "Try again". */
+  stuck: number;
+  /** Each file of this round, for the screen. */
+  items: SendItem[];
 };
 
 const sleepOrWake = (ms: number, wake: { current: (() => void) | null }) =>
@@ -258,13 +394,41 @@ export function usePhotoQueue(code: string) {
     checklistsSent: 0,
     checklistsFailed: 0,
     otherAccount: null,
+    stuck: 0,
+    items: [],
   });
   const working = useRef(false);
   const wake = useRef<(() => void) | null>(null);
+  // Tries so far, and the files that used up their 3 (they wait for Try again).
+  const tries = useRef(new Map<string, number>());
+  const stuck = useRef(new Set<string>());
+  // The small pictures on screen, freed when a new round starts or the page closes.
+  const previews = useRef<string[]>([]);
 
   const showChecklists = useCallback((list: WaitingChecklist[]) => {
     setState((current) => ({ ...current, checklists: list.length, checklistTabs: [...new Set(list.map((each) => each.tabId))] }));
   }, []);
+
+  const setItem = useCallback((id: string, patch: Partial<SendItem>) => {
+    setState((current) => ({ ...current, items: current.items.map((each) => (each.id === id ? { ...each, ...patch } : each)) }));
+  }, []);
+
+  /** A tile for the screen. */
+  const itemOf = useCallback((item: Pick<Waiting, "id" | "kind" | "thumb">, status: SendItem["status"]): SendItem => {
+    let preview = "";
+    if (item.thumb && item.thumb.size > 0) {
+      preview = URL.createObjectURL(item.thumb);
+      previews.current.push(preview);
+    }
+    return { id: item.id, video: item.kind === "video", preview, status, percent: null };
+  }, []);
+
+  useEffect(
+    () => () => {
+      for (const url of previews.current) URL.revokeObjectURL(url);
+    },
+    []
+  );
 
   const pump = useCallback(async () => {
     if (working.current || !code) return;
@@ -275,20 +439,20 @@ export function usePhotoQueue(code: string) {
         // Checklists first: small, and what the office waits for.
         const checklists = listChecklists(code);
         showChecklists(checklists);
-        const list = checklists.length ? [] : await listWaiting(code);
-        if (!checklists.length) setState((current) => ({ ...current, waiting: list.length }));
+        const list = checklists.length ? [] : (await listWaiting(code)).filter((each) => !stuck.current.has(each.id));
+        if (!checklists.length) setState((current) => ({ ...current, waiting: list.length, stuck: stuck.current.size }));
         if (checklists.length === 0 && list.length === 0) break;
 
-        const outcome = checklists.length ? await sendChecklist(checklists[0]) : await sendOne(list[0]);
-        if (outcome.result === "later") {
-          setState((current) => ({ ...current, offline: true }));
-          // Wait, longer each time (up to 30 seconds), or until the phone is back online / the page is looked at again.
-          await sleepOrWake(delay, wake);
-          delay = Math.min(30_000, delay * 2);
-          continue;
-        }
-        delay = 2000;
         if (checklists.length) {
+          const outcome = await sendChecklist(checklists[0]);
+          if (outcome.result === "later") {
+            setState((current) => ({ ...current, offline: true }));
+            // Wait, longer each time (up to 30 seconds), or until the phone is back online / the page is looked at again.
+            await sleepOrWake(delay, wake);
+            delay = Math.min(30_000, delay * 2);
+            continue;
+          }
+          delay = 2000;
           const sentId = checklists[0].id;
           const rest = listChecklists(code).filter((each) => each.id !== sentId);
           writeChecklists(code, rest);
@@ -301,7 +465,28 @@ export function usePhotoQueue(code: string) {
           }));
           continue;
         }
-        await dropWaiting(list[0].id);
+
+        const item = list[0];
+        setItem(item.id, { status: "sending" });
+        const outcome = await sendOne(item, (percent) => setItem(item.id, { percent }));
+        if (outcome.result === "later") {
+          const tried = (tries.current.get(item.id) ?? 0) + 1;
+          tries.current.set(item.id, tried);
+          setState((current) => ({ ...current, offline: true }));
+          if (tried >= AUTO_TRIES) {
+            // 3 tries: it stays on the phone and waits for Try again (or the signal coming back).
+            stuck.current.add(item.id);
+            setItem(item.id, { status: "stuck", percent: null });
+            setState((current) => ({ ...current, stuck: stuck.current.size }));
+            continue;
+          }
+          setItem(item.id, { status: "waiting" });
+          await sleepOrWake(2000 * tried, wake);
+          continue;
+        }
+        tries.current.delete(item.id);
+        await dropWaiting(item.id);
+        setItem(item.id, { status: outcome.result === "sent" ? "sent" : "failed", percent: null });
         setState((current) => ({
           ...current,
           offline: false,
@@ -313,11 +498,31 @@ export function usePhotoQueue(code: string) {
       working.current = false;
     }
     // Something added just as the list ran out: send it too.
-    if (listChecklists(code).length > 0 || (await listWaiting(code)).length > 0) void pumpRef.current();
-  }, [code, showChecklists]);
+    if (listChecklists(code).length > 0 || (await listWaiting(code)).some((each) => !stuck.current.has(each.id))) void pumpRef.current();
+  }, [code, showChecklists, setItem]);
   const pumpRef = useRef(pump);
   useEffect(() => {
     pumpRef.current = pump;
+  });
+
+  /** "Try again": the files that used up their 3 tries go again (only those; the sent ones stay sent). */
+  const retry = useCallback(() => {
+    if (stuck.current.size === 0) return;
+    const again = new Set(stuck.current);
+    stuck.current.clear();
+    for (const id of again) tries.current.delete(id);
+    setState((current) => ({
+      ...current,
+      stuck: 0,
+      offline: false,
+      items: current.items.map((each) => (again.has(each.id) ? { ...each, status: "waiting" as const } : each)),
+    }));
+    wake.current?.();
+    void pump();
+  }, [pump]);
+  const retryRef = useRef(retry);
+  useEffect(() => {
+    retryRef.current = retry;
   });
 
   // Opening the link with photos or checklists still on the phone: say so, and send them.
@@ -328,45 +533,64 @@ export function usePhotoQueue(code: string) {
     showChecklists(checklists);
     void listWaiting(code).then((list) => {
       if (!alive) return;
-      setState((current) => ({ ...current, waiting: list.length, resumed: list.length, offline: navigator.onLine === false }));
+      setState((current) => ({
+        ...current,
+        waiting: list.length,
+        resumed: list.length,
+        offline: navigator.onLine === false,
+        items: list.map((each) => itemOf(each, "waiting")),
+      }));
       if (list.length || checklists.length) void pump();
     });
-    // Signal back, or the crew looks at the page again (phone unlocked, back from another app): try right away.
-    const tryNow = () => {
+    // Signal back: everything goes again (also the ones waiting for Try again).
+    const online = () => {
+      retryRef.current();
+      wake.current?.();
+      void pump();
+    };
+    // The crew looks at the page again (phone unlocked, back from another app): try right away.
+    const visible = () => {
       if (document.visibilityState === "hidden") return;
       wake.current?.();
       void pump();
     };
-    window.addEventListener("online", tryNow);
-    document.addEventListener("visibilitychange", tryNow);
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", visible);
     return () => {
       alive = false;
-      window.removeEventListener("online", tryNow);
-      document.removeEventListener("visibilitychange", tryNow);
+      window.removeEventListener("online", online);
+      document.removeEventListener("visibilitychange", visible);
     };
-  }, [code, pump, showChecklists]);
+  }, [code, pump, showChecklists, itemOf]);
 
   // Closing the page while things are still on the phone: the phone asks "Leave?" first.
   useEffect(() => {
-    if (state.waiting === 0 && state.preparing === 0 && state.checklists === 0) return;
+    if (state.waiting === 0 && state.preparing === 0 && state.checklists === 0 && state.stuck === 0) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [state.waiting, state.preparing, state.checklists]);
+  }, [state.waiting, state.preparing, state.checklists, state.stuck]);
 
   /**
-   * The photos the crew picked: made small, put in the list, and sending
-   * starts. Returns the ids of the photos now on the phone (a route row
-   * keeps them; a photo that could not be made small is not among them).
+   * The photos and videos the crew picked: made ready, put in the list, and
+   * sending starts. Returns the ids now on the phone (a route row keeps them;
+   * a file that can never go is not among them).
    */
   const add = useCallback(
     async (files: File[], name: string, tag: CrewPhotoTag, caption?: string): Promise<string[]> => {
       const ids: string[] = [];
-      // A new round starts when nothing is waiting.
-      setState((current) => (current.waiting === 0 ? { ...current, sent: 0, failed: [], resumed: 0, preparing: files.length } : { ...current, preparing: current.preparing + files.length }));
-      // Where the phone is, once for the batch, while the first photo is made small.
+      // A new round starts when nothing is waiting (nor waiting for Try again).
+      setState((current) => {
+        if (current.waiting === 0 && current.stuck === 0) {
+          for (const url of previews.current) URL.revokeObjectURL(url);
+          previews.current = [];
+          return { ...current, sent: 0, failed: [], resumed: 0, items: [], preparing: files.length };
+        }
+        return { ...current, preparing: current.preparing + files.length };
+      });
+      // Where the phone is, once for the batch, while the first photo is made ready.
       const where = phoneLocation().then((location) => {
         try {
           localStorage.setItem(LOCATION_ASKED_KEY, "1");
@@ -376,25 +600,53 @@ export function usePhotoQueue(code: string) {
         if (location && code) void checkOtherAccount(code, location).then((otherAccount) => setState((current) => ({ ...current, otherAccount })));
         return location;
       });
+      const never = (why: CrewPhotoFail) => setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), failed: [...current.failed, why] }));
       for (const file of files) {
-        const prepared = await preparePhoto(file, file.name, { fullSide: CREW_PHOTO_SIZE, thumbSide: CREW_THUMB_SIZE, quality: CREW_PHOTO_QUALITY });
-        if (!prepared.ok) {
-          setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), failed: [...current.failed, prepared.problem] }));
-          continue;
-        }
-        const { full, thumb } = prepared;
+        const id = newId();
         // The camera's own time when the phone gives it, else now.
         const takenAt = new Date(file.lastModified || Date.now()).toISOString();
-        const id = newId();
+        let ready: Pick<Waiting, "kind" | "full" | "thumb" | "ext">;
+        if (isVideoFile(file)) {
+          // mp4 / mov only.
+          const ext = crewUploadExt(file);
+          if (ext !== "mp4" && ext !== "mov") {
+            never("unreadable");
+            continue;
+          }
+          const info = await videoInfo(file);
+          if (file.size > CREW_VIDEO_MAX_BYTES || (info.seconds !== null && info.seconds > CREW_VIDEO_MAX_SECONDS)) {
+            never("videoTooLong");
+            continue;
+          }
+          ready = { kind: "video", full: file, thumb: info.still, ext };
+        } else {
+          const prepared = await preparePhoto(file, file.name, { fullSide: CREW_PHOTO_SIZE, thumbSide: CREW_THUMB_SIZE, quality: CREW_PHOTO_QUALITY });
+          if (prepared.ok) ready = { kind: "photo", full: prepared.full, thumb: prepared.thumb };
+          else {
+            // This phone cannot make it small (an iPhone photo on Android, not enough memory): it goes as it is, the server makes it a JPEG.
+            const ext = crewUploadExt(file);
+            if (!ext) {
+              never("unreadable");
+              continue;
+            }
+            if (file.size > CREW_RAW_PHOTO_MAX_BYTES) {
+              never("tooBig");
+              continue;
+            }
+            ready = { kind: "raw", full: file, thumb: null, ext };
+          }
+        }
         const location = await where;
-        await saveWaiting({ id, code, name, tag, takenAt, full, thumb, addedAt: Date.now(), location, ...(caption ? { caption } : {}) });
+        const waiting: Waiting = { id, code, name, tag, takenAt, ...ready, addedAt: Date.now(), location, ...(caption ? { caption } : {}) };
+        await saveWaiting(waiting);
         ids.push(id);
-        setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), waiting: current.waiting + 1 }));
+        const tile = itemOf(waiting, "waiting");
+        setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), waiting: current.waiting + 1, items: [...current.items, tile] }));
         void pump();
       }
       return ids;
     },
-    [code, pump]
+    [code, pump, itemOf]
   );
 
   /**
@@ -419,7 +671,7 @@ export function usePhotoQueue(code: string) {
 
   const dismissOtherAccount = useCallback(() => setState((current) => ({ ...current, otherAccount: null })), []);
 
-  return { state, add, addChecklist, dismissOtherAccount };
+  return { state, add, addChecklist, dismissOtherAccount, retry };
 }
 
 export type PhotoQueue = ReturnType<typeof usePhotoQueue>;

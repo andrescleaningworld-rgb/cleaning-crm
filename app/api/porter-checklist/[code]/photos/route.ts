@@ -5,7 +5,10 @@
 // sends again after a lost answer is saved once. Gated by the link's code
 // (any live Crew Link may send photos) and rate-limited per code.
 //
-// POST multipart { clientId, name, tag, takenAt, full, thumb?, lat?, lng?, accuracy? }
+// POST multipart { clientId, name, tag, takenAt, full | uploadedUrl, thumb?, lat?, lng?, accuracy? }
+//   uploadedUrl instead of full: a video, or a photo the phone could not make
+//   small (HEIC on Android), already uploaded as it is by the phone (./upload).
+//   A photo is turned into a JPEG here; a video is saved as it is.
 //   lat / lng / accuracy: where the phone was when the photo was added (only
 //   if the crew allowed it): the server stamps the photo and checks it was
 //   taken on site (lib/pg/crew-photos.ts).
@@ -19,9 +22,9 @@
 import { filesJson } from "@/lib/files";
 import { NextRequest } from "next/server";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
-import { cleanReporterName, crewLinkIsLive, resolveCrewLink } from "@/lib/crewLink";
+import { cleanReporterName, crewLinkAccountOpen, crewLinkIsLive, resolveCrewLink } from "@/lib/crewLink";
 import { isCrewPhotoTag } from "@/lib/crewPhotos";
-import { addCrewPhoto, crewPhotosReady, CrewPhotoError } from "@/lib/pg/crew-photos";
+import { addCrewPhoto, addCrewUpload, crewPhotosReady, CrewPhotoError } from "@/lib/pg/crew-photos";
 import { isGeoPoint, type PhoneLocation } from "@/lib/photoLocation";
 
 export const maxDuration = 60;
@@ -46,7 +49,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!(await checkRateLimit(`crewlink-photos:${code}`, PHOTOS_PER_MINUTE))) return refuse("Too many photos at once. They will go in a minute.", 503);
     if (!(await crewPhotosReady())) return refuse("Photos are not turned on yet.", 503);
     const link = await resolveCrewLink(code);
-    if (!link || !crewLinkIsLive(link.modules)) return refuse("This link is not active.", 404);
+    // A live CW Now link, for an account that is not cancelled / paused / suspended / inactive (404: the phone stops trying).
+    if (!link || !crewLinkIsLive(link.modules) || !crewLinkAccountOpen(link)) return refuse("This link is not active.", 404);
 
     const form = await request.formData().catch(() => null);
     if (!form) return refuse("No photo.", 400);
@@ -57,20 +61,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const tag = String(form.get("tag") ?? "");
     const full = form.get("full");
     const thumb = form.get("thumb");
-    if (!(full instanceof File)) return refuse("No photo.", 400);
+    const uploadedUrl = String(form.get("uploadedUrl") ?? "").trim();
+    if (!(full instanceof File) && !uploadedUrl) return refuse("No photo.", 400);
 
-    const saved = await addCrewPhoto({
+    const details = {
       accountId: link.template.accountId,
       accountName: link.template.accountName,
       clientId,
       name,
-      tag: isCrewPhotoTag(tag) ? tag : "",
+      tag: isCrewPhotoTag(tag) ? tag : ("" as const),
       takenAt: String(form.get("takenAt") ?? ""),
-      full,
       thumb: thumb instanceof File ? thumb : null,
       caption: String(form.get("caption") ?? ""),
       location: locationOf(form),
-    });
+    };
+    const saved = full instanceof File ? await addCrewPhoto({ ...details, full }) : await addCrewUpload({ ...details, uploadedUrl });
     return filesJson({ success: true, ...saved });
   } catch (error) {
     if (error instanceof CrewPhotoError) return refuse(error.message, 400);
