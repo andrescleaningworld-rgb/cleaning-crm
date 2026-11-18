@@ -23,10 +23,21 @@
 // same sender sends checklists first, then photos. The server keeps a
 // checklist once even if it arrives twice (migration 066, client_id), and
 // keeps the Finish time as the submitted time.
+//
+// Where the photo was taken: when photos are added, the phone is asked for
+// its location once (high accuracy, about 10 seconds; lib/photoLocation.ts).
+// It goes with each photo, so a photo sent later (no signal) still says
+// where it was taken. Denied or too slow: the photos still go. Never
+// tracked: only at that moment. If the phone looks to be at another account
+// ("You seem to be at…"), state.otherAccount says which; the photos still go.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { preparePhoto, type PhotoProblem } from "@/lib/imageResize";
 import { CREW_PHOTO_QUALITY, CREW_PHOTO_SIZE, CREW_THUMB_SIZE, type CrewPhotoTag } from "@/lib/crewPhotos";
+import { phoneLocation, type PhoneLocation } from "@/lib/photoLocation";
+
+/** Set once the phone was asked for its location (the bilingual note shows only before that). */
+export const LOCATION_ASKED_KEY = "crew-link-location-asked";
 
 type Waiting = {
   id: string;
@@ -39,6 +50,8 @@ type Waiting = {
   addedAt: number;
   /** Route rows: the row it was taken on. */
   caption?: string;
+  /** Where the phone was when the photo was added (null: not allowed / not found). */
+  location?: PhoneLocation | null;
 };
 
 /** Why a photo was not sent: it could not be made small, the server refused it, or the link is off. */
@@ -155,6 +168,21 @@ async function sendChecklist(item: WaitingChecklist): Promise<{ result: "sent" |
   }
 }
 
+/** The other account the phone seems to be at (the server decides), or null. No signal: null. */
+async function checkOtherAccount(code: string, at: PhoneLocation): Promise<string | null> {
+  try {
+    const response = await fetch(`/api/porter-checklist/${encodeURIComponent(code)}/photos/where`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat: at.lat, lng: at.lng }),
+    });
+    const data = (await response.json().catch(() => null)) as { otherAccount?: string | null } | null;
+    return typeof data?.otherAccount === "string" && data.otherAccount ? data.otherAccount : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ---------- sending ---------- */
 
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`);
@@ -171,6 +199,11 @@ async function sendOne(item: Waiting): Promise<{ result: "sent" | "later" } | { 
     if (item.caption) form.append("caption", item.caption);
     form.append("full", new File([item.full], "photo.jpg", { type: item.full.type || "image/jpeg" }));
     if (item.thumb) form.append("thumb", new File([item.thumb], "thumb.jpg", { type: "image/jpeg" }));
+    if (item.location) {
+      form.append("lat", String(item.location.lat));
+      form.append("lng", String(item.location.lng));
+      form.append("accuracy", String(Math.round(item.location.accuracyM)));
+    }
     const response = await fetch(`/api/porter-checklist/${encodeURIComponent(item.code)}/photos`, { method: "POST", body: form });
     if (response.ok) return { result: "sent" };
     // 404 (link off), 413 (too big) and 400 (bad photo) will not change by trying again.
@@ -203,6 +236,8 @@ export type PhotoQueueState = {
   checklistsSent: number;
   /** Route checklists that can never go (link turned off, refused). */
   checklistsFailed: number;
+  /** "You seem to be at <this account>": the phone is near another account and far from this link's. */
+  otherAccount: string | null;
 };
 
 const sleepOrWake = (ms: number, wake: { current: (() => void) | null }) =>
@@ -222,6 +257,7 @@ export function usePhotoQueue(code: string) {
     checklistTabs: [],
     checklistsSent: 0,
     checklistsFailed: 0,
+    otherAccount: null,
   });
   const working = useRef(false);
   const wake = useRef<(() => void) | null>(null);
@@ -330,6 +366,16 @@ export function usePhotoQueue(code: string) {
       const ids: string[] = [];
       // A new round starts when nothing is waiting.
       setState((current) => (current.waiting === 0 ? { ...current, sent: 0, failed: [], resumed: 0, preparing: files.length } : { ...current, preparing: current.preparing + files.length }));
+      // Where the phone is, once for the batch, while the first photo is made small.
+      const where = phoneLocation().then((location) => {
+        try {
+          localStorage.setItem(LOCATION_ASKED_KEY, "1");
+        } catch {
+          // best-effort: the note may show once more
+        }
+        if (location && code) void checkOtherAccount(code, location).then((otherAccount) => setState((current) => ({ ...current, otherAccount })));
+        return location;
+      });
       for (const file of files) {
         const prepared = await preparePhoto(file, file.name, { fullSide: CREW_PHOTO_SIZE, thumbSide: CREW_THUMB_SIZE, quality: CREW_PHOTO_QUALITY });
         if (!prepared.ok) {
@@ -340,7 +386,8 @@ export function usePhotoQueue(code: string) {
         // The camera's own time when the phone gives it, else now.
         const takenAt = new Date(file.lastModified || Date.now()).toISOString();
         const id = newId();
-        await saveWaiting({ id, code, name, tag, takenAt, full, thumb, addedAt: Date.now(), ...(caption ? { caption } : {}) });
+        const location = await where;
+        await saveWaiting({ id, code, name, tag, takenAt, full, thumb, addedAt: Date.now(), location, ...(caption ? { caption } : {}) });
         ids.push(id);
         setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), waiting: current.waiting + 1 }));
         void pump();
@@ -370,7 +417,9 @@ export function usePhotoQueue(code: string) {
     [code, pump, showChecklists]
   );
 
-  return { state, add, addChecklist };
+  const dismissOtherAccount = useCallback(() => setState((current) => ({ ...current, otherAccount: null })), []);
+
+  return { state, add, addChecklist, dismissOtherAccount };
 }
 
 export type PhotoQueue = ReturnType<typeof usePhotoQueue>;

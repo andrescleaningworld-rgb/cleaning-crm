@@ -462,7 +462,7 @@ export async function getSubmissionDetail(id: number): Promise<SubmissionDetail 
   const row = rows[0] as Record<string, unknown>;
   return {
     ...rowToSummary(row),
-    sections: await attachPhotoUrls((row.items_snapshot_json as ChecklistSubmissionSection[]) ?? []),
+    sections: await attachPhotoUrls((row.items_snapshot_json as ChecklistSubmissionSection[]) ?? [], { siteCheck: true }),
   };
 }
 
@@ -502,18 +502,22 @@ export async function latestNightNoteToday(accountId: string, tabIds: number[]):
 // Staff screens: the addresses of the photos taken on route rows (items'
 // `photos` = phone-made ids, saved as photo_index source_key "crew:<id>").
 // A photo still on its way from the phone simply isn't listed yet.
-export async function attachPhotoUrls(sections: ChecklistSubmissionSection[]): Promise<ChecklistSubmissionSection[]> {
+// `siteCheck`: staff screens only (CW Now submissions) also get each photo's
+// on-site check (migration 082). The sub portal never asks for it.
+export async function attachPhotoUrls(sections: ChecklistSubmissionSection[], options: { siteCheck?: boolean } = {}): Promise<ChecklistSubmissionSection[]> {
   const ids = sections.flatMap((section) => section.items.flatMap((item) => item.photos ?? []));
   if (ids.length === 0) return sections;
   const sql = getSql();
   const rows = await sql`
-    SELECT source_key, url, thumb_url FROM photo_index WHERE source_key = ANY(${ids.map((id) => `crew:${id}`)})
+    SELECT source_key, url, thumb_url, to_jsonb(photo_index) ->> 'site_check' AS site_check, to_jsonb(photo_index) ->> 'site_distance_m' AS site_distance_m
+    FROM photo_index WHERE source_key = ANY(${ids.map((id) => `crew:${id}`)})
   `;
   const byId = new Map(
     rows.map((r) => {
       const row = r as Record<string, unknown>;
       const url = String(row.url ?? "");
-      return [String(row.source_key).slice("crew:".length), { url, thumbUrl: String(row.thumb_url ?? "") || url }];
+      const check = options.siteCheck && row.site_check ? { siteCheck: String(row.site_check), siteDistanceM: row.site_distance_m == null ? null : Number(row.site_distance_m) } : {};
+      return [String(row.source_key).slice("crew:".length), { url, thumbUrl: String(row.thumb_url ?? "") || url, ...check }];
     })
   );
   return sections.map((section) => ({

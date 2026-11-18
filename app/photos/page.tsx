@@ -12,6 +12,7 @@
 // full screen: swipe left / right, who and when, and a button to the item it
 // belongs to. Small thumbnails; more load as you scroll.
 
+import { LOCATION_FILTER, siteBadge } from "@/lib/photoLocation";
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -44,6 +45,11 @@ type Photo = {
   /** Crew photos: their tag, and hidden from the customer portal. */
   tag?: string;
   hiddenFromCustomer?: boolean;
+  /** CW Now photos: taken on site? (lib/photoLocation.ts siteBadge). Staff only. */
+  siteCheck?: string;
+  siteDistanceM?: number | null;
+  /** Before the stamp; "" = url is the original. */
+  originalUrl?: string;
 };
 
 type ApiAnswer = {
@@ -130,8 +136,32 @@ function Thumb({ photo, onOpen }: { photo: Photo; onOpen: () => void }) {
       ) : (
         <span className="ph-file">PDF</span>
       )}
+      <SiteBadge photo={photo} />
       <span className="ph-label">{label(photo)}</span>
     </button>
+  );
+}
+
+/** ✅ On site / ⚠️ 0.4 mi from site / ❓ No location, on CW Now photos (staff only). */
+function SiteBadge({ photo, inline = false }: { photo: Photo; inline?: boolean }) {
+  const badge = siteBadge(photo.siteCheck ?? "", photo.siteDistanceM);
+  if (!badge) return null;
+  const colors = badge.tone === "good" ? { background: "#dcfce7", color: "#14532d" } : badge.tone === "warn" ? { background: "#fef3c7", color: "#78350f" } : { background: "#e2e8f0", color: "#1e293b" };
+  return (
+    <span
+      title={badge.text}
+      style={{
+        ...colors,
+        ...(inline ? { display: "inline-block" } : { position: "absolute", top: 6, left: 6 }),
+        borderRadius: 999,
+        padding: "2px 8px",
+        fontSize: 12,
+        fontWeight: 800,
+        lineHeight: 1.4,
+      }}
+    >
+      {badge.icon} {badge.text}
+    </span>
   );
 }
 
@@ -254,6 +284,11 @@ function Viewer({
           {photo.takenBy ? `${photo.takenBy} · ` : ""}
           {longDate(photo.takenAt)}
         </p>
+        {siteBadge(photo.siteCheck ?? "", photo.siteDistanceM) ? (
+          <p>
+            <SiteBadge photo={photo} inline />
+          </p>
+        ) : null}
         <div className="ph-viewer-actions">
           {photo.linkedHref ? (
             <Link href={photo.linkedHref} className="ui-btn ui-btn-main" onClick={onClose}>
@@ -291,8 +326,14 @@ function Viewer({
             </button>
           ) : null}
           <a className="ui-btn ui-btn-second ph-viewer-original" href={photo.url} target="_blank" rel="noopener noreferrer">
-            Original file
+            {photo.originalUrl ? "Stamped photo" : "Original file"}
           </a>
+          {/* CW Now photos keep the phone's file too, before the time stamp. */}
+          {photo.originalUrl ? (
+            <a className="ui-btn ui-btn-second ph-viewer-original" href={photo.originalUrl} target="_blank" rel="noopener noreferrer">
+              Original (no stamp)
+            </a>
+          ) : null}
         </div>
       </div>
     </div>
@@ -344,7 +385,7 @@ function PhotosContent() {
   // Opened from an account's page: a way back, for as long as that account is still the one showing.
   const scope = useAccountScope();
   const [kind, setKind] = useState("");
-  const [group, setGroup] = useState<"" | "problems" | "before-after">("");
+  const [group, setGroup] = useState<"" | "problems" | "before-after" | typeof LOCATION_FILTER>("");
   const [dateChoice, setDateChoice] = useState<DateChoice>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -573,6 +614,10 @@ function PhotosContent() {
             </button>
             <button type="button" className="ui-chip" aria-pressed={dateChoice !== "all"} onClick={() => setPicker("date")}>
               {dateChoice === "pick" && (from || to) ? `${from || "…"} to ${to || "…"}` : DATE_LABEL[dateChoice]}
+            </button>
+            {/* CW Now photos not taken on site (⚠️) or with no location (❓). */}
+            <button type="button" className="ui-chip" aria-pressed={group === LOCATION_FILTER} onClick={() => setGroup(group === LOCATION_FILTER ? "" : LOCATION_FILTER)}>
+              ⚠️ ❓ Not on site / no location
             </button>
           </div>
 

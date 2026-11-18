@@ -39,7 +39,7 @@ import { translated, type ContentTranslations } from "@/lib/translationKey";
 import { TEAM_HUB_TIMEZONE } from "@/lib/teamHubTimezone";
 import type { NightNote } from "@/lib/checklistDb";
 import type { PhotoQueue } from "./photo-queue";
-import { NoticeBox } from "./ui";
+import { NoticeBox, PhotoPlaceNotes } from "./ui";
 
 /** The fixed words, always both languages (no language switch on route screens). */
 export const ROUTE_WORDS = {
@@ -640,6 +640,9 @@ export default function CrewRoute({
       </div>
 
       {nameBox}
+
+      {/* Rows with a camera: the location note, and "You seem to be at…". */}
+      {rows.some((item) => item.photo) ? <PhotoPlaceNotes otherAccount={queue.state.otherAccount} onDismiss={queue.dismissOtherAccount} /> : null}
 
       <NoticeBox
         sections={notices}

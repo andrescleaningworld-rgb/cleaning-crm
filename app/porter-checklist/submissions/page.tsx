@@ -7,6 +7,7 @@
 // Share selected sends every checked row, grouped by account.
 
 import { useEffect, useMemo, useState } from "react";
+import { siteBadge } from "@/lib/photoLocation";
 import Image from "next/image";
 import Link from "next/link";
 import { SKIP_REASON_WORDS, describeWorkTimes, type ChecklistSubmissionSection } from "@/lib/checklistTemplate";
@@ -614,9 +615,15 @@ export default function PorterChecklistSubmissionsPage() {
                                 {item.photoUrls?.length ? (
                                   <div className="mt-2 flex flex-wrap gap-2">
                                     {item.photoUrls.map((photo) => (
-                                      <a key={photo.url} href={photo.url} target="_blank" rel="noreferrer">
+                                      <a key={photo.url} href={photo.url} target="_blank" rel="noreferrer" className="inline-flex flex-col items-center gap-1">
                                         {/* eslint-disable-next-line @next/next/no-img-element -- Vercel Blob photo */}
                                         <img src={photo.thumbUrl} alt="" className="h-20 w-20 rounded-lg border border-slate-200 object-cover" />
+                                        {/* Taken on site? (staff only) */}
+                                        {siteBadge(photo.siteCheck ?? "", photo.siteDistanceM) ? (
+                                          <span className="max-w-[96px] text-center text-xs font-bold text-slate-700">
+                                            {siteBadge(photo.siteCheck ?? "", photo.siteDistanceM)!.icon} {siteBadge(photo.siteCheck ?? "", photo.siteDistanceM)!.text}
+                                          </span>
+                                        ) : null}
                                       </a>
                                     ))}
                                   </div>

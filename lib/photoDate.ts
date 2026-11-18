@@ -36,8 +36,8 @@ function fromExifText(text: string): string | null {
   return sane(y, mo, d) ? newYorkTime(y, mo, d, h, mi, s) : null;
 }
 
-/** The camera's date in a JPEG: DateTimeOriginal, else DateTimeDigitized, else the picture's DateTime. */
-export async function exifDate(file: Blob): Promise<string | null> {
+/** The EXIF block of a JPEG (its first 256 KB): the bytes and where its TIFF header starts. null = none. */
+async function exifBlock(file: Blob): Promise<{ view: DataView; tiff: number } | null> {
   try {
     const view = new DataView(await file.slice(0, 256 * 1024).arrayBuffer());
     if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return null;
@@ -48,13 +48,77 @@ export async function exifDate(file: Blob): Promise<string | null> {
       const length = view.getUint16(at + 2);
       if (marker === 0xda) return null; // the picture itself starts: no EXIF before it
       // APP1 with "Exif\0\0"
-      if (marker === 0xe1 && view.getUint32(at + 4) === 0x45786966) return readTiff(view, at + 10);
+      if (marker === 0xe1 && view.getUint32(at + 4) === 0x45786966) return { view, tiff: at + 10 };
       at += 2 + length;
     }
   } catch {
-    // An odd file: no date from inside it.
+    // An odd file: nothing from inside it.
   }
   return null;
+}
+
+/** The camera's date in a JPEG: DateTimeOriginal, else DateTimeDigitized, else the picture's DateTime. */
+export async function exifDate(file: Blob): Promise<string | null> {
+  const block = await exifBlock(file);
+  if (!block) return null;
+  try {
+    return readTiff(block.view, block.tiff);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where a JPEG was taken, from the camera's GPS (degrees), for Photos ->
+ * Add photos ("Looks like <Account>"). null = no GPS in the photo
+ * (WhatsApp removes it).
+ */
+export async function exifGps(file: Blob): Promise<{ lat: number; lng: number } | null> {
+  const block = await exifBlock(file);
+  if (!block) return null;
+  try {
+    const { view, tiff } = block;
+    const little = view.getUint16(tiff) === 0x4949;
+    const u16 = (at: number) => view.getUint16(at, little);
+    const u32 = (at: number) => view.getUint32(at, little);
+    /** One directory's entries: tag -> its type, count, and where its value (or the pointer to it) sits. */
+    const entries = (start: number) => {
+      const out = new Map<number, { type: number; count: number; at: number }>();
+      if (start + 2 > view.byteLength) return out;
+      const count = u16(start);
+      for (let i = 0; i < count; i++) {
+        const entry = start + 2 + i * 12;
+        if (entry + 12 > view.byteLength) break;
+        out.set(u16(entry), { type: u16(entry + 2), count: u32(entry + 4), at: entry + 8 });
+      }
+      return out;
+    };
+    const gpsPointer = entries(tiff + u32(tiff + 4)).get(0x8825);
+    if (!gpsPointer) return null;
+    const gps = entries(tiff + u32(gpsPointer.at));
+    const ref = (tag: number) => {
+      const entry = gps.get(tag);
+      return entry ? String.fromCharCode(view.getUint8(entry.at)) : "";
+    };
+    /** Degrees, minutes, seconds (three RATIONALs) -> degrees. */
+    const degrees = (tag: number) => {
+      const entry = gps.get(tag);
+      if (!entry || entry.type !== 5 || entry.count < 3) return null;
+      const start = tiff + u32(entry.at);
+      if (start + 24 > view.byteLength) return null;
+      const part = (i: number) => {
+        const den = u32(start + i * 8 + 4);
+        return den ? u32(start + i * 8) / den : 0;
+      };
+      return part(0) + part(1) / 60 + part(2) / 3600;
+    };
+    const lat = degrees(2);
+    const lng = degrees(4);
+    if (lat === null || lng === null || (lat === 0 && lng === 0)) return null;
+    return { lat: ref(1) === "S" ? -lat : lat, lng: ref(3) === "W" ? -lng : lng };
+  } catch {
+    return null;
+  }
 }
 
 function readTiff(view: DataView, tiff: number): string | null {

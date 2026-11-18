@@ -16,6 +16,7 @@
 import { fetchAppsScript } from "@/lib/appsScriptFetch";
 import { isPostgres } from "@/lib/dataSource";
 import { timestampOrNull } from "@/lib/dateUtils";
+import { LOCATION_FILTER } from "@/lib/photoLocation";
 import { getSql } from "@/lib/db";
 
 // "Site survey": the setup wizard's shot list (migration 063; lib/pg/setup-wizard.ts).
@@ -48,6 +49,11 @@ export type IndexedPhoto = {
   /** Crew photos: the crew's tag (before / after / problem), and hidden from the customer portal (migration 064). */
   tag: string;
   hiddenFromCustomer: boolean;
+  /** CW Now photos (migration 082): taken on site? "" = not checked. Staff only, never to a customer. */
+  siteCheck: string;
+  siteDistanceM: number | null;
+  /** The photo as the phone sent it, before the stamp; "" = none (url is the original). */
+  originalUrl: string;
 };
 
 export function photosFlagOn(): boolean {
@@ -314,6 +320,10 @@ type Row = {
   /** Not there until migration 064 is applied. */
   tag?: string;
   hidden_from_customer?: boolean;
+  /** Not there until migration 082 is applied. */
+  site_check?: string;
+  site_distance_m?: number | null;
+  original_url?: string;
 };
 
 const toPhoto = (row: Row): IndexedPhoto => ({
@@ -337,6 +347,9 @@ const toPhoto = (row: Row): IndexedPhoto => ({
   caption: row.caption ?? "",
   tag: row.tag ?? "",
   hiddenFromCustomer: row.hidden_from_customer === true,
+  siteCheck: row.site_check ?? "",
+  siteDistanceM: row.site_distance_m == null ? null : Number(row.site_distance_m),
+  originalUrl: row.original_url ?? "",
 });
 
 export type PhotoFilter = {
@@ -346,7 +359,7 @@ export type PhotoFilter = {
   account?: string;
   accountId?: string;
   kind?: string;
-  /** "problems" = complaints, crew problems and sub problem photos; "before-after". */
+  /** "problems" = complaints, crew problems and sub problem photos; "before-after"; "location" = CW Now photos ⚠️ not on site or ❓ with no location. */
   group?: string;
   from?: string;
   to?: string;
@@ -379,6 +392,8 @@ function where(filter: PhotoFilter): { clause: string; params: unknown[] } {
   if (filter.kind && (PHOTO_KINDS as readonly string[]).includes(filter.kind)) add(`kind = ?`, filter.kind);
   if (filter.group === "problems") parts.push(`(kind IN ('Complaint', 'Crew problem') OR linked_type IN ('issue', 'sub-issue'))`);
   if (filter.group === "before-after") parts.push(`moment <> ''`);
+  // Read through to_jsonb so it works before migration 082 (nothing matches then).
+  if (filter.group === LOCATION_FILTER) parts.push(`(to_jsonb(photo_index) ->> 'site_check') IN ('off_site', 'no_location', 'no_site')`);
   // from / to are exact moments (the viewer's own midnight), `to` not included.
   if (isMoment(filter.from)) add(`taken_at >= ?::timestamptz`, filter.from);
   if (isMoment(filter.to)) add(`taken_at < ?::timestamptz`, filter.to);

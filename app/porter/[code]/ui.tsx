@@ -8,6 +8,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { CREW_LANGS, CREW_LANG_LABEL, type TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { formatCrewDateTime } from "@/lib/crewDateTime";
 import type { CrewLinkStrings } from "./strings";
+import { LOCATION_NOTE, locationPermission } from "@/lib/photoLocation";
+import { LOCATION_ASKED_KEY } from "./photo-queue";
 
 // Always-visible English / Español / Português switch (the choice is
 // remembered per phone by useTeamHubLang).
@@ -196,6 +198,49 @@ export function NoticeBox({ sections, line }: { sections: { key: string; title: 
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Above the photo buttons (Send photos, route rows with a camera):
+ *   - before the phone is first asked for its location: the short note,
+ *     both languages, so the question that pops up makes sense;
+ *   - "You seem to be at <Other Account>. Is this the right link?" when the
+ *     phone looks to be at another account (the photos still go).
+ */
+export function PhotoPlaceNotes({ otherAccount, onDismiss }: { otherAccount: string | null; onDismiss: () => void }) {
+  const [showNote, setShowNote] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void locationPermission().then((state) => {
+      let asked = false;
+      try {
+        asked = localStorage.getItem(LOCATION_ASKED_KEY) === "1";
+      } catch {
+        // no storage: decide by the phone's answer only
+      }
+      if (alive) setShowNote(!asked && (state === "prompt" || state === "unknown"));
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <>
+      {showNote && !otherAccount ? <p className="rounded-2xl bg-blue-50 px-4 py-3 text-lg font-semibold leading-snug text-blue-900">📍 {LOCATION_NOTE}</p> : null}
+      {otherAccount ? (
+        <div className="space-y-2 rounded-2xl border-4 border-amber-400 bg-amber-50 p-4">
+          <p className="text-xl font-black leading-snug text-amber-900">
+            📍 You seem to be at {otherAccount}. Is this the right link?
+            <span className="block text-lg font-semibold">Parece que estás en {otherAccount}. ¿Es el enlace correcto?</span>
+          </p>
+          <p className="text-base text-amber-900">Your photos still go. / Tus fotos se envían igual.</p>
+          <button type="button" onClick={onDismiss} className="min-h-[52px] w-full rounded-2xl bg-white text-lg font-bold text-amber-900 shadow-sm active:bg-amber-100">
+            OK
+          </button>
+        </div>
+      ) : null}
+    </>
   );
 }
 

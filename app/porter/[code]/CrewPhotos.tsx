@@ -11,7 +11,7 @@ import type { TeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { CREW_PHOTO_MAX_BATCH, CREW_PHOTO_TAGS, type CrewPhotoTag } from "@/lib/crewPhotos";
 import type { CrewLinkStrings } from "./strings";
 import type { CrewPhotoFail, PhotoQueue } from "./photo-queue";
-import { WhoAndWhen } from "./ui";
+import { WhoAndWhen, PhotoPlaceNotes } from "./ui";
 
 /** Each reason once, with how many photos it was. */
 function reasons(failed: CrewPhotoFail[]): [CrewPhotoFail, number][] {
@@ -71,6 +71,7 @@ export default function CrewPhotos({
 
   return (
     <div className="space-y-3">
+      <PhotoPlaceNotes otherAccount={state.otherAccount} onDismiss={queue.dismissOtherAccount} />
       <input
         ref={input}
         type="file"

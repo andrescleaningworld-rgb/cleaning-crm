@@ -204,7 +204,7 @@ export type ChecklistSubmissionItemState = ChecklistItemDef & {
   /** Route rows: the crew photos taken on this row (their phone-made ids; photo_index source_key "crew:<id>"). */
   photos?: string[];
   /** Filled in when staff read a submission: the photos' addresses (not stored). */
-  photoUrls?: { url: string; thumbUrl: string }[];
+  photoUrls?: { url: string; thumbUrl: string; siteCheck?: string; siteDistanceM?: number | null }[];
   /** Not a task (an urgent request): left out of the done count and of skips. */
   info?: boolean;
 };
