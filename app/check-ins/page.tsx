@@ -25,7 +25,7 @@
 // the queue and go over the next days.
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
   BigButton,
   Card,
@@ -38,8 +38,10 @@ import {
   SelectField,
   Sheet,
   SkeletonList,
+  StatusPill,
   Tabs,
   showToast,
+  type StatusKind,
 } from "@/app/ui";
 import { CheckinAnswer, CheckinEmailSheet, CheckinProgress, CheckinSendSheet, whenText } from "@/app/components/checkins";
 import { LastVisitedField, daysSince, easternTodayIso, matchesLastVisited, useLastVisits, type LastVisitedFilter } from "@/app/components/last-visited";
@@ -750,20 +752,95 @@ type HistoryItem =
 const VIEWED_TIP = "Number of accounts in this send that opened";
 const ANSWERED_TIP = "Number of accounts in this send that answered";
 
-/** An account line's cells, lined up under the send's columns. */
-function accountCells(item: Extract<HistoryItem, { kind: "account" }>) {
+const NY = "America/New_York";
+const nyDay = (value: string) => new Date(value).toLocaleDateString("en-CA", { timeZone: NY });
+
+/** "1:22 PM", with the date in front only when it is not the day it was sent. */
+function openedText(openedAt: string, sentAt: string): string {
+  const opened = new Date(openedAt);
+  if (Number.isNaN(opened.getTime())) return openedAt;
+  const time = opened.toLocaleTimeString("en-US", { timeZone: NY, hour: "numeric", minute: "2-digit" });
+  if (sentAt && nyDay(openedAt) === nyDay(sentAt)) return time;
+  return `${opened.toLocaleDateString("en-US", { timeZone: NY, month: "short", day: "numeric" })}, ${time}`;
+}
+
+/** Opened within a minute of being sent: often the email app loading the pictures by itself, not the customer. */
+function maybeAuto(openedAt: string, sentAt: string): boolean {
+  const gap = new Date(openedAt).getTime() - new Date(sentAt).getTime();
+  return Number.isFinite(gap) && gap >= 0 && gap < 60_000;
+}
+
+const LINE_GRID: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(220px, 2fr) minmax(150px, 1.2fr) minmax(130px, 1fr) minmax(140px, 1fr)", gap: 16, alignItems: "center", paddingLeft: 24 };
+const ONE_LINE: CSSProperties = { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 };
+
+/**
+ * One account under a send, in its own layout across the table: the account
+ * (and the email it went to, small and grey), the status, when it was opened,
+ * and the answer. No send date: the send's row has it.
+ */
+function AccountLine({ item }: { item: Extract<HistoryItem, { kind: "account" }> }) {
   const { row, skip } = item;
   const status = skip ? "skipped" : row?.status ?? "";
-  return {
-    who: row?.sentTo ? `to ${row.sentTo}` : "",
-    status: skip ? "Skipped" : row ? CHECKIN_STATUS_TEXT[row.status] : "",
-    sent: status === "sent" && row ? `✓ ${whenText(row.sentAt)}` : "",
-    queued: status === "queued" ? "Queued" : "",
-    failed: status === "failed" ? `✗ Failed${row?.error ? `: ${row.error}` : ""}` : "",
-    skipped: skip ? skip.reason : status === "skipped" ? row?.error || "Skipped" : "",
-    viewed: status === "sent" && row ? (row.openedAt ? `Yes · ${whenText(row.openedAt)}` : "No") : "",
-  };
+  const reason = skip ? skip.reason : row?.error ?? "";
+  const statusCell =
+    status === "sent" ? (
+      <span style={{ ...ONE_LINE, color: "#15803d", fontWeight: 700 }}>✓ Sent</span>
+    ) : status === "failed" ? (
+      <span style={{ ...ONE_LINE, color: "#b91c1c", fontWeight: 700 }} title={reason || undefined}>
+        ✗ Failed{reason ? `: ${reason}` : ""}
+      </span>
+    ) : (
+      <span className="ui-muted" style={ONE_LINE} title={reason || undefined}>
+        {status === "skipped" ? `Skipped${reason ? `: ${reason}` : ""}` : row ? CHECKIN_STATUS_TEXT[row.status] : ""}
+      </span>
+    );
+  const opened =
+    status === "sent" && row?.openedAt ? (
+      <span style={ONE_LINE}>
+        {openedText(row.openedAt, row.sentAt)}
+        {maybeAuto(row.openedAt, row.sentAt) ? (
+          <span className="ui-muted" style={{ fontSize: "0.8em" }} title="Opened the same minute it was sent: email apps sometimes load the pictures by themselves.">
+            {" "}
+            (maybe auto)
+          </span>
+        ) : null}
+      </span>
+    ) : (
+      <span className="ui-muted">—</span>
+    );
+  const rating = row && row.status === "sent" ? ratingOf(row.answer) : "";
+  return (
+    <div style={LINE_GRID}>
+      <div style={{ minWidth: 0 }}>
+        <div style={ONE_LINE} title={item.accountName}>
+          <span className="ui-muted" aria-hidden="true">
+            ↳{" "}
+          </span>
+          <Link className="ui-link" href={accountHref(item.accountId)}>
+            {item.accountName}
+          </Link>
+        </div>
+        {row?.sentTo ? (
+          <div className="ui-muted" style={{ ...ONE_LINE, fontSize: "0.8em" }} title={row.sentTo}>
+            {row.sentTo}
+          </div>
+        ) : null}
+      </div>
+      {statusCell}
+      <div style={ONE_LINE}>
+        <span className="ui-muted" style={{ fontSize: "0.8em" }}>
+          Opened{" "}
+        </span>
+        {opened}
+      </div>
+      <div style={ONE_LINE} title={row?.comment ? `"${row.comment}"` : undefined}>
+        {rating && row ? <StatusPill kind={RATING_PILL[rating]}>{ratingText(row.answer)}</StatusPill> : <span className="ui-muted">—</span>}
+      </div>
+    </div>
+  );
 }
+
+const RATING_PILL: Record<"great" | "ok" | "attention", StatusKind> = { great: "done", ok: "waiting", attention: "needs-you" };
 
 function HistoryTab() {
   const [batches, setBatches] = useState<CheckinBatch[] | null>(null);
@@ -841,16 +918,8 @@ function HistoryTab() {
       ...got.skipped.map((skip, index): HistoryItem => ({ kind: "account", key: `s${b.id}-${index}`, row: null, skip, accountId: skip.accountId, accountName: skip.accountName })),
     ];
   });
-  const accountLink = (item: Extract<HistoryItem, { kind: "account" }>) => (
-    <Link className="ui-link" href={accountHref(item.accountId)}>
-      {item.accountName}
-    </Link>
-  );
-  const answerCell = (item: Extract<HistoryItem, { kind: "account" }>) =>
-    item.row && item.row.status === "sent" ? <CheckinAnswer row={item.row} compact /> : null;
-  /** A cell: the send's own value, or this account's, or nothing on the "Loading…" line. */
-  const cell = (forBatch: (b: CheckinBatch) => ReactNode, forAccount: (item: Extract<HistoryItem, { kind: "account" }>) => ReactNode) => (item: HistoryItem) =>
-    item.kind === "batch" ? forBatch(item.batch) : item.kind === "account" ? forAccount(item) : null;
+  /** A send's cell. Account lines and "Loading…" are drawn across the whole row (fullRow). */
+  const cell = (forBatch: (b: CheckinBatch) => ReactNode) => (item: HistoryItem) => (item.kind === "batch" ? forBatch(item.batch) : null);
 
   return (
     <>
@@ -864,14 +933,9 @@ function HistoryTab() {
         renderCard={(item) => {
           if (item.kind === "loading") return <p className="ui-muted">Loading the accounts…</p>;
           if (item.kind === "account") {
-            const c = accountCells(item);
             return (
-              <div className="ui-card" style={{ marginLeft: 16 }}>
-                <p className="ui-card-text ui-strong">{accountLink(item)}</p>
-                <p className="ui-card-text">
-                  {[c.status, c.who, c.sent, c.failed, c.skipped, c.viewed ? `👁 Viewed: ${c.viewed}` : ""].filter(Boolean).join(" · ")}
-                </p>
-                {answerCell(item)}
+              <div className="ui-card" style={{ marginLeft: 16, overflowX: "auto" }}>
+                <AccountLine item={item} />
               </div>
             );
           }
@@ -894,17 +958,20 @@ function HistoryTab() {
           </Card>
           );
         }}
+        fullRow={(item) =>
+          item.kind === "account" ? <AccountLine item={item} /> : item.kind === "loading" ? <span className="ui-muted">Loading the accounts…</span> : null
+        }
         columns={[
-          { header: "When", cell: (item) => (item.kind === "batch" ? openButton(item.batch) : item.kind === "loading" ? <span className="ui-muted">Loading…</span> : <span className="ui-muted">↳</span>) },
-          { header: "Account", cell: cell((b) => sendAccounts(b), accountLink) },
-          { header: "Who", cell: cell((b) => b.createdBy || "Office", (item) => accountCells(item).who) },
-          { header: "List", cell: cell((b) => how(b), (item) => accountCells(item).status) },
-          { header: "Sent", cell: cell((b) => String(b.sent), (item) => accountCells(item).sent) },
-          { header: "Queued", cell: cell((b) => String(b.queued), (item) => accountCells(item).queued) },
-          { header: "Failed", cell: cell((b) => String(b.failed), (item) => accountCells(item).failed) },
-          { header: "Skipped", cell: cell((b) => String(b.skipped), (item) => accountCells(item).skipped) },
-          { header: "👁 Viewed", headerTitle: VIEWED_TIP, cell: cell((b) => String(b.viewed), (item) => accountCells(item).viewed) },
-          { header: "Answered", headerTitle: ANSWERED_TIP, cell: cell((b) => `${b.answered}${b.attention ? ` (😟 ${b.attention})` : ""}`, answerCell) },
+          { header: "When", cell: cell((b) => <span style={{ whiteSpace: "nowrap" }}>{openButton(b)}</span>) },
+          { header: "Account", cell: cell((b) => sendAccounts(b)) },
+          { header: "Who", cell: cell((b) => b.createdBy || "Office") },
+          { header: "List", cell: cell((b) => how(b)) },
+          { header: "Sent", cell: cell((b) => String(b.sent)) },
+          { header: "Queued", cell: cell((b) => String(b.queued)) },
+          { header: "Failed", cell: cell((b) => String(b.failed)) },
+          { header: "Skipped", cell: cell((b) => String(b.skipped)) },
+          { header: "👁 Viewed", headerTitle: VIEWED_TIP, cell: cell((b) => String(b.viewed)) },
+          { header: "Answered", headerTitle: ANSWERED_TIP, cell: cell((b) => `${b.answered}${b.attention ? ` (😟 ${b.attention})` : ""}`) },
         ]}
       />
 

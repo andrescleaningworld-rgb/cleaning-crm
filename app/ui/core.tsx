@@ -424,11 +424,14 @@ export function CardList<T>({
   rowHref,
   tableClassName,
   label,
+  fullRow,
 }: {
   items: T[];
   getKey: (item: T) => string;
   renderCard: (item: T) => ReactNode;
   columns?: CardListColumn<T>[];
+  /** Table only: a row drawn across all the columns in its own layout. null = a normal row. */
+  fullRow?: (item: T) => ReactNode | null;
   href?: (item: T) => string;
   /** The whole table row opens this ("" = this row does not open). */
   rowHref?: (item: T) => string;
@@ -466,6 +469,15 @@ export function CardList<T>({
             </thead>
             <tbody>
               {items.map((item) => {
+                // A row with its own layout across the whole table (e.g. one account under a send).
+                const whole = fullRow ? fullRow(item) : null;
+                if (whole !== null && whole !== undefined) {
+                  return (
+                    <tr key={getKey(item)}>
+                      <td colSpan={columns.length}>{whole}</td>
+                    </tr>
+                  );
+                }
                 const rowUrl = rowHref ? rowHref(item) : "";
                 return (
                 <tr
