@@ -22,7 +22,7 @@
 import { NextRequest } from "next/server";
 import { put } from "@/lib/files";
 import { readCheckinToken } from "@/lib/checkinLink";
-import { CHECKIN_PAGE as W, CHECKIN_RATINGS, type CheckinRating } from "@/lib/customerCheckin";
+import { CHECKIN_PAGE as W, CHECKIN_RATINGS, customerEmoji, type CheckinRating } from "@/lib/customerCheckin";
 import { escHtml } from "@/lib/simpleEmail";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { WELCOME_COLORS as C, WELCOME_LOGO_URL } from "@/lib/welcomePacket";
@@ -78,7 +78,7 @@ function sendNow(rating: CheckinRating): string {
   const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
   return (
     `<form id="send" method="post"><input type="hidden" name="a" value="${rating}" />` +
-    `<button class="btn" style="background:${r.color}" type="submit">${escHtml(`${r.emoji} ${r.label}`)}</button></form>` +
+    `<button class="btn" style="background:${r.color}" type="submit">${escHtml(r.customer)}</button></form>` +
     `<script>document.getElementById("send").submit()</script>`
   );
 }
@@ -114,12 +114,12 @@ function feedbackPage(rating: CheckinRating, test: boolean): Response {
   const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
   const choices = CHECKIN_RATINGS.map(
     (c) =>
-      `<label class="choice" style="color:${c.color}"><span class="e">${c.emoji}</span>${escHtml(c.label)}` +
+      `<label class="choice" style="color:${c.color}"><span class="e">${customerEmoji(c)}</span>${escHtml(c.customer.slice(customerEmoji(c).length).trim())}` +
       `<input type="radio" name="rating" value="${c.value}"${c.value === rating ? " checked" : ""} /></label>`
   ).join("");
   const boxClass = rating === "attention" ? "bad" : rating === "great" ? "light" : "";
   return page(
-    `<h1>${escHtml(`${r.emoji} ${W.got}`)}</h1>${testNote(test)}` +
+    `<h1>${escHtml(`${customerEmoji(r)} ${W.got}`)}</h1>${testNote(test)}` +
       `<form id="better" method="post" enctype="multipart/form-data">` +
       `<p class="note" style="margin:0">${escHtml(W.change)}</p><div class="choices" role="radiogroup" aria-label="${escHtml(W.change)}">${choices}</div>` +
       `<div id="box" class="box ${boxClass}"><h2 id="prompt">${escHtml(W.prompt[rating])}</h2><p class="note" id="hint" style="margin:0">${escHtml(W.hint[rating])}</p>` +
@@ -159,7 +159,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (!(await checkRateLimit(`checkin:${id}`, PER_MINUTE))) return tooMany();
   const action = request.nextUrl.searchParams.get("a");
   const rating = ratingFrom(action);
-  if (rating) return page(`<h1>${escHtml(CHECKIN_RATINGS.find((r) => r.value === rating)!.emoji)}</h1>${sendNow(rating)}`);
+  if (rating) return page(`<h1>${escHtml(customerEmoji(CHECKIN_RATINGS.find((r) => r.value === rating)!))}</h1>${sendNow(rating)}`);
   if (action === "stop") {
     return page(
       `<h1>${escHtml(W.stopTitle)}</h1>${testNote(id === 0)}<form method="post"><input type="hidden" name="a" value="stop" />` +

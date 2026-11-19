@@ -15,11 +15,17 @@ export type CheckinAnswerValue = "" | CheckinRating | "up" | "down";
 export type CheckinStatus = "queued" | "sent" | "failed" | "skipped";
 export type CheckinBatchKind = "single" | "picked" | "list";
 
-export const CHECKIN_RATINGS: { value: CheckinRating; emoji: string; label: string; color: string }[] = [
-  { value: "great", emoji: "😀", label: "Great", color: "#15803d" },
-  { value: "ok", emoji: "😐", label: "OK", color: "#b45309" },
-  { value: "attention", emoji: "😟", label: "Needs attention", color: "#b91c1c" },
+// emoji / label: what staff see (badges, history, the board). customer: what
+// the customer sees on the email's buttons and the answer page. The value
+// behind each is the same, so history and counts do not change.
+export const CHECKIN_RATINGS: { value: CheckinRating; emoji: string; label: string; color: string; customer: string }[] = [
+  { value: "great", emoji: "😀", label: "Great", color: "#15803d", customer: "😊 Loving it" },
+  { value: "ok", emoji: "😐", label: "OK", color: "#b45309", customer: "🙂 It's fine" },
+  { value: "attention", emoji: "😟", label: "Needs attention", color: "#b91c1c", customer: "😕 Could be better" },
 ];
+
+/** The customer's emoji for an answer (the first character of its button). */
+export const customerEmoji = (r: { customer: string }) => Array.from(r.customer)[0] ?? "";
 
 /** Great / OK / Needs attention, or "" for no answer (the old 👍 / 👎 too). */
 export function ratingOf(answer: string): CheckinRating | "" {
@@ -41,14 +47,45 @@ export const CHECKIN_STATUS_TEXT: Record<CheckinStatus, string> = { queued: "Que
 export const CHECKIN_DAILY_LIMIT = 90;
 /** An account that got a check-in in the last this many days is skipped. */
 export const CHECKIN_REPEAT_DAYS = 30;
+/* ---------- who gets it: never a billing robot ---------- */
+
+// Inboxes no person reads: invoice capture, accounts payable, billing, no-reply,
+// and the invoice systems (Concur, Coupa, Ariba). A check-in sent there is lost
+// (Woodard & Curran's went to an invoice-capture inbox).
+const ROBOT_INBOX = /invoice|accountspayable|accounts[._-]payable|billing|no-?reply|concursolutions|coupa|ariba|(^|[._-])ap@/i;
+
+/** True when the address looks like an automated billing / no-reply inbox. */
+export function isRobotInbox(email: string): boolean {
+  return ROBOT_INBOX.test(email.trim());
+}
+
+const EMAIL_SHAPE = /^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/;
+
+/**
+ * The address a check-in goes to: the first real-person address, in the
+ * order given (the account's email, then its main contact, then its other
+ * contacts). billingOnly: every address there is a billing robot.
+ */
+export function pickCheckinEmail(addresses: string[]): { email: string; billingOnly: boolean } {
+  const all = [...new Set(addresses.flatMap((value) => String(value ?? "").split(/[,;\s]+/)).map((part) => part.trim()).filter((part) => EMAIL_SHAPE.test(part)))];
+  const person = all.find((email) => !isRobotInbox(email));
+  return { email: person ?? "", billingOnly: !person && all.length > 0 };
+}
+
+/** The skip reason when only billing inboxes are on file. */
+export const BILLING_ONLY_REASON = "Billing inbox only";
+
 /** "Send me a test" goes here. */
 export const CHECKIN_TEST_EMAIL = "crm@cleaningworldinc.com";
 
-export const CHECKIN_LINE = "We want to make sure your cleaning team is doing a great job. How are we doing?";
+export const CHECKIN_LINE =
+  "Hi there! We really care about keeping your space just the way you like it. How's the cleaning been lately? Your answer comes straight to me, so if anything's not up to your expectations, I'll make it right.";
+/** The email's big title. */
+export const CHECKIN_TITLE = "How's it going?";
 
 export function checkinSubject(customerName: string): string {
   const name = customerName.trim();
-  return name ? `How is your cleaning going, ${name}?` : "How is your cleaning going?";
+  return name ? `Quick question, ${name} 👋` : "Quick question 👋";
 }
 
 export type CheckinEmailInput = {
@@ -75,23 +112,26 @@ function bigButton(label: string, url: string, color: string): string {
 }
 
 function signatureLines(input: Pick<CheckinEmailInput, "managerName" | "managerPhone" | "managerEmail">): string[] {
-  return [input.managerName || "Your Cleaning World Team", input.managerName ? "Your Account Manager, Cleaning World Inc." : "", input.managerPhone, input.managerEmail].filter(Boolean);
+  return [input.managerName || "Your Cleaning World Team", input.managerName ? "Your Account Manager, Cleaning World" : "", input.managerPhone, input.managerEmail].filter(Boolean);
 }
+
+const CHECKIN_SMALL = "Just one tap. No login, no forms.";
 
 export function checkinEmail(input: CheckinEmailInput): { subject: string; html: string; text: string } {
   const subject = `${input.test ? "[TEST] " : ""}${checkinSubject(input.customerName)}`;
-  const buttons = CHECKIN_RATINGS.map((r) => bigButton(`${r.emoji} ${r.label}`, input.links[r.value], r.color)).join("");
+  const buttons = CHECKIN_RATINGS.map((r) => bigButton(r.customer, input.links[r.value], r.color)).join("");
   const signature = signatureLines(input);
   const body =
-    welcomeTopHtml("How is your cleaning going?") +
+    welcomeTopHtml(CHECKIN_TITLE) +
     `<div style="background:#ffffff;padding:18px 16px 8px;">` +
     `<p style="margin:0 0 6px;font-size:17px;font-weight:700;color:${C.label};">${esc(input.customerName)}</p>` +
     `<p style="margin:0 0 18px;font-size:16px;line-height:1.55;color:${C.text};">${esc(CHECKIN_LINE)}</p>` +
     buttons +
-    `<p style="margin:6px 0 0;font-size:13px;color:${C.muted};">One tap is all it takes. No login needed.</p>` +
+    `<p style="margin:6px 0 0;font-size:13px;color:${C.muted};">${esc(CHECKIN_SMALL)}</p>` +
     `</div>` +
     `<div style="background:#ffffff;padding:8px 16px 16px;font-size:14px;line-height:1.6;color:${C.text};">` +
     `<div style="border-top:1px solid ${C.line};padding-top:10px;">` +
+    `Thanks!<br>` +
     signature.map((line, index) => (index === 0 ? `<strong style="color:${C.label};">${esc(line)}</strong>` : esc(line))).join("<br>") +
     `</div></div>` +
     welcomeFooterHtml() +
@@ -99,12 +139,15 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
     (input.openPixelUrl ? `<img src="${esc(input.openPixelUrl)}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;" />` : "");
 
   const text = [
-    checkinSubject(input.customerName),
+    CHECKIN_TITLE,
     "",
     CHECKIN_LINE,
     "",
-    ...CHECKIN_RATINGS.map((r) => `${r.emoji} ${r.label}: ${input.links[r.value]}`),
+    ...CHECKIN_RATINGS.map((r) => `${r.customer}: ${input.links[r.value]}`),
     "",
+    CHECKIN_SMALL,
+    "",
+    "Thanks!",
     ...signature,
     "",
     `Stop these emails: ${input.links.stop}`,
@@ -116,34 +159,34 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
 /* ---------- the answer page (app/checkin) ---------- */
 
 export const CHECKIN_PAGE = {
-  thanksGreat: "Thank you! 😀",
-  thanksGreatText: "We are glad your cleaning team is doing a great job.",
+  thanksGreat: "Thanks so much! 😊",
+  thanksGreatText: "Happy to hear it. We'll pass the good word on to your cleaning team.",
   /** The feedback box, by answer (the answer is already saved when it shows). */
-  got: "Got it. Thank you!",
+  got: "Got it, thanks!",
   prompt: {
-    great: "Anything we can do even better?",
-    ok: "What can we do better?",
-    attention: "We're sorry — tell us what went wrong so we can fix it.",
+    great: "Anything we could do even better?",
+    ok: "What would make it better?",
+    attention: "Sorry about that! What's not right?",
   } as Record<CheckinRating, string>,
   hint: {
-    great: "Optional.",
-    ok: "Tell us what to fix. You can add photos too.",
-    attention: "Your account manager will see this right away. You can add photos too.",
+    great: "Totally optional.",
+    ok: "Just a few words is plenty. Photos help too.",
+    attention: "This comes straight to your account manager, and we'll make it right. Photos help too.",
   } as Record<CheckinRating, string>,
   change: "Change your answer",
   reach: "Best way to reach you (optional)",
   reachHint: "Phone or email",
-  better: "What can we do better?",
+  better: "What would make it better?",
   photos: "Photos (optional, up to 3)",
-  send: "Submit",
+  send: "Send",
   skip: "No thanks",
-  thanksSent: "Thank you. Your account manager will look at it.",
-  thanksNoted: "Thank you. We got your answer.",
+  thanksSent: "Thanks! Your account manager will reach out soon.",
+  thanksNoted: "Thanks! We got your answer.",
   stopTitle: "Stop these emails?",
   stopButton: "Yes, stop them",
-  stopped: "Done. You will not get these emails anymore.",
-  gone: "This link no longer works.",
-  goneText: "Links in these emails work for 30 days. Call us at 201-487-1313 any time.",
+  stopped: "All set. You won't get these emails anymore.",
+  gone: "Oops, this link doesn't work anymore.",
+  goneText: "Links in these emails work for 30 days. Give us a call at 201-487-1313 any time.",
   test: "This is a test. Nothing was saved.",
 };
 

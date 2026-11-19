@@ -39,6 +39,7 @@ import { complaintOpenSql } from "@/lib/pg/complaint-changes";
 import { checkinOpenUrl, checkinToken, checkinUrl } from "@/lib/checkinLink";
 import {
   CHECKIN_DAILY_LIMIT,
+  BILLING_ONLY_REASON,
   CHECKIN_REPEAT_DAYS,
   CHECKIN_TEST_EMAIL,
   checkinEmail,
@@ -53,6 +54,7 @@ import {
   type CheckinRow,
   type CheckinSkip,
   type CheckinStatus,
+  pickCheckinEmail,
 } from "@/lib/customerCheckin";
 
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -130,7 +132,10 @@ type Candidate = {
   account_name: string;
   status_key: string;
   is_test: boolean;
+  /** The address it goes to: the first one that is not a billing robot (pickCheckinEmail). */
   email: string;
+  /** Every address on file is a billing robot (invoice capture, no-reply…): skipped. */
+  billing_only: boolean;
   manager_name: string;
   manager_phone: string;
   manager_email: string;
@@ -144,9 +149,10 @@ async function candidates(accountIds: string[]): Promise<Candidate[]> {
   const ids = [...new Set(accountIds.map(clean).filter(Boolean))];
   if (ids.length === 0) return [];
   const contacts = await contactsTableReady();
-  return (await getSql().query(
+  const rows = (await getSql().query(
     `SELECT a.id, a.account_name, a.status_key, a.is_test,
-            COALESCE(NULLIF(btrim(a.email), ''), ${contacts ? `(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.is_main AND btrim(c.email) <> '' LIMIT 1)` : "NULL"}, '') AS email,
+            -- Every address on file, in order: the account's, its main contact's, its other contacts'.
+            array_remove(ARRAY[NULLIF(btrim(a.email), '')]${contacts ? ` || ARRAY(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.removed_at IS NULL AND btrim(c.email) <> '' ORDER BY c.is_main DESC, c.id)` : ""}, NULL) AS emails,
             COALESCE(NULLIF(btrim(m.name), ''), btrim(a.manager_raw), '') AS manager_name,
             COALESCE(btrim(m.phone), '') AS manager_phone,
             COALESCE(btrim(m.email), '') AS manager_email,
@@ -166,7 +172,12 @@ async function candidates(accountIds: string[]): Promise<Candidate[]> {
      WHERE a.id = ANY($1::text[]) AND ${accountLive("a")}
      ORDER BY a.account_name`,
     [ids, CHECKIN_REPEAT_DAYS]
-  )) as Candidate[];
+  )) as (Omit<Candidate, "email" | "billing_only"> & { emails: string[] | null })[];
+  // Never a billing robot (invoice capture, accounts payable, no-reply…): the next real address, or skipped.
+  return rows.map(({ emails, ...row }) => {
+    const picked = pickCheckinEmail(emails ?? []);
+    return { ...row, email: picked.email, billing_only: picked.billingOnly };
+  });
 }
 
 const dayText = (value: string | Date | null) =>
@@ -177,6 +188,7 @@ function skipReason(c: Candidate): string {
   if (c.is_test) return "Test account";
   if (["cancelled", "canceled"].includes(clean(c.status_key).toLowerCase())) return "Cancelled";
   if (c.opted_out) return "Stopped these emails";
+  if (c.billing_only) return BILLING_ONLY_REASON;
   if (!firstEmail(c.email)) return "No valid email";
   if (c.open_complaint) return "Open complaint";
   if (c.recent_at) return `Check-in in the last ${CHECKIN_REPEAT_DAYS} days (${dayText(c.recent_at)})`;
@@ -315,7 +327,9 @@ export async function sendQueuedCheckins(origin: string, budgetMs = RUN_BUDGET_M
         ? "Stopped these emails"
         : ["cancelled", "canceled"].includes(clean(c.status_key).toLowerCase())
           ? "Cancelled"
-          : !firstEmail(c.email)
+          : c.billing_only
+            ? BILLING_ONLY_REASON
+            : !firstEmail(c.email)
             ? "No valid email"
             : "";
     if (reason || !c) {
@@ -728,14 +742,16 @@ export async function checkinCopy(id: number): Promise<{ subject: string; html: 
   return row && row.email_html ? { subject: row.subject, html: row.email_html, sentTo: row.sent_to, sentAt: iso(row.sent_at) } : null;
 }
 
-/** The ids of the accounts a check-in can reach: a good email on the account, or else on its main contact (the same rule as sending). */
+/** The ids of the accounts a check-in can reach: a real-person email on the account or one of its contacts, never a billing robot (the same rule as sending). */
 async function reachableAccounts(): Promise<string[]> {
   const contacts = await contactsTableReady();
   const rows = (await getSql().query(
-    `SELECT a.id, COALESCE(NULLIF(btrim(a.email), ''), ${contacts ? `(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.is_main AND btrim(c.email) <> '' LIMIT 1)` : "NULL"}, '') AS email
+    `SELECT a.id,
+            array_remove(ARRAY[NULLIF(btrim(a.email), '')]${contacts ? ` || ARRAY(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.removed_at IS NULL AND btrim(c.email) <> '' ORDER BY c.is_main DESC, c.id)` : ""}, NULL) AS emails
      FROM accounts a WHERE a.id IS NOT NULL AND ${accountLive("a")}`
-  )) as { id: string; email: string }[];
-  return rows.filter((row) => firstEmail(row.email)).map((row) => row.id);
+  )) as { id: string; emails: string[] | null }[];
+  // The same rule as sending: a real-person address, never a billing robot.
+  return rows.filter((row) => pickCheckinEmail(row.emails ?? []).email).map((row) => row.id);
 }
 
 /** Each account's last check-in (sent or queued), for the Check-ins page's filters; who stopped them; and who has an email to send to. */

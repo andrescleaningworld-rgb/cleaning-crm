@@ -13,6 +13,8 @@ type MissingAccount = {
   phone: string;
   manager: string;
   portalAccess: boolean;
+  /** The only email on file is this billing inbox (invoice capture, no-reply…): check-ins skip it. "" = no email at all. */
+  billingInbox?: string;
 };
 
 type Answer = { available: boolean; missing: MissingAccount[]; counts: { missing: number; total: number } };
@@ -144,6 +146,11 @@ export default function MissingEmails() {
                     <p className="ui-muted">
                       {[account.contactName, account.phone, account.manager ? `Manager: ${account.manager}` : ""].filter(Boolean).join(" · ") || "No contact on file"}
                     </p>
+                    {account.billingInbox ? (
+                      <p className="ui-card-text">
+                        Skipped: billing inbox only ({account.billingInbox}). Check-ins need a real person&apos;s email. Saving one here replaces it on the account.
+                      </p>
+                    ) : null}
                     <form
                       className="ui-stack"
                       noValidate

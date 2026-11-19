@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isPostgres } from "@/lib/dataSource";
 import { getSql } from "@/lib/db";
 import { updateAccountFieldsDirect } from "@/lib/data/accounts";
+import { pickCheckinEmail } from "@/lib/customerCheckin";
 
 // Customer emails, for the new portal's email + password login. Staff only
 // (proxy.ts).
@@ -20,13 +21,20 @@ export async function GET() {
   try {
     const sql = getSql();
     // Cancelled accounts are left out: they cannot log in to the portal anyway.
-    const rows = (await sql.query(
-      `SELECT a.id, a.account_name, a.status, a.contact_name, a.phone, a.manager_raw,
-              EXISTS (SELECT 1 FROM portal_access p WHERE p.account_ref = a.id AND upper(btrim(p.portal_access)) = 'YES') AS portal_access
+    // Also the accounts whose only email (on the account and its contacts) is
+    // a billing robot (invoice capture, accounts payable, no-reply): a
+    // check-in skips those as "Billing inbox only", so they need a real one.
+    const all = (await sql.query(
+      `SELECT a.id, a.account_name, a.status, a.contact_name, a.phone, a.manager_raw, btrim(a.email) AS email,
+              EXISTS (SELECT 1 FROM portal_access p WHERE p.account_ref = a.id AND upper(btrim(p.portal_access)) = 'YES') AS portal_access,
+              ARRAY(SELECT btrim(c.email) FROM account_contacts c WHERE c.account_id = a.id AND c.removed_at IS NULL AND btrim(c.email) <> '') AS contact_emails
        FROM accounts a
-       WHERE NOT a.is_test AND a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND btrim(a.email) = '' AND a.status_key NOT IN ('cancelled', 'canceled')
+       WHERE NOT a.is_test AND a.id IS NOT NULL AND (to_jsonb(a)->>'deleted_at') IS NULL AND a.status_key NOT IN ('cancelled', 'canceled')
        ORDER BY lower(a.account_name), a.pk`
-    )) as { id: string; account_name: string; status: string; contact_name: string; phone: string; manager_raw: string; portal_access: boolean }[];
+    )) as { id: string; account_name: string; status: string; contact_name: string; phone: string; manager_raw: string; email: string; portal_access: boolean; contact_emails: string[] | null }[];
+    const rows = all
+      .map((r) => ({ ...r, billingOnly: r.email !== "" && pickCheckinEmail([r.email, ...(r.contact_emails ?? [])]).billingOnly }))
+      .filter((r) => r.email === "" || r.billingOnly);
     const totals = (await sql.query(
       `SELECT count(*)::int AS total FROM accounts WHERE NOT is_test AND id IS NOT NULL AND (to_jsonb(accounts)->>'deleted_at') IS NULL AND status_key NOT IN ('cancelled', 'canceled')`
     )) as { total: number }[];
@@ -40,6 +48,8 @@ export async function GET() {
         phone: r.phone.trim(),
         manager: r.manager_raw.trim(),
         portalAccess: r.portal_access,
+        // Only a billing inbox is on file (shown on the card; saving puts the new email on the account instead).
+        billingInbox: r.billingOnly ? r.email : "",
       })),
       counts: { missing: rows.length, total: totals[0]?.total ?? 0 },
     });
