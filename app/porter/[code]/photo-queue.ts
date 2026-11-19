@@ -63,6 +63,9 @@ import {
   type CrewPhotoTag,
 } from "@/lib/crewPhotos";
 import { phoneLocation, type PhoneLocation } from "@/lib/photoLocation";
+import { exifDate } from "@/lib/photoDate";
+import { photoStampLines, type PhotoTimeSource } from "@/lib/photoChecklist";
+import { stampOnPhone } from "@/lib/photoStampPhone";
 
 /** Tries by itself before "Try again" shows. */
 const AUTO_TRIES = 3;
@@ -89,7 +92,25 @@ type Waiting = {
   caption?: string;
   /** Where the phone was when the photo was added (null: not allowed / not found). */
   location?: PhoneLocation | null;
+  /** Photo Checklist only (CrewPhotoChecklist.tsx): the visit and item, and the stamp. */
+  visit?: WaitingVisit;
 };
+
+type WaitingVisit = { visitId: string; itemKey: string; timeSource: PhotoTimeSource; addedAt: string; stamped: boolean; stampLine: string };
+
+/** Photo Checklist: what a tile adds (addVisitPhotos). */
+export type VisitPhotoOptions = {
+  visitId: string;
+  itemKey: string;
+  /** Taken now in the app, or picked from the gallery (the photo's own date then). */
+  from: "camera" | "gallery";
+  /** For the stamp. */
+  placeName: string;
+  itemLabel: string;
+};
+
+/** One photo a Photo Checklist tile now holds: its id, its time (and where that came from), a small copy for the tile. */
+export type AddedVisitPhoto = { id: string; takenAt: string; timeSource: PhotoTimeSource; thumb: Blob | null };
 
 /** Why a file can never be sent: not a photo, too big, a video too long, the server refused it, or the link is off. */
 export type CrewPhotoFail = PhotoProblem | "videoTooLong" | "refused" | "linkOff";
@@ -288,6 +309,14 @@ async function sendOne(item: Waiting, onPercent: (percent: number) => void): Pro
     if (direct) form.append("uploadedUrl", item.uploadedUrl ?? "");
     else form.append("full", new File([item.full], "photo.jpg", { type: item.full.type || "image/jpeg" }));
     if (item.thumb) form.append("thumb", new File([item.thumb], "thumb.jpg", { type: "image/jpeg" }));
+    if (item.visit) {
+      form.append("visitId", item.visit.visitId);
+      form.append("itemKey", item.visit.itemKey);
+      form.append("timeSource", item.visit.timeSource);
+      form.append("addedAt", item.visit.addedAt);
+      form.append("stamped", item.visit.stamped ? "1" : "0");
+      form.append("stampLine", item.visit.stampLine);
+    }
     if (item.location) {
       form.append("lat", String(item.location.lat));
       form.append("lng", String(item.location.lng));
@@ -578,9 +607,9 @@ export function usePhotoQueue(code: string) {
    * sending starts. Returns the ids now on the phone (a route row keeps them;
    * a file that can never go is not among them).
    */
-  const add = useCallback(
-    async (files: File[], name: string, tag: CrewPhotoTag, caption?: string): Promise<string[]> => {
-      const ids: string[] = [];
+  const addFiles = useCallback(
+    async (files: File[], name: string, tag: CrewPhotoTag, caption?: string, visitOptions?: VisitPhotoOptions): Promise<AddedVisitPhoto[]> => {
+      const added: AddedVisitPhoto[] = [];
       // A new round starts when nothing is waiting (nor waiting for Try again).
       setState((current) => {
         if (current.waiting === 0 && current.stuck === 0) {
@@ -604,7 +633,25 @@ export function usePhotoQueue(code: string) {
       for (const file of files) {
         const id = newId();
         // The camera's own time when the phone gives it, else now.
-        const takenAt = new Date(file.lastModified || Date.now()).toISOString();
+        let takenAt = new Date(file.lastModified || Date.now()).toISOString();
+        // Photo Checklist: the time saved inside the photo (read before it is
+        // made small, which drops it). A gallery photo without one gets the
+        // moment it was added, marked "added later".
+        let timeSource: PhotoTimeSource = "camera";
+        const addedAt = new Date().toISOString();
+        if (visitOptions) {
+          const inside = isVideoFile(file) ? null : await exifDate(file).catch(() => null);
+          if (visitOptions.from === "camera") takenAt = inside ?? addedAt;
+          else if (inside) {
+            takenAt = inside;
+            timeSource = "exif";
+          } else {
+            takenAt = addedAt;
+            timeSource = "added_later";
+          }
+        }
+        const stampLines = visitOptions ? photoStampLines({ at: takenAt, timeSource, placeName: visitOptions.placeName, itemLabel: visitOptions.itemLabel, personName: name }) : [];
+        let stamped = false;
         let ready: Pick<Waiting, "kind" | "full" | "thumb" | "ext">;
         if (isVideoFile(file)) {
           // mp4 / mov only.
@@ -621,8 +668,17 @@ export function usePhotoQueue(code: string) {
           ready = { kind: "video", full: file, thumb: info.still, ext };
         } else {
           const prepared = await preparePhoto(file, file.name, { fullSide: CREW_PHOTO_SIZE, thumbSide: CREW_THUMB_SIZE, quality: CREW_PHOTO_QUALITY });
-          if (prepared.ok) ready = { kind: "photo", full: prepared.full, thumb: prepared.thumb };
-          else {
+          if (prepared.ok) {
+            ready = { kind: "photo", full: prepared.full, thumb: prepared.thumb };
+            // Photo Checklist: the stamp is burned in here, on the phone (no signal needed).
+            if (visitOptions) {
+              const withStamp = await stampOnPhone(prepared.full, stampLines, CREW_THUMB_SIZE);
+              if (withStamp) {
+                ready = { kind: "photo", full: withStamp.full, thumb: withStamp.thumb };
+                stamped = true;
+              }
+            }
+          } else {
             // This phone cannot make it small (an iPhone photo on Android, not enough memory): it goes as it is, the server makes it a JPEG.
             const ext = crewUploadExt(file);
             if (!ext) {
@@ -637,16 +693,35 @@ export function usePhotoQueue(code: string) {
           }
         }
         const location = await where;
-        const waiting: Waiting = { id, code, name, tag, takenAt, ...ready, addedAt: Date.now(), location, ...(caption ? { caption } : {}) };
+        const visit: WaitingVisit | undefined = visitOptions
+          ? { visitId: visitOptions.visitId, itemKey: visitOptions.itemKey, timeSource, addedAt, stamped, stampLine: [visitOptions.itemLabel.trim(), name.trim()].filter(Boolean).join(" · ") }
+          : undefined;
+        const waiting: Waiting = { id, code, name, tag, takenAt, ...ready, addedAt: Date.now(), location, ...(caption ? { caption } : {}), ...(visit ? { visit } : {}) };
         await saveWaiting(waiting);
-        ids.push(id);
+        added.push({ id, takenAt, timeSource, thumb: ready.thumb });
         const tile = itemOf(waiting, "waiting");
         setState((current) => ({ ...current, preparing: Math.max(0, current.preparing - 1), waiting: current.waiting + 1, items: [...current.items, tile] }));
         void pump();
       }
-      return ids;
+      return added;
     },
     [code, pump, itemOf]
+  );
+
+  /** Send photos and the route rows: the ids now on the phone (a file that can never go is not among them). */
+  const add = useCallback(
+    async (files: File[], name: string, tag: CrewPhotoTag, caption?: string): Promise<string[]> => (await addFiles(files, name, tag, caption)).map((each) => each.id),
+    [addFiles]
+  );
+
+  /**
+   * Photo Checklist tiles: the photos are timed (the camera, the photo's own
+   * date, or "added later"), stamped on the phone, kept with the visit and
+   * item, and sent like every other crew photo.
+   */
+  const addVisitPhotos = useCallback(
+    (files: File[], name: string, options: VisitPhotoOptions): Promise<AddedVisitPhoto[]> => addFiles(files, name, "", options.itemLabel, options),
+    [addFiles]
   );
 
   /**
@@ -655,10 +730,11 @@ export function usePhotoQueue(code: string) {
    * signal. Works with no signal at all.
    */
   const addChecklist = useCallback(
-    (tabId: number, body: Record<string, unknown>) => {
+    // Photo Checklist: the visit's own id (its photos carry it too) and the moment Finish was tapped.
+    (tabId: number, body: Record<string, unknown>, options: { id?: string; finishedAt?: string } = {}) => {
       if (!code) return;
-      const item: WaitingChecklist = { id: newId(), code, tabId, finishedAt: new Date().toISOString(), body, addedAt: Date.now() };
-      const list = [...listChecklists(code), item];
+      const item: WaitingChecklist = { id: options.id || newId(), code, tabId, finishedAt: options.finishedAt || new Date().toISOString(), body, addedAt: Date.now() };
+      const list = [...listChecklists(code).filter((each) => each.id !== item.id), item];
       writeChecklists(code, list);
       showChecklists(list);
       if (navigator.onLine === false) setState((current) => ({ ...current, offline: true }));
@@ -671,7 +747,7 @@ export function usePhotoQueue(code: string) {
 
   const dismissOtherAccount = useCallback(() => setState((current) => ({ ...current, otherAccount: null })), []);
 
-  return { state, add, addChecklist, dismissOtherAccount, retry };
+  return { state, add, addVisitPhotos, addChecklist, dismissOtherAccount, retry };
 }
 
 export type PhotoQueue = ReturnType<typeof usePhotoQueue>;

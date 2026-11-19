@@ -22,16 +22,18 @@ const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0
  * customer portal's grid). null when the photo cannot be read: the caller
  * keeps the photo as it came.
  */
-export async function stampPhoto(input: Buffer, stamp: { at: Date; accountName: string; address: string }, thumbSide = 400): Promise<{ full: Buffer; thumb: Buffer } | null> {
+export async function stampPhoto(input: Buffer, stamp: { at: Date; accountName: string; address: string; extra?: string }, thumbSide = 400): Promise<{ full: Buffer; thumb: Buffer } | null> {
   try {
     // Turned upright first (the phone's EXIF turn), so the bar is at the real bottom.
     const upright = await sharp(input).rotate().toBuffer({ resolveWithObject: true });
     const { width, height } = upright.info;
     if (!width || !height) return null;
 
-    const barHeight = Math.max(44, Math.round(Math.min(width, height) * 0.085));
-    const big = Math.max(14, Math.round(barHeight * 0.36));
-    const small = Math.max(12, Math.round(barHeight * 0.28));
+    // Photo Checklist photos the phone could not stamp: a third line, "Item · Name" (a taller bar).
+    const third = (stamp.extra ?? "").trim();
+    const barHeight = Math.max(third ? 60 : 44, Math.round(Math.min(width, height) * (third ? 0.115 : 0.085)));
+    const big = Math.max(14, Math.round(barHeight * (third ? 0.27 : 0.36)));
+    const small = Math.max(12, Math.round(barHeight * (third ? 0.21 : 0.28)));
     const pad = Math.round(barHeight * 0.3);
     const second = [stamp.accountName.trim(), stamp.address.trim()].filter(Boolean).join(" · ");
     const chars = Math.max(20, Math.floor((width - pad * 2) / (small * 0.55)));
@@ -52,6 +54,7 @@ export async function stampPhoto(input: Buffer, stamp: { at: Date; accountName: 
         >
           <div style={{ fontSize: big, fontWeight: 700, lineHeight: 1.15 }}>{stampTime(stamp.at)}</div>
           {second ? <div style={{ fontSize: small, lineHeight: 1.2, opacity: 0.95 }}>{clip(second, chars)}</div> : null}
+          {third ? <div style={{ fontSize: small, lineHeight: 1.2, opacity: 0.95 }}>{clip(third, chars)}</div> : null}
         </div>
       ),
       { width, height: barHeight }

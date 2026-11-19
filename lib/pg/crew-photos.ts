@@ -31,6 +31,7 @@ import {
 import { siteCheckOf, type PhoneLocation } from "@/lib/photoLocation";
 import { stampPhoto } from "@/lib/photoStamp";
 import { accountPlace } from "@/lib/pg/nearby-accounts";
+import { tagVisitPhoto, type VisitPhotoDetails } from "@/lib/pg/photo-checklist";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const typed = async <T,>(query: PromiseLike<unknown>): Promise<T> => (await query) as T;
@@ -70,13 +71,27 @@ async function stampReady(): Promise<boolean> {
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
-/** A sane moment for the photo: the phone's time when it is believable (the last 30 days, not ahead), else now. */
-function photoMoment(value: string): string {
+/**
+ * A sane moment for the photo: the phone's time when it is believable (the
+ * last 30 days, not ahead), else now. Photo Checklist photos (`visit`) may be
+ * older (a gallery photo's own date, up to a year): the report flags those.
+ */
+function photoMoment(value: string, visit = false): string {
   const time = new Date(value).getTime();
   const now = Date.now();
-  if (!Number.isFinite(time) || time > now + 5 * 60_000 || time < now - 30 * 86_400_000) return new Date(now).toISOString();
+  const oldest = visit ? 366 * 86_400_000 : 30 * 86_400_000;
+  if (!Number.isFinite(time) || time > now + 5 * 60_000 || time < now - oldest) return new Date(now).toISOString();
   return new Date(Math.min(time, now)).toISOString();
 }
+
+/**
+ * Photo Checklist photos (CrewPhotoChecklist.tsx): which visit and item it is
+ * for, where its time came from, and the stamp. `stamped`: the phone already
+ * burned the stamp in (time, place, item, name), so the server does not
+ * stamp it again. `stampLine`: "Item · Name", for when the server stamps it
+ * (a photo the phone could not open, e.g. HEIC on Android).
+ */
+export type CrewPhotoVisit = VisitPhotoDetails & { stamped: boolean; stampLine: string };
 
 /**
  * One photo from the crew. `clientId` is made on the phone, so a photo sent
@@ -96,6 +111,8 @@ export async function addCrewPhoto(input: {
   caption?: string;
   /** Where the phone was when the photo was added; null = not allowed / not found. */
   location?: PhoneLocation | null;
+  /** Photo Checklist only. */
+  visit?: CrewPhotoVisit | null;
 }): Promise<{ id: number; already: boolean }> {
   const sourceKey = `crew:${input.clientId}`;
   const sql = getSql();
@@ -116,7 +133,7 @@ export async function addCrewPhoto(input: {
     INSERT INTO photo_index (source_key, store, url, account_id, account_name, kind, moment, linked_type, linked_id, linked_label, linked_href,
                              taken_by, taken_at, is_image, caption, thumb_url, tag, hidden_from_customer)
     VALUES (${sourceKey}, 'blob', ${full.url}, ${input.accountId}, ${input.accountName}, 'Crew', ${moment}, 'account', ${input.accountId}, 'Open the account',
-            ${`/accounts/${input.accountId}`}, ${input.name}, ${photoMoment(input.takenAt)}, true, ${clean(input.caption).slice(0, 200)}, ${thumb?.url ?? ""}, ${input.tag}, ${hiddenAtFirst(input.tag)})
+            ${`/accounts/${input.accountId}`}, ${input.name}, ${photoMoment(input.takenAt, Boolean(input.visit))}, true, ${clean(input.caption).slice(0, 200)}, ${thumb?.url ?? ""}, ${input.tag}, ${hiddenAtFirst(input.tag)})
     ON CONFLICT (source_key) DO NOTHING
     RETURNING id
   `);
@@ -125,6 +142,7 @@ export async function addCrewPhoto(input: {
     const again = await typed<{ id: number | string }[]>(sql`SELECT id FROM photo_index WHERE source_key = ${sourceKey} LIMIT 1`);
     return { id: Number(again[0]?.id ?? 0), already: true };
   }
+  if (input.visit) await tagVisitPhoto(Number(rows[0].id), input.visit);
   return { id: Number(rows[0].id), already: false };
 }
 
@@ -141,10 +159,21 @@ async function addStampedCrewPhoto(input: Parameters<typeof addCrewPhoto>[0], so
   const place = await accountPlace(input.accountId).catch(() => null);
   const location = input.location ?? null;
   const { check, distanceFt } = siteCheckOf(location, place?.point ?? null);
+  const visit = input.visit ?? null;
+  const takenAt = photoMoment(input.takenAt, Boolean(visit));
   const original = Buffer.from(await input.full.arrayBuffer());
-  const stamped = await stampPhoto(original, { at: uploadedAt, accountName: place?.name || input.accountName, address: place?.address ?? "" }, CREW_THUMB_SIZE);
+  // Stamped on the phone already (Photo Checklist): kept as it came, once.
+  // Otherwise the server stamps it: the server's time, or on the Photo
+  // Checklist the photo's own time with the item and the person's name.
+  const stamped = visit?.stamped
+    ? null
+    : await stampPhoto(
+        original,
+        { at: visit ? new Date(takenAt) : uploadedAt, accountName: place?.name || input.accountName, address: visit ? "" : (place?.address ?? ""), extra: visit?.stampLine ?? "" },
+        CREW_THUMB_SIZE
+      );
 
-  const kept = await put(`${folder}/${file}-original.jpg`, input.full, { access: "public", contentType: input.full.type || "image/jpeg", addRandomSuffix: false });
+  const kept = await put(`${folder}/${file}${visit?.stamped ? "" : "-original"}.jpg`, input.full, { access: "public", contentType: input.full.type || "image/jpeg", addRandomSuffix: false });
   const full = stamped ? await put(`${folder}/${file}.jpg`, stamped.full, { access: "public", contentType: "image/jpeg", addRandomSuffix: false }) : kept;
   const thumb = stamped
     ? await put(`${folder}/${file}-thumb.jpg`, stamped.thumb, { access: "public", contentType: "image/jpeg", addRandomSuffix: false })
@@ -160,7 +189,7 @@ async function addStampedCrewPhoto(input: Parameters<typeof addCrewPhoto>[0], so
                              taken_by, taken_at, is_image, caption, thumb_url, tag, hidden_from_customer,
                              original_url, uploaded_at, geo_lat, geo_lng, geo_accuracy_m, site_distance_m, site_check)
     VALUES (${sourceKey}, 'blob', ${full.url}, ${input.accountId}, ${input.accountName}, 'Crew', ${moment}, 'account', ${input.accountId}, 'Open the account',
-            ${`/accounts/${input.accountId}`}, ${input.name}, ${photoMoment(input.takenAt)}, true, ${clean(input.caption).slice(0, 200)}, ${thumb?.url ?? ""}, ${input.tag}, ${hidden},
+            ${`/accounts/${input.accountId}`}, ${input.name}, ${takenAt}, true, ${clean(input.caption).slice(0, 200)}, ${thumb?.url ?? ""}, ${input.tag}, ${hidden},
             ${kept.url}, ${uploadedAt.toISOString()}, ${location?.lat ?? null}, ${location?.lng ?? null}, ${location ? Math.round(location.accuracyM) : null}, ${distanceM}, ${check})
     ON CONFLICT (source_key) DO NOTHING
     RETURNING id
@@ -169,6 +198,7 @@ async function addStampedCrewPhoto(input: Parameters<typeof addCrewPhoto>[0], so
     const again = await typed<{ id: number | string }[]>(sql`SELECT id FROM photo_index WHERE source_key = ${sourceKey} LIMIT 1`);
     return { id: Number(again[0]?.id ?? 0), already: true };
   }
+  if (visit) await tagVisitPhoto(Number(rows[0].id), visit);
   return { id: Number(rows[0].id), already: false };
 }
 
@@ -255,6 +285,8 @@ export async function addCrewUpload(
   if (!jpeg) throw new CrewPhotoError("That is not a photo.");
   const saved = await addCrewPhoto({
     ...input,
+    // The phone could not open this one, so it carries no stamp yet: the server stamps it.
+    visit: input.visit ? { ...input.visit, stamped: false } : null,
     full: new File([new Uint8Array(jpeg.full)], "photo.jpg", { type: "image/jpeg" }),
     thumb: new File([new Uint8Array(jpeg.thumb)], "thumb.jpg", { type: "image/jpeg" }),
   });
@@ -270,7 +302,7 @@ async function addCrewVideo(input: Omit<Parameters<typeof addCrewUpload>[0], "up
   const thumb = input.thumb ? await put(`${folder}/${input.clientId}-thumb.jpg`, input.thumb, { access: "public", contentType: "image/jpeg", addRandomSuffix: false, allowOverwrite: true }) : null;
   const moment = input.tag === "before" || input.tag === "after" ? input.tag : "";
   const caption = clean(input.caption).slice(0, 200);
-  const takenAt = photoMoment(input.takenAt);
+  const takenAt = photoMoment(input.takenAt, Boolean(input.visit));
 
   let rows: { id: number | string }[];
   if (await stampReady()) {
@@ -304,6 +336,7 @@ async function addCrewVideo(input: Omit<Parameters<typeof addCrewUpload>[0], "up
     const again = await typed<{ id: number | string }[]>(sql`SELECT id FROM photo_index WHERE source_key = ${sourceKey} LIMIT 1`);
     return { id: Number(again[0]?.id ?? 0), already: true };
   }
+  if (input.visit) await tagVisitPhoto(Number(rows[0].id), input.visit);
   return { id: Number(rows[0].id), already: false };
 }
 

@@ -41,9 +41,12 @@ export function moveInArray<T>(arr: T[], index: number, direction: -1 | 1): T[] 
 export default function ChecklistSectionsEditor({
   sections,
   onChange,
+  photoMode = false,
 }: {
   sections: ChecklistSectionDef[];
   onChange: (update: (prev: ChecklistSectionDef[]) => ChecklistSectionDef[]) => void;
+  /** The account's crew screen is the Photo Checklist: each item shows "Photo required? Yes / No" (Yes unless set). */
+  photoMode?: boolean;
 }) {
   function updateSectionTitle(sectionIndex: number, title: string) {
     onChange((prev) => prev.map((s, i) => (i === sectionIndex ? { ...s, title } : s)));
@@ -136,6 +139,23 @@ export default function ChecklistSectionsEditor({
                   >
                     ★ {item.mustDo ? "Must do every night" : "Mark as must do every night"}
                   </button>
+                  {/* Photo Checklist: does the crew need a photo to check it off? (No = one tap) */}
+                  {photoMode && section.title.trim().toLowerCase() !== "rules" ? (
+                    <span className="ml-2 inline-flex items-center gap-1 text-xs font-black text-slate-600">
+                      📷 Photo required?
+                      {[true, false].map((required) => (
+                        <button
+                          key={String(required)}
+                          type="button"
+                          aria-pressed={(item.noPhoto !== true) === required}
+                          onClick={() => updateItem(sectionIndex, itemIndex, { noPhoto: required ? undefined : true })}
+                          className={`rounded-lg px-3 py-1.5 ${(item.noPhoto !== true) === required ? "bg-blue-600 text-white" : "border border-slate-300 text-slate-600 hover:bg-slate-50"}`}
+                        >
+                          {required ? "Yes" : "No"}
+                        </button>
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 flex-col gap-1">
                   <button type="button" onClick={() => moveItem(sectionIndex, itemIndex, -1)} disabled={itemIndex === 0} aria-label="Move item up" className="rounded-lg border border-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600 disabled:opacity-30">

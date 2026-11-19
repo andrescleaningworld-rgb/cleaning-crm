@@ -24,7 +24,8 @@ import { NextRequest } from "next/server";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { cleanReporterName, crewLinkAccountOpen, crewLinkIsLive, resolveCrewLink } from "@/lib/crewLink";
 import { isCrewPhotoTag } from "@/lib/crewPhotos";
-import { addCrewPhoto, addCrewUpload, crewPhotosReady, CrewPhotoError } from "@/lib/pg/crew-photos";
+import { addCrewPhoto, addCrewUpload, crewPhotosReady, CrewPhotoError, type CrewPhotoVisit } from "@/lib/pg/crew-photos";
+import { isItemKey, isPhotoTimeSource, isVisitId } from "@/lib/photoChecklist";
 import { isGeoPoint, type PhoneLocation } from "@/lib/photoLocation";
 
 export const maxDuration = 60;
@@ -41,6 +42,28 @@ function locationOf(form: FormData): PhoneLocation | null {
   const accuracy = Number(form.get("accuracy"));
   if (form.get("lat") === null || form.get("lng") === null || !isGeoPoint(lat, lng)) return null;
   return { lat, lng, accuracyM: Number.isFinite(accuracy) && accuracy >= 0 ? Math.min(accuracy, 100_000) : 9999 };
+}
+
+/**
+ * Photo Checklist photos (CrewPhotoChecklist.tsx) also send visitId, itemKey,
+ * timeSource (camera / exif / added_later), addedAt, stamped ("1" = the
+ * phone burned the stamp in) and stampLine ("Item · Name"). null for every
+ * other crew photo.
+ */
+function visitOf(form: FormData): CrewPhotoVisit | null {
+  const visitId = String(form.get("visitId") ?? "").trim();
+  const itemKey = String(form.get("itemKey") ?? "").trim();
+  if (!isVisitId(visitId) || !isItemKey(itemKey)) return null;
+  const timeSource = String(form.get("timeSource") ?? "");
+  const added = new Date(String(form.get("addedAt") ?? "")).getTime();
+  return {
+    visitId,
+    itemKey,
+    timeSource: isPhotoTimeSource(timeSource) ? timeSource : "camera",
+    addedAt: Number.isFinite(added) && added <= Date.now() + 5 * 60_000 ? new Date(added).toISOString() : null,
+    stamped: form.get("stamped") === "1",
+    stampLine: String(form.get("stampLine") ?? "").trim().slice(0, 200),
+  };
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ code: string }> }) {
@@ -74,6 +97,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       thumb: thumb instanceof File ? thumb : null,
       caption: String(form.get("caption") ?? ""),
       location: locationOf(form),
+      visit: visitOf(form),
     };
     const saved = full instanceof File ? await addCrewPhoto({ ...details, full }) : await addCrewUpload({ ...details, uploadedUrl });
     return filesJson({ success: true, ...saved });

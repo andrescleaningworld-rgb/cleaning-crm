@@ -52,6 +52,8 @@ function recordHref(type: PinType, recordId: string): string {
   if (type === "account") return `/accounts/${encodeURIComponent(recordId)}`;
   // A supply order's card: its printable order (app/supply-orders/print), made fresh when opened.
   if (type === "order") return `/supply-orders/print?o=${encodeURIComponent(recordId)}`;
+  // A Photo Checklist Work Report: the PDF, made fresh when opened.
+  if (type === "report") return `/api/crew-link/work-reports?id=${encodeURIComponent(recordId)}&pdf=1`;
   // An update saved without an id of its own (the board made up "new-…") opens the Account Updates list.
   if (type === "update") return recordId.startsWith("new-") ? "/account-updates" : `/account-updates/${encodeURIComponent(recordId)}`;
   return "";
@@ -85,7 +87,7 @@ export async function pinRecord(request: PinRequest, by: string): Promise<boolea
   const square = request.square.trim();
   const recordId = request.recordId.trim();
 
-  if (request.type === "todo" || request.type === "visit" || request.type === "account" || request.type === "update" || request.type === "order") {
+  if (request.type === "todo" || request.type === "visit" || request.type === "account" || request.type === "update" || request.type === "order" || request.type === "report") {
     const one = PIN_TYPES.find((entry) => entry.type === request.type)!.one;
     const dueDate = /^\d{4}-\d{2}-\d{2}/.test(request.dueDate ?? "") ? (request.dueDate as string).slice(0, 10) : "";
     // A paper with no square hangs in Office, or in the shared box it was pinned to (the route checks the box).
@@ -230,6 +232,7 @@ export async function listPinnedRecords(): Promise<Partial<Record<PinType, strin
     account: notes.filter((row) => row.type === "account").map((row) => row.id),
     update: notes.filter((row) => row.type === "update").map((row) => row.id),
     order: notes.filter((row) => row.type === "order").map((row) => row.id),
+    report: notes.filter((row) => row.type === "report").map((row) => row.id),
     complaint: complaints.map((row) => row.id),
     supply: orders.map((row) => row.id),
   };

@@ -31,6 +31,8 @@ import CrewPeople from "@/app/components/CrewPeople";
 import CwNowSetup, { type SetupStep } from "@/app/components/CwNowSetup";
 import { whenShort, type CrewPeopleData } from "@/lib/crewLinkPeople";
 import { OrdersAndProblems } from "@/app/accounts/[id]/team-hub-tab";
+import CwNowPhotoChecklist from "@/app/components/CwNowPhotoChecklist";
+import type { CrewScreen } from "@/lib/photoChecklist";
 
 type TemplateApiResponse = {
   success?: boolean;
@@ -93,6 +95,8 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
   // "Show crew photos to customer": on by default.
   const [showPhotos, setShowPhotos] = useState(true);
   const [savingPhotos, setSavingPhotos] = useState(false);
+  // The crew screen (CwNowPhotoChecklist): on the Photo Checklist each item shows "Photo required?".
+  const [crewScreen, setCrewScreen] = useState<CrewScreen>("classic");
   const [extracting, setExtracting] = useState(false);
   // "Build from estimate" (ChecklistEstimateBuilder).
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -773,7 +777,7 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
                 </div>
               ) : null}
 
-              <ChecklistSectionsEditor sections={sections} onChange={setSections} />
+              <ChecklistSectionsEditor sections={sections} onChange={setSections} photoMode={crewScreen === "photo"} />
 
               <div className="flex flex-wrap items-center gap-3">
                 <button
@@ -796,6 +800,9 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
           ) : null}
         </>
       )}
+
+      {/* Crew screen (Classic / Photo Checklist) and the Photo Checklist's Work reports. */}
+      {checklistLive ? <CwNowPhotoChecklist accountId={accountId} accountName={accountName} onScreenChange={setCrewScreen} /> : null}
 
       {/* Everything else, out of the way. */}
       {porterCode || setUp ? (

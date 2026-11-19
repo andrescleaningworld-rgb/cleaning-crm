@@ -27,6 +27,7 @@ import CrewRoute, { ROUTE_WORDS, RouteSendStatus, sentTodayOnThisPhone } from ".
 import { usePhotoQueue } from "./photo-queue";
 import { loadLink } from "./link-cache";
 import { PreviewNotSentScreen, useCrewLinkPreview } from "./preview";
+import CrewPhotoChecklist from "./CrewPhotoChecklist";
 
 type Modules = { checklist: boolean; supplyOrders: boolean; problemReports: boolean };
 
@@ -46,6 +47,8 @@ type LoadResponse = {
   arrived?: boolean;
   /** Route tabs: today's note from the day porter. */
   nightNote?: NightNote | null;
+  /** "photo": the Photo Checklist screen (CrewPhotoChecklist.tsx, migration 085). Missing / "classic": as before. */
+  crewScreen?: "classic" | "photo";
 };
 
 type Feature = "checklist" | "supplies" | "problem" | "arrived" | "empty";
@@ -95,6 +98,7 @@ export default function CrewLinkPage() {
   const [modules, setModules] = useState<Modules>({ checklist: true, supplyOrders: false, problemReports: false });
   const [shelves, setShelves] = useState(false);
   const [nightNote, setNightNote] = useState<NightNote | null>(null);
+  const [crewScreen, setCrewScreen] = useState<"classic" | "photo">("classic");
   // The one photo sender for the page: "Send photos" and the route rows' cameras.
   const queue = usePhotoQueue(preview ? "" : code);
   // The admin preview never keeps anything on the phone.
@@ -152,6 +156,7 @@ export default function CrewLinkPage() {
         setArrived(data.arrived === true || data.shelves === true);
         setTranslations(data.translations ?? {});
         setNightNote(data.nightNote ?? null);
+        setCrewScreen(data.crewScreen === "photo" ? "photo" : "classic");
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load this link.");
       } finally {
@@ -174,10 +179,12 @@ export default function CrewLinkPage() {
   ];
   // Route links (every checklist tab is a route tab): the start screen is one
   // giant button per tab, both languages, no language switch, no "Send photos".
-  const routeMode = modules.checklist && tabs.length > 0 && tabs.every(isRouteTab);
+  // Photo Checklist (set in the account's CW Now card): the checklist is the start screen, whatever the tabs look like.
+  const photoMode = crewScreen === "photo" && modules.checklist && tabs.length > 0;
+  const routeMode = !photoMode && modules.checklist && tabs.length > 0 && tabs.every(isRouteTab);
   const onlyFeature = features.length === 1 && !routeMode ? features[0] : null;
-  const rootScreen: Screen = onlyFeature ?? "home";
-  const currentScreen: Screen = onlyFeature ?? screen;
+  const rootScreen: Screen = photoMode ? "checklist" : (onlyFeature ?? "home");
+  const currentScreen: Screen = photoMode ? (screen === "home" ? "checklist" : screen) : (onlyFeature ?? screen);
 
   if (loading || name === null) return <CenteredMessage title={s.loading} />;
   if (loadError || !available || features.length === 0) {
@@ -203,6 +210,25 @@ export default function CrewLinkPage() {
   }
 
   const header = <CrewHeader s={s} lang={lang} onLangChange={setLang} locationName={locationName} hideLang={routeMode} />;
+
+  // Photo Checklist: "What's your name?" once, first, in the crew's language; the phone remembers it.
+  if (photoMode && !name.trim()) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-4">
+        <div className="mx-auto max-w-xl space-y-4">
+          {header}
+          <PhotoNameScreen
+            question={s.whatsYourName}
+            button={s.next}
+            onDone={(typed) => {
+              setName(typed);
+              if (!preview) storeName(typed);
+            }}
+          />
+        </div>
+      </main>
+    );
+  }
 
   // Route links ask the name once, first, and the phone remembers it.
   if (routeMode && !name.trim()) {
@@ -237,7 +263,7 @@ export default function CrewLinkPage() {
         {currentScreen !== rootScreen ? <BackButton label={routeMode ? ROUTE_WORDS.back : s.back} onClick={goToStart} /> : null}
 
         {/* Send photos: first thing on the start screen. Its status shows on every screen (route links: RouteSendStatus above). The sender itself is the page's queue, so it never stops. */}
-        {routeMode ? null : (
+        {routeMode || photoMode ? null : (
           <CrewPhotos
             showButton={currentScreen === rootScreen && !routeMode}
             queue={queue}
@@ -302,6 +328,39 @@ export default function CrewLinkPage() {
         {/* Files the office shared with the sub for this building (open / download). Nothing when none. */}
         {currentScreen === rootScreen ? <CrewDocuments code={code} lang={lang} bothLanguages={routeMode} /> : null}
 
+        {currentScreen === "checklist" && photoMode ? (
+          <CrewPhotoChecklist
+            code={code}
+            tabs={tabs}
+            linkTabId={linkTabId}
+            name={name}
+            lang={lang}
+            placeName={locationName}
+            translations={translations}
+            queue={queue}
+            preview={Boolean(preview)}
+            onFinished={() => {
+              if (!preview) storeName(name.trim().slice(0, 80));
+            }}
+          />
+        ) : null}
+
+        {/* Photo Checklist: the account's other buttons (Supplies, Problem…) under the list. */}
+        {currentScreen === "checklist" && photoMode && features.length > 1 ? (
+          <div className="grid gap-3">
+            {features
+              .filter((feature) => feature !== "checklist")
+              .map((feature) => (
+                <button key={feature} type="button" onClick={() => open(feature)} className="flex min-h-[88px] items-center gap-4 rounded-3xl bg-white px-5 text-left text-2xl font-black text-slate-900 shadow-sm active:bg-gray-100">
+                  <span className="text-5xl" aria-hidden="true">
+                    {FEATURE_ICON[feature]}
+                  </span>
+                  {featureLabel(s, feature)}
+                </button>
+              ))}
+          </div>
+        ) : null}
+
         {currentScreen === "checklist" && routeMode && activeRouteTab ? (
           <CrewRoute
             key={activeRouteTab.id}
@@ -317,7 +376,7 @@ export default function CrewLinkPage() {
           />
         ) : null}
 
-        {currentScreen === "checklist" && !routeMode ? (
+        {currentScreen === "checklist" && !routeMode && !photoMode ? (
           <CrewChecklist
             code={code}
             s={s}
@@ -399,6 +458,35 @@ export default function CrewLinkPage() {
         )
       ) : null}
     </main>
+  );
+}
+
+/** Photo Checklist: the name, once, before anything else (in the crew's language). */
+function PhotoNameScreen({ question, button, onDone }: { question: string; button: string; onDone: (name: string) => void }) {
+  const [typed, setTyped] = useState("");
+  const clean = typed.trim().slice(0, 80);
+  return (
+    <form
+      className="space-y-4 rounded-3xl bg-white p-5 shadow-sm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (clean) onDone(clean);
+      }}
+    >
+      <label className="block">
+        <span className="text-3xl font-black text-slate-900">👤 {question}</span>
+        <input
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          autoComplete="name"
+          maxLength={80}
+          className="mt-3 min-h-[72px] w-full rounded-2xl border-4 border-slate-300 px-4 text-3xl font-bold outline-none focus:border-blue-600"
+        />
+      </label>
+      <button type="submit" disabled={!clean} className="min-h-[88px] w-full rounded-3xl bg-green-600 text-4xl font-black text-white shadow-lg active:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500">
+        {button}
+      </button>
+    </form>
   );
 }
 

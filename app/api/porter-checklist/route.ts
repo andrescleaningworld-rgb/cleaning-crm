@@ -24,6 +24,7 @@ import { resolveCrewLink, crewLinkIsLive, cleanReporterName } from "@/lib/crewLi
 import { getContentTranslations, sectionTexts } from "@/lib/crewTranslations";
 import { shelvesReady, waiting } from "@/lib/pg/shelves";
 import { refreshSkipPin } from "@/lib/pg/crew-skips";
+import { getCrewScreen } from "@/lib/pg/photo-checklist";
 
 export async function GET(request: NextRequest) {
   try {
@@ -76,6 +77,8 @@ export async function GET(request: NextRequest) {
       modules,
       translations,
       nightNote,
+      // "photo" = the Photo Checklist screen (migration 085); "classic" otherwise.
+      crewScreen: modules.checklist ? await getCrewScreen(template.accountId) : "classic",
       // "Supplies arrived" and "Case empty" (migrations 038, 039), with supply orders on.
       shelves: modules.supplyOrders && shelvesOn,
       // "Supplies arrived" alone also shows when something is on its way to

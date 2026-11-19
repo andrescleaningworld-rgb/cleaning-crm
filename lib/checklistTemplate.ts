@@ -14,6 +14,12 @@ export type ChecklistItemDef = {
   subNote?: string;
   /** "Must do every night": the crew sees it at the top with a star. Set by staff in the Crew Link editor. */
   mustDo?: boolean;
+  /**
+   * Photo Checklist screen (lib/photoChecklist.ts): "Photo required: No", the
+   * crew checks it with one tap. Every other item needs a photo there. The
+   * Classic and route screens do not read it (it never makes a route tab).
+   */
+  noPhoto?: boolean;
   // Route tabs (one row per item, in route order, only tonight's rows). Set
   // by the uploaded file; any of time / days / photo / choices / kind makes
   // the tab a route tab (isRouteTab). Tabs without them work as before.

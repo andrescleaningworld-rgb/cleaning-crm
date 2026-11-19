@@ -7,7 +7,7 @@
 // paper that points at it. Unpinning or Done on the board changes the paper
 // only.
 
-export type PinType = "todo" | "complaint" | "supply" | "visit" | "account" | "update" | "packet" | "order";
+export type PinType = "todo" | "complaint" | "supply" | "visit" | "account" | "update" | "packet" | "order" | "report";
 
 export type PinTypeSetting = { show: boolean; pinned: boolean };
 
@@ -33,6 +33,8 @@ export const PIN_TYPES: {
   // A whole supply order (Crew Link or sub portal), from its card on the Supply Orders page.
   // The paper's button opens the printable order, made fresh each time.
   { type: "order", label: "Supply order cards", one: "Supply order", available: true },
+  // A CW Now Photo Checklist visit's Work Report (the account's CW Now card). The paper's button opens the PDF, made fresh each time.
+  { type: "report", label: "Work reports", one: "Work report", available: true },
 ];
 
 export const NOT_AVAILABLE_YET = "Available after tonight's update";
@@ -48,6 +50,8 @@ export const DEFAULT_PIN_TYPES: PinTypes = {
   packet: { show: false, pinned: false },
   // On from the start: the order cards' "Pin to board" button.
   order: { show: true, pinned: false },
+  // On from the start: the Work reports list's "Pin to board" button.
+  report: { show: true, pinned: false },
 };
 
 export const isPinType = (value: string): value is PinType => PIN_TYPES.some((entry) => entry.type === value);
