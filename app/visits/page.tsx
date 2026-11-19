@@ -26,6 +26,8 @@ import AccountLink from "../components/AccountLink";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { managerMatches } from "@/lib/managerNames";
 import { useManagerNames } from "../components/manager-options";
+import { useLastVisits } from "../components/last-visited";
+import type { VisitFilterAccount, VisitFilterSub } from "@/lib/pg/visits";
 
 type Visit = {
   id?: string;
@@ -163,10 +165,35 @@ export default function VisitsPage() {
     () => [...new Set(visits.map((v) => clean(v.accountName)).filter(Boolean))].sort(),
     [visits],
   );
-  const uniqueSubs = useMemo(
-    () => [...new Set(visits.map((v) => clean(v.subcontractor)).filter(Boolean))].sort(),
-    [visits],
-  );
+  // The Subcontractor filter. Visits do not store a sub, so it goes by each
+  // account's sub now, by sub ID (two subs share the contact name Giovanna):
+  // the Sub Center's list, active first, A to Z (GET /api/visits?filters=1).
+  const [filterLists, setFilterLists] = useState<{ subs: VisitFilterSub[]; accounts: VisitFilterAccount[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/visits?filters=1", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; subs?: VisitFilterSub[]; accounts?: VisitFilterAccount[] }) => {
+        if (alive && data.success) setFilterLists({ subs: data.subs ?? [], accounts: data.accounts ?? [] });
+      })
+      .catch(() => null);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const activeSubs = useMemo(() => (filterLists?.subs ?? []).filter((s) => s.active), [filterLists]);
+  const inactiveSubs = useMemo(() => (filterLists?.subs ?? []).filter((s) => !s.active), [filterLists]);
+  // A visit's account: by its account ID, else by a name only one account has (the same rule as AccountLink).
+  const accountOfVisit = useMemo(() => {
+    const byId = new Map<string, VisitFilterAccount>();
+    const byName = new Map<string, VisitFilterAccount | null>();
+    for (const account of filterLists?.accounts ?? []) {
+      byId.set(account.id, account);
+      const key = account.name.toLowerCase();
+      byName.set(key, byName.has(key) ? null : account);
+    }
+    return (visit: Visit) => byId.get(clean(visit.accountId)) ?? byName.get(clean(visit.accountName).toLowerCase()) ?? null;
+  }, [filterLists]);
   // The Manager filter: the active managers on the Staff list. Old visits keep the
   // name they were saved with; "Andres" is found under Andrés, "Drew/Greg" under both.
   const uniqueManagers = useManagerNames().names;
@@ -184,7 +211,7 @@ export default function VisitsPage() {
       if (quick === "month" && !iso.startsWith(thisMonthPrefix)) return false;
       if (quick === "follow-up" && !needsFollowUp(visit)) return false;
       if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
-      if (filterSub && clean(visit.subcontractor) !== filterSub) return false;
+      if (filterSub && accountOfVisit(visit)?.subId !== filterSub) return false;
       if (filterManager && !managerMatches(visit.manager, filterManager)) return false;
       if (filterStatus && deriveStatus(visit) !== filterStatus) return false;
       if (dateFrom && iso && iso < dateFrom) return false;
@@ -211,7 +238,31 @@ export default function VisitsPage() {
       if (da === db) return 0;
       return da > db ? -1 : 1;
     });
-  }, [visits, search, filterAccount, filterSub, filterManager, filterStatus, dateFrom, dateTo, sortBy, quick, thisMonthPrefix]);
+  }, [visits, search, filterAccount, filterSub, filterManager, filterStatus, dateFrom, dateTo, sortBy, quick, thisMonthPrefix, accountOfVisit]);
+
+  // Status "Not visited": ACTIVE accounts with no visit from From to To (no
+  // dates = never visited), from the same last-visit data as the Accounts
+  // list's "Last visited" filter (app/components/last-visited.tsx). Account,
+  // Subcontractor and Completed by (= the account's manager) still narrow it.
+  const notVisitedOn = filterStatus === "Not visited";
+  const { lastVisits: everLast, failed: everFailed } = useLastVisits({ enabled: notVisitedOn });
+  const rangeOn = notVisitedOn && Boolean(dateFrom || dateTo);
+  const { lastVisits: rangeLast, failed: rangeFailed } = useLastVisits({ from: dateFrom, to: dateTo, enabled: rangeOn });
+  const inRange = rangeOn ? rangeLast : everLast;
+  const notVisited = useMemo(() => {
+    if (!notVisitedOn || !filterLists || !everLast || !inRange) return null;
+    const term = search.toLowerCase().trim();
+    return filterLists.accounts
+      .filter((account) => account.active && !inRange[account.id])
+      .filter((account) => !filterAccount || account.name === filterAccount)
+      .filter((account) => !filterSub || account.subId === filterSub)
+      .filter((account) => !filterManager || managerMatches(account.manager, filterManager))
+      .filter((account) => !term || [account.name, account.id, account.manager, account.subName].some((value) => value.toLowerCase().includes(term)))
+      .map((account) => ({ account, last: everLast[account.id] ?? "" }))
+      // Oldest last visit first; never visited at the top.
+      .sort((a, b) => (a.last === b.last ? a.account.name.localeCompare(b.account.name) : !a.last ? -1 : !b.last ? 1 : a.last.localeCompare(b.last)));
+  }, [notVisitedOn, filterLists, everLast, inRange, search, filterAccount, filterSub, filterManager]);
+  const notVisitedFailed = notVisitedOn && (everFailed || (rangeOn && rangeFailed));
 
   const visitsThisMonth = useMemo(() => visits.filter((v) => toISODate(v.date).startsWith(thisMonthPrefix)).length, [visits, thisMonthPrefix]);
   const followUpsNeeded = useMemo(
@@ -309,11 +360,62 @@ export default function VisitsPage() {
             ) : null}
           </div>
 
+          {notVisitedOn ? (
+            notVisitedFailed ? (
+              <ErrorBox title="The visit dates did not load." text="Refresh the page to try again." />
+            ) : !notVisited ? (
+              <SkeletonList rows={3} />
+            ) : (
+              <>
+                <p className="ui-muted" role="status">
+                  {notVisited.length} account{notVisited.length === 1 ? "" : "s"} not visited{dateFrom || dateTo ? " in those dates" : " (never visited)"}
+                </p>
+                {notVisited.length === 0 ? (
+                  <EmptyState icon="search" title="Every account here was visited" text="Change the dates or the filters to see others." />
+                ) : (
+                  <CardList
+                    label="Accounts not visited"
+                    items={notVisited}
+                    getKey={({ account }) => account.id}
+                    renderCard={({ account, last }) => (
+                      <Card title={<AccountLink accountId={account.id} name={account.name || "No account name"} />}>
+                        <p className="ui-card-text">
+                          Last visit: {last ? formatDate(last) : "Never"} · {account.manager || "No manager"}
+                        </p>
+                        {account.subName ? <p className="ui-card-text">Sub: {account.subName}</p> : null}
+                      </Card>
+                    )}
+                    columns={[
+                      { header: "Date", cell: ({ last }) => <span className="ui-nowrap">{last ? `Last: ${formatDate(last)}` : "Never"}</span> },
+                      {
+                        header: "Account",
+                        cell: ({ account }) => (
+                          <span className="ui-strong">
+                            <AccountLink accountId={account.id} name={account.name || "No account name"} className="ui-table-rowlink" />
+                          </span>
+                        ),
+                      },
+                      { header: "Visit Type", cell: () => "" },
+                      { header: "Completed By", cell: ({ account }) => account.manager || "None" },
+                      { header: "Subcontractor", cell: ({ account }) => account.subName || "None" },
+                      { header: "Condition", cell: () => "" },
+                      { header: "Follow-Up", cell: () => "" },
+                      { header: "Follow-Up Date", cell: () => "" },
+                      { header: "Notes", cell: () => "" },
+                    ]}
+                  />
+                )}
+              </>
+            )
+          ) : null}
+
+          {notVisitedOn ? null : (
           <p className="ui-muted" role="status">
             Showing {filteredVisits.length} of {visits.length} visits
           </p>
+          )}
 
-          {filteredVisits.length === 0 ? (
+          {notVisitedOn ? null : filteredVisits.length === 0 ? (
             <EmptyState icon="search" title="No visits here" text="Tap All visits to see every visit, or Add visit to log one." />
           ) : (
             <>
@@ -390,12 +492,21 @@ export default function VisitsPage() {
           ))}
         </SelectField>
         <SelectField label="Subcontractor" value={filterSub} onChange={(e) => setFilterSub(e.target.value)}>
-          <option value="">All Subs</option>
-          {uniqueSubs.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          <option value="">{filterLists ? "All Subs" : "Loading subs…"}</option>
+          {activeSubs.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
             </option>
           ))}
+          {inactiveSubs.length > 0 ? (
+            <optgroup label="Inactive">
+              {inactiveSubs.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
         </SelectField>
         <SelectField label="Completed by" value={filterManager} onChange={(e) => setFilterManager(e.target.value)}>
           <option value="">All Managers</option>
@@ -410,6 +521,7 @@ export default function VisitsPage() {
           <option value="Visited">Visited</option>
           <option value="Scheduled">Scheduled</option>
           <option value="Missed">Missed</option>
+          <option value="Not visited">Not visited (active accounts)</option>
         </SelectField>
         <Field label="From date" optional type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
         <Field label="To date" optional type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
@@ -418,7 +530,11 @@ export default function VisitsPage() {
           <option value="account">Account A–Z</option>
         </SelectField>
         <p className="ui-muted" role="status">
-          {filteredVisits.length} visit{filteredVisits.length === 1 ? "" : "s"}
+          {notVisitedOn
+            ? notVisited
+              ? `${notVisited.length} account${notVisited.length === 1 ? "" : "s"} not visited`
+              : "Loading…"
+            : `${filteredVisits.length} visit${filteredVisits.length === 1 ? "" : "s"}`}
         </p>
         <div>
           <BigButton kind="quiet" onClick={clearFilters}>

@@ -61,13 +61,21 @@ export function matchesLastVisited(
   return days !== null && days >= Number(filter);
 }
 
-/** Each account's last visit date by account ID (GET /api/visits?last=1, managers and the owner). null until loaded. */
-export function useLastVisits(): { lastVisits: Record<string, string> | null; failed: boolean } {
+/**
+ * Each account's last visit date by account ID (GET /api/visits?last=1, managers and the owner). null until loaded.
+ * `range` (Visits -> "Not visited"): only visits in those dates count; `enabled: false` loads nothing.
+ */
+export function useLastVisits(range: { from?: string; to?: string; enabled?: boolean } = {}): { lastVisits: Record<string, string> | null; failed: boolean } {
   const [lastVisits, setLastVisits] = useState<Record<string, string> | null>(null);
   const [failed, setFailed] = useState(false);
+  const from = range.from ?? "";
+  const to = range.to ?? "";
+  const enabled = range.enabled !== false;
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
-    fetch("/api/visits?last=1", { cache: "no-store" })
+    const query = new URLSearchParams({ last: "1", ...(from ? { from } : {}), ...(to ? { to } : {}) });
+    fetch(`/api/visits?${query.toString()}`, { cache: "no-store" })
       .then((response) => response.json())
       .then((data: { success?: boolean; lastVisits?: Record<string, string> }) => {
         if (!alive) return;
@@ -78,7 +86,7 @@ export function useLastVisits(): { lastVisits: Record<string, string> | null; fa
     return () => {
       alive = false;
     };
-  }, []);
+  }, [from, to, enabled]);
   return { lastVisits, failed };
 }
 

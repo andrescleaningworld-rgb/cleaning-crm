@@ -10,6 +10,7 @@
 
 import { getSql } from "@/lib/db";
 import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
+import { ACTIVE as ACTIVE_ACCOUNT } from "@/lib/pg/no-schedule";
 import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { CustomerVisit, ManagerVisit, ManagerVisitUpdateInput, VisitEditLogEntry, VisitEditLogInput } from "@/lib/googleSheets";
 
@@ -203,6 +204,52 @@ function scriptDate(raw: string): string {
 // A cell holding 0 comes back as "" (Apps Script's `value || ""`).
 const scriptText = (raw: string): string => (raw.trim() === "0" ? "" : raw);
 
+/** A sub for the Visits filter: the Sub Center's list (subcontractors table). */
+export type VisitFilterSub = { id: string; name: string; active: boolean };
+/** An account, its current sub (by ID) and manager: the Visits Subcontractor filter and "Not visited". */
+export type VisitFilterAccount = { id: string; name: string; subId: string; subName: string; manager: string; /** Active (lib/pg/no-schedule.ts ACTIVE): the only ones "Not visited" lists. */ active: boolean };
+
+/**
+ * Visits -> Filter and sort. Visits do not store a sub, so the Subcontractor
+ * filter goes by the account's sub now: accounts.subcontractor_id, else the
+ * one sub whose company name is exactly the account's Subcontractor text (the
+ * same rule as the complaint notice, lib/complaintSubNotice.ts). Subs come
+ * A to Z, active first. Accounts: every live account, each with its "active" (lib/pg/no-schedule.ts ACTIVE).
+ */
+export async function visitFilterLists(): Promise<{ subs: VisitFilterSub[]; accounts: VisitFilterAccount[] }> {
+  const sql = getSql();
+  const [subs, accounts] = await Promise.all([
+    sql.query(
+      `SELECT id, btrim(company_name) AS company, btrim(contact_name) AS contact, lower(btrim(status)) AS status
+       FROM subcontractors WHERE id IS NOT NULL AND (btrim(company_name) <> '' OR btrim(contact_name) <> '')`
+    ) as unknown as Promise<{ id: string; company: string; contact: string; status: string }[]>,
+    sql.query(
+      `SELECT a.id, btrim(a.account_name) AS name, btrim(a.manager_raw) AS manager, s.id AS sub_id, (${ACTIVE_ACCOUNT}) AS active,
+              COALESCE(NULLIF(btrim(s.company_name), ''), btrim(s.contact_name), btrim(a.subcontractor_raw)) AS sub_name
+       FROM accounts a
+       LEFT JOIN LATERAL (
+         SELECT x.id, x.company_name, x.contact_name FROM subcontractors x
+         WHERE x.id = a.subcontractor_id
+            OR (a.subcontractor_id IS NULL AND btrim(a.subcontractor_raw) <> ''
+                AND lower(btrim(x.company_name)) = lower(btrim(a.subcontractor_raw))
+                AND (SELECT count(*) FROM subcontractors y WHERE lower(btrim(y.company_name)) = lower(btrim(a.subcontractor_raw))) = 1)
+         ORDER BY (x.id = a.subcontractor_id) DESC
+         LIMIT 1
+       ) s ON true
+       WHERE a.id IS NOT NULL AND a.is_test = false AND (to_jsonb(a)->>'deleted_at') IS NULL`
+    ) as unknown as Promise<{ id: string; name: string; manager: string; sub_id: string | null; sub_name: string | null; active: boolean }[]>,
+  ]);
+  // Two subs can share a contact name (two "Giovanna"s): the company tells them apart.
+  const label = (s: { company: string; contact: string }) => (s.company && s.contact && s.company.toLowerCase() !== s.contact.toLowerCase() ? `${s.company} (${s.contact})` : s.company || s.contact);
+  const subList = subs
+    .map((s) => ({ id: String(s.id), name: label(s), active: !["inactive", "paused", "terminated", "removed"].includes(s.status) }))
+    .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name));
+  return {
+    subs: subList,
+    accounts: accounts.map((a) => ({ id: String(a.id), name: a.name, subId: a.sub_id ? String(a.sub_id) : "", subName: a.sub_name ?? "", manager: a.manager, active: a.active === true })),
+  };
+}
+
 export type AppsScriptVisit = {
   id: string;
   accountId: string;
@@ -329,15 +376,20 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
  * A visit counts by its account link, or, when it has none, by an exact
  * account name that only one account has. Visits dated after today (Eastern) are not counted.
  * Accounts with no visit are not in the map.
+ * `range` (Visits -> "Not visited"): only visits from `from` to `to` count.
  */
-export async function lastVisitByAccount(): Promise<Record<string, string>> {
+export async function lastVisitByAccount(range: { from?: string; to?: string } = {}): Promise<Record<string, string>> {
   const sql = getSql();
+  const isoDay = (value?: string) => (value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null);
+  const from = isoDay(range.from);
+  const to = isoDay(range.to);
+  const inRange = `AND ($1::date IS NULL OR v.visit_date >= $1::date) AND ($2::date IS NULL OR v.visit_date <= $2::date)`;
   const rows = (await sql.query(
     `WITH today AS (SELECT (now() AT TIME ZONE 'America/New_York')::date AS d),
      linked AS (
        SELECT v.account_ref AS id, max(v.visit_date) AS last_visit
        FROM visits v, today
-       WHERE v.account_ref IS NOT NULL AND v.visit_date IS NOT NULL AND v.visit_date <= today.d
+       WHERE v.account_ref IS NOT NULL AND v.visit_date IS NOT NULL AND v.visit_date <= today.d ${inRange}
        GROUP BY v.account_ref
      ),
      -- Names that belong to exactly one account: a visit with no link counts
@@ -354,12 +406,13 @@ export async function lastVisitByAccount(): Promise<Record<string, string>> {
        FROM visits v
        CROSS JOIN today
        JOIN unique_names u ON u.name_key = lower(btrim(v.account_name))
-       WHERE v.account_ref IS NULL AND btrim(v.account_name) <> '' AND v.visit_date IS NOT NULL AND v.visit_date <= today.d
+       WHERE v.account_ref IS NULL AND btrim(v.account_name) <> '' AND v.visit_date IS NOT NULL AND v.visit_date <= today.d ${inRange}
        GROUP BY u.id
      )
      SELECT id, max(last_visit)::text AS last_visit
      FROM (SELECT id, last_visit FROM linked UNION ALL SELECT id, last_visit FROM named) both_ways
-     GROUP BY id`
+     GROUP BY id`,
+    [from, to]
   )) as { id: string; last_visit: string | null }[];
   const byAccount: Record<string, string> = {};
   for (const row of rows) {

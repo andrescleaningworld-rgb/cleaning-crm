@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { addVisit, getVisitsAppsScriptShape, visitsOnPostgres } from "@/lib/data/visits";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { lastVisitByAccount } from "@/lib/pg/visits";
+import { lastVisitByAccount, visitFilterLists } from "@/lib/pg/visits";
 
 const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
 
@@ -54,7 +54,19 @@ export async function GET(request: NextRequest) {
       if (identity?.role !== "manager" && identity?.role !== "owner") {
         return NextResponse.json({ success: false, error: "Only managers and the owner can see last visits." }, { status: 403, headers: noStore });
       }
-      return NextResponse.json({ success: true, lastVisits: await lastVisitByAccount() }, { headers: noStore });
+      // from / to (Visits -> "Not visited"): only visits in those dates count.
+      const range = { from: request.nextUrl.searchParams.get("from") ?? "", to: request.nextUrl.searchParams.get("to") ?? "" };
+      return NextResponse.json({ success: true, lastVisits: await lastVisitByAccount(range) }, { headers: noStore });
+    }
+
+    // ?filters=1: Visits -> Filter and sort's Subcontractor list and the
+    // active accounts with their sub (by ID) and manager. Staff only.
+    if (request.nextUrl.searchParams.get("filters") === "1") {
+      const noStore = { "Cache-Control": "no-store" };
+      if (!(await getAdminIdentity(request))) {
+        return NextResponse.json({ success: false, error: "Log in first." }, { status: 401, headers: noStore });
+      }
+      return NextResponse.json({ success: true, ...(await visitFilterLists()) }, { headers: noStore });
     }
 
     // DATA_SOURCE_VISITS=postgres: the same list, in the same shape, without
