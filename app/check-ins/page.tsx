@@ -25,7 +25,7 @@
 // the queue and go over the next days.
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   BigButton,
   Card,
@@ -47,7 +47,7 @@ import { ManagerOptions, useManagerNames } from "@/app/components/manager-option
 import { AutocompleteField, useCustomerSearch } from "@/app/sub-schedules/autocomplete";
 import { distanceInMiles } from "@/app/lib/distance";
 import { managerMatches } from "@/lib/managerNames";
-import { BATCH_KIND_TEXT, CHECKIN_VIEWED_NOTE, ratingOf, ratingText, type CheckinBatch, type CheckinLast, type CheckinList, type CheckinRow, type CheckinSkip } from "@/lib/customerCheckin";
+import { BATCH_KIND_TEXT, CHECKIN_STATUS_TEXT, CHECKIN_VIEWED_NOTE, ratingOf, ratingText, type CheckinBatch, type CheckinLast, type CheckinList, type CheckinRow, type CheckinSkip } from "@/lib/customerCheckin";
 
 type RawAccount = Record<string, unknown>;
 
@@ -715,9 +715,12 @@ export default function CheckinsPage() {
 
 const accountHref = (id: string) => `/accounts/${encodeURIComponent(id)}`;
 
-/** The send's account(s): one is a link; more is the first + "+N more" (hover for the names, tap for the list of links). */
-function SendAccounts({ accounts }: { accounts: CheckinBatch["accounts"] }) {
-  const [open, setOpen] = useState(false);
+/**
+ * The send's account(s): one is a link; more is the first + "+N more" (hover
+ * for the names). Tapping "+N more" opens one line per account right under
+ * the send, in the same columns (see HistoryTab).
+ */
+function SendAccounts({ accounts, open, onToggle }: { accounts: CheckinBatch["accounts"]; open: boolean; onToggle: () => void }) {
   if (accounts.length === 0) return <span className="ui-muted">—</span>;
   const link = (a: CheckinBatch["accounts"][number]) => (
     <Link className="ui-link" href={accountHref(a.id)}>
@@ -729,21 +732,38 @@ function SendAccounts({ accounts }: { accounts: CheckinBatch["accounts"] }) {
   return (
     <span>
       {link(accounts[0])}{" "}
-      <button type="button" className="ui-link" title={rest.map((a) => a.name).join(", ")} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        +{rest.length} more
+      <button type="button" className="ui-link" title={rest.map((a) => a.name).join(", ")} aria-expanded={open} onClick={onToggle}>
+        {open ? "Hide accounts" : `+${rest.length} more`}
       </button>
-      {open ? (
-        <ul className="ui-card-text" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-          {rest.map((a) => (
-            <li key={a.id}>{link(a)}</li>
-          ))}
-        </ul>
-      ) : null}
     </span>
   );
 }
 
 type BatchDetail = { batch: CheckinBatch; rows: CheckinRow[]; skipped: CheckinSkip[] };
+
+/** One line of the History: a send, or (opened with "+N more") one account of it with its own status. */
+type HistoryItem =
+  | { kind: "batch"; key: string; batch: CheckinBatch }
+  | { kind: "account"; key: string; row: CheckinRow | null; skip: CheckinSkip | null; accountId: string; accountName: string }
+  | { kind: "loading"; key: string };
+
+const VIEWED_TIP = "Number of accounts in this send that opened";
+const ANSWERED_TIP = "Number of accounts in this send that answered";
+
+/** An account line's cells, lined up under the send's columns. */
+function accountCells(item: Extract<HistoryItem, { kind: "account" }>) {
+  const { row, skip } = item;
+  const status = skip ? "skipped" : row?.status ?? "";
+  return {
+    who: row?.sentTo ? `to ${row.sentTo}` : "",
+    status: skip ? "Skipped" : row ? CHECKIN_STATUS_TEXT[row.status] : "",
+    sent: status === "sent" && row ? `✓ ${whenText(row.sentAt)}` : "",
+    queued: status === "queued" ? "Queued" : "",
+    failed: status === "failed" ? `✗ Failed${row?.error ? `: ${row.error}` : ""}` : "",
+    skipped: skip ? skip.reason : status === "skipped" ? row?.error || "Skipped" : "",
+    viewed: status === "sent" && row ? (row.openedAt ? `Yes · ${whenText(row.openedAt)}` : "No") : "",
+  };
+}
 
 function HistoryTab() {
   const [batches, setBatches] = useState<CheckinBatch[] | null>(null);
@@ -751,6 +771,23 @@ function HistoryTab() {
   const [detail, setDetail] = useState<BatchDetail | null>(null);
   const [viewId, setViewId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  // Sends opened with "+N more", and each one's accounts (read once, when first opened).
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [lines, setLines] = useState<Record<number, BatchDetail | null>>({});
+
+  function toggleAccounts(id: number) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    if (id in lines) return;
+    fetch(`/api/customer-checkin?batch=${id}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data: { success?: boolean } & BatchDetail) => setLines((current) => ({ ...current, [id]: data.success ? data : null })))
+      .catch(() => setLines((current) => ({ ...current, [id]: null })));
+  }
 
   useEffect(() => {
     let alive = true;
@@ -788,6 +825,32 @@ function HistoryTab() {
       {whenText(b.createdAt)}
     </button>
   );
+  const sendAccounts = (b: CheckinBatch) => <SendAccounts accounts={b.accounts} open={expanded.has(b.id)} onToggle={() => toggleAccounts(b.id)} />;
+
+  // Each send, then (when opened) one line per account: the ones it went to, then the ones it skipped.
+  const items: HistoryItem[] = shown.flatMap((b): HistoryItem[] => {
+    const head: HistoryItem = { kind: "batch", key: `b${b.id}`, batch: b };
+    if (!expanded.has(b.id)) return [head];
+    if (!(b.id in lines)) return [head, { kind: "loading", key: `l${b.id}` }];
+    const got = lines[b.id];
+    if (!got) return [head];
+    const sorted = [...got.rows].sort((x, y) => (x.accountName || x.accountId).localeCompare(y.accountName || y.accountId));
+    return [
+      head,
+      ...sorted.map((row): HistoryItem => ({ kind: "account", key: `r${row.id}`, row, skip: null, accountId: row.accountId, accountName: row.accountName || row.accountId })),
+      ...got.skipped.map((skip, index): HistoryItem => ({ kind: "account", key: `s${b.id}-${index}`, row: null, skip, accountId: skip.accountId, accountName: skip.accountName })),
+    ];
+  });
+  const accountLink = (item: Extract<HistoryItem, { kind: "account" }>) => (
+    <Link className="ui-link" href={accountHref(item.accountId)}>
+      {item.accountName}
+    </Link>
+  );
+  const answerCell = (item: Extract<HistoryItem, { kind: "account" }>) =>
+    item.row && item.row.status === "sent" ? <CheckinAnswer row={item.row} compact /> : null;
+  /** A cell: the send's own value, or this account's, or nothing on the "Loading…" line. */
+  const cell = (forBatch: (b: CheckinBatch) => ReactNode, forAccount: (item: Extract<HistoryItem, { kind: "account" }>) => ReactNode) => (item: HistoryItem) =>
+    item.kind === "batch" ? forBatch(item.batch) : item.kind === "account" ? forAccount(item) : null;
 
   return (
     <>
@@ -796,13 +859,28 @@ function HistoryTab() {
       {shown.length === 0 ? <EmptyState title="No sends for that account" text="Check the spelling, or clear the search." /> : null}
       <CardList
         label="Check-in sends"
-        items={shown}
-        getKey={(b) => String(b.id)}
-        renderCard={(b) => (
+        items={items}
+        getKey={(item) => item.key}
+        renderCard={(item) => {
+          if (item.kind === "loading") return <p className="ui-muted">Loading the accounts…</p>;
+          if (item.kind === "account") {
+            const c = accountCells(item);
+            return (
+              <div className="ui-card" style={{ marginLeft: 16 }}>
+                <p className="ui-card-text ui-strong">{accountLink(item)}</p>
+                <p className="ui-card-text">
+                  {[c.status, c.who, c.sent, c.failed, c.skipped, c.viewed ? `👁 Viewed: ${c.viewed}` : ""].filter(Boolean).join(" · ")}
+                </p>
+                {answerCell(item)}
+              </div>
+            );
+          }
+          const b = item.batch;
+          return (
           // Not a whole-card button: the account names inside are links. The date opens the send.
           <Card title={openButton(b)}>
             <p className="ui-card-text">
-              <SendAccounts accounts={b.accounts} />
+              {sendAccounts(b)}
             </p>
             <p className="ui-card-text">
               {how(b)} · by {b.createdBy || "Office"}
@@ -814,18 +892,19 @@ function HistoryTab() {
               {b.attention ? ` · 😟 ${b.attention}` : ""}
             </p>
           </Card>
-        )}
+          );
+        }}
         columns={[
-          { header: "When", cell: (b) => openButton(b) },
-          { header: "Account", cell: (b) => <SendAccounts accounts={b.accounts} /> },
-          { header: "Who", cell: (b) => b.createdBy || "Office" },
-          { header: "List", cell: (b) => how(b) },
-          { header: "Sent", cell: (b) => String(b.sent) },
-          { header: "Queued", cell: (b) => String(b.queued) },
-          { header: "Failed", cell: (b) => String(b.failed) },
-          { header: "Skipped", cell: (b) => String(b.skipped) },
-          { header: "👁 Viewed", cell: (b) => String(b.viewed) },
-          { header: "Answered", cell: (b) => `${b.answered}${b.attention ? ` (😟 ${b.attention})` : ""}` },
+          { header: "When", cell: (item) => (item.kind === "batch" ? openButton(item.batch) : item.kind === "loading" ? <span className="ui-muted">Loading…</span> : <span className="ui-muted">↳</span>) },
+          { header: "Account", cell: cell((b) => sendAccounts(b), accountLink) },
+          { header: "Who", cell: cell((b) => b.createdBy || "Office", (item) => accountCells(item).who) },
+          { header: "List", cell: cell((b) => how(b), (item) => accountCells(item).status) },
+          { header: "Sent", cell: cell((b) => String(b.sent), (item) => accountCells(item).sent) },
+          { header: "Queued", cell: cell((b) => String(b.queued), (item) => accountCells(item).queued) },
+          { header: "Failed", cell: cell((b) => String(b.failed), (item) => accountCells(item).failed) },
+          { header: "Skipped", cell: cell((b) => String(b.skipped), (item) => accountCells(item).skipped) },
+          { header: "👁 Viewed", headerTitle: VIEWED_TIP, cell: cell((b) => String(b.viewed), (item) => accountCells(item).viewed) },
+          { header: "Answered", headerTitle: ANSWERED_TIP, cell: cell((b) => `${b.answered}${b.attention ? ` (😟 ${b.attention})` : ""}`, answerCell) },
         ]}
       />
 

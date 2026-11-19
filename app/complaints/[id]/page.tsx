@@ -145,9 +145,9 @@ const customerNoteOf = (resolution: unknown) =>
 /** A photo link without its signature (?e=…&s=…), to compare two links to the same file. */
 const barePhoto = (url: string) => url.split("?")[0];
 
-const NOTICE_WORD: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Not sent", opened: "Opened WhatsApp", copied: "Copied" };
+const NOTICE_WORD: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Not sent", opened: "Opened WhatsApp", copied: "Copied", link_copied: "Link copied" };
 /** How a sub notice went: Text, Email, WhatsApp, Copy. */
-const NOTICE_CHANNEL: Record<string, string> = { text: "Text", email: "Email", whatsapp: "WhatsApp", copy: "Copy" };
+const NOTICE_CHANNEL: Record<string, string> = { text: "Text", email: "Email", whatsapp: "WhatsApp", copy: "Copy", link: "Complaint link" };
 
 type SaveResponse = {
   success?: boolean;

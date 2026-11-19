@@ -7,6 +7,7 @@
 //   Email          the same email as the automatic notice
 //   WhatsApp       opens WhatsApp with the message ready, to the sub's phone
 //   Copy message   copies the message to paste anywhere
+//   Copy complaint link  the complaint in the sub portal (never the staff page)
 //   Text + Email   both, exactly like the automatic notice
 // The automatic first notice (when a complaint is made) does not use this.
 // Every send is written on the complaint (lib/complaintSubNotice.ts); WhatsApp
@@ -17,7 +18,7 @@ import { useEffect, useState } from "react";
 import { ErrorBox, Sheet, showToast } from "@/app/ui";
 import { whatsappHref } from "@/lib/crewLinkPeople";
 
-type Info = { hasSub: boolean; subName: string; phone: string; email: string; message: string };
+type Info = { hasSub: boolean; subName: string; phone: string; email: string; message: string; link: string };
 type SendResult = { email: string; text: string; subName: string; reasons: string[] };
 type Channels = "text" | "email" | "both";
 
@@ -76,7 +77,8 @@ export default function NotifySubPicker({
       const textFailed = channels !== "email" && text === "failed";
       if (textFailed) {
         // Right away, here, so another way can be picked.
-        setError(parts.length > 0 ? `Text failed, try WhatsApp. (The email was sent.)` : "Text failed, try WhatsApp or Email.");
+        const why = reasons.find((reason) => reason.startsWith("The text was not sent: "))?.slice("The text was not sent: ".length) ?? "";
+        setError(`${parts.length > 0 ? "Text failed, try WhatsApp. (The email was sent.)" : "Text failed, try WhatsApp or Email."}${why ? ` Reason: ${why}` : ""}`);
         onDone(parts.length > 0 ? `${subName || "The sub"} was notified by email. The text failed.` : "Text failed, try WhatsApp or Email.", parts.length === 0);
         return;
       }
@@ -95,22 +97,23 @@ export default function NotifySubPicker({
     }
   }
 
-  /** WhatsApp / Copy: written on the complaint. The message is already out, so a failure only says so. */
-  function logged(method: "whatsapp" | "copy") {
+  /** WhatsApp / Copy / Copy link: written on the complaint. The message is already out, so a failure only says so. */
+  function logged(method: "whatsapp" | "copy" | "link") {
     post({ action: "logSubNotice", method, complaint: { id: complaintKey } })
-      .then(() => onDone(method === "whatsapp" ? "WhatsApp opened with the message." : "Message copied."))
+      .then(() => onDone(method === "whatsapp" ? "WhatsApp opened with the message." : method === "link" ? "Link copied." : "Message copied."))
       .catch(() => showToast("Done, but it was not written on the complaint.", "bad"));
   }
 
-  async function copy() {
+  async function copy(what: "copy" | "link") {
     if (!info) return;
+    const text = what === "link" ? info.link : info.message;
     try {
-      await navigator.clipboard.writeText(info.message);
+      await navigator.clipboard.writeText(text);
     } catch {
-      window.prompt("Copy this:", info.message);
+      window.prompt("Copy this:", text);
     }
-    showToast("Message copied ✓");
-    logged("copy");
+    showToast(what === "link" ? "Link copied ✓" : "Message copied ✓");
+    logged(what);
   }
 
   const noPhone = !info?.phone;
@@ -163,9 +166,16 @@ export default function NotifySubPicker({
               {noPhone ? <p className={NOTE}>No phone on file</p> : null}
             </div>
             <div>
-              <button type="button" disabled={locked} onClick={() => void copy()} className={`${BUTTON} border border-slate-300 bg-white text-slate-800 hover:bg-slate-50`}>
+              <button type="button" disabled={locked} onClick={() => void copy("copy")} className={`${BUTTON} border border-slate-300 bg-white text-slate-800 hover:bg-slate-50`}>
                 <span className="text-2xl" aria-hidden="true">📋</span> Copy message
               </button>
+            </div>
+            <div className="sm:col-span-2">
+              {/* The complaint in the sub portal (what the sub sees), never the staff page. */}
+              <button type="button" disabled={locked || !info.link} onClick={() => void copy("link")} className={`${BUTTON} border border-slate-300 bg-white text-slate-800 hover:bg-slate-50`}>
+                <span className="text-2xl" aria-hidden="true">🔗</span> Copy complaint link
+              </button>
+              <p className={NOTE}>Opens this complaint in the sub portal.</p>
             </div>
           </div>
           <div>

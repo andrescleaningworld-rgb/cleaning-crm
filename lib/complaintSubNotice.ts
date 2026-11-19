@@ -214,8 +214,10 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
     try {
       const sent = await sendSms(phone, subComplaintText(account, link), "complaints/notify-sub");
       result.text = sent.success ? "sent" : "failed";
-      if (!sent.success) result.reasons.push("The text was not sent.");
-      await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "text", status: result.text, detail: `To ***${last4}`, by });
+      // A failed text keeps Textbelt's reason, so the list says why (e.g. "Out of quota").
+      const why = sent.success ? "" : sent.error || "Textbelt gave no reason";
+      if (!sent.success) result.reasons.push(`The text was not sent: ${why}`);
+      await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "text", status: result.text, detail: why ? `To ***${last4}: ${why}` : `To ***${last4}`, by });
     } catch (error) {
       result.text = "failed";
       result.reasons.push("The text was not sent.");
@@ -226,7 +228,7 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
   return result;
 }
 
-export type SubNoticeInfo = { hasSub: boolean; subName: string; phone: string; email: string; message: string };
+export type SubNoticeInfo = { hasSub: boolean; subName: string; phone: string; email: string; message: string; /** The complaint in the SUB PORTAL (what the sub sees), never the staff page. */ link: string };
 
 /**
  * For the manual "Notify sub" picker: who the sub is, their phone and email,
@@ -235,7 +237,7 @@ export type SubNoticeInfo = { hasSub: boolean; subName: string; phone: string; e
  */
 export async function subNoticeInfo(input: { key: string; origin: string }): Promise<SubNoticeInfo> {
   const { row } = await loadNoticeRow(input.key);
-  if (!row.sub_id) return { hasSub: false, subName: "", phone: "", email: "", message: "" };
+  if (!row.sub_id) return { hasSub: false, subName: "", phone: "", email: "", message: "", link: "" };
   const account = clean(row.account_name) || "an account";
   const link = subPortalLink(input.origin, row);
   const text = subComplaintText(account, link);
@@ -245,18 +247,19 @@ export async function subNoticeInfo(input: { key: string; origin: string }): Pro
     phone: clean(row.phone),
     email: clean(row.email),
     message: text.includes(link) ? text : `${text}\n${link}`,
+    link,
   };
 }
 
-/** WhatsApp opened / message copied from the manual picker: written like the other notices. Delivery is not known. */
-export async function logManualSubNotice(input: { key: string; method: "whatsapp" | "copy"; by: string }): Promise<void> {
+/** WhatsApp opened / message or link copied from the manual picker: written like the other notices. Delivery is not known. */
+export async function logManualSubNotice(input: { key: string; method: "whatsapp" | "copy" | "link"; by: string }): Promise<void> {
   const { rowId, row } = await loadNoticeRow(input.key);
   const last4 = clean(row.phone).replace(/\D/g, "").slice(-4);
   await addComplaintEvent({
     complaintId: rowId,
     kind: "sub_notified",
     channel: input.method,
-    status: input.method === "whatsapp" ? "opened" : "copied",
+    status: input.method === "whatsapp" ? "opened" : input.method === "link" ? "link_copied" : "copied",
     detail: input.method === "whatsapp" && last4 ? `To ***${last4}` : "",
     by: input.by,
   });

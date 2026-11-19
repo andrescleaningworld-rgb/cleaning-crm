@@ -90,7 +90,7 @@ export async function sendSms(
   phone: string,
   rawMessage: string,
   routeContext: string = "unknown"
-): Promise<{ success: boolean; quotaRemaining?: number; textId?: string | number }> {
+): Promise<{ success: boolean; quotaRemaining?: number; textId?: string | number; /** Why it failed: Textbelt's own words, web addresses taken out (they can hold the key). */ error?: string }> {
   const last4 = phone.slice(-4);
   const strip = !smsLinksOn() && hasLink(rawMessage);
   const message = strip ? stripLinks(rawMessage) : rawMessage;
@@ -146,7 +146,7 @@ export async function sendSms(
       // successful send. With quota actually at 0, every send has been
       // failing, so that banner had no way to ever fire despite the account
       // being fully depleted.
-      return { success: false, quotaRemaining: data.quotaRemaining };
+      return { success: false, quotaRemaining: data.quotaRemaining, error: safeError };
     }
 
     console.log(
@@ -160,6 +160,6 @@ export async function sendSms(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[sms] threw (${routeContext}) to ***${last4}:`, redactUrls(message));
-    return { success: false };
+    return { success: false, error: `Could not reach Textbelt: ${redactUrls(message)}` };
   }
 }

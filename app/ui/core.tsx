@@ -399,6 +399,8 @@ export function Card({
 
 export type CardListColumn<T> = {
   header: string;
+  /** A tooltip on the header (hover). */
+  headerTitle?: string;
   cell: (item: T) => ReactNode;
   /** Extra class on this column's header and cells (e.g. a minimum width). */
   className?: string;
@@ -456,7 +458,7 @@ export function CardList<T>({
             <thead>
               <tr>
                 {columns.map((column) => (
-                  <th key={column.header} scope="col" className={column.className}>
+                  <th key={column.header} scope="col" className={column.className} title={column.headerTitle}>
                     {column.header}
                   </th>
                 ))}

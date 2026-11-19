@@ -89,7 +89,7 @@ type RequestBody = {
   id?: string;
   /** "Notify sub" picker: "text" | "email" | "both". */
   channels?: string;
-  /** "logSubNotice": "whatsapp" | "copy". */
+  /** "logSubNotice": "whatsapp" | "copy" | "link". */
   method?: string;
 } & ComplaintPayload;
 
@@ -441,7 +441,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: true, info });
         }
         const method = clean(body.method);
-        if (method !== "whatsapp" && method !== "copy") return NextResponse.json({ success: false, error: "Which way?" }, { status: 400 });
+        if (method !== "whatsapp" && method !== "copy" && method !== "link") return NextResponse.json({ success: false, error: "Which way?" }, { status: 400 });
         await logManualSubNotice({ key, method, by: actor.name || "Staff" });
         return NextResponse.json({ success: true });
       } catch (error) {
