@@ -557,7 +557,9 @@ export default function AccountDetailPage() {
     )
   );
 
-  const accountComplaintLink = `/complaints/new?accountId=${accountIdForUrl}&accountName=${accountNameForUrl}&account=${accountNameForUrl}`;
+  // Every "Add …" here comes back to this account after Save (?returnTo=, lib/returnTo.ts).
+  const backToAccount = `returnTo=${encodeURIComponent(`/accounts/${accountIdForUrl}`)}`;
+  const accountComplaintLink = `/complaints/new?accountId=${accountIdForUrl}&accountName=${accountNameForUrl}&account=${accountNameForUrl}&${backToAccount}`;
 
   const startDate =
     account?.accountStartDate ||
@@ -1163,10 +1165,10 @@ export default function AccountDetailPage() {
                   <BigButton kind="second" onClick={openStatusModal}>
                     Change status
                   </BigButton>
-                  <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                  <BigButton kind="second" icon="plus" href={`/account-updates?accountId=${accountIdForUrl}&account=${accountNameForUrl}&add=1&${backToAccount}`}>
                     Add update
                   </BigButton>
-                  <BigButton kind="second" icon="plus" href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}`}>
+                  <BigButton kind="second" icon="plus" href={`/sales?accountId=${accountIdForUrl}&account=${accountNameForUrl}&${backToAccount}`}>
                     Add sale
                   </BigButton>
                   <BigButton kind="second" onClick={() => (pinInfo ? setShowPrintChoice(true) : openPdfModal())}>
@@ -1409,8 +1411,8 @@ export default function AccountDetailPage() {
               />
               <Tile icon="todo" label="Add to-do" onClick={() => setShowToDo(true)} />
               <Tile icon="problem" label="Log problem" href={accountComplaintLink} />
-              <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}`} />
-              <Tile icon="money" label="+ Extra job" href={`/extra-jobs/new?accountId=${accountIdForUrl}`} />
+              <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}&${backToAccount}`} />
+              <Tile icon="money" label="+ Extra job" href={`/extra-jobs/new?accountId=${accountIdForUrl}&${backToAccount}`} />
               <Tile icon="key" label="Keys and alarm" onClick={() => setShowKeys(true)} />
             </div>
 

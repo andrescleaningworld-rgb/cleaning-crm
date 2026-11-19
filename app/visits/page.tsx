@@ -27,6 +27,7 @@ import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { managerMatches } from "@/lib/managerNames";
 import { useManagerNames } from "../components/manager-options";
 import { useLastVisits } from "../components/last-visited";
+import { withReturnTo } from "@/lib/returnTo";
 import type { VisitFilterAccount, VisitFilterSub } from "@/lib/pg/visits";
 
 type Visit = {
@@ -264,6 +265,51 @@ export default function VisitsPage() {
   }, [notVisitedOn, filterLists, everLast, inRange, search, filterAccount, filterSub, filterManager]);
   const notVisitedFailed = notVisitedOn && (everFailed || (rangeOn && rangeFailed));
 
+  // "+ Add visit" on a "Not visited" row: the New Visit form with the account
+  // picked, then back here with the same filters (in the address, ?nv=1), so
+  // the account is gone from the list once its visit is saved.
+  const notVisitedReturn = useMemo(() => {
+    const params = new URLSearchParams({ nv: "1" });
+    if (dateFrom) params.set("from", dateFrom);
+    if (dateTo) params.set("to", dateTo);
+    if (filterSub) params.set("sub", filterSub);
+    if (filterAccount) params.set("acct", filterAccount);
+    if (filterManager) params.set("mgr", filterManager);
+    if (search.trim()) params.set("q", search.trim());
+    return `/visits?${params.toString()}`;
+  }, [dateFrom, dateTo, filterSub, filterAccount, filterManager, search]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("nv") !== "1") return;
+    // The filters come back from the address once, on the way back from New Visit.
+    setFilterStatus("Not visited");
+    setDateFrom(params.get("from") ?? "");
+    setDateTo(params.get("to") ?? "");
+    setFilterSub(params.get("sub") ?? "");
+    setFilterAccount(params.get("acct") ?? "");
+    setFilterManager(params.get("mgr") ?? "");
+    setSearch(params.get("q") ?? "");
+  }, []);
+  const addVisitButton = (account: VisitFilterAccount) => (
+    <Link
+      href={withReturnTo(`/visits/new?accountId=${encodeURIComponent(account.id)}&account=${encodeURIComponent(account.name)}`, notVisitedReturn)}
+      className="ui-btn ui-nowrap"
+      style={{ background: "#16a34a", color: "#ffffff", borderColor: "#16a34a" }}
+      aria-label={`Add a visit to ${account.name || "this account"}`}
+    >
+      + Add visit
+    </Link>
+  );
+  /** The account, or "(No name) — fix" to its Edit page when it has no name. */
+  const notVisitedName = (account: VisitFilterAccount, className?: string) =>
+    account.name ? (
+      <AccountLink accountId={account.id} name={account.name} className={className} />
+    ) : (
+      <Link href={`/accounts/${encodeURIComponent(account.id)}/edit`} className={`ui-link ${className ?? ""}`.trim()}>
+        (No name) — fix
+      </Link>
+    );
+
   const visitsThisMonth = useMemo(() => visits.filter((v) => toISODate(v.date).startsWith(thisMonthPrefix)).length, [visits, thisMonthPrefix]);
   const followUpsNeeded = useMemo(
     () =>
@@ -378,30 +424,21 @@ export default function VisitsPage() {
                     items={notVisited}
                     getKey={({ account }) => account.id}
                     renderCard={({ account, last }) => (
-                      <Card title={<AccountLink accountId={account.id} name={account.name || "No account name"} />}>
+                      <Card title={notVisitedName(account)}>
                         <p className="ui-card-text">
                           Last visit: {last ? formatDate(last) : "Never"} · {account.manager || "No manager"}
                         </p>
                         {account.subName ? <p className="ui-card-text">Sub: {account.subName}</p> : null}
+                        <div style={{ marginTop: 12 }}>{addVisitButton(account)}</div>
                       </Card>
                     )}
+                    // "Not visited" has its own columns: no visit-only ones, and "Completed by" is the account's manager.
                     columns={[
-                      { header: "Date", cell: ({ last }) => <span className="ui-nowrap">{last ? `Last: ${formatDate(last)}` : "Never"}</span> },
-                      {
-                        header: "Account",
-                        cell: ({ account }) => (
-                          <span className="ui-strong">
-                            <AccountLink accountId={account.id} name={account.name || "No account name"} className="ui-table-rowlink" />
-                          </span>
-                        ),
-                      },
-                      { header: "Visit Type", cell: () => "" },
-                      { header: "Completed By", cell: ({ account }) => account.manager || "None" },
+                      { header: "Last visit", cell: ({ last }) => <span className="ui-nowrap">{last ? formatDate(last) : "Never"}</span> },
+                      { header: "Account", cell: ({ account }) => <span className="ui-strong">{notVisitedName(account, "ui-table-rowlink")}</span> },
+                      { header: "Manager", cell: ({ account }) => account.manager || "None" },
                       { header: "Subcontractor", cell: ({ account }) => account.subName || "None" },
-                      { header: "Condition", cell: () => "" },
-                      { header: "Follow-Up", cell: () => "" },
-                      { header: "Follow-Up Date", cell: () => "" },
-                      { header: "Notes", cell: () => "" },
+                      { header: "Add visit", cell: ({ account }) => addVisitButton(account) },
                     ]}
                   />
                 )}

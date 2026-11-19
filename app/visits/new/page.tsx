@@ -10,6 +10,7 @@ import AccountPickerField from "../../components/AccountPickerField";
 import { ManagerOptions, useManagerNames } from "../../components/manager-options";
 import { pickManager } from "@/lib/managerNames";
 import { useVisitTypes } from "@/app/components/use-visit-types";
+import { safeReturnTo } from "@/lib/returnTo";
 
 type Account = {
   id?: string;
@@ -55,6 +56,8 @@ function NewVisitPageContent() {
 
   const accountFromUrl = clean(searchParams.get("account"));
   const accountIdFromUrl = clean(searchParams.get("accountId"));
+  // Opened from an account's page or Visits -> "Not visited": back there after Save.
+  const returnTo = safeReturnTo(searchParams.get("returnTo"));
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -234,7 +237,7 @@ function NewVisitPageContent() {
       setMessage(data.message || "Visit saved successfully.");
 
       setTimeout(() => {
-        router.push("/visits");
+        router.push(returnTo || "/visits");
         router.refresh();
       }, 700);
     } catch (err) {
@@ -248,7 +251,7 @@ function NewVisitPageContent() {
     <Screen
       title="Add visit"
       subtitle="Save an account visit, condition score, notes, and follow-up information."
-      backHref="/visits"
+      backHref={returnTo || "/visits"}
       action={
         <BigButton busy={saving} busyLabel="Saving…" onClick={() => void handleSubmit()}>
           Save visit

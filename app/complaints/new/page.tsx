@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { safeReturnTo } from "@/lib/returnTo";
 import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../../components/pin-to-board";
 import { loadManagerNames } from "../../components/manager-options";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
@@ -252,6 +253,8 @@ function NewComplaintPageContent() {
   // Team Hub's "Promote to complaint" link (app/accounts/[id]/team-hub-tab.tsx)
   // prefills the issue description this way — manual-only, never auto-saved.
   const urlIssue = cleanText(searchParams.get("issue"));
+  const router = useRouter();
+  const returnTo = safeReturnTo(searchParams.get("returnTo"));
   // "Turn into complaint" on a customer check-in (Pin Board paper, account page):
   // the customer's comment, the photos and a "From customer check-in #…" line.
   // Manual only: nothing is saved until Save.
@@ -711,6 +714,8 @@ function NewComplaintPageContent() {
 
       draft.clear();
       setMessage(successMessage);
+      // Opened from an account's page: back there, once the message has been seen.
+      if (returnTo) window.setTimeout(() => router.push(returnTo), 1200);
       setForm(makeEmptyForm());
       setTodoDueDateTouched(false);
       setSelectedPhotos([]);
@@ -733,7 +738,7 @@ function NewComplaintPageContent() {
     <Screen
       title="Add complaint"
       subtitle="Create a new account complaint, attach photos, and notify the assigned subcontractor when possible."
-      backHref="/complaints"
+      backHref={returnTo || "/complaints"}
     >
       {message ? (
         messageIsProblem ? (

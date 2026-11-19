@@ -73,7 +73,7 @@ export default function AccountEverything({ accountId, accountName }: { accountI
                 ) : null}
               </Link>
               {tile.kind === "updates" ? (
-                <Link href={`/account-updates?${query}&add=1`} className="ui-counttile-new">
+                <Link href={`/account-updates?${query}&add=1&returnTo=${encodeURIComponent(`/accounts/${encodeURIComponent(accountId)}`)}`} className="ui-counttile-new">
                   + New update
                 </Link>
               ) : null}

@@ -8,7 +8,8 @@ import EditSaleSheet, { type EditableSale } from "./edit-sale";
 import { SALE_STATUSES, SELLERS, SERVICE_TYPES } from "./sale-options";
 import { AccountScopeBar, useAccountScope } from "../components/account-scope";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { safeReturnTo } from "@/lib/returnTo";
 import { parseISO } from "@/lib/dateUtils";
 import {
   COMMISSION_CHOICES,
@@ -288,6 +289,8 @@ function SalesPageContent() {
   const searchParams = useSearchParams();
 
   const accountIdFromUrl = searchParams.get("accountId") || "";
+  const router = useRouter();
+  const returnTo = safeReturnTo(searchParams.get("returnTo"));
   const accountNameFromUrl = searchParams.get("account") || "";
 
   // The Sales tile on the account page (?view=list): that account's sales, every date, with a way back.
@@ -720,6 +723,8 @@ function SalesPageContent() {
 
       setSelectedSalesperson(soldBy);
       setSaveMessage("Sale saved successfully.");
+      // Opened from an account's page ("Add sale"): back there.
+      if (returnTo) window.setTimeout(() => router.push(returnTo), 1200);
 
       setSaleDate(new Date().toISOString().split("T")[0]);
       setServiceSold("");

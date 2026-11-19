@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { safeReturnTo } from "@/lib/returnTo";
 import {
   AddButton,
   BigButton,
@@ -176,6 +177,8 @@ function AccountUpdatesPageContent() {
   const searchParams = useSearchParams();
 
   const accountIdFromUrl = searchParams.get("accountId") || "";
+  const router = useRouter();
+  const returnTo = safeReturnTo(searchParams.get("returnTo"));
   const accountNameFromUrl = searchParams.get("account") || "";
 
   const openedFromAccountDetail = Boolean(accountIdFromUrl || accountNameFromUrl);
@@ -548,6 +551,8 @@ function AccountUpdatesPageContent() {
       showToast(handoffs.state === "ready" ? "Logged ✓ — sent to Office" : CHEER.logged);
       if (handoffs.state === "ready") void handoffs.reload();
       setShowForm(false);
+      // Opened from an account's page ("Add update"): back there.
+      if (returnTo) window.setTimeout(() => router.push(returnTo), 900);
 
       setUpdateDate(todayDate());
       setUpdateType("General Update");

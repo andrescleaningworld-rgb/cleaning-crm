@@ -86,7 +86,7 @@ function AccountSearch({ accounts, disabled, onPick }: { accounts: AccountChoice
   );
 }
 
-export default function ExtraJobForm({ accountId: startAccountId = "", editId = "", from = "" }: { accountId?: string; editId?: string; from?: string }) {
+export default function ExtraJobForm({ accountId: startAccountId = "", editId = "", from = "", returnTo = "" }: { accountId?: string; editId?: string; from?: string; /** Opened from an account page: Save goes back there (lib/returnTo.ts). */ returnTo?: string }) {
   const router = useRouter();
   const [state, setState] = useState<State>("loading");
   const [choices, setChoices] = useState<FormChoices | null>(null);
@@ -255,7 +255,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       }
       if (notUploaded.length > 0) showToast(`Saved. The estimate did not upload (${notUploaded.join("; ")}). Add it on the job's page.`, "bad");
       else showToast(body.emailed === false ? "Saved. The email to the office did not go out." : CHEER.logged, body.emailed === false ? "bad" : "good");
-      router.push(`/extra-jobs/${body.job.id}`);
+      router.push(!editId && returnTo ? returnTo : `/extra-jobs/${body.job.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
       setSaving(false);
