@@ -7,6 +7,8 @@ import { PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from
 import { loadManagerNames } from "../../components/manager-options";
 import { BigButton, Card, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField } from "@/app/ui";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
+import { checkinComplaintMarker, ratingText } from "@/lib/customerCheckin";
+import type { CheckinForComplaint } from "@/lib/pg/customer-checkin";
 import { Switch } from "@/app/settings/reminders/sections";
 
 type AnyRow = Record<string, unknown>;
@@ -250,6 +252,12 @@ function NewComplaintPageContent() {
   // Team Hub's "Promote to complaint" link (app/accounts/[id]/team-hub-tab.tsx)
   // prefills the issue description this way — manual-only, never auto-saved.
   const urlIssue = cleanText(searchParams.get("issue"));
+  // "Turn into complaint" on a customer check-in (Pin Board paper, account page):
+  // the customer's comment, the photos and a "From customer check-in #…" line.
+  // Manual only: nothing is saved until Save.
+  const urlCheckinId = Number(cleanText(searchParams.get("fromCheckin"))) || 0;
+  const [fromCheckin, setFromCheckin] = useState<CheckinForComplaint | null>(null);
+  const [checkinError, setCheckinError] = useState("");
 
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
   const [managers, setManagers] = useState<string[]>([]);
@@ -330,6 +338,37 @@ function NewComplaintPageContent() {
       setShowAccountResults(false);
     }
   }, [urlAccountId, urlAccountName, urlIssue]);
+
+  // The check-in: fill in the issue (the customer's words) and the notes (where it came from, its photos).
+  useEffect(() => {
+    if (!urlCheckinId) return;
+    let alive = true;
+    fetch(`/api/customer-checkin?forComplaint=${urlCheckinId}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { success?: boolean; error?: string; checkin?: CheckinForComplaint }) => {
+        if (!alive) return;
+        if (!data.success || !data.checkin) {
+          setCheckinError(data.error || "The check-in did not load. Fill in the complaint by hand.");
+          return;
+        }
+        const checkin = data.checkin;
+        setFromCheckin(checkin);
+        const day = checkin.answeredAt ? new Date(checkin.answeredAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+        const fromLine = `${checkinComplaintMarker(checkin.id)} (${ratingText(checkin.answer)}${day ? `, ${day}` : ""})`;
+        const lines = [fromLine, checkin.photos.length ? `Photos: ${checkin.photos.join(", ")}` : ""].filter(Boolean);
+        setForm((current) => ({
+          ...current,
+          accountId: current.accountId || checkin.accountId,
+          accountName: current.accountName || checkin.accountName,
+          issue: current.issue || checkin.comment || `The customer answered "${ratingText(checkin.answer)}" on a check-in, with no comment.`,
+          notes: current.notes.includes(checkinComplaintMarker(checkin.id)) ? current.notes : [lines.join("\n"), current.notes].filter(Boolean).join("\n"),
+        }));
+      })
+      .catch(() => alive && setCheckinError("The check-in did not load. Fill in the complaint by hand."));
+    return () => {
+      alive = false;
+    };
+  }, [urlCheckinId]);
 
   useEffect(() => {
     if ((!urlAccountId && !urlAccountName) || accounts.length === 0) return;
@@ -635,6 +674,22 @@ function NewComplaintPageContent() {
 
       let successMessage = "Complaint saved successfully.";
 
+      // Made from a check-in: its Pin Board paper comes down. The complaint is saved either way.
+      if (fromCheckin && form.notes.includes(checkinComplaintMarker(fromCheckin.id))) {
+        try {
+          const madeResponse = await fetch("/api/customer-checkin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "madeComplaint", checkinId: fromCheckin.id, complaintKey: data.id || (data.rowNumber ? String(data.rowNumber) : "") }),
+          });
+          if (!madeResponse.ok) throw new Error();
+          successMessage += " The check-in's Pin Board paper came down.";
+        } catch {
+          successMessage += " The check-in's Pin Board paper is still up: take it down by hand.";
+        }
+        setFromCheckin(null);
+      }
+
       if (selectedPhotos.length > 0) {
         await uploadComplaintPhotos(complaintSourceId);
         successMessage += ` ${selectedPhotos.length} photo${
@@ -724,6 +779,23 @@ function NewComplaintPageContent() {
       {/* The form keeps the browser's own "fill this in" checks (account, date, issue, manager). */}
       <form onSubmit={handleSubmit} className="ui-screen-body">
         <DraftNotice draft={draft} />
+        {fromCheckin ? (
+          <Card title={`From a customer check-in: ${ratingText(fromCheckin.answer)}`}>
+            <p className="ui-card-text">
+              The customer&apos;s words are in Issue, and the check-in and its photos are in Notes. Check the type and priority, then Save. Saving notifies the sub like any new complaint.
+            </p>
+            {fromCheckin.complaintKey ? (
+              <p className="ui-field-error">
+                This check-in was already turned into complaint{" "}
+                <a className="ui-link" href={`/complaints/${encodeURIComponent(fromCheckin.complaintKey)}`}>
+                  {fromCheckin.complaintKey}
+                </a>
+                . Saving makes a second one.
+              </p>
+            ) : null}
+          </Card>
+        ) : null}
+        {checkinError ? <ErrorBox title="Check-in not loaded" text={checkinError} /> : null}
         <div className="ui-field" style={{ position: "relative" }}>
           <Field
             label="Account"

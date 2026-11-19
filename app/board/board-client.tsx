@@ -39,6 +39,7 @@ import AccountPickerField, { type PickedAccount } from "../components/AccountPic
 import MarkateCheckNow from "../components/MarkateCheckNow";
 import { enterFullScreen } from "./full-screen";
 import NotifySubButton from "../components/notify-sub-button";
+import { checkinComplaintHref } from "@/lib/customerCheckin";
 import { ResponseClock } from "../components/response-clock";
 import styles from "./board.module.css";
 
@@ -91,6 +92,8 @@ export type BoardTab = "board" | "mine" | "calendar" | "tv";
 
 /** A blue paper that mirrors a real extra job: it is finished on the job's page (Done ✓ in its popup goes there), never with Unpin. */
 const isExtraJob = (paper: Paper) => paper.kind === "extra" && paper.itemId.startsWith("job-");
+/** A customer check-in's paper ("checkin:<id>:attention" / ":ok", lib/pg/customer-checkin.ts): its check-in id, else 0. */
+const checkinIdOf = (paper: Paper) => (paper.kind === "note" ? Number(/^checkin:(\d+):/.exec(paper.itemId)?.[1] ?? 0) : 0);
 
 export const BOARD_TABS: { value: BoardTab; label: string }[] = [
   { value: "board", label: "Whole board" },
@@ -508,6 +511,12 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               {open.href ? <BigButton onClick={() => openDetails(open)}>{open.href.startsWith("/supply-orders/print") ? "📄 Open order" : open.href.startsWith("/complaints/") ? "Open complaint" : "Open full details"}</BigButton> : null}
               {/* A complaint (its own paper or one pinned by hand): tell the sub by email + text. */}
               {complaintKeyOf(open) ? <NotifySubButton key={complaintKeyOf(open)} complaintKey={complaintKeyOf(open)} /> : null}
+              {/* A customer check-in (Needs attention / OK): the New complaint form, filled in from it. */}
+              {checkinIdOf(open) ? (
+                <BigButton kind="second" onClick={() => openDetails({ ...open, href: checkinComplaintHref({ checkinId: checkinIdOf(open), accountId: open.accountId, accountName: open.accountName }) })}>
+                  Turn into complaint
+                </BigButton>
+              ) : null}
               {/* A pinned account: the Print PDF file, made fresh when tapped (new tab, so the board stays open). */}
               {open.pdfHref ? (
                 <a className="ui-btn ui-btn-second" href={open.pdfHref} target="_blank" rel="noopener">

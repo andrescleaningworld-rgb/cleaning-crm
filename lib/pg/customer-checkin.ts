@@ -659,7 +659,65 @@ export async function accountCheckins(accountId: string): Promise<{ ready: boole
     getSql().query(`SELECT ${await rowSelect()} ${ROW_FROM} WHERE k.account_id = $1 ORDER BY k.created_at DESC, k.id DESC LIMIT 100`, [accountId]) as unknown as Promise<DbRow[]>,
     getSql()`SELECT 1 FROM customer_checkin_optouts WHERE account_id = ${accountId}` as unknown as Promise<unknown[]>,
   ]);
-  return { ready: true, optedOut: out.length > 0, rows: rows.map(toRow) };
+  const made = await complaintsFromCheckins(accountId).catch(() => new Map<number, string>());
+  return { ready: true, optedOut: out.length > 0, rows: rows.map(toRow).map((row) => ({ ...row, complaintKey: made.get(row.id) ?? "" })) };
+}
+
+/* ---------- "Turn into complaint" ---------- */
+
+/** Check-in id → the complaint made from it, for one account (or every account). Matched by the Notes line. */
+async function complaintsFromCheckins(accountId?: string): Promise<Map<number, string>> {
+  const rows = (await getSql().query(
+    `SELECT btrim(complaint_id) AS complaint_id, sheet_row, notes FROM complaints
+     WHERE notes LIKE '%From customer check-in #%' AND ($1::text IS NULL OR account_ref = $1::text)`,
+    [accountId ?? null]
+  )) as { complaint_id: string | null; sheet_row: number | null; notes: string }[];
+  const out = new Map<number, string>();
+  for (const row of rows) {
+    for (const match of String(row.notes ?? "").matchAll(/From customer check-in #(\d+)/g)) {
+      const key = clean(row.complaint_id) || String(row.sheet_row ?? "");
+      if (key && !out.has(Number(match[1]))) out.set(Number(match[1]), key);
+    }
+  }
+  return out;
+}
+
+export type CheckinForComplaint = {
+  id: number;
+  accountId: string;
+  accountName: string;
+  answer: string;
+  answeredAt: string;
+  comment: string;
+  photos: string[];
+  /** Already turned into this complaint, or "". */
+  complaintKey: string;
+};
+
+/** What the New complaint form fills in from a check-in. Null when there is no such check-in. */
+export async function checkinForComplaint(id: number): Promise<CheckinForComplaint | null> {
+  if (!(await checkinReady())) return null;
+  const rows = (await getSql().query(`SELECT ${await rowSelect()} ${ROW_FROM} WHERE k.id = $1`, [id])) as unknown as DbRow[];
+  if (!rows[0]) return null;
+  const row = toRow(rows[0]);
+  const made = await complaintsFromCheckins(row.accountId).catch(() => new Map<number, string>());
+  return { id: row.id, accountId: row.accountId, accountName: row.accountName, answer: row.answer, answeredAt: row.answeredAt, comment: row.comment, photos: row.photos, complaintKey: made.get(row.id) ?? "" };
+}
+
+/** A complaint was made from the check-in: its Pin Board paper comes down (the complaint has its own). */
+export async function checkinBecameComplaint(input: { checkinId: number; complaintKey: string; by: string }): Promise<void> {
+  const why = `Turned into complaint ${input.complaintKey}`.trim();
+  await takeDownPapers(`checkin:${input.checkinId}:`, why);
+  const rows = (await getSql()`SELECT account_id FROM customer_checkins WHERE id = ${input.checkinId}`.catch(() => [])) as { account_id: string }[];
+  await logActivity({
+    actorAccountId: null,
+    actorRole: "manager",
+    actorName: input.by,
+    action: "update",
+    entityType: "account",
+    entityId: rows[0]?.account_id ?? null,
+    detail: `Check-in #${input.checkinId} turned into complaint ${input.complaintKey}`,
+  }).catch(() => undefined);
 }
 
 /** The saved copy of one check-in email ("View email"). */

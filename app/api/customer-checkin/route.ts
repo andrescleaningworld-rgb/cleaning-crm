@@ -21,7 +21,9 @@ import {
   NOT_READY,
   accountCheckins,
   batchDetail,
+  checkinBecameComplaint,
   checkinCopy,
+  checkinForComplaint,
   checkinReady,
   deleteCheckinList,
   lastCheckins,
@@ -56,6 +58,12 @@ export async function GET(request: NextRequest) {
     if (copy > 0) {
       const found = await checkinCopy(copy);
       return found ? ok({ ready: true, ...found }) : refuse("No saved copy of this email.", 404);
+    }
+    // "Turn into complaint": what the New complaint form fills in.
+    const forComplaint = Number(params.get("forComplaint"));
+    if (forComplaint > 0) {
+      const found = await checkinForComplaint(forComplaint);
+      return found ? ok({ ready: true, checkin: found }) : refuse("That check-in is not there.", 404);
     }
     const batch = Number(params.get("batch"));
     if (batch > 0) {
@@ -107,6 +115,14 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         return refuse(error instanceof Error ? error.message : "The list was not saved.");
       }
+    }
+    // The complaint made from a check-in is saved: the check-in's Pin Board paper comes down.
+    if (action === "madeComplaint") {
+      const checkinId = Number(body.checkinId);
+      const complaintKey = String(body.complaintKey ?? "").trim().slice(0, 60);
+      if (!(checkinId > 0)) return refuse("Which check-in?");
+      await checkinBecameComplaint({ checkinId, complaintKey, by });
+      return ok({});
     }
     if (action === "deleteList") {
       const id = Number(body.id);

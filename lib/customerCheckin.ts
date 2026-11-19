@@ -173,7 +173,18 @@ export type CheckinRow = {
   openCount: number;
   error: string;
   hasCopy: boolean;
+  /** The complaint made from this check-in with "Turn into complaint", or "" (account page only). */
+  complaintKey?: string;
 };
+
+/** The line a complaint made from a check-in carries in its Notes; it is how the two are matched (no extra column). */
+export const checkinComplaintMarker = (checkinId: number) => `From customer check-in #${checkinId}`;
+
+/** "Turn into complaint": the New complaint form, filled in from the check-in. */
+export function checkinComplaintHref(input: { checkinId: number; accountId: string; accountName: string }): string {
+  const params = new URLSearchParams({ fromCheckin: String(input.checkinId), accountId: input.accountId, accountName: input.accountName });
+  return `/complaints/new?${params.toString()}`;
+}
 
 /** One press of Send. */
 export type CheckinBatch = {

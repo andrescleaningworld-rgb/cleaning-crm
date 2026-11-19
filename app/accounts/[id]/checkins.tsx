@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BigButton, Card } from "@/app/ui";
 import { CheckinAnswer, CheckinEmailSheet, CheckinProgress, CheckinSendSheet, whenText } from "@/app/components/checkins";
-import { BATCH_KIND_TEXT, CHECKIN_VIEWED_NOTE, type CheckinRow } from "@/lib/customerCheckin";
+import { BATCH_KIND_TEXT, CHECKIN_VIEWED_NOTE, checkinComplaintHref, ratingOf, type CheckinRow } from "@/lib/customerCheckin";
+import Link from "next/link";
 
 type Data = { ready: boolean; optedOut: boolean; rows: CheckinRow[] };
 
@@ -83,6 +84,21 @@ export default function AccountCheckins({ accountId, cancelled }: { accountId: s
                 {row.status === "sent" ? (
                   <div style={{ marginTop: 6 }}>
                     <CheckinAnswer row={row} />
+                  </div>
+                ) : null}
+                {/* Needs attention / OK: make a complaint from it by hand (never automatic). */}
+                {row.complaintKey ? (
+                  <p className="ui-card-text" style={{ marginTop: 6 }}>
+                    Turned into complaint{" "}
+                    <Link className="ui-link" href={`/complaints/${encodeURIComponent(row.complaintKey)}`}>
+                      {row.complaintKey}
+                    </Link>
+                  </p>
+                ) : ratingOf(row.answer) === "attention" || ratingOf(row.answer) === "ok" ? (
+                  <div style={{ marginTop: 6 }}>
+                    <Link className="ui-btn ui-btn-second" href={checkinComplaintHref({ checkinId: row.id, accountId, accountName: row.accountName })}>
+                      Turn into complaint
+                    </Link>
                   </div>
                 ) : null}
                 {row.hasCopy ? (
