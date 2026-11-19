@@ -5,6 +5,7 @@
 // in app/globals.css. See docs/MIGRATION_PLAN.md Part B for the rules.
 
 import Link from "next/link";
+import BackButton from "@/app/components/BackButton";
 import { useRouter } from "next/navigation";
 import {
   createContext,
@@ -135,9 +136,9 @@ export function Screen({
     <div className="ui-screen">
       <header className="ui-screen-header">
         {backHref ? (
-          <Link href={backHref} className="ui-btn ui-btn-quiet ui-btn-icon" aria-label={words.back}>
+          <BackButton fallback={backHref} className="ui-btn ui-btn-quiet ui-btn-icon" ariaLabel={words.back}>
             <Icon name="back" />
-          </Link>
+          </BackButton>
         ) : onBack ? (
           <button type="button" onClick={onBack} className="ui-btn ui-btn-quiet ui-btn-icon" aria-label={words.back}>
             <Icon name="back" />

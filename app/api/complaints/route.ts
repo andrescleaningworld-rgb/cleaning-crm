@@ -7,7 +7,7 @@ import {
   getComplaintsAppsScriptShape,
 } from "@/lib/data/complaints";
 import { sendInternalNotification } from "@/lib/email";
-import { notifySubOfComplaint } from "@/lib/complaintSubNotice";
+import { logManualSubNotice, notifySubOfComplaint, subNoticeInfo } from "@/lib/complaintSubNotice";
 import { mergeComplaints } from "@/lib/pg/complaint-changes";
 import { markFirstResponse } from "@/lib/pg/complaint-response";
 import { addComplaintEvent, complaintRowId } from "@/lib/pg/complaint-events";
@@ -87,6 +87,10 @@ type RequestBody = {
   complaint?: ComplaintPayload;
   rowNumber?: string | number;
   id?: string;
+  /** "Notify sub" picker: "text" | "email" | "both". */
+  channels?: string;
+  /** "logSubNotice": "whatsapp" | "copy". */
+  method?: string;
 } & ComplaintPayload;
 
 function clean(value: unknown): string {
@@ -404,8 +408,11 @@ export async function POST(request: NextRequest) {
       if (!actor) return NextResponse.json({ success: false, error: "Log in first. Nothing was sent." }, { status: 401 });
       const key = clean(complaint.id || complaint.complaintId || body.id) || clean(complaint.rowNumber || body.rowNumber);
       if (!key) return NextResponse.json({ success: false, error: "Which complaint? Reload the page." }, { status: 400 });
+      // The manual picker says which ways: "text", "email" or "both". Left out: both, as before.
+      const how = clean(body.channels);
+      const channels = how === "text" ? { email: false, text: true } : how === "email" ? { email: true, text: false } : undefined;
       try {
-        const result = await notifySubOfComplaint({ key, origin: new URL(request.url).origin, by: actor.name || "Staff" });
+        const result = await notifySubOfComplaint({ key, origin: new URL(request.url).origin, by: actor.name || "Staff", channels });
         const sentSomething = result.email === "sent" || result.text === "sent";
         return NextResponse.json({
           success: true,
@@ -416,6 +423,30 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "The notice was not sent.";
         console.error("[complaints notifySub]", message);
+        return NextResponse.json({ success: false, error: message }, { status: message === "Complaint not found." ? 404 : 500 });
+      }
+    }
+
+    // The manual "Notify sub" picker: "notifySubInfo" reads the sub's phone,
+    // email and the WhatsApp / Copy message; "logSubNotice" writes that
+    // WhatsApp was opened or the message copied (delivery is not known).
+    if (requestedAction === "notifySubInfo" || requestedAction === "logSubNotice") {
+      const actor = await getAdminIdentity(request);
+      if (!actor) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401 });
+      const key = clean(complaint.id || complaint.complaintId || body.id) || clean(complaint.rowNumber || body.rowNumber);
+      if (!key) return NextResponse.json({ success: false, error: "Which complaint? Reload the page." }, { status: 400 });
+      try {
+        if (requestedAction === "notifySubInfo") {
+          const info = await subNoticeInfo({ key, origin: new URL(request.url).origin });
+          return NextResponse.json({ success: true, info });
+        }
+        const method = clean(body.method);
+        if (method !== "whatsapp" && method !== "copy") return NextResponse.json({ success: false, error: "Which way?" }, { status: 400 });
+        await logManualSubNotice({ key, method, by: actor.name || "Staff" });
+        return NextResponse.json({ success: true });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "That did not work.";
+        console.error(`[complaints ${requestedAction}]`, message);
         return NextResponse.json({ success: false, error: message }, { status: message === "Complaint not found." ? 404 : 500 });
       }
     }

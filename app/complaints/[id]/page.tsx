@@ -26,6 +26,7 @@ import { ResponseClock } from "../../components/response-clock";
 import { complaintIsOpen } from "@/lib/responseClock";
 import { EMPTY_FIX_PROOF, FixProofFields, fixProofProblem, uploadFixPhotos, type FixProof } from "../../components/fix-proof";
 import PizzaTracker from "../../components/pizza-tracker";
+import NotifySubPicker from "../../components/notify-sub-picker";
 import { Switch } from "@/app/settings/reminders/sections";
 import { COMPLAINT_STEPS, isReviewStatus, type ComplaintTrackView } from "@/lib/complaintSteps";
 
@@ -144,7 +145,9 @@ const customerNoteOf = (resolution: unknown) =>
 /** A photo link without its signature (?e=…&s=…), to compare two links to the same file. */
 const barePhoto = (url: string) => url.split("?")[0];
 
-const NOTICE_WORD: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Not sent" };
+const NOTICE_WORD: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Not sent", opened: "Opened WhatsApp", copied: "Copied" };
+/** How a sub notice went: Text, Email, WhatsApp, Copy. */
+const NOTICE_CHANNEL: Record<string, string> = { text: "Text", email: "Email", whatsapp: "WhatsApp", copy: "Copy" };
 
 type SaveResponse = {
   success?: boolean;
@@ -231,7 +234,6 @@ export default function ComplaintDetailPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const [isEditing, setIsEditing] = useState(false);
-  const [resending, setResending] = useState(false);
   const [subNotices, setSubNotices] = useState<SubNotice[]>([]);
   const [additions, setAdditions] = useState<Addition[]>([]);
   const [mergeTargets, setMergeTargets] = useState<MergeTarget[]>([]);
@@ -261,8 +263,8 @@ export default function ComplaintDetailPage() {
   const afterUrls = [...new Set(fixes.flatMap((fix) => fix.photos))];
   const noPhotoReasons = fixes.filter((fix) => fix.photos.length === 0 && fix.detail).map((fix) => fix.detail);
   const router = useRouter();
-  // "Send again?": shown when the sub was already told once.
-  const [confirmNotify, setConfirmNotify] = useState(false);
+  // The "Notify sub" picker (Text / Email / WhatsApp / Copy / Text + Email).
+  const [notifyPickerOpen, setNotifyPickerOpen] = useState(false);
   const lastNotified = subNotices.find((notice) => notice.status === "sent")?.at ?? "";
   const [editForm, setEditForm] = useState({
     date: "",
@@ -589,47 +591,23 @@ export default function ComplaintDetailPage() {
     }
   }
 
-  /** "Notify sub": asks "Send again?" first when the sub was already told. */
+  /** "Notify sub" / "Notify sub again": the picker of how to send it (app/components/notify-sub-picker.tsx). */
   function askNotifySub() {
-    if (lastNotified) setConfirmNotify(true);
-    else void notifySub();
+    setError("");
+    setSuccessMessage("");
+    setNotifyPickerOpen(true);
   }
 
-  // Email + text to the account's sub (POST /api/complaints, action "notifySub"); each try is written on the complaint.
-  async function notifySub() {
-    if (!complaint) return;
-    setConfirmNotify(false);
-
-    try {
-      setResending(true);
-      setError("");
+  /** A send or log from the picker: the message here, and the list of notices read again. */
+  function notifyDone(message: string, bad?: boolean) {
+    if (bad) {
       setSuccessMessage("");
-
-      const response = await fetch("/api/complaints", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "notifySub", complaint: { rowNumber: complaint.rowNumber || "", id: complaint.id || "" } }),
-      });
-      const data = (await response.json().catch(() => ({}))) as SaveResponse & {
-        result?: { email: string; text: string; subName: string; reasons: string[] };
-      };
-      if (!response.ok || data.success !== true || !data.result) {
-        throw new Error(data.error || "The notice was not sent. Try again.");
-      }
-
-      const { email, text, subName, reasons } = data.result;
-      const parts = [email === "sent" ? "email" : "", text === "sent" ? "text" : ""].filter(Boolean);
-      if (parts.length > 0) {
-        setSuccessMessage(`${subName || "The sub"} was notified by ${parts.join(" and ")}.${reasons.length ? ` (${reasons.join(" ")})` : ""}`);
-      } else {
-        setError(`Not sent: ${reasons.join(" ") || "unknown reason."}`);
-      }
-      await loadComplaints();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "The notice was not sent.");
-    } finally {
-      setResending(false);
+      setError(message);
+    } else {
+      setError("");
+      setSuccessMessage(message);
     }
+    void loadComplaints();
   }
 
   const set = (key: keyof typeof editForm) => (event: { target: { value: string } }) =>
@@ -646,7 +624,7 @@ export default function ComplaintDetailPage() {
           <MoreMenu
             items={[
               { label: "Edit", onSelect: startEditing },
-              { label: resending ? "Sending…" : "Notify sub", onSelect: askNotifySub },
+              { label: "Notify sub", onSelect: askNotifySub },
               { label: LABELS.print, onSelect: () => window.print() },
             ]}
           />
@@ -801,7 +779,7 @@ export default function ComplaintDetailPage() {
               {lastNotified ? `Last notified: ${formatWhen(lastNotified)}` : "Not notified yet."}
             </p>
             <div style={{ marginTop: 12 }}>
-              <BigButton busy={resending} busyLabel="Sending…" onClick={askNotifySub}>
+              <BigButton onClick={askNotifySub}>
                 {lastNotified ? "Notify sub again" : "Notify sub"}
               </BigButton>
             </div>
@@ -809,9 +787,9 @@ export default function ComplaintDetailPage() {
               <ul className="ui-list-plain" style={{ marginTop: 12 }}>
                 {subNotices.slice(0, 6).map((notice, index) => (
                   <li key={`${notice.at}-${notice.channel}-${index}`} className="ui-card-text">
-                    {formatWhen(notice.at)} · {notice.channel === "text" ? "Text" : "Email"}: {NOTICE_WORD[notice.status] ?? notice.status}
+                    {formatWhen(notice.at)} · {NOTICE_CHANNEL[notice.channel] ?? notice.channel}: {NOTICE_WORD[notice.status] ?? notice.status}
                     {notice.detail ? ` (${notice.detail})` : ""}
-                    {notice.by && notice.by !== "System" ? ` · by ${notice.by}` : ""}
+                    {notice.by && notice.by !== "System" ? ` · by ${notice.by}` : " · Automatic"}
                   </li>
                 ))}
               </ul>
@@ -1033,18 +1011,16 @@ export default function ComplaintDetailPage() {
         {mergeError ? <ErrorBox title="Not merged." text={mergeError} /> : null}
       </Sheet>
 
-      {/* The sub was already told: ask before sending again. */}
-      <Sheet
-        open={confirmNotify}
-        title="Send again?"
-        text={lastNotified ? `The sub was last notified ${formatWhen(lastNotified)}.` : undefined}
-        onClose={() => setConfirmNotify(false)}
-        actions={
-          <BigButton busy={resending} busyLabel="Sending…" onClick={() => void notifySub()}>
-            Yes, send again
-          </BigButton>
-        }
-      />
+      {/* "Notify sub" / "Notify sub again": how to send it. */}
+      {complaint ? (
+        <NotifySubPicker
+          open={notifyPickerOpen}
+          complaintKey={clean(complaint.id) || String(complaint.rowNumber || "")}
+          lastNotified={lastNotified ? formatWhen(lastNotified) : ""}
+          onClose={() => setNotifyPickerOpen(false)}
+          onDone={notifyDone}
+        />
+      ) : null}
 
       <Sheet
         open={isEditing && complaint !== undefined}

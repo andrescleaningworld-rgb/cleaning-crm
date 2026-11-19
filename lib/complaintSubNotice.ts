@@ -108,10 +108,9 @@ export function subComplaintText(account: string, link: string): string {
   return sanitizeSmsText(lines.join("\n"), Infinity);
 }
 
-/** Sends the email and the text to the account's sub, and writes both to the complaint's events. */
-export async function notifySubOfComplaint(input: { key: string; origin: string; by?: string }): Promise<SubNoticeResult> {
-  const by = input.by || "System";
-  const rowId = await complaintRowId(input.key);
+/** The complaint with its account's sub (email, phone). Throws "Complaint not found." */
+async function loadNoticeRow(key: string): Promise<{ rowId: number; row: Row }> {
+  const rowId = await complaintRowId(key);
   if (rowId === null) throw new Error("Complaint not found.");
 
   const rows = (await getSql().query(
@@ -137,6 +136,25 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
   )) as Row[];
   const row = rows[0];
   if (!row) throw new Error("Complaint not found.");
+  return { rowId, row };
+}
+
+function subPortalLink(origin: string, row: Row): string {
+  const key = clean(row.complaint_id) || String(row.sheet_row);
+  return `${origin.replace(/\/$/, "")}${SUB_PORTAL_PATH}?complaint=${encodeURIComponent(key)}`;
+}
+
+/** Which ways a manual "Notify sub" sends. The automatic notice always sends both. */
+export type NoticeChannels = { email: boolean; text: boolean };
+
+/**
+ * Sends the email and the text to the account's sub, and writes both to the complaint's events.
+ * `channels` (the manual picker) sends only the ways picked; left out, both go, as always.
+ */
+export async function notifySubOfComplaint(input: { key: string; origin: string; by?: string; channels?: NoticeChannels }): Promise<SubNoticeResult> {
+  const by = input.by || "System";
+  const channels = input.channels ?? { email: true, text: true };
+  const { rowId, row } = await loadNoticeRow(input.key);
 
   const subName = clean(row.company_name) || clean(row.contact_name);
   const result: SubNoticeResult = { email: "skipped", text: "skipped", subName, reasons: [] };
@@ -145,20 +163,22 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
   if (!row.sub_id) {
     const reason = "No sub is set on this complaint's account.";
     result.reasons.push(reason);
-    await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "email", status: "skipped", detail: reason, by });
-    await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "text", status: "skipped", detail: reason, by });
+    if (channels.email) await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "email", status: "skipped", detail: reason, by });
+    if (channels.text) await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "text", status: "skipped", detail: reason, by });
     return result;
   }
 
   const key = clean(row.complaint_id) || String(row.sheet_row);
-  const link = `${input.origin.replace(/\/$/, "")}${SUB_PORTAL_PATH}?complaint=${encodeURIComponent(key)}`;
+  const link = subPortalLink(input.origin, row);
   const photos = await complaintPhotoMap([{ id: key, notes: row.notes }])
     .then((map) => (map.get(key) ?? []).length)
     .catch(() => 0);
 
   // Email
   const email = clean(row.email);
-  if (!email) {
+  if (!channels.email) {
+    // Not picked this time.
+  } else if (!email) {
     result.reasons.push("No email on file for the sub.");
     await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "email", status: "skipped", detail: `No email on file for ${subName || "the sub"}.`, by });
   } else {
@@ -184,7 +204,9 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
 
   // Text
   const phone = clean(row.phone);
-  if (!phone) {
+  if (!channels.text) {
+    // Not picked this time.
+  } else if (!phone) {
     result.reasons.push("No phone on file for the sub.");
     await addComplaintEvent({ complaintId: rowId, kind: "sub_notified", channel: "text", status: "skipped", detail: `No phone on file for ${subName || "the sub"}.`, by });
   } else {
@@ -202,6 +224,42 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
   }
 
   return result;
+}
+
+export type SubNoticeInfo = { hasSub: boolean; subName: string; phone: string; email: string; message: string };
+
+/**
+ * For the manual "Notify sub" picker: who the sub is, their phone and email,
+ * and the message for WhatsApp / Copy (the same words as the text, with the
+ * sub portal link, which WhatsApp and a pasted message can carry).
+ */
+export async function subNoticeInfo(input: { key: string; origin: string }): Promise<SubNoticeInfo> {
+  const { row } = await loadNoticeRow(input.key);
+  if (!row.sub_id) return { hasSub: false, subName: "", phone: "", email: "", message: "" };
+  const account = clean(row.account_name) || "an account";
+  const link = subPortalLink(input.origin, row);
+  const text = subComplaintText(account, link);
+  return {
+    hasSub: true,
+    subName: clean(row.company_name) || clean(row.contact_name),
+    phone: clean(row.phone),
+    email: clean(row.email),
+    message: text.includes(link) ? text : `${text}\n${link}`,
+  };
+}
+
+/** WhatsApp opened / message copied from the manual picker: written like the other notices. Delivery is not known. */
+export async function logManualSubNotice(input: { key: string; method: "whatsapp" | "copy"; by: string }): Promise<void> {
+  const { rowId, row } = await loadNoticeRow(input.key);
+  const last4 = clean(row.phone).replace(/\D/g, "").slice(-4);
+  await addComplaintEvent({
+    complaintId: rowId,
+    kind: "sub_notified",
+    channel: input.method,
+    status: input.method === "whatsapp" ? "opened" : "copied",
+    detail: input.method === "whatsapp" && last4 ? `To ***${last4}` : "",
+    by: input.by,
+  });
 }
 
 /** When the sub was last told (a sent email or text), or "" when never. */

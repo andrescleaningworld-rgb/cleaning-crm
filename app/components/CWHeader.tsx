@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import LogoutButton from "./LogoutButton";
+import BackButton from "./BackButton";
 import { SHOW_TIPS_EVENT, useShell } from "@/app/ui";
 import { BOARD_FROM_KEY } from "@/lib/board";
 import { SubScoreAlertsSheet, useSubScoreAlerts } from "./sub-score-alerts";
@@ -361,9 +362,9 @@ export default function CWHeader() {
           )}
 
           {isHome ? null : backHref ? (
-            <Link href={backHref} className="cw-topbar-btn" aria-label="Back">
+            <BackButton fallback={backHref} className="cw-topbar-btn">
               <BackArrow />
-            </Link>
+            </BackButton>
           ) : shell.onBack ? (
             <button type="button" className="cw-topbar-btn" aria-label="Back" onClick={shell.onBack}>
               <BackArrow />

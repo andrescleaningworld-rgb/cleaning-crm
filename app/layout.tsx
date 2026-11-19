@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
 import OneSignalInit from "./components/OneSignalInit";
 import CWHeader from "./components/CWHeader";
+import { NavHistoryTracker } from "./components/BackButton";
 import VersionCheckBanner from "./components/VersionCheckBanner";
 import { ToastRegion } from "./ui/toast";
 import DateInputs from "./components/DateInputs";
@@ -50,6 +51,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <VersionCheckBanner initialVersion={BUILD_VERSION} />
         <ServiceWorkerRegister />
         <OneSignalInit />
+        <NavHistoryTracker />
 
         <div className="cw-app-shell">
           <div className="cw-app-container">
