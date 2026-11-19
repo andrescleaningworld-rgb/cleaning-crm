@@ -38,6 +38,8 @@ type Visit = {
   visitType?: string;
   manager?: string;
   subcontractor?: string;
+  /** The sub the account had on the visit date (by sub ID, migration 086). "" = none saved. */
+  subId?: string;
   condition?: string | number;
   followUpNeeded?: string;
   followUpDate?: string;
@@ -212,7 +214,8 @@ export default function VisitsPage() {
       if (quick === "month" && !iso.startsWith(thisMonthPrefix)) return false;
       if (quick === "follow-up" && !needsFollowUp(visit)) return false;
       if (filterAccount && clean(visit.accountName) !== filterAccount) return false;
-      if (filterSub && accountOfVisit(visit)?.subId !== filterSub) return false;
+      // The sub saved on the visit; a visit with none saved goes by the account's sub now.
+      if (filterSub && (clean(visit.subId) || accountOfVisit(visit)?.subId) !== filterSub) return false;
       if (filterManager && !managerMatches(visit.manager, filterManager)) return false;
       if (filterStatus && deriveStatus(visit) !== filterStatus) return false;
       if (dateFrom && iso && iso < dateFrom) return false;

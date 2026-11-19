@@ -215,6 +215,7 @@ export async function POST(request: Request) {
     // DATA_SOURCE_VISITS=postgres: saved directly, same answer shape.
     if (visitsOnPostgres()) {
       const saved = await addVisit({
+        accountId: payload.accountId,
         accountName: payload.accountName,
         visitDate: payload.visitDate,
         visitType: payload.visitType,

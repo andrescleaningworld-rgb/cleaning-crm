@@ -38,6 +38,59 @@ async function allVisitRows(): Promise<VisitRow[]> {
   return (await sql.query(`SELECT ${VISIT_COLUMNS} FROM visits WHERE account_ref IS NULL OR account_ref NOT IN ${HIDDEN_ACCOUNT_IDS} ORDER BY sheet_row`)) as VisitRow[];
 }
 
+/* ---------- the visit's sub and who did it (migration 086) ---------- */
+
+let subColumnsCache = false;
+/** Migration 086 is in: visits.sub_id and visits.completed_by_staff_id. */
+async function visitSubColumnsReady(): Promise<boolean> {
+  if (subColumnsCache) return true;
+  try {
+    const rows = (await getSql()`
+      SELECT count(*)::int AS n FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'visits' AND column_name IN ('sub_id', 'completed_by_staff_id')
+    `) as { n: number }[];
+    subColumnsCache = rows[0]?.n === 2;
+  } catch {
+    subColumnsCache = false;
+  }
+  return subColumnsCache;
+}
+
+/** SQL: a name with case, spaces and accents taken out ("Andrés" = "andres"). */
+const nameKey = (expr: string) => `lower(translate(btrim(${expr}), 'áéíóúÁÉÍÓÚñÑüÜ', 'aeiouAEIOUnNuU'))`;
+
+/** A sub's name as the lists show it: "Company (Contact)" when both are there and differ. */
+const SUB_LABEL = `CASE WHEN btrim(s.company_name) <> '' AND btrim(s.contact_name) <> '' AND lower(btrim(s.company_name)) <> lower(btrim(s.contact_name))
+  THEN btrim(s.company_name) || ' (' || btrim(s.contact_name) || ')' ELSE COALESCE(NULLIF(btrim(s.company_name), ''), btrim(s.contact_name)) END`;
+
+/**
+ * Per visit: its sub (by sub ID, migration 086) and who did it as the Staff
+ * list names them: by Staff ID once 086 is in, else by the name written on
+ * the visit when exactly one staff member has it, ignoring accents ("Andres"
+ * shows as "Andrés"). Nothing is changed. Empty when it cannot be read.
+ */
+async function visitExtras(): Promise<Map<string, { subId: string; subName: string; staffName: string }>> {
+  const out = new Map<string, { subId: string; subName: string; staffName: string }>();
+  try {
+    const ready = await visitSubColumnsReady();
+    const rows = (await getSql().query(
+      `WITH staff_keys AS (
+         SELECT ${nameKey("name")} AS name_key, min(btrim(name)) AS name FROM staff WHERE btrim(name) <> '' GROUP BY 1 HAVING count(*) = 1
+       )
+       SELECT v.visit_id,
+              ${ready ? "v.sub_id" : "NULL::text"} AS sub_id,
+              ${ready ? `(SELECT ${SUB_LABEL} FROM subcontractors s WHERE s.id = v.sub_id)` : "NULL::text"} AS sub_name,
+              COALESCE(${ready ? "(SELECT btrim(st.name) FROM staff st WHERE st.id = v.completed_by_staff_id)," : ""} k.name) AS staff_name
+       FROM visits v
+       LEFT JOIN staff_keys k ON k.name_key = ${nameKey("v.completed_by")}`
+    )) as { visit_id: string; sub_id: string | null; sub_name: string | null; staff_name: string | null }[];
+    for (const row of rows) out.set(row.visit_id, { subId: row.sub_id ?? "", subName: row.sub_name ?? "", staffName: row.staff_name ?? "" });
+  } catch (error) {
+    console.error("[visits] sub / staff:", error instanceof Error ? error.message : error);
+  }
+  return out;
+}
+
 /* ---------- typed-column helpers (never read back by the app) ---------- */
 
 // The shared rule first (lib/dateUtils.ts); a day written out in words
@@ -259,6 +312,8 @@ export type AppsScriptVisit = {
   manager: string;
   completedBy: string;
   subcontractor: string;
+  /** The sub the account had on the visit date (migration 086). "" = none. */
+  subId: string;
   condition: string;
   score: string;
   followUpNeeded: string;
@@ -273,15 +328,22 @@ export type AppsScriptVisit = {
 // Checked against the live answer row by row
 // (scripts/migrate/check-visits-apps-script.mts).
 export async function getVisitsAppsScriptShape(): Promise<AppsScriptVisit[]> {
-  return (await allVisitRows()).map((r) => ({
+  const [visitRows, extras] = await Promise.all([allVisitRows(), visitExtras()]);
+  return visitRows.map((r) => {
+    const extra = extras.get(r.visit_id);
+    // Who did it, as the Staff list names them (one person, however it was typed).
+    const who = extra?.staffName || scriptText(r.completed_by);
+    return {
     id: scriptText(r.visit_id),
     accountId: scriptText(r.account_id_raw),
     accountName: scriptText(r.account_name),
     date: scriptDate(r.visit_date_raw),
     visitType: scriptText(r.visit_type),
-    manager: scriptText(r.completed_by),
-    completedBy: scriptText(r.completed_by),
-    subcontractor: "", // the tab has no such column; always blank today
+    manager: who,
+    completedBy: who,
+    // The sub the account had on the visit date, by sub ID (migration 086). "" = none.
+    subcontractor: extra?.subName ?? "",
+    subId: extra?.subId ?? "",
     condition: scriptText(r.condition_raw),
     score: scriptText(r.condition_raw),
     followUpNeeded: scriptText(r.follow_up_needed),
@@ -289,7 +351,8 @@ export async function getVisitsAppsScriptShape(): Promise<AppsScriptVisit[]> {
     notes: scriptText(r.notes),
     createdAt: scriptDate(r.created_at_raw),
     updatedAt: scriptDate(r.updated_at_raw),
-  }));
+    };
+  });
 }
 
 /* ---------- Apps Script addVisit, rebuilt ---------- */
@@ -303,6 +366,8 @@ function newYorkParts(options: Intl.DateTimeFormatOptions): Record<string, strin
 }
 
 export type AddVisitInput = {
+  /** The account picked on the form: the visit links to it (else by its exact name, as before). */
+  accountId?: string;
   accountName: string;
   visitDate: string;
   visitType: string;
@@ -320,8 +385,8 @@ export type AddVisitInput = {
 //   - Account ID is what the sheet's column-B formula would show for the
 //     row: "ACC-" + (row number + 100000) in hex, or blank without a name
 //   - Created At and Updated At are "M/D/YYYY H:MM:SS", New York time
-//   - the subcontractor the form collects is not stored (the tab has no
-//     column for it; same as today)
+//   - the sub is the account's sub now, by sub ID (migration 086), not the
+//     text the form shows; who did it is matched to Staff by ID
 // Nothing is sent to anyone: no sign was found that Apps Script emails or
 // texts when a visit is added. If it does, say so (Area 7 report).
 export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
@@ -345,7 +410,11 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
        ids.vid, ids.vid,
        CASE WHEN btrim($2::text) = '' THEN '' ELSE 'ACC-' || upper(to_hex(next.n + 100000)) END,
        $2::text,
-       (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($2::text) <> '' AND lower(btrim(account_name)) = lower(btrim($2::text))),
+       -- The account picked on the form (its ID), else the one account with that exact name.
+       COALESCE(
+         (SELECT id FROM accounts WHERE id = NULLIF(btrim($15::text), '') AND (to_jsonb(accounts)->>'deleted_at') IS NULL),
+         (SELECT CASE WHEN count(*) = 1 THEN min(id) END FROM accounts WHERE (to_jsonb(accounts)->>'deleted_at') IS NULL AND btrim($2::text) <> '' AND lower(btrim(account_name)) = lower(btrim($2::text)))
+       ),
        $3::text, $4::date, $5::text, $6::text, $7::text, $8::numeric, $9::text, $10::text,
        $11::text, $12::timestamptz, $11::text, $12::timestamptz, $13::text, $14::date, next.n
      FROM next, taken, LATERAL (SELECT CASE WHEN taken.c = 0 THEN $1::text ELSE $1::text || '-' || (taken.c + 1)::text END AS vid) ids
@@ -365,9 +434,30 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
       now,
       data.followUpDate,
       toDay(data.followUpDate),
+      data.accountId ?? "",
     ]
   )) as { visit_id: string }[];
-  return { id: rows[0].visit_id };
+  const visitId = rows[0].visit_id;
+  // Migration 086: the account's sub now (kept even if the account changes subs
+  // later) and who did it by Staff ID. A failure here never undoes the visit.
+  if (await visitSubColumnsReady()) {
+    try {
+      await sql.query(
+        `WITH staff_keys AS (
+           SELECT ${nameKey("name")} AS name_key, min(id) AS id FROM staff WHERE btrim(name) <> '' GROUP BY 1 HAVING count(*) = 1
+         )
+         UPDATE visits v SET
+           sub_id = (SELECT a.subcontractor_id FROM accounts a WHERE a.id = v.account_ref),
+           sub_source = CASE WHEN (SELECT a.subcontractor_id FROM accounts a WHERE a.id = v.account_ref) IS NULL THEN '' ELSE 'saved' END,
+           completed_by_staff_id = (SELECT k.id FROM staff_keys k WHERE k.name_key = ${nameKey("v.completed_by")})
+         WHERE v.visit_id = $1::text`,
+        [visitId]
+      );
+    } catch (error) {
+      console.error("[visits] sub / staff not saved:", error instanceof Error ? error.message : error);
+    }
+  }
+  return { id: visitId };
 }
 
 /**
