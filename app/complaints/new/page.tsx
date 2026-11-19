@@ -703,40 +703,9 @@ function NewComplaintPageContent() {
         successMessage += ` Notification not sent: ${data.notification.reason}`;
       }
 
-      // Auto-create the follow-up to-do. Fault-isolated: the complaint has
-      // already saved successfully at this point, so a failure here must
-      // not make the submission look like it failed — just note it.
-      try {
-        const todoResponse = await fetch("/api/to-do", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            action: "addToDo",
-            dueDate: form.todoDueDate,
-            assignedTo: form.assignedTo,
-            accountName: form.accountName,
-            taskType: "Complaint Follow-Up",
-            status: "Open",
-            why: form.issue,
-            notes: form.notes,
-            complaintId: complaintSourceId,
-          }),
-        });
-
-        const todoData = await todoResponse.json();
-
-        if (!todoResponse.ok || todoData.success === false) {
-          throw new Error(todoData.message || "Could not create follow-up to-do.");
-        }
-
-        successMessage += " Follow-up to-do created.";
-      } catch (todoError) {
-        console.error("Auto-create to-do error:", todoError);
-        successMessage +=
-          " Could not create the follow-up to-do automatically — add one manually from the To-Do page if needed.";
-      }
+      // No "Complaint Follow-Up" to-do any more (Nov 19, 2026): the complaint's
+      // own paper on the Pin Board, its steps and its response clock are the
+      // follow-up, and the to-do only sent the manager a second text.
 
       selectedPhotos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
 
@@ -915,7 +884,7 @@ function NewComplaintPageContent() {
 
         <SelectField
           label="Manager"
-          hint="Responsible for following up. Also gets the To-Do that is created when you save."
+          hint="Responsible for following up."
           value={form.assignedTo}
           onChange={(event) => updateForm("assignedTo", event.target.value)}
           required
@@ -935,17 +904,6 @@ function NewComplaintPageContent() {
           type="date"
           value={form.lastFollowUp}
           onChange={(event) => updateForm("lastFollowUp", event.target.value)}
-        />
-
-        <Field
-          label="Follow-up To-Do due date"
-          hint={'Due date for the "Complaint Follow-Up" To-Do created when you save. Starts at 2 days after the complaint date.'}
-          type="date"
-          value={form.todoDueDate}
-          onChange={(event) => {
-            setTodoDueDateTouched(true);
-            updateForm("todoDueDate", event.target.value);
-          }}
         />
 
         <TextAreaField

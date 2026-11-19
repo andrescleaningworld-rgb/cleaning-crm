@@ -558,7 +558,34 @@ export async function listPapers(doneDays = DEFAULT_BOARD_SETTINGS.doneDays): Pr
     sql.query(`${SELECT_PAPER} AND i.board_done_at IS NULL ORDER BY i.board_pinned_at ASC, i.item_id ASC`),
     sql.query(`${SELECT_PAPER} AND i.board_done_at > now() - ($1::int || ' days')::interval ORDER BY i.board_done_at DESC LIMIT 200`, [doneDays]),
   ]);
-  return { papers: await withClock(await withSetup((open as PaperRow[]).map(toPaper))), done: (done as PaperRow[]).map(toPaper) };
+  return { papers: await withNoPhone(await withClock(await withSetup((open as PaperRow[]).map(toPaper)))), done: (done as PaperRow[]).map(toPaper) };
+}
+
+/**
+ * Papers in the square of a manager with no phone on file: "No phone on file,
+ * no text sent" on the paper. The same phone the board texts use (the Managers
+ * list, by Staff ID, else by name; lib/pg/board-sms.ts staffContact). Never
+ * fails the board.
+ */
+async function withNoPhone(papers: Paper[]): Promise<Paper[]> {
+  const squares = [...new Set(papers.map((paper) => paper.square).filter(Boolean))];
+  if (squares.length === 0) return papers;
+  try {
+    const rows = (await getSql().query(
+      `SELECT s.id,
+              bool_or(btrim(COALESCE(m.phone, '')) <> '') AS has_phone
+       FROM staff s
+       LEFT JOIN managers m ON m.staff_id = s.id OR lower(btrim(m.name)) = lower(btrim(s.name))
+       WHERE s.id = ANY($1::text[]) AND s.active AND s.role = 'Manager'
+       GROUP BY s.id`,
+      [squares]
+    )) as { id: string; has_phone: boolean | null }[];
+    const noPhone = new Set(rows.filter((row) => row.has_phone !== true).map((row) => String(row.id)));
+    return noPhone.size === 0 ? papers : papers.map((paper) => (noPhone.has(paper.square) ? { ...paper, noPhone: true } : paper));
+  } catch (error) {
+    console.error("[board] phones:", error instanceof Error ? error.message : error);
+    return papers;
+  }
 }
 
 /**

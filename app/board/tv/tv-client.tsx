@@ -50,6 +50,8 @@ import { EVENT_ICON, type OfficeEventKind } from "@/lib/officeEvents";
 import { MOTTO } from "@/app/ui/words";
 import PizzaTracker from "@/app/components/pizza-tracker";
 import ReadyBadge from "@/app/components/ready-badge";
+import SmsCreditBanner from "@/app/components/sms-credit-banner";
+import type { SmsCredit } from "@/lib/pg/sms-credit";
 import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported } from "../full-screen";
 import styles from "./tv.module.css";
 
@@ -74,6 +76,8 @@ type TvData = {
   slidesPerShow: number;
   /** Today's birthdays, anniversaries, holidays, office closed, company events. */
   todayNotes: TvNote[];
+  /** Textbelt credit after the last text: the warning across the top when low or 0. */
+  smsCredit: SmsCredit | null;
 };
 
 const REFRESH_MS = 60_000;
@@ -557,6 +561,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
         slideSeconds: Number(body.slideSeconds) >= 1 ? Number(body.slideSeconds) : DEFAULT_SLIDE_SECONDS,
         slidesPerShow: Number(body.slidesPerShow) >= 1 ? Number(body.slidesPerShow) : DEFAULT_SLIDES_PER_SHOW,
         todayNotes: body.todayNotes ?? [],
+        smsCredit: body.smsCredit ?? null,
       });
       setProblem("");
       setReconnecting(false);
@@ -933,6 +938,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
             <p className={styles.day}>{reconnecting ? <span className={styles.reconnecting}>Reconnecting…</span> : day}</p>
           </div>
         </header>
+        <SmsCreditBanner credit={data?.smsCredit} tv />
 
         {showing === "slides" ? (
           // The slideshow takes the middle of the screen; the top strip and the company rule stay. A click ends it.

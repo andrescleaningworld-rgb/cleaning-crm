@@ -126,11 +126,17 @@ export async function staffContact(staffId: string, options: { managersOnly?: bo
 
 /**
  * Texts one person about a paper and writes the SMS log under "board:<paper>".
- * Skips (no attempt, no log row) when they have no phone on file. Never throws.
+ * Skips the text when they have no phone on file (logged as "Skipped: no phone"). Never throws.
  */
 export async function textBoardPerson(contact: StaffContact, text: string, paperId: string, routeContext: string): Promise<boolean> {
   if (!contact.phone) {
     console.debug(`[sms] skip ${routeContext}: "${contact.name}" has no phone on file`);
+    // Written to the text log too, so a missing text has a reason (the paper also says it: lib/pg/board.ts withNoPhone).
+    try {
+      await appendSmsLog({ toDoId: `board:${paperId}`, managerPhone: "", textId: "", status: "Skipped: no phone" });
+    } catch (error) {
+      console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
+    }
     return false;
   }
   const message = sanitizeSmsText(text, Infinity);

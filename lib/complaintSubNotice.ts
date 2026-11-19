@@ -1,7 +1,7 @@
 // Tell the sub about a complaint: an email (English, Spanish and Portuguese
 // in one, like the sub portal invite, with a button to the complaint in the
 // sub portal) and a short text with no link (Textbelt refuses links until
-// the account is verified; SMS_INCLUDE_LINKS=1 adds the link back).
+// the account is verified; TEXT_LINKS_ALLOWED=1 adds the link back).
 //
 // The sub is the one who has the complaint's account now (accounts.
 // subcontractor_id, else the sub whose company or contact name is the

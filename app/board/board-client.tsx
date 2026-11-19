@@ -40,6 +40,7 @@ import MarkateCheckNow from "../components/MarkateCheckNow";
 import { enterFullScreen } from "./full-screen";
 import NotifySubButton from "../components/notify-sub-button";
 import { checkinComplaintHref } from "@/lib/customerCheckin";
+import SmsCreditBanner from "../components/sms-credit-banner";
 import { ResponseClock } from "../components/response-clock";
 import styles from "./board.module.css";
 
@@ -168,7 +169,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
         setState("off");
         return;
       }
-      setData({ settings: body.settings!, me: body.me!, managers: body.managers ?? [], papers: body.papers ?? [], done: body.done ?? [], statusOn: body.statusOn === true });
+      setData({ settings: body.settings!, me: body.me!, managers: body.managers ?? [], papers: body.papers ?? [], done: body.done ?? [], statusOn: body.statusOn === true, smsCredit: body.smsCredit ?? null });
       setState("ready");
     } catch {
       setState((current) => (current === "ready" ? current : "failed"));
@@ -340,6 +341,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
         <ErrorBox title="The board did not load." onRetry={() => void load()} />
       ) : (
         <>
+          {/* Textbelt credit low or 0: nobody gets texted until it is topped up. */}
+          <SmsCreditBanner credit={data.smsCredit} />
           <BigButton className={styles.tvButton} onClick={() => changeTab("tv")}>
             📺 TV Mode (Full Screen)
           </BigButton>
@@ -494,6 +497,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 />
               </>
             ) : null}
+
+            {open.noPhone ? <p className="ui-muted">No phone on file, no text sent. Add a phone on the Managers list to get texts.</p> : null}
 
             {/* A complaint: its 5 steps, and who it waits on now. */}
             {open.complaintTrack ? <PizzaTracker view={open.complaintTrack} size="list" steps={COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" /> : null}
@@ -670,6 +675,7 @@ function MySquare({
             </div>
             {paper.status ? <p className={styles.statusLine}>{statusLine(paper.status)}</p> : null}
             <h2 className={styles.mineTitle}>{paper.title || KIND_LABEL[paper.kind]}</h2>
+            {paper.noPhone ? <p className="ui-muted">No phone on file, no text sent</p> : null}
             {paper.detail ? <p className="ui-card-text">{paper.detail}</p> : null}
             {paper.progress ? (
               <p className="ui-card-text">

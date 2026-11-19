@@ -7,6 +7,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
+import { smsCredit } from "@/lib/pg/sms-credit";
 import { NOTE_BOXES, STATUS_NOTE_MAX, isPinStatus } from "@/lib/board";
 import { setPaperStatus, statusHistory } from "@/lib/pg/pin-status";
 import { sendPush } from "@/lib/push";
@@ -105,14 +106,14 @@ export async function GET(request: NextRequest) {
     // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
     await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
     const settings = await getBoardSettings();
-    const [managers, lists, statusOn] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays), pinStatusReady()]);
+    const [managers, lists, statusOn, credit] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays), pinStatusReady(), smsCredit()]);
     const staffId = clean(identity?.staffId);
     const me: BoardMe = {
       name: clean(identity?.name),
       squareId: managers.some((manager) => manager.id === staffId) ? staffId : "",
       isOwner: identity?.role === "owner",
     };
-    const data: BoardData = { settings, me, managers, papers: lists.papers, done: lists.done, statusOn };
+    const data: BoardData = { settings, me, managers, papers: lists.papers, done: lists.done, statusOn, smsCredit: credit };
     return NextResponse.json({ success: true, ready: true, ...data }, noStore);
   } catch (error) {
     console.error("[board GET]", error instanceof Error ? error.message : error);

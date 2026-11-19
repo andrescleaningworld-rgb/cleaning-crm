@@ -48,12 +48,24 @@ function redactUrls(text: string): string {
   return text.replace(/https?:\/\/\S+/gi, "[URL removed]");
 }
 
-// SMS_INCLUDE_LINKS=1 puts links back in texts. Default is off: Textbelt
-// refuses every text with a web address until the account is verified
-// ("ability to send URLs via text is limited to verified accounts"), so no
-// text carries a link until then.
+// TEXT_LINKS_ALLOWED=1 (in Vercel) puts links back in texts, once Textbelt
+// approves links. Default is off: Textbelt refuses every text with a web
+// address until the account is verified ("ability to send URLs via text is
+// limited to verified accounts"), so no text carries a link until then.
+// SMS_INCLUDE_LINKS=1 is the old name of the same switch and still works.
 export function smsLinksOn(): boolean {
-  return process.env.SMS_INCLUDE_LINKS === "1";
+  return process.env.TEXT_LINKS_ALLOWED === "1" || process.env.SMS_INCLUDE_LINKS === "1";
+}
+
+/** Textbelt's credit after this text: the Pin Board warning and the low-credit email (lib/pg/sms-credit.ts). Never throws. */
+async function noteCredit(quota: number | undefined): Promise<void> {
+  if (typeof quota !== "number") return;
+  try {
+    const { recordSmsCredit } = await import("@/lib/pg/sms-credit");
+    await recordSmsCredit(quota);
+  } catch (error) {
+    console.error("[sms] credit not saved:", error instanceof Error ? error.message : error);
+  }
 }
 
 const SMS_NO_LINK_LINE = {
@@ -95,7 +107,7 @@ export async function sendSms(
   const strip = !smsLinksOn() && hasLink(rawMessage);
   const message = strip ? stripLinks(rawMessage) : rawMessage;
   if (strip) {
-    console.warn(`[sms] took a web address out of the message (${routeContext}): SMS_INCLUDE_LINKS is not on`);
+    console.warn(`[sms] took a web address out of the message (${routeContext}): TEXT_LINKS_ALLOWED is not on`);
   }
 
   if (isOutboundDryRun()) {
@@ -146,6 +158,7 @@ export async function sendSms(
       // successful send. With quota actually at 0, every send has been
       // failing, so that banner had no way to ever fire despite the account
       // being fully depleted.
+      await noteCredit(data.quotaRemaining);
       return { success: false, quotaRemaining: data.quotaRemaining, error: safeError };
     }
 
@@ -155,6 +168,7 @@ export async function sendSms(
     if (typeof data.quotaRemaining === "number" && data.quotaRemaining < SMS_LOW_QUOTA_THRESHOLD) {
       console.warn(`[sms] quota low: ${data.quotaRemaining} remaining`);
     }
+    await noteCredit(data.quotaRemaining);
 
     return { success: true, quotaRemaining: data.quotaRemaining, textId: data.textId };
   } catch (error) {

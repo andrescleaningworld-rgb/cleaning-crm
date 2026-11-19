@@ -83,6 +83,8 @@ export type Paper = {
   clock?: { createdAt: string; answeredAt: string; status: string } | null;
   /** A complaint paper: its 5-step tracker (lib/complaintSteps.ts), Received → … → Ready to review → Fixed. Missing = none. */
   complaintTrack?: ComplaintTrackView | null;
+  /** In a manager's square, and that manager has no phone on file: no text was sent ("No phone on file, no text sent"). */
+  noPhone?: boolean;
 };
 
 /* ---------- the status check (migration 062, lib/pg/pin-status.ts) ---------- */
@@ -167,6 +169,8 @@ export type BoardData = {
   done: Paper[];
   /** Migration 062 is in: pins take a status (the big buttons in a pin's card). */
   statusOn: boolean;
+  /** Textbelt credit after the last text, for the warning at the top (lib/pg/sms-credit.ts). null = not known yet. */
+  smsCredit?: { quota: number; at: string; level: "ok" | "low" | "zero" } | null;
 };
 
 export type TvLink = { id: string; label: string; createdBy: string; createdAt: string; lastSeenAt: string; revokedAt: string; revokedBy: string };

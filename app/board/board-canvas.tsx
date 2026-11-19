@@ -93,6 +93,8 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
       ) : null}
       {paper.status ? <span className={styles.statusLine}>{tv ? pinStatusLabel(paper.status.key) : statusLine(paper.status)}</span> : null}
       {!tv && taken ? <span className={styles.who}>Got it: {paper.takenBy}</span> : null}
+      {/* The manager of this square has no phone on file, so the board could not text them. */}
+      {!tv && paper.noPhone ? <span className={styles.meta}>No phone on file, no text sent</span> : null}
       <span className="ui-visually-hidden">{taken ? "Someone has it." : "Nobody has taken it yet."}</span>
     </>
   );

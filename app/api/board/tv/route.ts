@@ -18,6 +18,7 @@ import { isOld, type Paper } from "@/lib/board";
 import { officeDay } from "@/lib/cleanings";
 import { boardReady, getBoardSettings, listBoardManagers, listPapers, syncBoard, tvTokenIsValid } from "@/lib/pg/board";
 import { listCleanings } from "@/lib/pg/cleanings";
+import { smsCredit } from "@/lib/pg/sms-credit";
 import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
 import { eventLine } from "@/lib/officeEvents";
 import { listOfficeEvents, tvSlides, type TvSlide } from "@/lib/pg/office-events";
@@ -122,6 +123,8 @@ export async function GET(request: NextRequest) {
         slideSeconds: slideshow?.slideSeconds ?? 10,
         slidesPerShow: slideshow?.slidesPerShow ?? 6,
         todayNotes: events.map((event) => ({ kind: event.kind, text: eventLine(event) })),
+        // Textbelt credit low or 0: the warning across the top of the TV.
+        smsCredit: await smsCredit(),
       },
       noStore
     );
