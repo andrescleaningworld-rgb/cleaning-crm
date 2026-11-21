@@ -342,6 +342,11 @@ export function isExtraJobPaper(kind: string, itemId: string): boolean {
   return kind === "extra" && itemId.startsWith("job-");
 }
 
+/** A paper finished on its own record, never by unpinning: an extra job, or a CW Now to-do (its sub must not keep getting reminders). */
+export function paperHasOwnDone(kind: string, itemId: string): boolean {
+  return isExtraJobPaper(kind, itemId) || kind === "cwnow";
+}
+
 // A line is still on its way while its Status is one of the open ones; the
 // same reading as orderStepFromStatus in lib/handoffs.ts (New / Needs Review,
 // Approved, Pending / In Progress). Completed, Delivered, Denied and
@@ -467,8 +472,22 @@ function paperDetail(row: PaperRow): string {
   if (row.kind === "supply") return [clean(data.items), clean(data.subcontractor) ? `Ordered by ${clean(data.subcontractor)}` : ""].filter(Boolean).join(". ");
   if (row.kind === "complaint") return clean(data.issue);
   if (row.kind === "extra") return [clean(data.notes), clean(data.date) ? `For ${clean(data.date)}` : "", clean(data.sub) ? `Sub: ${clean(data.sub)}` : ""].filter(Boolean).join(". ");
-  if (row.kind === "note") return clean(data.notes);
+  if (row.kind === "note" || row.kind === "cwnow") return clean(data.notes);
   return "";
+}
+
+/** A CW Now to-do's paper: the few words its pin shows (lib/pg/cw-now-tasks.ts keeps them in step). */
+function paperCwNow(row: PaperRow): Paper["cwNow"] {
+  if (row.kind !== "cwnow") return null;
+  const data = row.data ?? {};
+  const status = clean(data.taskStatus);
+  return {
+    taskId: Number(clean(data.taskId)) || 0,
+    status: status === "sent" || status === "seen" || status === "done" || status === "cancelled" ? status : "needs_link",
+    urgent: clean(data.urgent) === "1",
+    noPhone: clean(data.noPhone) === "1",
+    hasNote: clean(data.hasNote) === "1",
+  };
 }
 
 /** "3 items" on a supply order (how big it is, at a glance); the job number on an extra job, and "Estimate ✓" when one is attached. */
@@ -507,6 +526,8 @@ function toPaper(row: PaperRow): Paper {
     pdfHref: paperPdfHref(row),
     forWho: clean(row.data?.forWho),
     dueDate: clean(row.data?.dueDate),
+    dueTime: row.kind === "cwnow" ? clean(row.data?.dueTime) : "",
+    cwNow: paperCwNow(row),
     recordDone: clean(row.data?.recordDoneOn) !== "",
     box: row.kind === "note" ? clean(row.data?.box) : "",
     status: paperStatus(row),

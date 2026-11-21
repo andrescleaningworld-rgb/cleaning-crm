@@ -22,7 +22,7 @@ import { getSql } from "@/lib/db";
 import { FLOW_RED_BUSINESS_DAYS, businessDaysBetween, officeDay } from "@/lib/accountFlow";
 import { PAPER_KINDS, isPinStatus, STATUS_NOTE_MAX, type PinStatusEvent, type PinStatusKey } from "@/lib/board";
 import { handoffLive } from "@/lib/pg/account-live";
-import { boardReady, finishPaper, flowTableReady, isExtraJobPaper, listBoardManagers, pinStatusReady } from "@/lib/pg/board";
+import { boardReady, finishPaper, flowTableReady, listBoardManagers, paperHasOwnDone, pinStatusReady } from "@/lib/pg/board";
 import { staffContact, textBoardPerson, type StaffContact } from "@/lib/pg/board-sms";
 import { sendPush } from "@/lib/push";
 
@@ -55,7 +55,7 @@ export async function setPaperStatus(input: { kind: string; itemId: string; stat
   `) as unknown[];
   if (rows.length === 0) return { ok: false, takenDown: false };
   await sql`INSERT INTO board_status_log (kind, item_id, event, status, note, by_name) VALUES (${input.kind}, ${input.itemId}, 'status', ${input.status}, ${note}, ${by})`;
-  const takeDown = input.status === "done" && !isExtraJobPaper(input.kind, input.itemId);
+  const takeDown = input.status === "done" && !paperHasOwnDone(input.kind, input.itemId);
   if (takeDown) await finishPaper(input.kind, input.itemId, by, true);
   return { ok: true, takenDown: takeDown };
 }

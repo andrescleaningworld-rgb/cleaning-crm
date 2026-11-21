@@ -16,6 +16,7 @@ import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "
 import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
 import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
+import { reopenTaskByPaper } from "@/lib/pg/cw-now-tasks";
 import {
   boardReady,
   connectTv,
@@ -28,6 +29,7 @@ import {
   listPapers,
   listTvLinks,
   movePaper,
+  paperHasOwnDone,
   pinPaper,
   pinStatusReady,
   revokeTvLink,
@@ -178,6 +180,12 @@ export async function POST(request: NextRequest) {
       if (!kind || !itemId) return refuse("kind and itemId are required.");
       // An extra job is done on its own page; the paper then comes down by itself.
       if (isExtraJobPaper(kind, itemId) && body.on !== false) return refuse("Mark this job Done on its own page.");
+      // A CW Now to-do: Mark done / Cancel on its card. "Pin back" in the Done tray opens the task again too.
+      if (kind === "cwnow") {
+        if (body.on !== false) return refuse("Use Mark done or Cancel on the to-do.");
+        if (!(await reopenTaskByPaper(itemId, by))) return refuse("That to-do was not found.", 404);
+        return NextResponse.json({ success: true });
+      }
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
       return NextResponse.json({ success: true });
     }
@@ -188,6 +196,7 @@ export async function POST(request: NextRequest) {
       if (!(await pinStatusReady())) return refuse("Pin statuses are not turned on here yet.", 409);
       const status = clean(body.status);
       if (!isPinStatus(status)) return refuse("Pick a status.");
+      if (status === "done" && kind === "cwnow" && paperHasOwnDone(kind, itemId)) return refuse("Use Mark done on the to-do.");
       const note = clean(body.note);
       if (note.length > STATUS_NOTE_MAX) return refuse(`Keep the note under ${STATUS_NOTE_MAX} letters.`);
       const result = await setPaperStatus({ kind, itemId, status, note, by });

@@ -55,6 +55,8 @@ function forTv(paper: Paper): Paper {
     pinnedAt: paper.pinnedAt,
     forWho: "",
     dueDate: paper.dueDate,
+    // Only so a late CW Now to-do turns red on the TV. Its task, sub and status stay off.
+    dueTime: paper.dueTime ?? "",
     recordDone: paper.recordDone,
     box: paper.box,
     pinnedBy: "",

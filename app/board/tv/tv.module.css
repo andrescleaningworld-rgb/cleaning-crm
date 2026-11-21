@@ -526,6 +526,9 @@
 .supply {
   background: #d9f2cf;
 }
+.note.cwnow {
+  background-color: #e4dcff;
+}
 .note.note,
 .note {
   background-color: #fff3a0;

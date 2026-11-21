@@ -25,6 +25,7 @@ import {
 } from "@/app/ui";
 import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, statusLine, type BoardData, type Paper } from "@/lib/board";
 import AddToBoxSheet, { type AddTarget } from "./board-add";
+import { CwNowAddSheet, CwNowTaskCard } from "./cw-now-task";
 import BoardCanvas from "./board-canvas";
 import PinStatusBox from "./pin-status";
 import AccountLink from "../components/AccountLink";
@@ -93,6 +94,8 @@ export type BoardTab = "board" | "mine" | "calendar" | "tv";
 
 /** A blue paper that mirrors a real extra job: it is finished on the job's page (Done ✓ in its popup goes there), never with Unpin. */
 const isExtraJob = (paper: Paper) => paper.kind === "extra" && paper.itemId.startsWith("job-");
+/** Finished on its own record, never with Unpin: an extra job, or a CW Now to-do (Mark done / Cancel on its card). */
+const hasOwnDone = (paper: Paper) => isExtraJob(paper) || paper.kind === "cwnow";
 /** A customer check-in's paper ("checkin:<id>:attention" / ":ok", lib/pg/customer-checkin.ts): its check-in id, else 0. */
 const checkinIdOf = (paper: Paper) => (paper.kind === "note" ? Number(/^checkin:(\d+):/.exec(paper.itemId)?.[1] ?? 0) : 0);
 
@@ -142,6 +145,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   const [trayOpen, setTrayOpen] = useState(false);
   // "Tap empty space in a box to add something there": the box that was tapped.
   const [adding, setAdding] = useState<AddTarget | null>(null);
+  const [addingCwNow, setAddingCwNow] = useState(false);
   // "Show on TV": open, and the code a scanned QR brought along (/board?tv=123456).
   const [tvOpen, setTvOpen] = useState(false);
   const [tvCode, setTvCode] = useState("");
@@ -292,6 +296,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
     }
     const box = square.slice("shared:".length);
     if (box === "note") return setAdding({ kind: "update" });
+    if (box === "cwnow") return setAddingCwNow(true);
     try {
       window.sessionStorage.setItem(BOARD_SCROLL_KEY, String(window.scrollY));
     } catch {
@@ -320,6 +325,8 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
             <AddButton onClick={() => setPinning(true)}>Pin something</AddButton>
             {/* The real Extra Jobs form. The job pins itself here once it is saved. */}
             <AddButton href="/extra-jobs/new?from=board">Extra job</AddButton>
+            {/* Also here so a phone, which opens on My square, can reach it. */}
+            <AddButton onClick={() => setAddingCwNow(true)}>CW Now to-do</AddButton>
           </>
         ) : undefined
       }
@@ -366,7 +373,19 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 onMove={move}
                 onAdd={addTo}
                 // New accepted: run the Markate import now; a new estimate's paper shows at once.
-                squareExtra={{ "shared:account": <MarkateCheckNow compact onDone={(added) => (added > 0 ? void load(true) : undefined)} /> }}
+                squareExtra={{
+                  "shared:account": <MarkateCheckNow compact onDone={(added) => (added > 0 ? void load(true) : undefined)} />,
+                  "shared:cwnow": (
+                    <button
+                      type="button"
+                      className={styles.cwNowAdd}
+                      data-paper
+                      onClick={() => setAddingCwNow(true)}
+                    >
+                      + Add to-do
+                    </button>
+                  ),
+                }}
               />
               <p className="ui-muted">Tap empty space in a box to add something there. Tap a note to open it. Drag it into a square to hand it off (on a phone, hold it first).</p>
               <Tips id="board-add" steps={[{ target: "[data-square]", text: "Tap empty space in a box to add something there." }]} />
@@ -469,12 +488,15 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               </BigButton>
             ) : null}
 
+            {/* A CW Now to-do: Sent → Seen → Done, Share, what the sub sent, Mark done / Cancel. */}
+            {open.kind === "cwnow" && open.cwNow?.taskId ? <CwNowTaskCard key={open.itemId} taskId={open.cwNow.taskId} onChanged={() => void load()} onClosed={() => setOpenKey("")} /> : null}
+
             {/* The status check: one tap, an optional note, and the history. */}
             {data.statusOn ? (
               <PinStatusBox
                 key={`${open.kind}:${open.itemId}`}
                 paper={open}
-                canFinish={!isExtraJob(open)}
+                canFinish={!hasOwnDone(open)}
                 onSaved={(takenDown) => {
                   if (takenDown) setOpenKey("");
                   void load();
@@ -531,7 +553,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               <BigButton kind="second" onClick={() => printNotes(`note=${encodeURIComponent(`${open.kind}:${open.itemId}`)}`)}>
                 Print
               </BigButton>
-              {isExtraJob(open) ? null : (
+              {hasOwnDone(open) ? null : (
                 <BigButton kind="second" disabled={busy} onClick={() => void finish(open, true)}>
                   Unpin
                 </BigButton>
@@ -602,6 +624,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
         </Sheet>
       ) : null}
       {data ? <AddToBoxSheet target={adding} me={data.me.name} onClose={() => setAdding(null)} onAdded={() => void load()} /> : null}
+      <CwNowAddSheet open={addingCwNow} onClose={() => setAddingCwNow(false)} onAdded={() => void load()} />
       {data ? <PinSheet open={pinning} data={data} defaultSquare={data.me.squareId} onClose={() => setPinning(false)} onPinned={() => void load()} /> : null}
       {setupFor ? (
         <OnboardingWizardModal
@@ -692,7 +715,7 @@ function MySquare({
               <BigButton kind="second" onClick={() => onOpen(paper)}>
                 Open
               </BigButton>
-              {isExtraJob(paper) ? null : (
+              {hasOwnDone(paper) ? null : (
                 <BigButton kind="second" icon="check" disabled={busy} onClick={() => onDone(paper)}>
                   Done
                 </BigButton>

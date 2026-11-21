@@ -5,17 +5,19 @@
 import { FLOW_STEPS, type FlowView } from "@/lib/accountFlow";
 import type { SetupSummary } from "@/lib/setupWizard";
 import type { ComplaintTrackView } from "@/lib/complaintSteps";
+import type { CwNowPaper } from "@/lib/cwNowTasks";
 
-export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note";
+export type PaperKind = "account" | "extra" | "complaint" | "supply" | "note" | "cwnow";
 
-export const PAPER_KINDS: PaperKind[] = ["account", "extra", "complaint", "supply", "note"];
+export const PAPER_KINDS: PaperKind[] = ["account", "extra", "complaint", "supply", "note", "cwnow"];
 
-/** The four shared squares on the top row, left to right. A note has no shared square: it always hangs in a person's square. */
+/** The shared squares on the top row, left to right. A note has no shared square: it always hangs in a person's square. */
 export const SHARED_SQUARES: { kind: Exclude<PaperKind, "note">; label: string }[] = [
   { kind: "account", label: "New accepted" },
   { kind: "extra", label: "Extra jobs" },
   { kind: "complaint", label: "Complaints" },
   { kind: "supply", label: "Supply orders" },
+  { kind: "cwnow", label: "CW Now" },
 ];
 
 /** The few words printed on a paper, and the only thing besides the account name that TV mode shows. */
@@ -25,6 +27,7 @@ export const KIND_LABEL: Record<PaperKind, string> = {
   complaint: "Complaint",
   supply: "Supply order",
   note: "To-do",
+  cwnow: "CW Now to-do",
 };
 
 export type Paper = {
@@ -71,6 +74,10 @@ export type Paper = {
   /** A pinned record: who it is for and when it is due (YYYY-MM-DD). "" when not known. */
   forWho: string;
   dueDate: string;
+  /** A CW Now to-do with a time ("HH:MM", office time): it is late once that time passes. */
+  dueTime?: string;
+  /** A CW Now to-do: how far it got with the sub (migration 087). Never holds its private link. */
+  cwNow?: CwNowPaper | null;
   /** A pinned to-do that is Done: green check, comes down the next day. */
   recordDone: boolean;
   /** A sticky note added inside a shared box ("supply", "complaint", "account"): it hangs there. "" = the Office box. */
@@ -121,8 +128,10 @@ export function statusLine(status: PinStatus): string {
 export const NOTE_BOXES = ["account", "complaint", "supply"] as const;
 
 /** Past its due date and not done: the red corner. */
-export function isOverdue(paper: Pick<Paper, "dueDate" | "recordDone">, now = new Date()): boolean {
+export function isOverdue(paper: Pick<Paper, "dueDate" | "recordDone" | "dueTime">, now = new Date()): boolean {
   if (!paper.dueDate || paper.recordDone) return false;
+  // With a time: late once that time has passed in the office ("2026-11-24 10:30").
+  if (paper.dueTime) return now.toLocaleString("sv-SE", { timeZone: "America/New_York" }).slice(0, 16) > `${paper.dueDate} ${paper.dueTime}`;
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   return paper.dueDate < today;
 }

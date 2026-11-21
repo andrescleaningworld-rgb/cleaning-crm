@@ -1,0 +1,583 @@
+// CW Now to-dos for subs (migration 087). The office makes one on the Pin
+// Board; the sub opens its private link (/porter/task/<token>), sees it and
+// taps Done. Reuses the board's paper, the to-do Google Calendar functions,
+// Textbelt, push and the private file store. A task is NOT a row in the old
+// To-Do list, so managers never get a sub's reminders. Server only.
+//
+// Texts carry the link only when TEXT_LINKS_ALLOWED is on. Until then the task
+// stays "Needs link" until someone uses Share on the pin.
+
+import { randomBytes } from "node:crypto";
+import { getSql } from "@/lib/db";
+import { isCrewLang, type CrewLang } from "@/lib/crewLinkPeople";
+import {
+  TASK_EMAIL_SUBJECT,
+  TASK_FILE_EXTENSIONS,
+  TASK_MAX,
+  TASK_MAX_FILES,
+  TASK_NOTE_MAX,
+  TASK_OFFICE_FOLDER,
+  cleanTaskTime,
+  isOpenTask,
+  isTaskToken,
+  plainLetters,
+  taskIcs,
+  taskShareMessage,
+  taskSmsText,
+  taskSubFolder,
+  type CwNowShareMethod,
+  type CwNowStatus,
+  type PublicTask,
+  type StaffTask,
+  type TaskTextKind,
+} from "@/lib/cwNowTasks";
+import { privateFilesOn, storedPathname, toStoredUrl } from "@/lib/files";
+import { createCalendarEventForToDo, deleteCalendarEventForToDo, updateCalendarEventForToDo } from "@/lib/googleCalendar";
+import { sendSubcontractorNotification } from "@/lib/email";
+import { sendPush } from "@/lib/push";
+import { smsLastLine, smsLinksOn } from "@/lib/sms";
+import { translateTo, translateToEnglish } from "@/lib/translate";
+import { staffContact, textBoardPerson } from "@/lib/pg/board-sms";
+import { todoLocation } from "@/lib/pg/todo-extras";
+import { officeClock } from "@/lib/pg/todo-reminders";
+
+const clean = (value: unknown) => String(value ?? "").trim();
+const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
+const dayText = (value: string | Date) => (value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10));
+const paperId = (taskId: number) => `task-${taskId}`;
+const DAY_REMINDER_AT = 8 * 60;
+/** How long the sub's link keeps working after the task is done. */
+const DONE_LINK_DAYS = 30;
+
+/** A problem the person can fix: its words are safe to show. */
+export class CwNowTaskError extends Error {}
+
+let ready = false;
+export async function cwNowTasksReady(): Promise<boolean> {
+  if (ready) return true;
+  const rows = (await getSql()`SELECT to_regclass('public.cw_now_task_events') IS NOT NULL AS ok`) as { ok: boolean }[];
+  ready = rows[0]?.ok === true;
+  return ready;
+}
+
+type TaskRow = {
+  id: string | number;
+  token: string;
+  account_id: string;
+  account_name: string;
+  sub_id: string | null;
+  sub_name: string;
+  task: string;
+  translations: Record<string, string> | null;
+  due_date: string | Date;
+  due_time: string;
+  priority: string;
+  status: CwNowStatus;
+  link_sent_at: string | Date | null;
+  seen_at: string | Date | null;
+  done_at: string | Date | null;
+  done_by: string;
+  created_by: string;
+  created_by_staff_id: string;
+  created_at: string | Date;
+  calendar_event_id: string;
+  calendar_sync_failed: boolean;
+  reminded_before_at: string | Date | null;
+  reminded_day_at: string | Date | null;
+  sub_phone: string | null;
+  sub_email: string | null;
+  sub_language: string | null;
+  sub_contact: string | null;
+  account_gone: boolean;
+};
+
+const SELECT_TASK = `
+  SELECT t.*, s.phone AS sub_phone, s.email AS sub_email, s.language AS sub_language, s.contact_name AS sub_contact,
+         (a.id IS NULL OR (to_jsonb(a)->>'deleted_at') IS NOT NULL) AS account_gone
+  FROM cw_now_tasks t
+  LEFT JOIN subcontractors s ON s.id = t.sub_id
+  LEFT JOIN accounts a ON a.id = t.account_id`;
+
+const langOf = (row: Pick<TaskRow, "sub_language">): CrewLang => (isCrewLang(row.sub_language) ? row.sub_language : "en");
+const taskIdOf = (row: Pick<TaskRow, "id">) => Number(row.id);
+const dueOf = (row: Pick<TaskRow, "due_date">) => dayText(row.due_date);
+const taskLink = (origin: string, row: Pick<TaskRow, "token" | "sub_language">) => {
+  const lang = langOf(row);
+  return `${origin.replace(/\/$/, "")}/porter/task/${row.token}${lang === "en" ? "" : `?lang=${lang}`}`;
+};
+const shortTask = (task: string, max = 120) => {
+  const line = clean(task).split(/\r?\n/)[0] ?? "";
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+};
+
+async function taskById(id: number): Promise<TaskRow | null> {
+  const rows = (await getSql().query(`${SELECT_TASK} WHERE t.id = $1 LIMIT 1`, [id])) as TaskRow[];
+  return rows[0] ?? null;
+}
+
+async function taskByToken(token: string): Promise<TaskRow | null> {
+  if (!isTaskToken(token)) return null;
+  const rows = (await getSql().query(`${SELECT_TASK} WHERE t.token = $1 LIMIT 1`, [token])) as TaskRow[];
+  const row = rows[0];
+  if (!row || row.account_gone || row.status === "cancelled") return null;
+  if (row.status === "done" && row.done_at && Date.now() - new Date(row.done_at).getTime() > DONE_LINK_DAYS * 86_400_000) return null;
+  return row;
+}
+
+async function addEvent(taskId: number, event: string, fields: { method?: string; detail?: string; detailEn?: string; by?: string } = {}): Promise<number> {
+  const rows = (await getSql()`
+    INSERT INTO cw_now_task_events (task_id, event, method, detail, detail_en, by_name)
+    VALUES (${taskId}, ${event}, ${fields.method ?? ""}, ${fields.detail ?? ""}, ${fields.detailEn ?? ""}, ${(fields.by ?? "").slice(0, 120)})
+    RETURNING id
+  `) as { id: string | number }[];
+  return Number(rows[0]?.id ?? 0);
+}
+
+/** The paper follows the task. Only these few words are on it, never the link. */
+async function patchPaper(taskId: number, patch: Record<string, string>): Promise<void> {
+  await getSql()`UPDATE handoff_items SET data = data || ${JSON.stringify(patch)}::jsonb WHERE kind = 'cwnow' AND item_id = ${paperId(taskId)}`;
+}
+
+/* ---------- the form ---------- */
+
+export type TaskSubOption = { id: string; name: string; language: CrewLang; hasPhone: boolean; hasEmail: boolean; inactive: boolean };
+
+const subName = (row: { company_name: string; contact_name: string }) => clean(row.company_name) || clean(row.contact_name);
+
+export async function listTaskSubs(): Promise<TaskSubOption[]> {
+  const rows = (await getSql()`SELECT id, company_name, contact_name, phone, email, status, language FROM subcontractors`) as { id: string; company_name: string; contact_name: string; phone: string; email: string; status: string; language: string }[];
+  return rows
+    .filter((row) => subName(row))
+    .map((row) => ({ id: row.id, name: subName(row), language: isCrewLang(row.language) ? row.language : ("en" as const), hasPhone: clean(row.phone) !== "", hasEmail: clean(row.email) !== "", inactive: /inactive/i.test(clean(row.status)) }))
+    .sort((a, b) => Number(a.inactive) - Number(b.inactive) || a.name.localeCompare(b.name));
+}
+
+/** The sub assigned to the account. "" when the account has none, or only a typed name that matches no sub. */
+export async function assignedSubId(accountId: string): Promise<string> {
+  const rows = (await getSql()`SELECT subcontractor_id FROM accounts WHERE id = ${accountId} LIMIT 1`) as { subcontractor_id: string | null }[];
+  return clean(rows[0]?.subcontractor_id);
+}
+
+/* ---------- making one ---------- */
+
+export type NewTaskFile = { url: string; name: string; size: number; contentType: string };
+
+export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string }): Promise<number> {
+  const task = clean(input.task).slice(0, TASK_MAX);
+  if (!task) throw new CwNowTaskError("Write the task.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new CwNowTaskError("Pick the due date.");
+  if (input.files.length > TASK_MAX_FILES) throw new CwNowTaskError(`Up to ${TASK_MAX_FILES} files.`);
+  const files = input.files.map((file) => {
+    const url = toStoredUrl(file.url);
+    const path = storedPathname(url);
+    const name = clean(file.name).slice(0, 200);
+    if (!privateFilesOn() || !path || !path.startsWith(`${TASK_OFFICE_FOLDER}/`) || !TASK_FILE_EXTENSIONS.test(name)) throw new CwNowTaskError("A file did not upload to private storage. Remove it and try again.");
+    return { url, name, size: Math.max(0, Math.round(Number(file.size) || 0)), contentType: clean(file.contentType).slice(0, 120) };
+  });
+
+  const sql = getSql();
+  const [accounts, subs] = (await Promise.all([
+    sql`SELECT id, account_name FROM accounts WHERE id = ${input.accountId} AND (to_jsonb(accounts)->>'deleted_at') IS NULL LIMIT 1`,
+    sql`SELECT id, company_name, contact_name, phone FROM subcontractors WHERE id = ${input.subId} LIMIT 1`,
+  ])) as [{ id: string; account_name: string }[], { id: string; company_name: string; contact_name: string; phone: string }[]];
+  const account = accounts[0];
+  const sub = subs[0];
+  if (!account) throw new CwNowTaskError("Pick the account from the list.");
+  if (!sub) throw new CwNowTaskError("Pick the sub.");
+
+  const idRows = (await sql`SELECT nextval(pg_get_serial_sequence('cw_now_tasks', 'id')) AS id`) as { id: string }[];
+  const id = Number(idRows[0].id);
+  const token = randomBytes(24).toString("base64url");
+  const accountName = clean(account.account_name);
+  const name = subName(sub);
+  const dueTime = cleanTaskTime(input.dueTime);
+  const priority = input.urgent ? "urgent" : "normal";
+  const data = {
+    taskId: String(id),
+    forWho: name,
+    dueDate: input.dueDate,
+    dueTime,
+    notes: task.slice(0, 600),
+    taskStatus: "needs_link",
+    urgent: input.urgent ? "1" : "",
+    noPhone: clean(sub.phone) ? "" : "1",
+    hasNote: "",
+  };
+
+  // All or nothing: the task, its files, its history and its paper.
+  await sql.transaction([
+    sql`INSERT INTO cw_now_tasks (id, token, account_id, account_name, sub_id, sub_name, task, due_date, due_time, priority, created_by, created_by_staff_id)
+        VALUES (${id}, ${token}, ${account.id}, ${accountName}, ${sub.id}, ${name}, ${task}, ${input.dueDate}::date, ${dueTime}, ${priority}, ${input.by}, ${input.byStaffId})`,
+    sql`INSERT INTO cw_now_task_files (task_id, source, file_url, file_name, file_size, content_type, uploaded_by)
+        SELECT ${id}::bigint, 'office', f.url, f.name, f.size, f."contentType", ${input.by}
+        FROM jsonb_to_recordset(${JSON.stringify(files)}::jsonb) AS f(url text, name text, size bigint, "contentType" text)`,
+    sql`INSERT INTO cw_now_task_events (task_id, event, by_name) VALUES (${id}, 'created', ${input.by})`,
+    sql`INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
+        VALUES ('cwnow', ${paperId(id)}, ${shortTask(task)}, ${account.id}, ${accountName}, '', 'pinned', ${JSON.stringify(data)}::jsonb, ${input.by}, now(), '')`,
+  ]);
+  return id;
+}
+
+/** After a new task is saved: its Spanish and Portuguese, the calendar and the text. Never throws. */
+export async function deliverNewTask(taskId: number, origin: string): Promise<void> {
+  try {
+    const row = await taskById(taskId);
+    if (!row) return;
+    const [es, pt] = await Promise.all([translateTo(row.task, "es").catch(() => null), translateTo(row.task, "pt").catch(() => null)]);
+    const translations = { ...(es ? { es } : {}), ...(pt ? { pt } : {}) };
+    if (Object.keys(translations).length > 0) await getSql()`UPDATE cw_now_tasks SET translations = ${JSON.stringify(translations)}::jsonb WHERE id = ${taskId}`;
+    await addCalendarEvent(row);
+    await textSub(row, "new", origin);
+  } catch (error) {
+    console.error("[cw-now task] delivery:", error instanceof Error ? error.message : error);
+  }
+}
+
+/* ---------- Google Calendar ---------- */
+
+const calendarWhy = (row: Pick<TaskRow, "sub_name" | "task">) => `${clean(row.sub_name) || "Sub"}: ${shortTask(row.task, 80)}`;
+
+async function addCalendarEvent(row: TaskRow): Promise<void> {
+  const location = await todoLocation(row.account_id, row.account_name);
+  const result = await createCalendarEventForToDo({
+    taskType: "CW Now",
+    dueDate: dueOf(row),
+    dueTime: cleanTaskTime(row.due_time),
+    accountName: row.account_name,
+    why: calendarWhy(row),
+    notes: row.task,
+    // The calendar color of the person who made it.
+    assignedTo: row.created_by,
+    status: "Open",
+    syncToCalendar: true,
+    location,
+  });
+  await getSql()`UPDATE cw_now_tasks SET calendar_event_id = ${result.eventId ?? ""}, calendar_sync_failed = ${result.failed}, updated_at = now() WHERE id = ${taskIdOf(row)}`;
+}
+
+async function setCalendarStatus(row: TaskRow, status: "Open" | "Done"): Promise<void> {
+  if (!row.calendar_event_id) {
+    if (status === "Open") await addCalendarEvent(row);
+    return;
+  }
+  const result = await updateCalendarEventForToDo({
+    eventId: row.calendar_event_id,
+    accountName: row.account_name,
+    why: calendarWhy(row),
+    status,
+    ...(status === "Open" ? { restoreReminders: true, dueDate: dueOf(row), dueTime: cleanTaskTime(row.due_time) } : {}),
+  });
+  await getSql()`UPDATE cw_now_tasks SET calendar_sync_failed = ${result.failed}, updated_at = now() WHERE id = ${taskIdOf(row)}`;
+}
+
+/* ---------- reaching the sub ---------- */
+
+async function linkWentOut(taskId: number, method: string, by: string): Promise<void> {
+  const rows = (await getSql()`
+    UPDATE cw_now_tasks SET status = CASE WHEN status = 'needs_link' THEN 'sent' ELSE status END, link_sent_at = COALESCE(link_sent_at, now()), updated_at = now()
+    WHERE id = ${taskId} RETURNING status
+  `) as { status: CwNowStatus }[];
+  await addEvent(taskId, "share", { method, by });
+  if (rows[0]) await patchPaper(taskId, { taskStatus: rows[0].status });
+}
+
+/** One text to the sub, with the link only when links are on. Counts as Sent only when the link really went. */
+async function textSub(row: TaskRow, kind: TaskTextKind, origin: string): Promise<boolean> {
+  const taskId = taskIdOf(row);
+  const phone = clean(row.sub_phone);
+  const event = kind === "new" ? "text" : "reminder";
+  if (!phone) {
+    await addEvent(taskId, event, { method: kind, detail: "No phone on file" });
+    await patchPaper(taskId, { noPhone: "1" });
+    return false;
+  }
+  const withLink = smsLinksOn();
+  const text = taskSmsText(kind, langOf(row), row.account_name, dueOf(row), row.due_time, withLink ? taskLink(origin, row) : "");
+  const sent = await textBoardPerson({ staffId: "", name: row.sub_name, phone }, text, paperId(taskId), `cw-now/${kind}`);
+  await addEvent(taskId, event, { method: kind, detail: sent ? (withLink ? "Sent with link" : "Sent without link") : "Failed" });
+  if (sent && withLink && !row.link_sent_at) await linkWentOut(taskId, "text", "CW Now");
+  return sent;
+}
+
+/** Share on the pin: Copy / WhatsApp / a hand-sent text are logged when tapped; Email is sent from here. */
+export async function shareTask(taskId: number, method: CwNowShareMethod, by: string, origin: string): Promise<void> {
+  const row = await taskById(taskId);
+  if (!row) throw new CwNowTaskError("That task was not found.");
+  if (!isOpenTask(row.status)) throw new CwNowTaskError("This task is closed.");
+  if (method === "email") {
+    const to = clean(row.sub_email);
+    if (!to) throw new CwNowTaskError("No email on file for this sub.");
+    const lang = langOf(row);
+    const sent = await sendSubcontractorNotification(to, TASK_EMAIL_SUBJECT[lang](row.account_name), [taskShareMessage(lang, clean(row.sub_contact), row.account_name, dueOf(row), row.due_time, taskLink(origin, row))]);
+    if (!sent) throw new CwNowTaskError("The email did not send. Try Copy or WhatsApp.");
+  }
+  if (method === "text" && smsLinksOn()) {
+    const phone = clean(row.sub_phone);
+    if (!phone) throw new CwNowTaskError("No phone on file for this sub.");
+    const text = taskSmsText("new", langOf(row), row.account_name, dueOf(row), row.due_time, taskLink(origin, row));
+    const sent = await textBoardPerson({ staffId: "", name: row.sub_name, phone }, text, paperId(taskId), "cw-now/share");
+    if (!sent) throw new CwNowTaskError("The text did not send. Try Copy or WhatsApp.");
+  }
+  await linkWentOut(taskId, method, by);
+}
+
+/* ---------- what the office does on the card ---------- */
+
+function toStaffFiles(rows: FileRow[]): StaffTask["files"] {
+  return rows.map((file) => ({ id: Number(file.id), source: file.source, name: clean(file.file_name) || "File", url: file.file_url, size: Number(file.file_size) || 0 }));
+}
+
+type FileRow = { id: string | number; source: "office" | "sub"; file_url: string; file_name: string; file_size: string | number; content_type: string; created_at: string | Date };
+type EventRow = { id: string | number; event: string; method: string; detail: string; detail_en: string; by_name: string; at: string | Date };
+
+export async function staffTask(taskId: number, origin: string): Promise<StaffTask | null> {
+  const row = await taskById(taskId);
+  if (!row) return null;
+  const sql = getSql();
+  const [files, events] = (await Promise.all([
+    sql`SELECT id, source, file_url, file_name, file_size, content_type, created_at FROM cw_now_task_files WHERE task_id = ${taskId} ORDER BY created_at, id`,
+    sql`SELECT id, event, method, detail, detail_en, by_name, at FROM cw_now_task_events WHERE task_id = ${taskId} ORDER BY at DESC, id DESC LIMIT 60`,
+  ])) as [FileRow[], EventRow[]];
+  const link = taskLink(origin, row);
+  return {
+    id: taskId,
+    accountId: row.account_id,
+    accountName: row.account_name,
+    subName: row.sub_name,
+    task: row.task,
+    dueDate: dueOf(row),
+    dueTime: cleanTaskTime(row.due_time),
+    urgent: row.priority === "urgent",
+    status: row.status,
+    createdBy: row.created_by,
+    createdAt: iso(row.created_at),
+    calendarFailed: row.calendar_sync_failed,
+    linksOn: smsLinksOn(),
+    link,
+    // "Hi Ana": the contact's first name. A company name is not a greeting, so with no contact it is just "Hi".
+    message: taskShareMessage(langOf(row), clean(row.sub_contact), row.account_name, dueOf(row), row.due_time, link),
+    phone: clean(row.sub_phone),
+    email: clean(row.sub_email),
+    files: toStaffFiles(files),
+    events: events.map((event) => ({ id: Number(event.id), event: event.event, method: event.method, detail: event.detail, detailEn: event.detail_en, by: event.by_name, at: iso(event.at) })),
+  };
+}
+
+/** Done, from the sub's link or the office's card. False when it was already closed. */
+async function finishTask(row: TaskRow, by: string, doneByLabel: string): Promise<boolean> {
+  const taskId = taskIdOf(row);
+  const sql = getSql();
+  const results = await sql.transaction([
+    sql`UPDATE cw_now_tasks SET status = 'done', done_at = now(), done_by = ${by}, updated_at = now() WHERE id = ${taskId} AND status NOT IN ('done', 'cancelled') RETURNING id`,
+    sql`UPDATE handoff_items SET data = data || '{"taskStatus":"done"}'::jsonb, board_done_at = now(), board_done_by = ${doneByLabel}
+        WHERE kind = 'cwnow' AND item_id = ${paperId(taskId)}
+          AND EXISTS (SELECT 1 FROM cw_now_tasks t WHERE t.id = ${taskId} AND t.status = 'done' AND t.done_by = ${by})`,
+  ]);
+  if ((results[0] as unknown[]).length === 0) return false;
+  await addEvent(taskId, "done", { by });
+  return true;
+}
+
+/** The person who made it hears it is done (text + push). Not when they marked it themselves. Never throws. */
+async function tellCreator(row: TaskRow, who: string, byStaffId: string, origin: string): Promise<void> {
+  try {
+    const staffId = clean(row.created_by_staff_id);
+    if (!staffId || staffId === byStaffId) return;
+    const contact = await staffContact(staffId);
+    if (!contact) return;
+    const what = `${row.account_name} - ${shortTask(row.task, 70)}`;
+    await textBoardPerson(contact, plainLetters(`CW Now to-do done by ${who}: ${what}\n${smsLastLine(`${origin}/board`, "staff")}`), paperId(taskIdOf(row)), "cw-now/done");
+    await sendPush(staffId, "CW Now to-do done", `${who}: ${what}`, `${origin}/board`, "cw-now/done");
+  } catch (error) {
+    console.error("[cw-now task] notice:", error instanceof Error ? error.message : error);
+  }
+}
+
+export async function staffFinishTask(taskId: number, by: string, byStaffId: string, origin: string): Promise<(() => Promise<void>) | null> {
+  const row = await taskById(taskId);
+  if (!row) throw new CwNowTaskError("That task was not found.");
+  if (!(await finishTask(row, by, `${by} (office)`))) return null;
+  return async () => {
+    await setCalendarStatus(row, "Done").catch((error) => console.error("[cw-now task] calendar:", error));
+    await tellCreator(row, by, byStaffId, origin);
+  };
+}
+
+export async function cancelTask(taskId: number, by: string): Promise<(() => Promise<void>) | null> {
+  const sql = getSql();
+  const row = await taskById(taskId);
+  if (!row) throw new CwNowTaskError("That task was not found.");
+  const updated = (await sql`UPDATE cw_now_tasks SET status = 'cancelled', cancelled_at = now(), updated_at = now() WHERE id = ${taskId} AND status NOT IN ('done', 'cancelled') RETURNING id`) as unknown[];
+  if (updated.length === 0) return null;
+  await sql`UPDATE handoff_items SET data = data || '{"taskStatus":"cancelled"}'::jsonb, board_done_at = now(), board_done_by = ${`Cancelled by ${by}`.slice(0, 120)} WHERE kind = 'cwnow' AND item_id = ${paperId(taskId)}`;
+  await addEvent(taskId, "cancelled", { by });
+  return async () => {
+    if (!row.calendar_event_id) return;
+    const result = await deleteCalendarEventForToDo(row.calendar_event_id);
+    await sql`UPDATE cw_now_tasks SET calendar_event_id = ${result.failed ? row.calendar_event_id : ""}, calendar_sync_failed = ${result.failed} WHERE id = ${taskId}`;
+  };
+}
+
+/** "Pin back" in the Done tray: the task is open again, where it was before. */
+export async function reopenTaskByPaper(itemId: string, by: string): Promise<boolean> {
+  const taskId = Number(/^task-(\d+)$/.exec(itemId)?.[1] ?? 0);
+  if (!taskId) return false;
+  const sql = getSql();
+  const updated = (await sql`
+    UPDATE cw_now_tasks
+    SET status = CASE WHEN seen_at IS NOT NULL THEN 'seen' WHEN link_sent_at IS NOT NULL THEN 'sent' ELSE 'needs_link' END,
+        done_at = NULL, done_by = '', cancelled_at = NULL, updated_at = now()
+    WHERE id = ${taskId} AND status IN ('done', 'cancelled')
+    RETURNING status
+  `) as { status: CwNowStatus }[];
+  if (updated.length === 0) return false;
+  await sql`UPDATE handoff_items SET data = data || ${JSON.stringify({ taskStatus: updated[0].status })}::jsonb, board_done_at = NULL, board_done_by = '' WHERE kind = 'cwnow' AND item_id = ${paperId(taskId)}`;
+  await addEvent(taskId, "reopened", { by });
+  const row = await taskById(taskId);
+  if (row) await setCalendarStatus(row, "Open").catch((error) => console.error("[cw-now task] calendar:", error));
+  return true;
+}
+
+/* ---------- the sub's link ---------- */
+
+/** This one task, and only what the sub needs. Null when the link is not good (any more). */
+export async function publicTask(token: string): Promise<PublicTask | null> {
+  const row = await taskByToken(token);
+  if (!row) return null;
+  const taskId = taskIdOf(row);
+  const sql = getSql();
+  const [files, notes, location] = (await Promise.all([
+    sql`SELECT id, source, file_url, file_name, file_size, content_type, created_at FROM cw_now_task_files WHERE task_id = ${taskId} ORDER BY created_at, id`,
+    sql`SELECT detail, at FROM cw_now_task_events WHERE task_id = ${taskId} AND event = 'note' ORDER BY at, id`,
+    todoLocation(row.account_id, row.account_name),
+  ])) as [FileRow[], { detail: string; at: string | Date }[], string];
+  const translations = row.translations ?? {};
+  return {
+    accountName: row.account_name,
+    location,
+    task: row.task,
+    translations: { ...(translations.es ? { es: translations.es } : {}), ...(translations.pt ? { pt: translations.pt } : {}) },
+    dueDate: dueOf(row),
+    dueTime: cleanTaskTime(row.due_time),
+    urgent: row.priority === "urgent",
+    status: row.status,
+    language: langOf(row),
+    canAddPhoto: privateFilesOn(),
+    uploadFolder: taskSubFolder(taskId),
+    files: files.filter((file) => file.source === "office").map((file) => ({ id: Number(file.id), name: clean(file.file_name) || "File", url: file.file_url, size: Number(file.file_size) || 0, contentType: clean(file.content_type) })),
+    notes: notes.map((note) => ({ text: note.detail, at: iso(note.at) })),
+    photos: files.filter((file) => file.source === "sub").map((file) => ({ id: Number(file.id), url: file.file_url })),
+  };
+}
+
+/** The upload folder for this link's photos, while the task is open. */
+export async function taskUploadFolder(token: string): Promise<string | null> {
+  const row = await taskByToken(token);
+  return row && isOpenTask(row.status) ? taskSubFolder(taskIdOf(row)) : null;
+}
+
+/** First real open of the link. */
+export async function markSeen(token: string): Promise<void> {
+  const row = await taskByToken(token);
+  if (!row || (row.status !== "needs_link" && row.status !== "sent")) return;
+  const taskId = taskIdOf(row);
+  const updated = (await getSql()`
+    UPDATE cw_now_tasks SET status = 'seen', seen_at = now(), link_sent_at = COALESCE(link_sent_at, now()), updated_at = now()
+    WHERE id = ${taskId} AND status IN ('needs_link', 'sent') RETURNING id
+  `) as unknown[];
+  if (updated.length === 0) return;
+  await addEvent(taskId, "seen");
+  await patchPaper(taskId, { taskStatus: "seen" });
+}
+
+export async function addNoteFromLink(token: string, name: string, text: string): Promise<(() => Promise<void>) | null> {
+  const row = await taskByToken(token);
+  if (!row || !isOpenTask(row.status)) return null;
+  const note = clean(text).slice(0, TASK_NOTE_MAX);
+  if (!note) throw new CwNowTaskError("Write the note.");
+  const taskId = taskIdOf(row);
+  const eventId = await addEvent(taskId, "note", { detail: note, by: clean(name).slice(0, 80) });
+  await patchPaper(taskId, { hasNote: "1" });
+  return async () => {
+    const english = await translateToEnglish(note).catch(() => null);
+    if (english && english.english !== note) await getSql()`UPDATE cw_now_task_events SET detail_en = ${english.english} WHERE id = ${eventId}`;
+  };
+}
+
+export async function addPhotoFromLink(token: string, name: string, file: NewTaskFile): Promise<boolean> {
+  const row = await taskByToken(token);
+  if (!row || !isOpenTask(row.status) || !privateFilesOn()) return false;
+  const taskId = taskIdOf(row);
+  const url = toStoredUrl(file.url);
+  const path = storedPathname(url);
+  if (!path || !path.startsWith(`${taskSubFolder(taskId)}/`)) return false;
+  const who = clean(name).slice(0, 80);
+  await getSql()`
+    INSERT INTO cw_now_task_files (task_id, source, file_url, file_name, file_size, content_type, uploaded_by)
+    VALUES (${taskId}, 'sub', ${url}, ${clean(file.name).slice(0, 200)}, ${Math.max(0, Math.round(Number(file.size) || 0))}, ${clean(file.contentType).slice(0, 120)}, ${who})
+  `;
+  await addEvent(taskId, "photo", { by: who });
+  await patchPaper(taskId, { hasNote: "1" });
+  return true;
+}
+
+export async function doneFromLink(token: string, name: string, origin: string): Promise<(() => Promise<void>) | null> {
+  const row = await taskByToken(token);
+  if (!row || !isOpenTask(row.status)) return null;
+  const who = clean(name).slice(0, 80) || clean(row.sub_name) || "The sub";
+  if (!(await finishTask(row, who, `${who} (CW Now)`))) return null;
+  return async () => {
+    await setCalendarStatus(row, "Done").catch((error) => console.error("[cw-now task] calendar:", error));
+    await tellCreator(row, who, "", origin);
+  };
+}
+
+/** The phone calendar file for this link's task. Null when the link is not good. */
+export async function taskCalendarFile(token: string): Promise<string | null> {
+  const row = await taskByToken(token);
+  if (!row) return null;
+  const lang = langOf(row);
+  const translated = row.translations?.[lang];
+  const location = await todoLocation(row.account_id, row.account_name);
+  return taskIcs({ taskId: taskIdOf(row), title: `${row.account_name}: ${shortTask(translated || row.task, 70)}`, description: translated || row.task, location, dueDate: dueOf(row), dueTime: row.due_time });
+}
+
+/* ---------- the reminders (cron /api/cron/todo-reminders, every 15 minutes) ---------- */
+
+export type TaskReminderRun = { checked: number; sent: number; skipped: number };
+
+/** 8 AM the day before and 8 AM on the due day, while it is not done. Each goes once. Not on a task made after that 8 AM. */
+export async function runCwNowTaskReminders(origin: string, now = new Date()): Promise<TaskReminderRun> {
+  const run: TaskReminderRun = { checked: 0, sent: 0, skipped: 0 };
+  if (!(await cwNowTasksReady())) return run;
+  const clock = officeClock(now);
+  if (clock.minutes < DAY_REMINDER_AT) return run;
+  const sql = getSql();
+  const rows = (await sql.query(
+    `${SELECT_TASK}
+     WHERE t.status NOT IN ('done', 'cancelled')
+       AND ((t.due_date = $1::date AND t.reminded_day_at IS NULL) OR (t.due_date = $1::date + 1 AND t.reminded_before_at IS NULL))`,
+    [clock.day]
+  )) as TaskRow[];
+
+  for (const row of rows) {
+    if (row.account_gone) continue;
+    run.checked += 1;
+    const dueToday = dueOf(row) === clock.day;
+    const column = dueToday ? "reminded_day_at" : "reminded_before_at";
+    const claimed = (await sql.query(`UPDATE cw_now_tasks SET ${column} = now() WHERE id = $1 AND ${column} IS NULL RETURNING id`, [row.id])) as unknown[];
+    if (claimed.length === 0) continue;
+    const made = officeClock(new Date(row.created_at));
+    const madeAfterEight = made.day === clock.day && made.minutes >= DAY_REMINDER_AT;
+    const time = cleanTaskTime(row.due_time);
+    const [h, m] = time ? time.split(":").map(Number) : [0, 0];
+    const timePassed = dueToday && Boolean(time) && h * 60 + m <= clock.minutes;
+    if (madeAfterEight || timePassed) {
+      run.skipped += 1;
+      continue;
+    }
+    if (await textSub(row, dueToday ? "today" : "tomorrow", origin)) run.sent += 1;
+    else run.skipped += 1;
+  }
+  return run;
+}

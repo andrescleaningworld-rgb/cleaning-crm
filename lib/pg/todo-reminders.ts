@@ -26,7 +26,7 @@ const JUST_MADE_MINUTES = 15;
 const clean = (value: unknown) => String(value ?? "").trim();
 
 /** Office (New York) day "YYYY-MM-DD" and minutes after midnight. */
-function officeClock(at: Date): { day: string; minutes: number } {
+export function officeClock(at: Date): { day: string; minutes: number } {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
       .formatToParts(at)

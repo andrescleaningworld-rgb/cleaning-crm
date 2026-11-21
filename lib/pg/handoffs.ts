@@ -114,7 +114,7 @@ export async function listHandoffs(): Promise<HandoffItem[]> {
   // are Pin Board papers only (lib/pg/board.ts); they have no steps here. Neither does a new account in
   // the 8-step flow (data.flow): its steps are on the account page and its pin (lib/pg/account-flow.ts).
   const rows = (await sql.query(
-    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'supply', 'note') AND NOT (i.kind = 'extra' AND i.item_id LIKE 'job-%') AND NOT (i.kind = 'account' AND COALESCE(i.data->>'flow', '') <> '') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') AND ${handoffLive("i")} ORDER BY i.step_since ASC`
+    `${SELECT_ITEM} WHERE i.kind NOT IN ('complaint', 'supply', 'note', 'cwnow') AND NOT (i.kind = 'extra' AND i.item_id LIKE 'job-%') AND NOT (i.kind = 'account' AND COALESCE(i.data->>'flow', '') <> '') AND (i.done_at IS NULL OR i.done_at > now() - interval '30 days') AND ${handoffLive("i")} ORDER BY i.step_since ASC`
   )) as Row[];
   return rows.map(toItem);
 }

@@ -58,6 +58,8 @@ export async function getAllSubcontractorsRaw(): Promise<RawSubcontractorRow[]> 
     }
     // "Exclude from sub score" (migration 071): "Yes" / "No".
     result.excludeFromScore = (row as Record<string, unknown>).exclude_from_score === true ? "Yes" : "No";
+    // The language of the sub's CW Now to-dos (migration 087). English until it is in.
+    result.language = String((row as Record<string, unknown>).language ?? "en");
     return result;
   });
 }
@@ -147,7 +149,10 @@ export async function updateSubcontractor(id: string, fields: Record<string, unk
     throw new Error("\"Exclude from sub score\" works once this database has its update (migration 071).");
   }
   const excludeWrite = excludeAsked !== undefined && hasExcludeColumn && (current as Record<string, unknown>).exclude_from_score !== excludeOn;
-  if (writes.length === 0 && !excludeWrite) return toHeaderRecord(current);
+  // The language of the sub's CW Now to-dos (migration 087): skipped until the column is in, so saving a sub never breaks.
+  const languageAsked = String(fields.language ?? "").trim();
+  const languageWrite = "language" in current && ["en", "es", "pt"].includes(languageAsked) && current.language !== languageAsked;
+  if (writes.length === 0 && !excludeWrite && !languageWrite) return toHeaderRecord(current);
 
   const next: SubRow = { ...current };
   for (const { column, value } of writes) next[column] = value;
@@ -157,6 +162,10 @@ export async function updateSubcontractor(id: string, fields: Record<string, unk
   if (excludeWrite) {
     params.push(excludeOn);
     assignments.push(`exclude_from_score = $${params.length}`);
+  }
+  if (languageWrite) {
+    params.push(languageAsked);
+    assignments.push(`language = $${params.length}`);
   }
   // Keep the derived columns in step with what was written.
   if (writes.some((w) => w.column === "insurance_expiration_raw")) {

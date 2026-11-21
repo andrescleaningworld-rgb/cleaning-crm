@@ -29,6 +29,7 @@ import ComplaintReviewPrint from "@/app/components/complaint-review-print";
 import InviteToPortal from "./invite-to-portal";
 import CrewsDetail from "./crews";
 import { shareOfRevenue } from "@/lib/payShare";
+import { CREW_LANGS, isCrewLang } from "@/lib/crewLinkPeople";
 import EmailLogList from "@/app/components/email-log-list";
 import { SubInsuranceCard } from "@/app/components/sub-insurance";
 
@@ -54,6 +55,8 @@ type Subcontractor = {
 
   phone?: string;
   Phone?: string;
+  /** en / es / pt (migration 087). */
+  language?: string;
 
   email?: string;
   Email?: string;
@@ -501,6 +504,8 @@ const EMPTY_FORM = {
   notes: "",
   /** "Yes" / "No": in-house crews and placeholder subs are not scored. */
   excludeFromScore: "No",
+  /** en / es / pt: the sub's CW Now to-do texts and screen. */
+  language: "en",
 };
 
 type SubForm = typeof EMPTY_FORM;
@@ -526,6 +531,7 @@ function formFromSubcontractor(subcontractor: Subcontractor): SubForm {
     status: subcontractor.status || subcontractor.Status || "Active",
     notes: getValue(subcontractor, "notes", "Notes"),
     excludeFromScore: getValue(subcontractor, "excludeFromScore", "ExcludeFromScore") === "Yes" ? "Yes" : "No",
+    language: isCrewLang(subcontractor.language) ? subcontractor.language : "en",
   };
 }
 
@@ -569,6 +575,7 @@ function EditSubcontractorSheet({
             status: values.status,
             notes: values.notes,
             excludeFromScore: values.excludeFromScore,
+            language: values.language,
           }),
         });
       } catch {
@@ -620,6 +627,13 @@ function EditSubcontractorSheet({
       <Field label="Contact name" optional value={form.contactName} onChange={(e) => updateForm("contactName", e.target.value)} disabled={disabled} />
       <Field label="Phone" optional type="tel" inputMode="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} disabled={disabled} />
       <Field label="Email" optional type="email" inputMode="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} disabled={disabled} />
+      <SelectField label="Language for CW Now to-dos" value={form.language} onChange={(e) => updateForm("language", e.target.value)} disabled={disabled}>
+        {CREW_LANGS.map((entry) => (
+          <option key={entry.value} value={entry.value}>
+            {entry.label}
+          </option>
+        ))}
+      </SelectField>
       <Field label="Address" optional value={form.address} onChange={(e) => updateForm("address", e.target.value)} disabled={disabled} />
       <Field label="Areas serviced" optional value={form.areasServiced} onChange={(e) => updateForm("areasServiced", e.target.value)} disabled={disabled} />
       <Field label="Services provided" optional value={form.servicesProvided} onChange={(e) => updateForm("servicesProvided", e.target.value)} disabled={disabled} />

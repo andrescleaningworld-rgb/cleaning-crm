@@ -189,6 +189,75 @@ button.paper:hover {
 .supply {
   background: #d9f2cf;
 }
+.cwnow {
+  background: #e4dcff;
+}
+.mineCard.cwnow {
+  border-left-color: #6d4fd1;
+  background: #ffffff;
+}
+.cwNowAdd {
+  width: 100%;
+  min-height: 52px;
+  margin-bottom: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: #5b3fc4;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.cwNowAdd:hover {
+  background: #4a31a8;
+}
+.cwNowSteps,
+.cwNowNeeds,
+.cwNowUrgent {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.cwNowNeeds {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #fff1c2;
+  color: #7a4b00;
+}
+.cwNowUrgent {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #c62828;
+  color: #ffffff;
+}
+.cwNowChoice,
+.cwNowShare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.cwNowFile {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.cwNowPhotos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+}
+.cwNowPhotos img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  object-fit: cover;
+}
 .note {
   background: #fff3a0;
   box-shadow: 0 5px 10px rgba(50, 30, 5, 0.4);

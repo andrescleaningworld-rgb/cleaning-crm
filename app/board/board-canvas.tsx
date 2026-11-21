@@ -11,6 +11,7 @@ import { Sheet } from "@/app/ui";
 import { SHARED_SQUARES, countedPapers, flowStepLine, paperLabel, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperTilt, papersIn, pinStatusLabel, statusLine, type BoardManager, type BoardSettings, type Paper } from "@/lib/board";
 import PizzaTracker from "@/app/components/pizza-tracker";
 import { COMPLAINT_STEPS } from "@/lib/complaintSteps";
+import { cwNowStepsLine } from "@/lib/cwNowTasks";
 import ReadyBadge from "@/app/components/ready-badge";
 import AccountLink from "@/app/components/AccountLink";
 import { ResponseClock } from "@/app/components/response-clock";
@@ -46,7 +47,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
       {/* A complaint still waiting for its first answer: the response clock (green / yellow / red). */}
       {!tv && paper.clock ? <ResponseClock createdAt={paper.clock.createdAt} answeredAt={paper.clock.answeredAt} status={paper.clock.status} hideAnswered /> : null}
       {/* A sticky note linked to an account: its name opens the account (the rest of the paper still opens the paper). */}
-      {!tv && paper.kind === "note" && paper.accountName && paper.accountName !== title ? (
+      {!tv && (paper.kind === "note" || paper.kind === "cwnow") && paper.accountName && paper.accountName !== title ? (
         <span className={styles.meta}>
           <AccountLink nested badge={false} accountId={paper.accountId} name={paper.accountName} />
         </span>
@@ -82,6 +83,15 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
           {paper.dueDate ? `Due ${dueLabel(paper.dueDate)}` : ""}
         </span>
       ) : null}
+      {/* A CW Now to-do: how far it got with the sub. */}
+      {!tv && paper.cwNow ? (
+        <>
+          {paper.cwNow.urgent ? <span className={styles.cwNowUrgent}>Urgent</span> : null}
+          <span className={paper.cwNow.status === "needs_link" ? styles.cwNowNeeds : styles.cwNowSteps}>{cwNowStepsLine(paper.cwNow.status)}</span>
+          {paper.cwNow.hasNote ? <span className={styles.meta}>📝 From the sub</span> : null}
+          {paper.cwNow.noPhone ? <span className={styles.meta}>No phone on file</span> : null}
+        </>
+      ) : null}
       {isOverdue(paper, now) ? (
         <span className={styles.overdueCorner} aria-hidden="true" />
       ) : null}
@@ -102,7 +112,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
 
 export function paperClass(paper: Paper, settings: BoardSettings, now: Date): string {
   // An account update is a green note; every other note is yellow.
-  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red || paper.complaintTrack?.red || paper.alert ? styles.flowRed : ""}`;
+  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red || paper.complaintTrack?.red || paper.alert || (paper.kind === "cwnow" && !paper.doneAt && isOverdue(paper, now)) ? styles.flowRed : ""}`;
 }
 
 /* ---------- a full square: the papers that fit, then a pile ---------- */
