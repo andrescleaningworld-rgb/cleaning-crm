@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { privateFilesOn, signatureOk, storageLink } from "@/lib/files";
+import { privateStoreOn, signatureOk, storageLink } from "@/lib/files";
 
 type Context = { params: Promise<{ path: string[] }> };
 
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: Context) {
   try {
     const { path } = await params;
     const pathname = (path ?? []).map(safeDecode).join("/");
-    if (!pathname || pathname.includes("..") || !privateFilesOn()) return notFound();
+    if (!pathname || pathname.includes("..") || !privateStoreOn()) return notFound();
     const query = request.nextUrl.searchParams;
     const allowed = signatureOk(pathname, query.get("e"), query.get("s")) || (await getAdminIdentity(request)) !== null;
     if (!allowed) return notFound();

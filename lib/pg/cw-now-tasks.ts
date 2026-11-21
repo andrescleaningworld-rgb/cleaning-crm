@@ -31,7 +31,7 @@ import {
   type StaffTask,
   type TaskTextKind,
 } from "@/lib/cwNowTasks";
-import { privateFilesOn, storedPathname, toStoredUrl } from "@/lib/files";
+import { privateStoreOn, storedPathname, toStoredUrl } from "@/lib/files";
 import { createCalendarEventForToDo, deleteCalendarEventForToDo, updateCalendarEventForToDo } from "@/lib/googleCalendar";
 import { sendSubcontractorNotification } from "@/lib/email";
 import { sendPush } from "@/lib/push";
@@ -171,7 +171,7 @@ export async function createTask(input: { accountId: string; subId: string; task
     const url = toStoredUrl(file.url);
     const path = storedPathname(url);
     const name = clean(file.name).slice(0, 200);
-    if (!privateFilesOn() || !path || !path.startsWith(`${TASK_OFFICE_FOLDER}/`) || !TASK_FILE_EXTENSIONS.test(name)) throw new CwNowTaskError("A file did not upload to private storage. Remove it and try again.");
+    if (!privateStoreOn() || !path || !path.startsWith(`${TASK_OFFICE_FOLDER}/`) || !TASK_FILE_EXTENSIONS.test(name)) throw new CwNowTaskError("A file did not upload to private storage. Remove it and try again.");
     return { url, name, size: Math.max(0, Math.round(Number(file.size) || 0)), contentType: clean(file.contentType).slice(0, 120) };
   });
 
@@ -462,7 +462,7 @@ export async function publicTask(token: string): Promise<PublicTask | null> {
     urgent: row.priority === "urgent",
     status: row.status,
     language: langOf(row),
-    canAddPhoto: privateFilesOn(),
+    canAddPhoto: privateStoreOn(),
     uploadFolder: taskSubFolder(taskId),
     files: files.filter((file) => file.source === "office").map((file) => ({ id: Number(file.id), name: clean(file.file_name) || "File", url: file.file_url, size: Number(file.file_size) || 0, contentType: clean(file.content_type) })),
     notes: notes.map((note) => ({ text: note.detail, at: iso(note.at) })),
@@ -506,7 +506,7 @@ export async function addNoteFromLink(token: string, name: string, text: string)
 
 export async function addPhotoFromLink(token: string, name: string, file: NewTaskFile): Promise<boolean> {
   const row = await taskByToken(token);
-  if (!row || !isOpenTask(row.status) || !privateFilesOn()) return false;
+  if (!row || !isOpenTask(row.status) || !privateStoreOn()) return false;
   const taskId = taskIdOf(row);
   const url = toStoredUrl(file.url);
   const path = storedPathname(url);

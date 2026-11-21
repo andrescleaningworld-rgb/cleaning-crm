@@ -7,15 +7,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { TASK_FILE_EXTENSIONS, TASK_FILE_MAX_BYTES, TASK_FILE_TYPES, TASK_OFFICE_FOLDER, TASK_VIDEO_EXTENSIONS, TASK_VIDEO_MAX_BYTES } from "@/lib/cwNowTasks";
-import { privateFilesOn, uploadToken } from "@/lib/files";
+import { privateStoreOn, privateUploadToken } from "@/lib/files";
 
 export async function POST(request: NextRequest) {
   try {
-    if (!privateFilesOn()) return NextResponse.json({ error: "Private file storage is not connected yet." }, { status: 503 });
+    if (!privateStoreOn()) return NextResponse.json({ error: "Private file storage is not connected yet." }, { status: 503 });
     if (!(await getAdminIdentity(request))) return NextResponse.json({ error: "Staff only." }, { status: 401 });
     const body = (await request.json()) as HandleUploadBody;
     const result = await handleUpload({
-      token: uploadToken(),
+      token: privateUploadToken(),
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {

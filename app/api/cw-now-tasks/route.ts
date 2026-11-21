@@ -8,7 +8,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { isCwNowShareMethod } from "@/lib/cwNowTasks";
-import { privateFilesOn } from "@/lib/files";
+import { privateStoreOn } from "@/lib/files";
 import { smsLinksOn } from "@/lib/sms";
 import {
   CwNowTaskError,
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     if (params.get("view") === "form") {
       const accountId = clean(params.get("accountId"));
       if (accountId) return NextResponse.json({ success: true, ready: true, assignedSubId: await assignedSubId(accountId) }, noStore);
-      return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateFilesOn(), linksOn: smsLinksOn() }, noStore);
+      return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn() }, noStore);
     }
     const id = Number(params.get("id"));
     if (!Number.isInteger(id) || id <= 0) return refuse("Which task?");

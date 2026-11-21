@@ -1,11 +1,13 @@
 // Uploaded files (photos, estimates, documents, COIs...), private.
 //
-// Storage. With BLOB_PRIVATE_READ_WRITE_TOKEN set (a private Vercel Blob
-// store connected to the project), every new upload goes there and is saved
-// in the database as the app's own address, "/api/files/<pathname>". Nobody
-// can open the file from storage directly. Without it, uploads go to the
-// public store as before (BLOB_READ_WRITE_TOKEN) and keep their public URL,
-// so nothing changes until the private store is connected.
+// Storage. BLOB_PRIVATE_READ_WRITE_TOKEN is the private Vercel Blob store. For
+// now ONLY CW Now task files go there (privateUploadToken). Every other upload
+// stays in the public store (BLOB_READ_WRITE_TOKEN) with its public URL, until
+// ALL_UPLOADS_PRIVATE is turned on. Before that, the Photos page must be fixed:
+// lib/pg/photo-index.ts only indexes "http..." links, and its thumbnails go
+// through Next's image resizer. A private file is saved in the database as the
+// app's own address, "/api/files/<pathname>", and nobody can open it from
+// storage directly.
 //
 // Opening a file: GET /api/files/<pathname> (app/api/files/[...path]/route.ts)
 // lets in logged-in staff, or anyone holding a short-lived signed link
@@ -30,8 +32,12 @@ export const LINK_MINUTES = 60;
 const STORAGE_LINK_SECONDS = 5 * 60;
 
 const privateToken = () => (process.env.BLOB_PRIVATE_READ_WRITE_TOKEN ?? "").trim();
-/** True once the private store is connected: new uploads are private. */
-export const privateFilesOn = () => privateToken() !== "";
+/** The private store is connected: its files can be read, and CW Now task files can be uploaded to it. */
+export const privateStoreOn = () => privateToken() !== "";
+/** Off: general uploads stay public even with the private store connected (see the top of this file). */
+const ALL_UPLOADS_PRIVATE: boolean = false;
+/** General uploads (everything except CW Now task files) go to the private store. */
+export const privateFilesOn = () => ALL_UPLOADS_PRIVATE && privateStoreOn();
 /** Some file storage is set up here (private or public). */
 export const fileStorageOn = () => privateFilesOn() || Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
@@ -90,7 +96,7 @@ export async function del(urlOrUrls: string | string[]): Promise<void> {
   const list = Array.isArray(urlOrUrls) ? urlOrUrls : [urlOrUrls];
   const privatePaths = list.map(storedPathname).filter((path): path is string => Boolean(path));
   const others = list.filter((url) => !storedPathname(url));
-  if (privatePaths.length > 0 && privateFilesOn()) await blobDel(privatePaths, { token: privateToken() });
+  if (privatePaths.length > 0 && privateStoreOn()) await blobDel(privatePaths, { token: privateToken() });
   if (others.length > 0) await blobDel(others);
 }
 
@@ -156,7 +162,7 @@ export async function storageLink(pathname: string): Promise<string> {
 export async function openStoredFile(url: string): Promise<{ data: ArrayBuffer; contentType: string } | null> {
   const pathname = storedPathname(url);
   if (pathname) {
-    if (!privateFilesOn()) return null;
+    if (!privateStoreOn()) return null;
     const result = await blobGet(pathname, { access: "private", token: privateToken() });
     if (!result || !result.stream) return null;
     const data = await new Response(result.stream).arrayBuffer();
@@ -176,3 +182,6 @@ export function filesJson(data: unknown, init?: ResponseInit): NextResponse {
 export function uploadToken(): string | undefined {
   return privateFilesOn() ? privateToken() : undefined;
 }
+
+/** The token for a browser upload that must be private (CW Now task files). Callers check privateStoreOn first. */
+export const privateUploadToken = () => privateToken();

@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
-import { privateFilesOn, uploadToken } from "@/lib/files";
+import { privateStoreOn, privateUploadToken } from "@/lib/files";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { CREW_PHOTO_UPLOAD_TYPES, CREW_RAW_PHOTO_MAX_BYTES } from "@/lib/crewPhotos";
 import { isTaskToken } from "@/lib/cwNowTasks";
@@ -16,10 +16,10 @@ const PHOTO_PATH = /\.(jpe?g|png|webp|heic|heif)$/i;
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   try {
     const { token } = await params;
-    if (!isTaskToken(token) || !privateFilesOn() || !(await cwNowTasksReady())) return NextResponse.json({ error: "Not available." }, { status: 404 });
+    if (!isTaskToken(token) || !privateStoreOn() || !(await cwNowTasksReady())) return NextResponse.json({ error: "Not available." }, { status: 404 });
     const body = (await request.json()) as HandleUploadBody;
     const result = await handleUpload({
-      token: uploadToken(),
+      token: privateUploadToken(),
       body,
       request,
       onBeforeGenerateToken: async (pathname) => {
