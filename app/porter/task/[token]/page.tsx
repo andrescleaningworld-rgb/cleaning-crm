@@ -8,13 +8,13 @@ import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
-import { DUE_STYLE, DUE_WORDS, NEEDS_PHOTO_ERROR, NEEDS_PHOTO_WORDS, TASK_LINK_LABEL, TASK_WORDS, taskDueState, taskDueText, type PublicTask } from "@/lib/cwNowTasks";
+import { NEEDS_PHOTO_ERROR, NEEDS_PHOTO_WORDS, TASK_WORDS, type PublicTask } from "@/lib/cwNowTasks";
 import { shrinkImage } from "@/lib/imageResize";
 import { sizeText } from "@/lib/accountDocuments";
 import { pageFor } from "@/lib/taskPage";
-import TaskPageView from "@/app/components/TaskPageView";
+import TaskPageView, { PlainTask, TaskSheet } from "@/app/components/TaskPageView";
 import { crewLinkStrings } from "../../[code]/strings";
-import { CenteredMessage, CrewHeader, ErrorBox, SentScreen } from "../../[code]/ui";
+import { CenteredMessage, ErrorBox, LangSwitch, SentScreen } from "../../[code]/ui";
 
 // The same name the rest of CW Now remembers on this phone.
 const NAME_KEY = "crew-link-name";
@@ -33,7 +33,7 @@ const keepName = (name: string) => {
   }
 };
 
-const BIG = "min-h-[64px] w-full rounded-2xl bg-white px-4 text-xl font-bold text-blue-800 shadow-sm active:bg-slate-100 disabled:text-slate-400";
+const BIG = "min-h-[64px] w-full rounded-2xl border-2 border-blue-100 bg-white px-4 text-xl font-bold text-blue-800 shadow-sm active:bg-slate-100 disabled:text-slate-400";
 
 export default function CwNowTaskPage() {
   const params = useParams<{ token: string }>();
@@ -179,44 +179,36 @@ export default function CwNowTaskPage() {
   const isDone = task.status === "done";
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-4">
+    <main className="min-h-screen bg-white px-3 py-3">
       <div className="mx-auto max-w-xl space-y-4">
-        <CrewHeader s={crew} lang={lang} onLangChange={setLang} locationName={task.accountName}>
-          {task.location ? <p className="mt-1 text-lg font-semibold text-blue-100">{task.location}</p> : null}
-        </CrewHeader>
-
-        {task.linkKind ? <p className="rounded-2xl bg-blue-800 px-4 py-3 text-center text-2xl font-black text-white">{TASK_LINK_LABEL[lang][task.linkKind]}</p> : null}
-
-        {task.urgent && !isDone ? <p className="rounded-2xl bg-red-600 px-4 py-3 text-center text-2xl font-black text-white">⚠ {words.urgent}</p> : null}
-
-        {task.dueColors ? (
-          <section className="rounded-2xl border-4 p-4 shadow-sm" style={DUE_STYLE[taskDueState(task.dueDate, task.status)]} data-due-state={taskDueState(task.dueDate, task.status)}>
-            <p className="text-xl font-black">{DUE_WORDS[lang][taskDueState(task.dueDate, task.status)]}</p>
-            <p className="text-4xl font-black">{taskDueText(task.dueDate, task.dueTime, lang)}</p>
-          </section>
-        ) : (
-          <section className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-lg font-bold text-slate-500">{words.due}</p>
-            <p className="text-3xl font-black text-slate-900">{taskDueText(task.dueDate, task.dueTime, lang)}</p>
-          </section>
-        )}
-
-        {task.pages ? (
-          <section className="rounded-2xl bg-white p-4 shadow-sm">
+        <TaskSheet
+          accountName={task.accountName}
+          location={task.location}
+          dueDate={task.dueDate}
+          dueTime={task.dueTime}
+          status={task.status}
+          urgent={task.urgent}
+          lang={lang}
+          kind={task.linkKind}
+          contact={task.contact}
+          youGetPaid={task.youGetPaid}
+          photosRequired={task.photosRequired}
+          top={<div className="mb-3 rounded-2xl bg-blue-800 p-1"><LangSwitch lang={lang} onChange={setLang} /></div>}
+        >
+          {task.pages ? (
             <TaskPageView page={pageFor(task.pages, lang)} lang={lang} />
-          </section>
-        ) : (
-          <section className="rounded-2xl bg-white p-4 shadow-sm">
-            <p className="text-lg font-bold text-slate-500">{words.task}</p>
-            <p className="mt-1 whitespace-pre-wrap text-2xl font-bold leading-snug text-slate-900">{translated || task.task}</p>
-            {translated && translated !== task.task ? (
-              <p className="mt-3 whitespace-pre-wrap border-t border-slate-200 pt-3 text-base text-slate-600">
-                <span className="font-bold">{words.original}: </span>
-                {task.task}
-              </p>
-            ) : null}
-          </section>
-        )}
+          ) : (
+            <>
+              <PlainTask text={translated || task.task} lang={lang} />
+              {translated && translated !== task.task ? (
+                <p className="mt-3 whitespace-pre-wrap border-t border-slate-200 pt-3 text-base text-slate-600">
+                  <span className="font-bold">{words.original}: </span>
+                  {task.task}
+                </p>
+              ) : null}
+            </>
+          )}
+        </TaskSheet>
 
         {task.files.length > 0 ? (
           <section className="space-y-2">

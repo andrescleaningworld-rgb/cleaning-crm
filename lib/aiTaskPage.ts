@@ -9,7 +9,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { cleanTaskPage, stripOfficeOnly, type TaskPage, type TaskPages } from "@/lib/taskPage";
-import { SUB_PACKET_OFFICE } from "@/lib/subPacket";
 
 const MODEL = "claude-opus-5-5";
 
@@ -20,7 +19,6 @@ const PageSchema = z.object({
   bring: z.array(z.string()).describe("Tools or products the notes mention. Empty when they mention none."),
   photosBefore: z.string().describe("What to photograph before starting, only if it helps prove the work. Otherwise empty."),
   photosAfter: z.string().describe("What to photograph when finished."),
-  call: z.string().describe("Who to call with questions, only if the notes name someone. Otherwise empty."),
 });
 
 const SYSTEM = `You write one-page work instructions for a commercial cleaning company. The reader is a busy crew member on a phone, often with English as a second language.
@@ -60,9 +58,8 @@ async function askForPage(system: string, content: string): Promise<TaskPage | n
 /** A draft for the office to check. Null when the AI did not answer. Never throws. */
 export async function draftTaskPage(input: { words: string; accountName: string; due: string }): Promise<TaskPage | null> {
   try {
-    const page = await askForPage(SYSTEM, JSON.stringify({ roughNotes: input.words, account: input.accountName, dueDate: input.due }));
-    // Who to call: the main office, unless the notes named someone.
-    return page ? { ...page, call: page.call || `Cleaning World: ${SUB_PACKET_OFFICE.phone}` } : null;
+    // Who to call is not the AI's: the page shows the manager who made the task.
+    return await askForPage(SYSTEM, JSON.stringify({ roughNotes: input.words, account: input.accountName, dueDate: input.due }));
   } catch (error) {
     console.error("[ai task page] draft:", error instanceof Error ? error.message : error);
     return null;

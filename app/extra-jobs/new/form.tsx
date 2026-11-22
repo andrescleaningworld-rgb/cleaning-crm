@@ -12,7 +12,7 @@
 // field can be changed, and the job's Sale is changed to match.
 
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { BigButton, CHEER, EmptyState, ErrorBox, Field, Screen, SelectField, SkeletonList, TextAreaField, showToast } from "@/app/ui";
 import { DraftNotice, useFormDraft } from "@/app/components/form-draft";
 import {
@@ -86,8 +86,18 @@ function AccountSearch({ accounts, disabled, onPick }: { accounts: AccountChoice
   );
 }
 
-export default function ExtraJobForm({ accountId: startAccountId = "", editId = "", from = "", returnTo = "" }: { accountId?: string; editId?: string; from?: string; /** Opened from an account page: Save goes back there (lib/returnTo.ts). */ returnTo?: string }) {
+/** This form inside another one (the CW Now to-do form): that form picks the account and presses Save. */
+export type EmbeddedExtraJob = {
+  accountName: string;
+  /** Set by this form. Saves the real job; null when it is not saved (the form says why). */
+  saveRef: MutableRefObject<(() => Promise<ExtraJob | null>) | null>;
+  onChange: (facts: { description: string; jobDate: string; inHouse: boolean }) => void;
+};
+
+export default function ExtraJobForm({ accountId: startAccountId = "", editId = "", from = "", returnTo = "", embedded }: { accountId?: string; editId?: string; from?: string; /** Opened from an account page: Save goes back there (lib/returnTo.ts). */ returnTo?: string; embedded?: EmbeddedExtraJob }) {
   const router = useRouter();
+  const embeddedName = embedded?.accountName ?? "";
+  const isEmbedded = Boolean(embedded);
   const [state, setState] = useState<State>("loading");
   const [choices, setChoices] = useState<FormChoices | null>(null);
   const [jobNumber, setJobNumber] = useState("");
@@ -117,7 +127,8 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
     editId ? `edit-extra-job:${editId}` : `new-extra-job:${startAccountId}`,
     { accountId, source, description, jobDate, price, subId, subPay, crewNames, soldBy, commissionType, recurringStartDate, recurringEndDate, woNumber, estimateNumber },
     {
-      ready: state === "ready",
+      // Inside the CW Now form nothing is kept: an old draft must never fill in a price by itself.
+      ready: state === "ready" && !isEmbedded,
       onRestore: (kept) => {
         setAccountId(kept.accountId);
         setSource(kept.source);
@@ -184,6 +195,11 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         setEstimateNumber(job.estimateNumber);
         setEstimateCount(job.estimates.length);
       } else {
+        // Inside the CW Now form the account comes from that form, even one not on this list.
+        if (isEmbedded) {
+          if (startAccountId && !loaded.accounts.some((option) => option.id === startAccountId)) loaded.accounts.unshift({ id: startAccountId, name: embeddedName, subId: "", manager: "", address: "", active: false });
+          setAccountId(startAccountId);
+        }
         // The person filling it in is usually the one who sold it.
         if (loaded.sellers.includes(loaded.me)) setSoldBy(loaded.me);
         // Coming from an account page: its usual sub is picked already.
@@ -194,7 +210,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       setState("ready");
     };
     load().catch(() => setState("failed"));
-  }, [startAccountId, editId]);
+  }, [startAccountId, editId, isEmbedded, embeddedName]);
 
   const account = choices?.accounts.find((option) => option.id === accountId) ?? null;
   const inHouse = subId === IN_HOUSE_CHOICE;
@@ -209,7 +225,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
     if (!inHouse && choices?.subs.some((option) => option.id === picked.subId)) setSubId(picked.subId);
   }
 
-  async function save() {
+  async function save(): Promise<ExtraJob | null> {
     const input = {
       accountId: account?.id ?? "",
       accountName: account?.name ?? "",
@@ -232,7 +248,10 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       recurringEndDate: recurring ? recurringEndDate : "",
     };
     const problem = checkNewExtraJob(input);
-    if (problem) return setError(problem);
+    if (problem) {
+      setError(problem);
+      return null;
+    }
     setError("");
     setSaving(true);
     try {
@@ -254,15 +273,36 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         }
       }
       if (notUploaded.length > 0) showToast(`Saved. The estimate did not upload (${notUploaded.join("; ")}). Add it on the job's page.`, "bad");
-      else showToast(body.emailed === false ? "Saved. The email to the office did not go out." : CHEER.logged, body.emailed === false ? "bad" : "good");
+      else if (!isEmbedded) showToast(body.emailed === false ? "Saved. The email to the office did not go out." : CHEER.logged, body.emailed === false ? "bad" : "good");
+      if (isEmbedded) {
+        setSaving(false);
+        return body.job;
+      }
       router.push(!editId && returnTo ? returnTo : `/extra-jobs/${body.job.id}`);
+      return body.job;
     } catch (err) {
       setError(err instanceof Error ? err.message : "That did not save. Try again.");
       setSaving(false);
+      return null;
     }
   }
 
-  return (
+  // Inside the CW Now form: that form's button saves, and it follows what is typed.
+  useEffect(() => {
+    if (embedded) embedded.saveRef.current = save;
+  });
+  const tellParent = embedded?.onChange;
+  useEffect(() => {
+    tellParent?.({ description, jobDate, inHouse });
+  }, [tellParent, description, jobDate, inHouse]);
+
+  if (isEmbedded) {
+    if (state === "loading") return <SkeletonList rows={3} />;
+    if (state !== "ready" || !choices) return <ErrorBox title="The extra job form did not load." onRetry={() => window.location.reload()} />;
+  }
+
+  const screen = (children: ReactNode) =>
+    isEmbedded ? <>{children}</> : (
     <Screen
       title={editId ? `Change extra job${jobNumber ? ` ${jobNumber}` : ""}` : "Extra job"}
       subtitle={editId ? "Its Sale is changed to match." : "Set it up here so it gets paid."}
@@ -275,6 +315,12 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         ) : undefined
       }
     >
+      {children}
+    </Screen>
+  );
+
+  return screen(
+    <>
       {state === "loading" ? (
         <SkeletonList rows={4} />
       ) : state === "off" ? (
@@ -295,10 +341,10 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         <ErrorBox title="The form did not load." onRetry={() => window.location.reload()} />
       ) : (
         <div className="ui-stack">
-          {editId ? null : <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>}
-          <DraftNotice draft={draft} />
+          {editId || isEmbedded ? null : <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>}
+          {isEmbedded ? null : <DraftNotice draft={draft} />}
 
-          {account ? (
+          {isEmbedded ? null : account ? (
             <div className={styles.picked}>
               <span className={styles.pickedText}>
                 <span className={styles.pickedLabel}>Account</span>
@@ -328,7 +374,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
 
           <div className={styles.two}>
             <Field label="Date" type="date" value={jobDate} disabled={saving} onChange={(event) => setJobDate(event.target.value)} />
-            <Field label="Customer price ($)" type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={price} disabled={saving} onChange={(event) => setPrice(event.target.value)} />
+            <Field label="Customer price ($)" hint={isEmbedded ? "Office only. The sub never sees it." : undefined} type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={price} disabled={saving} onChange={(event) => setPrice(event.target.value)} />
           </div>
 
           <div className={styles.two}>
@@ -352,7 +398,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
             {inHouse ? (
               <Field label="Who did it" hint="Crew member names. No sub pay for an in-house job." optional maxLength={200} autoComplete="off" value={crewNames} disabled={saving} onChange={(event) => setCrewNames(event.target.value)} />
             ) : (
-              <Field label="Sub pay ($)" type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={subPay} disabled={saving} onChange={(event) => setSubPay(event.target.value)} />
+              <Field label="Sub pay ($)" hint={isEmbedded ? "The sub sees this." : undefined} type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={subPay} disabled={saving} onChange={(event) => setSubPay(event.target.value)} />
             )}
           </div>
 
@@ -445,6 +491,6 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
           {error ? <ErrorBox title="Not saved yet." text={error} /> : null}
         </div>
       )}
-    </Screen>
+    </>
   );
 }

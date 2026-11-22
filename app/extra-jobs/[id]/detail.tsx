@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BigButton, CHEER, Card, EmptyState, ErrorBox, Screen, Sheet, SkeletonList, StatusPill, TextAreaField, friendlyDate, showToast } from "@/app/ui";
 import { ESTIMATE_BADGE, IN_HOUSE_LONG, commissionLabel, SOURCE_LABEL, STATUS_LABEL, dayLabel, money, type ExtraJob } from "@/lib/extraJobs";
 import AccountLink from "../../components/AccountLink";
+import SendToCwNow from "../../components/send-to-cw-now";
 import { ESTIMATE_ACCEPT, EstimateList, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
 
@@ -310,6 +311,13 @@ export default function ExtraJobDetail({ id }: { id: string }) {
                   </div>
                 </>
               )}
+            </Card>
+          ) : null}
+
+          {/* Sends this job to its sub's CW Now. Nothing shows for an in-house, done or cancelled job. */}
+          {job.status === "setup" && !job.inHouse ? (
+            <Card title="CW Now">
+              <SendToCwNow jobId={job.id} />
             </Card>
           ) : null}
 

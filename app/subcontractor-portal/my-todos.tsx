@@ -6,26 +6,21 @@
 // nothing at all while the switch is off.
 
 import { useEffect, useState } from "react";
-import { DUE_STYLE, DUE_WORDS, MY_TODO_WORDS, TASK_LINK_LABEL, isOpenTask, officeToday, taskDueState, taskDueText, type MyTodo } from "@/lib/cwNowTasks";
+import { DUE_STYLE, DUE_WORDS, MY_TODO_WORDS, isOpenTask, officeToday, taskDueState, type MyTodo } from "@/lib/cwNowTasks";
 import { pageFor } from "@/lib/taskPage";
+import { WELCOME_COLORS } from "@/lib/welcomePacket";
+import { TaskSheet } from "@/app/components/TaskPageView";
 import type { UiLang } from "@/app/ui/words";
 
 const titleOf = (task: MyTodo, lang: UiLang) => (task.pages ? pageFor(task.pages, lang).title : lang === "en" ? task.task : task.translations[lang] || task.task);
 
-function TaskRow({ task, lang, today }: { task: MyTodo; lang: UiLang; today: string }) {
+function TaskRow({ task, lang }: { task: MyTodo; lang: UiLang }) {
   const words = MY_TODO_WORDS[lang];
-  const state = taskDueState(task.dueDate, task.status, today);
-  const look = DUE_STYLE[state];
   return (
-    <li className="ui-stack" style={{ border: `3px solid ${look.borderColor}`, borderRadius: 16, padding: 12, background: "#fff", gap: 8 }} data-due-state={state}>
-      <div style={{ background: look.background, color: look.color, borderRadius: 10, padding: "8px 12px" }}>
-        <div style={{ fontSize: 15, fontWeight: 800 }}>{DUE_WORDS[lang][state]}</div>
-        <div style={{ fontSize: 24, fontWeight: 900, lineHeight: 1.15 }}>{taskDueText(task.dueDate, task.dueTime, lang)}</div>
-      </div>
-      <p className="ui-strong" style={{ margin: 0, fontSize: 19 }}>{task.accountName}</p>
-      {task.kind ? <p style={{ margin: 0, color: "#003b7a", fontWeight: 900 }}>{TASK_LINK_LABEL[lang][task.kind]}</p> : null}
-      {task.urgent && isOpenTask(task.status) ? <p style={{ margin: 0, color: "#b91c1c", fontWeight: 900 }}>⚠ {words.urgent}</p> : null}
-      <p style={{ margin: 0, fontSize: 17, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{titleOf(task, lang)}</p>
+    <li className="ui-stack" style={{ gap: 8 }}>
+      <TaskSheet compact accountName={task.accountName} location={task.location} dueDate={task.dueDate} dueTime={task.dueTime} status={task.status} urgent={task.urgent} lang={lang} kind={task.kind} contact={task.contact} youGetPaid={task.youGetPaid} photosRequired={task.photosRequired}>
+        {task.pages ? <h3 style={{ fontSize: 23, fontWeight: 900, margin: 0, color: WELCOME_COLORS.header }}>{pageFor(task.pages, lang).title}</h3> : <p style={{ margin: 0, fontSize: 18, fontWeight: 700, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{titleOf(task, lang)}</p>}
+      </TaskSheet>
       <div className="ui-actions-row">
         <a className="ui-btn ui-btn-main" href={`${task.href}?lang=${lang}`}>{words.open}</a>
         <a className="ui-btn ui-btn-second" href={`/subcontractor-portal/my-todos/print?id=${task.id}&lang=${lang}`} target="_blank" rel="noopener">{words.print}</a>
@@ -43,7 +38,7 @@ export default function MyTodos({ lang }: { lang: UiLang }) {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/subcontractor-portal/my-todos", { cache: "no-store" })
+    fetch("/api/subcontractor-portal/my-todos?full=1", { cache: "no-store" })
       .then(async (response) => {
         const body = (await response.json()) as { success?: boolean; on?: boolean; tasks?: MyTodo[] };
         if (!alive) return;
@@ -82,7 +77,7 @@ export default function MyTodos({ lang }: { lang: UiLang }) {
             <p className="ui-muted">{words.none}</p>
           ) : (
             <ul className="ui-list-plain ui-stack">
-              {openTasks.map((task) => <TaskRow key={task.id} task={task} lang={lang} today={today} />)}
+              {openTasks.map((task) => <TaskRow key={task.id} task={task} lang={lang} />)}
             </ul>
           )}
           {openTasks.length > 0 ? (
@@ -97,7 +92,7 @@ export default function MyTodos({ lang }: { lang: UiLang }) {
               ) : (
                 <>
                   <ul className="ui-list-plain ui-stack">
-                    {finished.map((task) => <TaskRow key={task.id} task={task} lang={lang} today={today} />)}
+                    {finished.map((task) => <TaskRow key={task.id} task={task} lang={lang} />)}
                   </ul>
                   <a className="ui-btn ui-btn-second" href={`/subcontractor-portal/my-todos/print?list=done&lang=${lang}`} target="_blank" rel="noopener">🖨 {words.printFinished}</a>
                 </>

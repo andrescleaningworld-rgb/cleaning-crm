@@ -21,6 +21,9 @@ const toPrint = (task: StaffTaskRow, lang: CrewLang): PrintTask => ({
   dueTime: task.dueTime,
   urgent: task.urgent,
   status: task.status,
+  kind: task.kind,
+  contact: task.contact,
+  photosRequired: task.photosRequired,
 });
 
 function Sheet() {

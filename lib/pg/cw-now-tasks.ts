@@ -30,6 +30,7 @@ import {
   type CwNowStatus,
   type MyTodo,
   type StaffTaskRow,
+  type TaskContact,
   type TaskLinkKind,
   type TaskListStatus,
   type PublicTask,
@@ -54,7 +55,8 @@ import { notifyReadyToReview } from "@/lib/complaintReviewNotice";
 import { addJobPhoto, finishExtraJob, getExtraJob, stampEmailed } from "@/lib/pg/extra-jobs";
 import { sendExtraJobDone } from "@/lib/extraJobEmail";
 import { translateTaskPage } from "@/lib/aiTaskPage";
-import { cleanTaskPage, officeOnlyLine, readTaskPages, type TaskPage, type TaskPages } from "@/lib/taskPage";
+import { cleanTaskPage, hasOfficeOnlyWords, officeOnlyLine, readTaskPages, type TaskPage, type TaskPages } from "@/lib/taskPage";
+import { SUB_PACKET_OFFICE } from "@/lib/subPacket";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
@@ -182,8 +184,11 @@ export async function assignedSubId(accountId: string): Promise<string> {
 
 export type NewTaskFile = { url: string; name: string; size: number; contentType: string };
 
-export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink; taskPage?: unknown }): Promise<number> {
+export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink; taskPage?: unknown; photosRequired?: boolean }): Promise<number> {
   const page = input.taskPage ? await checkedTaskPage(input.taskPage) : null;
+  // An extra job's task says exactly what the job says, for the job's day.
+  if (input.link?.jobDescription) input = { ...input, task: input.link.jobDescription, dueDate: input.link.jobDate ?? input.dueDate };
+  const pageData = { ...(page ? { en: page } : {}), ...(input.photosRequired ? { photosRequired: true } : {}) };
   const task = clean(input.task).slice(0, TASK_MAX);
   if (!task) throw new CwNowTaskError("Write the task.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new CwNowTaskError("Pick the due date.");
@@ -234,12 +239,13 @@ export async function createTask(input: { accountId: string; subId: string; task
         SELECT ${id}::bigint, 'office', f.url, f.name, f.size, f."contentType", ${input.by}
         FROM jsonb_to_recordset(${JSON.stringify(files)}::jsonb) AS f(url text, name text, size bigint, "contentType" text)`,
     sql`INSERT INTO cw_now_task_events (task_id, event, by_name) VALUES (${id}, 'created', ${input.by})`,
-    sql`INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
-        VALUES ('cwnow', ${paperId(id)}, ${shortTask(task)}, ${account.id}, ${accountName}, '', 'pinned', ${JSON.stringify(data)}::jsonb, ${input.by}, now(), '')`,
+    // An extra job already has its card in the Extra jobs square: no second card here.
+    ...(input.link?.extraJobId ? [] : [sql`INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
+        VALUES ('cwnow', ${paperId(id)}, ${shortTask(task)}, ${account.id}, ${accountName}, '', 'pinned', ${JSON.stringify(data)}::jsonb, ${input.by}, now(), '')`]),
     ...(input.link
       ? [sql`UPDATE cw_now_tasks SET extra_job_id = ${input.link.extraJobId ?? null}, complaint_row_id = ${input.link.complaintRowId ?? null}, complaint_mode = ${input.link.complaintMode ?? ""} WHERE id = ${id}`]
       : []),
-    ...(page ? [sql`UPDATE cw_now_tasks SET task_page = ${JSON.stringify({ en: page })}::jsonb WHERE id = ${id}`] : []),
+    ...(Object.keys(pageData).length > 0 ? [sql`UPDATE cw_now_tasks SET task_page = ${JSON.stringify(pageData)}::jsonb WHERE id = ${id}`] : []),
   ]);
   return id;
 }
@@ -256,7 +262,7 @@ export async function deliverNewTask(taskId: number, origin: string): Promise<vo
     const stored = readTaskPages(row.task_page);
     if (stored) {
       const pages = await translateTaskPage(stored.en);
-      await getSql()`UPDATE cw_now_tasks SET task_page = ${JSON.stringify(pages)}::jsonb WHERE id = ${taskId}`;
+      await getSql()`UPDATE cw_now_tasks SET task_page = ${JSON.stringify({ ...pages, ...(photosRequiredOf(row) ? { photosRequired: true } : {}) })}::jsonb WHERE id = ${taskId}`;
     }
     await addCalendarEvent(row);
     let reached = await textSub(row, "new", origin);
@@ -499,11 +505,13 @@ export async function publicTask(token: string): Promise<PublicTask | null> {
   if (!row) return null;
   const taskId = taskIdOf(row);
   const sql = getSql();
-  const [files, notes, location] = (await Promise.all([
+  const [files, notes, location, contact, pay] = (await Promise.all([
     sql`SELECT id, source, file_url, file_name, file_size, content_type, created_at FROM cw_now_task_files WHERE task_id = ${taskId} ORDER BY created_at, id`,
     sql`SELECT detail, at FROM cw_now_task_events WHERE task_id = ${taskId} AND event = 'note' ORDER BY at, id`,
     todoLocation(row.account_id, row.account_name),
-  ])) as [FileRow[], { detail: string; at: string | Date }[], string];
+    taskContact(row),
+    subPayFor([row]),
+  ])) as [FileRow[], { detail: string; at: string | Date }[], string, TaskContact, Map<number, number>];
   const translations = row.translations ?? {};
   return {
     accountName: row.account_name,
@@ -518,7 +526,10 @@ export async function publicTask(token: string): Promise<PublicTask | null> {
     dueColors: rolloutOn("MY_TODOS"),
     linkKind: linkKindOf(row),
     pages: pagesOf(row),
-    needsPhoto: Boolean(row.complaint_row_id) && !files.some((file) => file.source === "sub"),
+    needsPhoto: (Boolean(row.complaint_row_id) || photosRequiredOf(row)) && !files.some((file) => file.source === "sub"),
+    photosRequired: photosRequiredOf(row),
+    contact,
+    youGetPaid: pay.get(taskId) ?? null,
     canAddPhoto: privateStoreOn(),
     uploadFolder: taskSubFolder(taskId),
     files: files.filter((file) => file.source === "office").map((file) => ({ id: Number(file.id), name: clean(file.file_name) || "File", url: file.file_url, size: Number(file.file_size) || 0, contentType: clean(file.content_type) })),
@@ -584,7 +595,7 @@ export async function doneFromLink(token: string, name: string, origin: string):
   const row = await taskByToken(token);
   if (!row || !isOpenTask(row.status)) return null;
   const who = clean(name).slice(0, 80) || clean(row.sub_name) || "The sub";
-  if (await complaintNeedsPhoto(row)) throw new CwNowTaskError(NEEDS_PHOTO_ERROR);
+  if ((await complaintNeedsPhoto(row)) || (photosRequiredOf(row) && (await subPhotosOf(taskIdOf(row))).length === 0)) throw new CwNowTaskError(NEEDS_PHOTO_ERROR);
   if (!(await finishTask(row, who, `${who} (CW Now)`))) return null;
   const linked = await finishLinkedRecord(row, who, origin);
   return async () => {
@@ -628,10 +639,14 @@ export async function listMyTodos(subId: string, options: { withLocation?: boole
   )) as TaskRow[];
   const live = rows.filter((row) => !row.account_gone);
   const locations = options.withLocation ? await Promise.all(live.map((row) => todoLocation(row.account_id, row.account_name).catch(() => ""))) : [];
+  const [contacts, pay] = await Promise.all([options.withLocation ? Promise.all(live.map(taskContact)) : Promise.resolve([] as TaskContact[]), subPayFor(live)]);
   return live.map((row, index) => {
     const translations = row.translations ?? {};
     return {
       id: taskIdOf(row),
+      contact: contacts[index] ?? null,
+      youGetPaid: pay.get(taskIdOf(row)) ?? null,
+      photosRequired: photosRequiredOf(row),
       accountName: row.account_name,
       location: locations[index] ?? "",
       task: row.task,
@@ -646,6 +661,45 @@ export async function listMyTodos(subId: string, options: { withLocation?: boole
       pages: pagesOf(row),
     };
   });
+}
+
+/* ---------- who to call, and what an extra job pays this sub ---------- */
+
+const firstName = (name: string) => clean(name).split(/\s+/)[0] ?? "";
+const photosRequiredOf = (row: Pick<TaskRow, "task_page">) => (row.task_page as { photosRequired?: unknown } | null | undefined)?.photosRequired === true;
+
+/** The manager who made the task, else the account's manager, else the office. */
+async function taskContact(row: Pick<TaskRow, "created_by_staff_id" | "account_id">): Promise<TaskContact> {
+  try {
+    const maker = clean(row.created_by_staff_id) ? await staffContact(row.created_by_staff_id) : null;
+    if (maker?.phone) return { name: firstName(maker.name), phone: maker.phone };
+    const rows = (await getSql()`
+      SELECT m.name, m.phone FROM accounts a
+      JOIN managers m ON m.id = a.manager_id OR (a.manager_id IS NULL AND lower(btrim(m.name)) = lower(btrim(a.manager_raw)))
+      WHERE a.id = ${row.account_id} AND btrim(m.phone) <> ''
+      ORDER BY (m.id = a.manager_id) DESC NULLS LAST LIMIT 1
+    `) as { name: string; phone: string }[];
+    if (rows[0]) return { name: firstName(rows[0].name), phone: clean(rows[0].phone) };
+  } catch (error) {
+    console.error("[cw-now task] contact:", error instanceof Error ? error.message : error);
+  }
+  return { name: "Cleaning World", phone: SUB_PACKET_OFFICE.phone };
+}
+
+/**
+ * What each extra-job task pays its own sub. It reads only sub_pay, so a
+ * customer price can never come along, and only when the job is that sub's.
+ */
+async function subPayFor(rows: Pick<TaskRow, "id" | "extra_job_id" | "sub_id">[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const linked = rows.filter((row) => row.extra_job_id);
+  if (linked.length === 0) return out;
+  const jobs = (await getSql()`SELECT id, sub_id, sub_pay FROM extra_jobs WHERE id = ANY(${linked.map((row) => Number(row.extra_job_id))}::bigint[])`) as { id: string | number; sub_id: string; sub_pay: string | number }[];
+  for (const row of linked) {
+    const job = jobs.find((entry) => Number(entry.id) === Number(row.extra_job_id));
+    if (job && clean(job.sub_id) === clean(row.sub_id)) out.set(Number(row.id), Number(job.sub_pay) || 0);
+  }
+  return out;
 }
 
 /* ---------- the AI task page (migration 088, FEATURE_AI_TASK_PAGE) ---------- */
@@ -665,7 +719,7 @@ async function checkedTaskPage(value: unknown): Promise<TaskPage> {
 
 /* ---------- extra jobs and complaints (migration 088, FEATURE_CW_NOW_LINKS) ---------- */
 
-export type TaskLink = { extraJobId?: number; complaintRowId?: number; complaintMode?: "move" | "duplicate" };
+export type TaskLink = { extraJobId?: number; complaintRowId?: number; complaintMode?: "move" | "duplicate"; jobDescription?: string; jobDate?: string };
 export type SetUpJob = { id: string; jobNumber: string; description: string; jobDate: string; inHouse: boolean; subId: string };
 
 const linkKindOf = (row: Pick<TaskRow, "extra_job_id" | "complaint_row_id">): TaskLinkKind => (row.extra_job_id ? "extra" : row.complaint_row_id ? "complaint" : "");
@@ -700,10 +754,55 @@ export async function extraJobLink(jobId: string, accountId: string, subId: stri
   const job = (await setUpJobsFor(accountId)).find((entry) => entry.id === jobId);
   if (!job) throw new CwNowTaskError("Pick an extra job on Set up for this account.");
   if (job.inHouse) throw new CwNowTaskError("This job is In-house, so it does not go to a sub.");
-  if (job.subId && job.subId !== subId) throw new CwNowTaskError("This extra job is set up for another sub. Pick that sub, or change the job first.");
+  // The pay report goes by the job's sub, so the job must name the sub who does it.
+  if (!job.subId) throw new CwNowTaskError("This extra job has no sub. Pick the sub on its page first.");
+  if (job.subId !== subId) throw new CwNowTaskError("This extra job is set up for another sub. Pick that sub, or change the job first.");
   const taken = (await getSql()`SELECT 1 FROM cw_now_tasks WHERE extra_job_id = ${Number(jobId)} AND status <> 'cancelled' LIMIT 1`) as unknown[];
   if (taken.length > 0) throw new CwNowTaskError("This extra job already has a CW Now task.");
-  return { extraJobId: Number(jobId) };
+  // The sub reads the job's words: a price typed there would reach them.
+  if (hasOfficeOnlyWords(job.description)) throw new CwNowTaskError("Take the price or office words out of \"What is the job?\". The sub reads it.");
+  return { extraJobId: Number(jobId), jobDescription: job.description, jobDate: job.jobDate };
+}
+
+/** What "Send to team's CW Now" on an extra job needs. Never its price or the sub's pay. Null when there is no such job. */
+export async function jobForTask(jobId: string) {
+  if (!/^\d+$/.test(jobId)) return null;
+  const job = await getExtraJob(jobId);
+  if (!job) return null;
+  const open = (await getSql()`SELECT id, sub_name FROM cw_now_tasks WHERE extra_job_id = ${Number(jobId)} AND status <> 'cancelled' ORDER BY id DESC LIMIT 1`) as { id: number; sub_name: string }[];
+  return {
+    jobNumber: job.jobNumber,
+    accountName: job.accountName,
+    description: job.description,
+    jobDate: job.jobDate,
+    subId: clean(job.subId),
+    subName: clean(job.subName),
+    inHouse: job.inHouse,
+    closed: job.status !== "setup",
+    openTask: open[0] ? { id: Number(open[0].id), subName: clean(open[0].sub_name) } : null,
+  };
+}
+
+/** An existing extra job goes to its own sub's CW Now: a task linked to it, never a second job. */
+export async function sendJobToCwNow(input: { jobId: string; dueTime: string; urgent: boolean; photosRequired: boolean; by: string; byStaffId: string }): Promise<number> {
+  if (!(await cwNowLinksOn())) throw new CwNowTaskError("This is not turned on here yet.");
+  const job = /^\d+$/.test(input.jobId) ? await getExtraJob(input.jobId) : null;
+  if (!job) throw new CwNowTaskError("That extra job was not found.");
+  if (job.status !== "setup") throw new CwNowTaskError("This extra job is already done or cancelled.");
+  const link = await extraJobLink(job.id, job.accountId, clean(job.subId));
+  return createTask({
+    accountId: job.accountId,
+    subId: clean(job.subId),
+    task: job.description,
+    dueDate: job.jobDate,
+    dueTime: input.dueTime,
+    urgent: input.urgent,
+    files: [],
+    by: input.by,
+    byStaffId: input.byStaffId,
+    link,
+    photosRequired: input.photosRequired,
+  });
 }
 
 type ComplaintFacts = { id: number; key: string; sheet_row: number; status: string; account_ref: string | null; account_name: string; issue: string };
@@ -902,10 +1001,13 @@ export async function listStaffTasks(filter: { id?: number; subId?: string; acco
   const rows = (await getSql().query(`${SELECT_TASK} WHERE ${where.join(" AND ") || "true"} ORDER BY t.due_date ASC, t.due_time ASC, t.id ASC LIMIT 500`, params)) as TaskRow[];
   const live = rows.filter((row) => !row.account_gone);
   const locations = filter.withLocation ? await Promise.all(live.map((row) => todoLocation(row.account_id, row.account_name).catch(() => ""))) : [];
+  const contacts = filter.withLocation ? await Promise.all(live.map(taskContact)) : [];
   return live.map((row, index) => {
     const translations = row.translations ?? {};
     return {
       id: taskIdOf(row),
+      contact: contacts[index] ?? null,
+      photosRequired: photosRequiredOf(row),
       accountId: row.account_id,
       accountName: row.account_name,
       location: locations[index] ?? "",

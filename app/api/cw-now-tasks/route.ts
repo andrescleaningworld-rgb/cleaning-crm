@@ -22,10 +22,11 @@ import {
   cwNowTasksReady,
   deliverNewTask,
   extraJobLink,
+  jobForTask,
   listStaffTasks,
   listTaskSubs,
   sendComplaintToCwNow,
-  setUpJobsFor,
+  sendJobToCwNow,
   shareTask,
   staffFinishTask,
   staffTask,
@@ -44,10 +45,16 @@ export async function GET(request: NextRequest) {
     if (params.get("view") === "form") {
       const accountId = clean(params.get("accountId"));
       if (accountId) {
-        const [subId, extraJobs] = await Promise.all([assignedSubId(accountId), (await cwNowLinksOn()) ? setUpJobsFor(accountId) : Promise.resolve([])]);
-        return NextResponse.json({ success: true, ready: true, assignedSubId: subId, extraJobs }, noStore);
+        return NextResponse.json({ success: true, ready: true, assignedSubId: await assignedSubId(accountId) }, noStore);
       }
       return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn(), cwLinksOn: await cwNowLinksOn(), aiPageOn: await aiTaskPageOn() }, noStore);
+    }
+    // "Send to team's CW Now" on an extra job: what its form needs.
+    if (params.get("view") === "job") {
+      if (!(await cwNowLinksOn())) return NextResponse.json({ success: true, ready: true, on: false }, noStore);
+      const facts = await jobForTask(clean(params.get("id")));
+      if (!facts) return refuse("That extra job was not found.", 404);
+      return NextResponse.json({ success: true, ready: true, on: true, ...facts }, noStore);
     }
     // "Send to team's CW Now" on a complaint: what its form needs.
     if (params.get("view") === "complaint") {
@@ -110,6 +117,7 @@ export async function POST(request: NextRequest) {
         byStaffId,
         link: body.extraJobId ? await extraJobLink(clean(body.extraJobId), clean(body.accountId), clean(body.subId)) : undefined,
         taskPage: body.taskPage,
+        photosRequired: body.photosRequired === true,
       });
       after(() => deliverNewTask(id, origin));
       return NextResponse.json({ success: true, id }, noStore);
@@ -122,6 +130,12 @@ export async function POST(request: NextRequest) {
       if (!words) return refuse("Write a few words first.");
       const page = await draftTaskPage({ words, accountName: clean(body.accountName), due: [clean(body.dueDate), clean(body.dueTime)].filter(Boolean).join(" ") });
       return page ? NextResponse.json({ success: true, page }, noStore) : refuse("The AI did not answer. Try again, or send your own words.", 502);
+    }
+
+    if (action === "fromJob") {
+      const id = await sendJobToCwNow({ jobId: clean(body.jobId), dueTime: clean(body.dueTime), urgent: body.urgent === true, photosRequired: body.photosRequired === true, by, byStaffId });
+      after(() => deliverNewTask(id, origin));
+      return NextResponse.json({ success: true, id }, noStore);
     }
 
     if (action === "fromComplaint") {

@@ -497,9 +497,11 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 Done ✓
               </BigButton>
             ) : null}
+            {/* An extra job not sent yet. Once sent, its CW Now card shows below instead. */}
+            {isExtraJob(open) && !open.cwNow?.taskId ? <SendToCwNow key={open.itemId} jobId={open.itemId.slice("job-".length)} onSent={() => void load(true)} /> : null}
 
             {/* A CW Now to-do: Sent → Seen → Done, Share, what the sub sent, Mark done / Cancel. */}
-            {open.kind === "cwnow" && open.cwNow?.taskId ? <CwNowTaskCard key={open.itemId} taskId={open.cwNow.taskId} onChanged={() => void load()} onClosed={() => setOpenKey("")} /> : null}
+            {open.cwNow?.taskId ? <CwNowTaskCard key={open.itemId} taskId={open.cwNow.taskId} onChanged={() => void load()} onClosed={() => setOpenKey("")} /> : null}
 
             {/* The status check: one tap, an optional note, and the history. */}
             {data.statusOn ? (

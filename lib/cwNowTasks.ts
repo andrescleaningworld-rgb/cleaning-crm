@@ -32,9 +32,18 @@ export const TASK_LINK_LABEL: Record<CrewLang, Record<Exclude<TaskLinkKind, "">,
 };
 export const NEEDS_PHOTO_ERROR = "needs_photo";
 export const NEEDS_PHOTO_WORDS: Record<CrewLang, string> = {
-  en: "Add a photo of the fixed problem first.",
-  es: "Primero agrega una foto del problema arreglado.",
-  pt: "Primeiro adicione uma foto do problema resolvido.",
+  en: "Add a photo of the finished work first.",
+  es: "Primero agrega una foto del trabajo terminado.",
+  pt: "Primeiro adicione uma foto do trabalho pronto.",
+};
+
+/** Who the sub calls: the manager who made the task, else the account's manager, else the office. */
+export type TaskContact = { name: string; phone: string };
+
+export const TASK_SHEET_WORDS: Record<CrewLang, { task: string; urgent: string; youGetPaid: string; photosRequired: string }> = {
+  en: { task: "Task", urgent: "URGENT", youGetPaid: "You get paid", photosRequired: "Photos required before you tap Done" },
+  es: { task: "Tarea", urgent: "URGENTE", youGetPaid: "Te pagan", photosRequired: "Fotos obligatorias antes de tocar Listo" },
+  pt: { task: "Tarefa", urgent: "URGENTE", youGetPaid: "Você recebe", photosRequired: "Fotos obrigatórias antes de tocar em Feito" },
 };
 
 /** "Sent ✓ · Seen · Done": how far it got, for the pin. */
@@ -241,8 +250,12 @@ export type PublicTask = {
   linkKind?: TaskLinkKind;
   /** FEATURE_AI_TASK_PAGE: the page the office checked. */
   pages?: TaskPages | null;
-  /** A complaint: Done needs an after photo, and there is none yet. */
+  /** Done needs a photo (a complaint, or photos required), and there is none yet. */
   needsPhoto?: boolean;
+  photosRequired?: boolean;
+  contact?: TaskContact | null;
+  /** An extra job: what this sub is paid. Never the customer price. */
+  youGetPaid?: number | null;
   /** Photos can be added: the private file store is connected. */
   canAddPhoto: boolean;
   uploadFolder: string;
@@ -303,6 +316,10 @@ export type MyTodo = {
   href: string;
   kind?: TaskLinkKind;
   pages?: TaskPages | null;
+  photosRequired?: boolean;
+  contact?: TaskContact | null;
+  /** An extra job: what this sub is paid. On the screen only, never on a printout. */
+  youGetPaid?: number | null;
 };
 
 export const MY_TODO_WORDS: Record<CrewLang, {
@@ -338,6 +355,8 @@ export type StaffTaskRow = {
   doneAt: string;
   kind?: TaskLinkKind;
   pages?: TaskPages | null;
+  photosRequired?: boolean;
+  contact?: TaskContact | null;
 };
 
 /** What the office's card on the board gets. */

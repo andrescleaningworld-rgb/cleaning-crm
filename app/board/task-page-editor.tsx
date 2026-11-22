@@ -28,7 +28,6 @@ export default function TaskPageEditor({ page, onChange, onRemove }: { page: Tas
           <TextAreaField label="Bring or use (one per line)" rows={3} value={bringText} onChange={(event) => { setBringText(event.target.value); set({ bring: toLines(event.target.value, TASK_PAGE_MAX_BRING) }); }} />
           <Field label="Photo before (optional)" maxLength={160} value={page.photosBefore} onChange={(event) => set({ photosBefore: event.target.value })} />
           <Field label="Photo after (optional)" maxLength={160} value={page.photosAfter} onChange={(event) => set({ photosAfter: event.target.value })} />
-          <Field label="Who to call (optional)" maxLength={160} value={page.call} onChange={(event) => set({ call: event.target.value })} />
         </>
       ) : (
         <TaskPageView page={page} lang="en" />

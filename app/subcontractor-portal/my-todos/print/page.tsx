@@ -13,7 +13,7 @@ import { pageFor } from "@/lib/taskPage";
 import TaskPageView from "@/app/components/TaskPageView";
 
 function toPrint(task: MyTodo, lang: CrewLang): PrintTask {
-  return { id: task.id, accountName: task.accountName, location: task.location, task: lang === "en" ? task.task : task.translations[lang] || task.task, dueDate: task.dueDate, dueTime: task.dueTime, urgent: task.urgent, status: task.status };
+  return { id: task.id, accountName: task.accountName, location: task.location, task: lang === "en" ? task.task : task.translations[lang] || task.task, dueDate: task.dueDate, dueTime: task.dueTime, urgent: task.urgent, status: task.status, kind: task.kind, contact: task.contact, photosRequired: task.photosRequired };
 }
 
 function Sheet() {

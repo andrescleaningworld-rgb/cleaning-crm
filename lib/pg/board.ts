@@ -305,7 +305,11 @@ async function syncExtraJobs(): Promise<void> {
   const inHouse = await inHouseReady();
   const sub = inHouse ? `CASE WHEN j.performed_by = 'in_house' THEN 'In-house' ELSE j.sub_name END` : `j.sub_name`;
   const inHouseFlag = inHouse ? `, 'inHouse', CASE WHEN j.performed_by = 'in_house' THEN '1' ELSE '' END` : "";
-  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', ${sub}, 'estimate', ${estimate}${inHouseFlag})`;
+  // The job's CW Now task (migration 088): its id and Sent / Seen / Done, for the job's own card.
+  const linked = ((await getSql()`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'cw_now_tasks' AND column_name = 'extra_job_id' LIMIT 1`) as unknown[]).length > 0;
+  const taskOf = (column: string) => `COALESCE((SELECT t.${column}::text FROM cw_now_tasks t WHERE t.extra_job_id = j.id AND t.status <> 'cancelled' ORDER BY t.id DESC LIMIT 1), '')`;
+  const taskFlag = linked ? `, 'taskId', ${taskOf("id")}, 'taskStatus', ${taskOf("status")}` : "";
+  const facts = `jsonb_build_object('notes', left(j.description, 300), 'date', j.job_date::text, 'jobId', j.id::text, 'jobNumber', j.job_number, 'sub', ${sub}, 'estimate', ${estimate}${inHouseFlag}${taskFlag})`;
   await sql.query(`
     INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, step_since, data, created_by, board_pinned_at)
     SELECT 'extra', 'job-' || j.id::text, j.account_name, j.account_id, j.account_name, j.manager, 'setup', j.created_at, ${facts}, j.created_by, j.created_at
@@ -478,8 +482,9 @@ function paperDetail(row: PaperRow): string {
 
 /** A CW Now to-do's paper: the few words its pin shows (lib/pg/cw-now-tasks.ts keeps them in step). */
 function paperCwNow(row: PaperRow): Paper["cwNow"] {
-  if (row.kind !== "cwnow") return null;
   const data = row.data ?? {};
+  // An extra job's own card shows the CW Now status of its task.
+  if (row.kind !== "cwnow" && !(row.kind === "extra" && clean(data.taskId))) return null;
   const status = clean(data.taskStatus);
   return {
     taskId: Number(clean(data.taskId)) || 0,
@@ -487,7 +492,7 @@ function paperCwNow(row: PaperRow): Paper["cwNow"] {
     urgent: clean(data.urgent) === "1",
     noPhone: clean(data.noPhone) === "1",
     hasNote: clean(data.hasNote) === "1",
-    linkKind: clean(data.linkKind) === "extra" ? "extra" : clean(data.linkKind) === "complaint" ? "complaint" : "",
+    linkKind: row.kind === "cwnow" && clean(data.linkKind) === "extra" ? "extra" : clean(data.linkKind) === "complaint" ? "complaint" : "",
   };
 }
 
